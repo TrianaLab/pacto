@@ -295,6 +295,12 @@
   </div>
 {/if}
 
+{#if capabilities?.auth?.hidden && !route.view.startsWith('delivery-')}
+  <p class="permissions-note" role="status" data-testid="hidden-by-permissions">
+    Some services are hidden because your Kubernetes permissions do not let you read their namespace.
+  </p>
+{/if}
+
 {#snippet migrating()}
   {#if capError}
     <div class="product-page" role="alert" data-testid="capabilities-error">
@@ -499,4 +505,9 @@
   }
   .banner-retry:hover { background: color-mix(in srgb, var(--c-err) 12%, transparent); }
   .app-loading { color: var(--c-text-3); padding: var(--sp-4) 0; }
+  .permissions-note {
+    margin: 0; padding: var(--sp-2) var(--sp-3); text-align: center;
+    font-size: var(--text-sm); color: var(--c-text-2);
+    border-bottom: 1px solid var(--c-border);
+  }
 </style>

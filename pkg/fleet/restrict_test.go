@@ -133,6 +133,9 @@ func TestRestrict(t *testing.T) {
 			t.Errorf("focus node = %+v", n)
 		}
 	}
+	if d, err := r.EntityDetail(KindService, string(web)); err != nil || d.Service.HiddenDependencies != 1 || d.Service.HiddenDependents != 1 {
+		t.Errorf("web detail = %+v, %v", d, err)
+	}
 	if nb.UnresolvedDependencies.Total != 0 {
 		t.Errorf("a hidden dependency is not an unresolved one: %+v", nb.UnresolvedDependencies)
 	}

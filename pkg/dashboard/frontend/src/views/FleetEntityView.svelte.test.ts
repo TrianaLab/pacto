@@ -381,6 +381,29 @@ describe('FleetEntityView — rich service page (D)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('counts the neighbours Kubernetes permissions hide, without naming them', async () => {
+    const sd = serviceDetail();
+    sd.service.dependencies = { total: 0, count: 0, truncated: false, items: [] };
+    sd.service.dependents = { total: 1, count: 1, truncated: false, items: [ref('service', 'domain-a/web')] };
+    sd.service.hiddenDependencies = 2;
+    sd.service.hiddenDependents = 1;
+    detailFn.mockResolvedValue(sd);
+    const { target, component } = await mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.textContent).toContain('Expected dependencies'));
+    for (const d of Array.from(target.querySelectorAll('details'))) {
+      if (/Expected dependencies|Dependents/.test(d.querySelector('summary')?.textContent ?? '')) {
+        d.open = true;
+        d.dispatchEvent(new Event('toggle'));
+      }
+    }
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="hidden-dependents"]')).toBeTruthy());
+    const text = target.textContent || '';
+    expect(text).toContain('2 services hidden by your Kubernetes permissions.');
+    expect(text).not.toContain('No declared dependencies.');
+    expect(target.querySelector('[data-testid="hidden-dependents"]')?.textContent).toBe('Plus 1 service hidden by your Kubernetes permissions.');
+    unmount(component); document.body.removeChild(target);
+  });
+
   // 'compare' and 'impact' are two stages of ONE question ("what changed, and what does
   // that change affect?"), so they resolve to the same workspace and are offered ONCE.
   // Two buttons opening the identical screen was the legacy seam this replaces.
