@@ -9,7 +9,7 @@
 #     -f pacto-operator/values-quickstart.yaml
 #
 # This profile is for evaluation. The registry speaks plain HTTP without
-# authentication, Dex speaks plain HTTP and keeps sessions in memory, and the
+# authentication. Dex speaks plain HTTP and keeps sessions in memory. The
 # recorder's signing key sits in a Secret the operator can read. For
 # production, use your own registry, identity provider and KMS or keyless
 # signing:
