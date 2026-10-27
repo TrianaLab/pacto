@@ -837,6 +837,11 @@ export interface components {
             blockers: components["schemas"]["AutonomyBlocker"][] | null;
             /** @description Which blockers this page holds, grouped by kind */
             blockersPage: components["schemas"]["Page"];
+            /**
+             * Format: int64
+             * @description Stages, over every page, Pacto proposes a next level for
+             */
+            canMoveUp: number;
             /** @enum {string} */
             completeness: "complete" | "partial";
             contracted?: components["schemas"]["ContractShare"];
@@ -1539,6 +1544,8 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
+            /** @description Failed, frozen and waiting Stages over every page, after q, environment and tier */
+            counts: components["schemas"]["StageCounts"];
             /** @description Every environment of the services that match q, over every page, ordered the way changes travel: dev, test, prod, then the rest */
             environmentNames: string[] | null;
             /** @description dev, test or prod for each environment whose name says which; an environment it cannot tell is left out */
@@ -2384,10 +2391,21 @@ export interface components {
              */
             version?: string;
         };
+        HistoryCounts: {
+            /** Format: int64 */
+            frozen: number;
+            /**
+             * Format: int64
+             * @description Stages with a change waiting for a person
+             */
+            waiting: number;
+        };
         HistoryOutputBody: {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
+            /** @description Without a stage: Stages that wait for a person and frozen Stages, over every page */
+            counts?: components["schemas"]["HistoryCounts"];
             histories: components["schemas"]["StageHistory"][] | null;
             /** @description Which Stages this page holds. With a stage, offset, limit and q page its changes instead (see entriesPage) */
             page: components["schemas"]["Page"];
@@ -2522,6 +2540,11 @@ export interface components {
             /** @description Held operations whose question names one of the caller's teams; for break-glass also those that name no team */
             held: components["schemas"]["InboxItem"][] | null;
             heldPage: components["schemas"]["Page"];
+            /**
+             * Format: int64
+             * @description How many held changes, over every page, more than one team may answer
+             */
+            heldShared: number;
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
@@ -3427,6 +3450,20 @@ export interface components {
             enabled: boolean;
             reason?: string;
             type: string;
+        };
+        StageCounts: {
+            /**
+             * Format: int64
+             * @description Stages whose running digest failed
+             */
+            failed: number;
+            /** Format: int64 */
+            frozen: number;
+            /**
+             * Format: int64
+             * @description Stages with a change waiting for a person
+             */
+            waiting: number;
         };
         StageHistory: {
             asOf: string;
