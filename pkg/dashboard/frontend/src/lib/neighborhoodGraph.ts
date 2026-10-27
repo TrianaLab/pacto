@@ -7,6 +7,7 @@
  */
 import type { GraphData, GraphNode, GraphEdge } from './graph.ts';
 import type { ProductNeighborhood } from './api.ts';
+import { formatCount } from './format.ts';
 
 // The adapter's INPUT is DERIVED from the generated ProductNeighborhood (the single wire
 // truth), never a hand-mirrored partial: it reads only a neighborhood's nodes + edges, so
@@ -259,7 +260,7 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
     const owner = ownerName.get(id) ?? ownerOf(ms[0]);
     groups.push({ id, owner, side: s, count: ms.length });
     groupNodes.push({
-      id, serviceName: owner, version: `${ms.length} ${ms.length === 1 ? 'entity' : 'entities'}`, status: 'group', kind: 'service',
+      id, serviceName: owner, version: `${formatCount(ms.length)} ${ms.length === 1 ? 'entity' : 'entities'}`, status: 'group', kind: 'service',
       owner, depth, group: ms.length, side: sign(s), edges: [], ...(depth <= 1 ? { parent: LANE_PREFIX + s } : {}),
     });
   }
@@ -314,7 +315,7 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
       targetId: g.side === -1 ? g.id : inner,
       type: a.runs ? 'runs' : 'dependency',
       ...(a.worst ? { edgeState: a.worst } : {}),
-      label: a.worst ? `${STATE_WORDS[a.worst]} (${a.worstCount})` : `${a.count} ${a.count === 1 ? 'link' : 'links'}`,
+      label: a.worst ? `${STATE_WORDS[a.worst]} (${formatCount(a.worstCount)})` : `${formatCount(a.count)} ${a.count === 1 ? 'link' : 'links'}`,
     };
     // Depends-on: the lane points out at the group. Used-by: the group points in.
     if (g.side === -1) (inner === focus.id ? byId.get(focus.id)! : lanes.find((l) => l.id === inner)!).edges!.push(edge);

@@ -599,7 +599,7 @@ export function aggregateGraphByOwner(
       id: owner,
       serviceName: owner,
       status: worstStatus(a.statuses),
-      version: `${a.count} service${a.count !== 1 ? 's' : ''}`,
+      version: `${formatCount(a.count)} service${a.count !== 1 ? 's' : ''}`,
       edges: [...(targets.get(owner) || [])].map((t) => ({ targetId: t, type: 'dependency', required: true })),
     })),
   };

@@ -67,7 +67,7 @@
   <DeliveryNav current="delivery-publish" />
 
   <section class="pv-refused" aria-labelledby="pv-refused" data-testid="refused-publishes">
-    <h2 id="pv-refused" class="t-section-title">Recently refused{#if refused?.total > (refused?.refusals ?? []).length}{' '}<span class="t-meta" data-testid="refused-count">(the latest {refused.refusals.length} of {formatCount(refused.total)})</span>{/if}</h2>
+    <h2 id="pv-refused" class="t-section-title">Recently refused{#if refused?.total > (refused?.refusals ?? []).length}{' '}<span class="t-meta" data-testid="refused-count">(the latest {formatCount(refused.refusals.length)} of {formatCount(refused.total)})</span>{/if}</h2>
     {#if !refused && refusalsLoader.loading}
       <p class="t-body-2" role="status">Reading refused publishes…</p>
     {:else if !refused && refusalsLoader.error}

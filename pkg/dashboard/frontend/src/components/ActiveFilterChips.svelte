@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
   // Renders the active filters/focus as removable chips so filter state is visible
@@ -19,7 +20,7 @@
       </span>
     {/each}
     {#if onClear && chips.length > 1}
-      <button type="button" class="chip-clear" onclick={onClear}>Clear all ({chips.length})</button>
+      <button type="button" class="chip-clear" onclick={onClear}>Clear all ({formatCount(chips.length)})</button>
     {/if}
   </div>
 {/if}

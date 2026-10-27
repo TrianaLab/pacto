@@ -117,7 +117,7 @@ export function renderCategoryStackedBars(
       d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
       const cat = d.data as CategoryBarData;
       const total = cat.done + cat.partial + cat.notDone + cat.deferred;
-      const content = `${cat.category} — done ${cat.done} · partial ${cat.partial} · not-done ${cat.notDone} · deferred ${cat.deferred} · total: ${total} checks`;
+      const content = `${cat.category} — done ${formatCount(cat.done)} · partial ${formatCount(cat.partial)} · not-done ${formatCount(cat.notDone)} · deferred ${formatCount(cat.deferred)} · total: ${formatCount(total)} checks`;
       tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
     })
     .on('mousemove', function (event) {
@@ -785,7 +785,7 @@ export function renderVersionTimeline(
       const dateStr = (!d.at || isNaN(d.at)) ? '—' : new Date(d.at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
       const classStr = d.classification ? d.classification.replace(/_/g, ' ').toLowerCase() : '—';
       const content = (d.count ?? 1) > 1
-        ? `${d.count} versions in the week of ${dateStr}, up to ${d.version} · worst: ${classStr}`
+        ? `${formatCount(d.count ?? 1)} versions in the week of ${dateStr}, up to ${d.version} · worst: ${classStr}`
         : `${d.version} · ${dateStr} · ${classStr}`;
       tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
     })

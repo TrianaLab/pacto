@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../../lib/format.ts';
   import {
     linkStateLabel, linkStateTone, retrievabilityLabel, retrievabilityTone,
   } from '../../lib/entityLabels.ts';
@@ -145,7 +146,7 @@
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
       </div>
       <p class="te-note t-body-2">Reported by the source observing this target — not the revision's declared gate.</p>
-      <p class="te-rr-line t-body">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.expired ? ' · expired' : ''}</p>
+      <p class="te-rr-line t-body">Score {r.score} / {r.minScore} required · {formatCount(r.doneCount)} done · {formatCount(r.partialCount)} partial · {formatCount(r.notDoneCount)} not done{r.expired ? ' · expired' : ''}</p>
     </section>
   {/if}
 

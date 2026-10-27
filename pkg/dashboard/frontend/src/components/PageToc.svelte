@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   // "On this page": ONE navigator, shared by every long product page.
   //
   // Entries are DISCOVERED from the rendered DOM -- every element carrying an id and a
@@ -162,7 +163,7 @@
       <summary class="toc-summary" onclick={() => { touched = true; }}>
         <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
         <span class="toc-title t-label">{label}</span>
-        <span class="toc-count t-meta">{entries.length}</span>
+        <span class="toc-count t-meta">{formatCount(entries.length)}</span>
       </summary>
       <!-- Buttons, not links. An href="#section-id" would introduce a SECOND meaning for
            the URL fragment in a hash-routed application: clicking one would leave the

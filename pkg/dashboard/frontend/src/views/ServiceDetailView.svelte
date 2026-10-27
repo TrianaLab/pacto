@@ -23,7 +23,7 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
-  import { complianceClass, classificationClass, ownerIsStructured, referencedDocPaths } from '../lib/format.ts';
+  import { complianceClass, classificationClass, ownerIsStructured, referencedDocPaths, formatCount } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
   import ShowAll from '../components/ShowAll.svelte';
   import { cap } from '../lib/cap.svelte.ts';
@@ -479,7 +479,7 @@
     </section>
   {:else if versions?.length > 0}
     <section class="section" id="section-versions">
-      <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
+      <div class="section-title">Version History <span class="tab-count">{formatCount(versions.length)}</span></div>
       <VersionTimeline data={versionTimelineData(versions)} onSelect={(v) => location.hash = serviceVersionUrl(name, v)} />
       <div class="table-wrap">
         <table class="data-table version-history">

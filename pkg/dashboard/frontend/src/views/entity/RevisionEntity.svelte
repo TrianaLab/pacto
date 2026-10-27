@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../../lib/format.ts';
   import { retrievabilityLabel, retrievabilityTone } from '../../lib/entityLabels.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
@@ -102,7 +103,7 @@
     <details class="re-contacts disclosure">
       <summary>
         <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-        Declared contacts ({o.contacts.total})
+        Declared contacts ({formatCount(o.contacts.total)})
       </summary>
       <ul class="re-contactrows">
         {#each o.contacts.items as c, i (`${c.type}:${c.value}:${c.purpose ?? ''}:${i}`)}
@@ -114,7 +115,7 @@
         {/each}
       </ul>
       {#if o.contacts.truncated}
-        <p class="re-ctrunc t-body-2">Showing {o.contacts.count} of {o.contacts.total} declared contact points.</p>
+        <p class="re-ctrunc t-body-2">Showing {formatCount(o.contacts.count)} of {formatCount(o.contacts.total)} declared contact points.</p>
       {/if}
     </details>
   {/if}
@@ -130,7 +131,7 @@
            scored against a gate its authors declared. It says nothing about whether the
            running system obeys the contract -- that is compliance, shown on the targets. -->
       <p class="rr-lead t-body-2">What the authors declared about this revision's preparedness — not a measurement of the running system.</p>
-      <p class="rr-line t-body">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.deferredCount ? ` · ${r.deferredCount} deferred` : ''}{r.expired ? ' · expired' : ''}</p>
+      <p class="rr-line t-body">Score {r.score} / {r.minScore} required · {formatCount(r.doneCount)} done · {formatCount(r.partialCount)} partial · {formatCount(r.notDoneCount)} not done{r.deferredCount ? ` · ${r.deferredCount} deferred` : ''}{r.expired ? ' · expired' : ''}</p>
       {#if (r.checks?.count ?? 0) > 0}
         <!-- Requirement 13 draws the line here and not on the section: FAILING readiness
              detail is an active problem and stays open; a passing gate's check-by-check
@@ -200,7 +201,7 @@
             <details class="ri-ops disclosure">
               <summary>
                 <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-                {i.operations.count}{i.operations.truncated ? ` of ${i.operations.total}` : ''} {i.operations.total === 1 && !i.operations.truncated ? 'operation' : 'operations'}
+                {formatCount(i.operations.count)}{i.operations.truncated ? ` of ${formatCount(i.operations.total)}` : ''} {i.operations.total === 1 && !i.operations.truncated ? 'operation' : 'operations'}
               </summary>
               <ul class="re-tools">
                 {#each i.operations.items as t, ti (`${t.name}${t.method}${t.path}:${ti}`)}
@@ -214,7 +215,7 @@
                 {/each}
               </ul>
               {#if i.operations.truncated}
-                <p class="ri-note">Showing {i.operations.count} of {i.operations.total} operations.</p>
+                <p class="ri-note">Showing {formatCount(i.operations.count)} of {formatCount(i.operations.total)} operations.</p>
               {/if}
             </details>
           {:else if i.operationsKnown}
@@ -252,7 +253,7 @@
             <details class="ri-ops disclosure">
               <summary>
                 <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-                {c.values.count}{c.values.truncated && typeof c.values.total === 'number' ? ` of ${c.values.total}` : ''} {c.values.count === 1 && !c.values.truncated ? 'value' : 'values'}
+                {formatCount(c.values.count)}{c.values.truncated && typeof c.values.total === 'number' ? ` of ${formatCount(c.values.total)}` : ''} {c.values.count === 1 && !c.values.truncated ? 'value' : 'values'}
               </summary>
               <table class="re-kv">
                 <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
@@ -260,7 +261,7 @@
                   {#each c.values.items as v, vi (`${v.key}:${vi}`)}<tr><td>{v.key}</td><td>{v.value}</td></tr>{/each}
                 </tbody>
               </table>
-              {#if c.values.truncated}<p class="ri-note">Showing {c.values.count} values{typeof c.values.total === 'number' ? ` of ${c.values.total}` : '; total unknown'}.</p>{/if}
+              {#if c.values.truncated}<p class="ri-note">Showing {formatCount(c.values.count)} values{typeof c.values.total === 'number' ? ` of ${formatCount(c.values.total)}` : '; total unknown'}.</p>{/if}
             </details>
           {/if}
         </li>
@@ -461,7 +462,7 @@
         {#if (prov.sources?.count ?? 0) > 0}
           <div class="re-fact">
             <span class="re-k">Seen by</span>
-            <span>{prov.sources.items.join(', ')}{prov.sources.truncated ? ` (${prov.sources.count} of ${prov.sources.total})` : ''}</span>
+            <span>{prov.sources.items.join(', ')}{prov.sources.truncated ? ` (${formatCount(prov.sources.count)} of ${formatCount(prov.sources.total)})` : ''}</span>
           </div>
         {/if}
         {#if prov.fetchedAt}<div class="re-fact"><span class="re-k">Fetched at</span><span>{formatDate(prov.fetchedAt)}</span></div>{/if}

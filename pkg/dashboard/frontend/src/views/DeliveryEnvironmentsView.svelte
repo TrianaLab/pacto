@@ -76,7 +76,7 @@
   };
   const dotTitle = (env, here) => {
     const vs = here.filter((r) => r.pointer).map((r) => r.version || shortDigest(r.pointer)).join(', ');
-    return `${env}: ${vs ? `${vs}. ` : ''}${stateOf(here).label}${here.length > 1 ? ` (${here.length} Stages)` : ''}`;
+    return `${env}: ${vs ? `${vs}. ` : ''}${stateOf(here).label}${here.length > 1 ? ` (${formatCount(here.length)} Stages)` : ''}`;
   };
   // The cell a dot opened, under its service's row.
   let opened = $state(null);
@@ -159,7 +159,7 @@
   <PageHeader
     title="Environments"
     subtitle="Every service in every environment: the version it runs and whether that version is verified, failed, frozen or waiting. A Stage is one service in one environment."
-    count={data ? `${formatCount(serviceTotal)} service${serviceTotal === 1 ? '' : 's'}, ${environments.length} environment${environments.length === 1 ? '' : 's'}` : ''}
+    count={data ? `${formatCount(serviceTotal)} service${serviceTotal === 1 ? '' : 's'}, ${formatCount(environments.length)} environment${environments.length === 1 ? '' : 's'}` : ''}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
@@ -212,7 +212,7 @@
                     {/each}
                   </div>
                 </th>
-                <th scope="col">State <span class="t-meta">in {shown.length} environments</span></th>
+                <th scope="col">State <span class="t-meta">in {formatCount(shown.length)} environments</span></th>
               </tr>
             </thead>
             <tbody>

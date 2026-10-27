@@ -1,6 +1,6 @@
 <script>
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
-  import { aggregateByOwner, complianceClass, statusClass, ownerKey, UNOWNED_KEY, sourceTooltip, complianceStatusClass, compareScoresUnassessedLast } from '../lib/format.ts';
+  import { aggregateByOwner, complianceClass, statusClass, ownerKey, UNOWNED_KEY, sourceTooltip, complianceStatusClass, compareScoresUnassessedLast, formatCount } from '../lib/format.ts';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -128,7 +128,7 @@
 <div class="page-header">
   <a href="#/" class="btn btn-sm btn-ghost">← Services</a>
   <h1>Owners</h1>
-  <span class="tab-count">{allOwners.length}</span>
+  <span class="tab-count">{formatCount(allOwners.length)}</span>
 </div>
 
 <!-- Overall fleet metrics (computed across all services, not just owners). -->
@@ -181,7 +181,7 @@
           title="Services by owner"
           level={2}
           scopeNote={ownerRanked.length > OWNER_ROWS
-            ? `Top ${OWNER_ROWS} of ${ownerRanked.length} owners matching the current filters.`
+            ? `Top ${OWNER_ROWS} of ${formatCount(ownerRanked.length)} owners matching the current filters.`
             : ''}
           items={ownerRows}
           unit="services"
@@ -305,7 +305,7 @@
                     </table>
                     {#if expandedServices.length > EXPANDED_ROWS}
                       <button type="button" class="btn btn-sm" onclick={(e) => { e.stopPropagation(); allExpanded = !allExpanded; }}>
-                        {allExpanded ? 'Show fewer' : `Show all ${expandedServices.length} services`}
+                        {allExpanded ? 'Show fewer' : `Show all ${formatCount(expandedServices.length)} services`}
                       </button>
                     {/if}
                   </div>

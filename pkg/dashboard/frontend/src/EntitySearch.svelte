@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from './lib/format.ts';
   import { onDestroy } from 'svelte';
   import { createEntitySuggest } from './lib/entitySuggest.svelte.ts';
   import { hashForHref, fleetEntityUrl, fleetServicesUrl } from './lib/router.ts';
@@ -126,7 +127,7 @@
             </button>
           {/each}
           {#if suggest.truncated}
-            <div class="es-trunc">Showing {results.length} of {suggest.total}. Refine your search, or <a href={fleetServicesUrl({ text: query.trim() })} onclick={() => onClose?.()}>see every matching service</a>.</div>
+            <div class="es-trunc">Showing {formatCount(results.length)} of {formatCount(suggest.total)}. Refine your search, or <a href={fleetServicesUrl({ text: query.trim() })} onclick={() => onClose?.()}>see every matching service</a>.</div>
           {/if}
         {/if}
       </div>

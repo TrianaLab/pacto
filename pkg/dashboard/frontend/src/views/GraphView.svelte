@@ -244,12 +244,12 @@
     withheldNodes
       ? `Showing ${formatCount(shown.nodes.length)} of ${formatCount(totalNodes)} entities within this depth.`
       : shown?.truncatedEdges
-        ? `Showing ${shown.edges.length} relationships: more exist than this view draws.`
+        ? `Showing ${formatCount(shown.edges.length)} relationships: more exist than this view draws.`
         : 'This neighborhood is bounded and was truncated.'
   );
 
   const graphSummary = $derived(!shown ? '' : [
-    `${shown.nodes.length} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${shown.edges.length} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
+    `${formatCount(shown.nodes.length)} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${formatCount(shown.edges.length)} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
     withheldNodes ? `${withheldNodes} more within this depth are not shown.` : '',
     grouped?.folded ? `${grouped.folded} of them are grouped by team on the canvas; the list below names each one.` : '',
     hiddenLabels.length ? `Dimmed on the canvas: ${hiddenLabels.join(', ')}.` : '',
@@ -365,7 +365,7 @@
           {/each}
         </ul>
         {#if searchTotal > results.length}
-          <p class="disco-hint" data-testid="graph-search-truncated">Showing {results.length} of {searchTotal}. Refine your search to narrow the results.</p>
+          <p class="disco-hint" data-testid="graph-search-truncated">Showing {formatCount(results.length)} of {formatCount(searchTotal)}. Refine your search to narrow the results.</p>
         {/if}
       {:else if queryText.trim()}
         <p class="disco-hint" data-testid="graph-search-empty">No entities match "{queryText}".</p>
@@ -589,14 +589,14 @@
 
           {#if (shown.unresolvedDependencies?.count ?? 0) > 0}
             <section class="gv-unresolved" data-testid="graph-unresolved">
-              <h2>Unresolved dependencies ({shown.unresolvedDependencies.total})</h2>
+              <h2>Unresolved dependencies ({formatCount(shown.unresolvedDependencies.total)})</h2>
               <!-- The sentence once, not on every row: each is a declaration no provider
                    in the fleet resolves. -->
               <p class="t-body-2">Each is declared, and nothing Pacto knows provides it.</p>
               <CappedList items={shown.unresolvedDependencies.items} max={8} label="Unresolved dependencies" testid="graph-unresolved-list">
                 {#snippet item(u)}<EntityLink ref={u.from} showStatus={false} />{' '}declares <code>{u.requestedRef || u.ref}</code>{#if u.reason}{': '}{u.reason}{/if}{/snippet}
               </CappedList>
-              {#if shown.unresolvedDependencies.truncated}<p class="t-meta">Showing {shown.unresolvedDependencies.count} of {shown.unresolvedDependencies.total}.</p>{/if}
+              {#if shown.unresolvedDependencies.truncated}<p class="t-meta">Showing {formatCount(shown.unresolvedDependencies.count)} of {formatCount(shown.unresolvedDependencies.total)}.</p>{/if}
             </section>
           {/if}
 
@@ -646,7 +646,7 @@
               {#if (selected.edge.declaredClaims?.count ?? 0) > 0}
                 <div class="gv-claims">
                   <span class="gv-k">Declared by</span>
-                  {#if selected.edge.declaredClaims.truncated}<span class="t-meta">{selected.edge.declaredClaims.count} of {selected.edge.declaredClaims.total}</span>{/if}
+                  {#if selected.edge.declaredClaims.truncated}<span class="t-meta">{formatCount(selected.edge.declaredClaims.count)} of {formatCount(selected.edge.declaredClaims.total)}</span>{/if}
                   <ul>
                     {#each selected.edge.declaredClaims.items.slice(0, claimsShown) as c, i (i)}
                       <!-- Through the shared abbreviator, like every other surface that
@@ -657,12 +657,12 @@
                     {/each}
                   </ul>
                   {#if selected.edge.declaredClaims.items.length > claimsShown}
-                    <button type="button" class="btn btn-sm" onclick={() => { claimsShown = Infinity; }}>Show all {selected.edge.declaredClaims.items.length}</button>
+                    <button type="button" class="btn btn-sm" onclick={() => { claimsShown = Infinity; }}>Show all {formatCount(selected.edge.declaredClaims.items.length)}</button>
                   {/if}
                 </div>
               {/if}
               {#if selected.edge.observed}
-                <p class="gv-drow"><span class="gv-k">Observed</span> {selected.edge.count || 0} calls{#if selected.edge.observationSources?.total} across {selected.edge.observationSources.total} source(s){/if}{#if selected.edge.stale}{' · '}stale window{/if}</p>
+                <p class="gv-drow"><span class="gv-k">Observed</span> {selected.edge.count || 0} calls{#if selected.edge.observationSources?.total} across {formatCount(selected.edge.observationSources.total)} source(s){/if}{#if selected.edge.stale}{' · '}stale window{/if}</p>
               {/if}
             {/if}
           </aside>

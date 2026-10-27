@@ -15,6 +15,7 @@
     assessmentCountdownLabel,
     compareScoresUnassessedLast,
     abbreviateDigests,
+    formatCount,
   } from '../lib/format.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import { applyFilters, writeFiltersToHash } from '../lib/filters.ts';
@@ -137,7 +138,7 @@
 <div class="page-header">
   <a href="#/" class="btn btn-sm btn-ghost">← Services</a>
   <h1>Service Readiness</h1>
-  <span class="tab-count">{services.length}</span>
+  <span class="tab-count">{formatCount(services.length)}</span>
 </div>
 
 {#if services.length === 0}
@@ -262,7 +263,7 @@
               </td>
               <td>
                 {#if row.r}
-                  <span class:text-ok={row.done === row.total && row.total > 0}>{row.done}</span><span class="text-dim">/{row.total}</span>
+                  <span class:text-ok={row.done === row.total && row.total > 0}>{row.done}</span><span class="text-dim">/{formatCount(row.total)}</span>
                 {:else}
                   <span class="text-dim">—</span>
                 {/if}

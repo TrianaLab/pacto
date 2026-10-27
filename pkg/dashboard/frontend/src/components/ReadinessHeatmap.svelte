@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   import { renderHeatmap } from '../lib/charts.ts';
   import { currentTheme } from '../lib/theme.svelte.ts';
   import { setFilter } from '../lib/filters.svelte.ts';
@@ -31,7 +32,7 @@
 <div class="chart-container" bind:this={container}></div>
 {#if data?.owners?.length > LIMIT}
   <button type="button" class="btn btn-sm" aria-expanded={all} onclick={() => { all = !all; }} data-testid="heatmap-show-all">
-    {all ? `Show the ${LIMIT} least ready teams` : `Show all ${data.owners.length} teams`}
+    {all ? `Show the ${LIMIT} least ready teams` : `Show all ${formatCount(data.owners.length)} teams`}
   </button>
 {/if}
 

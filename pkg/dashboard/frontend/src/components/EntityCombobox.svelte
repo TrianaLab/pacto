@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   import { onDestroy, untrack } from 'svelte';
   import { createEntitySuggest } from '../lib/entitySuggest.svelte.ts';
   import EntityIdentity from './EntityIdentity.svelte';
@@ -50,7 +51,7 @@
   // aloud is the count on screen.
   const liveMsg = $derived(
     !expanded || suggest.loading ? ''
-      : results.length ? `${results.length} suggestion${results.length === 1 ? '' : 's'}`
+      : results.length ? `${formatCount(results.length)} suggestion${results.length === 1 ? '' : 's'}`
         : 'No suggestions',
   );
 
@@ -151,7 +152,7 @@
           </button>
         {/each}
         {#if suggest.truncated}
-          <div class="cb-msg cb-trunc">Showing {results.length} of {suggest.total}. Keep typing to narrow.</div>
+          <div class="cb-msg cb-trunc">Showing {formatCount(results.length)} of {formatCount(suggest.total)}. Keep typing to narrow.</div>
         {/if}
       {/if}
     </div>

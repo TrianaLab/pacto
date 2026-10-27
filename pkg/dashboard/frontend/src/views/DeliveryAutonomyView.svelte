@@ -139,7 +139,7 @@
                     {#if s.proposal?.level}
                       <button type="button" class="btn btn-sm" onclick={(e) => propose(s, e)} aria-label={`Propose ${levelLabel(s.proposal.level)} for ${s.service} in ${s.environment}`}>Propose</button>
                     {:else if s.proposal?.blockers?.length}
-                      <span class="t-meta">{s.proposal.blockers.length} blocker{s.proposal.blockers.length === 1 ? '' : 's'} below.</span>
+                      <span class="t-meta">{formatCount(s.proposal.blockers.length)} blocker{s.proposal.blockers.length === 1 ? '' : 's'} below.</span>
                     {/if}
                     {#if s.lastShadow}<span class="t-meta au-help">Newest candidate: on Autonomous, Pacto would have chosen to {shadowLabel(s.lastShadow)}.</span>{/if}
                   </td>

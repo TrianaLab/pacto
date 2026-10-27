@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   import { serviceUrl, compareDiffUrl } from '../lib/router.ts';
   import StatusBadge from './StatusBadge.svelte';
   import OwnerLink from './OwnerLink.svelte';
@@ -38,13 +39,13 @@
 
     <div class="drawer-lists">
       <div>
-        <div class="drawer-list-label">Depends on <span class="count">{data.dependencies.length}</span></div>
+        <div class="drawer-list-label">Depends on <span class="count">{formatCount(data.dependencies.length)}</span></div>
         {#if data.dependencies.length}
           <ul>{#each data.dependencies as d}<li><a href={serviceUrl(d.name)}>{d.name}</a>{#if d.type === 'reference'} <span class="badge badge-accent">ref</span>{:else if d.required} <span class="badge badge-info">req</span>{/if}</li>{/each}</ul>
         {:else}<p class="drawer-empty">—</p>{/if}
       </div>
       <div>
-        <div class="drawer-list-label">Depended on by <span class="count">{data.dependents.length}</span></div>
+        <div class="drawer-list-label">Depended on by <span class="count">{formatCount(data.dependents.length)}</span></div>
         {#if data.dependents.length}
           <ul>{#each data.dependents as name}<li><a href={serviceUrl(name)}>{name}</a></li>{/each}</ul>
         {:else}<p class="drawer-empty">—</p>{/if}
