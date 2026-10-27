@@ -69,6 +69,15 @@ func TestDashboardIdentityModes(t *testing.T) {
 	rec := httptest.NewRecorder()
 	gated.auth.Middleware(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/status", nil))
 	expect(t, rec.Code == http.StatusUnauthorized, "sign-in gates the fleet API: %d", rec.Code)
+	v.Set("dashboard.oidc-internal-issuer-url", "ftp://idp")
+	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "internal issuer") {
+		t.Fatalf("a bad internal issuer URL fails at start: %v", err)
+	}
+	v.Set("dashboard.oidc-internal-issuer-url", "http://idp.internal")
+	if !identityFor(t, v, "0.0.0.0", nil).auth.Login() {
+		t.Fatal("an internal issuer URL keeps sign-in")
+	}
+	v.Set("dashboard.oidc-internal-issuer-url", "")
 	v.Set("dashboard.oidc-client-id", "")
 	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil {
 		t.Fatal("an incomplete OIDC configuration fails at start")

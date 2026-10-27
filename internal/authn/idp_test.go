@@ -1,6 +1,7 @@
 package authn
 
 import (
+	"cmp"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -44,7 +45,13 @@ type fakeIdP struct {
 	rotate       bool
 	refreshCalls int
 	exchangeOut  map[string]any
+	// public is the issuer URL the IdP names, when it differs from where the
+	// test reaches it.
+	public string
 }
+
+// issuer is the URL the IdP names in its discovery document and tokens.
+func (f *fakeIdP) issuer() string { return cmp.Or(f.public, f.srv.URL) }
 
 type grant struct {
 	nonce, challenge, sub string
@@ -77,7 +84,7 @@ func newIdP(t *testing.T) *fakeIdP {
 }
 
 func (f *fakeIdP) discovery(w http.ResponseWriter, _ *http.Request) {
-	u := f.srv.URL
+	u := f.issuer()
 	m := map[string]any{"issuer": u, "authorization_endpoint": u + "/auth", "token_endpoint": u + "/token",
 		"jwks_uri": u + "/keys", "id_token_signing_alg_values_supported": []string{"RS256"}, "end_session_endpoint": u + "/logout"}
 	if !f.noRevoke {
@@ -96,7 +103,7 @@ func (f *fakeIdP) jwt(claims map[string]any) string {
 }
 
 func (f *fakeIdP) idToken(aud string, g grant) string {
-	c := map[string]any{"iss": f.srv.URL, "sub": g.sub, "aud": aud, "exp": f.now().Add(time.Hour).Unix(), "iat": f.now().Unix()}
+	c := map[string]any{"iss": f.issuer(), "sub": g.sub, "aud": aud, "exp": f.now().Add(time.Hour).Unix(), "iat": f.now().Unix()}
 	if g.nonce != "" {
 		c["nonce"] = g.nonce
 	}
