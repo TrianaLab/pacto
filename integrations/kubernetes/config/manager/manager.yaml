@@ -63,6 +63,8 @@ spec:
             port: 8081
           initialDelaySeconds: 15
           periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
         readinessProbe:
           httpGet:
             path: /readyz
@@ -70,13 +72,13 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+        # No CPU limit, as in the chart: a throttled controller fails its liveness probe.
         resources:
           limits:
-            cpu: 500m
-            memory: 128Mi
+            memory: 256Mi
           requests:
-            cpu: 10m
-            memory: 64Mi
+            cpu: 100m
+            memory: 128Mi
         volumeMounts: []
       volumes: []
       serviceAccountName: controller-manager

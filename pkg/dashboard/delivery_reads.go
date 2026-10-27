@@ -797,7 +797,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	out.Body.Versions = map[string]string{}
 	var actors []string
 	var on []digestsOn
-	hs, errs := historiesOf(ctx, api, targets)
+	hs, errs := historiesOf(ctx, api, targets, describe)
 	for i, t := range targets {
 		if errs[i] != nil {
 			return nil, errs[i]
@@ -850,16 +850,21 @@ func historyCounts(stages []delivery.StageObject, ops []delivery.OperationObject
 }
 
 // historiesOf reads the history of each target, describeParallel at once: on
-// a cluster each one gets the Stage, lists the namespace's changes and reads
-// a record stream, so a page of 25 read one after another was 50 round trips
-// in a row.
-func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageObject) ([]*delivery.History, []error) {
+// a cluster each one lists the Stage's changes and reads a record stream, so a
+// page of 25 read one after another was 50 round trips in a row. read says the
+// targets came from the apiserver, so the host is handed them instead of
+// getting each Stage again.
+func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageObject, read bool) ([]*delivery.History, []error) {
 	hs, errs := make([]*delivery.History, len(targets)), make([]error, len(targets))
 	var g errgroup.Group
 	g.SetLimit(describeParallel)
 	for i, t := range targets {
 		g.Go(func() error {
-			hs[i], errs[i] = api.History(ctx, t.Metadata.Namespace, t.Metadata.Name)
+			var listed *delivery.StageObject
+			if read {
+				listed = &t
+			}
+			hs[i], errs[i] = api.History(ctx, t.Metadata.Namespace, t.Metadata.Name, listed)
 			return nil
 		})
 	}

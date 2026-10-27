@@ -26,6 +26,9 @@ import (
 type countingDelivery struct {
 	*fakeDelivery
 	describes, histories atomic.Int64
+	// rereads counts the histories asked for without the Stage the handler
+	// had just read, so the host reads it again.
+	rereads atomic.Int64
 }
 
 func (c *countingDelivery) Describe(ctx context.Context, st *delivery.StageObject, d string) delivery.Revision {
@@ -33,9 +36,12 @@ func (c *countingDelivery) Describe(ctx context.Context, st *delivery.StageObjec
 	return c.fakeDelivery.Describe(ctx, st, d)
 }
 
-func (c *countingDelivery) History(ctx context.Context, ns, stage string) (*delivery.History, error) {
+func (c *countingDelivery) History(ctx context.Context, ns, stage string, listed *delivery.StageObject) (*delivery.History, error) {
 	c.histories.Add(1)
-	return c.fakeDelivery.History(ctx, ns, stage)
+	if listed == nil {
+		c.rereads.Add(1)
+	}
+	return c.fakeDelivery.History(ctx, ns, stage, listed)
 }
 
 var scaleEnvs = [...]string{"test", "dev", "qa", "staging", "perf", "preprod", "sandbox", "prod-eu-west-1", "prod-us-east-1",
@@ -167,6 +173,7 @@ func TestLargeFleetBudget(t *testing.T) {
 	for _, v := range scaleViews {
 		c.describes.Store(0)
 		c.histories.Store(0)
+		c.rereads.Store(0)
 		start := time.Now()
 		serveScale(t, h, v.path)
 		took := time.Since(start)
@@ -174,15 +181,16 @@ func TestLargeFleetBudget(t *testing.T) {
 		expect(t, took < budget, "%s took %v, over the %v budget", v.path, took, budget)
 		expect(t, c.describes.Load() <= v.describes, "%s described %d digests, more than a page's %d", v.path, c.describes.Load(), v.describes)
 		expect(t, c.histories.Load() <= v.histories, "%s read %d histories, more than a page's %d", v.path, c.histories.Load(), v.histories)
+		expect(t, c.rereads.Load() == 0, "%s asked for %d histories without the Stage it had read", v.path, c.rereads.Load())
 	}
 }
 
 // slowHistory answers a history after a cluster's round trips.
 type slowHistory struct{ *countingDelivery }
 
-func (s slowHistory) History(ctx context.Context, ns, stage string) (*delivery.History, error) {
+func (s slowHistory) History(ctx context.Context, ns, stage string, listed *delivery.StageObject) (*delivery.History, error) {
 	time.Sleep(20 * time.Millisecond)
-	return s.countingDelivery.History(ctx, ns, stage)
+	return s.countingDelivery.History(ctx, ns, stage, listed)
 }
 
 // A page of every Stage's history reads the histories side by side: 25 slow

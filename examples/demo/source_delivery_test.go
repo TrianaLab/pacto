@@ -263,7 +263,7 @@ func storyRolledBack(t *testing.T, d *demoDelivery, h http.Handler, op delivery.
 // rollback.
 func storyRecords(t *testing.T, d *demoDelivery, op delivery.OperationObject, rollback string) {
 	t.Helper()
-	ph, _ := d.History(t.Context(), story.Prod, "payments")
+	ph, _ := d.History(t.Context(), story.Prod, "payments", nil)
 	if ph.Source != delivery.SourceRecords || !ph.Verified || ph.Completeness != "complete" {
 		t.Fatalf("prod history: %+v", ph)
 	}
@@ -283,11 +283,11 @@ func storyRecords(t *testing.T, d *demoDelivery, op delivery.OperationObject, ro
 // payments test, fraud read from status only) and the refused publish (B4).
 func storyProblems(t *testing.T, d *demoDelivery) {
 	t.Helper()
-	th, _ := d.History(t.Context(), story.Test, "payments")
+	th, _ := d.History(t.Context(), story.Test, "payments", nil)
 	if th.Completeness != "partial" || len(th.Problems) == 0 || len(th.Unreadable) != 1 {
 		t.Fatalf("test history: %+v", th)
 	}
-	fh, _ := d.History(t.Context(), story.Test, "fraud")
+	fh, _ := d.History(t.Context(), story.Test, "fraud", nil)
 	if fh.Source != delivery.SourceStatus || len(fh.Entries) != 0 { // it observes: GitOps moved it, not an operation
 		t.Fatalf("fraud history: %+v", fh)
 	}

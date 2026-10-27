@@ -121,6 +121,22 @@ Name-match discovery has no chart value.
     [sign-in](dashboard-authentication.md). See
     [Security](../../dashboard-docker.md#security).
 
+### Resources and probes
+
+The controller, the delivery promoter and the delivery recorder set CPU
+requests and memory limits, and no CPU limit. A CPU limit throttles a process
+on a busy node until its liveness probe times out and the kubelet restarts
+it. The request still reserves each one's share. The liveness probe allows
+5 seconds per answer and restarts a process after 2 minutes of failures. Set
+`resources`, `delivery.promoter.resources` or `delivery.recorder.resources` to
+change the defaults, listed in the [Helm reference](generated/helm-reference.md).
+
+The promoter wakes a Stage when an object it reads changes and rechecks it
+once per `delivery.promoter.resync` (1m by default). An operation waiting on
+Flux is checked once per `delivery.promoter.poll` (3s by default), so the
+promoter's CPU grows with the number of waiting operations. On a large fleet
+raise the poll or the promoter's CPU request.
+
 ### Offline trace sources for the dashboard
 
 Observed dependencies reach the dashboard as **offline OTLP/JSON trace exports**.

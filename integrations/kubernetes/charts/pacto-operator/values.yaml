@@ -92,17 +92,18 @@ podSecurityContext: {}
 # -- Container securityContext of the controller (defaults to `global.securityContext`)
 securityContext: {}
 
+# No CPU limit: the CPU request reserves the controller's share, and a limit
+# throttles it on a busy node until its liveness probe times out.
 resources:
   limits:
-    # -- CPU limit
-    cpu: 500m
-    # -- Memory limit
-    memory: 128Mi
+    # -- Memory limit of the controller. It caches every Deployment, StatefulSet,
+    # ReplicaSet, Job, CronJob and Service it targets.
+    memory: 256Mi
   requests:
-    # -- CPU request
-    cpu: 10m
-    # -- Memory request
-    memory: 64Mi
+    # -- CPU request of the controller
+    cpu: 100m
+    # -- Memory request of the controller
+    memory: 128Mi
 
 controller:
   # -- Restrict the controller's observation scope to a single namespace.
@@ -617,16 +618,15 @@ delivery:
       enabled: false
     # -- Extra environment for the recorder (for example the credentials a KMS client reads)
     extraEnv: []
+    # No CPU limit, as for the controller: a throttled recorder fails its liveness probe.
     resources:
       limits:
-        # -- CPU limit
-        cpu: 500m
-        # -- Memory limit
+        # -- Memory limit of the recorder
         memory: 256Mi
       requests:
-        # -- CPU request
-        cpu: 10m
-        # -- Memory request
+        # -- CPU request of the recorder. Signing and pushing a record is the costly part.
+        cpu: 50m
+        # -- Memory request of the recorder
         memory: 64Mi
 
   argocd:
@@ -671,17 +671,17 @@ delivery:
   # -- Container securityContext of the promoter and the recorder (defaults to `global.securityContext`)
   securityContext: {}
 
+  # No CPU limit, as for the controller: a throttled promoter fails its liveness probe.
   resources:
     limits:
-      # -- CPU limit
-      cpu: 500m
-      # -- Memory limit
+      # -- Memory limit of the promoter
       memory: 256Mi
     requests:
-      # -- CPU request
-      cpu: 10m
-      # -- Memory request
-      memory: 64Mi
+      # -- CPU request of the promoter. It looks at every waiting operation once per
+      # `promoter.poll`, so raise it with the number of Stages.
+      cpu: 100m
+      # -- Memory request of the promoter
+      memory: 128Mi
 
   # -- Node selector for the promoter pod
   nodeSelector: {}

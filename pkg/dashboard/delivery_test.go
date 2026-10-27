@@ -151,7 +151,7 @@ func (f *fakeDelivery) Explain(_ context.Context, ns, name string) (*delivery.Ex
 	return &delivery.Explanation{Operation: ns + "/" + name, Stage: delivery.StageNow{Name: "payments", Pointer: dNext}}, nil
 }
 
-func (f *fakeDelivery) History(_ context.Context, ns, stage string) (*delivery.History, error) {
+func (f *fakeDelivery) History(_ context.Context, ns, stage string, _ *delivery.StageObject) (*delivery.History, error) {
 	if f.history != nil {
 		return f.history, f.historyErr
 	}

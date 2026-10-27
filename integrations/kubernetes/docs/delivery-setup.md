@@ -43,6 +43,10 @@ does not fail closed, has a binding that does not deny, binds another policy
 or is narrowed by `matchResources` or `paramRef`, it admits no operation and
 counts no approval, and shows `Unguarded`.
 
+The promoter's and the recorder's CPU, memory and probe defaults, and how the
+promoter's poll scales with Stages, are in
+[Resources and probes](installation.md#resources-and-probes).
+
 To run an unreleased build, from the repository root:
 
 ```bash

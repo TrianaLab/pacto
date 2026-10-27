@@ -128,6 +128,21 @@ func TestDeliveryHistory(t *testing.T) {
 	wantErrContaining(t, err, "listing Operations in prod: forbidden")
 }
 
+// A Stage the caller just listed is handed to the history read and not read again.
+func TestDeliveryHistoryOfAListedStage(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "alice", nil, nil)
+	st, err := d.Stage(context.Background(), "prod", "payments-prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("the listed Stage was read again")
+	})
+	if h, err := d.HistoryOf(context.Background(), *st); err != nil || h.Stage.Name != "payments-prod" || h.Stage.Pointer != dlA {
+		t.Fatalf("history of the listed Stage: %+v %v", h, err)
+	}
+}
+
 // The apiserver is asked for only the Operations a read needs; a cluster
 // whose CRD has no such selectable field refuses the selector and the whole
 // list is filtered here instead, to the same answer.

@@ -956,7 +956,7 @@ func (d *demoDelivery) history(ns, name string) (*delivery.History, []delivery.S
 	return h, r.Fold.Records, ops, nil
 }
 
-func (d *demoDelivery) History(_ context.Context, ns, name string) (*delivery.History, error) {
+func (d *demoDelivery) History(_ context.Context, ns, name string, _ *delivery.StageObject) (*delivery.History, error) {
 	h, _, _, err := d.history(ns, name)
 	return h, err
 }

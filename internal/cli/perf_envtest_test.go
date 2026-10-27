@@ -419,6 +419,7 @@ func perfDashboard(t testing.TB, cp *controlPlane, cnt *counter, q *atomic.Point
 		served: func(*rest.Config, string) (bool, error) { return true, nil },
 		state: func(ctx context.Context) authn.State {
 			tok, _ := ctx.Value(perfTokenKey{}).(string)
+			// The identity layer names the person from the ID token's claims.
 			return authn.State{SignedIn: tok != "", Token: tok, Person: authn.PersonFromToken(tok)}
 		},
 		revisions: map[string]delivery.Revision{}, reads: newReadCache()}

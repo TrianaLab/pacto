@@ -23,12 +23,16 @@ One test at a time, with assets you already have:
 ```sh
 export KUBEBUILDER_ASSETS=$(make -s -C integrations/kubernetes setup-envtest | tail -n 1)
 PERF_QUICK=1 go test -tags perfenvtest -run TestPerfEnvtest -v ./internal/cli/     # 500 Stages only
-PERF_VIEWS=inbox,history go test -tags perfenvtest -run TestPerfEnvtest -v ./internal/cli/
+PERF_VIEWS='inbox,history (all)' go test -tags perfenvtest -run TestPerfEnvtest -v ./internal/cli/
 PERF_CPUPROFILE=/tmp/cpu.prof go test -tags perfenvtest -run TestPerfEnvtest -v ./internal/cli/
 cd integrations/kubernetes && go test -tags perfenvtest -run TestPerfPromoter -v ./internal/delivery/
 ```
 
 The full dashboard run takes about 12 minutes; the promoter about 2.
+
+CI runs `make ci-perf-envtest`, the 500-Stage pass and the promoter, on every
+pull request that touches the dashboard, delivery or the operator. Its result
+gates the merge through the `required` check.
 
 ## What it builds
 
@@ -62,8 +66,9 @@ process (dashboard and test client).
 
 The tests fail when a request fails, when the auditors' apiserver requests per
 dashboard request exceed the budget, or when the p95 at 10 callers does; the
-promoter when a promote costs more than 25 apiserver requests or the burst of
-200 takes longer than 4 minutes. The budgets are about twice the apiserver
+promoter when a promote costs more than 25 apiserver requests, when it makes
+more than 5 apiserver requests per second at rest or when the burst of 200
+takes longer than 45 seconds. The budgets are about twice the apiserver
 counts and five times the latencies below, which a heavily loaded laptop
 measured.
 
@@ -194,6 +199,11 @@ Each was found here, and its effect is in the table above.
    that did not happen. The client allows 50 requests per second, bursting to
    100 (`--kube-api-qps`, `--kube-api-burst`). The burst: all moved in 13s
    instead of 1m15s.
+7. **History, all Stages read each Stage on the page again** (25 GETs)
+   although the view had just listed them. The listed Stage is now handed to
+   the history read, as is the Stage the change view reads, and the fleet
+   audit's walk. One auditor, 500 Stages: 41.6 apiserver requests per request
+   to 21.6, 52 cold to 25.
 
 ## What is left
 
