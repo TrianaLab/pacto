@@ -115,17 +115,19 @@
   const observing = $derived(rows.filter((r) => r.level === 'observe' && r.shadow?.length && shown.includes(r.environment)));
   const observingCap = cap(5);
   // The page's answer: what failed or froze, and what waits for a person, in
-  // the environments shown. The server counts services, not states, so a
-  // paged board says the count is this page's.
+  // the environments shown, over every page: the server counts them. Without
+  // its counts the page's own are said to be the page's.
   const live = $derived(rows.filter((r) => shown.includes(r.environment)));
-  const onPage = $derived((data?.page?.total ?? 0) > services.length);
+  const onPage = $derived(!data?.counts && (data?.page?.total ?? 0) > services.length);
   const lead = $derived.by(() => {
-    const failed = live.filter((r) => r.failed).length;
-    const frozen = live.filter((r) => r.frozen).length;
-    const waiting = live.filter((r) => r.held > 0).length;
-    const bad = [failed && `${formatCount(failed)} failed`, frozen && `${formatCount(frozen)} frozen`].filter(Boolean);
+    const c = data?.counts ?? {
+      failed: live.filter((r) => r.failed).length,
+      frozen: live.filter((r) => r.frozen).length,
+      waiting: live.filter((r) => r.held > 0).length,
+    };
+    const bad = [c.failed && `${formatCount(c.failed)} failed`, c.frozen && `${formatCount(c.frozen)} frozen`].filter(Boolean);
     const head = `${bad.length ? andList(bad) : 'Nothing failed or frozen'}${onPage ? '' : '.'}`;
-    const rest = `${onPage ? 'on this page.' : ''}${waiting ? ` ${countOf(waiting, 'Stage')} ${waiting === 1 ? 'waits' : 'wait'} for a person.` : ''}`.trim();
+    const rest = `${onPage ? 'on this page.' : ''}${c.waiting ? ` ${countOf(c.waiting, 'Stage')} ${c.waiting === 1 ? 'waits' : 'wait'} for a person.` : ''}`.trim();
     return { head, rest };
   });
   const VERIFICATION = { Verified: 'Verified', Unverified: 'Not verified', AcceptedUnknown: 'A person accepted the unknown' };

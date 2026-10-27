@@ -365,11 +365,15 @@ describe('environments', () => {
     const row = (service: string, environment: string, stage: string) => ({ namespace: environment, stage, service, environment, verified: false, failed: false,
       frozen: false, autoHold: false, held: 0, actions: [], ready: 'False: NoCandidateSource', readyMessage: 'the Stage names no candidates' });
     fns.environments.mockResolvedValue({ ...listing, page: { total: 400, offset: 25, limit: 25 }, environmentNames: ['test', 'prod', 'env-2', 'env-10'],
+      counts: { failed: 43, frozen: 40, waiting: 1500 },
       environments: [row('payments', 'prod', 'pay-a'), row('payments', 'prod', 'pay-b')] });
     const { target, destroy } = render(DeliveryEnvironmentsView, { offset: '25', q: 'pay' });
     await settle();
     expect([...target.querySelectorAll('thead th')].map((t) => t.textContent)).toEqual(['Service', 'test', 'prod', 'env-2', 'env-10']);
     expect(text(target)).toContain('400 services, 4 environments');
+    // The answer counts every page, not the two rows shown.
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('43 failed and 40 frozen. 1,500 Stages wait for a person.');
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).not.toContain('on this page');
     const stages = [...target.querySelectorAll('[data-testid="env-cell"] .ev-stage')].map((e) => e.textContent);
     expect(stages).toEqual(['prod/pay-a', 'prod/pay-b']);
     expect(text(target)).toContain('Cannot promote: The Stage names no candidates.');
