@@ -89,7 +89,9 @@ OPERATOR_IDENTITY := -s templates/serviceaccount.yaml -s templates/clusterrole.y
 .PHONY: helm-golden
 helm-golden: ## Prove the default render is unchanged and delivery leaves the operator's RBAC alone.
 	@echo "==> Checking the default render against the golden..."
-	@$(GOLDEN_RENDER) | diff -u $(GOLDEN) - || \
+	@# -B: Helm 4.3 puts a blank line before each document separator and 4.0 does not;
+	@# a blank line means nothing in YAML, and every other change still fails.
+	@$(GOLDEN_RENDER) | diff -u -B $(GOLDEN) - || \
 		{ echo "Error: the default render changed. If intended, run 'make helm-golden-update' and commit." >&2; exit 1; }
 	@echo "==> Checking delivery.enabled leaves the operator's ServiceAccount and RBAC unchanged..."
 	@diff -u <(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY)) \
