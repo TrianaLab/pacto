@@ -14,6 +14,7 @@
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
+  import Fold from '../components/Fold.svelte';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
 
@@ -39,6 +40,10 @@
   const frozen = $derived(inbox?.frozen ?? []);
   const errored = $derived(inbox?.errored ?? []);
   const total = (p, list) => p?.total ?? list.length;
+  // A question one team owns is yours alone; one several teams own, any of them may answer.
+  // Split on this page only: the server pages them together.
+  const mine = $derived(held.filter((it) => (it.owners?.length ?? 0) <= 1));
+  const shared = $derived(held.filter((it) => (it.owners?.length ?? 0) > 1));
   const nothing = $derived(!!inbox && total(inbox.heldPage, held) + total(inbox.frozenPage, frozen) + total(inbox.erroredPage, errored) === 0);
   // A link to another page of one section keeps the others where they are.
   const hrefFor = (section) => (off, lim) => deliveryInboxUrl({
@@ -46,10 +51,27 @@
   });
 </script>
 
+{#snippet row(it)}
+  <li class="pl-row pl-row--stack dl-row">
+    <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>
+      {typeLabel(it.type)} on {it.namespace}/{it.stage}{#if it.to}: {it.fromVersion && it.toVersion ? `${it.fromVersion} to ${it.toVersion}` : it.toVersion || shortDigest(it.to)}{/if}
+    </a>
+    {#if it.question}<p class="dl-question t-body">{shortDigests(it.question)}</p>{/if}
+    <MoveFirstList order={it.order} testid="inbox-move-first" />
+    <!-- Labels, not sentences: what is asked, who may answer and what it affects, on one line that wraps when full. -->
+    <p class="dl-facts t-body-2">
+      <span class="badge badge-neutral">{decisionLabel(it.decision) || 'A decision'}</span>
+      <span>{#if it.owners?.length}{it.owners.join(', ')} may answer{:else if deliverySession.data?.requireOwnerTeam}Nobody may answer: no team is declared, so only break-glass can override{:else}Any person may answer{/if}</span>
+      {#if it.consumers?.length}
+        <span class="dl-affects">Affects <CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList></span>
+      {/if}
+    </p>
+  </li>
+{/snippet}
+
 <div class="product-page">
   <PageHeader
     title="Inbox"
-    subtitle="What waits on you or your team: the question asked and the services it affects."
     count={inbox ? `${formatCount(total(inbox.heldPage, held))} waiting for a decision` : ''}
     asOf={inbox?.asOf}
     revalidating={!!inbox && loader.loading}
@@ -80,35 +102,36 @@
       <section aria-labelledby="inbox-held">
         <h2 id="inbox-held" class="t-section-title">Waiting for your decision</h2>
         {#if held.length && cannotApproveHere(deliverySession.data?.caller)}
-          <p class="t-body-2" data-testid="inbox-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in, so these changes can only be cancelled, left to expire or overridden by break-glass. <a href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
+          <p class="t-body-2" data-testid="inbox-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in. <a href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
         {/if}
         {#if held.length === 0}
           <p class="t-body-2 dl-none">No change is held for your teams.</p>
         {:else}
-          <ul class="pl-list" data-testid="inbox-held">
-            {#each held as it (it.namespace + '/' + it.name)}
-              <li class="pl-row pl-row--stack dl-row">
-                <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>
-                  {typeLabel(it.type)} on {it.namespace}/{it.stage}{#if it.to}: {it.fromVersion && it.toVersion ? `${it.fromVersion} to ${it.toVersion}` : it.toVersion || shortDigest(it.to)}{/if}
-                </a>
-                {#if it.question}<p class="dl-question t-body">{shortDigests(it.question)}</p>{/if}
-                <MoveFirstList order={it.order} testid="inbox-move-first" />
-                <!-- The facts share one line, each a label and its value, and wrap only when the line is full. -->
-                <dl class="dl-facts t-body-2">
-                  <div><dt>Decision asked</dt><dd>{decisionLabel(it.decision) || 'A decision'}</dd></div>
-                  <div><dt>Who may answer</dt><dd>{it.owners?.length ? it.owners.join(', ') : deliverySession.data?.requireOwnerTeam ? 'Nobody: no team is declared, so only break-glass can override' : 'Any person'}</dd></div>
-                  {#if it.consumers?.length}
-                    <div><dt>Affected services</dt>
-                    <dd><CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList></dd></div>
-                  {/if}
-                </dl>
-              </li>
-            {/each}
-          </ul>
+          {#if mine.length}
+            <ul class="pl-list" data-testid="inbox-held">
+              {#each mine as it (it.namespace + '/' + it.name)}{@render row(it)}{/each}
+            </ul>
+          {/if}
+          {#if shared.length && mine.length}
+            <!-- Questions several teams own: any of them may answer, so they fold behind their count. -->
+            <Fold title="Shared with other teams" level={3} meta={`${formatCount(shared.length)}${inbox.heldPage && inbox.heldPage.total > held.length ? ' on this page' : ''} · any of the teams may answer`} testid="inbox-shared">
+              <ul class="pl-list" data-testid="inbox-held-shared">
+                {#each shared as it (it.namespace + '/' + it.name)}{@render row(it)}{/each}
+              </ul>
+            </Fold>
+          {:else if shared.length}
+            <!-- Nothing here is yours alone, so the shared ones are what waits: no fold to open. -->
+            <ul class="pl-list" data-testid="inbox-held-shared">
+              {#each shared as it (it.namespace + '/' + it.name)}{@render row(it)}{/each}
+            </ul>
+          {/if}
           <Pager page={inbox.heldPage} href={hrefFor('held')} label="Pages of held changes" noun="held changes" testid="inbox-held-pager" />
         {/if}
       </section>
 
+      {#if !frozen.length && !errored.length}
+        <p class="t-meta dl-calm" data-testid="inbox-calm">{inbox.completeness === 'partial' ? 'Nothing frozen and nothing failed that you can see.' : 'Nothing frozen and nothing failed.'}</p>
+      {/if}
       <!-- Frozen Stages and changes that could not finish fold behind their count:
            the decisions above are what the reader came for. A link into one of their pages
            opens it. -->
@@ -161,10 +184,9 @@
   .dl-title { font-weight: 600; color: var(--c-accent); }
   .dl-question { margin: 0; }
   /* Centred, not baseline: the "Show all" button in the affected services is taller than text. */
-  .dl-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-4); margin: 0; }
-  .dl-facts > div { display: flex; gap: var(--sp-2); align-items: center; min-width: 0; }
-  .dl-facts dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  .dl-facts dd { margin: 0; }
+  .dl-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-3); margin: 0; color: var(--c-text-2); }
+  .dl-affects { min-width: 0; }
+  .dl-calm { margin: 0; color: var(--c-text-3); }
   .dl-facts a { text-decoration: underline; }
   .dl-none { color: var(--c-text-3); }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }

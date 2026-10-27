@@ -232,6 +232,8 @@ test.describe('Delivery views', () => {
     await expect(page).toHaveURL(/#\/delivery\/changes\/prod\/op1$/);
     await expect(page.getByTestId('decision-panel')).toContainText('Ship it?', { timeout: T });
     // Held before it applies: what happened would only repeat the plan, so it waits.
+    // The plan's check ended Unknown, a problem, so the folded checks start open.
+    await expect(page.getByTestId('change-checks')).toHaveAttribute('open', '');
     await expect(page.getByTestId('predicted-verdicts')).toBeVisible();
     await expect(page.getByTestId('actual-verdicts')).toHaveCount(0);
     await audit(page, 'change detail');

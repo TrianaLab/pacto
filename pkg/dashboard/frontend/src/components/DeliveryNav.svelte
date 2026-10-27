@@ -6,6 +6,7 @@
   import { loginUrl, signIn, hostSignsIn } from '../lib/delivery.ts';
   import Person from './Person.svelte';
   import CappedList from './CappedList.svelte';
+  import HelpTip from './HelpTip.svelte';
 
   // The delivery section's own navigation and who the views act as. Every
   // delivery view renders it first, so a person always sees whose identity an
@@ -55,7 +56,7 @@
   {:else if deliverySession.error}
     <span class="dn-err" role="alert">Could not read your session: {deliverySession.error?.message || deliverySession.error}</span>
   {:else if s?.mode === 'local'}
-    <span>Acting as <strong>{#if caller?.user}<Person user={caller.user} {me} />{:else}your kubeconfig user{/if}</strong> from this machine. Decisions on held changes are taken with <code>pacto delivery approve</code>.</span>
+    <span>Acting as <strong>{#if caller?.user}<Person user={caller.user} {me} />{:else}your kubeconfig user{/if}</strong> from this machine. <HelpTip label="deciding here" text="A dashboard on your own machine shows held changes but does not decide them. Decide with pacto delivery approve." /></span>
   {:else if s?.signedIn}
     <span>
       {#if caller?.user}
@@ -67,7 +68,7 @@
     </span>
     <button type="button" class="btn btn-sm" onclick={signOut}>{hostSignsIn() ? 'Switch person' : 'Sign out'}</button>
   {:else}
-    <span>You are not signed in, so delivery shows nothing and offers no actions.</span>
+    <span>You are not signed in. Delivery shows nothing until you do.</span>
     <a class="btn btn-sm btn-primary" href={loginUrl(location.hash || deliveryInboxUrl())}>Sign in</a>
   {/if}
   {#if signOutError}<span class="dn-err" role="alert">{signOutError}</span>{/if}
