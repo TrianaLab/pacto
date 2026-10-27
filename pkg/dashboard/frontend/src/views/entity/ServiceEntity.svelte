@@ -216,7 +216,7 @@
   .se-conflict-list li { overflow-wrap: anywhere; }
   .se-conflict-more { color: var(--c-text-3); }
   .se-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-3); align-items: start; }
-  .se-grid--two { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .se-grid--two { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
   /* Same frame as a PreviewSection -- this block is a section like any other, it just
      renders bars instead of a list. Its padding matches so the page has one rhythm. */
   .se-summary { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }
