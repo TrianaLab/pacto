@@ -252,7 +252,7 @@
     `${shown.nodes.length} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${shown.edges.length} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
     withheldNodes ? `${withheldNodes} more within this depth are not shown.` : '',
     grouped?.folded ? `${grouped.folded} of them are grouped by team on the canvas; the list below names each one.` : '',
-    grouped?.more ? `${grouped.more.reduce((t, m) => t + m.count, 0)} direct neighbors wait behind "more" on the canvas; the list below names each one.` : '',
+    grouped?.more ? `${grouped.more.reduce((t, m) => t + m.count, 0)} direct neighbors wait behind "more" on the canvas${grouped.folded ? '.' : '; the list below names each one.'}` : '',
     hiddenLabels.length ? `Dimmed on the canvas: ${hiddenLabels.join(', ')}.` : '',
     selectedSummary,
   ].filter(Boolean).join(' '));
