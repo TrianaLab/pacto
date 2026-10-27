@@ -9,7 +9,6 @@
   import { api } from './lib/api.ts';
   import { deliverySession, loadSession } from './lib/deliverySession.svelte.ts';
   import { hostSignsIn } from './lib/delivery.ts';
-  import IdentityBar from './components/IdentityBar.svelte';
   import SignInScreen from './components/SignInScreen.svelte';
   import CappedList from './components/CappedList.svelte';
   import Navbar from './Navbar.svelte';
@@ -313,8 +312,6 @@
     <button type="button" class="banner-retry" onclick={() => loadGlobal(true)}>Retry now</button>
   </div>
 {/if}
-
-<IdentityBar />
 
 {#if capabilities?.auth?.hidden && !nothingVisible && !route.view.startsWith('delivery-')}
   <p class="permissions-note" role="status" data-testid="hidden-by-permissions">

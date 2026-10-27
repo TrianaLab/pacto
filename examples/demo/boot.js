@@ -308,7 +308,10 @@
 
     // The controls the delivery steps point at.
     var PROPOSE_BTN = '[data-testid="propose-panel"] button[type=submit]';
-    var SWITCH_BTN = '[data-testid="sign-out"]';
+    // Switch person sits in the person menu at the top right; it can be lit only
+    // while that menu is open.
+    var PERSON_MENU = '[data-testid="identity-trigger"]';
+    var SWITCH_BTN = '#navbar-identity:popover-open [data-testid="sign-out"]';
     var NOTE = '[data-testid="decision-panel"] textarea';
     var APPROVE = '[data-testid="decide-approve"]';
     var SIGNIN_BTN = '[data-testid="demo-signin-submit"]';
@@ -401,17 +404,25 @@
         digestOf("checkout", "1.9.0").then(function (to) { return propose({ namespace: "prod", stage: "checkout", to: to }); });
       }
     }, {
-      text: "Only a person on the asked team decides, so press Switch person.",
+      text: "Only a person on the asked team decides, so open the person menu at the top right.",
       hash: changeHash,
-      target: SWITCH_BTN,
+      target: PERSON_MENU,
+      wait: "Waiting for the person menu to open.",
+      gate: function () { return !!q(SWITCH_BTN) || !!q('[data-testid="demo-persona-carol"]') || persona === "carol"; },
+      skip: function () { var m = q("#navbar-identity"); if (m && m.showPopover) { m.showPopover(); } }
+    }, {
+      text: "Press Switch person.",
+      hash: changeHash,
+      // Back to the menu button if the menu was closed without a press.
+      target: [PERSON_MENU, SWITCH_BTN],
       wait: "Waiting for the list of people to open.",
       gate: function () { return !!q('[data-testid="demo-persona-carol"]') || persona === "carol"; },
       skip: function () { setPersona("carol", false); }
     }, {
       text: "Pick Carol, who is on team orders.",
       hash: changeHash,
-      // Back to the button if the list was closed without a pick.
-      target: [SWITCH_BTN, '[data-testid="demo-persona-carol"]'],
+      // Back to the menu if the list was closed without a pick.
+      target: [PERSON_MENU, SWITCH_BTN, '[data-testid="demo-persona-carol"]'],
       wait: "Waiting for Carol to be picked.",
       gate: function () { return persona === "carol"; },
       skip: function () {

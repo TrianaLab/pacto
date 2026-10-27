@@ -29,6 +29,7 @@ async function promote(page: Page, service: string, version: string) {
 }
 
 async function switchTo(page: Page, who: 'pay-agent' | 'alice' | 'carol') {
+  await page.getByTestId('identity-trigger').click();
   await page.getByRole('button', { name: 'Switch person' }).click();
   await page.getByTestId(`demo-persona-${who}`).click();
   await expect(page.getByTestId('demo-signin')).toHaveCount(0);
@@ -265,7 +266,9 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(next).toBeVisible({ timeout: T });
     await next.click();
 
-    await step('so press Switch person', '[data-testid="sign-out"]');
+    await step('so open the person menu', '[data-testid="identity-trigger"]');
+    await page.getByTestId('identity-trigger').click();
+    await step('Press Switch person', '#navbar-identity [data-testid="sign-out"]');
     await page.getByRole('button', { name: 'Switch person' }).click();
     await step('Pick Carol', '[data-testid="demo-persona-carol"]');
     await page.getByTestId('demo-persona-carol').click();
