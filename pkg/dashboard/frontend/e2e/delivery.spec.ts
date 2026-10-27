@@ -164,6 +164,10 @@ function installDelivery(persona: Persona): void {
     if ((route.startsWith('/api/') || route === '/auth/logout') && method !== 'GET' && persona !== 'signed-out' && headers['x-pacto-csrf'] !== 't') {
       return json(403, { status: 403, code: 'Forbidden', detail: 'missing or wrong X-Pacto-CSRF header' });
     }
+    // Like the gate: signed out, the API answers nothing but the session.
+    if (persona === 'signed-out' && route.startsWith('/api/') && route !== '/api/session') {
+      return { status: 401, body: 'sign in to use this dashboard', contentType: 'text/plain' };
+    }
     if (route === '/api/capabilities') {
       const doc = JSON.parse((await (real as Serve)(method, path, body)).body);
       return json(200, { ...doc, delivery: true, miraURL: 'https://mira.example',
@@ -223,7 +227,7 @@ test.describe('Delivery views', () => {
     await expect(held).toContainText('Breaks checkout');
     await expect(held).toContainText('team-checkout');
     await expect(held.getByRole('link', { name: 'checkout', exact: true })).toBeVisible();
-    await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as carol https://idp#carol');
+    await expect(page.getByTestId('identity')).toContainText('Signed in as carol https://idp#carol');
     await audit(page, 'inbox');
 
     const link = held.getByRole('link', { name: /^Promote on prod\/payments-prod/ });
@@ -301,14 +305,20 @@ test.describe('Delivery views', () => {
     await as(page, 'local');
     await page.goto('/#/delivery/changes/prod/op1');
     await expect(page.getByTestId('decision-panel')).toContainText('pacto delivery approve -n prod op1 --decision approve', { timeout: T });
-    await expect(page.getByTestId('delivery-identity')).toContainText('Acting as kind-admin from this machine');
+    await expect(page.getByTestId('identity')).toContainText('Acting as kind-admin from this machine');
   });
 
-  test('a signed-out person is asked to sign in and sees no delivery data', async ({ page }) => {
+  test('a signed-out person sees only the sign-in screen, on a delivery page and on a fleet page', async ({ page }) => {
     await as(page, 'signed-out');
-    await page.goto('/#/delivery/environments');
-    await expect(page.getByTestId('delivery-signin')).toBeVisible({ timeout: T });
-    await expect(page.getByTestId('environments-board')).toHaveCount(0);
+    for (const hash of ['#/delivery/environments', '#/fleet/services']) {
+      await page.goto(`/${hash}`);
+      const screen = page.getByTestId('sign-in');
+      await expect(screen).toBeVisible({ timeout: T });
+      await expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', `/auth/login?return=${encodeURIComponent('/' + hash)}`);
+      await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
+      await expect(page.getByTestId('environments-board')).toHaveCount(0);
+      await expect(page.getByTestId('identity')).toHaveCount(0);
+    }
     await audit(page, 'signed out');
   });
 

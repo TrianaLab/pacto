@@ -265,7 +265,7 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(next).toBeVisible({ timeout: T });
     await next.click();
 
-    await step('so press Switch person', '[data-testid="delivery-identity"] button');
+    await step('so press Switch person', '[data-testid="sign-out"]');
     await page.getByRole('button', { name: 'Switch person' }).click();
     await step('Pick Carol', '[data-testid="demo-persona-carol"]');
     await page.getByTestId('demo-persona-carol').click();
@@ -322,7 +322,7 @@ test.describe('Browser demo: the delivery story', () => {
       await ready(page, '#/delivery/inbox');
       for (const hash of ['#/delivery/inbox', '#/delivery/environments', '#/delivery/history', '#/delivery/history?namespace=prod&stage=payments', '#/delivery/publish', '#/delivery/changes/prod/payments-promote-2']) {
         await page.goto(`/${hash}`);
-        await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as', { timeout: T });
+        await expect(page.getByTestId('identity')).toContainText('Signed in as', { timeout: T });
         await audit(page, `${hash} on ${label}`);
       }
     });

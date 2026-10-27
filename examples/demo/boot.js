@@ -308,7 +308,7 @@
 
     // The controls the delivery steps point at.
     var PROPOSE_BTN = '[data-testid="propose-panel"] button[type=submit]';
-    var SWITCH_BTN = '[data-testid="delivery-identity"] button';
+    var SWITCH_BTN = '[data-testid="sign-out"]';
     var NOTE = '[data-testid="decision-panel"] textarea';
     var APPROVE = '[data-testid="decide-approve"]';
     var SIGNIN_BTN = '[data-testid="demo-signin-submit"]';

@@ -306,8 +306,16 @@ YAML
   [ "${out%% *}" = 200 ] && ! grep -q "rbac-closed" <<<"$out" || fail "erin's snapshot names what she may not read: ${out:0:300}"
   dash "$erin" GET /api/capabilities | cut -d' ' -f2- | jq -e '.auth.hidden == true' >/dev/null \
     || fail "erin is not told that some services are hidden"
-  [ "$(names "")" = '[]' ] || fail "a visitor who has not signed in sees services: $(names "")"
-  pass "signed in, erin sees only rbac-open's services, alice sees both and a visitor none"
+  dash "$erin" GET /api/session | cut -d' ' -f2- | jq -e --arg iss "$DEX_ISSUER" \
+    '(.user | startswith($iss + "#")) and (.groups | index("team-viewers"))' >/dev/null \
+    || fail "erin's session does not name her user and groups: $(dash "$erin" GET /api/session)"
+  # Signed out, every fleet view is refused, not narrowed.
+  local path
+  for path in "/api/fleet/services?text=rbac-" /api/fleet/snapshot /api/fleet/overview /api/capabilities /api/sources /metrics; do
+    out="$(dash "" GET "$path")"
+    [ "${out%% *}" = 401 ] || fail "a visitor who has not signed in got $path: ${out:0:300}"
+  done
+  pass "signed in, erin sees only rbac-open's services and alice sees both; a visitor gets no fleet view at all"
 }
 
 identity_scenario() {
@@ -396,12 +404,18 @@ identity_scenario() {
   mcp_up() { [ "$(curl -s -o /dev/null -w '%{http_code}' "$MCP_URL/mcp")" = 401 ]; }
   eventually 40 mcp_up || { docker logs pacto-e2e-mcp 2>&1 | tail; fail "the MCP server did not start"; }
 
-  local caps; caps="$(curl -s "$DASH_URL/api/capabilities")"
-  jq -e '.delivery == true and .auth.mode == "shared" and .auth.login == true and .auth.signedIn == false' <<<"$caps" >/dev/null \
-    || fail "capabilities: $caps"
-  local out; out="$(dash "" GET /api/delivery/inbox)"
-  [ "${out%% *}" = 401 ] && grep -q LoginRequired <<<"$out" || fail "delivery without sign-in: $out"
-  pass "delivery is offered where it is installed, and only to people who signed in"
+  # Signed out, the page, its sign-in check and the probes answer; the API does not.
+  local out; out="$(dash "" GET /api/session)"
+  jq -e '.mode == "shared" and .login == true and .signedIn == false' <<<"${out#* }" >/dev/null || fail "session signed out: $out"
+  [ "$(curl -s -o /dev/null -w '%{http_code}' "$DASH_URL/")" = 200 ] || fail "the sign-in page does not load signed out"
+  [ "$(curl -s -o /dev/null -w '%{http_code}' "$DASH_URL/health")" = 200 ] || fail "/health is not open to probes"
+  out="$(dash "" GET /api/delivery/inbox)"
+  [ "${out%% *}" = 401 ] || fail "delivery without sign-in: $out"
+  local signed; signed="$(login alice)" || fail "alice could not sign in to the dashboard"
+  out="$(dash "$signed" GET /api/capabilities)"
+  jq -e '.delivery == true and .auth.mode == "shared" and .auth.login == true and .auth.signedIn == true' <<<"${out#* }" >/dev/null \
+    || fail "capabilities: $out"
+  pass "the dashboard answers nothing before sign-in, and offers delivery to people who signed in"
   identity_rbac_views
 
   # --- the dashboard: people act as themselves ---
