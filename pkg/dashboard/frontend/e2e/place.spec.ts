@@ -93,11 +93,11 @@ async function watchForBlanking(page: Page) {
 /** Count the app's own polling requests, so a test can wait for a REAL background poll. */
 function installPollCounter(): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
   const w = window as unknown as { __polls: number };
   w.__polls = 0;
   let real: Serve | null = null;
-  const wrapped: Serve = (method, path, body) => {
+  const wrapped: Serve = async (method, path, body) => {
     // /health is fetched once per loadGlobal() and by nothing else, so it counts
     // refreshes exactly -- automatic and explicit alike.
     if (path.startsWith('/health')) w.__polls++;

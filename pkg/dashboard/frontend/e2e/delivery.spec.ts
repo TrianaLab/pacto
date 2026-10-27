@@ -25,7 +25,7 @@ type Persona = 'carol' | 'alice' | 'robot' | 'local' | 'signed-out';
 
 function installDelivery(persona: Persona): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null, headers?: Record<string, string>) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null, headers?: Record<string, string>) => Promise<ServeResult>;
   let real: Serve | null = null;
   const json = (status: number, v: unknown): ServeResult => ({ status, body: JSON.stringify(v), contentType: 'application/json' });
   const S = sessionStorage;
@@ -156,7 +156,7 @@ function installDelivery(persona: Persona): void {
     return json(404, { status: 404, code: 'NotFound', detail: `no mock for ${method} ${route}` });
   };
 
-  const wrapped: Serve = (method, path, body, headers = {}) => {
+  const wrapped: Serve = async (method, path, body, headers = {}) => {
     const route = path.split('?')[0];
     // Like the dashboard's guard (internal/authn/guard.go): with a session,
     // every mutating call under /api/ and to /auth/logout carries the
@@ -165,7 +165,7 @@ function installDelivery(persona: Persona): void {
       return json(403, { status: 403, code: 'Forbidden', detail: 'missing or wrong X-Pacto-CSRF header' });
     }
     if (route === '/api/capabilities') {
-      const doc = JSON.parse((real as Serve)(method, path, body).body);
+      const doc = JSON.parse((await (real as Serve)(method, path, body)).body);
       return json(200, { ...doc, delivery: true, miraURL: 'https://mira.example',
         auth: { mode: persona === 'local' ? 'local' : 'shared', login: persona !== 'local', signedIn: persona !== 'signed-out' } });
     }

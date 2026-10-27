@@ -59,11 +59,11 @@ const attentionText = async (page: Page) =>
  */
 function installSparseOwnership(): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
   let real: Serve | null = null;
 
-  const wrapped: Serve = (method, path, body) => {
-    const res = (real as Serve)(method, path, body);
+  const wrapped: Serve = async (method, path, body) => {
+    const res = await (real as Serve)(method, path, body);
     const [route, search] = path.split('?');
     const query = new URLSearchParams(search || '');
     if (route !== '/api/fleet/entities' || query.get('kinds') !== 'service' || query.get('limit') !== '1' || res.status !== 200) return res;
@@ -89,11 +89,11 @@ function installSparseOwnership(): void {
  */
 function installOverCount(): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
   let real: Serve | null = null;
 
-  const wrapped: Serve = (method, path, body) => {
-    const res = (real as Serve)(method, path, body);
+  const wrapped: Serve = async (method, path, body) => {
+    const res = await (real as Serve)(method, path, body);
     const [route, search] = path.split('?');
     const query = new URLSearchParams(search || '');
     if (route !== '/api/fleet/entities' || query.get('kinds') !== 'service' || query.get('limit') !== '1' || res.status !== 200) return res;

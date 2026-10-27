@@ -155,6 +155,8 @@ hooks:
   # Stage the pinned Mermaid runtime into the site, so no page fetches it from a
   # CDN at read time. See the hook; a missing runtime fails the build.
   - release/scripts/mkdocs_mermaid_hook.py
+  # `mkdocs serve` only: no live-reload inline script in a page with a CSP (the demo).
+  - release/scripts/mkdocs_livereload_csp_hook.py
 
 extra_css:
   - stylesheets/extra.css
