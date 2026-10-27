@@ -124,6 +124,7 @@ spec:
                 - pointer
                 - freeze
                 - rung
+                - upstream
                 type: string
               intentDigest:
                 description: IntentDigest is what plan() returned; the promoter recomputes
@@ -146,6 +147,10 @@ spec:
                 properties:
                   from:
                     type: string
+                  record:
+                    description: Record is the id of the upstream stand-in an acknowledge
+                      accepts.
+                    type: string
                   to:
                     type: string
                   undoes:
@@ -165,6 +170,7 @@ spec:
                 - delivery.pacto.trianalab.io/unfreeze
                 - delivery.pacto.trianalab.io/freeze
                 - delivery.pacto.trianalab.io/autonomy
+                - delivery.pacto.trianalab.io/acknowledge
                 type: string
               witnessed:
                 description: |-

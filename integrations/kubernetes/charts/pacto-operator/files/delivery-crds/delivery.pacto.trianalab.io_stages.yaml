@@ -686,6 +686,14 @@ spec:
                     format: int64
                     type: integer
                 type: object
+              upstreamAcknowledged:
+                description: |-
+                  UpstreamAcknowledged holds the ids of the unrecordable stand-ins in the
+                  upstream stream that a person on this Stage checked and acknowledged,
+                  oldest first (cap 50). They no longer stop the Stage offering.
+                items:
+                  type: string
+                type: array
               upstreamSeen:
                 description: |-
                   UpstreamSeen is the newest record this Stage read from the upstream

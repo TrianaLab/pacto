@@ -278,7 +278,7 @@ func registryKeychain() authn.Keychain {
 // upstreamReader reads what a Stage in another cluster verified from its
 // signed records, verified against the trust config in file, under a timeout.
 func upstreamReader(file string, keychain authn.Keychain) (
-	func(context.Context, core.RemoteStage, core.RecordMark) (*core.StageStatus, string), error,
+	func(context.Context, core.RemoteStage, core.RecordMark, []string) (*core.StageStatus, string), error,
 ) {
 	raw, err := os.ReadFile(file)
 	if err != nil {
@@ -296,13 +296,13 @@ func upstreamReader(file string, keychain authn.Keychain) (
 	opts := ocireferrer.Options{Keychain: keychain, Insecure: insecure}
 	// One Reader for the process: every record it verified is fetched once.
 	reader := &deliveryrecord.Reader{Verify: verify}
-	return func(ctx context.Context, r core.RemoteStage, seen core.RecordMark) (*core.StageStatus, string) {
+	return func(ctx context.Context, r core.RemoteStage, seen core.RecordMark, acked []string) (*core.StageStatus, string) {
 		repo, err := ocireferrer.Open(r.Repository, opts)
 		if err != nil {
 			return nil, err.Error()
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		return reader.Upstream(ctx, repo, r.Stream, seen)
+		return reader.Upstream(ctx, repo, r.Stream, seen, acked)
 	}, nil
 }

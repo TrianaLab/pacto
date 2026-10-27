@@ -73,6 +73,9 @@ func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, st
 	if reason, err := r.causeRefusal(ctx, op, stage); reason != "" || err != nil {
 		return reason, err
 	}
+	if reason := delivery.AdmitAcknowledge(s, stage.Spec); reason != "" {
+		return reason, nil
+	}
 	if reason := r.unfreezeRefusal(ctx, op, stage); reason != "" {
 		return reason, nil
 	}
@@ -142,15 +145,19 @@ func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operatio
 	return "", nil
 }
 
-// unfreezeRefusal says why a person may not unfreeze the Stage, or "": a
-// person unfreezes only a Stage of their own team's service, the team the
-// contract running there declares, since an unfreeze takes effect at once and
-// can let automation re-offer a version that team pulled. Break-glass may
-// unfreeze any Stage. With no team declared, or none readable, any person may,
-// or nobody with RequireOwnerTeam.
+// unfreezeRefusal says why a person may not unfreeze the Stage, or
+// acknowledge an upstream stand-in on it, or "": a person does either only on
+// a Stage of their own team's service, the team the contract running there
+// declares, since both take effect at once and can let automation offer a
+// version again. Break-glass may on any Stage. With no team declared, or none
+// readable, any person may, or nobody with RequireOwnerTeam.
 func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) string {
-	if op.Spec.Type != delivery.TypeUnfreeze || op.Status.ActorClass != delivery.ClassHuman {
+	if op.Spec.Type != delivery.TypeUnfreeze && op.Spec.Type != delivery.TypeAcknowledge || op.Status.ActorClass != delivery.ClassHuman {
 		return ""
+	}
+	verb := "unfreeze it"
+	if op.Spec.Type == delivery.TypeAcknowledge {
+		verb = "acknowledge its upstream stand-ins"
 	}
 	var team []string
 	running := delivery.Revision{Err: "nothing runs on it"}
@@ -172,10 +179,10 @@ func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Opera
 	}
 	if len(team) == 0 {
 		return "NoOwnerTeam: the contract running on " + stage.Name + " declares no team or cannot be read (" + running.Err +
-			"), and only an owner team may unfreeze it; break-glass can"
+			"), and only an owner team may " + verb + "; break-glass can"
 	}
 	return "NotYourTeam: " + op.Spec.Actor.User + " is not in " + team[0] + ", the team of the service " + stage.Name +
-		" runs, so they may not unfreeze it; that team or break-glass can"
+		" runs, so they may not " + verb + "; that team or break-glass can"
 }
 
 // cited finds the operation a rollback undoes, by uid, on the same Stage.

@@ -315,6 +315,8 @@ func opObj(name, typ, from, to string, actor string, groups ...string) *dv1.Oper
 		facet = delivery.FacetFreeze
 	case delivery.TypeAutonomy:
 		facet = delivery.FacetRung
+	case delivery.TypeAcknowledge:
+		facet = delivery.FacetUpstream
 	}
 	o := &dv1.Operation{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, UID: types.UID("uid-" + name),
 		CreationTimestamp: metav1.NewTime(time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC))},
