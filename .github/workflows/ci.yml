@@ -179,6 +179,8 @@ jobs:
               - 'integrations/kubernetes/cmd/delivery/**'
               - 'integrations/kubernetes/internal/delivery/**'
               - 'integrations/kubernetes/charts/pacto-operator/templates/delivery/**'
+              # The delivery templates render through the chart's shared helpers.
+              - 'integrations/kubernetes/charts/pacto-operator/templates/_*.tpl'
               - 'integrations/kubernetes/charts/pacto-operator/templates/crds.yaml'
               - 'integrations/kubernetes/charts/pacto-operator/files/crds/delivery.*'
               - 'pkg/delivery/**'

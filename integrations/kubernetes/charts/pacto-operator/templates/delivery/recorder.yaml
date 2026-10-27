@@ -51,49 +51,12 @@ rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages/status, operations/status]
     verbs: [get, update]
-  - apiGroups: [source.toolkit.fluxcd.io]
-    resources: [ocirepositories]
-    verbs: [get]
-  {{- if .Values.delivery.argocd.enabled }}
-  - apiGroups: [argoproj.io]
-    resources: [applications]
-    verbs: [get]
-  {{- end }}
-  - apiGroups: [""]
-    resources: [namespaces]
-    resourceNames: [kube-system]
-    verbs: [get]
+  {{- include "pacto-operator.delivery.rbac.pointerReadRules" . | nindent 2 }}
+  {{- include "pacto-operator.delivery.rbac.clusterIdentityRule" . | nindent 2 }}
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- $labels | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ $name }}
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "pacto-operator.delivery.recorderServiceAccountName" . }}
-    namespace: {{ include "pacto-operator.delivery.namespace" . }}
+{{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" $name "labels" $labels "serviceAccount" (include "pacto-operator.delivery.recorderServiceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ $name }}-leader-election
-  namespace: {{ include "pacto-operator.delivery.namespace" . }}
-  labels:
-    {{- $labels | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "pacto-operator.delivery.recorderServiceAccountName" . }}
-    namespace: {{ include "pacto-operator.delivery.namespace" . }}
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-leader-election" $name) "namespace" (include "pacto-operator.delivery.namespace" .) "roleName" (printf "%s-leader-election" (include "pacto-operator.delivery.fullname" .)) "labels" $labels "serviceAccount" (include "pacto-operator.delivery.recorderServiceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
 ---
 {{- if $r.trust }}
 # Other keys whose records the recorder accepts, per stream glob: the old key

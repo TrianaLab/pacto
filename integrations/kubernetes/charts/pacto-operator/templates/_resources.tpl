@@ -193,3 +193,49 @@ spec:
     matchLabels:
       {{- .selector | nindent 6 }}
 {{- end }}
+
+{{/*
+A RoleBinding or ClusterRoleBinding to one ServiceAccount, or to a Group.
+  kind                      RoleBinding or ClusterRoleBinding
+  name, namespace, labels   the object's (no namespace for a ClusterRoleBinding)
+  roleName                  the role it binds (default: name); a RoleBinding
+                            binds a Role, a ClusterRoleBinding a ClusterRole
+  serviceAccount, serviceAccountNamespace, or group   the subject
+*/}}
+{{- define "pacto-operator.binding" -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ .kind }}
+metadata:
+  name: {{ .name }}
+  {{- with .namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- .labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ trimSuffix "Binding" .kind }}
+  name: {{ .roleName | default .name }}
+subjects:
+  {{- if .group }}
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: {{ .group }}
+  {{- else }}
+  - kind: ServiceAccount
+    name: {{ .serviceAccount }}
+    namespace: {{ .serviceAccountNamespace }}
+  {{- end }}
+{{- end }}
+
+{{/*
+A controller's leader election rules: its Lease and the Events it emits.
+*/}}
+{{- define "pacto-operator.rbac.leaderElectionRules" -}}
+- apiGroups: [coordination.k8s.io]
+  resources: [leases]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+{{- end }}

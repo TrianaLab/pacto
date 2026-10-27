@@ -127,3 +127,59 @@ second Namespace of the same name.
 {{- end }}
 {{- $ns }}
 {{- end }}
+
+{{/*
+Read access to what a Stage points at: the OCIRepositories, and the Argo CD
+Applications with delivery.argocd.enabled.
+*/}}
+{{- define "pacto-operator.delivery.rbac.pointerReadRules" -}}
+- apiGroups: [source.toolkit.fluxcd.io]
+  resources: [ocirepositories]
+  verbs: [get]
+{{- if .Values.delivery.argocd.enabled }}
+- apiGroups: [argoproj.io]
+  resources: [applications]
+  verbs: [get]
+{{- end }}
+{{- end }}
+
+{{/*
+The cluster's identity: the kube-system Namespace, whose UID names the
+cluster in operations and records.
+*/}}
+{{- define "pacto-operator.delivery.rbac.clusterIdentityRule" -}}
+- apiGroups: [""]
+  resources: [namespaces]
+  resourceNames: [kube-system]
+  verbs: [get]
+{{- end }}
+
+{{/*
+What an agent may do: propose, read and cancel operations, read Stages and
+approvals and what they point at, and read the Pactos and Kustomizations
+planning needs. (dict "ctx" $ "approver" true) adds creating Approvals.
+*/}}
+{{- define "pacto-operator.delivery.rbac.agentRules" -}}
+- apiGroups: [delivery.pacto.trianalab.io]
+  resources: [operations]
+  verbs: [get, list, watch, create, delete]
+{{- if .approver }}
+- apiGroups: [delivery.pacto.trianalab.io]
+  resources: [approvals]
+  verbs: [get, list, watch, create]
+- apiGroups: [delivery.pacto.trianalab.io]
+  resources: [stages]
+  verbs: [get, list, watch]
+{{- else }}
+- apiGroups: [delivery.pacto.trianalab.io]
+  resources: [stages, approvals]
+  verbs: [get, list, watch]
+{{- end }}
+{{ include "pacto-operator.delivery.rbac.pointerReadRules" .ctx }}
+- apiGroups: [kustomize.toolkit.fluxcd.io]
+  resources: [kustomizations]
+  verbs: [list]
+- apiGroups: [pacto.trianalab.io]
+  resources: [pactos]
+  verbs: [get, list]
+{{- end }}
