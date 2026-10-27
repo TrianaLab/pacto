@@ -1,8 +1,8 @@
 # Drive Pacto from an agent
 
 This page is for an engineer who wants an AI agent, such as Claude, Cursor
-or Copilot, to use Pacto. It covers how to connect the agent, what it can and
-cannot do, and the limits that keep it safe. Every tool and input is listed
+or Copilot, to use Pacto. It covers how to connect the agent, what it can do
+and the limits that keep it safe. Every tool and input is listed
 in the [MCP reference](mcp-reference.md).
 
 ## The words on this page
@@ -133,9 +133,9 @@ change.
 - **Tools carry no safety labels.** Pacto does not mark its tools as
   read-only or destructive in MCP, so build allow-lists by name from the
   table below.
-- **A missing answer is not proof.** Fleet answers carry `asOf`, the time
+- **Partial answers say so.** Fleet answers carry `asOf`, the time
   they describe, and `completeness`, `complete` or `partial`. When a source was unreachable the answer says `partial`,
-  and "not found" then means "not known", not "does not exist".
+  and "not found" then means "not known".
 - **Answers are frozen at start.** `--root`, `--fleet` and a bundle (the
   `./my-service` argument) are read
   once when the server starts. Restart it to see newer services or versions.
@@ -154,7 +154,7 @@ change.
 | `pacto_create`, `pacto_edit` | every mode but `--root` | Write contract files. `pacto_create` with `pactify: true` does what `pacto init` does for a folder or a cluster (see [Pactify a service](pactify.md)) |
 | `pacto_check`, `pacto_schema` | every mode but `--root` | Read |
 | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_impact` | `--fleet` | Read |
-| `pacto_catalog_revision`, plus two MCP resources (documents the agent can read, not tools): `pacto://catalog` and `pacto://catalog/closure`, the contracts you named plus everything they depend on | `--root` | Read |
+| `pacto_catalog_revision`, plus two MCP resources (documents the agent reads): `pacto://catalog` and `pacto://catalog/closure`, the contracts you named plus everything they depend on | `--root` | Read |
 | One tool per API operation, named by its `operationId` (or `<method>_<path>`) | a bundle | Calls your service: read-only, or its write operations too with `--allow-writes` |
 | `pacto_skill` | a bundle | Read: returns the notes a bundle ships for agents in `skills/*.md` |
 | `pacto_publish_plan` | `--publish` | Read |
@@ -180,9 +180,9 @@ You:    Check the contract in ./user-service
 Claude: user-service is valid.
 ```
 
-Pacto adds a dependency only from calls it actually observed (with the node
-agent running, pactify does), never from a guess. Otherwise you add them
-yourself, as in the second prompt.
+Pacto adds a dependency only from calls it observed (with the node agent
+running, pactify does). Add any other dependency yourself, as in the second
+prompt.
 
 ## If the tools do not show up
 
