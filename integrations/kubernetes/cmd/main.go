@@ -168,7 +168,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardAuth.UsernameClaim, "dashboard-oidc-username-claim", "",
 		"ID token claim the API server takes the username from; must match its claim mapping (empty: sub).")
 	fs.StringVar(&o.dashboardAuth.UsernamePrefix, "dashboard-oidc-username-prefix", "",
-		"Prefix the API server puts before the username; must match its claim mapping (empty: the issuer URL and #; - for none).")
+		"Prefix the API server puts before the username; must match its claim mapping "+
+			"(empty: the issuer URL and #; - for none).")
 	fs.StringVar(&o.dashboardAuth.GroupsClaim, "dashboard-oidc-groups-claim", "",
 		"ID token claim the API server takes the groups from; must match its claim mapping (empty: groups).")
 	fs.StringVar(&o.dashboardAuth.GroupsPrefix, "dashboard-oidc-groups-prefix", "",
