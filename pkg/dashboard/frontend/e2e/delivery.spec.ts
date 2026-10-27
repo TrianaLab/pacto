@@ -323,7 +323,7 @@ test.describe('Delivery views', () => {
     await page.goto('/#/delivery/history?namespace=prod&stage=payments-prod');
     const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
     const test_ = page.getByRole('region', { name: 'History of test/payments-test' });
-    await expect(prod.getByTestId('history-source')).toHaveText('From signed records, every signature verified, partial.', { timeout: T });
+    await expect(prod.getByTestId('history-source')).toHaveText('From signed records, partial.', { timeout: T });
     await expect(test_.getByTestId('history-source')).toHaveText('From status, partial.');
     await expect(prod.getByTestId('history-problems')).toContainText('something moved it with no record');
     await expect(prod.getByTestId('history-unreadable')).toContainText('not trusted here');

@@ -68,7 +68,10 @@
 
   /** Where a history came from, in words. */
   function sourceLabel(h) {
-    const from = h.source !== 'records' ? 'From status' : h.verified ? 'From signed records, every signature verified' : 'From records, signatures not verified';
+    // "Every signature verified" only when nothing was left unread: the count beside it says what was.
+    const unread = h.unreadable?.length ?? h.unreadableCount ?? 0;
+    const from = h.source !== 'records' ? 'From status' : !h.verified ? 'From records, signatures not verified'
+      : unread ? 'From signed records' : 'From signed records, every signature verified';
     return `${from}, ${h.completeness === 'complete' ? 'complete' : 'partial'}`;
   }
 
@@ -96,22 +99,29 @@
   // its newest change and how it ended.
   const lead = $derived.by(() => {
     if (one) {
-      const en = histories.length === 1 ? histories[0].entries?.[0] : undefined;
+      const h = histories.length === 1 ? histories[0] : undefined;
+      const en = h?.entries?.[0];
       if (!en) return null;
+      const tip = `What happened on this Stage, newest change first. ${ABOUT}`;
+      const frozen = h.stage.frozen ? 'The Stage is frozen.' : '';
+      // Where the Stage stands: its changes waiting for a person, counted on
+      // this page ("at least" when the page is all held and there is more).
+      const held = h.entries.filter((e) => e.phase === 'Held').length;
+      if (held) {
+        const atLeast = held === h.entries.length && (h.entriesPage?.total ?? 0) > held ? 'At least ' : '';
+        return { head: `${atLeast}${countOf(held, 'change')} held, waiting for a person.`, rest: frozen, tip };
+      }
       const what = `${changeLabel(en)}${en.from || en.to ? ` ${move(en)}` : ''}`;
-      return { head: `${what}:`, rest: `${(en.outcome || en.phase || 'not known').toLowerCase()}.`, tip: `What happened on this Stage, newest change first. ${ABOUT}` };
+      return { head: `${what}:`, rest: [`${(en.outcome || en.phase || 'not known').toLowerCase()}.`, frozen].filter(Boolean).join(' '), tip };
     }
     if (!histories.length) return null;
-    // One sentence per kind of trouble, naming the Stages: "1 Stage has record problems: payments in test."
-    const said = (f, one, many) => {
-      const hs = histories.filter(f);
-      return hs.length ? `${countOf(hs.length, 'Stage')} ${hs.length === 1 ? one : many}: ${andList(hs.map((h) => `${h.stage.name} in ${h.namespace}`), 3)}.` : '';
-    };
-    const parts = [
-      said((h) => h.entries?.[0]?.phase === 'Held', 'waits for a person', 'wait for a person'),
-      said((h) => (h.problemCount ?? 0) + (h.unreadableCount ?? 0) > 0, 'has record problems', 'have record problems'),
-      said((h) => h.stage.frozen, 'is frozen', 'are frozen'),
-    ].filter(Boolean);
+    // One short sentence of counts; the table names the Stages.
+    const n = (f) => histories.filter(f).length;
+    const facts = [
+      [n((h) => h.entries?.[0]?.phase === 'Held'), 'waits for a person', 'wait for a person'],
+      [n((h) => (h.problemCount ?? 0) + (h.unreadableCount ?? 0) > 0), 'has record problems', 'have record problems'],
+      [n((h) => h.stage.frozen), 'is frozen', 'are frozen'],
+    ].filter(([c]) => c).map(([c, one, many], i) => `${i ? formatCount(c) : countOf(c, 'Stage')} ${c === 1 ? one : many}`);
     const onPage = (data?.page?.total ?? 0) > histories.length;
     const tip = `What happened on each Stage, listed by namespace and name, with its newest change. ${ABOUT}`;
     // Paged: what waits and what is frozen over every page, as counts; record
@@ -127,14 +137,47 @@
       return { head: totals[0] ?? 'Nothing waits for a person and nothing is frozen.', rest: totals.slice(1).join(' '), tip };
     }
     return {
-      head: parts[0] ?? `Nothing needs a look${onPage ? ' on this page' : ''}.`,
-      rest: [...parts.slice(1), parts.length && onPage ? 'Counted on this page.' : ''].filter(Boolean).join(' '),
+      head: facts.length ? `${facts[0]}.` : `Nothing needs a look${onPage ? ' on this page' : ''}.`,
+      rest: [facts.length > 1 ? `${andList(facts.slice(1))}.` : '', facts.length && onPage ? 'Counted on this page.' : ''].filter(Boolean).join(' '),
       tip,
     };
   });
 
   /** The people who decided a change: an approval or a rejection, never only who asked. */
   const deciders = (en) => (en.approvals ?? []).filter((a) => a.by);
+
+  // Every Stage: a namespace with more than one Stage on this page gets one
+  // heading row with the source most of its Stages share, so a long name is
+  // said once instead of on every row; a row says its source only when it
+  // differs. Each row still names both for a screen reader.
+  const perNamespace = $derived(histories.reduce((m, h) => ({ ...m, [h.namespace]: (m[h.namespace] ?? 0) + 1 }), {}));
+  const groupSource = $derived.by(() => {
+    const n = {};
+    for (const h of histories) { const k = `${h.namespace}\u0000${sourceShort(h)}`; n[k] = (n[k] ?? 0) + 1; }
+    const best = {};
+    for (const [k, c] of Object.entries(n)) { const [ns, src] = k.split('\u0000'); if (!best[ns] || c > best[ns].c) best[ns] = { src, c }; }
+    return Object.fromEntries(Object.entries(best).map(([ns, b]) => [ns, b.src]));
+  });
+  const grouped = (ns) => (perNamespace[ns] ?? 0) > 1;
+
+  // One Stage: a run of changes alike but for their versions (same kind, who
+  // asked, how it ended, who decided, record or not, Undo or not) folds into
+  // its first row, with a count that opens the rest.
+  const RUN = 3;
+  const alike = (en) => JSON.stringify([en.kind, en.type, en.actor, en.actorClass, en.phase, en.outcome, en.verification, en.reason,
+    !!en.record, !!en.unverifiedRecord, !!(en.operation && en.pointer?.after), en.approvals === undefined, deciders(en).map((a) => [a.by, a.decision])]);
+  /** For each change, the index of the run it belongs to (its first row) and, for a first row, the run's length. */
+  function runsOf(entries) {
+    const start = [], len = {};
+    entries.forEach((en, i) => {
+      const s = i && alike(entries[i - 1]) === alike(en) ? start[i - 1] : i;
+      start.push(s);
+      len[s] = (len[s] ?? 0) + 1;
+    });
+    return { start, len };
+  }
+  let unfolded = $state({});
+  const runKey = (h, i) => `${h.namespace}/${h.stage.name}@@${question}#${i}`;
 </script>
 
 {#snippet when(en)}{#if en?.finished}<time datetime={en.finished} title={en.finished}>{timeLabel(en.finished)}</time>{:else if en?.since}<span class="hv-class" title={`Waiting since ${en.since}`}><span class="visually-hidden">{'Waiting since '}</span><time datetime={en.since}>{timeLabel(en.since)}</time></span>{/if}{/snippet}
@@ -174,8 +217,13 @@
           <colgroup><col style="width: 24%" /><col style="width: 12%" /><col style="width: 22%" /><col style="width: 13%" /><col style="width: 13%" /><col style="width: 16%" /></colgroup>
           <thead><tr><th scope="col">Stage</th><th scope="col">Runs</th><th scope="col">Newest change</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Changes</th></tr></thead>
           <tbody>
-            {#each histories as h (h.namespace + '/' + h.stage.name)}
+            {#each histories as h, hi (h.namespace + '/' + h.stage.name)}
               {@const en = h.entries?.[0]}
+              {#if grouped(h.namespace) && histories[hi - 1]?.namespace !== h.namespace}
+                <tr class="hv-group" data-testid="history-group"><th colspan="6" scope="colgroup">
+                  <span class="hv-group-name">{h.namespace}</span>{#if groupSource[h.namespace]}<span class="t-meta hv-group-source">{groupSource[h.namespace]}</span>{/if}
+                </th></tr>
+              {/if}
               {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name })}
               {@const issues = (h.problemCount ?? 0) + (h.unreadableCount ?? 0)}
               {@const total = h.entriesPage?.total ?? h.entries?.length ?? 0}
@@ -183,8 +231,8 @@
                 <th scope="row">
                   <div class="cell-stack">
                     <a class="cell-clip" href={url} title={`${h.namespace}/${h.stage.name}`}>{h.stage.name}</a>
-                    <span class="t-meta cell-clip" title={h.namespace}>in {h.namespace}</span>
-                    <span class="t-meta hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source" title={sourceLabel(h)}>{sourceShort(h)}</span>
+                    <span class="t-meta cell-clip" class:visually-hidden={grouped(h.namespace)} title={h.namespace}>in {h.namespace}</span>
+                    <span class="t-meta hv-source" class:visually-hidden={grouped(h.namespace) && groupSource[h.namespace] === sourceShort(h)} class:hv-partial={h.completeness !== 'complete'} data-testid="history-source" title={sourceLabel(h)}>{sourceShort(h)}</span>
                   </div>
                 </th>
                 <td data-label="Runs"><span class="cell-clip" title={h.stage.pointer || 'nothing yet'}>{h.stage.pointer ? version(h.stage.pointer) : 'Nothing yet'}</span>{#if h.stage.frozen}<span class="badge badge-warn">Frozen</span>{/if}</td>
@@ -212,6 +260,7 @@
     {:else}
       {#each histories as h (h.namespace + '/' + h.stage.name)}
         {@const known = knownIds(h)}
+        {@const runs = runsOf(h.entries ?? [])}
         <section class="hv-stage" aria-label={`History of ${h.namespace}/${h.stage.name}`}>
           <h2 class="t-section-title" class:visually-hidden={histories.length === 1}>{h.namespace}/{h.stage.name}</h2>
           <div class="hv-facts t-body-2">
@@ -248,11 +297,17 @@
                 <tbody>
                   {#each h.entries as en, i (`${en.seq ?? ''}/${en.record ?? ''}/${en.operation}/${i}`)}
                     {@const reason = reasonAfter(en.reason, en.outcome, en.phase, en.verification)}
-                    <tr>
+                    {@const run = runs.len[runs.start[i]] >= RUN ? runs.len[runs.start[i]] : 0}
+                    {@const runOpen = !!unfolded[runKey(h, runs.start[i])]}
+                    {#if !run || runs.start[i] === i || runOpen}
+                    <tr class:hv-run-more={run && runs.start[i] !== i}>
                       <td data-label="Change">
                         <div class="cell-stack">
                           <span>{#if en.seq}<span class="hv-seq">#{en.seq}</span>{' '}{/if}{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</span>
                           {#if en.operation && en.pointer?.after}<button type="button" class="btn btn-sm" aria-label={`Undo ${en.operation}`} aria-expanded={isOpen('undo', h.namespace, en.operation)} onclick={(e) => show(e, { kind: 'undo', ns: h.namespace, key: en.operation })}>Undo</button>{/if}
+                          {#if run && runs.start[i] === i}<button type="button" class="btn btn-sm hv-fold" data-testid="history-run" aria-expanded={runOpen}
+                            aria-label={runOpen ? 'Fold the changes like this one' : `Show ${formatCount(run - 1)} more changes like this one`}
+                            onclick={() => { unfolded[runKey(h, i)] = !runOpen; }}>{runOpen ? 'Fold' : `${formatCount(run - 1)} more`}</button>{/if}
                         </div>
                       </td>
                       <td data-label="Version"><span class="cell-clip" title={moveTitle(en)}>{move(en)}</span></td>
@@ -273,6 +328,7 @@
                       <tr class="hv-undo-row"><td colspan="7">
                         <UndoPanel namespace={h.namespace} stage={h.stage.name} name={en.operation} {miraURL} onClose={close} />
                       </td></tr>
+                    {/if}
                     {/if}
                   {/each}
                 </tbody>
@@ -318,6 +374,10 @@
   .hv-asked > :global(*) { min-width: 0; max-width: 100%; }
   .hv-nowrap { white-space: nowrap; }
   .hv-deciders { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+  .hv-group th { padding-top: var(--sp-3); font-weight: 600; background: var(--c-surface-inset); overflow-wrap: anywhere; }
+  .hv-group-source { margin-left: var(--sp-3); font-weight: 400; }
+  .hv-fold { align-self: flex-start; white-space: nowrap; }
+  .hv-run-more { background: var(--c-surface-inset); }
   .hv-undo-row td { background: var(--c-surface-inset); }
   .hv-undo-row:hover { background: none; }
   /* The tints are translucent, so on a hovered row a chip loses contrast; lay each on the surface. */
