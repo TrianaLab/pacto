@@ -197,7 +197,7 @@
           <div class="hv-facts t-body-2">
             <span>Runs {#if h.stage.pointer}<strong>{version(h.stage.pointer)}</strong>{#if data.versions?.[h.stage.pointer]}{' '}<code class="hv-digest" title={h.stage.pointer}>{shortDigest(h.stage.pointer)}</code>{/if}{:else}nothing yet{/if}</span>
             {#if h.stage.frozen}<span class="badge badge-warn">Frozen</span>{/if}
-            <span class="hv-source-line"><span class="hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source">{sourceLabel(h)}.</span>{#if h.note}<HelpTip label="where this history comes from" text={sentence(h.note)} />{/if}</span>
+            <span class="hv-source-line"><span class="hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source">{sourceLabel(h)}.</span>{#if h.note}<HelpTip label="this history's source" text={sentence(h.note)} />{/if}</span>
             {#if h.stage.pointer}
               <button type="button" class="btn btn-sm" onclick={(e) => show(e, { kind: 'blame', ns: h.namespace, key: h.stage.name })}>Who put {version(h.stage.pointer)} here?</button>
             {/if}

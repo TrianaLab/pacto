@@ -92,7 +92,7 @@ describe('path to autonomy', () => {
     expect(promos).toContain('17 of 20');
     // How it is counted is one (?) away.
     expect(promos).not.toContain('last 20 operations per environment');
-    (target.querySelector('[data-testid="autonomy-promotions"] button[aria-label="What is this count?"]') as HTMLButtonElement).click();
+    (target.querySelector('[data-testid="autonomy-promotions"] button[aria-label="About this count"]') as HTMLButtonElement).click();
     flushSync();
     expect(text(target.querySelector('[data-testid="autonomy-promotions"]')!)).toContain('last 20 operations per environment');
     // The page answers first: what stands in the way and what can move up now.
@@ -177,7 +177,7 @@ describe('path to autonomy', () => {
     expect(items[1].querySelector('a.au-subject')!.getAttribute('title')).toBe('checkout');
     expect(items[0].querySelector('a.au-subject')).toBeNull();
     expect(items[2].querySelector('a.au-subject')).toBeNull();
-    (target.querySelector('button[aria-label="What is a fix?"]') as HTMLButtonElement).click();
+    (target.querySelector('button[aria-label="About fixes"]') as HTMLButtonElement).click();
     flushSync();
     expect(text(target)).toContain('Copying a fix changes nothing in the cluster');
     expect(text(target)).not.toMatch(/one-click/i);

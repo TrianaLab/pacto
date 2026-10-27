@@ -116,7 +116,7 @@
         {#if share && seen}
           <dd class="au-value">{percent(share.services, seen)}</dd>
           <dd class="t-body-2">{formatCount(share.services)} of the {formatCount(seen)} services Pacto has seen</dd>
-          {#if share.uncontractedCallers}<dd class="t-meta au-callers">{countOf(share.uncontractedCallers, 'uncontracted caller')} <HelpTip label="an uncontracted caller" text="A workload that calls a contracted service with no contract of its own." /></dd>{/if}
+          {#if share.uncontractedCallers}<dd class="t-meta au-callers">{countOf(share.uncontractedCallers, 'uncontracted caller')} <HelpTip label="uncontracted callers" text="A workload that calls a contracted service with no contract of its own." /></dd>{/if}
         {:else}
           <dd class="t-body-2">Pacto has seen no service here yet, so it cannot say.</dd>
         {/if}
@@ -145,7 +145,7 @@
           <table class="data-table au-table" data-testid="autonomy-stages">
             <caption class="visually-hidden">The level of each Stage and what Pacto proposes next</caption>
             <colgroup><col style="width: 28%" /><col style="width: 30%" /><col style="width: 42%" /></colgroup>
-            <thead><tr><th scope="col">Stage</th><th scope="col">Level</th><th scope="col">Next step <HelpTip label="a would-have line" text="On an observing Stage, what Pacto would have done with the newest candidate on Autonomous. Advisory, not signed." /></th></tr></thead>
+            <thead><tr><th scope="col">Stage</th><th scope="col">Level</th><th scope="col">Next step <HelpTip label="would-have lines" text="On an observing Stage, what Pacto would have done with the newest candidate on Autonomous. Advisory, not signed." /></th></tr></thead>
             <tbody>
               {#each stages as s (s.namespace + '/' + s.stage)}
                 <tr data-stage={`${s.namespace}/${s.stage}`}>
@@ -179,7 +179,7 @@
     <section aria-labelledby="au-blockers">
       <div class="au-head">
         <h2 id="au-blockers" class="t-section-title">What stands in the way</h2>
-        {#if blockers.length}<HelpTip label="a fix" text="Copying a fix changes nothing in the cluster: you review it and run it yourself." />{/if}
+        {#if blockers.length}<HelpTip label="fixes" text="Copying a fix changes nothing in the cluster: you review it and run it yourself." />{/if}
       </div>
       {#if blockers.length === 0}
         <p class="t-body-2" data-testid="autonomy-no-blockers">{q ? `No blocker matches “${q}”.` : 'Nothing Pacto can see blocks the next level.'}</p>

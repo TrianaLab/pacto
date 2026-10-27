@@ -409,7 +409,7 @@ describe('environments', () => {
     // How to read the strip is one (?) away, not a sentence on the page.
     const legend = target.querySelector('[data-testid="environments-legend"]') as HTMLElement;
     expect(text(legend)).not.toContain('One column per environment');
-    (legend.querySelector('button[aria-label="What is a dot?"]') as HTMLButtonElement).click();
+    (legend.querySelector('button[aria-label="About the dots"]') as HTMLButtonElement).click();
     flushSync();
     expect(text(legend)).toContain('One column per environment, grouped dev, test, prod and other.');
     // Every dot column is named in the header, the full name in its title.
