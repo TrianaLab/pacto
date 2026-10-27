@@ -809,7 +809,9 @@ func versionsAll(ctx context.Context, api DeliveryAPI, into, teams map[string]st
 	from := map[string]*delivery.StageObject{}
 	for _, o := range on {
 		for _, d := range o.digests {
-			if _, known := into[d]; !known && d != "" && !slices.Contains(ask, d) {
+			// An autonomy change's from and to are level names, not digests
+			// (an OCI digest is always algorithm:hex): no artifact to read.
+			if _, known := into[d]; !known && strings.Contains(d, ":") && !slices.Contains(ask, d) {
 				ask, from[d] = append(ask, d), o.stage
 			}
 		}

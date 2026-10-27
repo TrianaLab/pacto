@@ -195,8 +195,10 @@ func TestVersionsLogWhyTheyAreUnknown(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := logging.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, nil)))
 	st := stage("prod", "payments", "payments", delivery.StageStatus{})
-	f := &fakeDelivery{stages: []delivery.StageObject{st}}
-	if v := versions(ctx, f, &st, nil, dRun, "sha256:unreadable", dNext); len(v) != 1 || v[dRun] != "1.0.0" {
+	// "autonomous" is an autonomy change's level name: not a digest, so it is
+	// never described even though this fake would answer for it.
+	f := &fakeDelivery{stages: []delivery.StageObject{st}, known: map[string]string{"autonomous": "9.9.9"}}
+	if v := versions(ctx, f, &st, nil, dRun, "sha256:unreadable", dNext, "autonomous"); len(v) != 1 || v[dRun] != "1.0.0" {
 		t.Fatalf("versions = %v", v)
 	}
 	if got := buf.String(); !strings.Contains(got, "digest=sha256:unreadable") || !strings.Contains(got, `error="registry down"`) ||
