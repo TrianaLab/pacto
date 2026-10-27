@@ -676,7 +676,8 @@ func TestPlanHoldsAnEvalCheckWithNoSuite(t *testing.T) {
 		stage := stageSpec()
 		stage.Gates.Verify.Checks = []GateCheck{{Name: "quality", Provider: tc.provider}}
 		p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stage, From: from, To: to, Snapshot: snap, Class: ClassAgent,
-			Gates:  map[string]Gate{"runner": Eval{}, "webhook": Webhook{}},
+			// A client plans with the types the chart publishes, as the promoter does with its providers.
+			Gates:  ClassPolicy{GateProviders: map[string]string{"runner": ProviderEval, "webhook": ProviderHTTP}}.PlanGates(),
 			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}})
 		if tc.held == "" {
 			if p.Predicted != PredictProceeds || slices.ContainsFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateSuites }) {

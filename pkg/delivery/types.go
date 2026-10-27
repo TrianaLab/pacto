@@ -228,6 +228,23 @@ type ClassPolicy struct {
 	// none of them is an agent. Empty classifies by AgentGroups alone, so an
 	// agent identity left out of every agent group counts as a person.
 	HumanGroups []string `json:"humanGroups,omitempty"`
+	// GateProviders names the type of each gate provider the chart
+	// configures (delivery.gates.providers), never its URL or signers, so a
+	// client's plan reads which checks run on an eval provider as the
+	// promoter's does.
+	GateProviders map[string]string `json:"gateProviders,omitempty"`
+}
+
+// PlanGates is GateProviders as PlanInput.Gates: planning only asks a
+// provider's type, so each eval provider is an Eval that is never run.
+func (p ClassPolicy) PlanGates() map[string]Gate {
+	gates := map[string]Gate{}
+	for name, typ := range p.GateProviders {
+		if typ == ProviderEval {
+			gates[name] = Eval{}
+		}
+	}
+	return gates
 }
 
 // PolicyConfigMap is the ConfigMap, in delivery.namespace, that

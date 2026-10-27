@@ -116,6 +116,13 @@ func TestOwnerTeamAndHumanGroups(t *testing.T) {
 	}
 }
 
+func TestPlanGatesKeepsOnlyEvalProviders(t *testing.T) {
+	g := ClassPolicy{GateProviders: map[string]string{"evals": ProviderEval, "mira": ProviderMira}}.PlanGates()
+	if _, eval := g["evals"].(Eval); !eval || len(g) != 1 {
+		t.Fatalf("plan gates %v", g)
+	}
+}
+
 func TestInTeams(t *testing.T) {
 	pol := ClassPolicy{TeamGroupPrefix: "acme:"}
 	cases := []struct {

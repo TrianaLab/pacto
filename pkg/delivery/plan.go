@@ -93,7 +93,8 @@ type PlanInput struct {
 	Candidates func(ctx context.Context, stage StageObject, digest string) Revision
 	// Gates are the promoter's gate providers, like RequireOwnerTeam
 	// promoter configuration: the suites pre-gate reads which checks run on
-	// an eval provider. Nil, as a client plans, sees none.
+	// an eval provider. A client plans with ClassPolicy.PlanGates, the types
+	// the chart publishes; nil sees none.
 	Gates map[string]Gate
 }
 

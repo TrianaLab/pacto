@@ -402,12 +402,13 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 func TestDeliveryReadsThePublishedPolicy(t *testing.T) {
 	ctx := context.Background()
 	cm := obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap, map[string]any{
-		"data": map[string]any{delivery.PolicyKey: `{"agentGroups":["acme:bots"],"teamGroupPrefix":"acme:","requireOwnerTeam":true}`},
+		"data": map[string]any{delivery.PolicyKey: `{"agentGroups":["acme:bots"],"teamGroupPrefix":"acme:","requireOwnerTeam":true,"gateProviders":{"evals":"eval"}}`},
 	})
 	d, _, _ := deliveryFixture(t, "carol", []string{"acme:bots"}, nil, cm)
 	d.PolicyNamespace = "pacto-delivery"
 	who, err := d.WhoAmI(ctx)
-	if err != nil || who.Class != delivery.ClassAgent || who.Policy.TeamGroupPrefix != "acme:" || !who.Policy.RequireOwnerTeam {
+	if err != nil || who.Class != delivery.ClassAgent || who.Policy.TeamGroupPrefix != "acme:" || !who.Policy.RequireOwnerTeam ||
+		who.Policy.GateProviders["evals"] != delivery.ProviderEval {
 		t.Fatalf("the published agent group makes carol an agent: %+v %v", who, err)
 	}
 	for name, objs := range map[string][]runtime.Object{

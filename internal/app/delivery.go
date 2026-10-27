@@ -227,7 +227,7 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 	if err != nil {
 		return delivery.Plan{}, delivery.OperationSpec{}, err
 	}
-	in.RequireOwnerTeam = caller.Policy.RequireOwnerTeam
+	in.RequireOwnerTeam, in.Gates = caller.Policy.RequireOwnerTeam, caller.Policy.PlanGates()
 	plan := delivery.PlanFor(ctx, in)
 	if spec.Facet == delivery.FacetPointer && spec.Params.To != "" {
 		plan.Precedent = d.precedent(ctx, stage, spec.Params.To)
