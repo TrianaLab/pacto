@@ -1,32 +1,31 @@
 # MCP reference
 
-The exact tools, inputs and limits of `pacto mcp`. Start with
-[Drive Pacto from an agent](mcp-integration.md); this page is for looking
-things up.
+This page lists the tools, inputs and limits of `pacto mcp`. For a
+walkthrough, start with [Drive Pacto from an agent](mcp-integration.md).
 
 ## Three tool families and their boundaries
 
 | Family | Tools | What they do | Safety boundary |
 |--------|-------|--------------|-----------------|
-| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation. |
-| **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a 30-second timeout and follows no redirect at all — a 3xx comes back to the agent as the result. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. | Read-only always: they write nothing, anywhere. Two things that boundary does *not* cover — read-only is not offline, and a read-only *family* is not a read-only *server*: see [Fleet query safety](#fleet-query-safety). The only server with no write tool is catalog mode. |
+| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files only. `pacto_edit` writes only after validation. |
+| **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call has a 30-second timeout and follows no redirect, so a 3xx comes back to the agent as the result. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
 
 Outside these families: `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools are listed [below](#publish-and-delivery-servers).
 
-Not in the surface: inspecting a registry contract, resolving a dependency graph,
-diffing revisions, generating docs and the two non-query `pacto fleet`
-operations — `reconcile` (declared dependencies against observed traffic) and
-`snapshot` (the whole read model as one document). These stay CLI-only. Only
-`pacto_publish` pushes anything, and no tool deploys: in delivery mode an agent
-can only ask for a change, which Pacto's checks and people then decide. [Server modes](cli-reference.md#server-modes) lists which tools each
+These tasks are CLI-only: inspecting a registry contract, resolving a dependency
+graph, diffing revisions, generating docs and the two non-query `pacto fleet`
+operations, `reconcile` (declared dependencies against observed traffic) and
+`snapshot` (the whole read model as one document). Only `pacto_publish` pushes,
+and no tool deploys. In delivery mode an agent can ask for a change, and Pacto's
+checks and people decide it. [Server modes](cli-reference.md#server-modes) lists which tools each
 invocation registers.
 
-!!! warning "The boundary is documented, not machine-advertised"
+!!! warning "Tools carry no safety annotations"
     Pacto ships **no MCP tool annotations**. A `tools/list` response carries no
     [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations)
-    member on any tool — not `readOnlyHint`, `destructiveHint` or
-    `idempotentHint` — including `pacto_create`, `pacto_edit` and a generated
+    member (`readOnlyHint`, `destructiveHint` or `idempotentHint`) on any tool,
+    including `pacto_create`, `pacto_edit` and a generated
     tool such as `createRefund`, which moves money. Build allow-lists by hand
     from the tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
     `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
@@ -38,12 +37,12 @@ invocation registers.
 
 ### Fleet query safety
 
-- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. The `pacto_fleet_*` tools answer from the snapshot built at startup. `pacto_impact` re-resolves both refs and rebuilds the snapshot on every call, so each invocation reaches your registry — and your cluster if `--k8s` is on — using the server's credentials.
-- **These tools do not determine authorization.** They expose knowledge; they never grant, scope or revoke a permission.
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. The `pacto_fleet_*` tools answer from the snapshot built at startup. `pacto_impact` re-resolves both refs and rebuilds the snapshot on every call, so each invocation reaches your registry, and your cluster if `--k8s` is on, with the server's credentials.
+- **They expose knowledge only.** They never grant, scope or revoke a permission.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
-- **A missing result under partial coverage does not prove absence.** If a source was unavailable, "not found" means "not known here", not "does not exist".
-- **The snapshot is frozen for the session.** A service deployed after the server started does not appear in `pacto_fleet_*` answers until you restart it.
-- **It reads; it does not reconcile and does not store.** Acting on a contract in a cluster is the [Kubernetes operator's](integrations/kubernetes/overview.md) job, and durable evidence lives in an [Evidence Server](evidence.md) someone else runs. Nothing survives the process.
+- **Under partial coverage, a missing result means unknown.** If a source was unavailable, "not found" means "not known here".
+- **The snapshot is frozen for the session.** A service deployed after the server started appears in `pacto_fleet_*` answers only after you restart the server.
+- **The server keeps no state.** The [Kubernetes operator](integrations/kubernetes/overview.md) acts on contracts in a cluster, and durable evidence lives in an [Evidence Server](evidence.md). The MCP server's state ends with its process.
 
 `--fleet` names its sources the same way `pacto fleet` does:
 
@@ -64,7 +63,7 @@ Every mode except `--root` carries these four.
 | `pacto_check` | Validate a contract and return errors, warnings and suggestions. |
 | `pacto_schema` | Return the full JSON Schema reference. |
 
-**Structured inputs are JSON-encoded strings.** Every input that carries structure has the MCP wire type `string`, and the value is JSON serialised into a string — not a JSON array or object:
+**Structured inputs are JSON-encoded strings.** Every input that carries structure has the MCP wire type `string`, and the value is JSON serialised into a string:
 
 ```json
 {
@@ -74,7 +73,7 @@ Every mode except `--root` carries these four.
 ```
 
 !!! warning
-    Passing a real JSON array or object where the JSON-encoded string is expected is a **silent no-op**. The argument is discarded, the call still succeeds, `changes` comes back `null` and nothing is written — check the result's `changes` and `summary`. `pacto_check`'s own "add an interface" suggestion carries `add_interfaces` as a real array, so an agent that forwards that tool call verbatim walks into this.
+    Passing a real JSON array or object where the JSON-encoded string is expected is a **silent no-op**. The argument is discarded, the call still succeeds, `changes` comes back `null` and nothing is written. Check the result's `changes` and `summary`. `pacto_check`'s own "add an interface" suggestion carries `add_interfaces` as a real array, so an agent that forwards that tool call verbatim hits this case.
 
 **`pacto_check` is `pacto validate`.** It runs the same validation path, including `pacto.lock` verification and recursive `policies[].ref` resolution, so a contract it calls valid is one CI accepts.
 
@@ -92,9 +91,9 @@ Every mode except `--root` carries these four.
 | `worker`, `consumer`, `processor` | a `job` workload |
 | `cron`, `scheduled`, `periodic`, `batch` | a `scheduled` workload (wins over `job`) |
 
-Interfaces are only inferred when the call passes none. The lists are a heuristic, not a parser: "no HTTP" still matches `HTTP`.
+Interfaces are inferred only when the call passes none. The match is a keyword heuristic: "no HTTP" still matches `HTTP`.
 
-State is never inferred: without the state flags the contract is stateless. Naming `postgres` says the service uses a database, not that it keeps state.
+State is never inferred: without the state flags the contract is stateless. Naming `postgres` declares a database dependency and leaves the service stateless.
 
 ## Bundle capabilities
 
@@ -133,11 +132,11 @@ pacto mcp \
   --root ./experimental-platform
 ```
 
-`--root` is repeatable and takes either a local bundle directory or an `oci://` reference. Nothing is discovered that you did not name: Pacto does not crawl a registry, guess repository names or read a catalog file.
+`--root` is repeatable and takes either a local bundle directory or an `oci://` reference. Pacto discovers only what you name, plus its dependency closure. It never crawls a registry, guesses repository names or reads a catalog file.
 
-The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource answers: schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root — including roots that did not resolve, and why. The closure resource answers: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and the conflicts and cycles left visible rather than resolved.
+The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource answers: schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root, including roots that did not resolve and why. The closure resource answers: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and every conflict and cycle, reported as found.
 
-That is the whole surface. Catalog mode registers no authoring tools: a server started for read-only discovery must not be a way to modify a contract. A root or a dependency that could not be resolved stays visible — with a category such as `NOT_FOUND`, `AUTH_FAILED` or `UNAVAILABLE`, never a raw registry error — and the whole answer is marked `partial`. Treat `complete` and `partial` as different facts: under partial, a revision you cannot find here is *unknown*, not proven absent.
+Catalog mode registers nothing else, so a server started for read-only discovery cannot modify a contract. A root or a dependency that could not be resolved stays visible with a category such as `NOT_FOUND`, `AUTH_FAILED` or `UNAVAILABLE` in place of the raw registry error, and the whole answer is marked `partial`. Under `partial`, a revision missing from the answer is *unknown*.
 
 ## Create a service's files with pactify
 
@@ -145,15 +144,15 @@ That is the whole surface. Catalog mode registers no authoring tools: a server s
 holding a service: it reads the Dockerfile and Kubernetes files and writes the
 contract. With `delivery: true` it also writes the cluster files. `registry`,
 `environments`, `fleet_roots`, `no_transparency_log`, `insecure_registry` and
-`registry_secret` match the CLI flags, and `dry_run` only plans. See
+`registry_secret` match the CLI flags, and `dry_run` plans without writing. See
 [Pactify a service](pactify.md).
 
 ## Publish and delivery servers
 
-`--publish` adds `pacto_publish_plan` (what publishing would write, and which
-checks refuse it; writes nothing) and `pacto_publish` (publishes the version
+`--publish` adds `pacto_publish_plan` (what publishing would write and which
+checks refuse it, without writing) and `pacto_publish` (publishes the version
 the same way `pacto publish` does, with this process's registry credentials,
-never over an existing tag) beside the authoring tools. It runs over stdio
+always to a new tag) beside the authoring tools. It runs over stdio
 only.
 
 `--delivery` serves the delivery tools over the cluster your kubeconfig
@@ -162,6 +161,6 @@ points at: `pacto_delivery_operation_types`, `pacto_delivery_operation_plan`,
 `pacto_delivery_blame`, `pacto_delivery_undo_plan` and
 `pacto_delivery_record_verify` for everyone, plus
 `pacto_delivery_operation_propose` and `pacto_delivery_cancel` only when the
-cluster says the caller is an agent. There is no approve tool. Over HTTP it
+cluster says the caller is an agent. Delivery mode has no approve tool. Over HTTP it
 needs token exchange; see
 [agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
