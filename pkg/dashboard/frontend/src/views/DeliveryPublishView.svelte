@@ -16,6 +16,7 @@
   import EmptyState from '../components/EmptyState.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
   import CappedList from '../components/CappedList.svelte';
+  import DeliveryLead from '../components/DeliveryLead.svelte';
 
   // Published versions per service, whether their signature was checked and
   // where each one runs or was verified, paged by service on the server.
@@ -52,51 +53,73 @@
   const contractShort = (ref) => (ref.includes('@') ? shortDigest(ref.slice(ref.lastIndexOf('@') + 1)) : ref);
   // Running and failed first, so the list a count opens leads with what matters.
   const stagesFirst = (stages) => [...(stages ?? [])].sort((a, b) => (b.running || b.failed ? 1 : 0) - (a.running || a.failed ? 1 : 0));
+  // The page's answer: how many publishes Pacto refused lately, when the
+  // cluster keeps a record of them.
+  const refusedTotal = $derived(refused?.total ?? refused?.refusals?.length ?? 0);
+  const lead = $derived(!refused ? null
+    : !refused.recorded ? { head: 'Refused publishes are not recorded here.', rest: '' }
+    : refusedTotal ? { head: `${countOf(refusedTotal, 'publish', 'publishes')} refused lately.`, rest: refused.completeness === 'partial' ? 'There may be more.' : '' }
+    : { head: 'Nothing refused lately.', rest: refused.completeness === 'partial' ? 'The list may be incomplete.' : '' });
   const BUMPS = { major: 'a major version', minor: 'at least a minor version', patch: 'a patch version' };
 </script>
 
 <div class="product-page">
   <PageHeader
     title="Published versions"
-    subtitle="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes Pacto refused."
     count={data ? countOf(serviceTotal, 'service') : ''}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
-  />
+  >
+    {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} tipLabel="Published versions"
+      tip="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes Pacto refused." />{/if}
+  </PageHeader>
   <DeliveryNav current="delivery-publish" />
 
+  <!-- The refused publishes are a count that opens: the versions are what the page lists. -->
   <section class="pv-refused" aria-labelledby="pv-refused" data-testid="refused-publishes">
-    <h2 id="pv-refused" class="t-section-title">Recently refused{#if refused?.total > (refused?.refusals ?? []).length}{' '}<span class="t-meta" data-testid="refused-count">(the latest {formatCount(refused.refusals.length)} of {formatCount(refused.total)})</span>{/if}</h2>
     {#if !refused && refusalsLoader.loading}
+      <h2 id="pv-refused" class="t-section-title">Refused publishes</h2>
       <p class="t-body-2" role="status">Reading refused publishes…</p>
     {:else if !refused && refusalsLoader.error}
+      <h2 id="pv-refused" class="t-section-title">Refused publishes</h2>
       <p class="t-body-2 pv-err" role="alert">Could not read refused publishes: {refusalsLoader.error?.message || refusalsLoader.error}. <button type="button" class="btn btn-sm" onclick={() => refusalsLoader.refresh()}>Retry</button></p>
-    {:else if refused && !refused.recorded}
-      <p class="t-body-2 pv-none" data-testid="refused-unrecorded">This cluster keeps no record of refused publishes, so none can be shown here. <code>pacto publish</code> shows a refusal and the version bump it needs to whoever ran it.</p>
     {:else if refused}
-      {#if refused.completeness === 'partial'}
+      {#if refused.recorded && refused.completeness === 'partial'}
         <p class="t-body-2 pv-partial" role="status" data-testid="refused-partial">This list may be incomplete{#if refused.note}: {refused.note}{/if}.{#if refused.unreadable?.length}{' '}Could not read: <CappedList items={refused.unreadable} max={3} inline={true} label="Repositories Pacto could not read">{#snippet item(u)}{u}{/snippet}</CappedList>.{/if}</p>
-      {:else if refused.note}
-        <p class="t-meta" data-testid="refused-note">{sentence(refused.note)}</p>
       {/if}
-      {#if (refused.refusals ?? []).length === 0}
-        <p class="t-body-2 pv-none">No publish was refused{refused.completeness === 'partial' ? ' that Pacto could read' : ''}.</p>
-      {:else}
-        <ul class="pl-list">
-          {#each refused.refusals as r, i (r.service + '@' + r.version + '#' + i)}
-            <li class="pl-row pl-row--stack pv-row">
-              <div class="pv-head">
-                <strong>{r.service} {r.version}</strong>
-                {#if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
-                {#if r.verified}<span class="badge badge-ok">Signed record</span>{/if}
-              </div>
-              <p class="t-body-2">{sentence(r.reason)}{#if r.baseline}{' '}Compared with {r.baseline}.{/if}</p>
-              <p class="t-meta">{#if r.actor}By <Person user={r.actor} />,{' '}{/if}<time datetime={r.at}>{timeLabel(r.at)}</time></p>
-            </li>
-          {/each}
-        </ul>
-      {/if}
+      <details class="disclosure pv-fold">
+        <summary>
+          <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+          <h2 id="pv-refused" class="t-section-title">Refused publishes</h2>
+          <span class="badge {refused.recorded && refusedTotal ? 'badge-err' : 'badge-neutral'}" data-testid="refused-chip">{refused.recorded ? formatCount(refusedTotal) : 'Not recorded'}</span>
+        </summary>
+        <div class="pv-fold-body">
+          {#if !refused.recorded}
+            <p class="t-body-2 pv-none" data-testid="refused-unrecorded">This cluster keeps no record of refused publishes, so none can be shown here. <code>pacto publish</code> shows a refusal and the version bump it needs to whoever ran it.</p>
+          {:else}
+            {#if refused.total > (refused.refusals ?? []).length}<p class="t-meta" data-testid="refused-count">(the latest {formatCount(refused.refusals.length)} of {formatCount(refused.total)})</p>{/if}
+            {#if refused.completeness !== 'partial' && refused.note}<p class="t-meta" data-testid="refused-note">{sentence(refused.note)}</p>{/if}
+            {#if (refused.refusals ?? []).length === 0}
+              <p class="t-body-2 pv-none">No publish was refused{refused.completeness === 'partial' ? ' that Pacto could read' : ''}.</p>
+            {:else}
+              <ul class="pl-list">
+                {#each refused.refusals as r, i (r.service + '@' + r.version + '#' + i)}
+                  <li class="pl-row pl-row--stack pv-row">
+                    <div class="pv-head">
+                      <strong>{r.service} {r.version}</strong>
+                      {#if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
+                      {#if r.verified}<span class="badge badge-ok">Signed record</span>{/if}
+                    </div>
+                    <p class="t-body-2">{sentence(r.reason)}{#if r.baseline}{' '}Compared with {r.baseline}.{/if}</p>
+                    <p class="t-meta">{#if r.actor}By <Person user={r.actor} />,{' '}{/if}<time datetime={r.at}>{timeLabel(r.at)}</time></p>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          {/if}
+        </div>
+      </details>
     {/if}
   </section>
 
@@ -161,6 +184,10 @@
   .pv-contract { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; max-width: 100%; }
   .pv-envs { margin-left: auto; }
   .pv-refused { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .pv-fold > summary { gap: var(--sp-2); }
+  .pv-fold > summary h2 { margin: 0; }
+  .pv-fold-body { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
+  .pv-fold-body > p { margin: 0; }
   .pv-none { color: var(--c-text-3); }
   .pv-err { color: var(--c-err); }
   .pv-partial { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid var(--c-warn-border); }

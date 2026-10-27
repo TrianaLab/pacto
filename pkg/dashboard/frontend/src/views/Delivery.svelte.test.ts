@@ -1191,6 +1191,11 @@ describe('published paging', () => {
     await settle();
     expect(text(target)).toContain('300 services');
     expect(text(target.querySelector('[data-testid="refused-count"]') as HTMLElement)).toBe('(the latest 1 of 134)');
+    // The page answers first, and the refusals are a count that opens.
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('134 publishes refused lately.');
+    const fold = target.querySelector('[data-testid="refused-publishes"] details') as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    expect(text(fold.querySelector('summary') as HTMLElement)).toContain('Refused publishes 134');
     expect(target.querySelector('[data-testid="published-pager-next"]')?.getAttribute('href')).toBe('#/delivery/publish?q=pay&offset=10');
     expect((target.querySelector('[data-testid="published-filter"] input') as HTMLInputElement).value).toBe('pay');
     destroy();
