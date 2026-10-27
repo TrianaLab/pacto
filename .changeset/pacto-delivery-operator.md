@@ -18,7 +18,9 @@ The Pacto status also accepts `mcp` interfaces, so a service that exposes tools 
 target's Service that no Pacto describes, and `status.observedCallersCoverage`
 says whether that list is complete, partial (with a reason such as
 `shared-netns` or `stale-node`) or unavailable; delivery holds a breaking
-change on either.
+change on either. Host-network pods in kube-system and the other cluster
+namespaces and in the node agent's own namespace do not make that coverage
+partial; `controller.kernelEvidence.callerIgnoreNamespaces` adds more.
 
 **Check results change for every operator user**, delivery on or off. A
 dependency that resolves to the same service in several namespaces now

@@ -103,6 +103,7 @@ type options struct {
 	enableKernelEvidence              bool
 	kernelEvidenceNamespace           string
 	kernelEvidenceStaleness           time.Duration
+	callerIgnoreNamespaces            []string
 
 	enableNodeAgent          bool
 	nodeAgentNamespace       string
@@ -209,6 +210,14 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.kernelEvidenceStaleness, "kernel-evidence-staleness", 0,
 		"How old a node's heartbeat (its Lease renewal, or the observation's lastPublished without a Lease) may be "+
 			"before its evidence reads stale. 0 uses three times the publish interval the node agent reports.")
+	fs.Func("caller-coverage-ignore-namespace",
+		"Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller "+
+			"coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's "+
+			"are always ignored.",
+		func(v string) error {
+			o.callerIgnoreNamespaces = append(o.callerIgnoreNamespaces, v)
+			return nil
+		})
 	fs.BoolVar(&o.enableNodeAgent, "enable-node-agent", false,
 		"Enable the managed node agent DaemonSet, which observes TCP socket state with eBPF on every node and "+
 			"publishes it as NodeRuntimeObservation objects. Disabled by default.")
@@ -302,6 +311,7 @@ func main() {
 		KernelEvidence:                    o.enableKernelEvidence,
 		KernelEvidenceNamespace:           o.kernelEvidenceNamespace,
 		KernelEvidenceStaleness:           o.kernelEvidenceStaleness,
+		CallerIgnoreNamespaces:            o.callerIgnoreNamespaces,
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
