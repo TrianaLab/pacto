@@ -105,7 +105,7 @@ install -tags kms ...`, or `kms_aws`, `kms_gcp`, `kms_azure`,
 `kms_hashivault`).
 
 **Delivery.** `pkg/delivery` holds the operations (`delivery.pacto.trianalab.io/promote`,
-`rollback`, `override`, `freeze`, `unfreeze` and `autonomy`) and `PlanFor`, the one planning function
+`rollback`, `override`, `freeze`, `unfreeze`, `autonomy` and `acknowledge`) and `PlanFor`, the one planning function
 the promoter, the CLI, the MCP tools and the dashboard call. A promote is
 refused as `NotPublished` unless `pacto publish` published it and Flux verified
 its signature, or its upstream Stage verified and offered it. It then compares
