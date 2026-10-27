@@ -1,8 +1,8 @@
 # Glossary
 
-Every word these docs use with a special meaning, in plain words. The
-dashboard and the command line use the same words; where the dashboard shows
-a different label, it is in the last column.
+This page defines every word these docs use with a special meaning. The
+dashboard and the command line use the same words. Where the dashboard shows a
+different label, the last column gives it.
 
 ## Contracts
 
@@ -18,7 +18,7 @@ a different label, it is in the last column.
 | Digest | The fingerprint of one exact published artifact (`sha256:...`) | — |
 | Bundle | A contract together with the files it points to (OpenAPI documents, schemas), as one folder or one published artifact | — |
 | Interface | One way a service is called, such as an HTTP API described by an OpenAPI file | Interfaces |
-| External dependency | A dependency this Pacto system does not deliver, such as a managed database or a model. It has a contract and a version range, or only a version, and then anything relying on it is Unknown. See [external dependencies](contract-reference/dependencies-and-state.md#external-dependencies) | — |
+| External dependency | A dependency outside this Pacto system, such as a managed database or a model. It has a contract and a version range, or only a version, and then anything relying on it is Unknown. See [external dependencies](contract-reference/dependencies-and-state.md#external-dependencies) | — |
 | Suite | A test or eval file a version ships in its `checks` list. A Stage runs it, and only a verdict about that exact file counts. See [checks](contract-reference/checks.md) | — |
 | Agent | An AI agent is a service like any other: its tools are an `mcp` interface, its model a dependency and its evals a suite. See [an agent is a service](contract-reference/checks.md#an-agent-is-a-service) | — |
 | Policy | A rule a contract must follow, such as "every service names an owner", checked with the contract | Policy |
@@ -66,7 +66,7 @@ a different label, it is in the last column.
 | auto for non-breaking | Pacto ships only non-breaking changes on its own (`auto-nonbreaking`) |
 | autonomous | Pacto also ships breaking changes on its own, when every service that depends on the new version accepts it |
 | Cold start | A new Stage begins on observe and earns more freedom from there |
-| Would have | On observe, what Pacto would have done with a change. Advice, not a record |
+| Would have | On observe, what Pacto would have done with a change. It is advice only |
 | Proposal | The next level Pacto suggests, with its evidence or what blocks it |
 | Earned autonomy | Raising a level after enough good changes, confirmed by a person |
 | Step-down | Dropping one level after a version Pacto shipped with no person fails |
@@ -78,6 +78,6 @@ See [the autonomy ladder](autonomy.md).
 
 | Word | Meaning |
 |---|---|
-| GitlessOps | Deciding which version runs where from published artifacts and evidence, not from pull requests to a git repository. Your code stays in git. See [What GitlessOps means](manifesto.md#what-gitlessops-means) |
+| GitlessOps | Deciding which version runs where from published artifacts and evidence. Your code stays in git. See [What GitlessOps means](manifesto.md#what-gitlessops-means) |
 | GitOps | Keeping a cluster in line with files in git, with a tool such as Flux or Argo CD. Pacto works with it |
 | Pactify | Give a service a contract and connect it to delivery. See [Pactify a service](pactify.md) |
