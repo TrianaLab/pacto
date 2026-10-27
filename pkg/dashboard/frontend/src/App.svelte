@@ -13,6 +13,7 @@
   import CappedList from './components/CappedList.svelte';
   import Navbar from './Navbar.svelte';
   import LazyView from './components/LazyView.svelte';
+  import EmptyState from './components/EmptyState.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import EntitySearch from './EntitySearch.svelte';
   import ServiceListView from './views/ServiceListView.svelte';
@@ -337,7 +338,8 @@
   {#if gated}
     <SignInScreen />
   {:else if !deliverySession.loaded}
-    <p class="app-loading" role="status">Loading…</p>
+    <!-- Who is asking comes first; the browser demo answers only once its engine is up. -->
+    <EmptyState loading />
   {:else if nothingVisible && !route.view.startsWith('delivery-')}
     <!-- Every service is in a namespace this person's RBAC does not let them read. -->
     <div class="product-page" data-testid="nothing-visible">
