@@ -91,7 +91,8 @@ describe('inbox', () => {
     expect(text(held as HTMLElement)).toContain('team-checkout may answer');
     expect(held.querySelector('a.btn-primary')?.textContent).toBe('Decide');
     expect(held.querySelector('.badge')).toBeNull();
-    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 decision only you can make.');
+    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 change waits for team-checkout to decide. 1 failed and 1 frozen.');
+    expect(text(target)).toContain('1 waiting for a decision');
     // One page: the answer line already says how many, so no footer count.
     expect(target.querySelector('[data-testid="inbox-held-pager"]')).toBeNull();
     expect(held.querySelector('a[href="#/delivery/changes/prod/op1"]')).not.toBeNull();
@@ -111,53 +112,71 @@ describe('inbox', () => {
     destroy();
   });
 
-  it('pages each section on its own, caps the affected services and filters', async () => {
+  it('pages the held changes, previews the other sections with a link to all of them, caps the affected services and filters', async () => {
     const item = (n: number) => ({ namespace: 'prod', name: `op${n}`, stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Held', decision: 'approve',
       owners: ['team-checkout'], consumers: ['a', 'b', 'c', 'd', 'e'] });
-    fns.inbox.mockResolvedValue({ ...listing, held: [item(26)], heldPage: { total: 1500, offset: 25, limit: 25 },
-      frozen: [{ namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', frozen: true, held: 0, actions: [] }], frozenPage: { total: 60, offset: 50, limit: 25 },
+    const frozenRow = (env: string) => ({ namespace: env, stage: 'pay', service: 'payments', environment: env, frozen: true, held: 0, actions: [] });
+    fns.inbox.mockResolvedValue({ ...listing, held: [item(26)], heldPage: { total: 1500, offset: 25, limit: 25 }, heldShared: 0,
+      frozen: ['dev', 'test', 'qa', 'staging', 'perf', 'prod'].map(frozenRow), frozenPage: { total: 60, offset: 0, limit: 25 },
       errored: [], erroredPage: { total: 0, offset: 0, limit: 25 } });
-    const { target, destroy } = render(DeliveryInboxView, { held: '25', frozen: '50', q: 'pay' });
+    let r = render(DeliveryInboxView, { held: '25', q: 'pay' });
     await settle();
-    // A link into a page of frozen Stages opens that section, and its count is the total.
-    const frozenSection = target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
-    expect(frozenSection.open).toBe(true);
-    expect(text(frozenSection.querySelector('.dl-count') as HTMLElement)).toBe('60');
-    expect(text(target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement).trim()).toBe('payments in prod Frozen');
-    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 decision only you can make on this page.');
-    const pager = target.querySelector('[data-testid="inbox-held-pager"]') as HTMLElement;
+    // Every count is the total, never the page's.
+    expect(text(r.target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1,500 changes wait for team-checkout to decide. 60 frozen.');
+    expect(text(r.target)).toContain('1,500 waiting for a decision');
+    const pager = r.target.querySelector('[data-testid="inbox-held-pager"]') as HTMLElement;
     expect(text(pager.querySelector('.pl-range') as HTMLElement).trim()).toBe('Showing 26–50 of 1,500 held changes');
-    // Another page of held changes keeps the other sections and the filter where they are.
-    expect(target.querySelector('[data-testid="inbox-held-pager-next"]')?.getAttribute('href')).toBe('#/delivery/inbox?held=50&frozen=50&q=pay');
-    const affected = target.querySelector('ul[aria-label="Affected services"]') as HTMLElement;
+    expect(r.target.querySelector('[data-testid="inbox-held-pager-next"]')?.getAttribute('href')).toBe('#/delivery/inbox?held=50&q=pay');
+    // The frozen Stages are a short preview with a link to all of them: one pager on the page.
+    const frozenSection = r.target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
+    expect(frozenSection.open).toBe(false);
+    expect(text(frozenSection.querySelector('.dl-count') as HTMLElement)).toBe('60');
+    expect(r.target.querySelectorAll('[data-testid="inbox-frozen"] > li').length).toBe(5);
+    expect(r.target.querySelector('[data-testid="inbox-frozen-pager"]')).toBeNull();
+    expect(r.target.querySelector('[data-testid="inbox-frozen-all"]')?.getAttribute('href')).toBe('#/delivery/inbox?q=pay&show=frozen');
+    // A service repeated from the line above is cut to what differs; the rest is still read out.
+    const lines = [...r.target.querySelectorAll('[data-testid="inbox-frozen"] a')];
+    expect(text(lines[0] as HTMLElement)).toBe('payments in dev');
+    expect(lines[1].querySelector('.visually-hidden')?.textContent).toBe('payments ');
+    const affected = r.target.querySelector('ul[aria-label="Affected services"]') as HTMLElement;
     expect(text(affected)).toBe('a, b, c');
-    expect(text(target)).toContain('Show all 5');
-    destroy();
+    expect(text(r.target)).toContain('Show all 5');
+    r.destroy();
+
+    // A link into a page of frozen Stages shows them whole with their pager, and only them.
+    fns.inbox.mockResolvedValue({ ...listing, held: [item(26)], heldPage: { total: 1500, offset: 0, limit: 25 },
+      frozen: [frozenRow('prod')], frozenPage: { total: 60, offset: 50, limit: 25 }, errored: [], erroredPage: { total: 0, offset: 0, limit: 25 } });
+    r = render(DeliveryInboxView, { frozen: '50', q: 'pay' });
+    await settle();
+    expect((r.target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement).open).toBe(true);
+    expect(r.target.querySelector('[data-testid="inbox-frozen-pager"]')).not.toBeNull();
+    expect(r.target.querySelector('[data-testid="inbox-held-pager"]')).toBeNull();
+    expect(r.target.querySelector('[data-testid="inbox-back"]')?.getAttribute('href')).toBe('#/delivery/inbox?q=pay');
+    r.destroy();
   });
 
-  it('leads with what only your team can answer and folds what other teams can answer too', async () => {
+  it('says how many wait over every page and who else may answer, and shows the shared ones in the open', async () => {
     const it_ = (n: number, owners: string[]) => ({ namespace: 'prod', name: `op${n}`, stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Held', decision: 'approve', owners });
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [it_(1, ['team-checkout']), it_(2, ['team-checkout', 'team-payments']), it_(3, ['team-checkout', 'team-orders'])],
-      heldPage: { total: 30, offset: 0, limit: 3 } });
+      heldPage: { total: 30, offset: 0, limit: 3 }, heldShared: 20 });
     let r = render(DeliveryInboxView);
     await settle();
     expect(r.target.querySelectorAll('[data-testid="inbox-held"] > li').length).toBe(1);
-    const sharedFold = r.target.querySelector('[data-testid="inbox-shared"]') as HTMLDetailsElement;
-    expect(sharedFold.open).toBe(false);
-    // Counted on this page only: the server pages both kinds together.
-    expect(text(sharedFold.querySelector('summary') as HTMLElement)).toContain('Shared with team-payments and team-orders2 on this page');
-    expect(text(r.target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 decision only you can make on this page. 2 more are shared with team-payments and team-orders on this page.');
-    expect(sharedFold.querySelectorAll('li.dl-row').length).toBe(2);
-    expect(text(r.target.querySelector('[data-testid="inbox-calm"]') as HTMLElement)).toBe('Nothing frozen and nothing failed.');
+    expect(text(r.target.querySelector('[data-testid="inbox-shared"]') as HTMLElement)).toBe('Shared with team-payments and team-orders any of them may answer');
+    expect(text(r.target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('30 changes wait for team-checkout to decide. Other teams may also answer 20 of them.');
+    expect(text(r.target)).not.toMatch(/only you/i);
+    expect(r.target.querySelectorAll('[data-testid="inbox-held-shared"] > li').length).toBe(2);
+    // Whose services the calm line is about.
+    expect(text(r.target.querySelector('[data-testid="inbox-calm"]') as HTMLElement)).toBe('Nothing frozen and nothing failed in the services team-checkout owns.');
     r.destroy();
 
-    // With nothing only yours, the shared ones still fold behind their count, under a line that says so.
-    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [it_(2, ['team-checkout', 'team-payments'])] });
+    // When every one is shared, they are listed in the open, with no line about what is yours alone.
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [it_(2, ['team-checkout', 'team-payments'])], heldShared: 1 });
     r = render(DeliveryInboxView);
     await settle();
-    expect((r.target.querySelector('[data-testid="inbox-shared"]') as HTMLDetailsElement).open).toBe(false);
-    expect(text(r.target.querySelector('[data-testid="inbox-none-mine"]') as HTMLElement)).toBe('Nothing only you can answer.');
-    expect(text(r.target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('Nothing only you can answer. 1 is shared with team-payments.');
+    expect(r.target.querySelector('[data-testid="inbox-shared"]')).toBeNull();
+    expect(r.target.querySelector('details [data-testid="inbox-held-shared"]')).toBeNull();
+    expect(text(r.target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 change waits for team-checkout to decide. Other teams may also answer it.');
     expect(r.target.querySelectorAll('[data-testid="inbox-held-shared"] > li').length).toBe(1);
     expect(r.target.querySelector('[data-testid="inbox-held"]')).toBeNull();
     r.destroy();
