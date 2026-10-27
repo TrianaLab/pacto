@@ -1,83 +1,68 @@
 # Glossary
 
-This page defines every word these docs use with a special meaning. The
-dashboard and the command line use the same words. Where the dashboard shows a
-different label, the last column gives it.
-
-## Contracts
-
-| Word | Meaning | In the dashboard |
-|---|---|---|
-| Service | Something you run and other things call, such as `payments` | Service |
-| Contract | One file, `pacto.yaml`, that says what a service offers, who owns it and which other services it calls | Contract |
-| Version | One published copy of a contract, such as `payments 2.4.0`. It never changes once published | Version |
-| Version range | Which versions of another service a contract accepts, such as `^2.0.0` (any 2.x) | — |
-| Consumer | A service that calls another one | Consumers |
-| Contract graph | All your contracts together: who calls whom and which versions each accepts | Graph |
-| Registry | The place your container images are stored. Pacto stores contracts there too | — |
-| Digest | The fingerprint of one exact published artifact (`sha256:...`) | — |
-| Bundle | A contract together with the files it points to (OpenAPI documents, schemas), as one folder or one published artifact | — |
-| Interface | One way a service is called, such as an HTTP API described by an OpenAPI file | Interfaces |
-| External dependency | A dependency outside this Pacto system, such as a managed database or a model. It has a contract and a version range, or only a version, and then anything relying on it is Unknown. See [external dependencies](contract-reference/dependencies-and-state.md#external-dependencies) | — |
-| Suite | A test or eval file a version ships in its `checks` list. A Stage runs it, and only a verdict about that exact file counts. See [checks](contract-reference/checks.md) | — |
-| Agent | An AI agent is a service like any other: its tools are an `mcp` interface, its model a dependency and its evals a suite. See [an agent is a service](contract-reference/checks.md#an-agent-is-a-service) | — |
-| Policy | A rule a contract must follow, such as "every service names an owner", checked with the contract | Policy |
-| Clear | The contracts clear a change when every consumer accepts the new version | — |
-| Target | One running deployment of a service, such as payments in one cluster | Targets |
-| Shadow consumer | A service seen calling another at runtime that no contract declares | — |
-| Readiness assessment | A dated statement in a contract of which readiness claims are done, with evidence; it counts for nothing once it expires | Readiness |
-
-## Checking what runs
+This page defines every word these docs use with a special meaning, in
+alphabetical order. Each word is defined here once, and the link after it
+leads to the page that explains it in full. Other pages link here instead of
+explaining the word again. The dashboard and the command line use the same
+words. Where the dashboard shows a different label, the last column gives it.
 
 | Word | Meaning | In the dashboard |
 |---|---|---|
-| Evidence | What was observed about a running service, such as which ports listen or which services it called | Evidence |
-| Collector | What gathers evidence, such as the Kubernetes observer or the eBPF node agent | — |
-| Finding | One contradiction between a contract and the evidence, such as `INTERFACE_ABSENT` | Findings |
-| Evidence Server | The service that receives evidence and stores it in your registry next to the contract it is about | — |
-| Referrer | A file a registry stores attached to an artifact, listed by the OCI Referrers API. Evidence and records are stored this way | — |
-
-## Delivery
-
-| Word | Meaning | In the dashboard |
-|---|---|---|
-| Environment | A place a service runs, such as `test` or `prod` | Environment |
-| Stage | One service in one environment, and the version it runs there | Environments |
-| Promote | Move a Stage to a newer version | Promote |
-| Operation | One requested change to a Stage, from request to outcome | Change |
-| Plan | What Pacto would do with a change, and who must agree, before anyone asks | Plan |
-| Held | A change waiting for a person to decide | Inbox |
-| Pass, Fail, Unknown | What each check answers. Unknown means it could not see enough to say | — |
-| Accept the unknown | A person lets a change with an Unknown check go ahead. It is recorded as accepted, never as a pass | Accept the unknown |
-| Approval | A person's decision on one held change | Approve |
-| Rollback | Put back the version that ran before | Roll back |
-| Freeze | Stop Pacto from moving a Stage until a person lets it move again | Frozen |
-| Break-glass | A group allowed to force a version past every check | — |
-| Record | A signed account of one finished change, stored in your registry and checkable without Pacto | Record |
-| Recorder | The part of Pacto that signs records. Off until you turn it on | — |
-
-## The autonomy ladder
-
-| Word | Meaning |
-|---|---|
-| Autonomy level | How much a Stage lets Pacto do on its own: observe, advise, auto for non-breaking or autonomous |
-| observe | Pacto plans every change and moves nothing |
-| advise | A person asks for or approves every change |
-| auto for non-breaking | Pacto ships only non-breaking changes on its own (`auto-nonbreaking`) |
-| autonomous | Pacto also ships breaking changes on its own, when every service that depends on the new version accepts it |
-| Cold start | A new Stage begins on observe and earns more freedom from there |
-| Would have | On observe, what Pacto would have done with a change. It is advice only |
-| Proposal | The next level Pacto suggests, with its evidence or what blocks it |
-| Earned autonomy | Raising a level after enough good changes, confirmed by a person |
-| Step-down | Dropping one level after a version Pacto shipped with no person fails |
-| Auto-hold | Set when someone rolls a Stage back by hand, or promotes it back to a version it already verified. Automation stops promoting there until a person unfreezes it or promotes a version it has not verified yet |
-
-See [the autonomy ladder](autonomy.md).
-
-## Ideas
-
-| Word | Meaning |
-|---|---|
-| GitlessOps | Deciding which version runs where from published artifacts and evidence. Your code stays in git. See [What GitlessOps means](manifesto.md#what-gitlessops-means) |
-| GitOps | Keeping a cluster in line with files in git, with a tool such as Flux or Argo CD. Pacto works with it |
-| Pactify | Give a service a contract and connect it to delivery. See [Pactify a service](pactify.md) |
+| <a id="accept-the-unknown"></a>Accept the unknown | A person lets a change with an [Unknown](#unknown) check go ahead. It is recorded as accepted, never as a pass. See [What Unknown means](integrations/kubernetes/delivery.md#what-unknown-means) | Accept the unknown |
+| <a id="agent"></a>Agent | An AI agent, such as Claude, that calls Pacto's tools over [MCP](#mcp). It can plan and ask for changes, and only a person approves one. See [Who may approve](integrations/kubernetes/delivery.md#who-may-approve). An agent you build is a service like any other: see [an agent is a service](contract-reference/checks.md#an-agent-is-a-service) | Agent |
+| <a id="approval"></a>Approval | A person's answer on one [held](#held) change: approve, accept the unknown or reject. See [Look, then decide](pactify-decide.md#look-then-decide) | Approve |
+| <a id="auto-hold"></a>Auto-hold | Set when someone rolls a [Stage](#stage) back by hand, or promotes it back to a version it already verified. Automation stops promoting there until a person unfreezes it or promotes a version it has not verified yet. See [Roll back by hand](pactify-decide.md#roll-back-by-hand) | — |
+| <a id="break-glass"></a>Break-glass | A group, `pacto:break-glass` by default, allowed to force a version past every check. A forced version freezes the Stage. See [Force a version](pactify-decide.md#force-a-version-break-glass) | — |
+| <a id="breaking-change"></a>Breaking change | A change that removes or changes something [consumers](#consumer) may use. Pacto classifies every change as breaking, possibly breaking or non-breaking. See [Change classification](contract-reference/diff.md) | — |
+| <a id="bundle"></a>Bundle | A contract together with the files it points to (OpenAPI documents, schemas), as one folder or one published artifact. See [Bundle structure](contract-reference/index.md#bundle-structure) | — |
+| <a id="change"></a>Change | One requested move of a Stage to another version, from request to outcome. In Kubernetes it is an object of kind `Operation`. See [What happens to a change](integrations/kubernetes/delivery.md#what-happens-to-a-change) | Change |
+| <a id="check"></a>Check | A test Pacto runs on a version before or after it moves: was it published and signed, does it break a consumer, does the running service do what its contract says. Each answers Pass, Fail or [Unknown](#unknown). See [What happens to a change](integrations/kubernetes/delivery.md#what-happens-to-a-change) | Checks |
+| <a id="check-suite"></a>Check suite | A test or eval file a version ships in its `checks` list. A Stage runs it, and only a verdict about that exact file counts. See [Checks](contract-reference/checks.md) | — |
+| <a id="clear"></a>Clear | The contracts clear a change when every consumer accepts the new version. See [Who is asked and why](integrations/kubernetes/delivery.md#who-is-asked-and-why) | — |
+| <a id="cold-start"></a>Cold start | A new Stage begins on observe and earns more freedom from there. See [Cold start](autonomy.md#cold-start-begin-by-watching) | — |
+| <a id="collector"></a>Collector | What gathers [evidence](#evidence), such as the Kubernetes observer or the eBPF node agent. See [Collectors](model.md#collectors-and-the-evidence-boundary) | — |
+| <a id="consumer"></a>Consumer | A service that calls another one. Checkout is a consumer of payments. See [Impact analysis](impact.md) | Consumers |
+| <a id="consumer-range"></a>Consumer range | Which versions of another service a contract accepts, such as `^2.0.0` (any 2.x), set in `compatibility`. Pacto judges each change per consumer by these ranges, never per field or endpoint. Also called version range. See [Who is asked and why](integrations/kubernetes/delivery.md#who-is-asked-and-why) | — |
+| <a id="contract"></a>Contract | One file, `pacto.yaml`, that says what a service offers, who owns it and which other services it calls. See the [contract reference](contract-reference/index.md) | Contract |
+| <a id="contract-graph"></a>Contract graph | All your contracts together: who calls whom and which versions each accepts. See [Operational graph](operational-graph.md) | Graph |
+| <a id="delivery"></a>Delivery | The opt-in part of Pacto that decides which version of each service runs in each environment. It is a separate install. See [How delivery works](integrations/kubernetes/delivery.md) | Delivery |
+| <a id="digest"></a>Digest | The fingerprint of one exact published artifact (`sha256:...`) | — |
+| <a id="earned-autonomy"></a>Earned autonomy | Raising a Stage's [level](#level) after enough good changes, confirmed by a person. See [Earned autonomy](autonomy.md#earned-autonomy-pacto-proposes-a-person-decides) | — |
+| <a id="environment"></a>Environment | A place a service runs, such as `test` or `prod`. In Kubernetes it is a namespace of the same name | Environment |
+| <a id="evidence"></a>Evidence | What was observed about a running service, such as which ports listen or which services it called. See [Evidence](evidence.md) | Evidence |
+| <a id="evidence-server"></a>Evidence Server | The service that receives evidence and stores it in your registry next to the contract it is about. See [Evidence Server](integrations/kubernetes/evidence-server.md) | — |
+| <a id="external-dependency"></a>External dependency | A dependency outside this Pacto system, such as a managed database or a model. It has a contract and a range, or only a version, and then anything relying on it is Unknown. See [External dependencies](contract-reference/dependencies-and-state.md#external-dependencies) | — |
+| <a id="finding"></a>Finding | One contradiction between a contract and the evidence, such as `INTERFACE_ABSENT`. See [Compliance model](model.md#compliance-model) | Findings |
+| <a id="fleet"></a>Fleet | All your services together, as Pacto sees them from contracts, clusters and registries. See [Fleet views](fleet-tools.md) | Fleet |
+| <a id="flux"></a>Flux | The GitOps tool that applies each version in the cluster. Pacto moves a version by writing its digest onto a Flux `OCIRepository`. See [How a change moves](integrations/kubernetes/delivery-setup.md#how-a-change-moves) | — |
+| <a id="freeze"></a>Freeze | Stop automation moving a Stage until a person unfreezes it. See [When a Stage is frozen](pactify-decide.md#when-a-stage-is-frozen) | Frozen |
+| <a id="gitlessops"></a>GitlessOps | Deciding which version runs where from signed artifacts in your registry and from evidence. Your code stays in git. See [What GitlessOps means](manifesto.md#what-gitlessops-means) | — |
+| <a id="gitops"></a>GitOps | Keeping a cluster in line with files in git, with a tool such as Flux or Argo CD. Pacto works with it | — |
+| <a id="held"></a>Held change | A change waiting for a person to decide. See [Why you were asked](pactify-decide.md#why-you-were-asked) | Inbox |
+| <a id="interface"></a>Interface | One way a service is called, such as an HTTP API described by an OpenAPI file. See [`interfaces`](contract-reference/sections.md#interfaces) | Interfaces |
+| <a id="level"></a>Level | How much a Stage lets Pacto do on its own: observe, advise, auto for non-breaking (`auto-nonbreaking`) or autonomous. Also called autonomy level. See [The four levels](autonomy.md#the-four-levels) | Level |
+| <a id="mcp"></a>MCP | Model Context Protocol, the standard way an AI agent finds and calls tools. `pacto mcp` is an MCP server. See [Drive Pacto from an agent](mcp-integration.md) | — |
+| <a id="mediated"></a>Mediated | A Stage condition that says whether only the [pointer](#pointer) decides what runs. See [What the pointer guarantees](integrations/kubernetes/delivery-setup.md#what-the-pointer-guarantees) | — |
+| <a id="operator"></a>Operator | The Pacto controller you install in a cluster. It checks that each running service matches its contract. See [Kubernetes overview](integrations/kubernetes/overview.md) | — |
+| <a id="owner-team"></a>Owner team | The team a contract names under `service.owner`. Pacto asks its members about that service. See [OwnerInfo](contract-reference/sections.md#ownerinfo) | Owner |
+| <a id="pactify"></a>Pactify | Give a service a contract and connect it to delivery. See [Pactify a service](pactify.md) | — |
+| <a id="plan"></a>Plan | What Pacto would do with a change, and who must agree, before anyone asks. See [Plan, propose and approve](integrations/kubernetes/delivery-operations.md) | Plan |
+| <a id="pointer"></a>Pointer | The digest a Stage moved its environment to (`status.pointer`). See [What the pointer guarantees](integrations/kubernetes/delivery-setup.md#what-the-pointer-guarantees) | — |
+| <a id="policy"></a>Policy | A rule a contract must follow, such as "every service names an owner", checked with the contract. See [`policies`](contract-reference/configuration-and-policy.md#policies) | Policy |
+| <a id="promote"></a>Promote | Move a Stage to a newer version | Promote |
+| <a id="promoter"></a>Promoter | The part of delivery that plans each change, runs its checks and moves the pointer. It holds no signing key. See [How a change moves](integrations/kubernetes/delivery-setup.md#how-a-change-moves) | — |
+| <a id="proposal"></a>Proposal | The next level Pacto suggests for a Stage, with its evidence or what blocks it. See [Earned autonomy](autonomy.md#earned-autonomy-pacto-proposes-a-person-decides) | — |
+| <a id="readiness-assessment"></a>Readiness assessment | A dated statement in a contract of which readiness claims are done, with evidence. It counts for nothing once it expires. See [Readiness](contract-reference/readiness.md) | Readiness |
+| <a id="record"></a>Record | A signed account of one finished change, stored in your registry and checkable without Pacto. See [Verify a record](verify-a-record.md) | Record |
+| <a id="recorder"></a>Recorder | The part of delivery that signs records. It is the only part that holds the signing key, and it is off until you turn it on. See [Signed records and history](integrations/kubernetes/delivery-records.md) | — |
+| <a id="referrer"></a>Referrer | A file a registry stores attached to an artifact, listed by the OCI Referrers API. Evidence and records are stored this way, so they need a registry that serves that API. See [What delivery needs](index.md#what-delivery-needs) | — |
+| <a id="registry"></a>Registry | The place your container images are stored. Pacto stores contracts, versions and records there too | — |
+| <a id="rollback"></a>Rollback | Put back the version that ran before. See [What happens to a change](integrations/kubernetes/delivery.md#what-happens-to-a-change) and [Roll back by hand](pactify-decide.md#roll-back-by-hand) | Roll back |
+| <a id="service"></a>Service | Something you run and other things call, such as `payments` | Service |
+| <a id="shadow-consumer"></a>Shadow consumer | A service seen calling another at runtime that no contract declares. See [Observed dependencies](operational-graph.md#observed-dependencies-and-reconciliation) | — |
+| <a id="stage"></a>Stage | One service in one environment, such as payments in prod, and the version it runs there. See [Stages and records](integrations/kubernetes/delivery.md#stages-and-records) | Environments |
+| <a id="step-down"></a>Step-down | Dropping one level after a version Pacto shipped with no person fails. See [Step-down](autonomy.md#step-down-one-failure-costs-one-level) | — |
+| <a id="target"></a>Target | One running deployment of a service, such as payments in one cluster. See [Three identities](operational-graph.md#three-identities) | Targets |
+| <a id="unknown"></a>Unknown | What a check answers when it could not see enough to say Pass or Fail. Unknown never counts as a pass. See [What Unknown means](integrations/kubernetes/delivery.md#what-unknown-means) | — |
+| <a id="version"></a>Version | One published copy of a contract, such as `payments 2.4.0`. It never changes once published. See [Publish a version](publishing.md) | Version |
+| <a id="would-have"></a>Would have | On observe, what Pacto would have done with a change. It is advice only. See [Cold start](autonomy.md#cold-start-begin-by-watching) | — |
