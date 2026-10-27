@@ -90,10 +90,11 @@ func tokenPost(body string, origin string, cookies ...*http.Cookie) *http.Reques
 	return r
 }
 
-func TestTokenLogin(t *testing.T) {
-	var asked string
-	review := func(_ context.Context, token string) (Person, error) {
-		asked = token
+// fakeTokenReview refuses "bad", names nobody for "nobody" and a viewer
+// ServiceAccount for any other token, recording the token it was asked about.
+func fakeTokenReview(asked *string) TokenReview {
+	return func(_ context.Context, token string) (Person, error) {
+		*asked = token
 		switch token {
 		case "bad":
 			return Person{}, errors.New("Unauthorized")
@@ -102,25 +103,14 @@ func TestTokenLogin(t *testing.T) {
 		}
 		return Person{User: "system:serviceaccount:shop:viewer", Groups: []string{"system:serviceaccounts"}}, nil
 	}
-	tl := NewTokenLogin(review, Lifetime{Idle: time.Minute, Max: time.Hour})
+}
+
+func TestTokenLogin(t *testing.T) {
+	var asked string
+	tl := NewTokenLogin(fakeTokenReview(&asked), Lifetime{Idle: time.Minute, Max: time.Hour})
 	d := NewShared(nil, tl)
 	expect(t, d.SignsIn() && d.TokenLogin() && !d.Login() && !d.Local(), "token-only shared mode")
 	routes := d.Routes()
-	for _, c := range []struct {
-		name, body, origin string
-		want               int
-	}{
-		{"cross origin", `{"token":"t"}`, "https://evil.example", http.StatusForbidden},
-		{"no origin", `{"token":"t"}`, "", http.StatusForbidden},
-		{"not json", `token=t`, "https://dash.example", http.StatusBadRequest},
-		{"empty", `{"token":"  "}`, "https://dash.example", http.StatusBadRequest},
-		{"refused", `{"token":"bad"}`, "https://dash.example", http.StatusUnauthorized},
-		{"nobody", `{"token":"nobody"}`, "https://dash.example", http.StatusUnauthorized},
-	} {
-		if got := serve(routes, tokenPost(c.body, c.origin)).Code; got != c.want {
-			t.Errorf("%s: %d, want %d", c.name, got, c.want)
-		}
-	}
 	rec := serve(routes, tokenPost(`{"token":"Bearer good-token"}`, "https://dash.example"))
 	expect(t, rec.Code == http.StatusNoContent && asked == "good-token", "sign-in %d with %q", rec.Code, asked)
 	c := cookieNamed(t, rec, SessionCookie)
@@ -148,6 +138,26 @@ func TestTokenLogin(t *testing.T) {
 	_, ok := tl.session(withCookie(c))
 	expect(t, !ok, "the session is gone after logout")
 	expect(t, serve(routes, httptest.NewRequest(http.MethodGet, "/auth/login", nil)).Code == http.StatusNotFound, "no OIDC, no /auth/login")
+}
+
+func TestTokenLoginRefusals(t *testing.T) {
+	var asked string
+	routes := NewShared(nil, NewTokenLogin(fakeTokenReview(&asked), Lifetime{Idle: time.Minute, Max: time.Hour})).Routes()
+	for _, c := range []struct {
+		name, body, origin string
+		want               int
+	}{
+		{"cross origin", `{"token":"t"}`, "https://evil.example", http.StatusForbidden},
+		{"no origin", `{"token":"t"}`, "", http.StatusForbidden},
+		{"not json", `token=t`, "https://dash.example", http.StatusBadRequest},
+		{"empty", `{"token":"  "}`, "https://dash.example", http.StatusBadRequest},
+		{"refused", `{"token":"bad"}`, "https://dash.example", http.StatusUnauthorized},
+		{"nobody", `{"token":"nobody"}`, "https://dash.example", http.StatusUnauthorized},
+	} {
+		if got := serve(routes, tokenPost(c.body, c.origin)).Code; got != c.want {
+			t.Errorf("%s: %d, want %d", c.name, got, c.want)
+		}
+	}
 }
 
 func TestTokenSessionLifetime(t *testing.T) {

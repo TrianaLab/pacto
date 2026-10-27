@@ -73,8 +73,14 @@ func TestDashboardIdentityModes(t *testing.T) {
 	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil {
 		t.Fatal("an incomplete OIDC configuration fails at start")
 	}
+	if got := splitList([]string{"a, b", "c"}); len(got) != 3 || got[1] != "b" {
+		t.Fatalf("splitList %v", got)
+	}
+}
+
+func TestDashboardTokenLoginIdentity(t *testing.T) {
+	v := viper.New()
 	// Token sign-in alone makes it shared too, and needs a cluster to check tokens against.
-	v.Set("dashboard.oidc-issuer-url", "")
 	v.Set("dashboard.token-login", true)
 	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "token-login") {
 		t.Fatalf("token sign-in without a cluster fails at start: %v", err)
@@ -89,10 +95,6 @@ func TestDashboardIdentityModes(t *testing.T) {
 	}
 	_, err := tokens.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
 	expect(t, err == nil, "a token session reaches delivery as itself: %v", err)
-	v.Set("dashboard.token-login", false)
-	if got := splitList([]string{"a, b", "c"}); len(got) != 3 || got[1] != "b" {
-		t.Fatalf("splitList %v", got)
-	}
 }
 
 // expect fails the test unless ok.

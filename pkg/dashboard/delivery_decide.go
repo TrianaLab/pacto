@@ -76,6 +76,34 @@ type decideOutput struct {
 	}
 }
 
+// decisionSession refuses a decision this dashboard's sign-in cannot carry:
+// a local or sign-in-free dashboard, no session, a pasted token or a stale
+// login. cli is the command that decides instead.
+func (s *Server) decisionSession(ctx context.Context, cli string) error {
+	a := s.opts.Auth
+	switch {
+	case a == nil || a.Local:
+		return Refuse(http.StatusForbidden, "ApproveFromCLI",
+			"a local dashboard never decides: any process on this machine could do it as you. Run: "+cli)
+	case !a.Login && !a.TokenLogin:
+		return Refuse(http.StatusForbidden, "LoginNotConfigured", "this dashboard has no sign-in, so it serves no decisions")
+	}
+	st := s.authState(ctx)
+	switch {
+	case !st.SignedIn:
+		return Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to decide")
+	case st.Method == "token" && a.Login:
+		return Refuse(http.StatusForbidden, "TokenCannotDecide",
+			"a pasted token never decides: sign in with your identity provider to decide, or run: "+cli)
+	case st.Method == "token":
+		return Refuse(http.StatusForbidden, "TokenCannotDecide",
+			"a pasted token never decides, and this dashboard offers no identity provider sign-in. Run: "+cli)
+	case !st.Fresh:
+		return Refuse(http.StatusUnauthorized, "FreshLoginRequired", "deciding needs a fresh login: sign in again")
+	}
+	return nil
+}
+
 // deliveryDecide is the fresh-login decision flow: local mode never decides,
 // a decision needs a session from a login the person repeated with an
 // auth-time under DecisionFreshnessFor the Stage's published freshness, and
@@ -83,27 +111,9 @@ type decideOutput struct {
 // never the asker's, never an agent's, only from the teams the question
 // names. The promoter checks it all again.
 func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOutput, error) {
-	a := s.opts.Auth
 	cli := fmt.Sprintf("pacto delivery approve -n %s %s --decision %s", in.Namespace, in.Name, in.Body.Decision)
-	switch {
-	case a == nil || a.Local:
-		return nil, Refuse(http.StatusForbidden, "ApproveFromCLI",
-			"a local dashboard never decides: any process on this machine could do it as you. Run: "+cli)
-	case !a.Login && !a.TokenLogin:
-		return nil, Refuse(http.StatusForbidden, "LoginNotConfigured", "this dashboard has no sign-in, so it serves no decisions")
-	}
-	st := s.authState(ctx)
-	switch {
-	case !st.SignedIn:
-		return nil, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to decide")
-	case st.Method == "token" && a.Login:
-		return nil, Refuse(http.StatusForbidden, "TokenCannotDecide",
-			"a pasted token never decides: sign in with your identity provider to decide, or run: "+cli)
-	case st.Method == "token":
-		return nil, Refuse(http.StatusForbidden, "TokenCannotDecide",
-			"a pasted token never decides, and this dashboard offers no identity provider sign-in. Run: "+cli)
-	case !st.Fresh:
-		return nil, Refuse(http.StatusUnauthorized, "FreshLoginRequired", "deciding needs a fresh login: sign in again")
+	if err := s.decisionSession(ctx, cli); err != nil {
+		return nil, err
 	}
 	if err := s.inScope(in.Namespace); err != nil {
 		return nil, err

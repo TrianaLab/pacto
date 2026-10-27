@@ -103,16 +103,28 @@ func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stag
 	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) && may("create", "approvals", ns) {
 		acts = append(acts, string(d), string(delivery.Reject))
 	}
-	// Admission lets an agent cancel only what it proposed itself.
-	if st.Phase != delivery.PhaseConcluded && !st.Applied && (caller.Class != delivery.ClassAgent || op.Spec.Actor.User == caller.User) &&
-		may("delete", "operations", ns) {
+	if cancellable(op, caller) && may("delete", "operations", ns) {
 		acts = append(acts, "cancel")
 	}
-	if st.Phase == delivery.PhaseConcluded && st.Applied && st.Pointer.After != "" && st.Pointer.After == stage.Pointer &&
-		delivery.MayRaise(delivery.TypeRollback, caller.Class, false) && may("create", "operations", ns) {
+	if rollbackable(op, stage, caller) && may("create", "operations", ns) {
 		acts = append(acts, "rollback")
 	}
 	return acts
+}
+
+// cancellable: op has not concluded or applied, and caller may cancel it.
+// Admission lets an agent cancel only what it proposed itself.
+func cancellable(op *delivery.OperationObject, caller delivery.Caller) bool {
+	st := op.Status
+	return st.Phase != delivery.PhaseConcluded && !st.Applied && (caller.Class != delivery.ClassAgent || op.Spec.Actor.User == caller.User)
+}
+
+// rollbackable: op applied the version the Stage runs now, and caller's
+// class may raise a rollback.
+func rollbackable(op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller) bool {
+	st := op.Status
+	return st.Phase == delivery.PhaseConcluded && st.Applied && st.Pointer.After != "" && st.Pointer.After == stage.Pointer &&
+		delivery.MayRaise(delivery.TypeRollback, caller.Class, false)
 }
 
 // can says whether the caller's RBAC lets them verb a delivery resource in a
