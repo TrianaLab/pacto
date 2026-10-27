@@ -35,8 +35,8 @@ Stage) climbs a ladder of four levels:
 | --- | --- |
 | observe | Works out what it would do for every change and moves nothing; GitOps keeps control |
 | advise | Shows each new version and its plan; a person asks for or approves every change |
-| auto for non-breaking | Ships on its own the changes whose contract breaks no one |
-| autonomous | Ships every change the contract graph clears on its own |
+| auto for non-breaking | Ships on its own only non-breaking changes: nothing others may use is removed or changed |
+| autonomous | Also ships breaking changes on its own, when every service that depends on the new version accepts it |
 
 The automatic levels judge the contract, not the manifests: a version whose
 contract is unchanged but whose manifests grant it more ships like any other.
@@ -69,8 +69,8 @@ When Pacto cannot see enough (Unknown), the change waits for a person. A
 service seen calling yours at runtime with no contract counts as a consumer
 Pacto cannot judge, so a breaking change waits too. AI agents may propose
 changes and only people may approve. With the recorder on and a registry that
-serves OCI Referrers (zot does, GitHub's does not), every finished change leaves a
-signed record you verify with cosign and oras. Without the component, Pacto
+serves OCI Referrers (zot does, GitHub's does not), finished changes leave
+signed records you verify with cosign and oras. Without the component, Pacto
 never changes what runs.
 
 Delivery synthesizes two ideas from others and adds one of ours:

@@ -174,7 +174,7 @@ not from the record or the registry:
 ```bash
 jq -r .dsseEnvelope.payload record.json | base64 -d \
   | jq -r '.predicate.verdicts[] | select(.citation.runnerBundle) | .citation.runnerBundle' > runner.json
-VERSION=$(jq -r .dsseEnvelope.payload runner.json | base64 -d | jq -r '.subject[0].digest.sha256')
+VERSION=$(jq -r .dsseEnvelope.payload record.json | base64 -d | jq -r '.subject[] | select(.name=="to") | .digest.sha256')
 cosign verify-blob-attestation --bundle runner.json --key runner.pub \
   --type delivery.pacto.trianalab.io/eval/v1 --insecure-ignore-tlog \
   --digest "$VERSION" --digestAlg sha256
@@ -214,8 +214,9 @@ keys:
 ```
 
 What this cannot catch: a promoter that reuses an answer the runner signed
-earlier in the same operation, for the same version. The runner signs a
-one-time value only the promoter saw.
+earlier in the same operation, for the same version. Each answer carries the
+one-time value the promoter asked with, and only the promoter knows which one
+it used last.
 
 ## Check a version was signed
 

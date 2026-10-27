@@ -71,8 +71,8 @@ every contract.
 
 `pacto diff` compares the contract in the pull request (the second argument)
 with the last one you published (the first). With no version after the name,
-it picks the highest published version. It exits 1 when the change is
-breaking, meaning it removes or changes something other services may use, so
+it picks the highest published version. It exits 1 only when the change is
+`BREAKING` (`POTENTIAL_BREAKING` and `NON_BREAKING` pass), meaning it removes or changes something other services may use, so
 the check fails. Your branch protection rules decide whether a failed check
 blocks the merge.
 

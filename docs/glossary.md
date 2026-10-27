@@ -63,8 +63,8 @@ a different label, it is in the last column.
 | Autonomy level | How much a Stage lets Pacto do on its own: observe, advise, auto for non-breaking or autonomous |
 | observe | Pacto plans every change and moves nothing |
 | advise | A person asks for or approves every change |
-| auto for non-breaking | Pacto ships changes that break no one on its own (`auto-nonbreaking`) |
-| autonomous | Pacto ships every change the contracts clear on its own |
+| auto for non-breaking | Pacto ships only non-breaking changes on its own (`auto-nonbreaking`) |
+| autonomous | Pacto also ships breaking changes on its own, when every service that depends on the new version accepts it |
 | Cold start | A new Stage begins on observe and earns more freedom from there |
 | Would have | On observe, what Pacto would have done with a change. Advice, not a record |
 | Proposal | The next level Pacto suggests, with its evidence or what blocks it |

@@ -38,13 +38,15 @@ You need:
   setup, maybe by you:
   [the cluster trusts your identity provider](integrations/kubernetes/delivery-identity.md#the-cluster-trusts-your-identity-provider).
   It is tested on kind, not yet on EKS, GKE and AKS. Until it works,
-  everything here works except approving, so prod waits; see
+  everything here works except approving: prod waits and no Stage can be
+  raised past observe; see
   [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
 
 You do not write the contract by hand: Pacto writes it from your service.
 
 Only want the contract and its CI checks? Leave out `--delivery`, stop after
-step 3 and go on to [Put it in your repository](ci.md). No cluster needed.
+step 2 and go on to [Put it in your repository](ci.md): `pacto push` uploads
+the contract alone.
 
 ## 1. See what Pacto would add
 
@@ -175,8 +177,8 @@ kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/instal
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
-Replace `staff` with the group your people are in: anyone outside it counts as
-an agent and never approves.
+Replace `staff` with your people's group: anyone outside it is treated like
+an AI agent, which never approves.
 
 Delivery is opt-in: without it, Pacto never changes what runs. Each environment
 is a namespace of the same name. Create them, give Flux your public key, so it
@@ -194,8 +196,7 @@ kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
 ```
 
 `registry-creds` is the pull Secret your Deployment names and, with
-`--registry-secret`, the login Flux and the operator read your repositories
-with. A read-only token is enough (on GitHub, `read:packages`); see
+`--registry-secret`, the login Flux and the operator use. A read-only token is enough (on GitHub, `read:packages`); see
 [Private registries](integrations/kubernetes/limitations.md#delivery-and-private-registries).
 
 Each `delivery/<env>.yaml` holds a Stage (one service in one environment and

@@ -72,7 +72,7 @@ Then give one answer:
 
 | Answer | Use it when | What happens |
 |---|---|---|
-| `approve` | The question says "Approve" and you accept it. Pacto asks that in every case in [Why you were asked](#why-you-were-asked) except a check that said Unknown | The version goes ahead, or for a raise, the Stage moves up one level |
+| `approve` | The question says "Approve" and you accept it. Pacto asks that in every case in [Why you were asked](#why-you-were-asked) except a check that said Unknown | Once every team asked has approved, the version goes ahead, or for a raise, the Stage moves up one level |
 | `accept-unknown` | The question says "Accept the unknown": a check said Unknown and you accept the risk | The version goes ahead; the record says "accepted", never "passed". If the version already shipped and a later check said Unknown, only this or `reject` answers |
 | `reject` | You do not want this version here | If it has not shipped, the change ends and the Stage keeps the version it runs. If it already shipped, Pacto rolls it back to the version before. Someone can ask again later |
 
@@ -95,7 +95,7 @@ the changes **Waiting for your decision**. Open one and press **Approve**,
 
 ## What you need to be allowed
 
-Two things, both set up once by your cluster admin:
+Three things, all set up once by your cluster admin:
 
 1. **A role.** Your Kubernetes user or group needs the approver role, and
    your group must be the owner team written in the contract of the service
@@ -108,7 +108,10 @@ Two things, both set up once by your cluster admin:
      --clusterrole=pacto-operator-delivery-approver --group=payments
    ```
 
-2. **A fresh company login.** The cluster must trust your company sign-in,
+2. **The people group.** If your admin named the groups people are in when
+   turning delivery on (`humanGroups`), your login must be in one. Anyone
+   outside them is treated like an AI agent and can never approve.
+3. **A fresh company login.** The cluster must trust your company sign-in,
    and you must have signed in recently: within 15 minutes by default, which
    your admin sets with `delivery.promoter.authFreshness`. You do not do
    anything special: `pacto delivery approve` prints an address, you sign in
