@@ -143,7 +143,7 @@
               {#if svc.evaluationCoverage}
                 <span
                   class="eval-badge"
-                  data-tip="Required assertions evaluated at runtime — metadata, does not change status"
+                  data-tip="Required assertions evaluated at run time. For information only: the status ignores it."
                   aria-label="Evaluation coverage {svc.evaluationCoverage.evaluated} of {svc.evaluationCoverage.required}"
                 >cov {svc.evaluationCoverage.evaluated}/{svc.evaluationCoverage.required}</span>
               {/if}

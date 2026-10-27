@@ -153,7 +153,7 @@
   <h2 id="dp-title" class="t-section-title">The decision</h2>
   <p class="dp-chips t-meta">{#if breaking}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}<span>{owners.length ? `Only ${ownerList} may answer` : ownerless}</span>{#if ownersCut}<button type="button" class="btn btn-sm" aria-expanded={allOwners} onclick={() => { allOwners = !allOwners; }}>{allOwners ? 'Show fewer' : `Show all ${formatCount(owners.length)} teams`}</button>{/if}</p>
   {#if asked === 'accept-unknown'}
-    <p class="t-body-2" data-testid="decision-unknown">A check ended Unknown: Pacto could not see enough to say yes or no, and Unknown is never a yes. <a class="dp-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means</a></p>
+    <p class="t-body-2" data-testid="decision-unknown">A check ended Unknown: Pacto could not see enough to decide, and Unknown never passes. <a class="dp-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means</a></p>
   {/if}
 
   {#if decided}
@@ -199,7 +199,7 @@
     {#if offer}
       <!-- the buttons are in the cards above -->
     {:else if s?.mode === 'local'}
-      <p class="t-body-2" data-testid="decide-cli">A dashboard on your own machine does not decide, because any program here could do it as you. Decide from the command line:</p>
+      <p class="t-body-2" data-testid="decide-cli">On your own machine, any program could act as you in the dashboard, so you decide from the command line:</p>
       <CopyableIdentifier value={cliDecision(ns, name, asked)} label="command" />
     {:else if s && !s.signedIn}
       <p class="t-body-2">Sign in to decide.</p>

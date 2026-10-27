@@ -129,7 +129,7 @@
   const agg = $derived(list?.aggregate ?? null);
   const matched = $derived(agg?.matched ?? 0);
   const scopeNote = $derived(anyFilter
-    ? `All ${formatCount(matched)} matching ${matched === 1 ? plural.replace(/s$/, '') : plural}, not just this page.`
+    ? `All ${formatCount(matched)} matching ${matched === 1 ? plural.replace(/s$/, '') : plural}, across every page.`
     : `All ${formatCount(matched)} ${matched === 1 ? plural.replace(/s$/, '') : plural}${service ? ' for this service' : ' in the snapshot'}.`);
   const readinessOfMatch = $derived(readinessSegments(agg?.readiness, Object.fromEntries(
     READINESS_STATES.map((s) => [s.field, urlWith({ readiness: s.value })]),
@@ -156,8 +156,8 @@
     count={list ? `${formatCount(total)} ${total === 1 ? plural.replace(/s$/, '') : plural}` : ''}
     countTestid="entity-list-total"
     subtitle={kind === 'target'
-      ? 'Where something runs. A target is a runtime observation, not a contract.'
-      : `Declared versions, newest first${service ? '' : ' per service'}. Run or not.`}
+      ? 'Where something runs. Pacto learns about targets by observing them at run time.'
+      : `Declared versions, newest first${service ? '' : ' per service'}, whether or not they run.`}
     asOf={list?.meta?.asOf}
     {revalidating} paging={answer.paging}
   />
@@ -200,7 +200,7 @@
         {#if isRevisions}
           <DistributionBar
             title="Contract revision readiness"
-            description="Each revision against its own threshold. This is not compliance: a passing revision can still run on a target that breaks its contract."
+            description="Each revision against its own threshold. Readiness is separate from compliance: a passing revision can still run on a target that breaks its contract."
             {scopeNote}
             segments={readinessOfMatch}
             total={matched}

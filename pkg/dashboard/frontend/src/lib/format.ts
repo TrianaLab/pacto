@@ -163,12 +163,12 @@ const REASON_LABELS: Record<string, string> = {
 };
 
 const REASON_TOOLTIPS: Record<string, string> = {
-  non_oci_ref: 'Non-OCI dependency — not a contract-backed service',
-  auth_failed: 'Registry authentication failed — run `pacto login` or check credentials',
+  non_oci_ref: 'A dependency outside OCI with no contract of its own',
+  auth_failed: 'Registry authentication failed. Run `pacto login` or check your credentials.',
   no_semver_tags: 'OCI repository found but contains no valid semver tags',
   not_found: 'OCI artifact not found in the registry',
-  pull_failed: 'Registry unreachable — check network connectivity or DNS',
-  discovering: 'Background OCI discovery is still running — this may resolve shortly',
+  pull_failed: 'Registry unreachable. Check network connectivity or DNS.',
+  discovering: 'Background OCI discovery is still running and may resolve this shortly.',
 };
 
 const REASON_BADGE_CLASSES: Record<string, string> = {

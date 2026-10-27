@@ -33,7 +33,7 @@
               <td>
                 <code class="tool-name">{tool.name}</code>
                 {#if tool.mutating}
-                  <span class="badge badge-warn" data-tip="Mutating operation — exposed to agents only with --allow-writes">write</span>
+                  <span class="badge badge-warn" data-tip="Mutating operation. Agents see it only with --allow-writes">write</span>
                 {/if}
               </td>
               <td class="muted">{tool.summary || ''}</td>

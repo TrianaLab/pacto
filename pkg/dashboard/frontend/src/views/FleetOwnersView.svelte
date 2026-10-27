@@ -200,7 +200,7 @@
           <HorizontalBars
             title="Operational targets per owner"
             description="How much is actually running behind each of those owners."
-            scopeNote="Same owners, in the same service-count order as above — this is not a ranking by target count."
+            scopeNote="Same owners, in the same order as above (by service count)."
             items={rank.targets}
             unit="targets"
             unitOne="target"

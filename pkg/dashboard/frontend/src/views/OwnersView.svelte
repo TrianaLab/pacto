@@ -212,7 +212,7 @@
             <th data-tip="Non-compliant services"><button type="button" class="col-sort" onclick={() => setSort('nonCompliant')}>Non-Compliant{sortIcon('nonCompliant')}</button></th>
             <th data-tip="Reference-only contracts">Reference</th>
             <th><button type="button" class="col-sort" data-tip="% of assessed services that are compliant" onclick={() => setSort('compliance')}>% Compliant{sortIcon('compliance')}</button></th>
-            <th><button type="button" class="col-sort" data-tip="The widest blast radius among this owner's services. Blast radii overlap, so they are not added up" onclick={() => setSort('blast')}>Largest blast{sortIcon('blast')}</button></th>
+            <th><button type="button" class="col-sort" data-tip="The widest blast radius among this owner's services. Blast radii overlap, so this shows the largest one" onclick={() => setSort('blast')}>Largest blast{sortIcon('blast')}</button></th>
           </tr>
         </thead>
         <tbody>
@@ -244,7 +244,7 @@
               <td>
                 <ComplianceScore score={row.compliancePercent} />
                 {#if row.runtimeEvaluated > 0}
-                  <span class="conclusive-sub" data-tip="Services that reached a conclusive verdict out of those evaluated at runtime — metadata, does not change the percentage">{row.conclusive} of {row.runtimeEvaluated} conclusive</span>
+                  <span class="conclusive-sub" data-tip="Services that reached a conclusive verdict out of those evaluated at run time. For information only: the percentage ignores it.">{row.conclusive} of {row.runtimeEvaluated} conclusive</span>
                 {/if}
               </td>
               <td>

@@ -290,7 +290,7 @@
 
 {#if loadError && services.length > 0}
   <div class="backend-banner" role="alert">
-    <span>{loadError} Showing the last known data — retrying…</span>
+    <span>{loadError} Showing the last known data and retrying…</span>
     <button type="button" class="banner-retry" onclick={() => loadGlobal(true)}>Retry now</button>
   </div>
 {/if}
@@ -451,7 +451,7 @@
       <div class="product-page" data-testid="delivery-unavailable">
         <h1 class="t-page-title">Delivery is not available here</h1>
         {#if capabilities.auth?.mode !== 'local' && !capabilities.auth?.login}
-          <p class="t-body" data-testid="delivery-unavailable-reason">This dashboard does not know who you are, and every delivery action is signed by a person. Delivery views appear in <code>pacto dashboard</code> on your own machine, or in a shared dashboard people sign in to.</p>
+          <p class="t-body" data-testid="delivery-unavailable-reason">Every delivery action is signed by a person, and this dashboard has no signed-in user. Delivery views appear in <code>pacto dashboard</code> on your own machine, or in a shared dashboard people sign in to.</p>
         {:else}
           <p class="t-body" data-testid="delivery-unavailable-reason">The cluster this dashboard reads does not serve the delivery API. Install pacto-operator with <code>delivery.enabled=true</code>.</p>
         {/if}

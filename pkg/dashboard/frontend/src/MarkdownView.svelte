@@ -69,7 +69,7 @@
 </script>
 
 {#if truncated}
-  <div class="md-truncated">Truncated for display — open the file in the bundle for the full document.</div>
+  <div class="md-truncated">Truncated for display. Open the file in the bundle for the full document.</div>
 {/if}
 <div class="markdown-body" bind:this={container}>{@html html}</div>
 

@@ -59,7 +59,7 @@
       <span class="legend-item" data-tip="Contract status could not be determined"><span class="legend-dot" style="background:var(--c-neutral)"></span> Unknown</span>
       <span class="legend-item" data-tip="Shared contract definition with no deployed workload"><span class="legend-dot" style="background:var(--c-info)"></span> Reference</span>
       <span class="legend-sep">|</span>
-      <span class="legend-item" data-tip="Non-OCI dependency — not a contract-backed service"><span class="legend-dot" style="background:var(--c-text-3)"></span> External</span>
+      <span class="legend-item" data-tip="A dependency outside OCI with no contract of its own"><span class="legend-dot" style="background:var(--c-text-3)"></span> External</span>
       <span class="legend-item" data-tip="Registry authentication failed"><span class="legend-dot" style="background:var(--c-err)"></span> Auth required</span>
       <span class="legend-item" data-tip="OCI repo found but no valid semver tags, or registry unreachable"><span class="legend-dot" style="background:var(--c-warn)"></span> Not found / No versions</span>
       <span class="legend-item" data-tip="Background OCI discovery still running"><span class="legend-dot legend-dot-pulse" style="background:var(--c-accent)"></span> Discovering</span>

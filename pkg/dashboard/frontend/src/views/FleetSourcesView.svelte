@@ -105,7 +105,7 @@
   <PageHeader
     title="Data sources"
     count={list ? `${formatCount(total)} data source${total === 1 ? '' : 's'}` : ''}
-    subtitle="Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete — not zero."
+    subtitle="Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete."
     asOf={list?.meta?.asOf}
     {revalidating} paging={answer.paging}
   />

@@ -240,7 +240,7 @@ describe('GraphView — product Operational Graph', () => {
     flushSync();
     const drawer = q(target, '[data-testid="graph-drawer"]');
     expect(drawer?.textContent).toContain('Corroboration');
-    expect(q(target, '[data-testid="edge-scope-caveat"]')?.textContent).toMatch(/service-scoped corroboration/i);
+    expect(q(target, '[data-testid="edge-scope-caveat"]')?.textContent).toMatch(/supports the service as a whole/i);
     unmount(component); document.body.removeChild(target);
   });
 

@@ -150,8 +150,8 @@
            not depend on being read next to the legend. -->
       <p class="dist-warn" role="status" data-testid="dist-inconsistent">
         <strong>These numbers do not add up.</strong>
-        The buckets below account for {formatCount(sum)} across a population of {formatCount(denom)}
-        — {formatCount(over)} more than {denom === 1 ? 'there is' : 'there are'}. Something is
+        The buckets below account for {formatCount(sum)} across a population of {formatCount(denom)}:
+        {formatCount(over)} more than {denom === 1 ? 'there is' : 'there are'}. Something is
         being counted twice or against the wrong population,
         {#if emptyPopulation}
           and there is no population to take a share of, so the counts below are shown

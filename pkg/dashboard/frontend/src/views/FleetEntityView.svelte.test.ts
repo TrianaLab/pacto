@@ -472,7 +472,7 @@ describe('FleetEntityView — rich revision page (E)', () => {
     expect(text).toContain('Declares no interfaces');
     expect(text).toContain('Running here (exact match)');
     // Readiness must be legible as DECLARED preparedness, never read as a runtime result.
-    expect(text).toMatch(/not a measurement of the running system/i);
+    expect(text).toMatch(/read from its contract/i);
     // parent service is a link
     expect(Array.from(target.querySelectorAll('a.entity-link')).some((a) => a.getAttribute('href') === '#/fleet/services/domain-a%2Fpayments')).toBe(true);
     unmount(component); document.body.removeChild(target);
@@ -495,7 +495,7 @@ describe('FleetEntityView — rich revision page (E)', () => {
     const text = target.textContent || '';
     expect(text).toContain('Not declared');
     // "Nothing declared" and "declared and failing" must not read as the same state.
-    expect(text).toMatch(/not the same as failing/i);
+    expect(text).toMatch(/nothing to pass or fail/i);
     expect(text).not.toMatch(/not passing/i);
     unmount(component); document.body.removeChild(target);
   });
@@ -556,7 +556,7 @@ describe('FleetEntityView — rich target page honesty (F)', () => {
     expect(text).toMatch(/more than one known revision matches/i);
     expect(text).toMatch(/cannot say which one is running/i);
     // ...and it never lets "we cannot see it" read as "nothing is there".
-    expect(text).toMatch(/Something IS running/);
+    expect(text).toMatch(/Something is running here/);
     // the "Running revision"/"Inferred revision" authoritative label must NOT appear
     expect(text).not.toContain('Running revision');
     expect(text).not.toContain('Inferred revision');

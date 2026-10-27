@@ -13,7 +13,7 @@
     OwnChange: 'Someone else must decide on a change you asked for.',
     AgentsMayNotApprove: 'Agents may not decide on held changes.',
     AuthTimeUnavailable: 'Nobody can approve on this cluster yet.',
-    ApproveFromCLI: 'A dashboard on your own machine does not decide.',
+    ApproveFromCLI: 'Decide from the command line on your own machine.',
     LoginNotConfigured: 'This dashboard has no sign-in, so it takes no decisions.',
     LoginRequired: 'Sign in first.',
     FreshLoginRequired: 'Deciding needs a fresh sign-in.',

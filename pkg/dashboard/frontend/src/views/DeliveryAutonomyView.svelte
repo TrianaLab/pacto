@@ -194,7 +194,7 @@
           <table class="data-table au-table" data-testid="autonomy-stages">
             <caption class="visually-hidden">The level of each Stage and what Pacto proposes next</caption>
             <colgroup><col style="width: 28%" /><col style="width: 30%" /><col style="width: 42%" /></colgroup>
-            <thead><tr><th scope="col">Stage</th><th scope="col">Level <HelpTip label="the levels" text="Observe: Pacto plans and moves nothing. Advise: a person proposes or approves every promote. Auto non-breaking: Pacto ships non-breaking changes on its own. Autonomous: Pacto ships any change the contract graph clears; Unknown still waits for a person." /></th><th scope="col">Next step <HelpTip label="would-have lines" text="On an observing Stage, what Pacto would have done with the newest candidate on Autonomous. Advisory, not signed." /></th></tr></thead>
+            <thead><tr><th scope="col">Stage</th><th scope="col">Level <HelpTip label="the levels" text="Observe: Pacto plans and moves nothing. Advise: a person proposes or approves every promote. Auto non-breaking: Pacto ships non-breaking changes on its own. Autonomous: Pacto ships any change the contract graph clears; Unknown still waits for a person." /></th><th scope="col">Next step <HelpTip label="would-have lines" text="On an observing Stage, what Pacto would have done with the newest candidate on Autonomous. Advisory and unsigned." /></th></tr></thead>
             <tbody>
               {#each stages as s (s.namespace + '/' + s.stage)}
                 <tr data-stage={`${s.namespace}/${s.stage}`}>

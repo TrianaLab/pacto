@@ -43,7 +43,7 @@ describe('App — delivery gate', () => {
     fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { mode: 'none', login: false, signedIn: false } });
     const { target, destroy } = await renderAt('#/delivery/inbox');
     expect(target.querySelector('[data-testid="delivery-unavailable"]')).not.toBeNull();
-    expect(target.querySelector('[data-testid="delivery-unavailable-reason"]')?.textContent).toContain('does not know who you are');
+    expect(target.querySelector('[data-testid="delivery-unavailable-reason"]')?.textContent).toContain('has no signed-in user');
     expect(fns.inbox).not.toHaveBeenCalled();
     destroy();
   });

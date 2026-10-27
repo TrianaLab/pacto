@@ -169,7 +169,7 @@
   <!-- Full width, like targets: a revision's name is the service's name and its version,
        and a third of the page cut a long service name into four lines. -->
   <PreviewSection title="All revisions" collapsible open={noneInUse} summary="Every revision Pacto knows, in use or not" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No known revisions."
-    help="Newest first, whether or not anything is running them. Readiness is declared per revision — open one to see its gate.">
+    help="Newest first, whether or not anything is running them. Readiness is declared per revision. Open one to see its gate.">
     <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
          declared per revision and gated per revision. Rolling it up here would invent
          a third definition of readiness, so the service page points at the one that

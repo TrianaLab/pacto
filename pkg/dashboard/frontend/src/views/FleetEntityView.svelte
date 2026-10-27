@@ -164,7 +164,7 @@
           <span class="ev-key-label">Canonical key</span>
           <CopyableIdentifier value={detail.entity.key} />
         </div>
-        <p class="ev-key-hint">The identity Pacto uses for this {kindLabel(kind).toLowerCase()} everywhere — in the API, the CLI and shared links.</p>
+        <p class="ev-key-hint">The identity Pacto uses for this {kindLabel(kind).toLowerCase()} everywhere: in the API, the CLI and shared links.</p>
       </details>
 
       <!-- One malformed record (a duplicate key, a field of the wrong shape) must cost

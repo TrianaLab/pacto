@@ -219,9 +219,9 @@
       serviceResults = narrowed ? exact : (res.entities ?? []);
       serviceTotal = narrowed ? exact.length : (res.total ?? serviceResults.length);
       migrateNote = !complete
-        ? `More services match "${name}" than this lookup could read at once, so Pacto cannot tell which one this older link meant — search for the one you want.`
+        ? `More services match "${name}" than this lookup could read at once, so Pacto cannot tell which one this older link meant. Search for the one you want.`
         : exact.length > 1
-          ? `Several services are named "${name}". This link is from an older URL that did not distinguish them — pick the one you meant.`
+          ? `Several services are named "${name}". This link is from an older URL that did not distinguish them. Pick the one you meant.`
           : `No service named "${name}" is in the current operational graph. It may have been renamed or removed.`;
     } catch (e) {
       if (my !== serviceSearchSeq) return;

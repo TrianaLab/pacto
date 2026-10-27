@@ -180,7 +180,7 @@
   const agg = $derived(list?.aggregate ?? null);
   const matched = $derived(agg?.matched ?? 0);
   const scopeNote = $derived(anyFilter
-    ? `All ${formatCount(matched)} matching ${matched === 1 ? 'service' : 'services'}, not just this page.`
+    ? `All ${formatCount(matched)} matching ${matched === 1 ? 'service' : 'services'}, across every page.`
     : `All ${formatCount(matched)} ${matched === 1 ? 'service' : 'services'} in the snapshot.`);
   const complianceOfMatch = $derived(complianceSegments(agg?.serviceCompliance,
     statusHrefs((s) => urlWith({ status: s }))));
@@ -347,7 +347,7 @@
           <HorizontalBars
             title="Operational targets per owner"
             description="How much is actually running behind each of those owners."
-            scopeNote="Same owners, in the same service-count order as above — this is not a ranking by target count."
+            scopeNote="Same owners, in the same order as above (by service count)."
             items={rankedTargets}
             unit="targets"
             unitOne="target"

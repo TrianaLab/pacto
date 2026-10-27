@@ -235,7 +235,7 @@ describe('reasonLabel', () => {
 });
 
 describe('reasonTooltip', () => {
-  it('returns non-OCI tooltip', () => expect(reasonTooltip('non_oci_ref')).toContain('Non-OCI'));
+  it('returns non-OCI tooltip', () => expect(reasonTooltip('non_oci_ref')).toContain('outside OCI'));
   it('returns auth tooltip', () => expect(reasonTooltip('auth_failed')).toContain('authentication'));
   it('returns no semver tooltip', () => expect(reasonTooltip('no_semver_tags')).toContain('semver'));
   it('returns not found tooltip', () => expect(reasonTooltip('not_found')).toContain('found'));

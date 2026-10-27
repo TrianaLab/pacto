@@ -113,7 +113,7 @@ test('Services: a bucket of the figure and the rows under it are the same popula
   // The rows narrowed; so did the figure, to exactly the bucket that was chosen. A
   // figure still describing 18 services beside a list of 5 is the failure this catches.
   expect(await pagerTotal(page, '[data-testid="svc-range"]')).toBe(bucket.value);
-  expect(after.scope).toBe(`All ${bucket.value} matching services, not just this page.`);
+  expect(after.scope).toBe(`All ${bucket.value} matching services, across every page.`);
   expect(after.buckets.map((b) => b.label), `filtering to "${bucket.label}" left other buckets populated`)
     .toEqual([bucket.label]);
   expect(after.buckets[0].value).toBe(bucket.value);
@@ -308,13 +308,13 @@ test('Revisions: the readiness figure covers every revision, and a bucket opens 
   expect(sum(f.buckets), 'the readiness buckets do not add up to the revision population').toBe(total);
   // The unit is stated in the caption, and the word compliance is disclaimed rather than
   // left for the reader to conflate.
-  expect(f.description).toContain('This is not compliance');
+  expect(f.description).toContain('Readiness is separate from compliance');
 
   const bucket = drillable(f, total);
   await follow(page, bucket);
   await expect.poll(() => pagerTotal(page, '[data-testid="entity-range"]'), { timeout: 30_000 }).toBe(bucket.value);
   expect((await figure(page, 'Contract revision readiness')).scope)
-    .toBe(`All ${bucket.value} matching contract revisions, not just this page.`);
+    .toBe(`All ${bucket.value} matching contract revisions, across every page.`);
 
   // A bucket is a queue of revisions, so a row in it opens a revision.
   await page.getByTestId('entity-list').locator('li a').first().click();
@@ -351,7 +351,7 @@ test('a revision passing its own readiness gate can still run on a target that d
   // Both verdicts on one page, each attached to its own subject and neither restated as
   // the other: the revision's gate passes, and the target it runs on is non-compliant.
   await expect(readiness).toContainText('Passing');
-  await expect(readiness).toContainText('not a measurement of the running system');
+  await expect(readiness).toContainText('read from its contract');
   const targetRow = page.locator('.ref-row').filter({ hasText: pair!.target.split('/').pop()! }).first();
   await expect(targetRow).toContainText('Not compliant', { timeout: 30_000 });
 

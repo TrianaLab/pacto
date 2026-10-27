@@ -25,7 +25,7 @@
     {/if}
     <span class="metric-sub">{formatCount(metrics.compliant)} of {formatCount(metrics.assessed)} assessed · {formatCount(metrics.unknown)} unknown</span>
     {#if metrics.evaluationCoverage.required > 0}
-      <span class="metric-sub metric-coverage" data-tip="Required assertions actually evaluated across the fleet — metadata, does not change the percentage">coverage: {formatCount(metrics.evaluationCoverage.evaluated)} of {formatCount(metrics.evaluationCoverage.required)} evaluated</span>
+      <span class="metric-sub metric-coverage" data-tip="Required assertions evaluated across the fleet. For information only: the percentage ignores it.">coverage: {formatCount(metrics.evaluationCoverage.evaluated)} of {formatCount(metrics.evaluationCoverage.required)} evaluated</span>
     {/if}
   </button>
 

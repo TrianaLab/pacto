@@ -344,7 +344,7 @@
         <section class="ev-shadows" data-testid="shadow-summary" aria-labelledby="ev-shadows-title">
           <div class="ev-shadows-head">
             <h2 id="ev-shadows-title" class="t-section-title">What Pacto would have done <span class="t-meta">{countOf(observing.length, 'observing Stage')} on this page, advisory and unsigned</span></h2>
-            <HelpTip label="observing Stages" text="These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It is status, not a record. Seen in source is when GitOps' source showed the candidate, not when it rolled out." />
+            <HelpTip label="observing Stages" text="These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It comes from the Stage status and is unsigned. Seen in source is when GitOps' source showed the candidate, which can be before it rolled out." />
           </div>
           {#each observingCap.slice(observing) as r (r.namespace + '/' + r.stage)}
             <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
