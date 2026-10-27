@@ -115,16 +115,16 @@ export function topoSignature(gd: GraphData): string {
 }
 
 /** presentationSignature captures the MUTABLE visual fields that Cytoscape styles read
- *  (node status/label/kind, edge state) but that do NOT change the topology. When it
+ *  (node status/label/kind, edge state and words) but that do NOT change the topology. When it
  *  changes with an unchanged topoSignature, the canvas is patched in place so a
  *  semantic-only refresh (e.g. Compliant -> NonCompliant, or a difference verdict) is
  *  never left stale. Deterministic (sorted). */
 export function presentationSignature(gd: GraphData): string {
   const ns = gd.nodes
-    .map((n) => `${n.id}:${n.status}:${n.kind || 'service'}:${n.serviceName}`)
+    .map((n) => `${n.id}:${n.status}:${n.kind || 'service'}:${n.serviceName}:${n.version || ''}`)
     .sort().join(',');
   const es = gd.nodes
-    .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || 'dependency'}:${e.edgeState || ''}`))
+    .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || 'dependency'}:${e.edgeState || ''}:${e.label || ''}`))
     .sort().join(',');
   return `${ns}||${es}`;
 }
@@ -136,18 +136,34 @@ export const GROUP_THRESHOLD = 40;
 /** The id prefix of a node that stands for one team's entities. */
 export const GROUP_PREFIX = 'group:';
 
+/** The id prefix of a lane: the box holding the direct neighbors on one side. */
+export const LANE_PREFIX = 'lane:';
+
+/** At most this many teams per side get a group of their own; the rest, and every team
+ *  with a single entity out there, share one "Other teams" group. */
+export const MAX_GROUPS_PER_SIDE = 7;
+
+/** The name of the group the small teams share. */
+export const OTHER_TEAMS = 'Other teams';
+
+/** Which side of the focus an entity sits on: what the focus depends on (left) or what
+ *  uses the focus (right). */
+export type Side = 'depends-on' | 'used-by';
+
 export interface Grouping {
-  /** Owners whose group the reader opened. */
+  /** Ids of the groups the reader opened. */
   open?: ReadonlySet<string>;
   /** Show every entity, grouping nothing. */
   all?: boolean;
   threshold?: number;
 }
 
+export interface LaneGroup { id: string; owner: string; side: Side; count: number }
+
 export interface GroupedGraph {
   graph: GraphData;
   /** The groups drawn, largest first, and how many entities each stands for. */
-  groups: Array<{ owner: string; count: number }>;
+  groups: LaneGroup[];
   /** How many entities the groups fold away. */
   folded: number;
 }
@@ -155,57 +171,156 @@ export interface GroupedGraph {
 /** The owner a group is keyed by; an entity with none groups as "No owner". */
 const ownerOf = (n: GraphNode) => n.owner || 'No owner';
 
+// The worst state wins on an edge that stands for many: one unexpected call in a team of
+// twelve is the thing to see. The words are the legend's.
+const STATE_RANK: Record<string, number> = { drift: 4, 'expected-not-observed': 3, insufficient: 2, matched: 1 };
+const STATE_WORDS: Record<string, string> = {
+  drift: 'observed, not expected', 'expected-not-observed': 'expected, not observed', insufficient: 'insufficient evidence', matched: 'matched',
+};
+
 /**
- * groupByOwner folds a large neighborhood so it stays readable: past the threshold,
- * the entities beyond the direct neighbors (and the direct neighbors too, when they
- * alone are past it) become one node per owner, with an edge wherever one of its
- * entities had one. The focus is never folded, a team of one is never folded and an
- * opened team shows its entities. It hides nothing from the text alternative: the
- * Relationships list still names every entity.
+ * sidesOf puts every entity on one side of the focus. A direct neighbor the focus points
+ * at is something it depends on; one that points at the focus uses it (both ways: depends
+ * on wins). Everything further out takes the side of the direct neighbor it is reached
+ * through, nearest first, and anything not reached at all sits on the used-by side.
  */
-export function groupByOwner(gd: GraphData, { open = new Set(), all = false, threshold = GROUP_THRESHOLD }: Grouping = {}): GroupedGraph {
-  if (all || gd.nodes.length <= threshold) return { graph: gd, groups: [], folded: 0 };
-  const far = (n: GraphNode) => (n.depth ?? 1) >= 2;
-  const near = (n: GraphNode) => (n.depth ?? 1) === 1;
-  // Fold the far ring; if the near ring alone is still too many, fold it as well.
-  const foldNear = gd.nodes.filter((n) => !far(n)).length > threshold;
-  const candidates = gd.nodes.filter((n) => (far(n) || (foldNear && near(n))) && !open.has(ownerOf(n)));
-  const members = new Map<string, GraphNode[]>();
-  for (const n of candidates) members.set(ownerOf(n), [...(members.get(ownerOf(n)) ?? []), n]);
-  const rep = new Map<string, string>(); // entity id -> the id that stands for it
-  const groups: GroupedGraph['groups'] = [];
-  const nodes: GraphNode[] = [];
-  for (const [owner, ms] of members) {
-    if (ms.length < 2) continue;
-    const id = GROUP_PREFIX + owner;
-    for (const m of ms) rep.set(m.id, id);
-    groups.push({ owner, count: ms.length });
-    nodes.push({ id, serviceName: owner, version: `${ms.length} entities`, status: 'group', kind: 'service', owner,
-      depth: Math.min(...ms.map((m) => m.depth ?? 1)), group: ms.length, edges: [] });
+export function sidesOf(gd: GraphData, focusId: string): Map<string, Side> {
+  const adj = new Map<string, string[]>();
+  const link = (a: string, b: string) => { const l = adj.get(a); if (l) l.push(b); else adj.set(a, [b]); };
+  const out = new Map<string, Side>();
+  for (const n of gd.nodes) {
+    for (const e of n.edges ?? []) {
+      link(n.id, e.targetId);
+      link(e.targetId, n.id);
+      if (n.id === focusId && e.targetId !== focusId) out.set(e.targetId, 'depends-on');
+    }
   }
-  if (!groups.length) return { graph: gd, groups: [], folded: 0 };
+  for (const n of gd.nodes) if (n.id !== focusId && !out.has(n.id) && (n.edges ?? []).some((e) => e.targetId === focusId)) out.set(n.id, 'used-by');
+  const queue = [...out.keys()];
+  for (const id of queue) { // the array grows as it is walked: a breadth-first search
+    for (const m of adj.get(id) ?? []) {
+      if (m !== focusId && !out.has(m)) { out.set(m, out.get(id)!); queue.push(m); }
+    }
+  }
+  for (const n of gd.nodes) if (n.id !== focusId && !out.has(n.id)) out.set(n.id, 'used-by');
+  return out;
+}
+
+/**
+ * laneGraph lays a focused neighborhood out as lanes: what the focus depends on in a lane
+ * on its left, what uses it in a lane on its right. Past the threshold, everything two or
+ * more hops away folds into one node per team and side, with ONE edge to its lane carrying
+ * how many relationships it stands for and the worst reconciliation state among them, and
+ * the direct neighbors fold by team as well when they alone are past it. The focus is
+ * never folded, a direct neighbor alone in its team is never folded and an opened group
+ * shows its entities. It hides nothing from the text alternative: the Relationships list
+ * still names every entity and every relationship. A graph with no focus is returned as
+ * it is.
+ */
+export function laneGraph(gd: GraphData, { open = new Set(), all = false, threshold = GROUP_THRESHOLD }: Grouping = {}): GroupedGraph {
+  const focus = gd.nodes.find((n) => n.depth === 0);
+  if (!focus) return { graph: gd, groups: [], folded: 0 };
+  const side = sidesOf(gd, focus.id);
+  const sign = (s: Side | undefined) => (s === 'depends-on' ? -1 : 1);
+  const far = (n: GraphNode) => (n.depth ?? 1) >= 2;
+  const fold = !all && gd.nodes.length > threshold;
+  const foldNear = fold && gd.nodes.filter((n) => n !== focus && !far(n)).length > threshold;
+
+  const members = new Map<string, GraphNode[]>();
+  for (const n of gd.nodes) {
+    if (n === focus || !fold || (!far(n) && !foldNear)) continue;
+    const id = `${GROUP_PREFIX}${side.get(n.id)}:${ownerOf(n)}`;
+    if (open.has(id)) continue;
+    const ms = members.get(id);
+    if (ms) ms.push(n); else members.set(id, [n]);
+  }
+  // Teams beyond the per-side budget, and teams of one, share an "Other teams" group.
+  const ownerName = new Map<string, string>();
+  const perSide = new Map<Side, number>();
+  const bySize = [...members.entries()].filter(([, ms]) => ms.every(far)).sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  for (const [id, ms] of bySize) {
+    const s = side.get(ms[0].id)!;
+    const n = perSide.get(s) ?? 0;
+    if (ms.length >= 2 && n < MAX_GROUPS_PER_SIDE) { perSide.set(s, n + 1); continue; }
+    members.delete(id);
+    const other = `${GROUP_PREFIX}${s}:*`; // "*" is no owner's name, so no team collides with it
+    if (open.has(other)) continue;
+    ownerName.set(other, OTHER_TEAMS);
+    members.set(other, [...(members.get(other) ?? []), ...ms]);
+  }
+  const rep = new Map<string, string>(); // entity id -> the group that stands for it
+  const groups: LaneGroup[] = [];
+  const groupNodes: GraphNode[] = [];
+  for (const [id, ms] of members) {
+    if (ms.length < 2 && !far(ms[0])) continue; // a direct neighbor alone in its team stays itself
+    for (const m of ms) rep.set(m.id, id);
+    const s = side.get(ms[0].id)!;
+    const depth = Math.min(...ms.map((m) => m.depth ?? 1));
+    const owner = ownerName.get(id) ?? ownerOf(ms[0]);
+    groups.push({ id, owner, side: s, count: ms.length });
+    groupNodes.push({
+      id, serviceName: owner, version: `${ms.length} ${ms.length === 1 ? 'entity' : 'entities'}`, status: 'group', kind: 'service',
+      owner, depth, group: ms.length, side: sign(s), edges: [], ...(depth <= 1 ? { parent: LANE_PREFIX + s } : {}),
+    });
+  }
+
+  // A lane exists for each side anything sits on; its box holds that side's direct neighbors.
+  const laneCount = new Map<Side, number>();
+  for (const n of gd.nodes) if (n !== focus && !far(n)) laneCount.set(side.get(n.id)!, (laneCount.get(side.get(n.id)!) ?? 0) + 1);
+  const used = new Set(side.values());
+  const lanes: GraphNode[] = (['depends-on', 'used-by'] as Side[]).filter((s) => used.has(s)).map((s) => ({
+    id: LANE_PREFIX + s, serviceName: `${s === 'depends-on' ? 'Depends on' : 'Used by'} (${laneCount.get(s) ?? 0})`,
+    status: 'lane', kind: 'service', lane: true, side: sign(s), edges: [],
+  }));
+
+  const kept: GraphNode[] = [];
   const byId = new Map<string, GraphNode>();
   for (const n of gd.nodes) {
     if (rep.has(n.id)) continue;
-    const kept = { ...n, edges: [] as GraphEdge[] };
-    nodes.push(kept);
-    byId.set(n.id, kept);
+    const s = side.get(n.id);
+    const k: GraphNode = n === focus
+      ? { ...n, side: 0, edges: [] }
+      : { ...n, side: sign(s), edges: [], ...(!far(n) ? { parent: LANE_PREFIX + s } : {}) };
+    kept.push(k);
+    byId.set(k.id, k);
   }
-  for (const g of nodes) if (g.group) byId.set(g.id, g);
-  const seen = new Set<string>();
+
+  // Edges between two drawn entities stay exactly as they are; an edge touching a group
+  // is counted into that group's one edge.
+  const agg = new Map<string, { count: number; worst: string; worstCount: number; runs: boolean }>();
+  const tally = (g: string, e: GraphEdge) => {
+    const a = agg.get(g) ?? { count: 0, worst: '', worstCount: 0, runs: true };
+    const st = e.edgeState || '';
+    a.count++;
+    a.runs &&= e.type === 'runs';
+    if ((STATE_RANK[st] ?? 0) > (STATE_RANK[a.worst] ?? 0)) { a.worst = st; a.worstCount = 1; } else if (st && st === a.worst) a.worstCount++;
+    agg.set(g, a);
+  };
   for (const n of gd.nodes) {
     for (const e of n.edges ?? []) {
-      const from = rep.get(n.id) ?? n.id;
-      const to = rep.get(e.targetId) ?? e.targetId;
-      if (from === to || !byId.has(to)) continue; // inside one team, or not drawn
-      const key = `${from}>${to}:${e.type || 'dependency'}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      // One edge for many: it keeps a state only when it is an entity's own edge.
-      const folded = from !== n.id || to !== e.targetId;
-      byId.get(from)!.edges!.push(folded ? { targetId: to, type: e.type } : { ...e });
+      const from = rep.get(n.id);
+      const to = rep.get(e.targetId);
+      if (!from && !to) { if (byId.has(e.targetId)) byId.get(n.id)!.edges!.push({ ...e }); continue; }
+      if (from === to) continue; // inside one group
+      if (from) tally(from, e);
+      if (to) tally(to, e);
     }
   }
-  groups.sort((a, b) => b.count - a.count || a.owner.localeCompare(b.owner));
-  return { graph: { nodes }, groups, folded: candidates.filter((n) => rep.has(n.id)).length };
+  for (const g of groupNodes) {
+    const a = agg.get(g.id);
+    if (!a) continue;
+    const inner = (g.depth ?? 1) <= 1 ? focus.id : LANE_PREFIX + (g.side === -1 ? 'depends-on' : 'used-by');
+    const edge: GraphEdge = {
+      targetId: g.side === -1 ? g.id : inner,
+      type: a.runs ? 'runs' : 'dependency',
+      ...(a.worst ? { edgeState: a.worst } : {}),
+      label: a.worst ? `${STATE_WORDS[a.worst]} (${a.worstCount})` : `${a.count} ${a.count === 1 ? 'link' : 'links'}`,
+    };
+    // Depends-on: the lane points out at the group. Used-by: the group points in.
+    if (g.side === -1) (inner === focus.id ? byId.get(focus.id)! : lanes.find((l) => l.id === inner)!).edges!.push(edge);
+    else g.edges!.push(edge);
+  }
+  groups.sort((a, b) => b.count - a.count || a.owner.localeCompare(b.owner) || a.side.localeCompare(b.side));
+  // Lanes first: a box must exist before the nodes placed inside it.
+  return { graph: { nodes: [...lanes, ...kept, ...groupNodes] }, groups, folded: rep.size };
 }
