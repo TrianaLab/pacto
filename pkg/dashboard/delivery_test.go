@@ -29,8 +29,10 @@ const (
 // fakeDelivery is a cluster as one caller sees it.
 type fakeDelivery struct {
 	// policy is the published policy; nil is the acme one most tests use.
-	policy    *delivery.ClassPolicy
-	caller    delivery.Caller
+	policy *delivery.ClassPolicy
+	caller delivery.Caller
+	// owner is the team the contract of dRun declares.
+	owner     string
 	callerErr error
 	stages    []delivery.StageObject
 	ops       []delivery.OperationObject
@@ -174,7 +176,7 @@ func (f *fakeDelivery) Cancel(_ context.Context, ns, name string) error {
 func (f *fakeDelivery) Describe(_ context.Context, _ *delivery.StageObject, digest string) delivery.Revision {
 	if digest == dRun {
 		return delivery.Revision{Digest: digest, ContractRef: "oci://r/payments@sha256:c",
-			Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments", Version: "1.0.0"}}}}
+			Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments", Version: "1.0.0", Owner: contract.Owner{Team: f.owner}}}}}
 	}
 	if v, ok := f.known[digest]; ok {
 		return delivery.Revision{Digest: digest, Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Version: v}}}}
@@ -488,6 +490,26 @@ func TestEnvironments(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	got := strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
 	expect(t, got == "promote", "agent actions %v", got)
+	// A person outside the team the running contract names is never offered
+	// an unfreeze the promoter would refuse (NotYourTeam); the team is, and
+	// so is break-glass. With no team named, RequireOwnerTeam offers nobody.
+	f.owner = "team-payments"
+	for groups, want := range map[string]string{"acme:team-checkout": "promote", "acme:team-payments": "promote,unfreeze"} {
+		f.caller = person(groups)
+		_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+		got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
+		expect(t, got == want, "%s actions %v", groups, got)
+	}
+	f.caller = person("pacto:break-glass")
+	f.caller.Class = delivery.ClassBreakGlass
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
+	expect(t, strings.Contains(got, "unfreeze"), "break-glass actions %v", got)
+	f.owner, f.policy = "", &delivery.ClassPolicy{TeamGroupPrefix: "acme:", RequireOwnerTeam: true}
+	f.caller = person("acme:team-payments")
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
+	expect(t, got == "promote", "ownerless under requireOwnerTeam %v", got)
 }
 
 func TestPublished(t *testing.T) {
