@@ -128,7 +128,7 @@
     error={loadError}
     onRetry={onRetry}
     title="Can’t reach the backend"
-    message="The dashboard couldn’t load services. It will keep retrying." />
+    message="Pacto keeps trying on its own." />
 {:else if services.length === 0 && (initialLoading || discovering)}
   <EmptyState loading message={initialLoading ? 'Loading services…' : 'Discovering services…'} />
 {:else if services.length === 0}

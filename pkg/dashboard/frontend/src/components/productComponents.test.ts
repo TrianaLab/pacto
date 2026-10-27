@@ -154,6 +154,14 @@ describe('ProductEmptyState — honest knowledge states', () => {
     expect(target.textContent).toContain('no revision with this key');
   });
 
+  it('a bare "not found" from the backend is said once, with a way back', async () => {
+    const { ApiError } = await import('../lib/api.ts');
+    const state = decideViewState({ loading: false, itemCount: 0, error: new ApiError(404, 'not found') });
+    comp = mount(ProductEmptyState, { target, props: { state } });
+    expect(target.textContent?.match(/not found/gi)).toHaveLength(1);
+    expect(target.querySelector('a')?.getAttribute('href')).toBe('#/fleet');
+  });
+
   it('scenario 15: a schema/contract incompatibility renders an explicit error state', async () => {
     const { SchemaCompatibilityError } = await import('../lib/api.ts');
     const state = decideViewState({ loading: false, itemCount: 0, error: new SchemaCompatibilityError('pacto.dev/fleet-product/v2') });

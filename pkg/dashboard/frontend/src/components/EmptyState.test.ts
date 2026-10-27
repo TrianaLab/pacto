@@ -72,4 +72,13 @@ describe('EmptyState', () => {
     expect(target.textContent).toContain('No services');
     unmount(c);
   });
+
+  it('says a message that only repeats the title once', () => {
+    const c = mount(EmptyState, { target, props: { error: true, title: 'Not found', message: 'not found' } });
+    expect(target.querySelectorAll('p')).toHaveLength(0);
+    unmount(c);
+    const d = mount(EmptyState, { target, props: { title: 'No matches', message: 'No matches.' } });
+    expect(target.querySelectorAll('p')).toHaveLength(0);
+    unmount(d);
+  });
 });

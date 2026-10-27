@@ -111,7 +111,7 @@
     <PostureBars
       summary={sum}
       {attentionUrl}
-      empty="Nothing running has been observed for this service, so there is no compliance, identity or freshness picture yet."
+      empty="Nothing running has been seen for this service yet."
     />
 
     {#if drift.length > 0}
@@ -153,7 +153,7 @@
   </PreviewSection>
 
   <div class="se-grid se-grid--two">
-    <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No revision is currently matched to a running target." help="The revisions at least one running target is matched to. Newest first.">
+    <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No running target matches a revision yet." help="The revisions at least one running target is matched to. Newest first.">
       <EntityRefList items={d.activeRevisions?.items ?? []} showStatus={false} />
     </PreviewSection>
 
