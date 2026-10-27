@@ -70,17 +70,17 @@ func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		b.Watches(u, r.mapRefs(func(o client.Object) []string { return keys(o.(*unstructured.Unstructured)) }))
 	}
 	watch(gvkOCIRepository, func(u *unstructured.Unstructured) []string {
-		return []string{refKey(u.GetNamespace(), "OCIRepository", u.GetName())}
+		return []string{refKey(u.GetNamespace(), kindOCIRepository, u.GetName())}
 	})
 	watch(schema.GroupVersionKind{Group: gvkKustomization.Group, Version: gvkKustomization.Version, Kind: "Kustomization"},
 		func(u *unstructured.Unstructured) []string {
 			kind, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "kind")
 			name, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "name")
 			srcNS, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "namespace")
-			if kind != "OCIRepository" {
+			if kind != kindOCIRepository {
 				return nil
 			}
-			return []string{refKey(cmp.Or(srcNS, u.GetNamespace()), "OCIRepository", name)}
+			return []string{refKey(cmp.Or(srcNS, u.GetNamespace()), kindOCIRepository, name)}
 		})
 	if r.Cluster.CacheApplications {
 		watch(gvkApplication, func(u *unstructured.Unstructured) []string {
@@ -89,6 +89,8 @@ func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return b.Complete(r)
 }
+
+const kindOCIRepository = "OCIRepository"
 
 // stageRefs indexes Stages by the objects they read (refKey).
 const stageRefs = "delivery.refs"
@@ -99,11 +101,11 @@ func stageRefKeys(obj client.Object) []string {
 	s := obj.(*dv1.Stage)
 	kind := delivery.ApplierArgoCD
 	if s.Spec.ApplyRef.Kind != delivery.ApplierArgoCD {
-		kind = "OCIRepository"
+		kind = kindOCIRepository
 	}
 	keys := []string{refKey(s.Namespace, kind, s.Spec.ApplyRef.Name)}
 	if c := s.Spec.Candidates.OCIRepositoryRef; c != nil {
-		keys = append(keys, refKey(s.Namespace, "OCIRepository", c.Name))
+		keys = append(keys, refKey(s.Namespace, kindOCIRepository, c.Name))
 	}
 	if up := s.Spec.Candidates.UpstreamStage; up != nil {
 		keys = append(keys, refKey(cmp.Or(up.Namespace, s.Namespace), "Stage", up.Name))

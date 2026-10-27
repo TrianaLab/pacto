@@ -166,7 +166,7 @@ func TestPerfPromoter(t *testing.T) {
 	if !mgr.GetCache().WaitForCacheSync(ctx) {
 		t.Fatal("the cache never synced")
 	}
-	time.Sleep(5 * time.Second) // the Stages' first reconciles settle
+	time.Sleep(25 * time.Second) // the Stages' first reconciles and re-checks settle
 	kinds()
 	idle := calls.Load()
 	time.Sleep(5 * time.Second)
@@ -245,6 +245,9 @@ func TestPerfPromoter(t *testing.T) {
 	if perOp > promoterMaxAPIPerOp {
 		t.Errorf("%.1f apiserver requests per promote, budget %d", perOp, promoterMaxAPIPerOp)
 	}
+	if idleRate > promoterMaxIdle {
+		t.Errorf("%.1f apiserver requests per second at rest, budget %d: something polls again", idleRate, promoterMaxIdle)
+	}
 	if wall > promoterMaxBurst {
 		t.Errorf("the burst took %s, budget %s", wall, promoterMaxBurst)
 	}
@@ -252,7 +255,8 @@ func TestPerfPromoter(t *testing.T) {
 
 const (
 	promoterMaxAPIPerOp = 25
-	promoterMaxBurst    = 4 * time.Minute
+	promoterMaxBurst    = 45 * time.Second
+	promoterMaxIdle     = 5
 )
 
 // resourceOf is the resource (and subresource) a request path names.

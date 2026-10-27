@@ -252,7 +252,8 @@ func runRecorder(args []string) error {
 // newManager builds a manager whose client makes qps requests a second,
 // bursting to burst; zero keeps client-go's 20 and 30. Its client reads
 // unstructured objects live (Cluster.Client).
-func newManager(metricsAddr, probeAddr string, leaderElect bool, id string, qps float32, burst int) (ctrl.Manager, error) {
+func newManager(metricsAddr, probeAddr string, leaderElect bool, id string,
+	qps float32, burst int) (ctrl.Manager, error) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(dv1.AddToScheme(scheme))
