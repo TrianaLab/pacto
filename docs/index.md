@@ -59,7 +59,7 @@ dependencies:
 ## Who breaks when a dependency ships a new version
 
 The `compatibility` range above records which versions of `auth` this revision
-accepts, and `pacto.lock` pins every dependency, direct or indirect, to the
+accepts, and an optional `pacto.lock` pins every dependency, direct or indirect, to the
 exact published build. So when auth is about to ship 3.0, Pacto answers per consumer:
 
 ```console
@@ -91,7 +91,7 @@ pass.
 | Command | Question it answers |
 | --- | --- |
 | `pacto validate` | Is this contract legal? |
-| `pacto diff` | Did I break my own consumers? |
+| `pacto diff` | Is my change breaking for anyone who uses it? |
 | `pacto impact` | Which consumers, and where do they run? |
 | The [operator](integrations/kubernetes/overview.md), a controller you install in the cluster | Does reality still match what was declared? |
 

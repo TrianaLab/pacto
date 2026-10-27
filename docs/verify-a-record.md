@@ -6,8 +6,11 @@ record, check its signature, check the whole history and check that a
 released version was signed. Without access to the cluster you still take
 three things from the team that runs Pacto: the public key records are
 checked against, the address where a Stage's records hang and the id of its
-newest record. Ask for all three in writing and keep them: a later mismatch
-is evidence.
+newest record (a hash of that record, explained in
+[Check the whole history](#check-the-whole-history)). Ask for all three in
+writing and keep them: a later mismatch is evidence. Two optional checks
+below need one more key each: the eval runner's for exams and the publisher's
+for released versions.
 The full detail is in [Signed records and history](integrations/kubernetes/delivery-records.md).
 
 ## The words on this page
@@ -22,6 +25,7 @@ that says who owns it and which other services it calls.
 | Change | One request to move a Stage to another version, from the request to its end. In Kubernetes it is an object of kind `Operation` |
 | Record | A signed account of one finished change |
 | Recorder | The part of Pacto that writes and signs records. It is the only part that holds the signing key |
+| Promoter | The part of Pacto that plans each change and moves the version. It does not hold the recorder's key |
 | Registry | The container registry where your images live, such as zot or Harbor |
 | Digest | The `sha256:...` fingerprint of one exact image or file in a registry |
 | Flux | The tool that makes a Kubernetes cluster run the files you give it. Pacto tells it which version to run |
@@ -102,7 +106,7 @@ are the entries of type `application/vnd.dev.sigstore.bundle.v0.3+json`;
 ```bash
 ANCHOR=registry.example/pacto/streams@sha256:3a7f...   # from the step above
 oras discover --artifact-type application/vnd.dev.sigstore.bundle.v0.3+json "$ANCHOR"
-REC=sha256:...                                         # pick one from the list
+REC=sha256:...                                         # the digest of one entry in the list (not the record id below)
 REPO=${ANCHOR%@*}
 oras blob fetch --output record.json \
   "$REPO@$(oras manifest fetch "$REPO@$REC" | jq -r '.layers[0].digest')"
@@ -128,6 +132,9 @@ statement, the decoded payload:
 ```bash
 jq -r .dsseEnvelope.payload record.json | base64 -d | shasum -a 256   # the id, without "sha256:"
 ```
+
+The id is not the digest `oras discover` lists for the entry: that one names
+the stored file, the id names what was signed. Compare ids with ids.
 
 Fetch and check every record on the anchor as above, then check three
 things:
@@ -178,22 +185,26 @@ The commands take the first eval check of the record; a record with more
 than one keeps one signed answer per check. Then check what the runner
 signed against the record:
 
-- `operation` is the record's `intent.uid` and the subject its `to` digest
+- `operation` is the record's `.predicate.intent.uid` and the subject its `to` digest
 - the counts and the suite match the verdict's `citation`
 - the verdict's result follows from the counts and the Stage check's
-  `minPassRate` in the record's `policy` (a model the runner named can only
+  `minPassRate` in the record's `.predicate.policy` (a model the runner named can only
   make it worse)
 
 An eval verdict that says Pass or Fail but keeps no `runnerBundle` was not
 signed by any runner: do not trust it. With cluster access,
-`pacto delivery record verify` does all of this when the trust config also
-lists the runner's key with `role: runner`, and prints who ran each exam. It
+`pacto delivery record verify --trust keys.yaml` does all of this when that
+file lists the runner's key with `role: runner` beside the recorder's, and prints who ran each exam. It
 finds the eval verdicts from the record's Stage policy and citations. To
 decide that yourself, list on the runner key the providers whose verdicts it
 must sign:
 
 ```yaml
 keys:
+  - name: recorder
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      ...
   - name: evals-ci
     role: runner
     providers: [evals]
@@ -203,9 +214,8 @@ keys:
 ```
 
 What this cannot catch: a promoter that reuses an answer the runner signed
-earlier in the same operation, for the same version. The runner signs the
-challenge the promoter sent it, but nothing outside the promoter saw that
-challenge.
+earlier in the same operation, for the same version. The runner signs a
+one-time value only the promoter saw.
 
 ## Check a version was signed
 
@@ -235,7 +245,8 @@ sign.
 
 To tie a record to a release, take the digest of the subject named `to`
 (`jq -r '.subject[] | select(.name=="to") | .digest.sha256'` on the decoded
-statement). It is the deploy artifact, the package of Kubernetes files Flux
+statement; it prints the bare hex, so put `sha256:` in front of it for
+`cosign verify`). It is the deploy artifact, the package of Kubernetes files Flux
 applies. It lives in the repository the service's contract names for that
 artifact, for example `registry.example/acme/deploy/payments`. Ask the
 publishing team for that address, as for the anchor. Check it there with the
@@ -251,6 +262,10 @@ from the registry. See
 - With no public log, nothing outside the record proves when it was signed.
   Someone holding the recorder's key could write a record with any date.
 - A change running while its Stage is deleted is never recorded.
+- Two different names on a record do not always mean two people. When
+  `actor.class` is `agent` and `actor.onBehalfOf` is empty, the person behind
+  the agent may be the one who approved. Even when it is set, it is only the
+  agent's claim.
 - Registry clean-up rules can delete records. The platform team must keep
   the streams repository out of them.
 - A record made while the cluster's admission checks were off has no

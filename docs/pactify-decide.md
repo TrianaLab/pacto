@@ -18,7 +18,9 @@ calls.
 | Consumer | A service whose contract says it calls yours, and which versions of yours it accepts |
 | Held | A change that waits for a person |
 | Frozen | A Stage that automation no longer moves until a person unfreezes it. It shows under `FROZEN` |
-| On hold | A Stage that automation no longer moves after a person rolled it back by hand, so it does not undo that choice. It shows under `HOLD`, and an unfreeze clears it too |
+| On hold (auto-hold) | A Stage that automation no longer promotes after someone rolled it back by hand, or promoted it back to a version it already verified, so it does not undo that choice. It shows under `HOLD`. An unfreeze clears it, and so does a person promoting a version the Stage has not verified yet |
+| Level | How much a Stage lets Pacto do on its own, from observe (watch only) to autonomous; see [the autonomy ladder](autonomy.md) |
+| Record | A signed account of one finished change, kept in your registry. The recorder, a part of Pacto your admin may turn on, writes it |
 | Unknown | Pacto could not see enough to say whether the change is safe |
 
 ## Why you were asked
@@ -41,11 +43,17 @@ Pacto holds a change and asks a person in these cases:
   classified. Every consumer's contract accepts it, but this level ships only
   non-breaking changes on its own, so a person approves it.
 - **The Stage requires records and the recorder cannot write them now.** A
-  person approves the promote or rollback without a record yet.
+  person approves the promote or rollback without a record yet. The change
+  itself is the same; only its signed record is missing.
+- **Someone asked to raise the Stage's level.** A raise moves no version, it
+  lets Pacto do more on its own. A person of the team that owns the service,
+  other than the one who asked, approves it.
 
 You are asked only if you are in the team that owns an affected service, and
-never about a change you asked for yourself. An AI agent can ask for changes,
-but it can never decide one.
+never about a change you asked for yourself. Pacto knows who asked only from
+the request: if an AI agent asked for you without naming you with
+`--on-behalf-of`, you could still be asked: leave that one to a teammate. An AI agent
+can ask for changes, but it can never decide one.
 
 ## Look, then decide
 
@@ -64,7 +72,7 @@ Then give one answer:
 
 | Answer | Use it when | What happens |
 |---|---|---|
-| `approve` | The question says "Approve" and you accept it. Pacto asks that when the change breaks a consumer, the Stage asks for every promote, the Stage is on advise, the Stage is on auto for non-breaking and the change is not known to be non-breaking or the Stage requires records the recorder cannot write now | The version goes ahead |
+| `approve` | The question says "Approve" and you accept it. Pacto asks that in every case in [Why you were asked](#why-you-were-asked) except a check that said Unknown | The version goes ahead, or for a raise, the Stage moves up one level |
 | `accept-unknown` | The question says "Accept the unknown": a check said Unknown and you accept the risk | The version goes ahead; the record says "accepted", never "passed". If the version already shipped and a later check said Unknown, only this or `reject` answers |
 | `reject` | You do not want this version here | If it has not shipped, the change ends and the Stage keeps the version it runs. If it already shipped, Pacto rolls it back to the version before. Someone can ask again later |
 
@@ -92,7 +100,7 @@ Two things, both set up once by your cluster admin:
 1. **A role.** Your Kubernetes user or group needs the approver role, and
    your group must be the owner team written in the contract of the service
    you are asked about: for a breaking change, the consumer that would break;
-   otherwise, the service whose version is moving.
+   otherwise, the service whose version or level is moving.
    Ask your admin for a binding like this one, for the team `payments`:
 
    ```bash
@@ -101,8 +109,8 @@ Two things, both set up once by your cluster admin:
    ```
 
 2. **A fresh company login.** The cluster must trust your company sign-in,
-   and you must have signed in within the promoter's login freshness: 15 minutes by
-   default, set by `delivery.promoter.authFreshness`. You do not do
+   and you must have signed in recently: within 15 minutes by default, which
+   your admin sets with `delivery.promoter.authFreshness`. You do not do
    anything special: `pacto delivery approve` prints an address, you sign in
    again in your browser and it sends your answer with that login. The
    dashboard asks you to sign in again in the same way. Before the first

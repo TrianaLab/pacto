@@ -125,8 +125,9 @@ On every level where Pacto moves versions, a promote that fails its checks
 after release is rolled back once to the version that ran before, whoever
 asked for it. The Stage freezes instead when there is nothing safe to go back
 to, the rollback itself fails or someone chose the running version by hand (a
-rollback, or a promote during auto-hold). Then nothing moves until a person
-rolls back or unfreezes it.
+rollback, or a promote during auto-hold: the pause a hand rollback sets so
+automation does not undo it). Then nothing moves until a person rolls back or
+unfreezes it.
 
 If the failed version is one Pacto shipped with no person, the Stage also
 drops one level, whether it was rolled back or froze. Autonomous goes back to auto for
@@ -147,13 +148,16 @@ that the version failed.
 On observe, your GitOps tool still writes which version runs. Leaving observe
 goes in this order:
 
-1. A person removes the version from the GitOps manifest in git, so git stops
+1. Keep deploying through GitOps as before until the checks have passed on
+   enough versions it applied (10 by default). The Stage's proposal lists
+   what is still missing.
+2. A person removes the version from the GitOps manifest in git, so git stops
    setting it, and adds a label to that manifest's object in the cluster, so
-   only Pacto can change the version from then on.
-2. Pacto then proposes advise, once the checks have passed on enough versions.
+   only Pacto can change the version from then on. Pacto then proposes advise.
 3. Someone asks for the raise and a second person approves it. Do it
-   promptly: between step 1 and the raise, nothing moves the version. The
-[ladder reference](autonomy-reference.md) names the field and the label for
+   promptly: between step 2 and the raise, nothing moves the version.
+
+The [ladder reference](autonomy-reference.md) names the field and the label for
 Flux and Argo CD.
 
 ## Where to go next

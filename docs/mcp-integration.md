@@ -102,17 +102,24 @@ it in your project; for Claude Desktop, have the agent pass full paths.
 `--k8s` for your kubeconfig's cluster. See
 [`pacto mcp`](cli-reference.md#pacto-mcp).
 
-**Delivery.** `--delivery` acts on the cluster your kubeconfig points at, as
-the identity in it. The cluster treats a Kubernetes service account as an
-agent, and also anyone in the agent group your platform team set up
-(`pacto:agents` by default). Only an agent gets the tools to ask for and
-cancel a change; a person gets only the read tools. So give the agent a
-kubeconfig for its own service account, never yours: an agent holding your
-credentials is you to the cluster.
-
 **Credentials.** `--publish`, `--root` and `--fleet` use the registry logins
 of `pacto login`. A bundle's API calls use `--auth name=value` for the
 service's own sign-in, as its OpenAPI document declares it.
+
+## Delivery: who counts as an agent
+
+`--delivery` acts on the cluster your kubeconfig points at, as
+the identity in it. The cluster treats as an agent a Kubernetes service
+account, anyone in the agent group your platform team set up (`pacto:agents`
+by default) and, when the platform team lists the groups people are in (as
+[Pactify a service](pactify.md#4-connect-the-service-to-your-cluster) does
+with `staff`), anyone outside those groups. Only an agent gets the tools to
+ask for and cancel a change; a person gets only the read tools. So give the
+agent a kubeconfig for its own service account, never yours: an agent holding
+your credentials is you to the cluster. Have the agent fill `on_behalf_of` on
+`pacto_delivery_operation_propose` with the person it works for: then that
+person cannot also approve the change, which keeps two people on every
+change.
 
 ## What keeps it safe
 

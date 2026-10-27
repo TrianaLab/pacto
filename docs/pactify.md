@@ -29,7 +29,8 @@ You need:
   `pacto login ghcr.io -u <user>` (or `docker login`). Any registry works
   for this page. The optional signed record of each change also needs one
   that serves OCI Referrers, such as [zot](https://zotregistry.dev); GitHub's
-  registry does not, so on `ghcr.io` you get no records;
+  registry does not, so on `ghcr.io` you get no records, and without records
+  a Stage stops at advise and never ships on its own;
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
@@ -41,6 +42,9 @@ You need:
   [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
 
 You do not write the contract by hand: Pacto writes it from your service.
+
+Only want the contract and its CI checks? Leave out `--delivery`, stop after
+step 3 and go on to [Put it in your repository](ci.md). No cluster needed.
 
 ## 1. See what Pacto would add
 
@@ -214,23 +218,27 @@ kubectl -n test describe stages.delivery.pacto.trianalab.io my-service  # if not
 ## 5. Ship the next version
 
 Make a change, raise `service.version` in `pacto.yaml`, then run
-`pacto publish`. While the Stages observe, you deploy the new tag as before
-and each Stage records what it would have done.
+`pacto publish`. While the Stages observe, you deploy the new tag as before:
+set `spec.ref.tag` in `delivery/<env>.yaml` and apply it. Each Stage records
+what it would have done.
 
 To leave observe, in this order:
 
-1. Remove `spec.ref` from the OCIRepository in git, so Flux stops setting the
-   version, and label it so only Pacto may write its digest:
+1. Keep deploying this way until 10 versions passed their checks
+   (`autonomy.proposeAfter` lowers that, see
+   [the ladder](autonomy.md#earned-autonomy-pacto-proposes-a-person-decides)).
+   The Stage's `status.proposal` lists what is still missing.
+2. Remove `spec.ref` from the OCIRepository in `delivery/test.yaml` and apply
+   it, so Flux stops setting the version, and label it so only Pacto may
+   write its digest. Pacto then proposes `advise`:
 
     ```bash
     kubectl -n test label ocirepository my-service delivery.pacto.trianalab.io/apply-ref=my-service
     ```
 
-2. Wait for Pacto to propose `advise`. It does once 10 versions Flux applied
-   passed their checks; the Stage's `autonomy.proposeAfter` lowers that, down
-   to 1 (see [the ladder](autonomy.md#earned-autonomy-pacto-proposes-a-person-decides)).
-3. Ask for the raise and have a second person approve it (see
-   [When a change waits](pactify-decide.md#why-you-were-asked)):
+3. Ask for the raise; another person of the owner team approves it (see
+   [Why you were asked](pactify-decide.md#why-you-were-asked)). Be quick:
+   until the raise, nothing moves the version.
 
     ```bash
     pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage my-service -n test --to advise
@@ -239,14 +247,11 @@ To leave observe, in this order:
 Each level above that is one more approved operation. In prod, `init` also
 writes `approval: always: true`, so every promote there waits for a person:
 the contract check cannot see a consumer with no contract, or tell whether the
-version is healthy. Once a health check judges each version there
-(`gates.verify.checks`, see
-[Delivery reference: health checks](integrations/kubernetes/delivery-health.md)),
-delete `approval` from `delivery/prod.yaml`. You may delete it without a health
-check too; then only the contract check judges each prod version. A version that fails its checks
-after release is rolled back once, or its Stage freezes until a person
-unfreezes it. A change that would break a service using yours asks that
-service's team.
+version is healthy. Delete it from `delivery/prod.yaml` once a health check
+judges each version there (`gates.verify.checks`, see
+[Delivery reference: health checks](integrations/kubernetes/delivery-health.md)).
+A version that fails its checks after release is rolled back once, or its
+Stage freezes until a person unfreezes it.
 
 Each move is a change, a Kubernetes object of kind `Operation`; one that waits
 for a person shows `Held`. To approve one, as a member of the owner team:

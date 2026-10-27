@@ -70,6 +70,7 @@ a different label, it is in the last column.
 | Proposal | The next level Pacto suggests, with its evidence or what blocks it |
 | Earned autonomy | Raising a level after enough good changes, confirmed by a person |
 | Step-down | Dropping one level after a version Pacto shipped with no person fails |
+| Auto-hold | Set when someone rolls a Stage back by hand, or promotes it back to a version it already verified. Automation stops promoting there until a person unfreezes it or promotes a version it has not verified yet |
 
 See [the autonomy ladder](autonomy.md).
 

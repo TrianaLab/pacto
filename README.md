@@ -10,7 +10,8 @@ and deployment files stay in git.
 
 Describe your services once, as contracts. Pacto works out what each change
 does to the services that depend on it. It starts by watching, and once a
-person has confirmed each step it ships the changes the contract graph clears.
+person has confirmed each step it ships the changes the contract graph clears,
+meaning every service that depends on them accepts the new version.
 It asks only the teams a change affects. Flux or Argo CD still apply every
 version.
 
@@ -48,13 +49,14 @@ Delivery is alpha: its settings and commands may still change, and it runs on
 Kubernetes 1.30 or later with Flux (Argo CD is experimental).
 
 A new Stage starts on observe. Pacto proposes the next level after enough good
-changes, and a person other than the one who asked confirms it (Pacto knows who
-asked only from the request: a person who has an agent ask without
-`--on-behalf-of` can approve their own change). A raise to an
-automatic level needs the recorder, so it leaves a signed record. A failed
+changes, and a person other than the one who asked confirms it (an agent
+that asks without naming its person with `--on-behalf-of` lets that person
+approve). A raise to an automatic level needs the recorder, which signs a
+record of each change. A failed
 promote is rolled back once, whoever asked for it. The Stage freezes instead
 when there is nothing safe to go back to, the rollback fails or someone chose
-the running version by hand (a rollback, or a promote during auto-hold). A
+the running version by hand (a rollback, or a promote while a hand rollback
+holds the Stage). A
 failure of a version Pacto shipped with no person also drops the Stage one
 level, whether it was rolled back or froze.
 
@@ -67,7 +69,7 @@ When Pacto cannot see enough (Unknown), the change waits for a person. A
 service seen calling yours at runtime with no contract counts as a consumer
 Pacto cannot judge, so a breaking change waits too. AI agents may propose
 changes and only people may approve. With the recorder on and a registry that
-serves OCI Referrers (zot does, GitHub's does not), every change leaves a
+serves OCI Referrers (zot does, GitHub's does not), every finished change leaves a
 signed record you verify with cosign and oras. Without the component, Pacto
 never changes what runs.
 

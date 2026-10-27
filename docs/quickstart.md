@@ -144,7 +144,7 @@ $ echo $?
 1
 ```
 
-The classification is `BREAKING`, so the next published version must be a new major version, and the exit code is 1. That is the CI gate: `pacto diff` exits non-zero when the change breaks consumers, so a branch-protection rule that requires passing checks blocks the merge.
+The classification is `BREAKING`, so the next published version must be a new major version, and the exit code is 1. That is the CI gate: `pacto diff` exits non-zero when the change is breaking for anyone who may use the service (`pacto impact` below says which consumers), so a branch-protection rule that requires passing checks blocks the merge.
 
 ## 7. Find the affected consumers
 
