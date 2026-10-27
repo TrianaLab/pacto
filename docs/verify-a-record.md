@@ -146,8 +146,8 @@ things:
    platform team can read for you. If it does not, newer records are missing.
 
 A record with `.predicate.kind` `gap` is a signed placeholder for a number no
-change used. It fills its number, so it is not a hole, but every gap is worth
-asking the platform team about.
+change used. It fills its number, so the stream stays continuous. Ask the platform
+team about every gap.
 With cluster access, Pacto does the same check in one command and exits
 non-zero if anything is wrong:
 

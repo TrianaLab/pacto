@@ -169,7 +169,7 @@ Have an idea? [Open a feature request](https://github.com/TrianaLab/pacto/issues
    feat!: rename the readiness gate field
    ```
 
-   Individual commit messages are not checked automatically, but your **pull request title** is: `.github/workflows/pr-title.yml` requires `<type>[(scope)][!]: <description>`, where type is one of `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build` or `style`. Put `!` before the colon for a breaking change.
+   CI checks your **pull request title** and leaves individual commit messages alone: `.github/workflows/pr-title.yml` requires `<type>[(scope)][!]: <description>`, where type is one of `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build` or `style`. Put `!` before the colon for a breaking change.
 
 6. **Open a pull request** against `main`. Fill in the PR template and link any related issues.
 
@@ -198,7 +198,7 @@ pacto/
     testutil/         #   Shared test utilities
   integrations/       # Delivery outside the CLI
     kubernetes/       #   The operator: a second Go module, its own go.mod
-  tests/              # Tests that are not about one package
+  tests/              # Tests that span packages
     integration/      #   CLI driven in process against a real registry
     architecture/     #   Structural rules about the repository itself
     acceptance/local/ #   Whole user stories, no cluster

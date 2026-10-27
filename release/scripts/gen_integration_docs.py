@@ -894,8 +894,8 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
 
     out.append("## Contract status\n")
     out.append(
-        "`status.contractStatus` says whether the service matches its contract. It is not a "
-        "health check. Values are generated from the `Pacto` API.\n"
+        "`status.contractStatus` says whether the service matches its contract. It does not "
+        "report pod health. Values are generated from the `Pacto` API.\n"
     )
     out.append("| Status | Meaning |")
     out.append("| --- | --- |")

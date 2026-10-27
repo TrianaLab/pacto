@@ -85,7 +85,7 @@ it moves on refresh while the old version still runs. A sync of the digest that
 ends `Failed` or `Error`, or `Degraded` health after that sync, fails the
 promote and starts the usual rollback.
 
-Argo CD does not check signatures, but the candidate source still does, and the
+Argo CD does not check signatures. The candidate source checks them, and the
 promoter only ever writes a digest, so Argo CD fetches exactly the checked
 bytes. Admission keeps the rest of `spec.source`, `spec.sources` and the label
 to break-glass, so nobody else changes what those bytes become. Only a Flux

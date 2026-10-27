@@ -208,7 +208,7 @@
         if (a) { a.click(); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
       }
     }, {
-      text: "That is the whole loop: what is out there, what state it is in, what a change breaks and who it reaches. Every answer comes from contracts and observations.",
+      text: "You have now seen what runs, what state it is in and who a change reaches, all from contracts and observations.",
       href: "../examples/demo-tour/",
       linkText: "The same questions from a terminal"
     }];

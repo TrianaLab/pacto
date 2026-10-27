@@ -126,7 +126,7 @@ path (both production `release.yml` and the staging dry-run call them). For each
   "Complete" is the operative word for that last one: an `artifactType` of exactly
   `application/vnd.docker.compose.project`, exactly one layer, that layer's media
   type exactly `application/vnd.docker.compose.file+yaml`, and its digest exactly
-  `PACTO_EXPECT_CONTENT`. Bytes are not a type — any artifact can carry the same
+  `PACTO_EXPECT_CONTENT`. Bytes carry no type: any artifact can carry the same
   compose file as one octet-stream layer under any artifact type, and adopting it
   on the strength of a layer count and a digest would record something
   `docker compose -f oci://…` cannot run. `verify-oci.sh` is the one place that
@@ -184,8 +184,8 @@ and `helm`, none of which the runner image provides. Nothing in the YAML declare
 that dependency — the install step and the script that needs the tool sit in
 different files. `tests/release/workflow_tooling_test.go` walks each job's shell
 through its `make` targets and the transitive closure of the scripts it invokes, and
-fails when a job can reach a gated CLI it never installed. It is one-directional: an
-unused install is not an error, an uninstalled use is.
+fails when a job can reach a gated CLI it never installed. It checks one direction:
+every use needs an install.
 
 This matters more than a missing binary usually would, because the release scripts
 answer questions with strings. `ledger.sh` returning `""` means "nothing recorded" —

@@ -161,7 +161,7 @@
          dependency graph, so nothing above and nothing in the graph would ever mention
          it, and the referenced service had no way to learn who reaches into it. This is
          the reverse side of the reference the revision page links forward. -->
-    <PreviewSection title="Referenced by" collapsible={(d.referencedBy?.count ?? 0) > 0} open={false} total={d.referencedBy?.total ?? 0} count={d.referencedBy?.count ?? 0} truncated={d.referencedBy?.truncated} empty="No service references this service's configuration or policy." help="These services reference this one's configuration or policy contract. That is not a runtime dependency, so it never appears in the graph.">
+    <PreviewSection title="Referenced by" collapsible={(d.referencedBy?.count ?? 0) > 0} open={false} total={d.referencedBy?.total ?? 0} count={d.referencedBy?.count ?? 0} truncated={d.referencedBy?.truncated} empty="No service references this service's configuration or policy." help="These services reference this one's configuration or policy contract. The graph shows runtime dependencies only, so these references stay off it.">
       <EntityRefList items={d.referencedBy?.items ?? []} showStatus={false} />
     </PreviewSection>
   </div>

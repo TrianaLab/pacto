@@ -134,7 +134,7 @@ The contract status follows a strict precedence over the findings (worst wins):
 - `Warning` — no errors or unknowns, but at least one `warning`-severity finding.
 - `Compliant` — no findings above `info`.
 
-The evaluator compares only what the contract declares and the operator can observe: interfaces, capabilities, dependencies, configurations, workload type and persistence. Image, upgrade strategy and probe timing are **observed** into `status.observedRuntime` but are not asserted into findings.
+The evaluator compares only what the contract declares and the operator can observe: interfaces, capabilities, dependencies, configurations, workload type and persistence. Image, upgrade strategy and probe timing are **observed** into `status.observedRuntime` and never produce findings.
 
 ### Health and metrics capabilities
 
@@ -189,7 +189,7 @@ A `Pacto` resource binds a contract source to an optional runtime target:
 - **Private registries**: set `spec.contractRef.pullSecretRef` to the name of a Kubernetes Secret (in the same namespace) containing OCI credentials. See [Private OCI Registries](#private-oci-registries).
 - **Target**: a Kubernetes Service (`spec.target.serviceName`) and workload (`spec.target.workloadRef`). If the workload ref is omitted, it defaults to a Deployment with the same name as the service.
 - **Reference mode**: when no target is specified, the Pacto is reference-only — the contract is resolved and stored, but no runtime validation runs. ContractStatus is `Reference`.
-- **Reconciliation frequency**: `spec.checkIntervalSeconds` is the requeue delay the operator returns after each reconciliation (default: 300, minimum: 30) — it is not a background poll. The operator also reconciles immediately whenever the spec, status, or a referenced Secret changes, then requeues itself after this interval.
+- **Reconciliation frequency**: `spec.checkIntervalSeconds` is the requeue delay the operator returns after each reconciliation (default: 300, minimum: 30). The operator also reconciles immediately whenever the spec, status, or a referenced Secret changes, then requeues itself after this interval.
 
 ### PactoRevision
 

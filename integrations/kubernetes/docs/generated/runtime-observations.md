@@ -72,7 +72,7 @@ Details an observation can carry beyond "it is there", such as the protocol a po
 
 ## Contract status
 
-`status.contractStatus` says whether the service matches its contract. It is not a health check. Values are generated from the `Pacto` API.
+`status.contractStatus` says whether the service matches its contract. It does not report pod health. Values are generated from the `Pacto` API.
 
 | Status | Meaning |
 | --- | --- |

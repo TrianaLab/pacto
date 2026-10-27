@@ -38,9 +38,9 @@ succeeded and then `ledger-init` and every publisher below it skipped.
 The cause was skip propagation through `needs`. A Kubernetes-only transaction has no
 core unit, so `core-tag` skips by design. `core-ready` carried `always()` and ran, but
 `always()` exempts only the job that declares it. The skip still reached everything
-downstream of `core-tag`, and `ledger-init` — which did not declare it — skipped with
-its `if:` satisfied and both of its `needs` green. A skipped job is not a failed job,
-so the run's conclusion stayed `success`. Fixed in #361 and #362.
+downstream of `core-tag`, and `ledger-init`, which did not declare it, skipped with
+its `if:` satisfied and both of its `needs` green. GitHub counts a skipped job as
+successful, so the run's conclusion stayed `success`. Fixed in #361 and #362.
 
 5.2.2 is therefore unlike 3.2.0 / 5.2.0: there is no tag, so nothing resolves through
 the module proxy either, and no artifact exists to be adopted or conflicted with. It
