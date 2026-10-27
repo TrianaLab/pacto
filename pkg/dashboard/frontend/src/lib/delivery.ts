@@ -13,6 +13,7 @@ const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/unfreeze': 'Unfreeze',
   'delivery.pacto.trianalab.io/freeze': 'Freeze',
   'delivery.pacto.trianalab.io/autonomy': 'Rung change',
+  'delivery.pacto.trianalab.io/acknowledge': 'Acknowledge upstream',
 };
 
 /** typeLabel names an operation type in plain words. */
