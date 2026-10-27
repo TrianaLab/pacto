@@ -84,6 +84,7 @@
   // Swapping the whole result for a loader on every page reset the scroll to the top.
   let pagingConsumers = $state(false);
   let analyzeGen = 0;
+  let limShown = $state(8);
 
   // Service picker (only when the route carries no service key): search-first, so a
   // service beyond the first page of results is still discoverable.
@@ -603,7 +604,11 @@
             <span class="ca-fold-meta">{formatCount(limitations.total)}</span>
           </summary>
           <div class="ca-fold-body">
-            <LimitationsList items={limitations.items} />
+            <!-- Eighty gaps opened at once is a wall; the first eight, then the rest on ask. -->
+            <LimitationsList items={limitations.items.slice(0, limShown)} />
+            {#if limitations.items.length > limShown}
+              <button type="button" class="btn btn-sm ca-show-all" onclick={() => { limShown = Infinity; }}>Show all {formatCount(limitations.items.length)}</button>
+            {/if}
             {#if limitations.truncated}<p class="text-dim">Showing {formatCount(limitations.count)} of {formatCount(limitations.total)}.</p>{/if}
           </div>
         </details>
@@ -656,6 +661,7 @@
   .ca-fold > summary h2 { margin: 0; }
   .ca-fold-meta { margin-left: auto; color: var(--c-text-3); font-size: var(--text-sm); }
   .ca-fold-body { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-2) 0 var(--sp-3); }
+  .ca-show-all { align-self: flex-start; }
   .check-row { display: inline-flex; align-items: center; gap: var(--sp-2); }
   .disco-more { margin: var(--sp-3) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .snap-id { font-family: var(--font-mono, monospace); font-size: var(--text-xs); color: var(--c-text-3); padding: 2px 6px; border: 1px solid var(--c-border); border-radius: 999px; }
