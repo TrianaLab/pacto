@@ -20,7 +20,8 @@ the API server's audit log names the person.
 4. Each request uses the session's token. The API server authenticates it and
    RBAC decides, exactly as for `kubectl`.
 
-The header shows who you are, your groups and **Sign out** on every page.
+On every page, the person button in the header opens who you are, your groups
+and **Sign out**.
 Approving a held change needs a fresh identity provider sign-in
 ([where approving works](delivery-identity.md#where-approving-works)).
 
