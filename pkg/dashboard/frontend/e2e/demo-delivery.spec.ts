@@ -97,6 +97,8 @@ async function playTour(page: Page, reload: boolean) {
   await expect(text).toContainText('payments in prod stepped down a rung');
   await next.click();
   await expect(text).toContainText("press Propose on fraud's row");
+  // Skip presses the button, so let the Autonomy tab load it first.
+  await expect(page.getByRole('button', { name: 'Propose Advise for fraud in test' })).toBeVisible({ timeout: T });
   await page.getByTestId('demo-tour-skip').click();
   // Done, it moves on by itself, and the plan it opened holds until Continue.
   await expect(text).toContainText('The plan asks team risk', { timeout: T });
