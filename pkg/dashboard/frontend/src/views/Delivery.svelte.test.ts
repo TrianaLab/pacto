@@ -273,6 +273,8 @@ describe('environments', () => {
     const refusal = target.querySelector('[data-testid="refusal"]')!;
     expect(text(refusal as HTMLElement)).toContain('The cluster refused.');
     expect(text(refusal as HTMLElement)).toContain('operations is forbidden: User cannot create');
+    // One it cannot name shows the server's words: they are all the reader has.
+    expect(refusal.querySelector('details')).toBeNull();
     (target.querySelector('[data-testid="propose-panel"] button') as HTMLButtonElement).click();
     await settle();
     expect(target.querySelector('[data-testid="propose-panel"]')).toBeNull();
@@ -811,6 +813,10 @@ describe('change detail', () => {
     const refusal = r.target.querySelector('[data-testid="refusal"]')!;
     expect(refusal.getAttribute('data-code')).toBe('NotYourTeam');
     expect(text(refusal as HTMLElement)).toContain('Only the team the question names may answer it.');
+    // A refusal the dashboard can name keeps the server's words behind Details.
+    const more = refusal.querySelector('details') as HTMLDetailsElement;
+    expect(more.open).toBe(false);
+    expect(text(more)).toContain('only [team-checkout] may answer this question');
     r.destroy();
   });
 
