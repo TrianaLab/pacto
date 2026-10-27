@@ -78,7 +78,9 @@ function installDelivery(persona: Persona): void {
         ready: 'True', actions: ['promote'], level: 'advise' }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
         pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], level: 'observe',
         shadow: [{ candidate: D2, predicted: 'Held', owners: ['team-checkout'], observedAt: '2026-10-21T09:00:00Z', verification: 'Verified' },
-          { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }] });
+          { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }],
+        // The server orders the columns the way changes travel, as environmentColumns does.
+        environmentNames: ['test', 'prod'], environmentTiers: { test: 'test', prod: 'prod' } });
     }
     if (route === '/api/delivery/autonomy') {
       return json(200, { ...listing, contracted: { services: 4, uncontractedCallers: 1 }, promotionsWithoutPerson: { count: 3, of: 5, untyped: 0 },
@@ -102,7 +104,7 @@ function installDelivery(persona: Persona): void {
       const rec = (c: string) => 'sha256:' + c.repeat(64);
       return json(200, { ...listing, versions: { [D1]: '1.4.0', [D2]: '2.0.0' }, histories: [
         { namespace: 'prod', stage: { name: 'payments-prod', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'records', verified: true,
-          note: 'read from the signed records in the registry, which show problems', head: rec('c'),
+          note: 'read from the signed records in the registry, which show problems', head: rec('c'), problemCount: 1, unreadableCount: 1,
           problems: ['seq 3 moved the Stage from ' + D1 + ', but the change before it left ' + D2 + ': something moved it with no record'],
           unreadable: [rec('d') + ': signature: signed by a key that is not trusted here'],
           entries: [
@@ -421,7 +423,7 @@ test.describe('The path to autonomy', () => {
     const shadow = page.getByTestId('shadow');
     await expect(page.getByTestId('shadow-summary')).toContainText('advisory and unsigned', { timeout: T });
     await shadow.locator('summary').click();
-    // The board orders environments test before prod (sortEnvironments).
+    // The board orders environments test before prod (the server's environmentNames).
     await expect(page.getByTestId('level')).toHaveText(['Observe', 'Advise']);
     await expect(shadow.getByTestId('shadow-row').first()).toContainText('hold for team-checkout');
     await expect(shadow.getByTestId('held-but-ran')).toHaveCount(1);
