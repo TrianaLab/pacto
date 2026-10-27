@@ -142,7 +142,8 @@ func TestDeploymentAC_Auth(t *testing.T) {
 // TestDashboardRoleReadsDeliveryOnly: every delivery action passes the
 // person's token through, so the dashboard's own role only reads Stages and
 // Operations, into its shared cache, and never impersonates. Its one write is
-// asking the apiserver what a signed-in person may read.
+// asking the apiserver what a signed-in person may read; it lists namespaces
+// only to know whom to ask.
 func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 	role := clusterRoleAC().(*rbacv1ac.ClusterRoleApplyConfiguration)
 	sar, reads := false, false
@@ -158,6 +159,9 @@ func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 				t.Errorf("the dashboard role reaches delivery beyond reading Stages and Operations: %v %v", r.Resources, r.Verbs)
 			}
 			continue
+		}
+		if slices.Equal(r.APIGroups, []string{""}) && slices.Equal(r.Resources, []string{"namespaces"}) && !slices.Equal(r.Verbs, []string{"list"}) {
+			t.Errorf("the dashboard role may %v namespaces", r.Verbs)
 		}
 		for _, g := range r.APIGroups {
 			if g == "*" {

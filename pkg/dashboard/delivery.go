@@ -43,6 +43,13 @@ type DeliveryAPI interface {
 	// in namespace ("" for all). Nil with no error means this host keeps no
 	// record of refused publishes.
 	PublishRefusals(ctx context.Context, namespace string) (*PublishRefusals, error)
+	// Can asks the apiserver whether the caller may verb resource of the
+	// delivery API group in namespace.
+	Can(ctx context.Context, verb, resource, namespace string) (bool, error)
+	// StageNamespaces are the namespaces the caller may list Stages in,
+	// whether or not anything else runs there. Nil with no error means this
+	// host cannot enumerate namespaces.
+	StageNamespaces(ctx context.Context) ([]string, error)
 }
 
 // Auth is a live host's identity layer. Nil means no sign-in and no delivery

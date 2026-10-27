@@ -59,6 +59,13 @@ type fakeDelivery struct {
 	undoErr     error
 	refusals    *PublishRefusals
 	refusalsErr error
+	// deny refuses the caller's access reviews "verb resource namespace"
+	// ("verb resource" for every namespace); canErr fails every review.
+	deny   map[string]bool
+	canErr error
+	// stageNS answers StageNamespaces; nsErr fails it.
+	stageNS []string
+	nsErr   error
 }
 
 func (f *fakeDelivery) Stage(_ context.Context, ns, name string) (*delivery.StageObject, error) {
@@ -168,6 +175,13 @@ func (f *fakeDelivery) Approve(_ context.Context, ns, name string, d delivery.De
 	f.approved = append(f.approved, ns+"/"+name+"="+string(d))
 	return name + "-x", f.actErr
 }
+
+func (f *fakeDelivery) Can(_ context.Context, verb, resource, ns string) (bool, error) {
+	what := verb + " " + resource
+	return !f.deny[what] && !f.deny[what+" "+ns], f.canErr
+}
+
+func (f *fakeDelivery) StageNamespaces(context.Context) ([]string, error) { return f.stageNS, f.nsErr }
 
 func (f *fakeDelivery) Cancel(_ context.Context, ns, name string) error {
 	f.cancelled = append(f.cancelled, ns+"/"+name)
@@ -526,6 +540,11 @@ func TestEnvironments(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
 	expect(t, got == "promote", "ownerless under requireOwnerTeam %v", got)
+	// A caller whose RBAC refuses creating Operations there is offered nothing.
+	f.deny = map[string]bool{"create operations": true}
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
+	expect(t, got == "", "no RBAC to create Operations %v", got)
 }
 
 func TestPublished(t *testing.T) {
@@ -574,6 +593,20 @@ func TestListsDropNamespacesTheCallerCannotRead(t *testing.T) {
 	if code, _ := call(t, http.MethodGet, base+"/api/delivery/inbox", nil); code != http.StatusInternalServerError {
 		t.Fatalf("a cluster-wide list error fails: %d", code)
 	}
+	// A host that says where the caller may list Stages is asked instead of
+	// the snapshot, so a namespace with Stages and no Pacto yet is read, and
+	// the answer is complete.
+	f.forbidAll, f.listErr, f.stageNS = true, nil, []string{"books"}
+	f.forbid = nil
+	if _, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil); envs["completeness"] != "complete" ||
+		len(envs["environments"].([]any)) != 1 || envs["environments"].([]any)[0].(map[string]any)["namespace"] != "books" {
+		t.Fatalf("the namespaces the caller may list Stages in: %v", envs)
+	}
+	f.nsErr = errors.New("down")
+	if code, _ := call(t, http.MethodGet, base+"/api/delivery/environments", nil); code != http.StatusInternalServerError {
+		t.Fatalf("a failed namespace read fails: %d", code)
+	}
+	f.stageNS, f.nsErr, f.forbidAll = nil, nil, false
 	// Without a snapshot the namespaces cannot be known.
 	f.listErr, f.forbidAll = nil, true
 	srv := startServer(t, NewServer(Options{UI: testUI(), Auth: a.auth(false, true),
@@ -651,6 +684,22 @@ func TestHistoryAndOperation(t *testing.T) {
 	if got := actions("unknown"); got != "accept-unknown,reject" {
 		t.Fatalf("held after it shipped: %s", got)
 	}
+	// What the caller's own RBAC refuses is never offered: deciding creates
+	// an Approval, cancelling deletes the Operation, a rollback creates one.
+	// A review that fails offers nothing.
+	f.deny = map[string]bool{"create approvals prod": true, "delete operations": true}
+	if got := actions("held"); got != "" {
+		t.Fatalf("may neither decide nor cancel: %s", got)
+	}
+	f.deny = map[string]bool{"create operations prod": true}
+	if got := actions("done"); got != "" {
+		t.Fatalf("may not create the rollback: %s", got)
+	}
+	f.deny, f.canErr = nil, errors.New("down")
+	if got := actions("held"); got != "" {
+		t.Fatalf("a failed review offers nothing: %s", got)
+	}
+	f.canErr = nil
 	// Whoever asked for a change, or is the one it acts for, is not offered
 	// its decision: the promoter would ignore it.
 	f.ops[0].Spec.Actor.User = f.caller.User

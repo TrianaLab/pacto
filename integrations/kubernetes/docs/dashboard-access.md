@@ -43,3 +43,10 @@ grant only what it has. A dashboard you run yourself with
 it runs with; without the delivery reads, it reads delivery with each person's
 token. A remote `pacto mcp --fleet` with `--auth-issuer` needs create on
 `subjectaccessreviews`.
+
+For delivery, the ServiceAccount also lists namespaces. A person who may not
+list Stages in every namespace sees the Stages of each namespace where their
+own RBAC lets them list Stages, including a namespace that runs no Pacto yet.
+The ServiceAccount learns only the namespace names; the person's own RBAC
+decides which Stages they read. Without this right the dashboard reads Stages
+only in the namespaces of the fleet's workloads and marks the answer partial.

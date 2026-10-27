@@ -1731,6 +1731,12 @@ rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages, operations]
     verbs: [get, list, watch]
+  # The dashboard lists the namespaces to ask in which ones a signed-in person
+  # may list Stages, so a namespace with Stages and no Pacto yet is shown. It
+  # learns only their names; the person's own RBAC decides what they read.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [list]
 ---
 # Source: pacto-operator/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1

@@ -62,6 +62,9 @@ type Reconciler struct {
 // rights it grants the dashboard's ClusterRole.
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 // +kubebuilder:rbac:groups=delivery.pacto.trianalab.io,resources=stages;operations,verbs=get;list;watch
+// The dashboard lists the namespaces to ask where a signed-in person may list
+// Stages, the same way: the operator holds the right it grants.
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=list
 
 // Sync ensures dashboard resources match the desired state.
 // When the feature is enabled, it creates/updates all dashboard resources.

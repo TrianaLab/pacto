@@ -99,13 +99,13 @@ describe('App — the sign-in gate', () => {
   });
 
   it('tells a person whose RBAC reads no namespace that they see nothing, with their groups', async () => {
-    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#erin', groups: ['team-a', 'team-b'] });
+    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#erin', name: 'Erin', groups: ['team-a', 'system:authenticated', 'team-b'] });
     fns.capabilities.mockResolvedValue({ fleet: true, impact: true, auth: { mode: 'shared', login: true, signedIn: true, hidden: true, nothingVisible: true } });
     app = mount(App, { target });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="nothing-visible"]')).not.toBeNull());
     const t = target.querySelector('[data-testid="nothing-visible"]')?.textContent?.replace(/\s+/g, ' ');
     expect(t).toContain('You can see no services');
-    expect(t).toContain('signed in as https://idp#erin, in team-a, team-b.');
+    expect(t).toContain('signed in as Erin ⧉, in team-a, team-b.');
     expect(target.querySelector('[data-testid="hidden-by-permissions"]')).toBeNull();
 
     unmount(app);

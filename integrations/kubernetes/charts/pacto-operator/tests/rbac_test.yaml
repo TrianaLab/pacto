@@ -58,6 +58,26 @@ tests:
             resources: [stages, operations]
             verbs: [get, list, watch]
 
+  - it: should let the operator grant the dashboard namespace list
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [list]
+
+  - it: should not list namespaces when the dashboard is disabled
+    set:
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [list]
+
   - it: should not hold SubjectAccessReview when the dashboard is disabled
     set:
       dashboard.enabled: false

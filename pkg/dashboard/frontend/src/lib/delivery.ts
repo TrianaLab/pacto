@@ -141,6 +141,14 @@ export function personLabel(user: string | undefined, people?: Record<string, st
 }
 
 /**
+ * teamGroups are the groups that can name a team. A Kubernetes system: group
+ * (system:authenticated) names no team, as the promoter's team rule says.
+ */
+export function teamGroups(groups: string[] | undefined | null): string[] {
+  return (groups ?? []).filter((g) => !g.startsWith('system:'));
+}
+
+/**
  * shortDigest keeps the first 12 hex characters of an OCI digest. Anything that
  * is not one (a level name like auto-nonbreaking) is kept whole: cutting it
  * would only make it unreadable.
