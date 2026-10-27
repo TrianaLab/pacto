@@ -1,4 +1,10 @@
 {{/*
+Delivery's own helpers, layered on the chart's: names, labels, images, pods,
+bindings and metrics come from templates/_helpers.tpl and
+templates/_resources.tpl. Only what is particular to delivery lives here.
+*/}}
+
+{{/*
 The delivery objects' base name: the operator's fullname plus -delivery, so
 the Deployment, ServiceAccount, roles and policies never collide with the
 operator's own.

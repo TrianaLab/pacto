@@ -1,4 +1,10 @@
 {{/*
+The chart's helpers: names, labels, ServiceAccount names, images and the
+shared pieces of every pod. templates/_resources.tpl renders whole objects
+from them; templates/delivery/_helpers.tpl adds what only delivery needs.
+*/}}
+
+{{/*
 Expand the name of the chart.
 */}}
 {{- define "pacto-operator.name" -}}
