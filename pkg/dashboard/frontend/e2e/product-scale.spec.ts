@@ -197,13 +197,13 @@ test.describe('Product lists stay bounded and honest at scale', () => {
     });
 
     // Both truths, and neither standing in for the other: what exists, and what is shown.
-    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25000/)).toBeVisible();
+    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25,000/)).toBeVisible();
     // The figures on this page describe the POPULATION, not the 25 rendered rows, and they
     // say which -- a page distribution read as a fleet distribution is the exact lie
     // this file exists to prevent. The denominator is 25,000 and the legend adds up
     // to it, on a screen showing 25 services.
-    await expect(page.getByText('All 25000 services in the snapshot.').first()).toBeVisible();
-    await expect(page.getByText('(25% of 25000)').first()).toBeVisible();
+    await expect(page.getByText('All 25,000 services in the snapshot.').first()).toBeVisible();
+    await expect(page.getByText('(25% of 25,000)').first()).toBeVisible();
     // And the per-owner ranking says how much of the population it leaves out, rather
     // than reading as a complete breakdown of 900 owners.
     await page.locator('.sv-inv-more summary').click();
@@ -213,7 +213,7 @@ test.describe('Product lists stay bounded and honest at scale', () => {
 
     // Paging forward is real navigation into the same bounded page size.
     await page.getByTestId('svc-next').click();
-    await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+25000/)).toBeVisible();
+    await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+25,000/)).toBeVisible();
     await expect(page.getByTestId('service-list').locator('li')).toHaveCount(PAGE_SIZE);
 
     // The invariant that matters more than any millisecond: the document does not grow
@@ -230,20 +230,20 @@ test.describe('Product lists stay bounded and honest at scale', () => {
     });
 
     await expect(page.locator('.attn-list li')).toHaveCount(PAGE_SIZE);
-    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25000/)).toBeVisible();
+    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25,000/)).toBeVisible();
 
     // Unlike the services list, these two charts are drawn from backend tallies over EVERY
     // matched item, so they must describe the backlog, not the page -- and must therefore
     // NOT carry a page-scope note. Proportions that changed as you paged would be worse
     // than no chart at all.
     const shape = page.getByTestId('attention-shape');
-    await expect(shape).toContainText('8333');
+    await expect(shape).toContainText('8,333');
     await expect(shape).not.toContainText(/This page only/);
 
     await page.getByTestId('attn-next').click();
-    await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+25000/)).toBeVisible();
+    await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+25,000/)).toBeVisible();
     await expect(page.locator('.attn-list li')).toHaveCount(PAGE_SIZE);
-    await expect(shape).toContainText('8333');
+    await expect(shape).toContainText('8,333');
   });
 });
 

@@ -421,7 +421,8 @@ test.describe('The path to autonomy', () => {
     const shadow = page.getByTestId('shadow');
     await expect(page.getByTestId('shadow-summary')).toContainText('advisory and unsigned', { timeout: T });
     await shadow.locator('summary').click();
-    await expect(page.getByTestId('rung')).toHaveText(['Advise', 'Observe']);
+    // The board orders environments test before prod (sortEnvironments).
+    await expect(page.getByTestId('rung')).toHaveText(['Observe', 'Advise']);
     await expect(shadow.getByTestId('shadow-row').first()).toContainText('hold for team-checkout');
     await expect(shadow.getByTestId('held-but-ran')).toHaveCount(1);
     await audit(page, 'environments with an observe Stage');

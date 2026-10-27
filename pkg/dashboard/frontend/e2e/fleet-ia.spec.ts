@@ -10,7 +10,7 @@ import { appReady } from './ready';
 
 async function openSearch(page: Page) {
   await page.keyboard.press('/');
-  await expect(page.getByRole('textbox', { name: 'Search services, revisions and targets' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('combobox', { name: 'Search services, revisions and targets' })).toBeVisible({ timeout: 10_000 });
 }
 
 // The hash changes on click, but the overview stays mounted for the instant before the
@@ -58,7 +58,7 @@ test.describe('WASM demo — fleet product IA', () => {
   test('scenario 6/8-10: global search finds an entity and opens it by canonical identity', async ({ page }) => {
     await appReady(page);
     await openSearch(page);
-    await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
+    await page.getByRole('combobox', { name: 'Search services, revisions and targets' }).fill('payment');
     const result = page.getByTestId('search-result').first();
     await expect(result).toBeVisible({ timeout: 20_000 });
     await result.click();
@@ -71,7 +71,7 @@ test.describe('WASM demo — fleet product IA', () => {
   test('scenario 11 + 13: a deep-linked entity route survives a reload (encoded key round-trips)', async ({ page }) => {
     await appReady(page);
     await openSearch(page);
-    await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
+    await page.getByRole('combobox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();
     const heading = await entityHeading(page);
     const url = page.url();
@@ -86,7 +86,7 @@ test.describe('WASM demo — fleet product IA', () => {
     await page.goto('/#/fleet');
     await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
     await openSearch(page);
-    await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
+    await page.getByRole('combobox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();
     await entityHeading(page);
     await page.goBack();

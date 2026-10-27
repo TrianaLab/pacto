@@ -56,14 +56,16 @@ test.describe('the overview leads to the data sources', () => {
   test('the overview states the whole source population, not the chips it drew', async ({ page }) => {
     await boot(page, '#/fleet');
     const band = await overviewSources(page);
-    // The demo is small enough that the capped chip list happens to be complete. The
-    // claim that matters is that the SENTENCE and the CHIPS agree with each other and
-    // with the inventory -- three surfaces, one population.
+    // The claim that matters is that the SENTENCE and the CHIPS agree with each other and
+    // with the inventory -- three surfaces, one population. Each source that needs a look
+    // keeps its own chip; more than three healthy ones fold into one "4 available" chip.
     const tally = flat(await band.locator('.ov-tally').textContent());
     expect(tally).toBe(`${DEMO_SOURCES} data sources — 1 unavailable, 1 partial, 4 available.`);
 
     const chips = band.locator('a.sh-chip');
-    await expect(chips).toHaveCount(DEMO_SOURCES);
+    await expect(chips).toHaveCount(3);
+    await expect(band.getByTestId('sources-healthy')).toHaveText(/4 available/);
+    await expect(band.getByTestId('sources-healthy')).toHaveAttribute('href', /#\/fleet\/sources\?.*sourceHealth=available/);
     // Least healthy first, so the source that costs you data is the first one read.
     expect(flat(await chips.first().textContent())).toContain('Unavailable');
   });

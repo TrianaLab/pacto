@@ -50,8 +50,8 @@ function installServeInterceptor(): void {
       for (const n of doc.nodes) {
         if (n.focus) continue;
         n.status = 'NonCompliant';
-        // A PREFIX, not a suffix: canvas labels are truncated at 18 characters, so a
-        // suffix would be invisible on the canvas and the assertion would be vacuous.
+        // A PREFIX, not a suffix: a canvas label over 18 characters keeps its first nine
+        // and last eight around an ellipsis, so the nine letters of "rechecked" always show.
         n.ref.label = `rechecked-${n.ref.label || n.ref.key}`;
       }
       for (const e of doc.edges || []) {
@@ -235,7 +235,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
     // NonCompliant, so waiting for one of those would be satisfied before the refresh
     // even landed and every assertion after it would be vacuous.
     const nonCompliant = (s: Semantics | null) => s?.nodes.filter((n) => n.status === 'NonCompliant').length ?? 0;
-    await expect.poll(async () => (await readSemantics(page))?.nodes.filter((n) => n.label.startsWith('rechecked-')).length ?? 0,
+    await expect.poll(async () => (await readSemantics(page))?.nodes.filter((n) => n.label.startsWith('rechecked')).length ?? 0,
       { timeout: 15_000 }).toBeGreaterThan(0);
     const semAfter = (await readSemantics(page)) as Semantics;
     expect(semAfter.nodes.map((n) => n.id).sort(), 'topology unchanged').toEqual(semBefore!.nodes.map((n) => n.id).sort());
