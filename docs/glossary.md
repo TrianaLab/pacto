@@ -66,7 +66,7 @@ a different label, it is in the last column.
 | auto for non-breaking | Pacto ships only non-breaking changes on its own (`auto-nonbreaking`) |
 | autonomous | Pacto also ships breaking changes on its own, when every service that depends on the new version accepts it |
 | Cold start | A new Stage begins on observe and earns more freedom from there |
-| Would have | On observe, what Pacto would have done with a change. Advice, not a record |
+| Would have | On observe, what Pacto would have done with a change. Advice only, with no record |
 | Proposal | The next level Pacto suggests, with its evidence or what blocks it |
 | Earned autonomy | Raising a level after enough good changes, confirmed by a person |
 | Step-down | Dropping one level after a version Pacto shipped with no person fails |

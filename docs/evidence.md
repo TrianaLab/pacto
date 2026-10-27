@@ -26,12 +26,12 @@ Hand the `edge-eu-west__edge-eu-west-2026.pub` file to the platform and put it i
 
 ## How it works
 
-Traffic goes one way. Pacto never connects to a remote environment; the remote side starts every request and only pushes. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. There is no bucket, no PVC and no database, so the Evidence Server keeps no state of its own.
+Traffic goes one way. Pacto never connects to a remote environment; the remote side starts every request and only pushes. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. The registry is the only store, so the Evidence Server keeps no state of its own and needs no bucket, PVC or database.
 
 !!! warning "GHCR cannot host Pacto evidence"
-    GitHub Container Registry does not serve the native OCI Referrers API, which the Evidence Server requires. GHCR works fine for contracts — only evidence needs the Referrers endpoint. Publish contracts you want to carry evidence to a conformant registry (zot, Docker Hub, Harbor, ECR, ACR, Artifactory).
+    GitHub Container Registry does not serve the native OCI Referrers API, which the Evidence Server requires. GHCR works for contracts, because only evidence needs the Referrers endpoint. Publish contracts you want to carry evidence to a conformant registry (zot, Docker Hub, Harbor, ECR, ACR, Artifactory).
 
-**Pacto does not sign OCI bundles.** It signs evidence *envelopes*: the wrapper around one report. Every envelope is Ed25519-signed and checked against a trust store (the list of public keys you accept) before it is stored.
+**The protocol signs evidence *envelopes*:** the wrapper around one report. Every envelope is Ed25519-signed and checked against a trust store (the list of public keys you accept) before it is stored.
 
 ---
 
@@ -130,7 +130,7 @@ The ingestion host mounts five endpoints under `/api/evidence/v1`.
 | `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
 | `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source. | `200 OK` with the versioned targets DTO (schema `pacto.dev/evidence-source/v2`) |
 
-**POST status codes.** A non-2xx response is a JSON object `{ "code": <stable-code>, "message": <generic> }`. The `code` is stable and the `message` is generic — neither ever contains the underlying error text, keys or signature bytes. Verification failures and server-side errors are logged but never exposed to the caller. TLS termination is the host's responsibility. Signature verification is always on and cannot be disabled.
+**POST status codes.** A non-2xx response is a JSON object `{ "code": <stable-code>, "message": <generic> }`. The `code` is stable and the `message` is generic. Neither contains the underlying error text, keys or signature bytes. Verification failures and server-side errors are logged but never exposed to the caller. TLS termination is the host's responsibility. Signature verification is always on and cannot be disabled.
 
 | Status | Code | When |
 |--------|------|------|
@@ -174,7 +174,7 @@ A conformant registry answers `GET /v2/<name>/referrers/<digest>` with **HTTP 20
 
 **Registry write access is evidence write access.** The signature is checked once at ingestion; the read path does not re-verify it.
 
-**Readiness and partial state** — writes fail closed when reads are not complete.
+**Readiness and partial state:** writes fail closed when reads are incomplete.
 
 | State | Meaning | `/ready` | `/targets` |
 |-------|---------|----------|------------|
@@ -191,7 +191,7 @@ Beside `status`, the `health` block carries the counts that say which half of a 
 
 A trust store is a single `.pub` file or a directory of `.pub` files (base64 Ed25519 public keys). The filename binds the producer: `<producerId>__<keyId>.pub` authorizes key `keyId` for producer `producerId`, while a bare `<keyId>.pub` authorizes it for the producer whose id equals the key id.
 
-**Authentication and authorization are separate.** An envelope whose `keyId` is not in the trust store is rejected as an unknown key. An unsigned envelope, an unsupported algorithm or a bad signature is rejected. After the signature checks out, the envelope's `producer.id` must match the key's bound producer, or it is rejected — a trusted key cannot sign as another producer.
+**Authentication and authorization are separate.** An envelope whose `keyId` is not in the trust store is rejected as an unknown key. An unsigned envelope, an unsupported algorithm or a bad signature is rejected. After the signature checks out, the envelope's `producer.id` must match the key's bound producer, or it is rejected, so a trusted key cannot sign as another producer.
 
 **Rotation.** Add a new `<producerId>__<newKeyId>.pub`, sign with the new `keyId` and remove the old entry. The producer identity survives the key change.
 
@@ -217,6 +217,6 @@ For Kubernetes deployment (trust store creation, subject configuration, registry
 
 ## See also
 
-- [Operational graph](operational-graph.md) — where ingested targets appear and how freshness and completeness work
-- [Collectors and the evidence boundary](model.md#collectors-and-the-evidence-boundary) — how an `EvidenceSet` is produced and evaluated
-- [CLI reference](cli-reference.md) — the full command surface
+- [Operational graph](operational-graph.md): where ingested targets appear and how freshness and completeness work
+- [Collectors and the evidence boundary](model.md#collectors-and-the-evidence-boundary): how an `EvidenceSet` is produced and evaluated
+- [CLI reference](cli-reference.md): the full command surface

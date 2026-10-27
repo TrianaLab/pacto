@@ -10,8 +10,8 @@ dependencies and compliance, as a container. It is the same server as
 ghcr.io/trianalab/pacto/dashboard:<version>
 ```
 
-The tag matches the Pacto release version, without a `v` prefix, and there is no
-`latest` — swap the pinned version below for the release you want. The image is
+The tag matches the Pacto release version, without a `v` prefix. The image has
+no `latest` tag, so swap the pinned version below for the release you want. The image is
 signed keylessly; verify it with the command in
 [Supply chain](installation.md#supply-chain-what-is-signed-and-what-is-not).
 
@@ -64,8 +64,8 @@ The two trace variables let the dashboard learn which services really call
 each other, from trace files. Pacto has no OpenTelemetry (OTLP) receiver, so
 you export traces to files and mount them in. Each file becomes a
 [named observation source](operational-graph-reference.md#sources). Under Kubernetes the operator-managed dashboard sets
-`PACTO_DASHBOARD_TRACE_SOURCES` for you from `dashboard.observation.sources` —
-see [offline trace sources](integrations/kubernetes/installation.md#offline-trace-sources-for-the-dashboard).
+`PACTO_DASHBOARD_TRACE_SOURCES` for you from `dashboard.observation.sources`.
+See [offline trace sources](integrations/kubernetes/installation.md#offline-trace-sources-for-the-dashboard).
 
 `PACTO_CACHE_DIR` sets only where the dashboard **reads** cached bundles. It
 **writes** them under `XDG_CACHE_HOME`. To keep the cache, mount a volume at
@@ -131,14 +131,14 @@ example `query.kinds[1]`.
 
 ## Security
 
-!!! warning "The dashboard has no authentication — do not expose it"
+!!! warning "The dashboard has no authentication, so keep it private"
 
     It ships no login, no API key and no authorization. Anyone who can reach
     the port reads every contract, dependency and compliance result, and can
     make the container pull from your registries. Publish it to `127.0.0.1`
     (`-p 127.0.0.1:3000:3000`) or put an authenticating proxy in front of it.
-    The protections below are CSRF and resource-exhaustion defences, not access
-    control, and none of them stop a client that can simply reach the port.
+    The protections below defend against CSRF and resource exhaustion. They
+    provide no access control, so any client that can reach the port gets in.
 
 A few endpoints mutate local state (`POST /api/resolve`, `POST /api/versions`
 and `POST /api/refresh` pull and cache OCI artifacts). Against those:

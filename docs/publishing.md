@@ -1,7 +1,7 @@
 # Publish a version
 
-Reference for publishing. To take a service from nothing to its first release,
-follow [Pactify a service](pactify.md).
+This page describes how `pacto publish` works. To take a new service to its
+first release, follow [Pactify a service](pactify.md).
 
 `pacto publish` publishes what a contract's [`publish`](contract-reference/publish.md)
 section declares: the contract bundle, the service's images, charts and the
@@ -48,8 +48,8 @@ published (to `--propose` it, say) needs none of them.
 
 A version too small for the change is also kept as a signed refusal in the
 contract bundle repository, signed with the publish key, so the dashboard's
-**Published** view shows it with the bump it needed. Keeping it never changes
-the outcome: if the registry refuses it, publish says so beside the refusal.
+**Published** view shows it with the bump it needed. The refusal record leaves
+the outcome unchanged: if the registry rejects the record, publish reports that beside the refusal.
 
 A release candidate's fixes ship as the version it was a candidate for: after
 `2.0.0-rc.1`, `2.0.0-rc.2` and `2.0.0` are accepted whatever changed. The change
@@ -91,8 +91,8 @@ The deploy artifact is tagged last: once its tag exists, everything it points
 at exists and is signed. The other tags, the bundle's included, may already
 exist when a run stops, but no Stage takes a version without its deploy
 artifact. Each tag is read again just before it is written, which narrows the
-window in which two runs racing on one version could both write. It does not
-close it: a registry has no compare-and-swap on tags, so give each version one
+window in which two runs racing on one version could both write. A registry has no
+compare-and-swap on tags, so the window stays open: give each version one
 publisher.
 
 ## What gets published
@@ -112,7 +112,7 @@ manifests build can pin the image it deploys by digest. Pacto then:
    key, KMS key or keyless identity is already there, then verifies the new
    signature against that identity. A keyless signature carries whatever
    identity the CI token had, so a mismatch fails here, before any tag is
-   written, instead of publishing a version no Stage would take;
+   written, so Pacto never publishes a version no Stage would take;
 5. pushes the bundle and writes the tags.
 
 It needs `docker buildx` with a builder that can write an OCI layout (the
