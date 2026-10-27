@@ -113,6 +113,9 @@ type CollectInput struct {
 	// the dependency observation window: the time between two reconciles, so a caller that called between
 	// them is not missed.
 	CallerWindow time.Duration
+	// CallerIgnoreNamespaces are namespaces, besides the cluster's own and the node agent's, whose host-network
+	// pods are taken not to call workloads, so they leave caller coverage complete.
+	CallerIgnoreNamespaces []string
 
 	// kernel is the per-reconcile kernel view Collect loads; nil when kernel evidence is off.
 	kernel *kernelView

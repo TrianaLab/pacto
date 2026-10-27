@@ -93,6 +93,9 @@ Controller arguments derived from values
 {{- if .staleness }}
 - --kernel-evidence-staleness={{ .staleness }}
 {{- end }}
+{{- range .callerIgnoreNamespaces }}
+- --caller-coverage-ignore-namespace={{ . }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- /* Always passed: a disabled agent is pruned from its namespace, and kernel evidence defaults to it. */}}

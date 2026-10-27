@@ -178,6 +178,13 @@
             },
             "staleness": {
               "type": "string"
+            },
+            "callerIgnoreNamespaces": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         }

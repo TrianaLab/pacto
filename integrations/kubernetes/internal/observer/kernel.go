@@ -588,14 +588,6 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 		case s.Collection.State != runtimefacts.StateRunning:
 			partial("degraded-node")
 		}
-		for _, w := range s.Workloads {
-			if w.Shared {
-				partial("shared-netns")
-			}
-			if w.Truncated {
-				partial("truncated")
-			}
-		}
 		snaps = append(snaps, *s)
 	}
 	byUID := make(map[string]*corev1.Pod, len(pods.Items))
@@ -604,6 +596,19 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 		byUID[string(p.UID)] = p
 		if p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" && nodes[p.Spec.NodeName] == nil {
 			partial("node-without-agent")
+		}
+	}
+	for _, s := range snaps {
+		for _, w := range s.Workloads {
+			// A pod sharing the host's network namespace hides its calls among the host's, unless it runs in a
+			// namespace whose pods are taken not to call workloads: the cluster's own (CNI, kube-proxy), the
+			// node agent's, or one the operator was told to ignore.
+			if pod := byUID[w.ID]; w.Shared && (pod == nil || !callerIgnored(input, pod.Namespace)) {
+				partial("shared-netns")
+			}
+			if w.Truncated {
+				partial("truncated")
+			}
 		}
 	}
 
@@ -633,6 +638,17 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 		cov.State, cov.Reason = unversioned.CallerCoveragePartial, "truncated"
 	}
 	return callers, cov
+}
+
+// systemNamespaces hold the cluster's own pods (kube-proxy, CNI daemons) that run on the host network and
+// do not call workloads, so their shared network namespace does not make caller coverage partial.
+var systemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease", "kube-flannel", "calico-system", "tigera-operator"}
+
+// callerIgnored reports whether a host-network pod in the namespace leaves caller coverage complete: a
+// system namespace, the node agent's own or one in input.CallerIgnoreNamespaces.
+func callerIgnored(input CollectInput, namespace string) bool {
+	return namespace == input.KernelEvidenceNamespace || slices.Contains(systemNamespaces, namespace) ||
+		slices.Contains(input.CallerIgnoreNamespaces, namespace)
 }
 
 // ownerRef is one link of a pod's controller chain.

@@ -15,7 +15,9 @@
 #     person confirms again;
 #   - on autonomous, a version the promoter shipped that fails its verify is
 #     rolled back and steps the Stage down one rung, through a signed autonomy
-#     operation the promoter raised with no approval.
+#     operation the promoter raised with no approval;
+#   - `pacto init --cluster` drafts a valid contract for a caller nobody
+#     described and skips the workload a Pacto already describes.
 # GitOps is played by `oras tag`: moving the applied tag is what a merged
 # commit to a Flux source would do.
 
@@ -166,6 +168,36 @@ YAML
     || fail "the record of $SD does not show the promoter's step-down"
   st '.status.proposal.blockers[].kind' | grep -qx needs-verified || fail "the step-down did not restart the count: $(st .status.proposal)"
   pass "W4 failed its verify: rolled back to W3, and the promoter stepped wallet down to auto-nonbreaking in a signed record nobody approved"
+
+  section "pacto init --cluster drafts a valid contract for the caller nobody described"
+  # till calls wallet and has no Pacto: the first rung of a team that never wrote one.
+  kubectl -n "$L" apply -f - >/dev/null <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: till, labels: {app: till}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: till}}
+  template:
+    metadata: {labels: {app: till}}
+    spec:
+      containers:
+      - {name: caller, image: $AGNHOST, imagePullPolicy: Never, command: [sh, -c, 'while true; do nc -z -w 2 wallet 80; sleep 2; done']}
+YAML
+  kubectl -n "$L" rollout status deployment/till --timeout=120s >/dev/null || fail "the uncontracted caller till never rolled out"
+  local out bulk d
+  out="$(mktemp -d)"
+  bulk="$(timeout 120 "$PACTO" init --cluster --namespace "$L" --out "$out" --output-format json)" \
+    || fail "pacto init --cluster failed (a draft that does not validate fails it): $bulk"
+  jq -e --arg w "$L/Deployment/wallet" '.skipped | index($w)' <<<"$bulk" >/dev/null || fail "wallet has a Pacto but was drafted: $(jq -c .skipped <<<"$bulk")"
+  [ -f "$out/$L/till/pacto.yaml" ] || fail "no draft for till: $(find "$out" -name pacto.yaml)"
+  [ -z "$(find "$out" -name pacto.yaml -path "*/wallet/*")" ] || fail "a draft was written for wallet, which a Pacto describes"
+  # Never `*`: an inferred range that accepts any version would wave a breaking change through.
+  ! grep -rq 'compatibility: "\*"' "$out" || fail "a draft pins a dependency to *: $(grep -rn compatibility "$out")"
+  while IFS= read -r d; do
+    timeout 60 "$PACTO" validate "$(dirname "$d")" >/dev/null || fail "the draft $d does not validate"
+  done < <(find "$out" -name pacto.yaml)
+  pass "init --cluster skipped wallet, drafted till and every draft validates"
   echo "DELIVERY LADDER PASS"
 }
 

@@ -40,6 +40,14 @@ func callerPod(name, kind, owner string) *corev1.Pod {
 	return p
 }
 
+// hostPod adds a host-network pod in namespace to the node, its sockets shared with the host's.
+func hostPod(f *kernelFixture, namespace string) {
+	p := callerPod("host", "DaemonSet", "cni")
+	p.Namespace, p.Spec.HostNetwork = namespace, true
+	f.extra = append(f.extra, p)
+	f.node.Status.Pods = append(f.node.Status.Pods, pactoapi.PodRuntimeObservation{UID: string(p.UID), NetnsShared: true})
+}
+
 func controlled[T client.Object](obj T, name, kind, owner string) T {
 	obj.SetName(name)
 	obj.SetNamespace(kNS)
@@ -221,6 +229,19 @@ func TestObservedCallers_Coverage(t *testing.T) {
 			setup: func(f *kernelFixture) { f.node.Status.Collection.State = pactoapi.CollectionDegraded }},
 		{name: "shared netns", state: pactoapi.CallerCoveragePartial, reason: "shared-netns", callersAfter: 5,
 			setup: func(f *kernelFixture) { f.node.Status.Pods[2].NetnsShared = true }},
+		{name: "shared netns, pod unknown", state: pactoapi.CallerCoveragePartial, reason: "shared-netns", callersAfter: 5,
+			setup: func(f *kernelFixture) {
+				f.node.Status.Pods = append(f.node.Status.Pods, pactoapi.PodRuntimeObservation{UID: "uid-vanished", NetnsShared: true})
+			}},
+		{name: "host network in kube-system", state: pactoapi.CallerCoverageComplete, callersAfter: 5,
+			setup: func(f *kernelFixture) { hostPod(f, "kube-system") }},
+		{name: "host network in the agent namespace", state: pactoapi.CallerCoverageComplete, callersAfter: 5,
+			setup: func(f *kernelFixture) { hostPod(f, kAgentNS) }},
+		{name: "host network in an ignored namespace", state: pactoapi.CallerCoverageComplete, callersAfter: 5,
+			setup: func(f *kernelFixture) { hostPod(f, "cilium") },
+			input: func(in *CollectInput) { in.CallerIgnoreNamespaces = []string{"cilium"} }},
+		{name: "host network in a workload namespace", state: pactoapi.CallerCoveragePartial, reason: "shared-netns", callersAfter: 5,
+			setup: func(f *kernelFixture) { hostPod(f, "batch") }},
 		{name: "truncated entry", state: pactoapi.CallerCoveragePartial, reason: "truncated", callersAfter: 5,
 			setup: func(f *kernelFixture) { f.node.Status.Pods[2].Truncated = true }},
 		{name: "node without agent", state: pactoapi.CallerCoveragePartial, reason: "node-without-agent", callersAfter: 5,

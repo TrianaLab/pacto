@@ -82,6 +82,8 @@ type PactoReconciler struct {
 	KernelEvidence          bool
 	KernelEvidenceNamespace string
 	KernelEvidenceStaleness time.Duration
+	// CallerIgnoreNamespaces are extra namespaces whose host-network pods leave caller coverage complete.
+	CallerIgnoreNamespaces []string
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -340,6 +342,7 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		KernelEvidenceNamespace:           r.KernelEvidenceNamespace,
 		KernelEvidenceStaleness:           r.KernelEvidenceStaleness,
 		CallerWindow:                      r.requeueInterval(pacto),
+		CallerIgnoreNamespaces:            r.CallerIgnoreNamespaces,
 	}
 }
 

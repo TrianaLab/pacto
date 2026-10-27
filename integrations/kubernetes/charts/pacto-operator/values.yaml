@@ -107,6 +107,14 @@ controller:
     # uses three times the node agent's publish interval. Accepts a Go duration
     # (e.g. "2m").
     staleness: ""
+    # -- Extra namespaces whose host-network pods are taken not to call
+    # workloads. The node agent cannot tell a host-network pod's calls from
+    # the node's own, so any such pod makes a Service's caller coverage
+    # partial, except in kube-system, kube-public, kube-node-lease,
+    # kube-flannel, calico-system, tigera-operator and the node agent's
+    # namespace. List here the namespaces of other host-network daemons
+    # (a CNI or storage driver) that never call your services.
+    callerIgnoreNamespaces: []
 
 leaderElection:
   # -- Enable leader election for HA deployments

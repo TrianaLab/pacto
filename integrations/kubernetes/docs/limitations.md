@@ -116,7 +116,16 @@ turn what they cannot see into a violation. These things stay out of reach:
   upgrading, node agent or not. Declare `visibility: public` for it.
 - **`hostNetwork` pods** share the node's network namespace, so their sockets
   cannot be attributed. With the agent on, their interfaces read `Insufficient`
-  unless another backing pod is seen listening.
+  unless another backing pod is seen listening. Their outbound calls cannot be
+  attributed either, so a `hostNetwork` pod in a workload namespace makes the
+  caller coverage of every Service partial (`shared-netns`) and delivery holds
+  breaking changes for review. `hostNetwork` pods in `kube-system`,
+  `kube-public`, `kube-node-lease`, `kube-flannel`, `calico-system`,
+  `tigera-operator` and the node agent's namespace do not count: CNI daemons
+  and kube-proxy are taken not to call your services. Add other namespaces like
+  that with `controller.kernelEvidence.callerIgnoreNamespaces` (the operator
+  flag `--caller-coverage-ignore-namespace`). A call from one of those pods
+  then goes unseen.
 - **Loopback-only listeners** do not serve the pod IP and do not count as
   serving the port.
 - **TCP only.** UDP sockets are not observed, so a UDP or SCTP Service port
