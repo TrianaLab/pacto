@@ -5,12 +5,14 @@
   // entity page's related-entity previews (revisions, deployments, dependencies,
   // dependents, targets, contributed entities, owner's entities) route through this
   // one list, so related-entity linking is never reinvented.
-  let { items = [], showStatus = true, clip = false } = $props();
+  // showKind=false where the section title already names the kind (a narrow row has no
+  // room to say it twice).
+  let { items = [], showStatus = true, showKind = true, clip = false } = $props();
 </script>
 
 <ul class="ref-list" class:ref-clip={clip}>
   {#each items as ref (ref.kind + '::' + ref.key)}
-    <li class="ref-row"><EntityLink {ref} {showStatus} /></li>
+    <li class="ref-row"><EntityLink {ref} {showStatus} {showKind} /></li>
   {/each}
 </ul>
 

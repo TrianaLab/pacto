@@ -147,7 +147,7 @@
   <!-- Targets get the full width: their names are environment, kind and service
        together, and a third of the page cut them into four lines. -->
   <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} viewAllHref={allTargetsHref} viewAllLabel="View all targets" empty="No running target observed.">
-    <EntityRefList items={d.deployments?.items ?? []} clip />
+    <EntityRefList items={d.deployments?.items ?? []} showKind={false} clip />
   </PreviewSection>
 
   <div class="se-grid se-grid--two">
