@@ -1,4 +1,5 @@
 <script>
+  import { joinAnd } from '../lib/answers.ts';
   import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
@@ -195,12 +196,34 @@
   const distinctOwners = $derived(rank.distinct);
   const rankNote = $derived(rank.note);
 
+  // The answer line: which of these services need someone. Read off the same backend
+  // aggregate the bars draw, so it covers every match, not the page.
+  const svcAnswer = $derived.by(() => {
+    if (!agg || matched === 0) return '';
+    const c = agg.serviceCompliance ?? {};
+    const o = agg.ownership ?? {};
+    const parts = [
+      c.nonCompliant ? `${formatCount(c.nonCompliant)} not compliant` : '',
+      c.invalid ? `${formatCount(c.invalid)} with an invalid contract` : '',
+      o.conflicting ? `${formatCount(o.conflicting)} with disputed owners` : '',
+      o.unowned ? `${formatCount(o.unowned)} with no owner` : '',
+    ].filter(Boolean);
+    if (!parts.length) return '';
+    return `${joinAnd(parts)}.`;
+  });
+
   function removeChip(key) { apply({ [key]: '' }); }
 </script>
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
   <PageHeader title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={answer.paging} />
+
+  {#if state.kind === 'ready' && matched > 0}
+    <p class="page-answer t-body" data-testid="services-answer">
+      {#if svcAnswer}<strong>Needs someone:</strong> {svcAnswer}{:else}<strong>Nothing failing{knowledge.incomplete ? ' found' : ''}.</strong> No service here is known to break its contract or lack a clear owner.{/if}
+    </p>
+  {/if}
 
   <div class="sv-filters">
     <!-- Suggestions come from the backend Entities query, restricted to services, so

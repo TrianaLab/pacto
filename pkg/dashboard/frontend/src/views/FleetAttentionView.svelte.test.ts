@@ -362,3 +362,25 @@ describe('FleetAttentionView — searchable filters', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetAttentionView — answer first, no repeated hints', () => {
+  beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+  const item = (i: number, nextStep: string) => ({ severity: 'error', category: 'invalid', entity: { kind: 'revision', key: `r${i}`, label: `r${i}`, href: `/fleet/revisions/r${i}` }, summary: 'invalid', nextStep });
+
+  it('says what to fix first and states a run of identical next steps once', async () => {
+    attentionFn.mockResolvedValue({
+      meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [] },
+      total: 10, offset: 0, limit: 25, count: 3, truncated: false,
+      categories: [{ category: 'invalid', count: 3 }, { category: 'stale', count: 7 }],
+      severities: { errors: 3, warnings: 7 },
+      items: [item(1, 'Fix the contract'), item(2, 'Fix the contract'), item(3, 'Open the target')],
+    });
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    expect(target.querySelector('[data-testid="attention-answer"]')?.textContent?.replace(/\s+/g, ' ').trim())
+      .toBe('Fix first: 3 revisions are invalid. 7 more are worth a look.');
+    const nexts = Array.from(target.querySelectorAll('.attn-item')).map((li) => li.querySelector('.attn-next')?.textContent?.replace('Next', '') ?? '');
+    expect(nexts).toEqual(['Fix the contract', '', 'Open the target']);
+    unmount(component); document.body.removeChild(target);
+  });
+});

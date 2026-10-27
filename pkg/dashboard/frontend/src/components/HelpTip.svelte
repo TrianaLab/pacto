@@ -9,7 +9,7 @@
   // What belongs here: a definition of a term the page uses ("Revision match", "Blast
   // radius"). What does NOT: a warning, an uncertainty, or anything actionable. Those
   // are page content, and page content never hides behind a hover.
-  let { label = '', text = '' } = $props();
+  let { label = '', text = '', textClass = '' } = $props();
 
   let open = $state(false);
   let host = $state(null);
@@ -59,9 +59,9 @@
     onfocus={() => show(false)}
     onblur={hide}
   >?</button>
-  {#if open}
-    <span class="help-body t-body-2" {id} role="note">{text}</span>
-  {/if}
+  <!-- Always in the DOM, hidden until opened: the definition stays part of the page's
+       text (search, copy, tests) without being on screen. -->
+  <span class="help-body t-body-2 {textClass}" {id} role="note" hidden={!open}>{text}</span>
 </span>
 
 <style>

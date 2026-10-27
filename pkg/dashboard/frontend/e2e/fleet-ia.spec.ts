@@ -19,7 +19,7 @@ async function openSearch(page: Page) {
 // entity's own heading instead of whatever happens to be on screen.
 async function entityHeading(page: Page): Promise<string> {
   const h1 = page.getByRole('heading', { level: 1 });
-  await expect(h1).not.toHaveText('Operational overview', { timeout: 20_000 });
+  await expect(h1).not.toHaveText('Is anything wrong?', { timeout: 20_000 });
   return (await h1.textContent()) || '';
 }
 
@@ -27,7 +27,7 @@ test.describe('WASM demo — fleet product IA', () => {
   test('scenario 1: /fleet loads the operational overview from the product endpoint', async ({ page }) => {
     await appReady(page);
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
     // The fleet-posture distributions prove it consumed the product overview, not a
     // graph: revision-match certainty is a whole-population aggregate that only the
     // overview endpoint reports.
@@ -37,7 +37,7 @@ test.describe('WASM demo — fleet product IA', () => {
 
   test('scenario 4: an overview summary tile navigates to its exact filtered view', async ({ page }) => {
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
     // The lead attention tile is always present and links to the attention list.
     await page.getByRole('link', { name: /need attention/ }).click();
     await expect(page).toHaveURL(/#\/fleet\/attention/);
@@ -46,7 +46,7 @@ test.describe('WASM demo — fleet product IA', () => {
 
   test('scenario 5: a degraded source on the overview is visible and navigable', async ({ page }) => {
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
     // The demo's snapshot is partial (a source is unavailable); its chip links to the
     // source detail.
     const chip = page.locator('a.sh-chip').first();
@@ -84,12 +84,12 @@ test.describe('WASM demo — fleet product IA', () => {
 
   test('scenario 12: browser back returns from an entity to the overview', async ({ page }) => {
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
     await openSearch(page);
     await page.getByRole('combobox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();
     await entityHeading(page);
     await page.goBack();
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
   });
 });

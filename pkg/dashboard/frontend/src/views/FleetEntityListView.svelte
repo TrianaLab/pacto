@@ -136,6 +136,17 @@
   )));
   const complianceOfMatch = $derived(complianceSegments(agg?.targetCompliance,
     statusHrefs((s) => urlWith({ status: s }))));
+  // The answer line, over every match (the backend aggregate, not the page).
+  const listAnswer = $derived.by(() => {
+    if (!agg || matched === 0) return '';
+    if (isRevisions) {
+      const r = agg.readiness ?? {};
+      const below = (r.belowThreshold ?? 0) + (r.expired ?? 0);
+      return below ? `${formatCount(below)} of ${formatCount(matched)} below their own readiness gate.` : `None below its own readiness gate.`;
+    }
+    const c = agg.targetCompliance ?? {};
+    return c.nonCompliant ? `${formatCount(c.nonCompliant)} of ${formatCount(matched)} break their contract.` : 'None is known to break its contract.';
+  });
 </script>
 
 <div class="product-page">
@@ -145,11 +156,15 @@
     count={list ? `${formatCount(total)} ${total === 1 ? plural.replace(/s$/, '') : plural}` : ''}
     countTestid="entity-list-total"
     subtitle={kind === 'target'
-      ? `Every place something has been observed running${service ? ' for this service' : ''}. A target is a runtime observation, not a contract.`
-      : `Every known contract revision${service ? ' for this service, newest version first' : ', by service and newest version first'}. A revision is what was declared, whether or not anything runs it.`}
+      ? 'Where something runs. A target is a runtime observation, not a contract.'
+      : `Declared versions, newest first${service ? '' : ' per service'}. Run or not.`}
     asOf={list?.meta?.asOf}
     {revalidating} paging={answer.paging}
   />
+
+  {#if listAnswer && state.kind === 'ready'}
+    <p class="page-answer t-body" data-testid="entity-list-answer"><strong>{listAnswer}</strong></p>
+  {/if}
 
   <div class="lv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">

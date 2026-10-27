@@ -324,6 +324,7 @@ describe('FleetEntityView — rich service page (D)', () => {
     detailFn.mockResolvedValue(d);
     const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic'));
+    openAll(target);
     const rows = Array.from(target.querySelectorAll('.rel'));
     expect(rows.map((r) => r.querySelector('.rel-word')?.textContent)).toEqual(['Depends on', 'Used by']);
     for (const r of rows) {
@@ -345,6 +346,7 @@ describe('FleetEntityView — rich service page (D)', () => {
     detailFn.mockResolvedValue(d);
     const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic'));
+    openAll(target);
     expect(target.querySelector('.rel-prov')?.textContent).toBe('Expected');
     unmount(component); document.body.removeChild(target);
   });
@@ -466,7 +468,8 @@ describe('FleetEntityView — rich revision page (E)', () => {
     await vi.waitFor(() => expect(target.textContent).toContain('2.1.0'));
     const text = target.textContent || '';
     expect(text).toContain('Readiness');
-    expect(text).toContain('Interfaces');
+    // No interfaces in this fixture: one line says so instead of an empty card.
+    expect(text).toContain('Declares no interfaces');
     expect(text).toContain('Running here (exact match)');
     // Readiness must be legible as DECLARED preparedness, never read as a runtime result.
     expect(text).toMatch(/not a measurement of the running system/i);
@@ -827,6 +830,9 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     });
     const { target, component } = await mountView('service', 'domain-a/app');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic and differences'));
+    // The section is folded on a detail page; open it as a reader would.
+    target.querySelectorAll('details:not([open])').forEach((d) => { (d as HTMLDetailsElement).open = true; d.dispatchEvent(new Event('toggle')); });
+    flushSync();
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     expect(text).not.toContain('200 of 200');
     expect(text).toContain('Showing 200. More exist; total unknown.');

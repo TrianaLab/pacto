@@ -178,6 +178,15 @@ export function severityTone(s: string | undefined): Tone {
   }
 }
 
+/** Entry points worth a tile or a chip on the overview: drops the one that links back
+ *  to the overview and the uncategorised attention one (the lead tile's own number).
+ *  Errors and any grade this build cannot read lead; warning and info follow. */
+export function splitEntryPoints<T extends { view?: string; category?: string; severity?: string }>(eps: T[] = []): { lead: T[]; secondary: T[] } {
+  const shown = eps.filter((ep) => ep.view !== 'overview' && !(ep.view === 'attention' && !ep.category));
+  const milder = (ep: T) => ep.severity === 'warning' || ep.severity === 'info';
+  return { lead: shown.filter((ep) => !milder(ep)), secondary: shown.filter(milder) };
+}
+
 // ── source health ────────────────────────────────────────────────────────────
 export function sourceHealthLabel(status: string | undefined): string {
   switch (status) {

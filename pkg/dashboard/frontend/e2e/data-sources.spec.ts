@@ -111,7 +111,7 @@ test.describe('overview to inventory to source and back', () => {
     await expect(page.locator('main h1')).toContainText('Data sources');
     await expect(page.locator('.lv-item').first()).toBeVisible();
     await page.goBack();
-    await expect(page.locator('main h1')).toContainText('Operational overview');
+    await expect(page.locator('main h1')).toContainText('Is anything wrong?');
     await expect(page.locator('#sec-sources')).toBeVisible();
     await page.goForward();
     await expect(page.locator('main h1')).toContainText('Data sources');

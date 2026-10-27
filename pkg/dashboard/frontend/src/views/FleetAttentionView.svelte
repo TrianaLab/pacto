@@ -23,6 +23,7 @@
   import Pager from '../components/Pager.svelte';
   import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
+  import { joinAnd, problemPhrase } from '../lib/answers.ts';
   import { fly } from 'svelte/transition';
   import { flip } from 'svelte/animate';
   import { MOTION, dur, stagger } from '../lib/motion.ts';
@@ -202,11 +203,31 @@
   const headerCount = $derived(
     list ? `${formatCount(list.total)} item${list.total === 1 ? '' : 's'} · ${urgent ? 'most urgent first' : 'nothing urgent'}` : '',
   );
+  // The answer line: what to fix first, over every item this filter matched (the
+  // backend tallies, not the page). Confirmed problems lead; the rest is a count.
+  const attnAnswer = $derived.by(() => {
+    if (!list || !list.total) return null;
+    const cats = list.categories ?? [];
+    const first = cats.map((b) => ({ n: b.count ?? 0, text: problemPhrase(b.category, b.count ?? 0) })).filter((x) => x.n > 0 && x.text);
+    const firstN = first.reduce((a, x) => a + x.n, 0);
+    const rest = list.total - firstN;
+    const more = rest > 0 ? `${formatCount(rest)} more ${rest === 1 ? 'is' : 'are'} worth a look.` : '';
+    return first.length
+      ? { lead: `Fix first: ${joinAnd(first.map((x) => x.text))}.`, rest: more }
+      : { lead: 'Nothing confirmed broken.', rest: `${formatCount(list.total)} ${list.total === 1 ? 'item is' : 'items are'} worth a look.` };
+  });
+  // A run of rows with the same next step says it once, on the first row of the run:
+  // twenty-five identical hints down the right edge were the same sentence, not advice.
+  const showNext = (i) => !!list.items[i].nextStep && (i === 0 || list.items[i - 1].nextStep !== list.items[i].nextStep);
 </script>
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Needs attention' }]} />
   <PageHeader title="Needs attention" count={headerCount} asOf={list?.meta?.asOf} {revalidating} paging={answer.paging} />
+
+  {#if attnAnswer && state.kind === 'ready'}
+    <p class="page-answer t-body" data-testid="attention-answer"><strong>{attnAnswer.lead}</strong> {attnAnswer.rest}</p>
+  {/if}
 
   <!-- Primary triage filters; secondary ones live behind an advanced disclosure so the
        default surface stays simple. -->
@@ -325,7 +346,7 @@
                  dropped to a line of its own under a long service name. -->
             <span class="attn-summary">{it.summary || it.reason || it.label}{#if it.source}{' '}<span class="attn-src">via {it.source}</span>{/if}</span>
           </div>
-          {#if it.nextStep}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
+          {#if showNext(i)}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
         </li>
       {/each}
     </ul>
