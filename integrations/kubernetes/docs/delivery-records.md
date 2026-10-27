@@ -201,16 +201,8 @@ keys:
            evals: the exam was run and signed by evals-ci
 ```
 
-To check one record without Pacto, for example:
-
-```bash
-REPO=registry.example/pacto/streams
-oras blob fetch --output record.json \
-  "$REPO@$(oras manifest fetch "$REPO@<record manifest>" | jq -r '.layers[0].digest')"
-cosign verify-blob-attestation --bundle record.json --key recorder.pub \
-  --type delivery.pacto.trianalab.io/operation/v1 --insecure-ignore-tlog \
-  --digest <anchor digest without sha256:> --digestAlg sha256
-```
+[Check one record without Pacto](../../verify-a-record.md#check-one-record-without-pacto)
+gives the oras and cosign commands for a recorder key file.
 
 For a keyless recorder it uses these flags instead of `--key recorder.pub`,
 with the entry's `trustedRoot` saved as `trusted_root.json`:
@@ -225,10 +217,6 @@ with the entry's `trustedRoot` saved as `trusted_root.json`:
 certificate transparency log, as in many private Sigstores: then a
 certificate carries no SCT and cosign needs the flag. The TSA timestamp is
 still checked.
-
-`oras discover` on a version lists the records attached to it. The record
-itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
-prints the statement.
 
 ## Retention and events
 

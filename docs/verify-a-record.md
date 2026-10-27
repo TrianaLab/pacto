@@ -13,24 +13,11 @@ below need one more key each: the eval runner's for exams and the publisher's
 for released versions.
 The full detail is in [Signed records and history](integrations/kubernetes/delivery-records.md).
 
-## The words on this page
-
-Pacto decides which version of each service runs in each environment, such
-as test or prod. Each service has a **contract**, a file called `pacto.yaml`
-that says who owns it and which other services it calls.
-
-| Word | Meaning |
-|---|---|
-| Stage | One service in one environment, for example payments in prod |
-| Change | One request to move a Stage to another version, from the request to its end. In Kubernetes it is an object of kind `Operation` |
-| Record | A signed account of one finished change |
-| Recorder | The part of Pacto that writes and signs records. It is the only part that holds the signing key |
-| Promoter | The part of Pacto that plans each change and moves the version. It does not hold the recorder's key |
-| Registry | The container registry where your images live, such as zot or Harbor |
-| Digest | The `sha256:...` fingerprint of one exact image or file in a registry |
-| Flux | The tool that makes a Kubernetes cluster run the files you give it. Pacto tells it which version to run |
-| Admission checks | Rules the Kubernetes cluster runs on every request, before it accepts it. Pacto's check who may ask for and approve a change |
-| Referrer | A file a registry stores "attached" to a digest, found by asking the registry what points at that digest |
+Words in links are defined in the [glossary](glossary.md): a
+[record](glossary.md#record) is signed by the [recorder](glossary.md#recorder)
+and stored in your [registry](glossary.md#registry) as a
+[referrer](glossary.md#referrer) of a [digest](glossary.md#digest). Each one
+is about one [change](glossary.md#change) to one [Stage](glossary.md#stage).
 
 ## What a record says
 
@@ -53,12 +40,10 @@ Every field sits under `.predicate`:
 | `verdicts[].citation.runner`, `.runnerBundle` | For an eval check: who ran the exam, and the answer that runner signed itself (see "Check who ran an exam") |
 | `outcome.result` | How it ended, such as `Succeeded`, `Failed`, `Rejected` or `Cancelled` |
 | `outcome.pointer.before`, `.after` | The version digest the Stage ran before and after |
-| `guarded` | Read this first. `true` when the cluster's admission checks confirmed who asked and who approved. Without it, those names are only what the writer claimed |
+| `guarded` | Read this first. `true` when the cluster's [admission policies](glossary.md#admission-policies) confirmed who asked and who approved. Without it, those names are only what the writer claimed |
 | `chain.seq`, `chain.parent` | The record's number in its Stage's history and the id of the record before it (see "Check the whole history") |
 
-Records exist only when your platform team turns on the recorder. They need
-a registry that supports referrers, such as zot. GitHub's registry does not
-support them.
+Records exist only when your platform team turns on the recorder.
 
 ## Where records live
 
@@ -168,7 +153,7 @@ the sha256 of the suite, how many cases passed and where the run can be read
 again. The record keeps that signed answer in the verdict's
 `citation.runnerBundle`, inside the recorder's signature. So you can check
 the runner's signature yourself, without trusting the recorder or the
-promoter. Get the runner's public key from the team that runs the evals,
+[promoter](glossary.md#promoter). Get the runner's public key from the team that runs the evals,
 not from the record or the registry:
 
 ```bash
@@ -197,21 +182,8 @@ signature. Do not trust it. With cluster access,
 file lists the runner's key with `role: runner` beside the recorder's, and prints who ran each exam. It
 finds the eval verdicts from the record's Stage policy and citations. To
 decide that yourself, list on the runner key the providers whose verdicts it
-must sign:
-
-```yaml
-keys:
-  - name: recorder
-    publicKey: |
-      -----BEGIN PUBLIC KEY-----
-      ...
-  - name: evals-ci
-    role: runner
-    providers: [evals]
-    publicKey: |
-      -----BEGIN PUBLIC KEY-----
-      ...
-```
+must sign, as the trust config in
+[Verify records](integrations/kubernetes/delivery-records.md#verify-records) shows.
 
 What this cannot catch: a promoter that reuses an answer the runner signed
 earlier in the same operation, for the same version. Each answer carries the

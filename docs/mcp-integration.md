@@ -5,17 +5,10 @@ or Copilot, to use Pacto. It covers how to connect the agent, what it can do
 and the limits that keep it safe. Every tool and input is listed
 in the [MCP reference](mcp-reference.md).
 
-## The words on this page
-
-| Word | Meaning |
-|---|---|
-| Pacto | A tool that describes each of your services in a contract and checks changes against those contracts |
-| Delivery | The optional part of Pacto that runs in a Kubernetes cluster and decides which version of each service runs in each environment, such as test or prod |
-| Contract | A file, `pacto.yaml`, in which a service says who owns it, what it offers (its APIs) and which other services it calls |
-| Bundle | A contract together with the files it points to, such as the service's OpenAPI document. It is a folder on disk or a published copy in a container registry, written `oci://registry/name:version` |
-| Fleet | All your services together, as Pacto sees them from contracts, clusters and registries |
-| Change | In delivery, a request to move one service in one environment to another version |
-| MCP | Model Context Protocol, the standard way an AI agent finds and calls tools. `pacto mcp` is an MCP server |
+Words in links are defined in the [glossary](glossary.md): [MCP](glossary.md#mcp),
+[contract](glossary.md#contract), [bundle](glossary.md#bundle),
+[fleet](glossary.md#fleet), [delivery](glossary.md#delivery) and
+[change](glossary.md#change).
 
 ## Connect your agent
 
@@ -109,11 +102,10 @@ service's own sign-in, as its OpenAPI document declares it.
 ## Delivery: who counts as an agent
 
 `--delivery` acts on the cluster your kubeconfig points at, as
-the identity in it. The cluster treats as an agent a Kubernetes service
-account, anyone in the agent group your platform team set up (`pacto:agents`
-by default) and, when the platform team lists the groups people are in (as
-[Pactify a service](pactify.md#4-connect-the-service-to-your-cluster) does
-with `staff`), anyone outside those groups. Only an agent gets the tools to
+the identity in it. Every service account counts as an agent, and so does
+anyone the platform team's groups name as one; see
+[Who counts as a person, an agent or a team](integrations/kubernetes/delivery-identity.md#who-counts-as-a-person-an-agent-or-a-team).
+Only an agent gets the tools to
 ask for and cancel a change; a person gets only the read tools. So give the
 agent a kubeconfig for its own service account, never yours: an agent holding
 your credentials is you to the cluster. Have the agent fill `on_behalf_of` on
@@ -123,10 +115,10 @@ change.
 
 ## What keeps it safe
 
-- **An agent never approves.** In delivery mode it can ask for a change, but
-  Pacto's checks (is the version signed, does it break a service that calls
-  it, is it healthy after release) and the owning team decide. There is no
-  approve tool, and the cluster refuses an approval from an agent anyway.
+- **An agent never approves.** In delivery mode it can ask for a change, and
+  Pacto's checks and the owning team decide
+  ([Who may approve](integrations/kubernetes/delivery.md#who-may-approve)).
+  There is no approve tool.
 - **Calls to your service are read-only by default.** Only `GET` and `HEAD`
   operations become tools unless you pass `--allow-writes`. Each call stops
   after 30 seconds and follows no redirect.
