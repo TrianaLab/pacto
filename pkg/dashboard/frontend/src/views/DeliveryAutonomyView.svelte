@@ -2,13 +2,13 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryHistoryUrl, deliveryAutonomyUrl } from '../lib/router.ts';
+  import { deliveryHistoryUrl, deliveryAutonomyUrl, serviceUrl } from '../lib/router.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
-  import { AUTONOMY_TYPE, levelLabel, levelHelp, proposalText, shadowLabel, blockerLabel, sentence } from '../lib/delivery.ts';
+  import { AUTONOMY_TYPE, levelLabel, levelHelp, proposalText, shadowLabel, blockerLabel, blockerService, sentence } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -173,11 +173,16 @@
                 {#each g.items as b, i (b.subject + ' ' + i)}
                   {@const key = b.kind + ' ' + b.subject}
                   {@const fix = b.fix?.command || b.fix?.snippet || ''}
+                  {@const svc = blockerService(b)}
                   <li class="au-blocker">
                     <details class="disclosure">
                       <summary class="au-row">
                         <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-                        <code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>
+                        {#if svc}
+                          <a class="au-subject cell-clip" href={serviceUrl(svc)} title={b.subject}><code>{b.subject}</code></a>
+                        {:else}
+                          <code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>
+                        {/if}
                         <span class="t-meta au-count">{#if b.stages?.length}{formatCount(b.stages.length)} Stage{b.stages.length === 1 ? '' : 's'}{:else}No Stage{/if}</span>
                         <span class="t-meta au-msg cell-clip" title={b.message ? sentence(b.message) : undefined}>{b.message ? sentence(b.message) : ''}</span>
                         {#if fix}<span class="badge badge-neutral au-hasfix">Fix to copy</span>{/if}
@@ -227,6 +232,9 @@
   .au-row::-webkit-details-marker { display: none; }
   .au-row:hover { background: var(--c-surface-hover); }
   .au-count { white-space: nowrap; }
+  /* The clipped name opens up whole on hover and whenever the row or its link has
+     keyboard focus, where a title tooltip never shows. */
+  .au-row:hover .au-subject, .au-row:focus-visible .au-subject { white-space: normal; overflow-wrap: anywhere; }
   .au-detail { padding: 0 var(--sp-3) var(--sp-3) calc(var(--sp-3) * 2 + 0.75rem); }
   .au-detail p { margin: 0 0 var(--sp-1); }
   @media (max-width: 40rem) {

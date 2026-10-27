@@ -20,7 +20,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 
 import { ApiError } from '../lib/api.ts';
 import { deliverySession } from '../lib/deliverySession.svelte.ts';
-import { shadowLabel, heldButRan, levelLabel, levelHelp, proposalText, blockerLabel, changeSummary, typeLabel } from '../lib/delivery.ts';
+import { shadowLabel, heldButRan, levelLabel, levelHelp, proposalText, blockerLabel, blockerService, changeSummary, typeLabel } from '../lib/delivery.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryAutonomyView from './DeliveryAutonomyView.svelte';
 // @ts-expect-error — Svelte component has no declaration file
@@ -158,6 +158,11 @@ describe('path to autonomy', () => {
     expect(text(items[1])).toContain('checkout 1 Stage');
     expect(text(items[1])).toContain('On 1 Stage: prod/pay');
     expect(items[2].querySelector('button')).toBeNull();
+    // A service subject opens its service; a caller with no contract or a GitOps object has no page.
+    expect(items[1].querySelector('a.au-subject')!.getAttribute('href')).toContain('checkout');
+    expect(items[1].querySelector('a.au-subject')!.getAttribute('title')).toBe('checkout');
+    expect(items[0].querySelector('a.au-subject')).toBeNull();
+    expect(items[2].querySelector('a.au-subject')).toBeNull();
     expect(text(target)).toContain('Copying a fix changes nothing in the cluster');
     expect(text(target)).not.toMatch(/one-click/i);
     (items[1].querySelector('button') as HTMLButtonElement).click();
@@ -278,6 +283,12 @@ describe('ladder words', () => {
     expect(blockerLabel('incident')).toBe('A release failed here');
     expect(blockerLabel('new-kind')).toBe('new-kind');
     expect(blockerLabel(undefined)).toBe('Blocker');
+    expect(blockerService({ kind: 'incident', subject: 'payments' })).toBe('payments');
+    expect(blockerService({ kind: 'incident', subject: 'sha256:abc' })).toBe('');
+    expect(blockerService({ kind: 'incident', subject: '0f8e2a1c-1234-4abc-9def-0123456789ab' })).toBe('');
+    expect(blockerService({ kind: 'missing-contract', subject: 'k8s:pay/Deployment/legacy' })).toBe('');
+    expect(blockerService({ kind: 'no-observed-digest', subject: 'payments-ref' })).toBe('');
+    expect(blockerService({ kind: 'needs-verified', subject: '' })).toBe('');
     expect(proposalText('observe', { level: 'advise', evidence: ['d'] })).toBe('Pacto proposes Advise: 1 version GitOps ran that verified, no incident.');
     expect(proposalText('advise', { level: 'auto-nonbreaking' })).toBe('Pacto proposes Auto non-breaking: 0 verified promotions, no incident.');
     expect(typeLabel('delivery.pacto.trianalab.io/autonomy')).toBe('Level change');

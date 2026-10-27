@@ -509,6 +509,20 @@ const BLOCKERS: Record<string, string> = {
   'partial-graph': 'The contract graph is partial',
 };
 
+/**
+ * blockerService is the service a blocker is about, or '' when its subject is
+ * something else: a blocker's subject can also be a GitOps object, a version
+ * digest, an operation UID or a caller with no contract (`k8s:ns/Kind/name`).
+ */
+// ponytail: shape-based, because the wire carries one subject string; a typed
+// subject kind on the blocker would replace this guess.
+export function blockerService(b: { kind?: string; subject?: string }): string {
+  const s = b.subject ?? '';
+  if (!s || b.kind === 'unlabelled-apply-ref' || b.kind === 'no-observed-digest') return '';
+  if (s.includes(':') || /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(s)) return '';
+  return s;
+}
+
 /** blockerLabel names what keeps a Stage from the next level. */
 export function blockerLabel(kind: string | undefined): string {
   return BLOCKERS[kind ?? ''] ?? (kind || 'Blocker');
