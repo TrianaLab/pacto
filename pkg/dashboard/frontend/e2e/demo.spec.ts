@@ -229,15 +229,14 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 });
   });
 
-  // The primary nav teaches ONE order -- state, inventory, relationships, change -- so a
-  // Fleet host has exactly those four destinations, plus Delivery where delivery is
-  // served (the demo simulates it). Owners, Data sources, Needs attention and Readiness
-  // are dimensions of them (reachable from the Overview, entity pages and the palette),
-  // and the legacy-only destinations never leak onto a Fleet host.
-  test('navigation exposes exactly the five primary workflows (no dead tabs, no dimensions promoted)', async ({ page }) => {
+  // The primary nav teaches ONE order -- state, inventory, relationships, change -- with
+  // Needs attention beside the Overview and Owners beside Services, plus Delivery where
+  // delivery is served (the demo simulates it). Data sources and Readiness are not
+  // tabs, and the legacy-only destinations never leak onto a Fleet host.
+  test('navigation exposes exactly the primary destinations (no dead tabs)', async ({ page }) => {
     await appReady(page);
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational graph', 'Change analysis', 'Delivery']);
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Operational graph', 'Change analysis', 'Delivery']);
   });
 
   test('O1: graph opens SEARCH-FIRST with zero Cytoscape topology nodes', async ({ page }) => {
