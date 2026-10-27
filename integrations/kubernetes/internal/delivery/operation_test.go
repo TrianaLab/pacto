@@ -342,7 +342,7 @@ func TestApprovedButRecheckChanged(t *testing.T) {
 	delete(e.reg.contracts, dA)                    // the running contract can no longer be read
 	e.now = e.now.Add(time.Minute)
 	o = e.drive("p1")
-	if o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != "RecheckChanged" {
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != reasonRecheckChanged {
 		t.Fatalf("want back to Held: %s %s", o.Status.Phase, o.Status.Reason)
 	}
 	// The leftover approval answered the old question, not this one.

@@ -122,7 +122,7 @@ func TestAutonomyRaiseRecheckedBeforeTheSwap(t *testing.T) {
 	})
 	e.approve(o, "other", "bob", delivery.Approve)
 	o = e.drive("up")
-	if o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != "RecheckChanged" || !strings.Contains(o.Status.Question, "incident") {
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != reasonRecheckChanged || !strings.Contains(o.Status.Question, "incident") {
 		t.Fatalf("a lapsed proposal goes back to a person: %+v", o.Status)
 	}
 	if e.getStage().Status.Rung != delivery.RungObserve {

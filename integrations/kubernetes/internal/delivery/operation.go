@@ -33,6 +33,9 @@ const immediately = time.Millisecond
 // reasonWaiting marks an operation parked on the Stage: a lock, a freeze.
 const reasonWaiting = "Waiting"
 
+// reasonRecheckChanged holds an approved operation whose gates changed since the hold.
+const reasonRecheckChanged = "RecheckChanged"
+
 var (
 	errWait         = errors.New("wait")
 	errPointerMoved = errors.New("pointer moved")
@@ -249,7 +252,7 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 			op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 			op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, cur.Question, ts(r.now())
 			op.Status.ApprovedTeams = nil // a question asked again is answered again
-			op.Status.Reason, op.Status.Message = "RecheckChanged", "a gate no longer passes, so a person must decide again"
+			op.Status.Reason, op.Status.Message = reasonRecheckChanged, "a gate no longer passes, so a person must decide again"
 			return r.saveHeld(ctx, op)
 		}
 		op.Status.Verdicts = mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
