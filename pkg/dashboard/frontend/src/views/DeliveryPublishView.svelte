@@ -8,7 +8,7 @@
   import { formatCount } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
-  import { shortDigest, sentence, timeLabel } from '../lib/delivery.ts';
+  import { shortDigest, shortDigests, sentence, timeLabel } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -47,8 +47,8 @@
   // Stages, running and failed first, so one page stays one page. open holds
   // what the reader asked to see whole, keyed by service (and digest).
   const VERSIONS = 5;
-  const STAGES = 4;
   let open = $state({});
+  // Running and failed first, so the list a count opens leads with what matters.
   const stagesFirst = (stages) => [...(stages ?? [])].sort((a, b) => (b.running || b.failed ? 1 : 0) - (a.running || a.failed ? 1 : 0));
   const BUMPS = { major: 'a major version', minor: 'at least a minor version', patch: 'a patch version' };
 </script>
@@ -119,18 +119,24 @@
               {@const sk = `${svc.service}@${v.digest}`}
               {@const stages = stagesFirst(v.stages)}
               <li class="pl-row pl-row--stack pv-row">
+                <!-- One line per version: digests short with a copy button, and where it runs as a
+                     count that opens the per-environment list. -->
                 <div class="pv-head">
-                  <strong>{v.version || shortDigest(v.digest)}</strong>
+                  {#if v.version}<strong>{v.version}</strong>{/if}
                   {#if v.signed}<span class="badge badge-ok">Signature checked</span>{:else}<span class="badge badge-neutral">Signature not checked here</span>{/if}
-                  <code class="t-meta" title={v.digest}>{shortDigest(v.digest)}</code>
+                  <CopyableIdentifier value={v.digest} display={shortDigest(v.digest)} label="digest" />
+                  {#if v.contract}<span class="t-meta pv-contract">Contract <CopyableIdentifier value={v.contract} display={shortDigests(v.contract)} label="contract reference" /></span>{/if}
+                  {#if stages.length}
+                    {@const running = stages.filter((on) => on.running).length}
+                    {@const failed = stages.filter((on) => on.failed).length}
+                    <button type="button" class="btn btn-sm pv-envs" aria-expanded={!!open[sk]} data-testid="published-envs" onclick={() => { open[sk] = !open[sk]; }}>{formatCount(stages.length)} environment{stages.length === 1 ? '' : 's'}{#if running}, {formatCount(running)} running{/if}{#if failed}, {formatCount(failed)} failed{/if}</button>
+                  {/if}
                 </div>
-                {#if v.contract}<p class="t-body-2 pv-contract">Contract: <CopyableIdentifier value={v.contract} label="contract reference" /></p>{/if}
-                {#if stages.length}
-                  <p class="t-body-2 pv-stages">
-                    {#each open[sk] ? stages : stages.slice(0, STAGES) as on (on.namespace + '/' + on.stage)}
-                      <span class="pv-stage">{on.environment}: {on.running ? 'running' : 'known'}{#if on.verified}, verified{/if}{#if on.failed}, failed{/if}</span>
+                {#if open[sk]}
+                  <p class="t-body-2 pv-stages" data-testid="published-stages">
+                    {#each stages as on (on.namespace + '/' + on.stage)}
+                      <span class="pv-stage">{on.environment}: {on.running ? 'running' : 'known'}{#if on.verified}, verified{/if}{#if on.failed}, failed{/if}</span>{' '}
                     {/each}
-                    {#if stages.length > STAGES}<button type="button" class="btn btn-sm" aria-expanded={!!open[sk]} onclick={() => { open[sk] = !open[sk]; }}>{open[sk] ? 'Show fewer' : `+${formatCount(stages.length - STAGES)} more`}</button>{/if}
                   </p>
                 {/if}
               </li>
@@ -147,10 +153,11 @@
 <style>
   .pv-svc { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-svc h2 a { color: var(--c-accent); }
-  .pv-row { gap: var(--sp-1); padding: var(--sp-3); min-width: 0; overflow-wrap: break-word; }
+  .pv-row { gap: var(--sp-1); padding: var(--sp-2) var(--sp-3); min-width: 0; overflow-wrap: break-word; }
   .pv-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .pv-contract, .pv-stages, .pv-row p, .pv-refused > p { margin: 0; }
-  .pv-contract { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+  .pv-contract { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; max-width: 100%; }
+  .pv-envs { margin-left: auto; }
   .pv-refused { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-none { color: var(--c-text-3); }
   .pv-err { color: var(--c-err); }

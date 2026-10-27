@@ -1,13 +1,16 @@
 <script>
   // Renders a canonical identifier as secondary, copyable metadata: monospace text
   // plus a copy button. Human labels are primary elsewhere; the raw key lives here.
-  let { value = '', label = 'canonical key' } = $props();
+  // display: what to show when it is not the value itself (a digest cut short);
+  // the button and the hover still carry the whole value.
+  let { value = '', label = 'canonical key', display = '' } = $props();
 
   // Middle ellipsis: a squeezed identifier keeps its end (the version, the digest
   // tail) on screen, which is what tells two long keys apart. The two halves are one
   // run of text, so selecting it copies the whole value, as does the button.
-  const tail = $derived(value.length > 20 ? value.slice(-10) : '');
-  const head = $derived(tail ? value.slice(0, -10) : value);
+  const shown = $derived(display || value);
+  const tail = $derived(shown.length > 20 ? shown.slice(-10) : '');
+  const head = $derived(tail ? shown.slice(0, -10) : shown);
 
   let copied = $state(false);
   let timer = null;

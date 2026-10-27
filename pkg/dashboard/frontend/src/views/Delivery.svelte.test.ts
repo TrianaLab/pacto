@@ -1027,16 +1027,29 @@ describe('history and published', () => {
 
   it('lists published versions with their signature state and where they run', async () => {
     fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [
-      { digest: D2, version: '2.0.0', contract: 'oci://r/p@sha256:c', signed: true, stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: true, verified: true, failed: false }] },
+      { digest: D2, version: '2.0.0', contract: `oci://r/p@sha256:${'c'.repeat(64)}`, signed: true, stages: [
+        { namespace: 'test', stage: 'pay', environment: 'test', running: false, verified: true, failed: false },
+        { namespace: 'prod', stage: 'pay', environment: 'prod', running: true, verified: true, failed: false }] },
       { digest: D1, signed: false, stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: false, verified: false, failed: true }] },
     ] }] });
     let r = render(DeliveryPublishView);
     await settle();
-    expect(text(r.target)).toContain('2.0.0');
-    expect(text(r.target)).toContain('Signature checked');
-    expect(text(r.target)).toContain('prod: running, verified');
-    expect(text(r.target)).toContain('Signature not checked here');
-    expect(text(r.target)).toContain('prod: known, failed');
+    // One line per version: short digests with a copy button, and environments as a count.
+    const rows = [...r.target.querySelectorAll('li.pv-row')].map((li) => text(li as HTMLElement).trim());
+    expect(rows).toEqual([
+      '2.0.0 Signature checked 222222222222 ⧉ Contract oci://r/p@sha256:cccccccccccc ⧉ 2 environments, 1 running',
+      'Signature not checked here 111111111111 ⧉ 1 environment, 1 failed',
+    ]);
+    expect(r.target.querySelector('.pv-contract .copyable')?.getAttribute('title')).toBe(`oci://r/p@sha256:${'c'.repeat(64)}`);
+    expect(r.target.querySelector('[data-testid="published-stages"]')).toBeNull();
+    const envs = r.target.querySelectorAll('[data-testid="published-envs"]');
+    (envs[0] as HTMLButtonElement).click();
+    (envs[1] as HTMLButtonElement).click();
+    await settle();
+    expect(envs[0].getAttribute('aria-expanded')).toBe('true');
+    // Running and failed first.
+    expect([...r.target.querySelectorAll('[data-testid="published-stages"]')].map((p) => text(p as HTMLElement).trim()))
+      .toEqual(['prod: running, verified test: known, verified', 'prod: known, failed']);
     r.destroy();
     fns.published.mockResolvedValue({ ...listing, services: [] });
     r = render(DeliveryPublishView);
