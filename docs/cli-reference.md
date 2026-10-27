@@ -216,20 +216,27 @@ pacto dashboard [sources...] [flags]
 **Flags:**
 
 ```
-      --cors-origin string          explicit cross-origin allowed to call the API (default: same-origin only)
-      --delivery-namespace string   namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
-      --delivery-trust string       the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
-  -h, --help                        help for dashboard
-      --host string                 bind address for the dashboard server (default "127.0.0.1")
-      --mira-url string             Mira's address, to link the health-check citations of delivery verdicts
-      --namespace string            Kubernetes namespace (empty = all namespaces)
-      --oidc-client-id string       OpenID Connect client id of the dashboard
-      --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
-      --oidc-issuer-url string      OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and delivery actions run as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
-      --oidc-redirect-url string    the dashboard's /auth/callback as browsers reach it (https)
-      --port int                    port for the dashboard server (default 3000)
-      --trace-source stringArray    named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
-      --traces stringArray          OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
+      --cors-origin string              explicit cross-origin allowed to call the API (default: same-origin only)
+      --delivery-namespace string       namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --delivery-trust string           the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+  -h, --help                            help for dashboard
+      --host string                     bind address for the dashboard server (default "127.0.0.1")
+      --mira-url string                 Mira's address, to link the health-check citations of delivery verdicts
+      --namespace string                Kubernetes namespace (empty = all namespaces)
+      --oidc-client-id string           OpenID Connect client id of the dashboard
+      --oidc-extra-scopes strings       scopes to ask for beyond openid, profile and groups
+      --oidc-groups-claim string        ID token claim the API server takes the groups from; must match its claim mapping (default groups)
+      --oidc-groups-prefix string       prefix the API server puts before every group; must match its claim mapping
+      --oidc-issuer-url string          OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and delivery actions run as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
+      --oidc-redirect-url string        the dashboard's /auth/callback as browsers reach it (https)
+      --oidc-username-claim string      ID token claim the API server takes the username from; must match its claim mapping (default sub)
+      --oidc-username-prefix string     prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
+      --port int                        port for the dashboard server (default 3000)
+      --session-idle-timeout duration   a session without a request for this long ends (default 1h)
+      --session-max-age duration        a session ends this long after sign-in, renewed or not (default 12h)
+      --token-login                     let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)
+      --trace-source stringArray        named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
+      --traces stringArray              OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
 
 It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).

@@ -330,6 +330,19 @@ func TestCapabilitiesAndSessionSignedIn(t *testing.T) {
 	expect(t, sess["callerError"] == "apiserver down", "a WhoAmI failure is reported: %v", sess)
 }
 
+func TestCapabilitiesAndSessionWithTokenSignIn(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true, CSRF: "c", Method: "token", User: "system:serviceaccount:shop:viewer", Groups: []string{"system:serviceaccounts"}}}
+	f := &fakeDelivery{caller: person()}
+	au := a.auth(false, false)
+	au.TokenLogin = true
+	base := startDelivery(t, f, au, true, nil)
+	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
+	auth, _ := caps["auth"].(map[string]any)
+	expect(t, caps["delivery"] == true && auth["mode"] == "shared" && auth["login"] == false && auth["tokenLogin"] == true, "capabilities %v", caps)
+	_, sess := call(t, http.MethodGet, base+"/api/session", nil)
+	expect(t, sess["tokenLogin"] == true && sess["method"] == "token" && sess["user"] == "system:serviceaccount:shop:viewer", "session %v", sess)
+}
+
 func TestCapabilitiesAndSessionWithoutDelivery(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
 	f := &fakeDelivery{caller: person()}
@@ -754,6 +767,12 @@ func TestDecide(t *testing.T) {
 		{"shared without login", func() string { return startDelivery(t, f, a.auth(false, false), true, nil) }, http.StatusForbidden, "LoginNotConfigured"},
 		{"signed out", func() string { a.state = AuthState{}; return base }, http.StatusUnauthorized, "LoginRequired"},
 		{"not fresh", func() string { a.state = AuthState{SignedIn: true}; return base }, http.StatusUnauthorized, "FreshLoginRequired"},
+		{"a pasted token", func() string { a.state = AuthState{SignedIn: true, Fresh: true, Method: "token"}; return base }, http.StatusForbidden, "TokenCannotDecide"},
+		{"a pasted token where only tokens sign in", func() string {
+			au := a.auth(false, false)
+			au.TokenLogin = true
+			return startDelivery(t, f, au, true, nil)
+		}, http.StatusForbidden, "TokenCannotDecide"},
 		{"agent", func() string {
 			a.state = AuthState{SignedIn: true, Fresh: true}
 			f.caller = person("acme:team-checkout", "pacto:agents")

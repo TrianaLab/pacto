@@ -1,6 +1,7 @@
 package authn
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -29,30 +30,74 @@ type Person struct {
 // Anonymous is a caller who has not signed in, named as the apiserver names one.
 var Anonymous = Person{User: "system:anonymous", Groups: []string{"system:unauthenticated"}}
 
-// PersonFromToken reads a token the identity layer already verified the way
-// the cluster is told to map it (see delivery-identity.md): the username is
-// issuer#sub and the groups claim is taken as it is, less any group starting
-// with "system:". The apiserver never takes those from an OIDC token, so
-// passing one an IdP lets a user name (system:masters) would make the review
-// answer for a group the person does not hold. A token that names no subject
-// is Anonymous.
-func PersonFromToken(token string) Person {
-	var c struct {
-		Issuer  string   `json:"iss"`
-		Subject string   `json:"sub"`
-		Groups  []string `json:"groups"`
-	}
+// Claims is how the cluster maps an ID token to a Kubernetes user: the
+// username and groups claims and their prefixes, as the API server's
+// structured authentication configuration names them (claimMappings). The
+// dashboard asks Kubernetes RBAC about a signed-in person as this mapping
+// names them, so it must match the API server's. The zero value is the
+// mapping delivery-identity.md configures: issuer#sub and the groups claim
+// as it is.
+type Claims struct {
+	// UsernameClaim is the claim the username comes from; empty is "sub".
+	UsernameClaim string
+	// UsernamePrefix is put before the username. Empty is the issuer URL
+	// followed by "#", except for the email claim, as kube-apiserver's
+	// --oidc-username-prefix does; "-" puts nothing before it.
+	UsernamePrefix string
+	// GroupsClaim is the claim the groups come from; empty is "groups".
+	GroupsClaim string
+	// GroupsPrefix is put before every group.
+	GroupsPrefix string
+}
+
+// Person reads a token the identity layer already verified the way the
+// cluster is told to map it. Any group starting with "system:" is dropped:
+// the apiserver never takes those from an OIDC token, so passing one an IdP
+// lets a user name (system:masters) would make the review answer for a group
+// the person does not hold. A token that names no username is Anonymous.
+func (c Claims) Person(token string) Person {
+	var raw map[string]json.RawMessage
 	if parts := strings.Split(token, "."); len(parts) == 3 {
 		if payload, err := base64.RawURLEncoding.DecodeString(parts[1]); err == nil {
-			_ = json.Unmarshal(payload, &c) // a token without these claims is nobody
+			_ = json.Unmarshal(payload, &raw) // a token without claims is nobody
 		}
 	}
-	if c.Issuer == "" || c.Subject == "" {
+	str := func(name string) string {
+		var v string
+		_ = json.Unmarshal(raw[name], &v) // a claim that is no string is no name
+		return v
+	}
+	claim := cmp.Or(c.UsernameClaim, "sub")
+	user, iss := str(claim), str("iss")
+	if user == "" || iss == "" {
 		return Anonymous
 	}
-	groups := slices.DeleteFunc(c.Groups, func(g string) bool { return strings.HasPrefix(g, "system:") })
-	return Person{User: c.Issuer + "#" + c.Subject, Groups: groups}
+	switch {
+	case c.UsernamePrefix == "-":
+	case c.UsernamePrefix != "":
+		user = c.UsernamePrefix + user
+	case claim != "email":
+		user = iss + "#" + user
+	}
+	var groups []string
+	if g := raw[cmp.Or(c.GroupsClaim, "groups")]; json.Unmarshal(g, &groups) != nil {
+		// Some providers send a single group as a string.
+		var one string
+		if json.Unmarshal(g, &one) == nil && one != "" {
+			groups = []string{one}
+		}
+	}
+	out := []string{}
+	for _, g := range groups {
+		if g = c.GroupsPrefix + g; !strings.HasPrefix(g, "system:") {
+			out = append(out, g)
+		}
+	}
+	return Person{User: user, Groups: out}
 }
+
+// PersonFromToken is Claims{}.Person: issuer#sub and the groups claim.
+func PersonFromToken(token string) Person { return Claims{}.Person(token) }
 
 // Review answers whether p may list Pactos in namespace ("" for every
 // namespace at once).

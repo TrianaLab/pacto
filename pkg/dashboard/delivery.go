@@ -48,8 +48,10 @@ type Auth struct {
 	// Local: the process acts as the kubeconfig user; decisions are never
 	// served there.
 	Local bool
-	// Login: people sign in (shared mode with OpenID Connect).
+	// Login: people sign in with OpenID Connect.
 	Login bool
+	// TokenLogin: people may sign in by pasting a Kubernetes bearer token.
+	TokenLogin bool
 	// Routes serves /auth/*.
 	Routes http.Handler
 	// Middleware wraps every request: it resolves the caller and refuses
@@ -67,10 +69,12 @@ type AuthState struct {
 	CSRF  string
 	// Name is the person's name from their ID token (name, else email).
 	Name string
-	// User and Groups are the person as the cluster maps their ID token: the
-	// identity the fleet views ask Kubernetes RBAC about.
+	// User and Groups are the person as the cluster names them: the identity
+	// the fleet views ask Kubernetes RBAC about.
 	User   string
 	Groups []string
+	// Method is how the caller signed in: "oidc" or "token".
+	Method string
 }
 
 // DeliveryError is a delivery answer that says no: the HTTP status, a stable
@@ -141,14 +145,16 @@ func (s *Server) authState(ctx context.Context) AuthState {
 
 type sessionOutput struct {
 	Body struct {
-		Mode     string   `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; none: no identity layer"`
-		Login    bool     `json:"login" doc:"People sign in with the identity provider"`
-		SignedIn bool     `json:"signedIn" doc:"The caller has a live session (shared) or the launch cookie (local)"`
-		Fresh    bool     `json:"fresh" doc:"The session came from a login the person had to repeat; decisions need one"`
-		Name     string   `json:"name,omitempty" doc:"The signed-in person's name from their ID token (name, else email)"`
-		User     string   `json:"user,omitempty" doc:"The signed-in person's username as the cluster maps their ID token; the fleet views show what its Kubernetes RBAC lets this user read"`
-		Groups   []string `json:"groups,omitempty" doc:"The signed-in person's groups as the cluster maps their ID token"`
-		CSRF     string   `json:"csrf,omitempty" doc:"Send it in the X-Pacto-CSRF header of every mutating request"`
+		Mode       string   `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; none: no identity layer"`
+		Login      bool     `json:"login" doc:"People sign in with the identity provider"`
+		TokenLogin bool     `json:"tokenLogin,omitempty" doc:"People may sign in by pasting a Kubernetes bearer token"`
+		SignedIn   bool     `json:"signedIn" doc:"The caller has a live session (shared) or the launch cookie (local)"`
+		Method     string   `json:"method,omitempty" enum:"oidc,token" doc:"How the caller signed in: with the identity provider or with a pasted token, which never decides"`
+		Fresh      bool     `json:"fresh" doc:"The session came from a login the person had to repeat; decisions need one"`
+		Name       string   `json:"name,omitempty" doc:"The signed-in person's name from their ID token (name, else email)"`
+		User       string   `json:"user,omitempty" doc:"The signed-in person's username as the cluster names them; the fleet views show what its Kubernetes RBAC lets this user read"`
+		Groups     []string `json:"groups,omitempty" doc:"The signed-in person's groups as the cluster names them"`
+		CSRF       string   `json:"csrf,omitempty" doc:"Send it in the X-Pacto-CSRF header of every mutating request"`
 		// Caller is who the apiserver says the caller is, when delivery is
 		// installed and the caller is signed in.
 		Caller      *delivery.Caller `json:"caller,omitempty"`
@@ -164,14 +170,14 @@ func (s *Server) session(ctx context.Context, _ *struct{}) (*sessionOutput, erro
 	out := &sessionOutput{}
 	out.Body.Mode = "none"
 	if a := s.opts.Auth; a != nil {
-		out.Body.Mode, out.Body.Login = "shared", a.Login
+		out.Body.Mode, out.Body.Login, out.Body.TokenLogin = "shared", a.Login, a.TokenLogin
 		if a.Local {
 			out.Body.Mode = "local"
 		}
 	}
 	st := s.authState(ctx)
 	out.Body.SignedIn, out.Body.Fresh, out.Body.CSRF, out.Body.Name = st.SignedIn, st.Fresh, st.CSRF, st.Name
-	out.Body.User, out.Body.Groups = st.User, st.Groups
+	out.Body.User, out.Body.Groups, out.Body.Method = st.User, st.Groups, st.Method
 	if !st.SignedIn || s.opts.Delivery == nil {
 		return out, nil
 	}

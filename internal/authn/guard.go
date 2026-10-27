@@ -20,8 +20,8 @@ const launchCookie = "pacto-launch"
 // per-launch token printed in the URL `pacto dashboard` opens, kept in an
 // HttpOnly cookie, plus the CSRF header, from a loopback Host.
 //
-// Shared: people sign in with OIDC before the dashboard answers anything about
-// the fleet. Every API endpoint and /metrics need a session; the static UI,
+// Shared: people sign in, with OIDC or by pasting a Kubernetes bearer token
+// (TokenLogin), before the dashboard answers anything about the fleet. Every API endpoint and /metrics need a session; the static UI,
 // /health, /api/session and /auth/* stay open, so the page can load, show its
 // sign-in screen and sign the person in. Every mutating request that carries
 // the session cookie must come with the session's CSRF header and a
@@ -31,6 +31,7 @@ const launchCookie = "pacto-launch"
 // no delivery data and no actions.
 type Dashboard struct {
 	oidc       *OIDC
+	tokens     *TokenLogin
 	open       bool
 	launch     string
 	launchCSRF string
@@ -39,29 +40,62 @@ type Dashboard struct {
 // NewOpen is a shared dashboard without sign-in.
 func NewOpen() *Dashboard { return &Dashboard{open: true} }
 
-// Login reports whether people sign in.
+// Login reports whether people sign in with OIDC.
 func (d *Dashboard) Login() bool { return d.oidc != nil }
+
+// TokenLogin reports whether people may sign in with a pasted token.
+func (d *Dashboard) TokenLogin() bool { return d.tokens != nil }
+
+// SignsIn reports whether people sign in at all: shared mode.
+func (d *Dashboard) SignsIn() bool { return d.oidc != nil || d.tokens != nil }
 
 // NewLocal is local mode with a fresh per-launch token.
 func NewLocal() *Dashboard { return &Dashboard{launch: random(32), launchCSRF: random(32)} }
 
-// NewShared is shared mode, signing people in through o.
-func NewShared(o *OIDC) *Dashboard { return &Dashboard{oidc: o} }
+// NewShared is shared mode, signing people in through o, t or both (either
+// may be nil, not both).
+func NewShared(o *OIDC, t *TokenLogin) *Dashboard { return &Dashboard{oidc: o, tokens: t} }
 
 // Local reports whether this is local mode.
-func (d *Dashboard) Local() bool { return d.oidc == nil && !d.open }
+func (d *Dashboard) Local() bool { return !d.SignsIn() && !d.open }
 
 // LaunchURL is the address to open in local mode: it hands the browser the
 // per-launch token once, and the dashboard moves it into a cookie.
 func (d *Dashboard) LaunchURL(base string) string { return base + "/?token=" + d.launch }
 
-// Routes serves /auth/*: the OIDC endpoints in shared mode, nothing in local
-// mode.
+// Routes serves /auth/*: in shared mode the OIDC sign-in, the token sign-in
+// and logout, which ends either kind of session; nothing in local mode.
 func (d *Dashboard) Routes() http.Handler {
-	if !d.Login() {
-		return http.NotFoundHandler()
+	mux := http.NewServeMux()
+	if d.oidc != nil {
+		mux.HandleFunc("GET /auth/login", d.oidc.Login)
+		mux.HandleFunc("GET /auth/callback", func(w http.ResponseWriter, r *http.Request) {
+			d.endToken(r) // an identity provider sign-in replaces a token session
+			d.oidc.Callback(w, r)
+		})
 	}
-	return d.oidc.Routes()
+	if d.tokens != nil {
+		mux.HandleFunc("POST /auth/token", d.tokens.Login)
+	}
+	if d.SignsIn() {
+		mux.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, r *http.Request) {
+			d.endToken(r)
+			if d.oidc != nil {
+				d.oidc.Logout(w, r)
+				return
+			}
+			http.SetCookie(w, sessionCookie("", -1))
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{}\n"))
+		})
+	}
+	return mux
+}
+
+func (d *Dashboard) endToken(r *http.Request) {
+	if d.tokens != nil {
+		d.tokens.end(r)
+	}
 }
 
 // State is what a request's caller looks like to the dashboard.
@@ -74,6 +108,12 @@ type State struct {
 	CSRF string
 	// Token is the bearer for the caller's own cluster requests (shared only).
 	Token string
+	// Person is who the cluster says the caller is (shared only): the ID
+	// token as the claim mapping names it, or what the API server answered
+	// for a pasted token.
+	Person Person
+	// Method is how the caller signed in: "oidc" or "token" (shared only).
+	Method string
 }
 
 type stateKey struct{}
@@ -116,7 +156,7 @@ func (d *Dashboard) Middleware(next http.Handler) http.Handler {
 		switch {
 		case d.Local():
 			st, ok = d.local(w, r)
-		case d.Login():
+		case d.SignsIn():
 			st, ok = d.shared(w, r)
 		}
 		if ok {
@@ -207,12 +247,24 @@ func refuseShared(r *http.Request, st State, hasCookie bool) string {
 	return ""
 }
 
+// sessionState is the request's live session: an OIDC one, else a token one.
+func (d *Dashboard) sessionState(r *http.Request) State {
+	if d.oidc != nil {
+		if s := d.oidc.Session(r); s != nil {
+			return State{SignedIn: true, Fresh: s.Fresh, CSRF: s.CSRF, Token: s.IDToken(), Person: d.oidc.Person(s), Method: "oidc"}
+		}
+	}
+	if d.tokens != nil {
+		if s, ok := d.tokens.session(r); ok {
+			return State{SignedIn: true, CSRF: s.csrf, Token: s.token, Person: s.person, Method: "token"}
+		}
+	}
+	return State{}
+}
+
 func (d *Dashboard) shared(w http.ResponseWriter, r *http.Request) (State, bool) {
 	_, hasCookie := r.Cookie(SessionCookie)
-	var st State
-	if s := d.oidc.Session(r); s != nil {
-		st = State{SignedIn: true, Fresh: s.Fresh, CSRF: s.CSRF, Token: s.IDToken()}
-	}
+	st := d.sessionState(r)
 	if !st.SignedIn && needsSession(r.URL.Path) {
 		http.Error(w, "sign in to use this dashboard", http.StatusUnauthorized)
 		return State{}, false

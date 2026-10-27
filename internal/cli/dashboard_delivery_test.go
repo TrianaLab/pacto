@@ -73,6 +73,21 @@ func TestDashboardIdentityModes(t *testing.T) {
 	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil {
 		t.Fatal("an incomplete OIDC configuration fails at start")
 	}
+	// Token sign-in alone makes it shared too, and needs a cluster to check tokens against.
+	v.Set("dashboard.oidc-issuer-url", "")
+	v.Set("dashboard.token-login", true)
+	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "token-login") {
+		t.Fatalf("token sign-in without a cluster fails at start: %v", err)
+	}
+	tokens := identityFor(t, v, "127.0.0.1", &rest.Config{Host: "https://k"})
+	expect(t, tokens.auth.SignsIn() && tokens.auth.TokenLogin() && !tokens.auth.Login() && tokens.viewer != nil, "token sign-in: %+v", tokens.auth)
+	var to dashboard.Options
+	tokens.options(&to)
+	expect(t, to.Auth.TokenLogin && !to.Auth.Login && !to.Auth.Local && to.View != nil, "token sign-in options %+v", to.Auth)
+	tokens.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Token: "pasted", Method: "token"} }
+	_, err := tokens.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, err == nil, "a token session reaches delivery as itself: %v", err)
+	v.Set("dashboard.token-login", false)
 	if got := splitList([]string{"a, b", "c"}); len(got) != 3 || got[1] != "b" {
 		t.Fatalf("splitList %v", got)
 	}
@@ -225,14 +240,15 @@ func TestTokenName(t *testing.T) {
 	}
 	id, _ := localAPI(t)
 	id.state = func(context.Context) authn.State {
-		return authn.State{SignedIn: true, Token: tok(`{"name":"Carol","iss":"https://idp","sub":"carol","groups":["orders","system:masters"]}`)}
+		return authn.State{SignedIn: true, Token: tok(`{"name":"Carol"}`), Method: "oidc",
+			Person: authn.Person{User: "https://idp#carol", Groups: []string{"orders"}}}
 	}
 	o := &dashboard.Options{}
 	id.options(o)
 	st := o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil))
 	expect(t, st.Name == "Carol", "the session carries the token's name")
-	expect(t, st.User == "https://idp#carol" && len(st.Groups) == 1 && st.Groups[0] == "orders",
-		"the session names the person as the cluster maps the token: %q %v", st.User, st.Groups)
+	expect(t, st.User == "https://idp#carol" && len(st.Groups) == 1 && st.Groups[0] == "orders" && st.Method == "oidc",
+		"the session names the person as the cluster does: %+v", st)
 }
 
 func TestDashDeliveryAdapterActions(t *testing.T) {
@@ -356,15 +372,15 @@ func TestDashboardIdentityView(t *testing.T) {
 	expect(t, err == nil && len(r.SnapshotForSerialization().Services) == 0 && asked[0].User == authn.Anonymous.User,
 		"a visitor who has not signed in is the anonymous user: %v %+v", err, asked)
 
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"https://idp.example","sub":"u1","groups":["g"]}`))
-	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Token: "h." + payload + ".s"} }
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Person: authn.Person{User: "https://idp.example#u1", Groups: []string{"g"}}}
+	}
 	asked = nil
 	_, _ = o.View(context.Background(), q)
-	expect(t, len(asked) > 0 && asked[0].User == "https://idp.example#u1", "a signed-in person is issuer#sub: %+v", asked)
+	expect(t, len(asked) > 0 && asked[0].User == "https://idp.example#u1", "a signed-in person is asked about as the cluster names them: %+v", asked)
 
-	boom := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"x","sub":"y"}`))
 	id.viewer = authn.NewViewer(func(context.Context, authn.Person, string) (bool, error) { return false, errors.New("apiserver down") })
-	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Token: "h." + boom + ".s"} }
+	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Person: authn.Person{User: "x#y"}} }
 	_, err = o.View(context.Background(), q)
 	expect(t, err != nil && strings.Contains(err.Error(), "checking your Kubernetes permissions failed"), "a failed check: %v", err)
 }

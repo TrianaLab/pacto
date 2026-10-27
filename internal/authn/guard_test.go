@@ -112,7 +112,7 @@ func TestLocalGuards(t *testing.T) {
 func TestSharedMode(t *testing.T) {
 	f := newIdP(t)
 	o := newTestOIDC(t, f)
-	d := NewShared(o)
+	d := NewShared(o, nil)
 	var got State
 	h := d.Middleware(echo(&got))
 	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
@@ -179,7 +179,7 @@ func TestOpenMode(t *testing.T) {
 func TestSharedModeGatesTheAPI(t *testing.T) {
 	f := newIdP(t)
 	o := newTestOIDC(t, f)
-	h := NewShared(o).Middleware(echo(&State{}))
+	h := NewShared(o, nil).Middleware(echo(&State{}))
 	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
 	get := func(path string, cookie bool) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, "https://dash.example"+path, nil)

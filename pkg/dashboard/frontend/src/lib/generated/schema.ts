@@ -935,6 +935,8 @@ export interface components {
             nothingVisible?: boolean;
             /** @description This caller is signed in */
             signedIn: boolean;
+            /** @description People may sign in by pasting a Kubernetes bearer token */
+            tokenLogin?: boolean;
         };
         CapabilityInfo: {
             ref?: string;
@@ -3415,10 +3417,15 @@ export interface components {
             csrf?: string;
             /** @description The session came from a login the person had to repeat; decisions need one */
             fresh: boolean;
-            /** @description The signed-in person's groups as the cluster maps their ID token */
+            /** @description The signed-in person's groups as the cluster names them */
             groups?: string[] | null;
             /** @description People sign in with the identity provider */
             login: boolean;
+            /**
+             * @description How the caller signed in: with the identity provider or with a pasted token, which never decides
+             * @enum {string}
+             */
+            method?: "oidc" | "token";
             /**
              * @description local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; none: no identity layer
              * @enum {string}
@@ -3430,7 +3437,9 @@ export interface components {
             requireOwnerTeam?: boolean;
             /** @description The caller has a live session (shared) or the launch cookie (local) */
             signedIn: boolean;
-            /** @description The signed-in person's username as the cluster maps their ID token; the fleet views show what its Kubernetes RBAC lets this user read */
+            /** @description People may sign in by pasting a Kubernetes bearer token */
+            tokenLogin?: boolean;
+            /** @description The signed-in person's username as the cluster names them; the fleet views show what its Kubernetes RBAC lets this user read */
             user?: string;
         };
         ShadowDecision: {
