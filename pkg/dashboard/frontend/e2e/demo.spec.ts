@@ -399,7 +399,8 @@ test.describe('WASM dashboard demo — workflows', () => {
     // Stage 2 -- and the same revision pair answers what it operationally affects.
     await expect(page.getByTestId('changes-what-it-affects')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText('breaking', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
-    // A consumer path renders (consumer -> ... -> changed service).
+    // A consumer path renders (consumer -> ... -> changed service), one fold away.
+    await page.getByTestId('changes-consumers').locator('summary').click();
     await expect(page.locator('.path-cell', { hasText: '→' }).first()).toBeVisible({ timeout: 20_000 });
   });
 
