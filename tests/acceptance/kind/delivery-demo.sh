@@ -1247,10 +1247,11 @@ reach_freeze() {
     section "prod-eu: a re-check fails on the promoter's own rollback, so the Stage freezes"
     kubectl create namespace prod-eu --dry-run=client -o yaml | kubectl apply -f - >/dev/null
     kubectl -n prod-eu create secret generic cosign-pub --from-file=cosign.pub="$KEYS/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    # prod-eu advises, so payments' team moves it.
     environment payments prod-eu upstream false "$(payments_gates prod-eu 10s | grep -v pacto.runtime)"
-    propose -n prod-eu --stage payments --to "$a" --name eu-2-3-0 --reason "prod-eu starts on 2.3.0"
+    owner_propose payments -n prod-eu --stage payments --to "$a" --name eu-2-3-0 --reason "prod-eu starts on 2.3.0"
     wait_concluded prod-eu eu-2-3-0 Succeeded/Verified
-    propose -n prod-eu --stage payments --to "$x" --name eu-2-4-0 --reason "prod-eu takes 2.4.0"
+    owner_propose payments -n prod-eu --stage payments --to "$x" --name eu-2-4-0 --reason "prod-eu takes 2.4.0"
     wait_concluded prod-eu eu-2-4-0 Succeeded/Verified
     mode prod-eu.2.4.0 errors
     eventually 90 kubectl -n prod-eu get operation eu-2-4-0-rollback >/dev/null 2>&1 || fail "the failed re-check of 2.4.0 raised no rollback in prod-eu"
