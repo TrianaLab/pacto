@@ -29,6 +29,26 @@ tests:
             verbs: [create, delete, get, list, patch, update, watch]
         any: true
 
+  - it: should let the operator grant the dashboard SubjectAccessReview
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [subjectaccessreviews]
+            verbs: [create]
+
+  - it: should not hold SubjectAccessReview when the dashboard is disabled
+    set:
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [subjectaccessreviews]
+            verbs: [create]
+
   - it: should always include narrow dashboard teardown RBAC when disabled
     set:
       dashboard.enabled: false

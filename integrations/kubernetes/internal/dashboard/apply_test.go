@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -131,10 +132,17 @@ func TestDeploymentAC_Auth(t *testing.T) {
 
 // TestDashboardRoleGrantsNoDeliveryRight: sign-in passes each person's token
 // through, so the dashboard's own role never grows: nothing in the delivery
-// group and no impersonation.
+// group and no impersonation. Its one write is asking the apiserver what a
+// signed-in person may read.
 func TestDashboardRoleGrantsNoDeliveryRight(t *testing.T) {
 	role := clusterRoleAC().(*rbacv1ac.ClusterRoleApplyConfiguration)
+	sar := false
 	for _, r := range role.Rules {
+		if slices.Equal(r.APIGroups, []string{"authorization.k8s.io"}) && slices.Equal(r.Resources, []string{"subjectaccessreviews"}) &&
+			slices.Equal(r.Verbs, []string{"create"}) {
+			sar = true
+			continue
+		}
 		for _, g := range r.APIGroups {
 			if g == "delivery.pacto.trianalab.io" || g == "*" {
 				t.Errorf("the dashboard role reaches %q", g)
@@ -145,6 +153,9 @@ func TestDashboardRoleGrantsNoDeliveryRight(t *testing.T) {
 				t.Errorf("the dashboard role may %s", v)
 			}
 		}
+	}
+	if !sar {
+		t.Error("the dashboard role cannot ask which namespaces a person may read")
 	}
 }
 

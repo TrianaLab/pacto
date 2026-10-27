@@ -57,6 +57,9 @@ type Reconciler struct {
 // +kubebuilder:rbac:groups="",resources=serviceaccounts;secrets;services,verbs=get;create;update;patch;delete,namespace=system
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;create;update;patch;delete,namespace=system
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
+// The dashboard asks which namespaces a signed-in person may read, so the
+// operator must hold the right it grants the dashboard's ClusterRole.
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
 // Sync ensures dashboard resources match the desired state.
 // When the feature is enabled, it creates/updates all dashboard resources.
