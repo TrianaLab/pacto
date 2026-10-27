@@ -90,6 +90,21 @@ async function playTour(page: Page, reload: boolean) {
   }
   await expect(text).toContainText('History reads every step back');
   await next.click();
+
+  // The autonomy ladder and the signed eval: reading steps, and one action.
+  await expect(text).toContainText('fraud is new, so it observes', { timeout: T });
+  await next.click();
+  await expect(text).toContainText('payments in prod stepped down a rung');
+  await next.click();
+  await expect(text).toContainText("press Propose on fraud's row");
+  await page.getByTestId('demo-tour-skip').click();
+  // Done, it moves on by itself, and the plan it opened holds until Continue.
+  await expect(text).toContainText('The plan asks team risk', { timeout: T });
+  await expect(page.getByTestId('propose-panel')).toContainText('Only risk may answer it.', { timeout: T });
+  await next.click();
+  await expect(text).toContainText('its runner ran the eval suite and signed the count');
+  await expect(page.getByTestId('verdict-runner')).toContainText('Run and signed by story-evals', { timeout: T });
+  await next.click();
   await expect(page.getByTestId('demo-tour-explore').getByRole('link')).toHaveCount(3);
   await expect(page.getByTestId('demo-tour-more')).toHaveAttribute('href', '../examples/kubernetes-demo/');
   await next.click();
@@ -180,6 +195,25 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(test_.getByTestId('history-unreadable')).toContainText('not signed by the key this tab trusts');
     await ready(page, '#/delivery/history?namespace=test&stage=fraud');
     await expect(page.getByRole('region', { name: 'History of test/fraud' }).getByTestId('history-source')).toHaveText('From status, partial.', { timeout: T });
+  });
+
+  // The ladder from examples/story: fraud observes and Pacto notes what it would
+  // have done; payments in prod stepped down after B2; a caller with no contract
+  // blocks autonomous; and pay-agent's eval verdict names the runner that signed it.
+  test('the Autonomy tab shows the ladder and the eval verdict names the runner that signed it', async ({ page }) => {
+    await ready(page, '#/delivery/autonomy');
+    const stages = page.getByTestId('autonomy-stages');
+    const fraud = stages.locator('[data-stage="test/fraud"]');
+    await expect(fraud.getByTestId('rung')).toHaveText('Observe', { timeout: T });
+    await expect(fraud).toContainText('Pacto would have chosen to ship');
+    await expect(stages.locator('[data-stage="prod/payments"]').getByTestId('rung')).toHaveText('Auto non-breaking');
+    await expect(page.getByTestId('autonomy-blockers')).toContainText('runtime callers with no contract');
+    await page.getByRole('button', { name: 'Propose Advise for fraud in test' }).click();
+    await expect(page.getByTestId('propose-panel')).toContainText('Only risk may answer it.', { timeout: T });
+
+    await page.goto('/#/delivery/changes/test/pay-agent-promote-14');
+    await expect(page.getByTestId('verdict-runner')).toContainText('Run and signed by story-evals', { timeout: T });
+    await expect(page.getByTestId('actual-verdicts')).toContainText('1 of 2 cases passed');
   });
 
   test('the published view lists the refused 2.4.3 with the bump it needs, said to be unchecked', async ({ page }) => {
@@ -284,7 +318,7 @@ test.describe('Browser demo: the delivery story', () => {
     test(`every delivery view passes the accessibility audit on ${label}`, async ({ page }) => {
       if (viewport) await page.setViewportSize(viewport);
       await ready(page, '#/delivery/inbox');
-      for (const hash of ['#/delivery/inbox', '#/delivery/environments', '#/delivery/history', '#/delivery/history?namespace=prod&stage=payments', '#/delivery/publish', '#/delivery/changes/prod/payments-promote-3']) {
+      for (const hash of ['#/delivery/inbox', '#/delivery/environments', '#/delivery/history', '#/delivery/history?namespace=prod&stage=payments', '#/delivery/publish', '#/delivery/changes/prod/payments-promote-2']) {
         await page.goto(`/${hash}`);
         await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as', { timeout: T });
         await audit(page, `${hash} on ${label}`);

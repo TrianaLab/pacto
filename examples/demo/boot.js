@@ -296,6 +296,7 @@
     var NOTE = '[data-testid="decision-panel"] textarea';
     var APPROVE = '[data-testid="decide-approve"]';
     var SIGNIN_BTN = '[data-testid="demo-signin-submit"]';
+    var RAISE_FRAUD = '[aria-label="Propose Advise for fraud in test"]';
     // A plan is open for this Stage ("prod/payments"), as Promote opens it.
     function planOpen(stage) { var h = q("#pp-title"); return !!h && h.textContent.indexOf(stage) >= 0; }
     function noteText() { var t = q(NOTE); return t ? t.value.trim() : ""; }
@@ -343,7 +344,7 @@
       target: '[aria-label="History of prod/payments"]'
     }, {
       text: "A bad release is caught and rolled back: the health check failed after 2.4.0 shipped, so Pacto went back to 2.3.0 by itself and will not try 2.4.0 there again.",
-      hash: "#/delivery/changes/prod/payments-promote-3",
+      hash: "#/delivery/changes/prod/payments-promote-2",
       target: '[aria-labelledby="cd-actual"]'
     }, {
       text: "A breaking change asks only the affected teams: as pay-agent, press Promote on payments 3.0.0 in prod.",
@@ -482,11 +483,34 @@
       hash: "#/delivery/history",
       target: '[data-stage="prod/payments"]'
     }, {
+      text: "How far each Stage runs on its own: fraud is new, so it observes, and Pacto only noted it would have shipped 1.0.0 to test with nobody involved.",
+      hash: "#/delivery/autonomy",
+      target: '[data-testid="autonomy-stages"] [data-stage="test/fraud"]'
+    }, {
+      text: "payments in prod stepped down a rung by itself when 2.4.0 failed there, so a person now approves every change that is not non-breaking.",
+      hash: "#/delivery/autonomy",
+      target: '[data-testid="autonomy-stages"] [data-stage="prod/payments"]'
+    }, {
+      text: "One verified version earned fraud a proposal to move up a rung, so press Propose on fraud's row.",
+      hash: "#/delivery/autonomy",
+      target: RAISE_FRAUD,
+      wait: "Waiting for the plan of fraud's raise to open.",
+      gate: function () { return planOpen("test/fraud"); },
+      skip: function () { clickOn(RAISE_FRAUD); }
+    }, {
+      text: "The plan asks team risk, which owns fraud: every raise is one rung, earned by evidence and confirmed by a person on the service's team.",
+      hash: "#/delivery/autonomy",
+      target: '[data-testid="propose-panel"]'
+    }, {
+      text: "pay-agent ships like any other service: its runner ran the eval suite and signed the count, and 1.1.0 passed 1 of 2, so it rolled back in test.",
+      hash: "#/delivery/changes/test/pay-agent-promote-14",
+      target: '[data-testid="verdict-runner"]'
+    }, {
       text: "Explore more on your own, or see the same story on a real cluster.",
       links: [
         ["#/delivery/publish", "The refused 2.4.3 and the bump it needed"],
         ["#/delivery/history?namespace=test&stage=payments", "The claim check that caught payments calling fraud"],
-        ["#/delivery/environments", "fraud's first version, waiting for prod"]
+        ["#/delivery/autonomy", "What stands in the way of each next rung"]
       ],
       href: "../examples/kubernetes-demo/",
       linkText: "The same story on a real cluster"
