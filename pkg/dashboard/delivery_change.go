@@ -103,7 +103,9 @@ func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stag
 	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) && may("create", "approvals", ns) {
 		acts = append(acts, string(d), string(delivery.Reject))
 	}
-	if st.Phase != delivery.PhaseConcluded && !st.Applied && may("delete", "operations", ns) {
+	// Admission lets an agent cancel only what it proposed itself.
+	if st.Phase != delivery.PhaseConcluded && !st.Applied && (caller.Class != delivery.ClassAgent || op.Spec.Actor.User == caller.User) &&
+		may("delete", "operations", ns) {
 		acts = append(acts, "cancel")
 	}
 	if st.Phase == delivery.PhaseConcluded && st.Applied && st.Pointer.After != "" && st.Pointer.After == stage.Pointer &&

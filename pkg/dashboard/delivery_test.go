@@ -698,6 +698,15 @@ func TestHistoryAndOperation(t *testing.T) {
 		t.Fatalf("a failed access review: %s", got)
 	}
 	f.cannot, f.canErr = nil, nil
+	// An agent cancels only what it proposed itself.
+	f.caller = delivery.Caller{Identity: delivery.Identity{User: "system:serviceaccount:a:bot"}, Class: delivery.ClassAgent}
+	if got := actions("held"); got != "" {
+		t.Fatalf("an agent on another's change: %s", got)
+	}
+	f.ops[0].Spec.Actor.User = f.caller.User
+	if got := actions("held"); got != "cancel" {
+		t.Fatalf("an agent on its own change: %s", got)
+	}
 	f.callerErr = errors.New("who")
 	if code, _ := call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil); code != http.StatusInternalServerError {
 		t.Fatal("whoami error")
