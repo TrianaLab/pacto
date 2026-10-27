@@ -7,7 +7,8 @@
   // The one screen a dashboard people sign in to shows before they do: the
   // product name and the button. Signing in comes back to the page asked for.
   // Where token sign-in is on, a field takes a Kubernetes bearer token too.
-  const href = loginUrl(location.hash || fleetOverviewUrl());
+  let hash = $state(location.hash);
+  const href = $derived(loginUrl(hash || fleetOverviewUrl()));
   const s = $derived(deliverySession.data);
   let token = $state('');
   let busy = $state(false);
@@ -26,6 +27,8 @@
     }
   }
 </script>
+
+<svelte:window onhashchange={() => { hash = location.hash; }} />
 
 <div class="signin" data-testid="sign-in">
   <h1 class="signin-title">

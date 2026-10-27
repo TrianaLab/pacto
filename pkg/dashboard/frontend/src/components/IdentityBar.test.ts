@@ -177,6 +177,15 @@ describe('SignInScreen', () => {
     expect(links[0].getAttribute('href')).toBe('/auth/login?return=%2F%23%2Ffleet%2Fattention');
   });
 
+  it('follows the page asked for while it waits', () => {
+    location.hash = '#/fleet/attention';
+    show(null, SignInScreen);
+    location.hash = '#/delivery/inbox';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    flushSync();
+    expect(document.body.querySelector('a')?.getAttribute('href')).toBe('/auth/login?return=%2F%23%2Fdelivery%2Finbox');
+  });
+
   it('comes back to the overview from the bare address', () => {
     location.hash = '';
     show(null, SignInScreen);
