@@ -50,7 +50,7 @@ func TestClaimsPerson(t *testing.T) {
 func fakeSSR(t *testing.T, user string, err error) func(*rest.Config) (dynamic.Interface, error) {
 	t.Helper()
 	return func(cfg *rest.Config) (dynamic.Interface, error) {
-		if cfg.BearerToken == "" || cfg.Username != "" || cfg.TLSClientConfig.CertData != nil {
+		if cfg.BearerToken == "" || cfg.Username != "" || cfg.CertData != nil {
 			t.Fatalf("the review runs with the pasted token alone: %+v", cfg)
 		}
 		c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
