@@ -15,8 +15,8 @@ agent (which sees calls between services), sign-in and the dashboard. The
 services themselves, their traffic and the people signing in are made up
 (see [What is generated](#what-is-generated)). Its Stages start on fixed
 rungs of the autonomy ladder: test on autonomous, prod on advise and fraud on
-observe. It does not show a proposal to move a Stage up a rung: the
-[browser demo](dashboard-demo.md) does, with nothing to install.
+observe. It does not play a Stage earning a proposal to move up a rung:
+the [browser demo](dashboard-demo.md) does, with nothing to install.
 
 ## Run it
 
