@@ -60,6 +60,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 					RequestedRef: registry + name + ":" + ver,
 					ResolvedRef:  ref,
 					Digest:       "sha256:" + entry.hash,
+					Document:     entry.doc,
 				})
 				byRef[ref] = entry.bundle
 			}

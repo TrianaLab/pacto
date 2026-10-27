@@ -176,6 +176,19 @@ func TestRevisionFrom_NilBundle(t *testing.T) {
 	}
 }
 
+// TestRevisionFrom_ValidatesTheLoadersDocument: a Document the loader decoded
+// is what gets validated, so the YAML is not decoded a second time.
+func TestRevisionFrom_ValidatesTheLoadersDocument(t *testing.T) {
+	_, doc, err := contract.ParseDocument([]byte(invalidYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev, _ := revisionFrom(RawRevision{Bundle: validLeafBundle(t), Digest: "sha256:leaf", Document: doc}, "local", fixedNow())
+	if rev.Valid {
+		t.Error("the loader's (invalid) document was not the one validated")
+	}
+}
+
 func TestRevisionFrom_ValidAndInvalidYAML(t *testing.T) {
 	valid, validLims := revisionFrom(RawRevision{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}, "local", fixedNow())
 	if !valid.Valid {

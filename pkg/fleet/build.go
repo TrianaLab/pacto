@@ -731,8 +731,12 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	// validated" state consumers already distinguish from "validated and invalid".
 	// It is not a limitation: a source that ships a parsed contract rather than a
 	// document is a normal source, not a degraded one.
-	if raw, err := b.Raw(); err == nil {
-		res := validation.Validate(c, raw, b.FS)
+	if yml, err := b.Raw(); err == nil {
+		doc := raw.Document // decoded by the loader already, when it says so
+		if doc == nil {
+			doc = contract.DecodeDocument(yml)
+		}
+		res := validation.ValidateDocument(c, doc, b.FS)
 		rev.Valid = res.IsValid()
 		rev.Validation = res.Findings()
 		rev.validated = true

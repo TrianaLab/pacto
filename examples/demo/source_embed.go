@@ -4,7 +4,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -20,7 +19,8 @@ const contractFile = "pacto.yaml"
 // versionEntry is one parsed contract version held in memory.
 type versionEntry struct {
 	bundle *contract.Bundle
-	hash   string // sha256 of the raw YAML, used as the version's contract hash
+	doc    *contract.Document // the YAML decoded once, handed to the fleet build to validate
+	hash   string             // sha256 of the raw YAML, used as the version's contract hash
 }
 
 // EmbedSource is the demo's contract index over an embedded filesystem of
@@ -51,7 +51,7 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 		if err != nil {
 			return nil // skip unreadable
 		}
-		c, err := contract.Parse(bytes.NewReader(raw))
+		c, doc, err := contract.ParseDocument(raw)
 		if err != nil {
 			return nil // skip invalid
 		}
@@ -72,6 +72,7 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 		// no pins to apply here.
 		s.byName[name][ver] = &versionEntry{
 			bundle: &contract.Bundle{Contract: c, RawYAML: raw, FS: sub},
+			doc:    doc,
 			hash:   hex.EncodeToString(h[:]),
 		}
 		return nil
