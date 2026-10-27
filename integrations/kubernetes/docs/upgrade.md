@@ -59,7 +59,7 @@ Values from older charts set the whole reference in `image.repository` or
 repository as the whole reference and adds no registry, so these values
 upgrade unchanged. The chart treats a repository as already carrying a
 registry host when its first path segment holds a `.` or `:` or is
-`localhost`. The [Helm reference](generated/helm-reference.md) lists every
+`localhost`. The [Helm reference](helm-reference.md) lists every
 image value.
 
 ## Upgrading across a major version (CRD migration)
