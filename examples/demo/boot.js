@@ -477,6 +477,9 @@
       skip: function () {
         setPersona("carol", false);
         propose({ namespace: "prod", stage: "payments", type: "delivery.pacto.trianalab.io/rollback", undoes: fact().latest });
+        // Proposed through the API, so the plan the reader opened is still on screen with
+        // its button live: close it, or "Done" sits next to a form asking to be pressed.
+        clickOn('[data-testid="propose-panel"] .pp-btns button[type=button]');
       }
     }, {
       text: "History reads every step back from records signed in this tab, including a deliberate gap in test and a record signed by a key nobody trusts.",
