@@ -1,7 +1,7 @@
 # Runtime conformance on Kubernetes
 
 [Runtime conformance](../../runtime-conformance.md) checks what a service
-actually does on the network against its contract, and reports only what it can
+does on the network against its contract, and reports only what it can
 prove. On Kubernetes the operator runs it for you: it deploys
 [`pacto agent`](../../runtime-agent.md) on every node as an optional DaemonSet,
 the *node agent*, and merges what it sees with what the Kubernetes API says. It
@@ -34,8 +34,8 @@ The node agent adds three findings the Kubernetes API alone cannot produce:
 | `DEPENDENCY_UNREACHABLE` | the pod only fails to connect to a declared dependency |
 | `DEPENDENCY_UNDECLARED` | the pod talks to another Pacto service that no dependency declares (a warning) |
 
-When the kernel view is incomplete, Pacto says so (`Insufficient`, `Stale` or
-`Failed`) instead of guessing. Silence is never a violation.
+When the kernel view is incomplete, Pacto says so with `Insufficient`, `Stale`
+or `Failed`. Silence is never a violation.
 
 Three more checks need no node agent: the interface protocol, how far an
 interface is exposed and which version a dependency runs. They are listed under
@@ -98,9 +98,9 @@ Every publish interval (30 seconds by default) it renews a Lease named after
 its node, the heartbeat the operator reads, and rewrites the object only when
 the view changed ([details](limitations.md#node-agent-heartbeat-and-identity)).
 
-## What it never collects
+## What it collects
 
-The node agent collects what every `pacto agent` collects and nothing else (see
+The node agent collects what every `pacto agent` collects (see
 [what Pacto watches](../../runtime-conformance.md#what-pacto-watches)). It opens
 no port, and its Role lets it write only `NodeRuntimeObservation` objects and
 Leases in the agent namespace, so its evidence never leaves the cluster API.
@@ -158,29 +158,29 @@ name, so a canary the Service selects outside the workload counts. When no
 endpoint names a pod, the workload's pods stand in, and they can confirm the
 interface but never contradict it.
 
-Connections are judged per peer address from their timestamps, never from the
+Pacto judges connections per peer address from their timestamps and ignores the
 lifetime counts. Recent means within the staleness bound below. A timestamp from
 before the pod started is ignored, because a reused network namespace can carry
 another pod's history. With several pods the worst coverage wins: stale, then
-failed, then partial. `DEPENDENCY_UNDECLARED` is a warning because a contract
-does not claim its dependency list is complete, so it never makes a contract
-`NonCompliant`. It is not reported at all while a declared dependency resolves
+failed, then partial. `DEPENDENCY_UNDECLARED` is a warning, because a contract's
+dependency list may be incomplete, so it never makes a contract `NonCompliant`.
+Pacto skips it entirely while a declared dependency resolves
 to no Pacto target, by ref or by name (a local or other non-OCI ref, or an OCI
-ref no Pacto carries): that dependency could be the very service the pod
-reached, so naming it undeclared would be a false positive.
+ref no Pacto carries): that dependency could be the service the pod
+reached, so reporting it would be a false positive.
 
 ## Freshness and coverage
 
 A pod's kernel view is usable at one of four levels:
 
-- **Complete** — the node object is fresh, collection is `Running`, the pod has
+- **Complete**: the node object is fresh, collection is `Running`, the pod has
   its own network namespace, a `/proc` baseline was taken after the pod started,
   no event was dropped since and no bound was hit.
-- **Partial** — readable but not complete: collection is `Degraded`, the pod
+- **Partial**: readable but incomplete: collection is `Degraded`, the pod
   shares the host network namespace, it is not mapped yet or it was truncated.
-- **Failed** — the node's collection state is `Failed`, which reads as
+- **Failed**: the node's collection state is `Failed`, which reads as
   `COLLECTION_FAILED`.
-- **Stale** — no node object, or no heartbeat (Lease renewal, else
+- **Stale**: no node object, or no heartbeat (Lease renewal, else
   `lastPublished`) within the staleness bound, which reads as `EVIDENCE_STALE`. The bound is three publish intervals unless
   `controller.kernelEvidence.staleness` sets one.
 
@@ -194,7 +194,7 @@ These checks refine an interface or dependency the operator has already
 observed. Each is judged only when that parent observation is `Observed` (and,
 for interfaces, present). A check with no usable fact is listed in
 `status.evaluationCoverage.unverified` and never changes the contract status, so
-a cluster without probing does not drop to `Unknown`.
+a cluster without probing keeps its status.
 
 | Contract field | Fact and source | Contradiction |
 | --- | --- | --- |
