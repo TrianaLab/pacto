@@ -120,6 +120,13 @@ test('B9: carol rolls the change back from the dashboard', async ({ page }) => {
   await expect(page).not.toHaveURL(new RegExp(`${OP}$`), { timeout: T });
 });
 
+// pay-agent's model is an external dependency Pacto cannot see, so its contract check
+// says Unknown and a person on its team accepts that before it counts as shipped.
+test('agent: alice accepts the unknown on pay-agent 1.0.0 in test', async ({ page }) => {
+  await signIn(page, 'alice', `/#/delivery/changes/test/${process.env.PW_AGENT_CHANGE ?? ''}`);
+  await decide(page, 'Accept the unknown', 'the model is run by its vendor; the evals passed');
+});
+
 test('History: the payments prod steps read back from signed records that verify', async ({ page }) => {
   await signIn(page, 'carol', '/#/delivery/history?namespace=prod&stage=payments');
   const prod = page.getByRole('region', { name: 'History of prod/payments' });

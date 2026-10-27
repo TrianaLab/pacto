@@ -995,8 +995,9 @@ b10() {
 # checks each version with its eval suite (through the stand-in runner):
 # the runner reports fixed counts (2 of 2 for 1.0.0, 1 of 2 for 1.1.0, the size of
 # its suite)
-# rather than running the suite's cases. 1.0.0 ships and test offers it to
-# prod; 1.1.0 swaps its model, fails in test and is never offered to prod.
+# rather than running the suite's cases. 1.0.0 ships once alice accepts the
+# unknown its external model leaves; 1.1.0 swaps its model, fails in test and is
+# never offered to prod.
 b_agent() {
   beat agent
   environment pay-agent test candidates true "$(cat <<YAML
@@ -1005,9 +1006,21 @@ b_agent() {
 YAML
 )"
   environment pay-agent prod upstream false
-  ship_test pay-agent 1.0.0
-  offered pay-agent "$(digest_of pay-agent 1.0.0)" || fail "test does not offer pay-agent 1.0.0 to prod after it passed its evals"
-  echo "  the stand-in eval runner reports 2 of 2 for pay-agent 1.0.0, so test offers it to prod"
+  # 1.0.0 passes its evals, but its model is an external dependency Pacto
+  # cannot see, so the contract check says Unknown and payments' team accepts
+  # the unknown from the dashboard. An accepted unknown is never offered on.
+  local d0 op0; d0="$(publish pay-agent 1.0.0)"; remember pay-agent 1.0.0 "$d0"
+  op0="$(wait_op test pay-agent "$d0")"
+  agent_unknown() { held test "$op0" && [ "$(field test "$op0" applied)" = true ]; }
+  eventually 600 agent_unknown || fail "pay-agent 1.0.0 never waited on its checks: $(field test "$op0" phase) $(field test "$op0" message)"
+  op_json test "$op0" | jq -e '[.status.verdicts[]? | select(.phase == "verify")] |
+    (map(select(.gate == "evals"))[-1].result == "Pass") and (map(select(.gate == "pacto.contract"))[-1].result == "Unknown")' >/dev/null \
+    || fail "pay-agent 1.0.0 should pass its evals and be Unknown on its contract: $(op_json test "$op0" | jq -c '[.status.verdicts[]? | select(.phase == "verify") | {gate, result}]')"
+  PW_AGENT_CHANGE="$op0" journeys agent
+  wait_concluded test "$op0" Succeeded/AcceptedUnknown
+  not_offered0() { ! offered pay-agent "$d0"; }
+  always 5 not_offered0 || fail "test offers pay-agent 1.0.0 to prod though only a person accepted its unknown"
+  echo "  the stand-in eval runner reports 2 of 2 for pay-agent 1.0.0; Pacto cannot see its external model, so alice accepted the unknown"
   diffs agent 1.0.0 1.1.0 pay-agent
   local d op cause; d="$(publish pay-agent 1.1.0)"; remember pay-agent 1.1.0 "$d"
   op="$(wait_op test pay-agent "$d")"
@@ -1023,7 +1036,7 @@ YAML
   # prod is a manual Stage, so the gate's effect is what test offers it.
   not_offered() { ! offered pay-agent "$d"; }
   always 5 not_offered || fail "test offers pay-agent 1.1.0 to prod though it failed its evals"
-  pass "pay-agent shipped like a service: 1.0.0 passed its evals and is offered to prod, 1.1.0 got 1 of 2 from the stand-in runner (signed by its own key), rolled back in test and is never offered"
+  pass "pay-agent shipped like a service: 1.0.0 passed its evals and runs in test as an accepted unknown, 1.1.0 got 1 of 2 from the stand-in runner (signed by its own key), rolled back in test and is never offered"
   # An auditor checks both signatures: the recorder's on each record and the
   # runner's on each eval verdict, with a trust config that names both keys.
   local both="$KEYS/trust-with-runner.yaml"

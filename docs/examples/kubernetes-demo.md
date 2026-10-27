@@ -60,10 +60,13 @@ in the order the story plays them:
 - **A bad release is caught and rolled back.** The prod error ratio rises after
   2.4.0, so the health check fails, cites its query and payments rolls back.
   2.4.2 calls fraud, which its contract never names, so it fails in test and
-  never reaches prod.
+  never reaches prod. Each failure of a version Pacto shipped on its own steps
+  payments down one level on that Stage, to auto-nonbreaking.
 - **A breaking change asks only the affected teams.** Publishing a removed
-  field as 2.4.3 is refused: it needs a major version. 3.0.0 is held for prod,
-  and only checkout and orders are asked. checkout 1.9 can ship first.
+  field as 2.4.3 is refused: it needs a major version. payments' team ships
+  3.0.0 in test, since that Stage now waits for a person on a breaking change.
+  3.0.0 is held for prod, and only checkout and orders are asked. checkout 1.9
+  can ship first.
 - **Every step is a signed record.** History reads each step back from signed
   records, and `pacto delivery record verify` checks them.
 
@@ -82,8 +85,8 @@ Open <http://127.0.0.1:3300> and sign in through Dex. Every password is
 `make e2e-delivery-demo-browser` plays the rest in a browser, once per
 cluster, and checks it against `examples/story`:
 
-- pay-agent ships checkout 1.9 first, and the held payments 3.0.0 then asks
-  only orders.
+- checkout's team ships checkout 1.9 first, and the held payments 3.0.0 then
+  asks only orders.
 - carol signs in again and approves.
 - 3.0.0 sends too little telemetry, so its check says Unknown until carol
   accepts that. She then rolls 3.0.0 back, and automation holds off.
@@ -94,7 +97,8 @@ cluster, and checks it against `examples/story`:
 - ops pins a version by hand with break-glass rights. That shows as a
   witnessed record and freezes the Stage again.
 - pay-agent ships as a service of its own, with its eval suite as the check:
-  1.0.0 passes, and 1.1.0 swaps its model, passes 1 of its 2 evals and rolls
+  1.0.0 passes its evals, but Pacto cannot see its external model, so alice
+  accepts the unknown. 1.1.0 swaps its model, passes 1 of its 2 evals and rolls
   back in test. The runner signs each count with its own key, the rollback
   cites that signed count, and `pacto delivery record verify` checks the
   runner's signature beside the recorder's.
