@@ -267,19 +267,18 @@ func checkDeployer(t *testing.T, text, env string) {
 			}
 		}
 	}
-	// Flux checks the rollout's health as the deployer: kstatus lists the
-	// Deployment's ReplicaSets and their Pods.
+	checkHealthReads(t, kinds["Role"]["rules"].([]any), text, env)
+}
+
+// checkHealthReads: Flux checks the rollout's health as the deployer, and
+// kstatus lists the Deployment's ReplicaSets and their Pods.
+func checkHealthReads(t *testing.T, rules []any, text, env string) {
+	t.Helper()
 	for _, want := range []string{"replicasets", "pods"} {
-		readable := false
-		for _, r := range kinds["Role"]["rules"].([]any) {
+		if !slices.ContainsFunc(rules, func(r any) bool {
 			rule := r.(map[string]any)
-			for _, res := range rule["resources"].([]any) {
-				if res == want && slices.Contains(rule["verbs"].([]any), any("list")) {
-					readable = true
-				}
-			}
-		}
-		if !readable {
+			return slices.Contains(rule["resources"].([]any), any(want)) && slices.Contains(rule["verbs"].([]any), any("list"))
+		}) {
 			t.Fatalf("the deployer in %s cannot list %s, so Flux's health check fails:\n%s", env, want, text)
 		}
 	}
