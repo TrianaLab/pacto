@@ -192,7 +192,7 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(page.getByTestId('history-summary').getByRole('row', { name: /^payments in test/ })).toContainText('problem', { timeout: T });
     await ready(page, '#/delivery/history?namespace=test&stage=payments');
     const test_ = page.getByRole('region', { name: 'History of test/payments' });
-    await expect(test_.getByTestId('history-source')).toHaveText('From signed records, every signature verified, partial.', { timeout: T });
+    await expect(test_.getByTestId('history-source')).toHaveText('From signed records, partial.', { timeout: T });
     await expect(test_.getByTestId('history-problems')).toContainText('is a gap');
     await expect(test_.getByTestId('history-unreadable')).toContainText('not signed by the key this tab trusts');
     await ready(page, '#/delivery/history?namespace=test&stage=fraud');

@@ -1067,7 +1067,8 @@ describe('history and published', () => {
     const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
     const sources = [...target.querySelectorAll('[data-testid="history-source"]')].map((e) => e.textContent);
-    expect(sources).toEqual(['From signed records, every signature verified, partial.', 'From signed records, every signature verified, complete.',
+    // Two records could not be read or verified, so the line never says every signature verified.
+    expect(sources).toEqual(['From signed records, partial.', 'From signed records, every signature verified, complete.',
       'From records, signatures not verified, partial.', 'From status, partial.']);
     expect(target.querySelector('[data-testid="history-problems"]')?.textContent).toContain('seq 2 is a gap');
     // Both lists fold behind a warn count, so the changes come first.
@@ -1202,11 +1203,61 @@ describe('history and published', () => {
     expect(all.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
     expect(all.getAttribute('aria-label')).toBe('All 40 changes on prod/pay');
     expect(target.querySelector('[data-testid="history-issues"]')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
-    expect(target.querySelector('[data-testid="history-source"]')?.getAttribute('title')).toBe('From signed records, every signature verified, complete');
+    // One record could not be read or verified, so the source never claims every signature verified.
+    expect(target.querySelector('[data-testid="history-source"]')?.getAttribute('title')).toBe('From signed records, complete');
     expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 1–25 of 30 Stages');
     // The page answers first: what needs a look among the Stages shown.
-    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('1 Stage has record problems: pay in prod. 1 Stage is frozen: pay in prod. Counted on this page.');
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('1 Stage has record problems. 1 is frozen. Counted on this page.');
+    // One Stage per namespace: no heading rows, each row names its namespace.
+    expect(target.querySelector('[data-testid="history-group"]')).toBeNull();
     expect(target.querySelector('[data-testid="history-pager-size"]')).not.toBeNull();
+    destroy();
+  });
+
+  it('says a long namespace once over its Stages and answers in one short sentence', async () => {
+    const ns = 'canary-global-edge-zone-with-a-long-name';
+    const held = { seq: 1, operation: 'op', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', phase: 'Held' };
+    const st = (name: string, extra = {}) => ({ namespace: ns, asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '',
+      stage: { name }, entriesPage: { total: 1, offset: 0, limit: 1 }, entries: [held], ...extra });
+    fns.history.mockResolvedValue({ ...listing, page: { total: 3, offset: 0, limit: 25 }, histories: [
+      st('a'), st('b', { stage: { name: 'b', frozen: true } }), st('c', { completeness: 'partial' }),
+      { ...st('d'), namespace: 'prod' },
+    ] });
+    const { target, destroy } = render(DeliveryHistoryView, {});
+    await settle();
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('4 Stages wait for a person. 1 is frozen.');
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).not.toContain(ns);
+    // One heading row for the namespace with three Stages; the Stages differ in source, so each row keeps its own.
+    const groups = [...target.querySelectorAll('[data-testid="history-group"]')].map((g) => text(g as HTMLElement).trim());
+    expect(groups).toEqual([ns]);
+    const row = target.querySelector('[data-stage="' + ns + '/a"]') as HTMLElement;
+    expect(row.querySelector('.cell-clip.visually-hidden')?.textContent).toBe(`in ${ns}`);
+    expect(row.querySelector('[data-testid="history-source"]')?.classList.contains('visually-hidden')).toBe(false);
+    const lone = target.querySelector('[data-stage="prod/d"]') as HTMLElement;
+    expect(lone.querySelector('.visually-hidden')).toBeNull();
+    destroy();
+  });
+
+  it('folds a run of alike changes into one row with a count, and says how many are held', async () => {
+    const held = (i: number) => ({ operation: `op${i}`, type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'agents/pay', actorClass: 'agent', phase: 'Held', approvals: [] });
+    fns.history.mockResolvedValue({ ...listing, histories: [
+      { namespace: 'test', asOf: listing.asOf, completeness: 'partial', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D1, frozen: true },
+        unreadable: ['sha256:bad: not trusted here'], entriesPage: { total: 900, offset: 0, limit: 4 },
+        entries: [held(1), held(2), held(3), held(4)] },
+    ] });
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'test', stage: 'pay' });
+    await settle();
+    // Where the Stage stands, not a claim that every signature verified next to a count of the ones that were not.
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('At least 4 changes held, waiting for a person. The Stage is frozen.');
+    expect(text(target.querySelector('[data-testid="history-source"]') as HTMLElement)).toBe('From signed records, partial.');
+    expect(target.querySelectorAll('tbody tr').length).toBe(1);
+    const fold = target.querySelector('[data-testid="history-run"]') as HTMLButtonElement;
+    expect(fold.textContent).toBe('3 more like this');
+    expect(fold.getAttribute('aria-expanded')).toBe('false');
+    fold.click();
+    await settle();
+    expect(target.querySelectorAll('tbody tr').length).toBe(4);
+    expect(fold.getAttribute('aria-expanded')).toBe('true');
     destroy();
   });
 
@@ -1238,9 +1289,11 @@ describe('history and published', () => {
     // One line per version: short digests with a copy button, and environments as a count.
     const rows = [...r.target.querySelectorAll('li.pv-row')].map((li) => text(li as HTMLElement).trim());
     expect(rows).toEqual([
-      '2.0.0 Signature checked 222222222222 ⧉ Contract cccccccccccc ⧉ 2 environments, 1 running',
+      '2.0.0 222222222222 ⧉ Contract cccccccccccc ⧉ 2 environments, 1 running',
       'Signature not checked here 111111111111 ⧉ Contract oci://r/p:1.0 ⧉ 1 environment, 1 failed',
     ]);
+    // The signature state is said once; only the version that differs carries a badge.
+    expect(text(r.target.querySelector('[data-testid="published-signatures"]') as HTMLElement)).toBe('Signature checked on every version shown, except where marked.');
     expect(r.target.querySelector('.pv-contract .copyable')?.getAttribute('title')).toBe(`oci://r/p@sha256:${'c'.repeat(64)}`);
     expect(r.target.querySelector('[data-testid="published-stages"]')).toBeNull();
     const envs = r.target.querySelectorAll('[data-testid="published-envs"]');
@@ -1269,10 +1322,10 @@ describe('published paging', () => {
     await settle();
     expect(text(target)).toContain('300 services');
     expect(text(target.querySelector('[data-testid="refused-count"]') as HTMLElement)).toBe('(the latest 1 of 134)');
-    // The page answers first, and the refusals are a count that opens.
+    // The page answers first, and the refusals it counts are open on screen.
     expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('134 publishes refused lately.');
     const fold = target.querySelector('[data-testid="refused-publishes"] details') as HTMLDetailsElement;
-    expect(fold.open).toBe(false);
+    expect(fold.open).toBe(true);
     expect(text(fold.querySelector('summary') as HTMLElement)).toContain('Refused publishes 134');
     expect(target.querySelector('[data-testid="published-pager-next"]')?.getAttribute('href')).toBe('#/delivery/publish?q=pay&offset=10');
     expect((target.querySelector('[data-testid="published-filter"] input') as HTMLInputElement).value).toBe('pay');

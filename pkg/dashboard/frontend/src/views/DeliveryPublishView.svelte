@@ -61,6 +61,15 @@
     : !refused.recorded ? { head: 'Refused publishes are not recorded here.', rest: '' }
     : refusedTotal ? { head: `${countOf(refusedTotal, 'publish', 'publishes')} refused lately.`, rest: refused.completeness === 'partial' ? 'There may be more.' : '' }
     : { head: 'Nothing refused lately.', rest: refused.completeness === 'partial' ? 'The list may be incomplete.' : '' });
+  // Whether a signature was checked, said once for the page: a version is
+  // marked only where it differs from most of the others.
+  const shown = $derived(services.flatMap((svc) => svc.versions ?? []));
+  const signedCount = $derived(shown.filter((v) => v.signed).length);
+  const sigCommon = $derived(signedCount * 2 >= shown.length);
+  const sigMixed = $derived(signedCount > 0 && signedCount < shown.length);
+  const sigLine = $derived(!shown.length ? ''
+    : sigCommon ? `Signature checked on every version shown${sigMixed ? ', except where marked' : ''}.`
+    : `Signature not checked here on the versions shown${sigMixed ? ', except where marked' : ''}.`);
   const BUMPS = { major: 'a major version', minor: 'at least a minor version', patch: 'a patch version' };
 </script>
 
@@ -89,7 +98,8 @@
       {#if refused.recorded && refused.completeness === 'partial'}
         <p class="t-body-2 pv-partial" role="status" data-testid="refused-partial">This list may be incomplete{#if refused.note}: {refused.note}{/if}.{#if refused.unreadable?.length}{' '}Could not read: <CappedList items={refused.unreadable} max={3} inline={true} label="Repositories Pacto could not read">{#snippet item(u)}{u}{/snippet}</CappedList>.{/if}</p>
       {/if}
-      <details class="disclosure pv-fold">
+      <!-- Open when a refusal is the page's answer, so the answer is on screen. -->
+      <details class="disclosure pv-fold" open={!!(refused.recorded && refusedTotal)}>
         <summary>
           <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
           <h2 id="pv-refused" class="t-section-title">Refused publishes</h2>
@@ -132,6 +142,7 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
+    {#if sigLine}<p class="t-meta pv-sigline" data-testid="published-signatures">{sigLine}</p>{/if}
     {#if services.length === 0 && q}
       <div class="state-box"><h2>Nothing matches the filter</h2><p>No service you can see matches “{q}”.</p></div>
     {:else if services.length === 0}
@@ -147,11 +158,11 @@
               <li class="pl-row pl-row--stack pv-row">
                 <!-- One line per version: digests short with a copy button, and where it runs as a
                      count that opens the per-environment list. -->
-                <div class="pv-head">
-                  {#if v.version}<strong>{v.version}</strong>{/if}
-                  {#if v.signed}<span class="badge badge-ok">Signature checked</span>{:else}<span class="badge badge-neutral">Signature not checked here</span>{/if}
+                <div class="pv-head" class:pv-sigcol={sigMixed}>
+                  <strong class="pv-ver" title={v.version || undefined}>{v.version ?? ''}</strong>
+                  {#if sigMixed}<span class="pv-sig">{#if v.signed !== sigCommon}{#if v.signed}<span class="badge badge-ok">Signature checked</span>{:else}<span class="badge badge-neutral">Signature not checked here</span>{/if}{/if}</span>{/if}
                   <CopyableIdentifier value={v.digest} display={shortDigest(v.digest)} label="digest" />
-                  {#if v.contract}<span class="t-meta pv-contract">Contract <CopyableIdentifier value={v.contract} display={contractShort(v.contract)} label="contract reference" /></span>{/if}
+                  {#if v.contract}<span class="t-meta pv-contract">Contract <CopyableIdentifier value={v.contract} display={contractShort(v.contract)} label="contract reference" /></span>{:else}<span></span>{/if}
                   {#if stages.length}
                     {@const running = stages.filter((on) => on.running).length}
                     {@const failed = stages.filter((on) => on.failed).length}
@@ -179,8 +190,18 @@
 <style>
   .pv-svc { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-svc h2 a { color: var(--c-accent); }
-  .pv-row { gap: var(--sp-1); padding: var(--sp-2) var(--sp-3); min-width: 0; overflow-wrap: break-word; }
+  .pv-row { gap: var(--sp-1); padding: var(--sp-1) var(--sp-3); min-width: 0; overflow-wrap: break-word; }
   .pv-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+  .pv-sigline { margin: 0; }
+  /* On a wide screen every version lines up in columns, so a long pre-release
+     version is cut short (whole on hover) instead of pushing the rest along. */
+  @media (min-width: 769px) {
+    .pv-row { min-height: 0; }
+    .pv-head { display: grid; grid-template-columns: minmax(0, 13rem) auto minmax(0, 1fr) auto; column-gap: var(--sp-3); }
+    .pv-head.pv-sigcol { grid-template-columns: minmax(0, 13rem) 12rem auto minmax(0, 1fr) auto; }
+    .pv-ver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pv-envs { justify-self: end; min-height: 26px; padding: 0 var(--sp-2); }
+  }
   .pv-contract, .pv-stages, .pv-row p, .pv-refused > p { margin: 0; }
   .pv-contract { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; max-width: 100%; }
   .pv-envs { margin-left: auto; }
