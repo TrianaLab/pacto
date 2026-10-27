@@ -134,13 +134,17 @@
   const deciders = (en) => (en.approvals ?? []).filter((a) => a.by);
 
   // Every Stage: a namespace with more than one Stage on this page gets one
-  // heading row (with the source, when its Stages share one), so a long name
-  // is said once instead of on every row. Each row still names it for a screen reader.
+  // heading row with the source most of its Stages share, so a long name is
+  // said once instead of on every row; a row says its source only when it
+  // differs. Each row still names both for a screen reader.
   const perNamespace = $derived(histories.reduce((m, h) => ({ ...m, [h.namespace]: (m[h.namespace] ?? 0) + 1 }), {}));
-  const groupSource = $derived(histories.reduce((m, h) => {
-    const src = sourceShort(h);
-    return { ...m, [h.namespace]: m[h.namespace] === undefined || m[h.namespace] === src ? src : null };
-  }, {}));
+  const groupSource = $derived.by(() => {
+    const n = {};
+    for (const h of histories) { const k = `${h.namespace}\u0000${sourceShort(h)}`; n[k] = (n[k] ?? 0) + 1; }
+    const best = {};
+    for (const [k, c] of Object.entries(n)) { const [ns, src] = k.split('\u0000'); if (!best[ns] || c > best[ns].c) best[ns] = { src, c }; }
+    return Object.fromEntries(Object.entries(best).map(([ns, b]) => [ns, b.src]));
+  });
   const grouped = (ns) => (perNamespace[ns] ?? 0) > 1;
 
   // One Stage: a run of changes alike but for their versions (same kind, who
@@ -215,7 +219,7 @@
                   <div class="cell-stack">
                     <a class="cell-clip" href={url} title={`${h.namespace}/${h.stage.name}`}>{h.stage.name}</a>
                     <span class="t-meta cell-clip" class:visually-hidden={grouped(h.namespace)} title={h.namespace}>in {h.namespace}</span>
-                    <span class="t-meta hv-source" class:visually-hidden={grouped(h.namespace) && groupSource[h.namespace]} class:hv-partial={h.completeness !== 'complete'} data-testid="history-source" title={sourceLabel(h)}>{sourceShort(h)}</span>
+                    <span class="t-meta hv-source" class:visually-hidden={grouped(h.namespace) && groupSource[h.namespace] === sourceShort(h)} class:hv-partial={h.completeness !== 'complete'} data-testid="history-source" title={sourceLabel(h)}>{sourceShort(h)}</span>
                   </div>
                 </th>
                 <td data-label="Runs"><span class="cell-clip" title={h.stage.pointer || 'nothing yet'}>{h.stage.pointer ? version(h.stage.pointer) : 'Nothing yet'}</span>{#if h.stage.frozen}<span class="badge badge-warn">Frozen</span>{/if}</td>
@@ -290,7 +294,7 @@
                           {#if en.operation && en.pointer?.after}<button type="button" class="btn btn-sm" aria-label={`Undo ${en.operation}`} aria-expanded={isOpen('undo', h.namespace, en.operation)} onclick={(e) => show(e, { kind: 'undo', ns: h.namespace, key: en.operation })}>Undo</button>{/if}
                           {#if run && runs.start[i] === i}<button type="button" class="btn btn-sm hv-fold" data-testid="history-run" aria-expanded={runOpen}
                             aria-label={runOpen ? 'Fold the changes like this one' : `Show ${formatCount(run - 1)} more changes like this one`}
-                            onclick={() => { unfolded[runKey(h, i)] = !runOpen; }}>{runOpen ? 'Show fewer' : `${formatCount(run - 1)} more like this`}</button>{/if}
+                            onclick={() => { unfolded[runKey(h, i)] = !runOpen; }}>{runOpen ? 'Fold' : `${formatCount(run - 1)} more`}</button>{/if}
                         </div>
                       </td>
                       <td data-label="Version"><span class="cell-clip" title={moveTitle(en)}>{move(en)}</span></td>
@@ -359,7 +363,7 @@
   .hv-deciders { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .hv-group th { padding-top: var(--sp-3); font-weight: 600; background: var(--c-surface-inset); overflow-wrap: anywhere; }
   .hv-group-source { margin-left: var(--sp-3); font-weight: 400; }
-  .hv-fold { align-self: flex-start; }
+  .hv-fold { align-self: flex-start; white-space: nowrap; }
   .hv-run-more { background: var(--c-surface-inset); }
   .hv-undo-row td { background: var(--c-surface-inset); }
   .hv-undo-row:hover { background: none; }

@@ -1227,12 +1227,15 @@ describe('history and published', () => {
     await settle();
     expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('4 Stages wait for a person. 1 is frozen.');
     expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).not.toContain(ns);
-    // One heading row for the namespace with three Stages; the Stages differ in source, so each row keeps its own.
-    const groups = [...target.querySelectorAll('[data-testid="history-group"]')].map((g) => text(g as HTMLElement).trim());
-    expect(groups).toEqual([ns]);
+    // One heading row for the namespace with three Stages and the source most of them share; only the partial one says its own.
+    const groups = [...target.querySelectorAll('[data-testid="history-group"]')].map((g) => text(g as HTMLElement).replace(/\s+/g, ' ').trim());
+    expect(groups).toEqual([`${ns}Signed records`]);
     const row = target.querySelector('[data-stage="' + ns + '/a"]') as HTMLElement;
     expect(row.querySelector('.cell-clip.visually-hidden')?.textContent).toBe(`in ${ns}`);
-    expect(row.querySelector('[data-testid="history-source"]')?.classList.contains('visually-hidden')).toBe(false);
+    expect(row.querySelector('[data-testid="history-source"]')?.classList.contains('visually-hidden')).toBe(true);
+    const partial = target.querySelector('[data-stage="' + ns + '/c"] [data-testid="history-source"]') as HTMLElement;
+    expect(partial.classList.contains('visually-hidden')).toBe(false);
+    expect(partial.textContent).toBe('Signed records, partial');
     const lone = target.querySelector('[data-stage="prod/d"]') as HTMLElement;
     expect(lone.querySelector('.visually-hidden')).toBeNull();
     destroy();
@@ -1252,7 +1255,8 @@ describe('history and published', () => {
     expect(text(target.querySelector('[data-testid="history-source"]') as HTMLElement)).toBe('From signed records, partial.');
     expect(target.querySelectorAll('tbody tr').length).toBe(1);
     const fold = target.querySelector('[data-testid="history-run"]') as HTMLButtonElement;
-    expect(fold.textContent).toBe('3 more like this');
+    expect(fold.textContent).toBe('3 more');
+    expect(fold.getAttribute('aria-label')).toBe('Show 3 more changes like this one');
     expect(fold.getAttribute('aria-expanded')).toBe('false');
     fold.click();
     await settle();
