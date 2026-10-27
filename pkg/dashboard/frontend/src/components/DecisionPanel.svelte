@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, hostSignsIn, keepPending, pendingFor, dropPending,
-    versionLabel, personLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
+    versionLabel, personLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere, teamGroups } from '../lib/delivery.ts';
   import { formatCount } from '../lib/format.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
@@ -71,7 +71,7 @@
   // The team that lets this person answer, named back to them. The cluster maps a team
   // to a group by a prefix the session does not carry, so a group that ends in the team
   // name is taken as that team; failing a match the line still says they can answer.
-  const myTeam = $derived(owners.find((t) => (caller?.groups ?? []).some((g) => g === t || g.endsWith(t))) ?? '');
+  const myTeam = $derived(owners.find((t) => teamGroups(caller?.groups).some((g) => g === t || g.endsWith(t))) ?? '');
   // The page lists every affected service in a fold below the panel: open it, then go there.
   function toAffected() {
     const h = document.getElementById('cd-affected');

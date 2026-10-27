@@ -2,8 +2,9 @@
   // Renders a canonical identifier as secondary, copyable metadata: monospace text
   // plus a copy button. Human labels are primary elsewhere; the raw key lives here.
   // display: what to show when it is not the value itself (a digest cut short);
-  // the button and the hover still carry the whole value.
-  let { value = '', label = 'canonical key', display = '' } = $props();
+  // the button and the hover still carry the whole value. iconOnly: only the
+  // button shows, for a value a reader needs to copy but not to read.
+  let { value = '', label = 'canonical key', display = '', iconOnly = false } = $props();
 
   // Middle ellipsis: a squeezed identifier keeps its end (the version, the digest
   // tail) on screen, which is what tells two long keys apart. The two halves are one
@@ -31,7 +32,7 @@
 
 {#if value}
   <span class="copyable" title={value}>
-    <code class="copyable-value"><span class="cv-head">{head}</span>{#if tail}<span class="cv-tail">{tail}</span>{/if}</code>
+    {#if !iconOnly}<code class="copyable-value"><span class="cv-head">{head}</span>{#if tail}<span class="cv-tail">{tail}</span>{/if}</code>{/if}
     <button
       type="button"
       class="copyable-btn"
