@@ -80,6 +80,10 @@ type dashboardIdentity struct {
 	streams app.StreamCache
 	// reads keeps each caller's apiserver reads for a moment (see readCache).
 	reads *readCache
+	// shared is the one cache of the delivery objects signed-in people read
+	// from (see sharedReads), started by the first signed-in request.
+	sharedOnce sync.Once
+	shared     *sharedReads
 }
 
 // Discovery: an answer is kept a minute, a failure a few seconds, and no call
@@ -175,7 +179,10 @@ func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.I
 	var dyn dynamic.Interface
 	err := errNoClusterToAsk
 	if cluster != nil {
-		dyn, err = newClient(cluster)
+		// client-go's default 5 a second made fifty people signing in at once wait ten seconds.
+		cfg := rest.CopyConfig(cluster)
+		cfg.QPS, cfg.Burst = sarQPS, sarQPS
+		dyn, err = newClient(cfg)
 	}
 	if err != nil {
 		return func(context.Context, authn.Person, string) (bool, error) { return false, err }
@@ -224,10 +231,12 @@ func (id *dashboardIdentity) deliveryInstalled(context.Context) (bool, error) {
 }
 
 // delivery is the caller's delivery API: the kubeconfig user in local mode,
-// the signed-in person's own token in shared mode, nothing in open mode. The
-// dashboard's own credentials are never used for delivery.
+// the signed-in person's own token in shared mode, nothing in open mode. In
+// shared mode, Stages and Operations are read from the shared cache, filtered
+// by the person's own RBAC (see sharedReads); every action, and every read an
+// action is built on, goes with the person's token.
 func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, error) {
-	cfg := id.cluster
+	cfg, token := id.cluster, ""
 	switch {
 	case id.auth.Local():
 	case !id.auth.SignsIn():
@@ -238,7 +247,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		if !st.SignedIn {
 			return nil, dashboard.Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to see and act on delivery")
 		}
-		cfg = authn.RESTConfig(id.cluster, st.Token)
+		cfg, token = authn.RESTConfig(id.cluster, st.Token), st.Token
 	}
 	cfg = rest.CopyConfig(cfg)
 	cfg.QPS, cfg.Burst = callerQPS, callerQPS
@@ -247,8 +256,31 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 	if err != nil {
 		return nil, err
 	}
-	return dashDelivery{d: &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}, id: id}, nil
+	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}
+	read := act
+	if s := id.sharedReads(); s != nil && token != "" {
+		c := *act
+		c.Dynamic, read = s.client(dyn, token), &c
+	}
+	return dashDelivery{d: read, act: act, id: id}, nil
+}
+
+// sharedReads starts the shared cache with the dashboard's own credentials
+// the first time a signed-in person reads delivery; nil outside shared mode.
+// ponytail: it watches for the life of the process, as the dashboard serves.
+func (id *dashboardIdentity) sharedReads() *sharedReads {
+	if !id.auth.SignsIn() {
+		return nil
+	}
+	id.sharedOnce.Do(func() {
+		cfg := rest.CopyConfig(id.cluster)
+		cfg.QPS, cfg.Burst = sarQPS, sarQPS
+		if sa, err := id.newClient(cfg); err == nil { // a config that fails here fails every person's client too
+			id.shared = newSharedReads(context.Background(), sa, id.reads.wrote)
+		}
+	})
+	return id.shared
 }
 
 // callerQPS bounds one dashboard request's apiserver reads per second. The
@@ -284,10 +316,11 @@ func (id *dashboardIdentity) describe(ctx context.Context, d *app.Delivery, stag
 
 // dashDelivery adapts app.Delivery to the dashboard: apiserver refusals keep
 // their status and message, a stale plan carries the fresh one, and every
-// other error keeps its reason as a refusal.
+// other error keeps its reason as a refusal. d reads, act acts: they differ
+// only in shared mode, where d reads from the shared cache.
 type dashDelivery struct {
-	d  *app.Delivery
-	id *dashboardIdentity
+	d, act *app.Delivery
+	id     *dashboardIdentity
 }
 
 func refusal(err error) error {
@@ -342,22 +375,22 @@ func (a dashDelivery) History(ctx context.Context, ns, stage string) (*delivery.
 }
 
 func (a dashDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error) {
-	p, _, err := a.d.Plan(ctx, req)
+	p, _, err := a.act.Plan(ctx, req)
 	return p, refusal(err)
 }
 
 func (a dashDelivery) Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error) {
-	o, p, err := a.d.Propose(ctx, req)
+	o, p, err := a.act.Propose(ctx, req)
 	return o, p, refusal(err)
 }
 
 func (a dashDelivery) Approve(ctx context.Context, ns, name string, decision delivery.Decision, note string) (string, error) {
-	n, err := a.d.Approve(ctx, ns, name, decision, note)
+	n, err := a.act.Approve(ctx, ns, name, decision, note)
 	return n, refusal(err)
 }
 
 func (a dashDelivery) Cancel(ctx context.Context, ns, name string) error {
-	return refusal(a.d.Cancel(ctx, ns, name))
+	return refusal(a.act.Cancel(ctx, ns, name))
 }
 
 func (a dashDelivery) Stage(ctx context.Context, ns, name string) (*delivery.StageObject, error) {
@@ -371,7 +404,7 @@ func (a dashDelivery) Blame(ctx context.Context, ns, stage, digest string) (*del
 }
 
 func (a dashDelivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.Undo, error) {
-	u, err := a.d.Undo(ctx, ns, name, stage)
+	u, err := a.act.Undo(ctx, ns, name, stage)
 	return u, refusal(err)
 }
 

@@ -258,6 +258,14 @@ func installRBAC(t testing.TB, ctx context.Context, adm dynamic.Interface) {
 	must(t, create(ctx, adm.Resource(gvrCRole), obj("ClusterRole", "", "pacto-delivery-reader", map[string]any{"rules": rules}), false))
 	must(t, create(ctx, adm.Resource(gvrCRB), obj("ClusterRoleBinding", "", "auditors", map[string]any{
 		"subjects": subject("Group", "auditors"), "roleRef": ref("ClusterRole", "pacto-delivery-reader")}), false))
+	// The dashboard's own ServiceAccount, as the operator grants it.
+	must(t, create(ctx, adm.Resource(gvrCRole), obj("ClusterRole", "", "pacto-dashboard", map[string]any{"rules": []any{
+		map[string]any{"apiGroups": []any{"pacto.trianalab.io"}, "resources": []any{"pactos", "pactorevisions"}, "verbs": []any{"get", "list", "watch"}},
+		map[string]any{"apiGroups": []any{"delivery.pacto.trianalab.io"}, "resources": []any{"stages", "operations"}, "verbs": []any{"get", "list", "watch"}},
+		map[string]any{"apiGroups": []any{"authorization.k8s.io"}, "resources": []any{"subjectaccessreviews"}, "verbs": []any{"create"}},
+	}}), false))
+	must(t, create(ctx, adm.Resource(gvrCRB), obj("ClusterRoleBinding", "", "pacto-dashboard", map[string]any{
+		"subjects": subject("User", perfDashboardSA.user()), "roleRef": ref("ClusterRole", "pacto-dashboard")}), false))
 	for _, who := range []struct{ group, person string }{{"team-a", "alice"}, {"team-b", "bob"}} {
 		for _, ns := range readable(who.person) {
 			must(t, create(ctx, adm.Resource(gvrRB).Namespace(ns), obj("RoleBinding", ns, who.group, map[string]any{
@@ -406,7 +414,7 @@ type perfTokenKey struct{}
 // the session cookie the OIDC layer would resolve.
 func perfDashboard(t testing.TB, cp *controlPlane, cnt *counter, q *atomic.Pointer[fleet.Query]) string {
 	newClient := func(c *rest.Config) (dynamic.Interface, error) { return dynamic.NewForConfig(cnt.wrap(c)) }
-	id := &dashboardIdentity{cluster: cp.config("", 0), auth: authn.NewShared(&authn.OIDC{}, nil), policyNS: perfPolicyNS,
+	id := &dashboardIdentity{cluster: cp.config(perfDashboardSA.token, 0), auth: authn.NewShared(&authn.OIDC{}, nil), policyNS: perfPolicyNS,
 		registry: func(...string) app.DeliveryRegistry { return perfRegistry{} }, newClient: newClient, now: time.Now,
 		served: func(*rest.Config, string) (bool, error) { return true, nil },
 		state: func(ctx context.Context) authn.State {
@@ -414,7 +422,7 @@ func perfDashboard(t testing.TB, cp *controlPlane, cnt *counter, q *atomic.Point
 			return authn.State{SignedIn: tok != "", Token: tok, Person: authn.PersonFromToken(tok)}
 		},
 		revisions: map[string]delivery.Revision{}, reads: newReadCache()}
-	id.viewer = authn.NewViewer(clusterReview(cp.config(cp.admin, 0), newClient))
+	id.viewer = authn.NewViewer(clusterReview(cp.config(perfDashboardSA.token, 0), newClient))
 	o := dashboard.Options{UI: fstest.MapFS{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Fleet:     func(context.Context) (*fleet.Query, error) { return q.Load(), nil },
 		Published: func() *fleet.Query { return q.Load() },
@@ -523,7 +531,8 @@ func measure(t testing.TB, base string, cnt *counter, scale string, v perfView, 
 func requests(callers int) int { return max(5, callers) }
 
 // checkRBAC fails unless each person's environments hold exactly the
-// Stages of the namespaces they may read.
+// Stages of the namespaces they may read, once the dashboard's shared cache
+// has caught up with the seeding.
 func checkRBAC(t testing.TB, base string, w *world) {
 	for _, p := range people {
 		nss := readable(p.name)
@@ -533,7 +542,21 @@ func checkRBAC(t testing.TB, base string, w *world) {
 				want++
 			}
 		}
-		got := 0
+		deadline := time.Now().Add(time.Minute)
+		for got := seenStages(t, base, p, nss); got != want; got = seenStages(t, base, p, nss) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s sees %d Stages, want %d", p.name, got, want)
+			}
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+// seenStages counts the Stages p's environments list, failing on one in a
+// namespace outside nss.
+func seenStages(t testing.TB, base string, p perfPerson, nss []string) int {
+	got := 0
+	{
 		for offset := 0; ; offset += 200 {
 			var out struct {
 				Page struct {
@@ -554,10 +577,8 @@ func checkRBAC(t testing.TB, base string, w *world) {
 				break
 			}
 		}
-		if got != want {
-			t.Fatalf("%s sees %d Stages, want %d", p.name, got, want)
-		}
 	}
+	return got
 }
 
 func TestPerfEnvtest(t *testing.T) {

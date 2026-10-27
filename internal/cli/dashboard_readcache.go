@@ -13,7 +13,8 @@ import (
 
 // readCache keeps the apiserver's answers to a caller's reads for a moment,
 // so the views a page polls together, and a person's concurrent requests,
-// share one read instead of each listing every Stage and Operation again.
+// share one read: the reads the shared cache does not answer (see
+// sharedReads), and all of them in local mode or while it starts.
 //
 // An answer is keyed by the exact request: method, URL and the credentials
 // it carried (the caller's own bearer token), so it is only ever served to a
@@ -30,9 +31,11 @@ type readCache struct {
 	entries map[string]cachedRead
 	size    int
 	group   singleflight.Group
-	// wrote is when the last write went through: a read that started
+	// last is when the last write went through: a read that started
 	// before it may hold what the write changed, so it is not kept.
-	wrote time.Time
+	last time.Time
+	// writers is when each set of credentials last wrote.
+	writers map[string]time.Time
 }
 
 type cachedRead struct {
@@ -52,7 +55,7 @@ const (
 )
 
 func newReadCache() *readCache {
-	return &readCache{ttl: readTTL, now: time.Now, maxBytes: maxCacheBytes, maxRead: maxCachedRead, entries: map[string]cachedRead{}}
+	return &readCache{ttl: readTTL, now: time.Now, maxBytes: maxCacheBytes, maxRead: maxCachedRead, entries: map[string]cachedRead{}, writers: map[string]time.Time{}}
 }
 
 // who names the credentials a request carries.
@@ -123,7 +126,7 @@ func (c *readCache) fresh(key string) (cachedRead, bool) {
 func (c *readCache) put(key string, e cachedRead) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if e.at.Before(c.wrote) {
+	if e.at.Before(c.last) {
 		return
 	}
 	if c.size+len(e.body) > c.maxBytes {
@@ -137,13 +140,28 @@ func (c *readCache) put(key string, e cachedRead) {
 func (c *readCache) forget(w string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.wrote = c.now()
+	c.last = c.now()
+	for k, t := range c.writers {
+		if c.last.Sub(t) >= c.ttl {
+			delete(c.writers, k)
+		}
+	}
+	c.writers[w] = c.last
 	for k, e := range c.entries {
 		if e.who == w {
 			c.size -= len(e.body)
 			delete(c.entries, k)
 		}
 	}
+}
+
+// wrote reports whether credentials w wrote less than ttl ago, so their
+// reads go to the apiserver and show what they just changed.
+func (c *readCache) wrote(w string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.writers[w]
+	return ok && c.now().Sub(t) < c.ttl
 }
 
 func (e cachedRead) response(r *http.Request) *http.Response {

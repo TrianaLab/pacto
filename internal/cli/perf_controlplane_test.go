@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"cmp"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -41,11 +42,17 @@ type perfPerson struct {
 	name   string
 	groups []string
 	token  string
+	as     string // the apiserver user when it is not issuer#name
 }
 
 const perfIssuer = "https://idp.example"
 
-func (p perfPerson) user() string { return perfIssuer + "#" + p.name }
+func (p perfPerson) user() string { return cmp.Or(p.as, perfIssuer+"#"+p.name) }
+
+// perfDashboardSA is the dashboard's own ServiceAccount, with the rights the
+// operator grants it (installRBAC).
+var perfDashboardSA = perfPerson{name: "pacto-dashboard", token: "perf-dashboard-token", as: "system:serviceaccount:pacto-operator-system:pacto-dashboard",
+	groups: []string{"system:serviceaccounts"}}
 
 // idToken is an unsigned token shaped like an ID token: the apiserver reads
 // it from the token file, the dashboard reads its claims.
@@ -80,7 +87,7 @@ func startControlPlane(t testing.TB, people []perfPerson) *controlPlane {
 	must(t, os.WriteFile(saKey, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0o600))
 	cp := &controlPlane{admin: "perf-admin-token"}
 	lines := []string{cp.admin + `,perf-admin,perf-admin,"system:masters"`}
-	for _, p := range people {
+	for _, p := range append(people, perfDashboardSA) {
 		lines = append(lines, fmt.Sprintf(`%s,%s,%s,"%s"`, p.token, p.user(), p.name, strings.Join(p.groups, ",")))
 	}
 	tokens := filepath.Join(dir, "tokens.csv")
