@@ -1139,7 +1139,9 @@ spec:
                   type: object
                 type: array
               lastReconciledAt:
-                description: LastReconciledAt is when the last reconciliation completed.
+                description: |-
+                  LastReconciledAt is when the status was last written: on a change, and at
+                  least every half check interval while nothing changes.
                 format: date-time
                 type: string
               metadata:

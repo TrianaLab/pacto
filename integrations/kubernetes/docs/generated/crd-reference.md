@@ -593,7 +593,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.interfaces[].ref` | `string` | no |  |  | Ref is the bundle-relative path to the interface specification file. |
 | `status.interfaces[].type` | `string` | yes |  | `openapi`, `asyncapi`, `grpc`, `mcp` | Type is the interface type: openapi, asyncapi, grpc or mcp. |
 | `status.interfaces[].visibility` | `string` | no |  |  | Visibility is the declared visibility: public or internal. |
-| `status.lastReconciledAt` | `string` | no |  |  | LastReconciledAt is when the last reconciliation completed. |
+| `status.lastReconciledAt` | `string` | no |  |  | LastReconciledAt is when the status was last written: on a change, and at least every half check interval while nothing changes. |
 | `status.metadata` | `object` | no |  |  | Metadata contains arbitrary key-value pairs from the contract's metadata section. |
 | `status.observationWindows` | `[]object` | no |  |  | ObservationWindows tracks per-assertion negative-observation streaks for time-based stabilization (B5). Operator-owned temporal state; the pure engine never sees it. |
 | `status.observationWindows[].firstObservedNegativeAt` | `string` | yes |  |  | FirstObservedNegativeAt is when the current negative streak began. |

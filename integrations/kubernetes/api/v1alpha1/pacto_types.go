@@ -799,7 +799,8 @@ type PactoStatus struct {
 	// +optional
 	CurrentRevision string `json:"currentRevision,omitempty"`
 
-	// LastReconciledAt is when the last reconciliation completed.
+	// LastReconciledAt is when the status was last written: on a change, and at
+	// least every half check interval while nothing changes.
 	// +optional
 	LastReconciledAt *metav1.Time `json:"lastReconciledAt,omitempty"`
 
