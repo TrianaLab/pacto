@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"k8s.io/apimachinery/pkg/types"
@@ -98,7 +99,8 @@ func TestDeploymentAC_WithWatchNamespace(t *testing.T) {
 func TestDeploymentAC_Auth(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "ns", MiraURL: "http://mira:8080",
 		Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "pacto-dashboard", RedirectURL: "https://dash/auth/callback",
-			ExtraScopes: []string{"a", "b"}, ClientSecretName: "oidc",
+			ExtraScopes: []string{"a", "b"}, ClientSecretName: "oidc", UsernameClaim: "email", UsernamePrefix: "-",
+			GroupsClaim: "roles", GroupsPrefix: "oidc:", SessionIdleTimeout: 30 * time.Minute, SessionMaxAge: 8 * time.Hour, TokenLogin: true,
 			DeliveryNamespace: "delivery"}}
 	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
 	env := map[string]corev1ac.EnvVarApplyConfiguration{}
@@ -107,7 +109,10 @@ func TestDeploymentAC_Auth(t *testing.T) {
 	}
 	for name, want := range map[string]string{"PACTO_DASHBOARD_OIDC_ISSUER_URL": "https://idp", "PACTO_DASHBOARD_OIDC_CLIENT_ID": "pacto-dashboard",
 		"PACTO_DASHBOARD_OIDC_REDIRECT_URL": "https://dash/auth/callback", "PACTO_DASHBOARD_OIDC_EXTRA_SCOPES": "a b",
-		"PACTO_DASHBOARD_MIRA_URL": "http://mira:8080", "PACTO_DASHBOARD_DELIVERY_NAMESPACE": "delivery"} {
+		"PACTO_DASHBOARD_MIRA_URL": "http://mira:8080", "PACTO_DASHBOARD_DELIVERY_NAMESPACE": "delivery",
+		"PACTO_DASHBOARD_OIDC_USERNAME_CLAIM": "email", "PACTO_DASHBOARD_OIDC_USERNAME_PREFIX": "-", "PACTO_DASHBOARD_OIDC_GROUPS_CLAIM": "roles",
+		"PACTO_DASHBOARD_OIDC_GROUPS_PREFIX": "oidc:", "PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT": "30m0s", "PACTO_DASHBOARD_SESSION_MAX_AGE": "8h0m0s",
+		"PACTO_DASHBOARD_TOKEN_LOGIN": "true"} {
 		if e, ok := env[name]; !ok || *e.Value != want {
 			t.Errorf("%s: want %q, got %+v", name, want, e)
 		}
@@ -123,7 +128,7 @@ func TestDeploymentAC_Auth(t *testing.T) {
 		}
 	}
 	for _, e := range deploymentAC(Config{Image: "i", Namespace: "n"}).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec.Containers[0].Env {
-		if strings.Contains(*e.Name, "OIDC") || strings.Contains(*e.Name, "MIRA") {
+		if strings.Contains(*e.Name, "OIDC") || strings.Contains(*e.Name, "MIRA") || strings.Contains(*e.Name, "SESSION") || strings.Contains(*e.Name, "TOKEN") {
 			t.Errorf("no sign-in configured, no %s", *e.Name)
 		}
 	}

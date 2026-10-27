@@ -229,7 +229,7 @@ tests:
     asserts:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
-          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-delivery|--dashboard-auth"
+          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-delivery|--dashboard-auth|--dashboard-session|--dashboard-token"
 
   - it: should pass the dashboard sign-in, the client secret by reference only
     set:
@@ -267,6 +267,77 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --dashboard-mira-url=http://mira.observability:4318
+
+  - it: should pass the claim mapping the API server uses, the session lifetime and token sign-in
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        usernameClaim: email
+        usernamePrefix: "oidc:"
+        groupsClaim: roles
+        groupsPrefix: "oidc:"
+      dashboard.auth.session: {idleTimeout: 30m, maxAge: 8h}
+      dashboard.auth.tokenLogin.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-username-claim=email
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oidc-username-prefix=oidc:"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-groups-claim=roles
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oidc-groups-prefix=oidc:"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-session-idle-timeout=30m
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-session-max-age=8h
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+
+  - it: should keep the issuer prefix with its hash intact
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc: {issuerURL: https://idp.example, clientID: c, redirectURL: https://dash.example/auth/callback, usernamePrefix: "https://idp.example#"}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oidc-username-prefix=https://idp.example#"
+
+  - it: should offer token sign-in without an issuer
+    set:
+      dashboard.enabled: true
+      dashboard.auth.tokenLogin.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-oidc"
+
+  - it: should refuse a session lifetime that is no duration
+    set:
+      dashboard.enabled: true
+      dashboard.auth.session.maxAge: twelve hours
+    asserts:
+      - failedTemplate: {}
+
+  - it: should refuse a claim mapping key the chart does not know
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc.usernameClaims: email
+    asserts:
+      - failedTemplate: {}
 
   - it: should require a client id with an issuer
     set:

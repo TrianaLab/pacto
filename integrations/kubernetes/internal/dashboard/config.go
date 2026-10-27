@@ -9,6 +9,7 @@ package dashboard
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 
@@ -94,6 +95,19 @@ type AuthConfig struct {
 	// secretKeyRef, never as a literal value.
 	ClientSecretName string
 	ClientSecretKey  string
+	// UsernameClaim, UsernamePrefix, GroupsClaim and GroupsPrefix name the
+	// person the way the API server's claim mapping does; empty keeps the
+	// dashboard's defaults (issuer#sub and the groups claim).
+	UsernameClaim  string
+	UsernamePrefix string
+	GroupsClaim    string
+	GroupsPrefix   string
+	// SessionIdleTimeout and SessionMaxAge bound a session; zero keeps the
+	// dashboard's defaults.
+	SessionIdleTimeout time.Duration
+	SessionMaxAge      time.Duration
+	// TokenLogin lets people sign in by pasting a Kubernetes bearer token.
+	TokenLogin bool
 	// DeliveryNamespace is the namespace Pacto delivery runs in, where it publishes the
 	// promoter's identity policy, which the dashboard reads; empty means
 	// pacto-delivery.

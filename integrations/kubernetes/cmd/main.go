@@ -165,6 +165,20 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef.")
 	fs.StringVar(&o.dashboardAuth.ClientSecretKey, "dashboard-oidc-client-secret-key", "client-secret",
 		"Key of the client secret in that Secret.")
+	fs.StringVar(&o.dashboardAuth.UsernameClaim, "dashboard-oidc-username-claim", "",
+		"ID token claim the API server takes the username from; must match its claim mapping (empty: sub).")
+	fs.StringVar(&o.dashboardAuth.UsernamePrefix, "dashboard-oidc-username-prefix", "",
+		"Prefix the API server puts before the username; must match its claim mapping (empty: the issuer URL and #; - for none).")
+	fs.StringVar(&o.dashboardAuth.GroupsClaim, "dashboard-oidc-groups-claim", "",
+		"ID token claim the API server takes the groups from; must match its claim mapping (empty: groups).")
+	fs.StringVar(&o.dashboardAuth.GroupsPrefix, "dashboard-oidc-groups-prefix", "",
+		"Prefix the API server puts before every group; must match its claim mapping.")
+	fs.DurationVar(&o.dashboardAuth.SessionIdleTimeout, "dashboard-session-idle-timeout", 0,
+		"A dashboard session without a request for this long ends (0: 1h).")
+	fs.DurationVar(&o.dashboardAuth.SessionMaxAge, "dashboard-session-max-age", 0,
+		"A dashboard session ends this long after sign-in, renewed or not (0: 12h).")
+	fs.BoolVar(&o.dashboardAuth.TokenLogin, "dashboard-token-login", false,
+		"Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides.")
 	fs.StringVar(&o.dashboardAuth.DeliveryNamespace, "dashboard-delivery-namespace", "",
 		"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; "+
 			"empty means pacto-delivery.")

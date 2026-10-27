@@ -30,8 +30,15 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-oidc-client-secret-key` | `string` | `client-secret` | chart value | Key of the client secret in that Secret. |
 | `-dashboard-oidc-client-secret-name` | `string` |  | chart value | Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef. |
 | `-dashboard-oidc-extra-scopes` | `string` |  | chart value | Comma-separated scopes beyond openid, profile and groups. |
+| `-dashboard-oidc-groups-claim` | `string` |  | chart value | ID token claim the API server takes the groups from; must match its claim mapping (empty: groups). |
+| `-dashboard-oidc-groups-prefix` | `string` |  | chart value | Prefix the API server puts before every group; must match its claim mapping. |
 | `-dashboard-oidc-issuer-url` | `string` |  | chart value | OpenID Connect issuer people sign in to the dashboard with. Delivery actions then run with each person's own token; without it the dashboard serves no delivery data and no actions. |
 | `-dashboard-oidc-redirect-url` | `string` |  | chart value | The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it. |
+| `-dashboard-oidc-username-claim` | `string` |  | chart value | ID token claim the API server takes the username from; must match its claim mapping (empty: sub). |
+| `-dashboard-oidc-username-prefix` | `string` |  | chart value | Prefix the API server puts before the username; must match its claim mapping (empty: the issuer URL and #; - for none). |
+| `-dashboard-session-idle-timeout` | `duration` |  | chart value | A dashboard session without a request for this long ends (0: 1h). |
+| `-dashboard-session-max-age` | `duration` |  | chart value | A dashboard session ends this long after sign-in, renewed or not (0: 12h). |
+| `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides. |
 | `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
