@@ -500,7 +500,7 @@ func diffGate(ctx context.Context, in PlanInput) Verdict {
 		}
 		v.Citation["owner"] = strings.Join(owner, ", ")
 	}
-	v.Message = fmt.Sprintf("%s: %s", d.Classification, countOf(len(d.Changes), "contract change"))
+	v.Message = classWords(d.Classification.String()) + ": " + countOf(len(d.Changes), "contract change")
 	return v
 }
 
@@ -747,6 +747,20 @@ func countOf(n int, noun string) string {
 		return "1 " + noun
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// classWords names a diff classification in plain words for a message; the
+// citation keeps the code.
+func classWords(c string) string {
+	switch c {
+	case diff.NonBreaking.String():
+		return "Non-breaking"
+	case diff.PotentialBreaking.String():
+		return "May break"
+	case diff.Breaking.String():
+		return "Breaking"
+	}
+	return c
 }
 
 // countText is countOf for a count a citation keeps as text; empty reads 0.
