@@ -29,10 +29,11 @@ Compliant transition:
 
 ```
 index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base=/pacto/demo/
-   ├─ wasm_exec.js              Go's wasm runtime glue
-   └─ boot.js                   loads app.wasm; routes /api,/health,/metrics into wasm
+   └─ boot.js                   starts the engine worker; routes /api,/health,/metrics to it
                                      │
    app fetch('/api/services') ──────┘  (a fetch shim intercepts only those paths)
+                                     ▼  postMessage
+                                engine.js (Web Worker) ─► wasm_exec.js, Go's wasm runtime glue
                                      ▼
                                 app.wasm: httptest → Pacto's Huma handlers
                                      │
@@ -52,7 +53,11 @@ index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base
   target page exists to show. Nothing is invented: a target with no evidence stays Unknown, and
   the only EXACT match pins the real content digest of an embedded revision.
 - `main_wasm.go` — builds the dashboard's Huma API in memory and exposes `__pactoServe`.
-- `boot.js` — loads the wasm engine and shims `fetch` for `/api`, `/health`, `/metrics`.
+- `engine.js` — runs the wasm engine in a Web Worker, so its boot and its heavier
+  answers never stall the page: the loading counter and the skeletons keep moving.
+- `boot.js` — starts the worker and shims `fetch` for `/api`, `/health`, `/metrics`,
+  passing those calls to the worker. `__pactoServe` and `__pactoPersona` keep their
+  names on `window` and return promises.
 
 The graph, dependents and cross-reference views derive from each contract's
 declared dependencies (every referenced service is embedded), so no OCI resolver
