@@ -98,7 +98,7 @@ function revisionLabel(service: string, version: string): string {
 // A — the overview states where its knowledge came from, and routes to the sources.
 test('A: the overview reports every live data source and its health', async ({ page }) => {
   await page.goto('/#/fleet');
-  await expect(page.getByRole('heading', { level: 1, name: 'Operational overview' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Is anything wrong?' })).toBeVisible();
 
   // The fleet is seeded, so the overview must never claim there is nothing to track:
   // that is the one knowledge posture the fixture rules out.

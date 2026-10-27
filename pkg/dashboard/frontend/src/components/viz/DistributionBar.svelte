@@ -1,5 +1,6 @@
 <script>
   import { formatCount } from '../../lib/format.ts';
+  import HelpTip from '../HelpTip.svelte';
   // A proportional distribution across a FINITE, exhaustive set of buckets.
   //
   // The accessibility contract this component exists to enforce, once, for every
@@ -134,6 +135,9 @@
        printed after it. -->
   <figcaption class="dist-cap">
     <svelte:element this={`h${level}`} class="dist-title t-subsection-title">{title}</svelte:element>
+    <!-- The description is a definition, so it sits behind the help button rather than
+         under the bars: a page of five figures read as ten lines of caveat. -->
+    {#if description}<HelpTip label={title} text={description} textClass="dist-desc" />{/if}
   </figcaption>
 
   {#if rows.length === 0}
@@ -207,17 +211,16 @@
       {/each}
     </ul>
   {/if}
-  {#if description || scopeNote}
+  {#if scopeNote}
     <div class="dist-note">
-      {#if description}<p class="dist-desc">{description}</p>{/if}
-      {#if scopeNote}<p class="dist-scope">{scopeNote}</p>{/if}
+      <p class="dist-scope">{scopeNote}</p>
     </div>
   {/if}
 </figure>
 
 <style>
   .dist { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .dist-cap { display: flex; flex-direction: column; gap: 2px; }
+  .dist-cap { display: flex; align-items: center; gap: var(--sp-2); }
   /* Subsection role, not a private size -- see HorizontalBars. */
   .dist-title { margin: 0; }
   /* Pushed to the bottom of the figure and off the reading path to the numbers: the
@@ -225,7 +228,7 @@
      where it keeps the footnote on the floor of the cell instead of floating under a
      short legend. */
   .dist-note { margin-top: auto; padding-top: var(--sp-1); display: flex; flex-direction: column; gap: 2px; }
-  .dist-desc, .dist-scope { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .dist-scope { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .dist-scope { font-style: italic; }
   .dist-empty { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   /* The notice carries the whole message on its own; the border and the hatching

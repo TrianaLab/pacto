@@ -783,3 +783,7 @@ tr.clickable:active { background: var(--c-surface-inset); }
     grid-template-areas: "name num" "ctx ctx";
   }
 }
+
+/* The one-line answer under a page title: each page answers its question first, in
+   plain words, before any section. Body role, so it adds no type size of its own. */
+.page-answer { margin: 0 0 var(--sp-3); max-width: 72ch; color: var(--c-text); }

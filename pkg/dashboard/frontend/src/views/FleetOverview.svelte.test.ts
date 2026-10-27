@@ -69,7 +69,7 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     overviewFn.mockResolvedValue(baseOverview(false));
     const { target, component } = mountView();
     await vi.waitFor(() => {
-      expect(target.textContent).toContain('Operational overview');
+      expect(target.textContent).toContain('Is anything wrong?');
       expect(target.textContent).toContain('Revision-match certainty');
     });
     expect(overviewFn).toHaveBeenCalledTimes(1); // consumes /api/fleet/overview, not the snapshot
@@ -408,6 +408,35 @@ describe('FleetOverview — data sources are a findable section, not a caption',
     expect(text).toContain('4 data sources, all available.');
     // A healthy fleet gets a sentence, never a row of zeroes to scan.
     expect(text).not.toMatch(/0 (unavailable|stale|partial)/);
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+// The page title is a question; the line under it is the answer, and it never says
+// "no" past what the snapshot knows.
+describe('FleetOverview — the answer line', () => {
+  beforeEach(() => overviewFn.mockReset());
+  const answer = (t: HTMLElement) => (t.querySelector('[data-testid="overview-answer"]')?.textContent || '').replace(/\s+/g, ' ').trim();
+
+  it('says yes and names the error-grade counts in plain words', async () => {
+    const ov = baseOverview(false);
+    ov.entryPoints = [
+      { label: 'Operational targets not compliant', count: 229, severity: 'error', view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' },
+      { label: 'Invalid revisions', count: 1, severity: 'error', view: 'attention', category: 'invalid', href: '/fleet/attention?category=invalid' },
+      { label: 'Operational targets with stale evidence', count: 5, severity: 'warning', view: 'attention', category: 'stale', href: '/fleet/attention?category=stale' },
+    ];
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(answer(target)).not.toBe(''));
+    expect(answer(target)).toBe('Yes. 229 running targets break their contract and 1 revision is invalid.');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('does not claim all clear when data is missing', async () => {
+    overviewFn.mockResolvedValue(baseOverview(true));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(answer(target)).not.toBe(''));
+    expect(answer(target)).toBe('Nothing broken found, but some data is missing.');
     unmount(component); document.body.removeChild(target);
   });
 });

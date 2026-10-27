@@ -1,6 +1,6 @@
 <script>
   import { hashForHref, fleetAttentionUrl } from '../lib/router.ts';
-  import { severityTone } from '../lib/entityLabels.ts';
+  import { severityTone, splitEntryPoints } from '../lib/entityLabels.ts';
   import { formatCount } from '../lib/format.ts';
 
   // The immediate situation: what requires action right now.
@@ -16,20 +16,12 @@
   // milder is one compact line -- so the first thing seen is the worst thing true.
   let { summary = {}, entryPoints = [], attentionTotal = 0 } = $props();
 
-  // A tile has to take you somewhere you are not. Two entry points do not:
-  // the uncategorised attention one is the lead tile's own number under a second
-  // wording, and the overview one links back to this page, where the source health
-  // strip a few lines below already shows exactly what it counts.
-  const shown = $derived(entryPoints.filter(
-    (ep) => ep.view !== 'overview' && !(ep.view === 'attention' && !ep.category),
-  ));
-
-  // An entry point whose severity this build does not recognise is promoted, not
-  // demoted: a grade a newer engine spells differently must not quietly become a
-  // footnote. Only the grades we can read as milder than an error are compacted.
-  const MILDER = ['warning', 'info'];
-  const leadTiles = $derived(shown.filter((ep) => !MILDER.includes(ep.severity)));
-  const secondary = $derived(shown.filter((ep) => MILDER.includes(ep.severity)));
+  // A tile has to take you somewhere you are not, and only an error earns one; the
+  // rule lives in splitEntryPoints so the overview's answer line reads the same split.
+  const uid = $props.id();
+  const split = $derived(splitEntryPoints(entryPoints));
+  const leadTiles = $derived(split.lead);
+  const secondary = $derived(split.secondary);
 
   // A count of zero is a clean state whatever the category; above zero the backend
   // grades the category (EntryPoint.severity) exactly as it grades the attention items
@@ -67,7 +59,8 @@
   {#if secondary.length}
     <!-- Present, exact and one click away, but not competing with the errors above it.
          The count is still shown: demoting the treatment must not delete the number. -->
-    <ul class="op-secondary" aria-label="Also open">
+    <h3 class="op-sec-title t-subsection-title" id="{uid}-sec">Not broken, worth a look</h3>
+    <ul class="op-secondary" aria-labelledby="{uid}-sec">
       {#each secondary as ep}
         <li>
           <a class="op-sec tone-{tone(ep.count, ep.severity)}" href={hashForHref(ep.href)}>
@@ -102,11 +95,16 @@
   .tile-count { color: var(--tone-c, var(--c-text)); }
   .tile-label { font-size: var(--text-sm); color: var(--c-text-2); }
   .tile-sub { font-size: var(--text-xs); color: var(--c-text-3); }
-  .op-secondary { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }
+  .op-sec-title { margin: var(--sp-2) 0 0; }
+  /* Count chips: the number first, the label after, one bordered pill each. */
+  .op-secondary { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); }
   .op-sec {
     display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--touch-min);
+    padding: 0 var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-md);
+    background: var(--c-surface);
     font-size: var(--text-sm); color: var(--c-text-2); text-decoration: none;
   }
+  .op-sec:hover, .op-sec:focus-visible { border-color: var(--c-accent); }
   .op-sec:hover .op-sec-label, .op-sec:focus-visible .op-sec-label { text-decoration: underline; }
   /* Shape carries the grade too, not colour alone: the dot is a filled swatch of the
      tone beside a label that names the state in words (WCAG 1.4.1). */
