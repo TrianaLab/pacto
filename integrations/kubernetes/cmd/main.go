@@ -176,7 +176,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
 	fs.Func("evidence-subject",
 		"Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. "+
-			"The registry holding it IS the durable evidence store — accepted records are published as OCI 1.1 "+
+			"The registry holding it is the durable evidence store: accepted records are published as OCI 1.1 "+
 			"referrers of that manifest. At least one is required when the Evidence Server is enabled.",
 		func(subject string) error {
 			o.evidenceSubjects = append(o.evidenceSubjects, subject)

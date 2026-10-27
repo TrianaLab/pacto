@@ -65,7 +65,7 @@ type TargetRef struct {
 	WorkloadRef *WorkloadRef `json:"workloadRef,omitempty"`
 
 	// InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes
-	// deployment knowledge — lives on the CR, NOT the platform-agnostic contract.
+	// deployment knowledge, so it lives on the CR and the contract stays platform-agnostic.
 	// +optional
 	InterfaceBindings []InterfaceBinding `json:"interfaceBindings,omitempty"`
 

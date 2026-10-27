@@ -513,7 +513,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.target.configBindings[].key` | `string` | no |  |  | Key names the single ConfigMap/Secret key to decode and validate. Omit for existence-only. |
 | `spec.target.configBindings[].kind` | `string` | yes |  | `ConfigMap`, `Secret` | Kind of the backing object. |
 | `spec.target.configBindings[].name` | `string` | yes |  |  | Name of the backing ConfigMap/Secret in the Pacto's namespace. |
-| `spec.target.interfaceBindings` | `[]object` | no |  |  | InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes deployment knowledge — lives on the CR, NOT the platform-agnostic contract. |
+| `spec.target.interfaceBindings` | `[]object` | no |  |  | InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes deployment knowledge, so it lives on the CR and the contract stays platform-agnostic. |
 | `spec.target.interfaceBindings[].interface` | `string` | yes |  |  | Interface is the contract interfaces[].name this binding resolves. |
 | `spec.target.interfaceBindings[].servicePort` | `object` | yes |  |  | ServicePort is the Service port name or number that serves the interface. |
 | `spec.target.serviceName` | `string` | no |  |  | ServiceName is the name of the Kubernetes Service to observe. |

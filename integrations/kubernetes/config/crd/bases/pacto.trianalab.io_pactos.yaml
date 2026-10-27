@@ -176,7 +176,7 @@ spec:
                   interfaceBindings:
                     description: |-
                       InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes
-                      deployment knowledge — lives on the CR, NOT the platform-agnostic contract.
+                      deployment knowledge, so it lives on the CR and the contract stays platform-agnostic.
                     items:
                       description: InterfaceBinding maps a contract interface to the
                         Service port that serves it (B4).
