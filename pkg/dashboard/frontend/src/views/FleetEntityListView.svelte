@@ -202,7 +202,7 @@
   {/if}
 
   {#if pastEnd(list, count)}
-    <Pager page={list} href={(o, l) => urlWith({}, o, l)} count={0} noun={plural} testid="entity-list" />
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} count={0} noun={plural} testid="entity" />
   {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={plural} onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
@@ -211,7 +211,7 @@
         <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={true} showKind={false} /></li>
       {/each}
     </ul>
-    <Pager page={list} href={(o, l) => urlWith({}, o, l)} label={`${pluralTitle} pages`} noun={plural} testid="entity-list" />
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} label={`${pluralTitle} pages`} noun={plural} testid="entity" />
   {/if}
 </div>
 

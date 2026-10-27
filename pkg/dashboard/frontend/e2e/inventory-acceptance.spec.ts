@@ -302,7 +302,7 @@ test('Revisions: the readiness figure covers every revision, and a bucket opens 
   await boot(page, '#/fleet/revisions');
   await expect(page.getByTestId('entity-list')).toBeVisible({ timeout: 30_000 });
 
-  const total = await pagerTotal(page, '[data-testid="entity-list-range"]');
+  const total = await pagerTotal(page, '[data-testid="entity-range"]');
   const f = await figure(page, 'Contract revision readiness');
   expect(f.scope).toBe(`All ${total} contract revisions in the snapshot.`);
   expect(sum(f.buckets), 'the readiness buckets do not add up to the revision population').toBe(total);
@@ -312,7 +312,7 @@ test('Revisions: the readiness figure covers every revision, and a bucket opens 
 
   const bucket = drillable(f, total);
   await follow(page, bucket);
-  await expect.poll(() => pagerTotal(page, '[data-testid="entity-list-range"]'), { timeout: 30_000 }).toBe(bucket.value);
+  await expect.poll(() => pagerTotal(page, '[data-testid="entity-range"]'), { timeout: 30_000 }).toBe(bucket.value);
   expect((await figure(page, 'Contract revision readiness')).scope)
     .toBe(`All ${bucket.value} matching contract revisions, not just this page.`);
 
