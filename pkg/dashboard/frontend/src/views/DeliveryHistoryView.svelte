@@ -113,10 +113,23 @@
       said((h) => h.stage.frozen, 'is frozen', 'are frozen'),
     ].filter(Boolean);
     const onPage = (data?.page?.total ?? 0) > histories.length;
+    const tip = `What happened on each Stage, listed by namespace and name, with its newest change. ${ABOUT}`;
+    // Paged: what waits and what is frozen over every page, as counts; record
+    // problems only on this page, and said so (counting them reads every record).
+    const c = data?.counts;
+    if (onPage && c) {
+      const problems = histories.filter((h) => (h.problemCount ?? 0) + (h.unreadableCount ?? 0) > 0).length;
+      const totals = [
+        c.waiting && `${countOf(c.waiting, 'Stage')} ${c.waiting === 1 ? 'waits' : 'wait'} for a person.`,
+        c.frozen && `${countOf(c.frozen, 'Stage')} ${c.frozen === 1 ? 'is' : 'are'} frozen.`,
+        problems && `${countOf(problems, 'Stage')} on this page ${problems === 1 ? 'has' : 'have'} record problems.`,
+      ].filter(Boolean);
+      return { head: totals[0] ?? 'Nothing waits for a person and nothing is frozen.', rest: totals.slice(1).join(' '), tip };
+    }
     return {
       head: parts[0] ?? `Nothing needs a look${onPage ? ' on this page' : ''}.`,
       rest: [...parts.slice(1), parts.length && onPage ? 'Counted on this page.' : ''].filter(Boolean).join(' '),
-      tip: `What happened on each Stage, listed by namespace and name, with its newest change. ${ABOUT}`,
+      tip,
     };
   });
 

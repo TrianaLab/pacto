@@ -1205,7 +1205,7 @@ describe('history and published', () => {
   });
 
   it('sums up every environment in one line each: newest change, how it ended, how many and a link to the rest', async () => {
-    fns.history.mockResolvedValue({ ...listing, page: { total: 30, offset: 0, limit: 25 }, versions: { [D1]: '1.0.0', [D2]: '2.0.0' }, histories: [
+    fns.history.mockResolvedValue({ ...listing, page: { total: 30, offset: 0, limit: 25 }, counts: { waiting: 18, frozen: 3 }, versions: { [D1]: '1.0.0', [D2]: '2.0.0' }, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D2, frozen: true },
         entriesPage: { total: 40, offset: 0, limit: 1 }, problemCount: 1, unreadableCount: 1,
         entries: [{ seq: 40, operation: 'op40', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'bot', outcome: 'Succeeded', finished: '2026-10-21T11:00:00Z' }] },
@@ -1228,7 +1228,7 @@ describe('history and published', () => {
     expect(target.querySelector('[data-testid="history-source"]')?.getAttribute('title')).toBe('From signed records, every signature verified, complete');
     expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 1–25 of 30 Stages');
     // The page answers first: what needs a look among the Stages shown.
-    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('1 Stage has record problems: pay in prod. 1 Stage is frozen: pay in prod. Counted on this page.');
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('18 Stages wait for a person. 3 Stages are frozen. 1 Stage on this page has record problems.');
     expect(target.querySelector('[data-testid="history-pager-size"]')).not.toBeNull();
     destroy();
   });
