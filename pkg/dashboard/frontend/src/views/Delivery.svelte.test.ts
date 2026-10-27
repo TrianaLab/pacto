@@ -79,6 +79,16 @@ beforeEach(() => {
 });
 
 describe('inbox', () => {
+  it("names the reader's teams, never the apiserver's system: groups", async () => {
+    fns.session.mockResolvedValue(shared({ caller: human(['team-checkout', 'system:authenticated']) }));
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve', owners: ['team-checkout'] }] });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 change waits for team-checkout to decide.');
+    destroy();
+  });
+
   it('shows each held change as one line, what breaks and for whom, and a Decide link', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [{ namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', frozenReason: 'Errored', verified: false, failed: false, frozen: true, autoHold: false, held: 0, actions: [] }],
       errored: [{ namespace: 'prod', name: 'e1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Concluded', outcome: 'Errored' }],

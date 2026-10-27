@@ -64,7 +64,9 @@
   const sharedTotal = $derived(inbox?.heldShared ?? shared.length);
   const morePages = $derived(!!inbox?.heldPage && inbox.heldPage.total > held.length);
   // Whose work this is: the reader's teams, or the reader when they name none.
-  const whose = $derived(myGroups.length ? andList(myGroups, 3) : 'you');
+  // The apiserver's own groups (system:authenticated) name nobody's team.
+  const myTeams = $derived(myGroups.filter((g) => !g.startsWith('system:')));
+  const whose = $derived(myTeams.length ? andList(myTeams, 3) : 'you');
   // The one-line answer: what waits for a decision, who else may answer, then what is frozen or failed.
   const lead = $derived.by(() => {
     if (!inbox) return null;
@@ -176,7 +178,7 @@
       {/if}
 
       {#if !frozen.length && !errored.length}
-        <p class="t-meta dl-calm" data-testid="inbox-calm">Nothing frozen and nothing failed in the services {myGroups.length ? `${whose} ${myGroups.length === 1 ? 'owns' : 'own'}` : 'you own'}{inbox.completeness === 'partial' ? ' that you can see' : ''}.</p>
+        <p class="t-meta dl-calm" data-testid="inbox-calm">Nothing frozen and nothing failed in the services {myTeams.length ? `${whose} ${myTeams.length === 1 ? 'owns' : 'own'}` : 'you own'}{inbox.completeness === 'partial' ? ' that you can see' : ''}.</p>
       {/if}
       <!-- Frozen Stages and changes that could not finish fold behind their count:
            the decisions above are what the reader came for. Each shows a few
