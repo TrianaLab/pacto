@@ -487,13 +487,15 @@ func diffGate(ctx context.Context, in PlanInput) Verdict {
 		v.Citation["checks"] = strings.Join(suites, "; ")
 	}
 	// Who owns the service changed: ownerGate asks the team that owns it now.
-	var owner []string
-	for _, c := range d.Changes {
-		if strings.HasPrefix(c.Path, "service.owner") {
-			owner = append(owner, c.Path)
+	// Only the owner Pacto asks counts (Owner.DisplayString); a contacts-only
+	// edit, or a DRI edit under an unchanged team, routes nothing elsewhere.
+	if old, nu := from.Bundle.Contract.Service.Owner.DisplayString(), to.Bundle.Contract.Service.Owner.DisplayString(); old != nu {
+		var owner []string
+		for _, c := range d.Changes {
+			if strings.HasPrefix(c.Path, "service.owner") {
+				owner = append(owner, c.Path)
+			}
 		}
-	}
-	if len(owner) > 0 {
 		v.Citation["owner"] = strings.Join(owner, ", ")
 	}
 	v.Message = fmt.Sprintf("%s: %d contract changes", d.Classification, len(d.Changes))

@@ -287,6 +287,21 @@ func TestPlanOwnerChangeAsksTheTeamThatOwnsItNow(t *testing.T) {
 		!strings.Contains(p.Question, "never verified here") {
 		t.Fatalf("an owner change on a held plan: %+v", p)
 	}
+	// Only the owner Pacto asks counts: new contacts, or a new DRI under the
+	// same team, change nobody who answers, so nothing waits for a person.
+	for name, o := range map[string]contract.Owner{
+		"contacts": {Team: "team-payments", Contacts: []contract.OwnerContact{{Type: "email", Value: "pay@example.com"}}},
+		"dri":      {Team: "team-payments", DRI: "alice"},
+	} {
+		edited := bundle("payments", "1.0.1")
+		edited.Contract.Service.Owner = o
+		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, rev(dB, c2, edited)}, now)
+		p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Snapshot: snap, Class: ClassAgent,
+			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}, From: from, To: rev(dB, c2, edited)})
+		if p.Floor.Human || verdict(t, p, GateDiff).Citation["owner"] != "" {
+			t.Fatalf("%s-only owner edit must not wait: %+v", name, p)
+		}
+	}
 	unread := Revision{Digest: dA, ContractRef: "oci://reg.example/pactos/payments@" + c1, Err: "pull failed"}
 	in := PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), From: unread, To: rev(dB, c2, moved)}
 	if team := serviceTeam(in); team != nil {
