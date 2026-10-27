@@ -1,9 +1,11 @@
 // Package authn is how a person or an agent reaching Pacto over the network is
-// identified, for `pacto dashboard` and `pacto mcp`. It holds no Kubernetes
-// rights of its own: every delivery call is made with the caller's own token,
-// so the apiserver decides what they may do, sees their username in its audit
-// log and derives their login time from the identity provider's signed token.
-// There is no impersonation.
+// identified, for `pacto dashboard` and `pacto mcp`. Every delivery call is
+// made with the caller's own token, so the apiserver decides what they may do,
+// sees their username in its audit log and derives their login time from the
+// identity provider's signed token. There is no impersonation. The one right
+// the server uses for a signed-in caller is asking the apiserver what that
+// person may read (SubjectAccessReview), so the fleet views show only the
+// namespaces Kubernetes RBAC lets them see (see Viewer).
 //
 // The dashboard signs people in with OpenID Connect (authorization code with
 // PKCE), keeps the tokens in a server-side session behind a __Host- cookie and
