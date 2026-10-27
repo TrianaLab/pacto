@@ -60,3 +60,10 @@ export function revisionAnswer(r: RevisionFacts = {}): { tone: 'err' | 'warn' | 
     ? { tone: 'ok', lead: 'Valid and ready.', rest: score }
     : { tone: 'warn', lead: 'Valid, not ready.', rest: score };
 }
+
+/** A plain sentence for a confirmed-problem attention category, or '' for any other. */
+export function problemPhrase(category: string | undefined, n: number): string {
+  if (category === 'non-compliant') return `${plural(n, 'running target breaks its', 'running targets break their')} contract`;
+  if (category === 'invalid') return `${plural(n, 'revision is', 'revisions are')} invalid`;
+  return '';
+}

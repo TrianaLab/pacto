@@ -7,7 +7,7 @@
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
-  import { joinAnd } from '../lib/answers.ts';
+  import { joinAnd, problemPhrase } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
@@ -104,12 +104,7 @@
   const errorPoints = $derived(splitEntryPoints(overview?.entryPoints).lead.filter((ep) => (ep.count || 0) > 0));
   // Plain sentences for the categories we know; any other entry point keeps the
   // backend's own label, so a new category still reaches the answer.
-  const PHRASE = {
-    'non-compliant': (n) => (n === 1 ? 'running target breaks its contract' : 'running targets break their contract'),
-    invalid: (n) => (n === 1 ? 'revision is invalid' : 'revisions are invalid'),
-  };
-  const phrase = (ep) => (PHRASE[ep.category]?.(ep.count) ?? (ep.label || '').toLowerCase());
-  const errorText = $derived(joinAnd(errorPoints.map((ep) => `${formatCount(ep.count)} ${phrase(ep)}`)));
+  const errorText = $derived(joinAnd(errorPoints.map((ep) => (problemPhrase(ep.category, ep.count) || `${formatCount(ep.count)} ${(ep.label || '').toLowerCase()}`))));
 
   // Band 2. The fleet posture is drawn by the SAME component a service page and an
   // owner page use, so the three surfaces cannot drift in wording, ordering or colour.
