@@ -128,10 +128,6 @@
     {revalidating}
   />
 
-  {#if state.kind === 'ready' && entityAnswer}
-    <p class="page-answer t-body ev-answer tone-{entityAnswer.tone}" data-testid="entity-answer"><strong>{entityAnswer.lead}</strong> {entityAnswer.rest}</p>
-  {/if}
-
   {#if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={kindLabel(kind).toLowerCase()} onRetry={load} />
   {:else}
@@ -141,6 +137,11 @@
     <div class="page-toc-layout">
       <PageToc />
       <div class="page-toc-main ev-body">
+      <!-- The answer heads the content column, so the contents rail starts right under
+           the page title and stays above the fold. -->
+      {#if entityAnswer}
+        <p class="page-answer t-body ev-answer tone-{entityAnswer.tone}" data-testid="entity-answer"><strong>{entityAnswer.lead}</strong> {entityAnswer.rest}</p>
+      {/if}
       <!-- Uncertainty and failed refreshes come FIRST and are never collapsible: they
            qualify everything below them, so a reader who stops after the first screen
            must still have seen them. -->

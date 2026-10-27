@@ -217,8 +217,8 @@
      already as tall as the row and has nowhere to stick to. */
   @media (min-width: 1100px) {
     .toc { position: sticky; top: calc(var(--navbar-h) + var(--sp-4)); align-self: start; }
-    /* A pointer rail, not a touch list: 32px rows still clear the 24px target minimum
-       (WCAG 2.5.8) and keep six entries short enough to sit above the fold. */
-    .toc-link { min-height: 32px; padding: var(--sp-1) var(--sp-2); line-height: 1.35; }
+    /* A pointer rail, not a touch list: 30px rows still clear the 24px target minimum
+       (WCAG 2.5.8) and keep a revision page's ten entries above the fold. */
+    .toc-link { min-height: 30px; padding: var(--sp-1) var(--sp-2); line-height: 1.35; }
   }
 </style>

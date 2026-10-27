@@ -355,7 +355,8 @@
   .hv-facts .hv-source { margin: 0; }
   /* A count that opens its list: a chip while closed, the whole row's width once open. */
   .hv-chip > summary { display: inline-flex; align-items: center; min-height: 2rem; gap: var(--sp-1); padding: 2px var(--sp-2); border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-sm); }
-  .hv-chip-warn > summary { color: var(--c-warn); border-color: var(--c-warn-border); background: var(--c-warn-bg); }
+  /* The tint sits on the plain surface: on a raised row amber text falls under 4.5:1. */
+  .hv-chip-warn > summary { color: var(--c-warn); border-color: var(--c-warn-border); background: linear-gradient(var(--c-warn-bg), var(--c-warn-bg)), var(--c-surface); }
   .hv-chip[open] { flex-basis: 100%; }
   .hv-chip[open] > .hv-notes { margin-top: var(--sp-2); }
   .hv-table a { color: var(--c-accent); }
