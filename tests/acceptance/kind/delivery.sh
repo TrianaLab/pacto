@@ -844,6 +844,12 @@ pass "items 1 and 3: B passed test and reached production with nobody involved"
 section "item 2: C (broken) fails in test, is rolled back once, never reaches prod and is never retried"
 C="$(publish C "$C120")"; candidate C
 OPC="$(wait_op test "$C")"
+# C changes its workload, a BREAKING change, yet calls itself a minor, so the
+# consumers' ranges cannot judge it: Pacto holds it as Unknown, and carol, of
+# payments' team, accepts the unknown to try it in test.
+eventually 30 held test "$OPC" || fail "C was not held: $(field test "$OPC" phase) $(field test "$OPC" reason)"
+[ "$(field test "$OPC" plan.floor.decision)" = accept-unknown ] || fail "C's floor is not accept-unknown: $(field test "$OPC" plan.floor.decision)"
+decide test "$OPC" carol team-payments accept-unknown "try it in test"
 wait_concluded test "$OPC" Failed/
 [ "$(field test "$OPC" reason)" = VerifyFailed ] || fail "C failed for the wrong reason: $(field test "$OPC" reason)"
 RB="$(wait_op test "$B" delivery.pacto.trianalab.io/rollback)"

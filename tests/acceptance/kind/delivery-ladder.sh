@@ -25,11 +25,13 @@ phase_ladder() {
   local L=ladder T=team-wallet
   kubectl create namespace "$L" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n "$L" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  local W100 W110 W130 W140 W1 W2 W3 W4
+  local W100 W110 W130 W200 W1 W2 W3 W4
   W100="$(contract wallet 1.0.0 service)"
   W110="$(contract wallet 1.1.0 service)"
   W130="$(contract wallet 1.3.0 service)"
-  W140="$(contract wallet 1.4.0 job)"  # contradicts the Deployment that ships: NonCompliant
+  # A major: changing the workload is BREAKING, and nothing consumes wallet, so
+  # autonomous ships it with no person. It contradicts the Deployment that ships: NonCompliant.
+  W200="$(contract wallet 2.0.0 job)"
   # applied LABEL — GitOps applies the version: the applied tag moves to it.
   applied() { oras tag --plain-http "127.0.0.1:${LOCAL_REG_PORT}/apps/wallet:$1" applied >/dev/null; }
   stage() { kubectl -n "$L" get stage wallet -o json; }
@@ -146,7 +148,7 @@ YAML
   # Pacto has not seen a breaking change cleared yet, so carol accepts the unknown.
   up="$(move_rung "$L" wallet "$T" autonomous)"
   [ "$(field "$L" "$up" plan.floor.decision)" = accept-unknown ] || fail "an unearned raise did not ask to accept the unknown"
-  W4="$(publish W4 "$W140" wallet)"; candidate W4 wallet
+  W4="$(publish W4 "$W200" wallet)"; candidate W4 wallet
   local OP4 SD
   OP4="$(wait_op "$L" "$W4")"
   wait_concluded "$L" "$OP4" Failed/
