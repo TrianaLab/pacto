@@ -63,6 +63,13 @@ describe('App — the sign-in gate', () => {
     expect(fns.overview).not.toHaveBeenCalled();
   });
 
+  it('gates a dashboard where only tokens sign in', async () => {
+    fns.session.mockResolvedValue({ mode: 'shared', login: false, tokenLogin: true, signedIn: false });
+    app = mount(App, { target });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="token-sign-in"]')).not.toBeNull());
+    expect(fns.capabilities).not.toHaveBeenCalled();
+  });
+
   it('shows the fleet and who you are once signed in, and the sign-in screen again when the session ends', async () => {
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#carol', groups: ['team-checkout'] });
     app = mount(App, { target });

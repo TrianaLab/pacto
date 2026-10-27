@@ -69,7 +69,7 @@
   // they do; the server answers no API call before that. A failed session read
   // (the offline export has none) is no sign-in to wait for.
   const session = $derived(deliverySession.data);
-  const gated = $derived(!!session && session.mode === 'shared' && session.login && !session.signedIn && !hostSignsIn());
+  const gated = $derived(!!session && session.mode === 'shared' && (session.login || session.tokenLogin) && !session.signedIn && !hostSignsIn());
   const nothingVisible = $derived(!!capabilities?.auth?.nothingVisible);
 
   const POLL_FAST = 2000;   // during discovery
@@ -487,7 +487,7 @@
     {:else if capabilities}
       <div class="product-page" data-testid="delivery-unavailable">
         <h1 class="t-page-title">Delivery is not available here</h1>
-        {#if capabilities.auth?.mode !== 'local' && !capabilities.auth?.login}
+        {#if capabilities.auth?.mode !== 'local' && !capabilities.auth?.login && !capabilities.auth?.tokenLogin}
           <p class="t-body" data-testid="delivery-unavailable-reason">Every delivery action is signed by a person, and this dashboard has no signed-in user. Delivery views appear in <code>pacto dashboard</code> on your own machine, or in a shared dashboard people sign in to.</p>
         {:else}
           <p class="t-body" data-testid="delivery-unavailable-reason">The cluster this dashboard reads does not serve the delivery API. Install pacto-operator with <code>delivery.enabled=true</code>.</p>

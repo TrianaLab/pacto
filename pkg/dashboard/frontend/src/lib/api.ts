@@ -424,6 +424,14 @@ export const api = {
     csrf = s?.csrf ?? '';
     return s;
   },
+  /** Signs in with a pasted Kubernetes bearer token (POST /auth/token, outside the
+   *  API). The server checks it with the cluster and keeps it in the session. */
+  signInWithToken: async (token: string): Promise<void> => {
+    const res = await dashboardFetch(new Request(new URL('/auth/token', location.origin), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+    }));
+    if (!res.ok) throw new ApiError(res.status, ((await res.text()) || res.statusText).trim());
+  },
   /** Ends the session (POST /auth/logout, outside the API) and returns the identity
    *  provider's logout page when it has one. */
   signOut: async (): Promise<string> => {

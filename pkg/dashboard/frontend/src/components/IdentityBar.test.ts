@@ -47,6 +47,15 @@ describe('IdentityBar', () => {
     expect(bar()?.querySelector('[title]:not(.copyable)')).toBeNull();
   });
 
+  it('says a person signed in with a token', () => {
+    const t = show({ mode: 'shared', login: false, tokenLogin: true, signedIn: true, method: 'token', user: 'system:serviceaccount:shop:viewer' });
+    expect(t).toContain('Signed in with a token as shop/viewer.');
+    unmount(app!); app = null; document.body.innerHTML = '';
+    show({ mode: 'shared', login: false, tokenLogin: true, signedIn: false });
+    expect(bar()?.textContent).toContain('You are not signed in.');
+    expect(bar()?.querySelector('a')).toBeNull();
+  });
+
   it('falls back to the ID token as the cluster maps it when delivery has not asked the apiserver', () => {
     const t = show({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#dave', groups: ['team-shop'] });
     expect(t).toContain('Signed in as dave https://idp#dave ⧉, in team-shop.');
@@ -125,6 +134,40 @@ describe('IdentityBar', () => {
 });
 
 describe('SignInScreen', () => {
+  it('takes a Kubernetes token where token sign-in is on, and says why the cluster refused one', async () => {
+    const tokenFn = vi.fn();
+    const { api } = await import('../lib/api.ts');
+    (api as unknown as { signInWithToken: unknown }).signInWithToken = tokenFn;
+    tokenFn.mockRejectedValueOnce(new Error('the cluster did not accept this token: Unauthorized'));
+    show({ mode: 'shared', login: false, tokenLogin: true, signedIn: false }, SignInScreen);
+    expect(document.body.querySelectorAll('a')).toHaveLength(0);
+    const form = document.body.querySelector('[data-testid="token-sign-in"]') as HTMLFormElement;
+    const input = form.querySelector('input') as HTMLInputElement;
+    expect(input.type).toBe('password');
+    input.value = 'tok'; input.dispatchEvent(new Event('input'));
+    flushSync();
+    form.requestSubmit();
+    await vi.waitFor(() => expect(form.querySelector('[role="alert"]')?.textContent).toBe('the cluster did not accept this token: Unauthorized'));
+    expect(tokenFn).toHaveBeenCalledWith('tok');
+
+    const reload = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...orig, hash: orig.hash, reload } });
+    try {
+      tokenFn.mockResolvedValueOnce(undefined);
+      form.requestSubmit();
+      await vi.waitFor(() => expect(reload).toHaveBeenCalled());
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: orig });
+    }
+  });
+
+  it('offers both where both sign-ins are on', () => {
+    show({ mode: 'shared', login: true, tokenLogin: true, signedIn: false }, SignInScreen);
+    expect(document.body.querySelectorAll('a')).toHaveLength(1);
+    expect(document.body.querySelector('[data-testid="token-sign-in"]')).not.toBeNull();
+  });
+
   it('shows the product name and one Sign in button that comes back to the page asked for', () => {
     location.hash = '#/fleet/attention';
     const t = show(null, SignInScreen);

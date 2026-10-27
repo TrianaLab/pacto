@@ -37,14 +37,14 @@
   }
 </script>
 
-{#if s && (s.mode === 'local' || s.login)}
+{#if s && (s.mode === 'local' || s.login || s.tokenLogin)}
   <div class="who t-body-2" data-testid="identity">
     {#if s.mode === 'local'}
       <span>Acting as <strong>{#if user}<Person {user} {me} />{:else}your kubeconfig user{/if}</strong> from this machine. <HelpTip label="deciding here" text="A dashboard on your own machine shows held changes. Decide them with pacto delivery approve." /></span>
     {:else if s.signedIn}
       <span>
         {#if user}
-          Signed in as <strong><Person {user} {me} /></strong>{#if groups.length}{', in '}<CappedList items={groups} max={3} inline label="Your groups" testid="identity-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{/if}.
+          Signed in{#if s.method === 'token'}{' with a token'}{/if} as <strong><Person {user} {me} /></strong>{#if groups.length}{', in '}<CappedList items={groups} max={3} inline label="Your groups" testid="identity-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{/if}.
         {:else}
           <!-- The ID token's name alone is self-asserted, so it is never shown as who you are. -->
           Signed in. <span class="who-err">The cluster did not say who you are{#if s.callerError}: {s.callerError}{:else}.{/if}</span>
@@ -53,7 +53,7 @@
       <button type="button" class="btn btn-sm" data-testid="sign-out" onclick={signOut}>{hostSignsIn() ? 'Switch person' : 'Sign out'}</button>
     {:else}
       <span>You are not signed in.</span>
-      <a class="btn btn-sm btn-primary" href={loginUrl(here())}>Sign in</a>
+      {#if s.login}<a class="btn btn-sm btn-primary" href={loginUrl(here())}>Sign in</a>{/if}
     {/if}
     {#if signOutError}<span class="who-err" role="alert">{signOutError}</span>{/if}
   </div>

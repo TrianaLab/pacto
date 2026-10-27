@@ -842,6 +842,26 @@ describe('change detail', () => {
     destroy();
   });
 
+  it('offers no decision to a token session: a fresh identity provider sign-in, or the command where there is none', async () => {
+    fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel'] }));
+    fns.session.mockResolvedValue(shared({ method: 'token', tokenLogin: true, caller: human(['team-checkout']) }));
+    let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(r.target.querySelector('[data-testid="decide-approve"]')).toBeNull();
+    const panel = r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement;
+    expect(text(panel.querySelector('[data-testid="decide-token"]') as HTMLElement)).toContain('a token never decides. Sign in with your identity provider');
+    expect(panel.querySelector('a[href*="/auth/login"]')?.getAttribute('href')).toContain('fresh=1');
+    r.destroy();
+
+    deliverySession.loaded = false;
+    fns.session.mockResolvedValue(shared({ method: 'token', login: false, tokenLogin: true, caller: human(['team-checkout']) }));
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decide-token"]') as HTMLElement)).toContain('Decide from the command line');
+    expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('pacto delivery approve -n prod op1 --decision approve');
+    r.destroy();
+  });
+
   it('shows refusals: not your team, an agent, a local dashboard, a signed-out person and a server refusal', async () => {
     fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel'] }));
     fns.session.mockResolvedValue(shared({ caller: human(['team-payments']) }));

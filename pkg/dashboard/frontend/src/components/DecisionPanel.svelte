@@ -103,7 +103,7 @@
   let decided = $state('');
   const noteMissing = $derived(breaking && !note.trim());
   // The note and a button per answer are offered only to a signed-in person in a shared dashboard who may decide.
-  const offer = $derived(!!s && s.mode !== 'local' && s.signedIn && canDecide);
+  const offer = $derived(!!s && s.mode !== 'local' && s.signedIn && s.method !== 'token' && canDecide);
   // A session the server already calls stale goes to sign in first, instead of
   // pressing a button only to be told to; back here, the kept choice is the
   // one button to press, and it says so.
@@ -205,6 +205,15 @@
     {:else if s?.mode === 'local'}
       <p class="t-body-2" data-testid="decide-cli">On your own machine, any program could act as you in the dashboard, so you decide from the command line:</p>
       <CopyableIdentifier value={cliDecision(ns, name, asked)} label="command" />
+    {:else if s?.method === 'token'}
+      <!-- A pasted token proves no recent sign-in, so it never decides. -->
+      {#if s.login}
+        <p class="t-body-2" data-testid="decide-token">You signed in with a token, and a token never decides. Sign in with your identity provider to decide.</p>
+        <a class="btn btn-sm btn-primary" href={loginUrl(location.hash, true)}>Sign in</a>
+      {:else}
+        <p class="t-body-2" data-testid="decide-token">You signed in with a token, and a token never decides. Decide from the command line:</p>
+        <CopyableIdentifier value={cliDecision(ns, name, asked)} label="command" />
+      {/if}
     {:else if s && !s.signedIn}
       <p class="t-body-2">Sign in to decide.</p>
       <a class="btn btn-sm btn-primary" href={loginUrl(location.hash)}>Sign in</a>
