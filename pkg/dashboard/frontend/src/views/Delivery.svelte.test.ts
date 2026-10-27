@@ -86,10 +86,10 @@ describe('inbox', () => {
     expect(text(held as HTMLElement)).toContain('team-checkout');
     expect(held.querySelector('a[href="#/delivery/changes/prod/op1"]')).not.toBeNull();
     expect(held.querySelector('a[href="#/services/checkout"]')).not.toBeNull();
-    // Frozen environments and stuck changes fold behind their count, each a one-line row.
+    // Frozen Stages and stuck changes fold behind their count, each a one-line row.
     const frozenSection = target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
     expect(frozenSection.open).toBe(false);
-    expect(text(frozenSection.querySelector('summary') as HTMLElement).trim()).toBe('▸Frozen environments 1');
+    expect(text(frozenSection.querySelector('summary') as HTMLElement).trim()).toBe('▸Frozen Stages 1');
     expect(text(target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement).trim()).toBe('payments in prod Errored');
     expect(text(frozenSection)).toContain('Nothing moves in these until a person unfreezes them.');
     expect((target.querySelector('[data-testid="inbox-errored-section"]') as HTMLDetailsElement).open).toBe(false);
@@ -109,7 +109,7 @@ describe('inbox', () => {
       errored: [], erroredPage: { total: 0, offset: 0, limit: 25 } });
     const { target, destroy } = render(DeliveryInboxView, { held: '25', frozen: '50', q: 'pay' });
     await settle();
-    // A link into a page of frozen environments opens that section, and its count is the total.
+    // A link into a page of frozen Stages opens that section, and its count is the total.
     const frozenSection = target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
     expect(frozenSection.open).toBe(true);
     expect(text(frozenSection.querySelector('.dl-count') as HTMLElement)).toBe('60');
@@ -953,7 +953,7 @@ describe('history and published', () => {
     expect(text(target)).toContain('History of prod/pay');
     expect(target.querySelector('a[href="#/delivery/changes/prod/op1"]')?.textContent).toBe('Roll back');
     expect(text(target.querySelector('[data-testid="history-end"]') as HTMLElement).trim()).toBe('Succeeded Verified');
-    expect(text(target)).toContain('No change kept for this environment.');
+    expect(text(target)).toContain('No change kept for this Stage.');
     destroy();
   });
 
@@ -1107,7 +1107,7 @@ describe('history and published', () => {
     expect(all.getAttribute('aria-label')).toBe('All 40 changes on prod/pay');
     expect(target.querySelector('[data-testid="history-issues"]')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
     expect(target.querySelector('[data-testid="history-source"]')?.getAttribute('title')).toBe('From signed records, every signature verified, complete');
-    expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 1–25 of 30 environments');
+    expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 1–25 of 30 Stages');
     expect(target.querySelector('[data-testid="history-pager-size"]')).not.toBeNull();
     destroy();
   });

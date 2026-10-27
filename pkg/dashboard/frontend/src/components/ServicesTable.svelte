@@ -1,7 +1,7 @@
 <script>
   import { setFilter } from '../lib/filters.svelte.ts';
   import { serviceUrl } from '../lib/router.ts';
-  import { compareScoresUnassessedLast } from '../lib/format.ts';
+  import { compareScoresUnassessedLast, formatCount } from '../lib/format.ts';
   import { clientPage } from '../lib/paging.ts';
   import { hashParam, listState, setHashParams } from '../lib/hashQuery.svelte.ts';
   import Pager from './Pager.svelte';
@@ -135,7 +135,7 @@
             <td data-label="Checks">
               {#if svc.checksTotal > 0}
                 <span class:text-ok={svc.checksFailed === 0} class:text-err={svc.checksFailed > 0}>
-                  {svc.checksPassed}/{svc.checksTotal}
+                  {svc.checksPassed}/{formatCount(svc.checksTotal)}
                 </span>
               {:else}
                 <span class="text-dim">—</span>

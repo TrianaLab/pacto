@@ -3,7 +3,7 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, compareDiffUrl } from '../lib/router.ts';
-  import { classificationClass } from '../lib/format.ts';
+  import { classificationClass, formatCount } from '../lib/format.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import EmptyState from '../components/EmptyState.svelte';
 
@@ -186,7 +186,7 @@
     {:else}
       <div class="diff-summary">
         <span class="badge {classificationClass(result.classification)}">{result.classification.replace(/_/g, ' ')}</span>
-        <span class="text-2">{result.changes.length} change{result.changes.length !== 1 ? 's' : ''}</span>
+        <span class="text-2">{formatCount(result.changes.length)} change{result.changes.length !== 1 ? 's' : ''}</span>
         {#if !isSameService}
           <span class="text-3">({fromName} {fromVer} vs {toName} {toVer})</span>
         {/if}

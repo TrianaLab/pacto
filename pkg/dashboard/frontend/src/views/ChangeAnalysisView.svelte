@@ -362,7 +362,7 @@
           <li><button type="button" onclick={() => pickServiceOption(s.key)}>{s.label}{s.domain ? ` (${s.domain})` : ''}</button></li>
         {/each}
       </ul>
-      {#if serviceTotal > serviceResults.length}<p class="disco-hint" data-testid="impact-picker-truncated">Showing {serviceResults.length} of {serviceTotal}. Refine your search to narrow it.</p>{/if}
+      {#if serviceTotal > serviceResults.length}<p class="disco-hint" data-testid="impact-picker-truncated">Showing {formatCount(serviceResults.length)} of {formatCount(serviceTotal)}. Refine your search to narrow it.</p>{/if}
     {:else if serviceQuery.trim()}
       <p class="disco-hint" data-testid="impact-picker-empty">No services match "{serviceQuery}".</p>
     {:else}
@@ -496,7 +496,7 @@
           total={changes.total}
         />
         {#if changes.truncated}
-          <p class="text-dim" data-testid="changes-truncated">Showing the first {changes.count} of {changes.total} differences, breaking ones first.</p>
+          <p class="text-dim" data-testid="changes-truncated">Showing the first {formatCount(changes.count)} of {formatCount(changes.total)} differences, breaking ones first.</p>
         {/if}
         <DiffChangesTable changes={changeRows} />
       {/if}
@@ -542,7 +542,7 @@
          on the page and the one a reader comes back for, and an entry that stops at
          "What it affects" still leaves two charts to scroll past to reach the table. -->
     <div class="section" id="sec-affected-consumers" data-toc="Affected consumers">
-      <h3 class="ca-subhead t-subsection-title">Affected consumers <span class="t-meta">{consumers.total}</span></h3>
+      <h3 class="ca-subhead t-subsection-title">Affected consumers <span class="t-meta">{formatCount(consumers.total)}</span></h3>
       {#if (consumers.items?.length ?? 0) === 0}
         <EmptyState title="No affected consumers" message="No service in the operational graph consumes this change." />
       {:else}

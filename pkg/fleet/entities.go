@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/semver"
 )
 
 // EntityFilter constrains a global entity search. The zero
@@ -537,12 +539,20 @@ func (q *Query) entityFromSource(r EntityRef, source string) bool {
 }
 
 // sortEntityRefs orders references by kind then key, so search output is stable.
+// Revisions of one service go newest version first (see siblingRevisions): their
+// key ends in a content digest, and digest order is no order a reader can use.
 func sortEntityRefs(refs []EntityRef) {
 	sort.SliceStable(refs, func(i, j int) bool {
-		if refs[i].Kind != refs[j].Kind {
-			return refs[i].Kind < refs[j].Kind
+		a, b := refs[i], refs[j]
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
 		}
-		return refs[i].Key < refs[j].Key
+		if a.Kind == KindRevision && a.ParentService == b.ParentService {
+			if c := semver.Compare(a.Version, b.Version); c != 0 {
+				return c > 0
+			}
+		}
+		return a.Key < b.Key
 	})
 }
 

@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   import SeverityBadge from './SeverityBadge.svelte';
   import EntityLink from './EntityLink.svelte';
   import { seenBy } from '../lib/entityLabels.ts';
@@ -23,7 +24,7 @@
         <span class="f-meta">
           {#if f.category}<span>{f.category}</span>{/if}
           {#if f.contractPath}<span class="f-path">{f.contractPath}</span>{/if}
-          {#if f.evidenceRefs?.total}<span>{f.evidenceRefs.total} evidence ref{f.evidenceRefs.total === 1 ? '' : 's'}</span>{/if}
+          {#if f.evidenceRefs?.total}<span>{formatCount(f.evidenceRefs.total)} evidence ref{f.evidenceRefs.total === 1 ? '' : 's'}</span>{/if}
           {#if by}<span>seen by: {by}</span>{/if}
         </span>
       </div>

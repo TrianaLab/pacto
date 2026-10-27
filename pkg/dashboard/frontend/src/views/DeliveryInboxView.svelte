@@ -18,7 +18,7 @@
   import { formatCount } from '../lib/format.ts';
 
   // What waits on me or my team: held changes whose question names one of my
-  // teams, then frozen environments and changes that could not finish. Each
+  // teams, then frozen Stages and changes that could not finish. Each
   // section is paged on the server, and its place is in the URL.
   let { held: heldAt = '', frozen: frozenAt = '', errored: erroredAt = '', limit = '', q = '', refreshTick = 0 } = $props();
 
@@ -73,7 +73,7 @@
           <p>Nothing waiting on you matches “{q}”.</p>
         {:else}
           <h2>{inbox.completeness === 'partial' ? 'Nothing waits on you that you can see' : 'Nothing waits on you'}</h2>
-          <p>No change is held for your teams, and none of your environments is frozen or stuck.</p>
+          <p>No change is held for your teams, and none of your Stages is frozen or stuck.</p>
         {/if}
       </div>
     {:else}
@@ -109,12 +109,12 @@
         {/if}
       </section>
 
-      <!-- Frozen environments and changes that could not finish fold behind their count:
+      <!-- Frozen Stages and changes that could not finish fold behind their count:
            the decisions above are what the reader came for. A link into one of their pages
            opens it. -->
       {#if frozen.length}
         <details class="disclosure dl-more" open={query.frozen > 0} data-testid="inbox-frozen-section">
-          <summary class="t-section-title"><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-frozen" class="dl-more-title">Frozen environments</h2> <span class="t-meta dl-count">{formatCount(total(inbox.frozenPage, frozen))}</span></summary>
+          <summary class="t-section-title"><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-frozen" class="dl-more-title">Frozen Stages</h2> <span class="t-meta dl-count">{formatCount(total(inbox.frozenPage, frozen))}</span></summary>
           <p class="t-body-2 dl-note">Nothing moves in these until a person unfreezes them.</p>
           <ul class="pl-list" data-testid="inbox-frozen">
             {#each frozen as row (row.namespace + '/' + row.stage)}
@@ -124,14 +124,14 @@
               </li>
             {/each}
           </ul>
-          <Pager page={inbox.frozenPage} href={hrefFor('frozen')} label="Pages of frozen environments" noun="frozen environments" testid="inbox-frozen-pager" />
+          <Pager page={inbox.frozenPage} href={hrefFor('frozen')} label="Pages of frozen Stages" noun="frozen Stages" testid="inbox-frozen-pager" />
         </details>
       {/if}
 
       {#if errored.length}
         <details class="disclosure dl-more" open={query.errored > 0} data-testid="inbox-errored-section">
           <summary class="t-section-title"><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-errored" class="dl-more-title">Changes that could not finish</h2> <span class="t-meta dl-count">{formatCount(total(inbox.erroredPage, errored))}</span></summary>
-          <p class="t-body-2 dl-note">Each environment stays frozen until a person looks at it.</p>
+          <p class="t-body-2 dl-note">Each Stage stays frozen until a person looks at it.</p>
           <ul class="pl-list" data-testid="inbox-errored">
             {#each errored as it (it.namespace + '/' + it.name)}
               <li class="pl-row dl-line">
@@ -149,7 +149,7 @@
 
 <style>
   .dl-row { gap: 2px; padding: var(--sp-2) var(--sp-3); overflow-wrap: break-word; }
-  /* One line per frozen environment or stuck change: what, then why. The why wraps
+  /* One line per frozen Stage or stuck change: what, then why. The why wraps
      under it rather than clipping, so the whole reason is always there to read. */
   .dl-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3); overflow-wrap: anywhere; }
   .dl-line .dl-title { flex: 0 1 auto; }

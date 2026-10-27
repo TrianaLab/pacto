@@ -1,5 +1,5 @@
 <script>
-  import { sourceTooltip } from './lib/format.ts';
+  import { sourceTooltip, formatCount } from './lib/format.ts';
   let { title, count, source = '', open = $bindable(false), id = '', children } = $props();
 </script>
 
@@ -13,7 +13,7 @@
     <button type="button" class="section-toggle" onclick={() => open = !open} aria-expanded={open}>
       <span class="section-title">
         {title}
-        {#if count != null}<span class="tab-count">{count}</span>{/if}
+        {#if count != null}<span class="tab-count">{formatCount(count)}</span>{/if}
         {#if source}<span class="source-dot source-dot-{source}" data-tip={`Provided by ${sourceTooltip(source)}`}></span>{/if}
       </span>
       <span class="toggle-icon" data-motion class:open>

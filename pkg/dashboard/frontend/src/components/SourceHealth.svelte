@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   import { fleetEntityUrl, fleetSourcesUrl } from '../lib/router.ts';
   import { sourceHealthLabel, sourceHealthTone } from '../lib/entityLabels.ts';
 
@@ -41,7 +42,7 @@
     {#if shown.length < ordered.length}
       <a class="sh-chip tone-ok" href={fleetSourcesUrl({ sourceHealth: 'available' })} data-testid="sources-healthy">
         <span class="sh-dot" aria-hidden="true"></span>
-        <span class="sh-id">{healthy.length} available</span>
+        <span class="sh-id">{formatCount(healthy.length)} available</span>
       </a>
     {/if}
     {#if truncated}<span class="sh-trunc" title="Only the least-healthy sources are shown">+ more sources</span>{/if}

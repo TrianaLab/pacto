@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter, ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY, aggregateGraphByOwner, relatedSubgraph } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter, ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY, aggregateGraphByOwner, relatedSubgraph, formatCount } from '../lib/format.ts';
   import GraphPanel from '../GraphPanel.svelte';
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
@@ -248,7 +248,7 @@
   {@const connPage = clientPage(filteredNodes, connList.offset, connList.limit)}
   {#if filteredNodes.length > 0}
     <div class="section" style="margin-top:var(--sp-6)">
-      <div class="section-title">Service Connections <span class="tab-count">{filteredNodes.length}</span></div>
+      <div class="section-title">Service Connections <span class="tab-count">{formatCount(filteredNodes.length)}</span></div>
       <div class="data-scroll">
         <table class="data-table">
           <colgroup><col style="width:30%" /><col style="width:16%" /><col style="width:9%" /><col /></colgroup>

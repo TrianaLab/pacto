@@ -2,7 +2,7 @@
   import { serviceUrl } from '../lib/router.ts';
   import { getFilters } from '../lib/filters.svelte.ts';
   import { applyFilters } from '../lib/filters.ts';
-  import { statusClass, statusLabel, statusTone } from '../lib/format.ts';
+  import { statusClass, statusLabel, statusTone, formatCount } from '../lib/format.ts';
   import FilterBar from '../components/FilterBar.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
@@ -48,7 +48,7 @@
 </script>
 
 <div class="list-header">
-  <h1>Services {#if services.length > 0}<span class="tab-count">{filtered.length === services.length ? services.length : `${filtered.length} / ${services.length}`}</span>{/if}</h1>
+  <h1>Services {#if services.length > 0}<span class="tab-count">{filtered.length === services.length ? formatCount(services.length) : `${formatCount(filtered.length)} / ${formatCount(services.length)}`}</span>{/if}</h1>
 </div>
 
 <!-- Shared filter + summary: the summary reacts to the active filters. -->
@@ -93,7 +93,7 @@
       level={3}
       description="How many other services each one would affect if it broke. Bar colour is the service's own compliance status."
       scopeNote={blastRanked.length > BLAST_ROWS
-        ? `Top ${BLAST_ROWS} of ${blastRanked.length} services that anything depends on.`
+        ? `Top ${BLAST_ROWS} of ${formatCount(blastRanked.length)} services that anything depends on.`
         : ''}
       items={blastRows}
       unit="services"

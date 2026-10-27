@@ -21,12 +21,12 @@
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
 
-  // What happened on each environment: from its signed records where the
-  // recorder runs, otherwise from the changes still in the cluster. Every
-  // history says where it came from and whether it is the whole story. The
-  // server pages it: one environment's changes newest first, or every
-  // environment as one line: its newest change, how it ended, how many
-  // changes it has and a link to them.
+  // What happened on each Stage: from its signed records where the recorder
+  // runs, otherwise from the changes still in the cluster. Every history says
+  // where it came from and whether it is the whole story. The server pages it:
+  // one Stage's changes newest first, or every Stage as one line (by namespace
+  // and name): its newest change, how it ended, how many changes it has and a
+  // link to them.
   let { namespace = '', stage = '', offset = '', limit = '', q = '', refreshTick = 0, miraURL = '' } = $props();
 
   const one = $derived(!!(namespace && stage));
@@ -42,7 +42,7 @@
   const answer = $derived(loader.answer(question, listQuestion));
   const data = $derived(answer.data);
   const histories = $derived(data?.histories ?? []);
-  // One environment pages its changes; every environment pages the environments.
+  // One Stage pages its changes; every Stage pages the Stages.
   const page = $derived(one ? histories[0]?.entriesPage : data?.page);
   const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
   const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
@@ -54,7 +54,7 @@
   const knownIds = (h) => [h.stage.pointer, h.head, ...(h.entries ?? []).flatMap((en) =>
     [en.record, en.unverifiedRecord, en.from, en.to, en.pointer?.before, en.pointer?.after])];
 
-  // One panel open at a time: blame of an environment, or undo of a change.
+  // One panel open at a time: blame of a Stage, or undo of a change.
   // Closing it gives focus back to the button that opened it.
   let open = $state(null);
   let opener = null;
@@ -96,16 +96,16 @@
 <div class="product-page">
   <PageHeader
     title={stage ? `History of ${namespace}/${stage}` : 'History'}
-    subtitle="What happened on each environment, newest first. Where the recorder runs it is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story."
+    subtitle={`${one ? 'What happened on this Stage, newest change first.' : 'What happened on each Stage, listed by namespace and name, with its newest change.'} Where the recorder runs it is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story.`}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
   />
   <DeliveryNav current="delivery-history" />
-  {#if stage}<p class="t-body-2"><a class="hv-link" href={deliveryHistoryUrl()}>Show every environment</a></p>{/if}
+  {#if stage}<p class="t-body-2"><a class="hv-link" href={deliveryHistoryUrl()}>Show every Stage</a></p>{/if}
   <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v })} testid="history-filter"
-    label={one ? 'Filter changes by person, change, outcome or reason' : 'Filter environments by name or service'}
-    placeholder={one ? 'Person, change, outcome or reason' : 'Environment or service'} />
+    label={one ? 'Filter changes by person, change, outcome or reason' : 'Filter Stages by name or service'}
+    placeholder={one ? 'Person, change, outcome or reason' : 'Stage or service'} />
 
   {#if !data && loader.loading}
     <EmptyState loading={true} rows={4} />
@@ -115,15 +115,15 @@
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
     {#if one && autonomy?.total}
       <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
-        <strong>{autonomy.noPerson} of {autonomy.total} promotion{autonomy.total === 1 ? '' : 's'} needed no person</strong>{#if autonomy.onlyUnknown}; {autonomy.onlyUnknown} waited for one only because a check was Unknown, which more visibility removes (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}
+        <strong>{formatCount(autonomy.noPerson)} of {formatCount(autonomy.total)} promotion{autonomy.total === 1 ? '' : 's'} needed no person</strong>{#if autonomy.onlyUnknown}; {formatCount(autonomy.onlyUnknown)} waited for one only because a check was Unknown, which more visibility removes (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}
       </p>
     {/if}
     {#if histories.length === 0}
-      <div class="state-box"><h2>{q ? 'Nothing matches the filter' : 'No history yet'}</h2><p>{q ? `No ${one ? 'change' : 'environment'} you can see matches “${q}”.` : 'No environment you can see has a change on record.'}</p></div>
+      <div class="state-box"><h2>{q ? 'Nothing matches the filter' : 'No history yet'}</h2><p>{q ? `No ${one ? 'change' : 'Stage'} you can see matches “${q}”.` : 'No Stage you can see has a change on record.'}</p></div>
     {:else if !one}
-      <div class="data-scroll hv-summary-scroll">
+      <div class="data-scroll">
         <table class="data-table hv-table" data-testid="history-summary">
-          <caption class="visually-hidden">Every environment's newest change, newest first in each</caption>
+          <caption class="visually-hidden">Every Stage's newest change, by namespace and Stage name</caption>
           <colgroup><col style="width: 24%" /><col style="width: 12%" /><col style="width: 22%" /><col style="width: 13%" /><col style="width: 13%" /><col style="width: 16%" /></colgroup>
           <thead><tr><th scope="col">Stage</th><th scope="col">Runs</th><th scope="col">Newest change</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Changes</th></tr></thead>
           <tbody>
@@ -190,7 +190,7 @@
             </div>
           {/if}
           {#if (h.entries ?? []).length === 0}
-            <p class="t-body-2 hv-none">{q ? 'No change matches the filter.' : 'No change kept for this environment.'}</p>
+            <p class="t-body-2 hv-none">{q ? 'No change matches the filter.' : 'No change kept for this Stage.'}</p>
           {:else}
             <div class="data-scroll">
               <table class="data-table hv-table">
@@ -233,7 +233,7 @@
         </section>
       {/each}
     {/if}
-    <Pager {page} {href} label={one ? 'Pages of changes' : 'Pages of environments'} noun={one ? 'changes' : 'environments'} testid="history-pager" />
+    <Pager {page} {href} label={one ? 'Pages of changes' : 'Pages of Stages'} noun={one ? 'changes' : 'Stages'} testid="history-pager" />
   {/if}
 </div>
 
@@ -248,7 +248,6 @@
   .hv-table a { color: var(--c-accent); }
   .hv-table a.badge-warn { color: var(--c-warn); text-decoration: none; }
   /* The summary is a page of twenty-five short rows: the page scrolls, not a box. */
-  .hv-summary-scroll { max-height: none; }
   .hv-table tbody th .hv-source { margin: 0; font-weight: 400; }
   .hv-none { color: var(--c-text-3); }
   .hv-seq, .hv-class, .hv-digest { color: var(--c-text-2); }

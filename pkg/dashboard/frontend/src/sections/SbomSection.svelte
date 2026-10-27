@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   import ShowAll from '../components/ShowAll.svelte';
   import { cap } from '../lib/cap.svelte.ts';
   import CollapsibleSection from '../CollapsibleSection.svelte';
@@ -12,7 +13,7 @@
 
 {#if hasContent}
   <CollapsibleSection title="SBOM" count={packages.length} bind:open {id}>
-    <p class="sbom-format">Format <code>{sbom.format}</code> · {packages.length} packages</p>
+    <p class="sbom-format">Format <code>{sbom.format}</code> · {formatCount(packages.length)} packages</p>
     <div class="table-wrap">
     <table class="sbom-table">
       <thead><tr><th>Package</th><th>Version</th><th>License</th><th>Supplier</th></tr></thead>
