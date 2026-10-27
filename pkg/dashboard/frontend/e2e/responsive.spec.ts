@@ -101,9 +101,11 @@ for (const w of WIDTHS) {
       await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: 20_000 });
       // The pickers read "1.0.0 · <short digest>": pick by version.
       for (const [sel, v] of [['#impact-old-rev', '1.0.0'], ['#impact-new-rev', '2.0.1']]) {
-        const value = await page.locator(`${sel} option`).evaluateAll(
+        // The options arrive with the revision list: wait for the one named.
+        const read = () => page.locator(`${sel} option`).evaluateAll(
           (os, ver) => (os as HTMLOptionElement[]).find((o) => (o.textContent ?? '').startsWith(`${ver} `))?.value ?? '', v);
-        await page.locator(sel).selectOption(value);
+        await expect.poll(read, { message: `no ${v} revision in ${sel}`, timeout: 20_000 }).not.toBe('');
+        await page.locator(sel).selectOption(await read());
       }
       await page.getByRole('button', { name: /Compare revisions/ }).click();
       await expect(page.getByText('breaking', { exact: false }).first()).toBeVisible({ timeout: 20_000 });

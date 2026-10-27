@@ -341,7 +341,7 @@ test.describe('WASM demo — an owner label is not an owner identity', () => {
     // population is stated separately with the reason the difference exists.
     await expect(scope).toContainText(`of ${agg.rankedOwners} rankable owner`);
     await expect(scope).toContainText(`out of ${agg.distinctOwners} named`);
-    await expect(scope).toContainText(`the other ${disputed}`);
+    await expect(scope).toContainText(`The other ${disputed}`);
     await expect(scope).toContainText('revisions disagree');
     // No row claims them: the ranking holds only owners with a consistent service.
     await expect(ranking(page).locator('a.hb-inner').filter({ hasText: 'team/payments' })).toHaveCount(0);

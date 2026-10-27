@@ -117,7 +117,8 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     const misuses = await page.evaluate(() => {
       const WORD = /\bDeployments?\b/;
       // A canonical TargetKey is "<scope>/<Kind>/<name>"; the kind sits between slashes.
-      const INSIDE_A_KEY = /\/Deployment\//;
+      // On its own service's page the key drops the service name, leaving "<scope>/<Kind>".
+      const INSIDE_A_KEY = /\/Deployment(\/|$)/;
       const out: string[] = [];
       const walker = document.createTreeWalker(document.querySelector('main')!, NodeFilter.SHOW_TEXT);
       for (let n = walker.nextNode(); n; n = walker.nextNode()) {

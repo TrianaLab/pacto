@@ -416,7 +416,9 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(cb).toBeEnabled(); // the demo carries embedded observed edges
     await cb.check();
     await page.getByRole('button', { name: /Compare revisions/ }).click();
-    // audit-log declares no dependency on payments-service — an observed-only shadow.
+    // audit-log declares no dependency on payments-service — an observed-only shadow,
+    // listed in the consumers fold under the one-line answer.
+    await page.getByTestId('changes-consumers').locator('summary').click();
     await expect(page.getByText('audit-log').first()).toBeVisible({ timeout: 20_000 });
   });
 
@@ -649,7 +651,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(next).toBeHidden();
     const auto = page.getByTestId('demo-tour-auto');
     await expect(auto).toBeVisible();
-    await expect(auto).toContainText('the tour moves on when you do it');
+    await expect(auto).toContainText('The tour moves on when you do it');
     // A tour that is waiting with no reason given is a wall, so the bubble says what for.
     await expect(page.getByTestId('demo-tour-bubble')).toContainText('Waiting for a search');
     // And it is genuinely waiting: an auto-advance that fires on the state the step opened

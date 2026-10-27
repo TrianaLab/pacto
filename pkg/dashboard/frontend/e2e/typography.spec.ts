@@ -56,16 +56,16 @@ test.describe('typography hierarchy on desktop', () => {
     assertRoleCoherence(all, 'desktop');
   });
 
-  test('a section title is the same size whether it is an h2 or an h3', async ({ page }) => {
+  test('a section title is the same size whether it is an h2 or a p', async ({ page }) => {
     test.setTimeout(SWEEP_TIMEOUT);
     // The narrow case, isolated so its failure message says what
     // broke rather than "one role, two sizes" from the sweep.
     //
     // The two genuinely coexist across the product: a Service page's sections are h2s
-    // directly under the page title, and the Change analysis stages are h3s -- nested
-    // one level deeper in the outline, because the workspace has a heading between them
-    // and the page, but peers of a Service section in the reading hierarchy. Under a
-    // tag-driven scale those two facts contradicted each other and the tag won.
+    // directly under the page title, and the graph's empty discovery state titles its
+    // placeholder with a p, which is no heading in the outline but reads as a section
+    // title. Under a tag-driven scale those two facts contradicted each other and the
+    // tag won.
     const k = await canonicalKeys(page);
     const e = encodeURIComponent;
 
@@ -84,18 +84,14 @@ test.describe('typography hierarchy on desktop', () => {
 
     await boot(page, `#/fleet/services/${e(k.service)}`);
     const onService = await read();
-    await boot(page, `#/fleet/changes/${e(k.service)}`);
-    await runAnalysis(page);
-    const onChanges = await read();
+    await boot(page, '#/fleet/graph');
+    const onDiscovery = await read();
 
-    const seen = { ...onService, ...onChanges };
-    expect(Object.keys(seen).length, `expected the section role on at least two element types, saw ${JSON.stringify(seen)}`)
-      .toBeGreaterThan(1);
     expect(onService.H2, `the Service page rendered no h2 in the section role: ${JSON.stringify(onService)}`).toBeDefined();
-    expect(onChanges.H3, `Change analysis rendered no h3 in the section role: ${JSON.stringify(onChanges)}`).toBeDefined();
+    expect(onDiscovery.P, `graph discovery rendered no p in the section role: ${JSON.stringify(onDiscovery)}`).toBeDefined();
 
-    expect(onChanges.H3.size, `h3 "${onChanges.H3.text}" vs h2 "${onService.H2.text}"`).toBe(onService.H2.size);
-    expect(onChanges.H3.weight, `h3 "${onChanges.H3.text}" vs h2 "${onService.H2.text}"`).toBe(onService.H2.weight);
+    expect(onDiscovery.P.size, `p "${onDiscovery.P.text}" vs h2 "${onService.H2.text}"`).toBe(onService.H2.size);
+    expect(onDiscovery.P.weight, `p "${onDiscovery.P.text}" vs h2 "${onService.H2.text}"`).toBe(onService.H2.weight);
   });
 
   test('the page title dominates on the densest entity page', async ({ page }) => {

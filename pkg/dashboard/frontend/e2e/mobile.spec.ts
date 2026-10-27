@@ -73,6 +73,8 @@ test.describe('typography hierarchy on mobile', () => {
       ['Revision detail', `#/fleet/revisions/${e(k.revision)}`],
       ['Target detail', `#/fleet/targets/${e(k.target)}`],
       ['Change analysis', `#/fleet/changes/${e(k.service)}`],
+      // Its placeholder title is a p in the section role, beside the h2 sections.
+      ['Graph discovery', '#/fleet/graph'],
     ];
 
     const all: RoleSample[] = [];
