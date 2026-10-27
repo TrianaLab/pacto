@@ -6,9 +6,9 @@ search:
 
 # Try it on Kubernetes
 
-Pacto delivery on a real Kubernetes cluster on your machine, following one
-service, payments, through its releases. It is for a platform engineer who
-wants to see every part working before trying their own service. The parts
+This demo runs Pacto delivery on a real Kubernetes cluster on your machine
+and follows one service, payments, through its releases. Use it to see every
+part working before you try your own service. The parts
 are real: the registry, Flux, delivery (which picks the version), the
 recorder (which signs a record of every step), a health check, the node
 agent (which sees calls between services), sign-in and the dashboard. The
@@ -16,8 +16,8 @@ services themselves, their traffic and the people signing in are made up
 (see [What is generated](#what-is-generated)). Its Stages start on fixed
 levels of the autonomy ladder: payments on autonomous in test and prod, the
 other services on autonomous in test and advise in prod, and fraud on
-observe. It does not play a Stage earning a proposal to move up a level:
-the [browser demo](dashboard-demo.md) does, with nothing to install.
+observe. To see a Stage earn a proposal to move up a level, use the
+[browser demo](dashboard-demo.md).
 
 ## Run it
 
@@ -43,7 +43,7 @@ make e2e-delivery-demo-down
 
 ## What you see
 
-It starts with one service not yet pactified. The guided path is five moments,
+The story starts with one service that has no contract yet. The guided path is five moments,
 in the order the story plays them:
 
 - **Pactify a service.** `pacto init --delivery` reads fraud's Dockerfile and
@@ -68,7 +68,7 @@ in the order the story plays them:
   records, and `pacto delivery record verify` checks them.
 
 Each step is checked against `examples/story`, the scenario every demo shares,
-and the demo stops loudly if the cluster does something else.
+and the demo stops with an error if the cluster does something else.
 
 ## Explore more
 
@@ -77,7 +77,7 @@ Open <http://127.0.0.1:3300> and sign in through Dex. Every password is
 
 - `carol@example.com` is on team orders, the team asked about payments 3.0.0.
 - `alice@example.com` is on team payments and is never asked.
-- `pay-agent@example.com` is an agent: it may look and propose, never approve.
+- `pay-agent@example.com` is an agent: it can look and propose. Only people approve.
 
 `make e2e-delivery-demo-browser` plays the rest in a browser, once per
 cluster, and checks it against `examples/story`:
@@ -106,7 +106,7 @@ the agent over remote MCP.
 
 `make e2e-delivery-demo-reach` adds a second cluster, prod-us. Its payments
 Stage follows prod in the first cluster through prod's signed records, and
-Argo CD applies what it promotes. The controllers never talk to each other:
+Argo CD applies what it promotes. Each controller works on its own:
 prod-us reads prod's signed records from the registry. In the demo that
 registry runs in the first cluster and prod-us reaches it through a NodePort.
 It takes the newest version prod verified and refuses 2.4.0 because it failed
@@ -123,8 +123,8 @@ unfreezes prod-eu. See
 The payments workload is a stand-in (podinfo). Its telemetry comes from a span
 generator in the cluster, and the call 2.4.2 makes to fraud comes from a sidecar
 in that version. pay-agent's eval runner is a stand-in that answers fixed
-counts and signs them with a key the demo makes. Sign-in uses the demo's own Dex and Keycloak, not a company
-login. When the record is deleted and restored, alice and ops do not sign in: they act through the admin
-credentials impersonating them, with a sign-in time the script makes up.
+counts and signs them with a key the demo makes. Sign-in uses the demo's own Dex and Keycloak. When the record is deleted and
+restored, alice and ops act through admin credentials that impersonate them,
+with a sign-in time the script makes up.
 
 To see the operational graph on its own, run `make e2e-operational-graph-up`.
