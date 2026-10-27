@@ -312,13 +312,18 @@ Whether kernel evidence is on: either switch turns it on.
 A container's image and pull policy, from an image block (registry,
 repository, tag, digest, pullPolicy): (dict "ctx" $ "image" .Values.image).
 The registry defaults to global.imageRegistry, and with neither set the
-repository is the whole reference. The tag defaults to the chart appVersion,
-and a digest pins the image as repository:tag@digest.
+repository is the whole reference. A repository that already starts with a
+registry host (a first path segment holding a "." or ":" or equal to
+"localhost", as values from before global.imageRegistry carry) is the whole
+reference too. The tag defaults to the chart appVersion, and a digest pins
+the image as repository:tag@digest.
 */}}
 {{- define "pacto-operator.image" -}}
 {{- $img := .image -}}
 {{- $ref := printf "%s:%s" $img.repository ($img.tag | default .ctx.Chart.AppVersion) -}}
-{{- with ($img.registry | default .ctx.Values.global.imageRegistry) }}{{ $ref = printf "%s/%s" . $ref }}{{ end -}}
+{{- $first := index (splitList "/" $img.repository) 0 -}}
+{{- $hasHost := and (contains "/" $img.repository) (or (contains "." $first) (contains ":" $first) (eq $first "localhost")) -}}
+{{- if not $hasHost }}{{ with ($img.registry | default .ctx.Values.global.imageRegistry) }}{{ $ref = printf "%s/%s" . $ref }}{{ end }}{{ end -}}
 {{- with $img.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
 image: {{ $ref | quote }}
 imagePullPolicy: {{ $img.pullPolicy }}

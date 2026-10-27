@@ -46,6 +46,21 @@ kubectl annotate $CRDS --overwrite \
 The `grep` matches only the operator CRDs. The delivery CRDs, group
 `delivery.pacto.trianalab.io`, were already part of the release.
 
+## Image values
+
+The chart builds each image from `global.imageRegistry` (default `ghcr.io`)
+and a `repository` without a registry, such as `trianalab/pacto/operator`.
+An image's own `registry` value replaces the global one for that image.
+
+Values from older charts set the whole reference in `image.repository` or
+`delivery.image.repository`, such as
+`ghcr.io/trianalab/pacto-operator/pacto-controller`. The chart keeps such a
+repository as the whole reference and adds no registry, so these values
+upgrade unchanged. The chart treats a repository as already carrying a
+registry host when its first path segment holds a `.` or `:` or is
+`localhost`. The [Helm reference](generated/helm-reference.md) lists every
+image value.
+
 ## Upgrading across a major version (CRD migration)
 
 Helm applies the new CRDs ahead of the new operator, so a major upgrade is

@@ -15,6 +15,8 @@ the global ones. The delivery pods take `delivery.podAnnotations` and
 longer carry the registry (`trianalab/pacto/operator`,
 `trianalab/pacto/delivery`). Set `image.registry` or
 `delivery.image.registry` for one image, `global.imageRegistry` for all, or
-`global.imageRegistry=""` to give each repository as a whole reference. The
+`global.imageRegistry=""` to give each repository as a whole reference. A
+repository that already starts with a registry host (`ghcr.io/...`,
+`localhost:5001/...`) stays the whole reference, so older values keep working. The
 top-level `podSecurityContext` and `securityContext`, and their `delivery.`
 counterparts, default to empty and fall back to the global ones.

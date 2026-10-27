@@ -64,6 +64,29 @@ tests:
           path: spec.template.spec.containers[0].image
           value: localhost:5001/pacto-operator/pacto-controller:9.9.9
 
+  - it: keeps a repository that already names its registry host as the whole reference
+    set:
+      image.repository: ghcr.io/trianalab/pacto-operator/pacto-controller
+      delivery.image.repository: localhost/pacto-delivery
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/trianalab/pacto-operator/pacto-controller:9.9.9
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: localhost/pacto-delivery:9.9.9
+        template: templates/delivery/deployment.yaml
+
+  - it: prefixes the registry to a repository without a host
+    set:
+      image.repository: myorg/pacto-operator
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/myorg/pacto-operator:9.9.9
+
   - it: gives every pod the global pull secrets before its own
     set:
       nodeAgent.enabled: true
