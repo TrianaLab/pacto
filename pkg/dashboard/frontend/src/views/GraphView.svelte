@@ -10,7 +10,7 @@
     canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
   } from '../lib/graphState.ts';
   import { cyEdgeId, neighborhoodToGraph, laneGraph, GROUP_PREFIX, LANE_CAP, GROUP_THRESHOLD as GROUP_LIMIT } from '../lib/neighborhoodGraph.ts';
-  import { abbreviateDigests, formatCount } from '../lib/format.ts';
+  import { abbreviateDigests, formatCount, countOf, statusTone } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -27,6 +27,7 @@
   import { kindLabelPlural } from '../lib/entityLabels.ts';
   import LimitationsList from '../components/LimitationsList.svelte';
   import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
 
   // The product Operational Graph. With no focus it shows a DISCOVERY state
   // (search only) and loads NO neighborhood and NO FleetSnapshot -- never a whole-fleet
@@ -248,6 +249,26 @@
         : 'This neighborhood is bounded and was truncated.'
   );
 
+  // The one question this page answers first: is anything wrong around this focus? Only
+  // confirmed problems count -- an entity whose status is an error tone, or a call seen at
+  // runtime that no contract declares. "Expected, not observed" is not a problem (it is not
+  // proof of non-use), so it stays on the canvas and out of this line.
+  const problems = $derived.by(() => {
+    if (!shown || carrying || neighborhoodIsEmpty(shown)) return null;
+    const failing = shown.nodes.filter((n) => n.ref?.kind !== 'source' && n.status && statusTone(n.status) === 'err').length;
+    const undeclared = shown.edges.filter((e) => e.relation !== 'runs' && e.difference === 'observed-not-expected').length;
+    return { failing, undeclared };
+  });
+  const answer = $derived.by(() => {
+    if (!problems) return '';
+    const parts = [
+      problems.failing ? `${countOf(problems.failing, 'entity', 'entities')} ${problems.failing === 1 ? 'breaks its' : 'break their'} contract` : '',
+      problems.undeclared ? countOf(problems.undeclared, 'undeclared call') : '',
+    ].filter(Boolean);
+    if (parts.length) return parts.join(' and ');
+    return knowledge?.incomplete ? 'Nothing wrong found here, but some data is missing' : 'Nothing wrong found here';
+  });
+
   const graphSummary = $derived(!shown ? '' : [
     `${formatCount(shown.nodes.length)} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${formatCount(shown.edges.length)} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
     withheldNodes ? `${withheldNodes} more within this depth are not shown.` : '',
@@ -332,7 +353,7 @@
        name once one is chosen. -->
   <PageHeader
     title="Operational graph"
-    subtitle={focused ? '' : 'The operational graph is search-first: pick one entity and see its local neighborhood render below. It never opens every service at once.'}
+    subtitle={focused ? '' : 'Pick one entity to see what it touches.'}
   >
     {#if focused}
       <div class="gv-focus">
@@ -380,30 +401,24 @@
             <line x1="30" y1="32" x2="66" y2="18" /><line x1="30" y1="32" x2="66" y2="46" /><line x1="66" y1="18" x2="96" y2="32" />
             <circle cx="30" cy="32" r="9" /><circle cx="66" cy="18" r="7" /><circle cx="66" cy="46" r="7" /><circle cx="96" cy="32" r="7" />
           </svg>
-          <p class="disco-ph-title t-section-title">Select a service, revision or operational target to render its local graph</p>
-          <p class="disco-ph-sub">Search above, or start from an entity that needs attention. The graph appears right here once you pick a focus.</p>
+          <p class="disco-ph-title t-section-title">Pick a service, revision or target</p>
+          <p class="disco-ph-sub">Its graph shows up here.</p>
         </div>
       {/if}
 
-      <div class="disco-panels">
-        <div class="disco-panel">
-          <h2>Start from what needs attention</h2>
-          <p>Jump straight into the graph focused on an operational problem.</p>
-          <a class="gv-link" href={fleetAttentionUrl()}>Open attention triage &rarr;</a>
-        </div>
-        <div class="disco-panel">
-          <h2>What the graph shows</h2>
-          <dl class="disco-legend">
-            {#each VIEW_DEFS as vd}
-              <dt><IdentityBadge label={vd.label} tone={vd.v === 'differences' ? 'warn' : (vd.v === 'observed' ? 'info' : 'ok')} /></dt>
-              <dd>{vd.help}</dd>
-            {/each}
-          </dl>
-        </div>
-      </div>
+      <!-- One line, not two panels: the way in from a problem, and the layer definitions
+           one (i) away instead of a card of prose the reader passes on every visit. -->
+      <p class="disco-more" data-testid="graph-discovery-more">
+        Or start from <a class="gv-link" href={fleetAttentionUrl()}>what needs attention</a>
+        <span class="disco-more-sep" aria-hidden="true">·</span>
+        What the graph shows <HelpTip label="the graph layers" text={VIEW_HELP} />
+      </p>
     </section>
   {:else}
     <!-- Focused neighborhood: an actual visual topology. -->
+    {#if answer}
+      <p class="gv-answer" class:has-problems={problems && (problems.failing || problems.undeclared)} data-testid="graph-answer">{answer}.</p>
+    {/if}
     <div class="workspace-controls is-row" role="group" aria-label="Graph controls">
       <div class="gv-ctl">
         <span class="gv-ctl-k">Perspective</span>
@@ -470,7 +485,16 @@
     {#if !shown && loading}
       <p class="gv-status" role="status">Loading the neighborhood...</p>
     {:else if !shown && error}
-      <div class="gv-error" role="alert">Couldn't load the neighborhood: {error instanceof Error ? error.message : String(error)}</div>
+      <!-- A focus that does not exist is not a failure to retry: say so and offer the way
+           back. Anything else is a load error with a Retry. -->
+      {#if error instanceof ApiError && error.status === 404}
+        <div class="gv-error-state" role="alert" data-testid="graph-not-found">
+          <h2>Nothing found for “{gs.key}”</h2>
+          <a class="btn" href={fleetGraphDiscoveryUrl()}>Search again</a>
+        </div>
+      {:else}
+        <EmptyState error title="Couldn’t load the graph" message={error instanceof Error ? error.message : String(error)} onRetry={() => loader.refresh()} />
+      {/if}
     {:else if shown}
       {#if loading}
         <p class="gv-status" role="status" data-testid="graph-refreshing">Refreshing the neighborhood...</p>
@@ -492,7 +516,7 @@
       {/if}
       {#if oneHopNote}
         <div class="gv-caveat tone-info" role="status" data-testid="graph-effective-depth">
-          The {gs.perspective} projection is evaluated one hop deep; deeper exploration lives in the revision projection.
+          The {gs.perspective} view is one hop deep. Use Revisions to go deeper.
         </div>
       {/if}
 
@@ -508,7 +532,7 @@
             <!-- Primary: the visual Cytoscape topology. -->
             {#if grouped?.groups.length}
               <div class="gv-caveat tone-info" role="status" data-testid="graph-grouped">
-                To keep {formatCount(shown.nodes.length)} entities readable, {formatCount(grouped.folded)} past the direct neighbors are grouped by team ({formatCount(grouped.groups.length)} group{grouped.groups.length === 1 ? '' : 's'}). Select a group on the graph, or here, to open it:
+                {formatCount(grouped.folded)} grouped by team ({countOf(grouped.groups.length, 'group')}). Open one:
                 <CappedList items={grouped.groups} max={6} row={true} label="Teams grouped on the graph">{#snippet item(g)}<button type="button" class="gv-more" data-testid="graph-open-group" title="{g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'} {sideWords(g)}" aria-label="Open {g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'} {sideWords(g)}" onclick={() => openGroup(g.id)}><span aria-hidden="true">{g.side === 'depends-on' ? '← ' : ''}</span>{g.owner} ({formatCount(g.count)})<span aria-hidden="true">{g.side === 'used-by' ? ' →' : ''}</span></button>{/snippet}</CappedList>
                 <button type="button" class="gv-more" data-testid="graph-show-every" onclick={() => { showEvery = true; }}>Show every entity</button>
               </div>
@@ -521,7 +545,7 @@
             {#if grouped?.more}
               <!-- The "+N more" node on the canvas is not keyboard reachable; these buttons do the same. -->
               <div class="gv-caveat tone-info" role="status" data-testid="graph-lane-cap">
-                Each side shows {LANE_CAP} direct neighbors first, the ones with the worst link or status.
+                Showing the {LANE_CAP} worst direct neighbors per side.
                 {#each grouped.more as m (m.id)}<button type="button" class="gv-more" data-testid="graph-open-more" onclick={() => openGroup(m.id)}>Show {formatCount(m.count)} more {m.side === 'depends-on' ? 'dependencies' : 'dependents'}</button>{/each}
               </div>
             {/if}
@@ -533,7 +557,11 @@
                  width + tone), never a decorative badge for a state the canvas can't show.
                  Because each entry names something the canvas draws, each entry can also
                  switch it off. The drawer/text list keeps the precise, scoped wording. -->
-            <div class="gv-legend" role="group" data-testid="graph-legend" aria-label="Graph legend and filters">
+            <!-- Folded: the canvas reads without it once learnt, and it is two rows of text
+                 on every visit. The summary still says when it is hiding something. -->
+            <details class="gv-legend-fold disclosure" data-testid="graph-legend">
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Legend and filters{#if hiddenKeys.length}<span class="t-meta"> · {formatCount(hiddenKeys.length)} hidden</span>{/if}</summary>
+            <div class="gv-legend" role="group" aria-label="Graph legend and filters">
               {#each LEGEND_GROUPS as grp (grp.title)}
                 <span class="lg-group">{grp.title}</span>
                 {#each grp.items as it (it.key)}
@@ -549,6 +577,7 @@
                 {/each}
               {/each}
             </div>
+            </details>
 
             <!-- Accessible text alternative: the same nodes and edges as
                  a semantic list, keyboard-focusable, driving the same drawer. The summary
@@ -596,23 +625,22 @@
           {/if}
 
           {#if (shown.unresolvedDependencies?.count ?? 0) > 0}
-            <section class="gv-unresolved" data-testid="graph-unresolved">
-              <h2>Unresolved dependencies ({formatCount(shown.unresolvedDependencies.total)})</h2>
-              <!-- The sentence once, not on every row: each is a declaration no provider
-                   in the fleet resolves. -->
-              <p class="t-body-2">Each is declared, and nothing Pacto knows provides it.</p>
+            <!-- A secondary list: a count that opens, not a block that pushes the page down. -->
+            <details class="gv-unresolved disclosure" data-testid="graph-unresolved">
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Unresolved dependencies</h2> <span class="gv-chip">{formatCount(shown.unresolvedDependencies.total)}</span></summary>
+              <p class="t-meta">Declared, but nothing Pacto knows provides it.</p>
               <CappedList items={shown.unresolvedDependencies.items} max={8} label="Unresolved dependencies" testid="graph-unresolved-list">
                 {#snippet item(u)}<EntityLink ref={u.from} showStatus={false} />{' '}declares <code>{u.requestedRef || u.ref}</code>{#if u.reason}{': '}{u.reason}{/if}{/snippet}
               </CappedList>
               {#if shown.unresolvedDependencies.truncated}<p class="t-meta">Showing {formatCount(shown.unresolvedDependencies.count)} of {formatCount(shown.unresolvedDependencies.total)}.</p>{/if}
-            </section>
+            </details>
           {/if}
 
           {#if (shown.limitations?.count ?? 0) > 0}
-            <section class="gv-limitations" data-testid="graph-limitations">
-              <h2>Limitations</h2>
+            <details class="gv-limitations disclosure" data-testid="graph-limitations">
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Limitations</h2> <span class="gv-chip">{formatCount(shown.limitations.total ?? shown.limitations.count)}</span></summary>
               <LimitationsList items={shown.limitations.items} />
-            </section>
+            </details>
           {/if}
         </div>
 
@@ -642,7 +670,7 @@
             <div class="gv-drawer-head"><h2>Relationship</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>
             <p class="gv-drow"><EntityLink ref={selected.edge.from} showStatus={false} /> <strong>{relationLabel(selected.edge.relation)}</strong> <EntityLink ref={selected.edge.to} showStatus={false} /></p>
             {#if selected.edge.relation === 'runs'}
-              <p class="gv-ddesc">This operational target runs the linked revision. It is an observed link at target scope, not a declared dependency.</p>
+              <p class="gv-ddesc">Seen running here. Not a declared dependency.</p>
             {:else}
               {#if selected.edge.difference}
                 <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(selected.edge.difference)} tone={differenceTone(selected.edge.difference)} /></p>
@@ -652,9 +680,8 @@
                 <p class="gv-ddesc" data-testid="edge-scope-caveat">{serviceScopedCaveat(gs.perspective)}</p>
               {/if}
               {#if (selected.edge.declaredClaims?.count ?? 0) > 0}
-                <div class="gv-claims">
-                  <span class="gv-k">Declared by</span>
-                  {#if selected.edge.declaredClaims.truncated}<span class="t-meta">{formatCount(selected.edge.declaredClaims.count)} of {formatCount(selected.edge.declaredClaims.total)}</span>{/if}
+                <details class="gv-claims disclosure">
+                  <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><span class="gv-k">Declared by</span> <span class="t-meta">{#if selected.edge.declaredClaims.truncated}{formatCount(selected.edge.declaredClaims.count)} of {formatCount(selected.edge.declaredClaims.total)}{:else}{formatCount(selected.edge.declaredClaims.count)}{/if}</span></summary>
                   <ul>
                     {#each selected.edge.declaredClaims.items.slice(0, claimsShown) as c, i (i)}
                       <!-- Through the shared abbreviator, like every other surface that
@@ -667,7 +694,7 @@
                   {#if selected.edge.declaredClaims.items.length > claimsShown}
                     <button type="button" class="btn btn-sm" onclick={() => { claimsShown = Infinity; }}>Show all {formatCount(selected.edge.declaredClaims.items.length)}</button>
                   {/if}
-                </div>
+                </details>
               {/if}
               {#if selected.edge.observed}
                 <p class="gv-drow"><span class="gv-k">Observed</span> {selected.edge.count || 0} calls{#if selected.edge.observationSources?.total} across {formatCount(selected.edge.observationSources.total)} source(s){/if}{#if selected.edge.stale}{' · '}stale window{/if}</p>
@@ -709,11 +736,21 @@
   .gv-more { border: 1px solid var(--c-warn-border); border-radius: var(--radius-xs); background: none; padding: 1px 8px; margin-left: 4px; font: inherit; color: inherit; cursor: pointer; transition: background var(--motion-feedback); }
   .gv-more:hover { background: var(--c-surface); }
   .gv-status { color: var(--c-text-3); }
+  .gv-error-state { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); padding: var(--sp-8) var(--sp-4); text-align: center; }
+  .gv-error-state h2 { margin: 0; color: var(--c-text-2); }
   .gv-error { padding: var(--sp-3); border-radius: var(--radius-sm); background: var(--c-err-bg); border: 1px solid var(--c-err); color: var(--c-text); }
 
   .gv-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); }
   .gv-main { display: flex; flex-direction: column; gap: var(--sp-4); }
 
+  .gv-answer { margin: 0 0 var(--sp-3); font-size: var(--text-md); color: var(--c-text-2); }
+  .gv-answer.has-problems { color: var(--c-err); font-weight: 600; }
+  .disco-more { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-3) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .disco-more-sep { color: var(--c-border); }
+  .gv-legend-fold { font-size: var(--text-sm); color: var(--c-text-2); }
+  .gv-legend-fold[open] .gv-legend { margin-top: var(--sp-2); }
+  .gv-fold-title { display: inline; margin: 0; font-size: inherit; font-weight: 600; font-family: inherit; }
+  .gv-chip { display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--c-text-2); background: var(--c-bg); }
   .gv-legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); font-size: var(--text-sm); color: var(--c-text-2); }
   /* A legend entry is a toggle, so it is a button -- reset to look like the text it
      replaced, and given a hit target and a focus ring like every other control. */
@@ -761,7 +798,7 @@
      section title dressed as a subsection, then un-dressed by hand. They sit directly
      under the page h1, so h2 is both the honest outline level and, via base.css, the
      section role. No override left to drift. */
-  .gv-unresolved h2, .gv-limitations h2 { margin: 0 0 var(--sp-2); }
+  .gv-unresolved[open] > summary, .gv-limitations[open] > summary { margin-bottom: var(--sp-2); }
   .gv-unresolved :global(ul) { margin: 0; padding-left: var(--sp-4); font-size: var(--text-sm); color: var(--c-text-2); display: flex; flex-direction: column; gap: 4px; }
 
   /* A bottom sheet on a narrow screen, so opening it never scrolls the page to where a
