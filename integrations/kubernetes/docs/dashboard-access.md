@@ -35,8 +35,11 @@ shows everything its ServiceAccount reads to anyone who reaches it.
 ## What the dashboard needs
 
 The operator's chart grants the dashboard's ServiceAccount create on
-`subjectaccessreviews`, and the operator holds it too while the dashboard is
-enabled, since Kubernetes lets it grant only what it has. A dashboard you run
-yourself with `pacto dashboard --oidc-issuer-url` needs the same right for the
-credentials it runs with. A remote `pacto mcp --fleet` with `--auth-issuer`
-does too.
+`subjectaccessreviews` and get, list and watch on delivery Stages and
+Operations, for the [shared cache](dashboard-authentication.md). The operator
+holds the same rights while the dashboard is enabled, since Kubernetes lets it
+grant only what it has. A dashboard you run yourself with
+`pacto dashboard --oidc-issuer-url` needs the same rights for the credentials
+it runs with; without the delivery reads, it reads delivery with each person's
+token. A remote `pacto mcp --fleet` with `--auth-issuer` needs create on
+`subjectaccessreviews`.
