@@ -155,8 +155,10 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	}
 
 	// ponytail: a limitation's subject is only in its prose, so any that mentions
-	// a hidden name goes, even where the match is a coincidence. Structured
-	// subjects on Limitation would make this exact.
+	// a hidden name goes, even where the match is a coincidence. It costs
+	// limitations x hidden names substring checks, once per snapshot and set of
+	// visible namespaces. Structured subjects on Limitation would make it exact
+	// and linear.
 	hiddenNames = append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...)
 	out.Limitations = slices.DeleteFunc(slices.Clone(s.Limitations), func(l Limitation) bool {
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
