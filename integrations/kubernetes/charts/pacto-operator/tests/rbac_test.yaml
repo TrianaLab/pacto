@@ -38,6 +38,26 @@ tests:
             resources: [subjectaccessreviews]
             verbs: [create]
 
+  - it: should let the operator grant the dashboard read-only Stages and Operations
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [stages, operations]
+            verbs: [get, list, watch]
+
+  - it: should not read Stages and Operations when the dashboard is disabled
+    set:
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [stages, operations]
+            verbs: [get, list, watch]
+
   - it: should not hold SubjectAccessReview when the dashboard is disabled
     set:
       dashboard.enabled: false

@@ -77,6 +77,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - delivery.pacto.trianalab.io
+  resources:
+  - operations
+  - stages
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - discovery.k8s.io
   resources:
   - endpointslices

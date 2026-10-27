@@ -139,21 +139,28 @@ func TestDeploymentAC_Auth(t *testing.T) {
 	}
 }
 
-// TestDashboardRoleGrantsNoDeliveryRight: sign-in passes each person's token
-// through, so the dashboard's own role never grows: nothing in the delivery
-// group and no impersonation. Its one write is asking the apiserver what a
-// signed-in person may read.
-func TestDashboardRoleGrantsNoDeliveryRight(t *testing.T) {
+// TestDashboardRoleReadsDeliveryOnly: every delivery action passes the
+// person's token through, so the dashboard's own role only reads Stages and
+// Operations, into its shared cache, and never impersonates. Its one write is
+// asking the apiserver what a signed-in person may read.
+func TestDashboardRoleReadsDeliveryOnly(t *testing.T) {
 	role := clusterRoleAC().(*rbacv1ac.ClusterRoleApplyConfiguration)
-	sar := false
+	sar, reads := false, false
 	for _, r := range role.Rules {
 		if slices.Equal(r.APIGroups, []string{"authorization.k8s.io"}) && slices.Equal(r.Resources, []string{"subjectaccessreviews"}) &&
 			slices.Equal(r.Verbs, []string{"create"}) {
 			sar = true
 			continue
 		}
+		if slices.Equal(r.APIGroups, []string{"delivery.pacto.trianalab.io"}) {
+			reads = slices.Equal(r.Resources, []string{"stages", "operations"}) && slices.Equal(r.Verbs, []string{"get", "list", "watch"})
+			if !reads {
+				t.Errorf("the dashboard role reaches delivery beyond reading Stages and Operations: %v %v", r.Resources, r.Verbs)
+			}
+			continue
+		}
 		for _, g := range r.APIGroups {
-			if g == "delivery.pacto.trianalab.io" || g == "*" {
+			if g == "*" {
 				t.Errorf("the dashboard role reaches %q", g)
 			}
 		}
@@ -165,6 +172,9 @@ func TestDashboardRoleGrantsNoDeliveryRight(t *testing.T) {
 	}
 	if !sar {
 		t.Error("the dashboard role cannot ask which namespaces a person may read")
+	}
+	if !reads {
+		t.Error("the dashboard role cannot fill its shared cache of Stages and Operations")
 	}
 }
 

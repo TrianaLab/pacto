@@ -103,6 +103,12 @@ rules:
   - apiGroups: [authorization.k8s.io]
     resources: [subjectaccessreviews]
     verbs: [create]
+  # The dashboard keeps one read-only copy of the delivery objects people
+  # read, filtered per person by the reviews above; it is granted in the
+  # dashboard's ClusterRole, so the operator holds it too.
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages, operations]
+    verbs: [get, list, watch]
   {{- end }}
   {{- if .Values.nodeAgent.enabled }}
   # Node agent, cluster-scoped half. Nodes get is the orphan prune: the objects
