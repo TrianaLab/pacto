@@ -148,7 +148,7 @@ func TestFinishReconciliation_SteadyDegradedIsSilent(t *testing.T) {
 	pacto.Status.ContractStatus = pactov1alpha1.ContractStatusNonCompliant
 	pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
 
-	if _, err := r.finishReconciliation(context.Background(), pacto, pactov1alpha1.ContractStatusNonCompliant); err != nil {
+	if _, err := r.finishReconciliation(context.Background(), pacto, &pactov1alpha1.PactoStatus{ContractStatus: pactov1alpha1.ContractStatusNonCompliant}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if events := drainEvents(rec); len(events) != 0 {
@@ -168,7 +168,7 @@ func TestFinishReconciliation_RecoveryEvent(t *testing.T) {
 	pacto.Status.ContractStatus = pactov1alpha1.ContractStatusCompliant
 	pacto.Status.Summary = &pactov1alpha1.Summary{}
 
-	if _, err := r.finishReconciliation(context.Background(), pacto, pactov1alpha1.ContractStatusNonCompliant); err != nil {
+	if _, err := r.finishReconciliation(context.Background(), pacto, &pactov1alpha1.PactoStatus{ContractStatus: pactov1alpha1.ContractStatusNonCompliant}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	events := drainEvents(rec)
@@ -188,7 +188,7 @@ func TestFailReconciliation_SteadyUnknownIsSilent(t *testing.T) {
 	r.Recorder = rec
 
 	_, err := r.failReconciliation(context.Background(), pacto, "registry unreachable", nil,
-		pactov1alpha1.ContractStatusUnknown, pactov1alpha1.ContractStatusUnknown)
+		&pactov1alpha1.PactoStatus{ContractStatus: pactov1alpha1.ContractStatusUnknown}, pactov1alpha1.ContractStatusUnknown)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestFailReconciliation_FirstFailureEmitsWarning(t *testing.T) {
 	r.Recorder = rec
 
 	_, err := r.failReconciliation(context.Background(), pacto, "bad bundle", nil,
-		pactov1alpha1.ContractStatusCompliant, pactov1alpha1.ContractStatusInvalid)
+		&pactov1alpha1.PactoStatus{ContractStatus: pactov1alpha1.ContractStatusCompliant}, pactov1alpha1.ContractStatusInvalid)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
