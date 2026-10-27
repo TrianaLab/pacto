@@ -111,10 +111,13 @@ that comparison before it concludes anything.
   cannot see enough, it holds the change and asks a person on the teams
   concerned.
 
-Two ideas came first. [ConfigHub](https://confighub.com) treats configuration
-as data in a database behind an API. Pacto stores only "which version runs
-where" that way. Anthropic's
-[Scion](https://www.anthropic.com/research/redesigning-source-control)
-addresses stored content by what it holds, moves a pointer with one compare-and-swap and
-tests after a change merges and before it deploys. The contract graph is
-ours, and all of it is open source under the MIT licence.
+Pacto builds on ideas from others. The [Flux](https://fluxcd.io/flux/concepts/)
+team pioneered Gitless GitOps in 2022: container registries hold desired
+state as OCI artifacts and controllers read it from there. On Flux, Pacto
+moves a version by writing its digest onto an OCIRepository.
+[ConfigHub](https://confighub.com) treats configuration as data in a database
+behind an API. Pacto stores only "which version runs where" that way.
+Anthropic's [Scion](https://www.anthropic.com/research/redesigning-source-control)
+addresses stored content by what it holds, moves a pointer with one
+compare-and-swap and tests after a change merges and before it deploys. The
+contract graph is ours, and all of it is open source under the MIT licence.

@@ -158,8 +158,11 @@ the [live demo](examples/dashboard-demo.md) in your browser.
 
 New words are explained in the [glossary](glossary.md).
 
-Pacto delivery builds on two ideas from others:
-[ConfigHub](https://confighub.com)'s configuration as data and Anthropic's
+Pacto delivery builds on ideas from others:
+[Flux](https://fluxcd.io/flux/concepts/)'s Gitless GitOps, which made the
+container registry the delivery source, [ConfigHub](https://confighub.com)'s
+configuration as data and Anthropic's
 [Scion](https://www.anthropic.com/research/redesigning-source-control).
+On Flux, Pacto moves a version by writing its digest onto an OCIRepository.
 The contract graph is ours, and all of Pacto is open source under the MIT
 licence.
