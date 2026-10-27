@@ -232,6 +232,8 @@ describe('environments', () => {
     expect(text(board as HTMLElement)).not.toMatch(/pause|kept by a person/i);
     // The count names services and environments, never one as the other.
     expect(text(target)).toContain('1 service, 2 environments');
+    // The page answers its question first: what failed or froze, and what waits.
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('1 frozen. 1 Stage waits for a person.');
     expect(text(board as HTMLElement)).toContain('1 waiting');
     expect(text(board as HTMLElement)).toContain('Cannot promote: CandidateUnverified');
     expect(text(board as HTMLElement)).toContain('Nothing yet');
@@ -372,7 +374,12 @@ describe('environments', () => {
     expect(board.classList.contains('ev-strip')).toBe(true);
     expect(board.style.minWidth).toBe('');
     expect([...board.querySelectorAll('thead .ev-group-head')].map((g) => g.textContent)).toEqual(['dev', 'test', 'prod', 'other']);
-    expect(text(target.querySelector('[data-testid="environments-legend"]') as HTMLElement)).toContain('One column per environment, grouped dev, test, prod and other.');
+    // How to read the strip is one (?) away, not a sentence on the page.
+    const legend = target.querySelector('[data-testid="environments-legend"]') as HTMLElement;
+    expect(text(legend)).not.toContain('One column per environment');
+    (legend.querySelector('button[aria-label="What is a dot?"]') as HTMLButtonElement).click();
+    flushSync();
+    expect(text(legend)).toContain('One column per environment, grouped dev, test, prod and other.');
     // Every dot column is named in the header, the full name in its title.
     const cols = [...board.querySelectorAll('[data-testid="env-column"]')] as HTMLElement[];
     expect(cols.map((c) => c.textContent)).toEqual(envs);

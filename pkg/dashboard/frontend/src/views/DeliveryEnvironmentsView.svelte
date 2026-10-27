@@ -16,6 +16,8 @@
   import ProposePanel from '../components/ProposePanel.svelte';
   import Select from '../components/Select.svelte';
   import ShowAll from '../components/ShowAll.svelte';
+  import DeliveryLead from '../components/DeliveryLead.svelte';
+  import HelpTip from '../components/HelpTip.svelte';
   import { cap } from '../lib/cap.svelte.ts';
 
   // Every service in every environment: the version it runs and whether that
@@ -109,6 +111,20 @@
   const serviceTotal = $derived(data?.page?.total ?? services.length);
   const observing = $derived(rows.filter((r) => r.level === 'observe' && r.shadow?.length && shown.includes(r.environment)));
   const observingCap = cap(5);
+  // The page's answer: what failed or froze, and what waits for a person, in
+  // the environments shown. The server counts services, not states, so a
+  // paged board says the count is this page's.
+  const live = $derived(rows.filter((r) => shown.includes(r.environment)));
+  const onPage = $derived((data?.page?.total ?? 0) > services.length);
+  const lead = $derived.by(() => {
+    const failed = live.filter((r) => r.failed).length;
+    const frozen = live.filter((r) => r.frozen).length;
+    const waiting = live.filter((r) => r.held > 0).length;
+    const bad = [failed && `${formatCount(failed)} failed`, frozen && `${formatCount(frozen)} frozen`].filter(Boolean);
+    const head = `${bad.length ? andList(bad) : 'Nothing failed or frozen'}${onPage ? '' : '.'}`;
+    const rest = `${onPage ? 'on this page.' : ''}${waiting ? ` ${countOf(waiting, 'Stage')} ${waiting === 1 ? 'waits' : 'wait'} for a person.` : ''}`.trim();
+    return { head, rest };
+  });
   const VERIFICATION = { Verified: 'Verified', Unverified: 'Not verified', AcceptedUnknown: 'A person accepted the unknown' };
 
   // The plan being looked at: one request at a time, opened in a row right
@@ -164,12 +180,16 @@
 <div class="product-page">
   <PageHeader
     title="Environments"
-    subtitle="Every service in every environment: the version it runs and whether that version is verified, failed, frozen or waiting. A Stage is one service in one environment."
     count={data ? `${countOf(serviceTotal, 'service')}, ${countOf(environments.length, 'environment')}` : ''}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
-  />
+  >
+    {#if data && rows.length}
+      <DeliveryLead head={lead.head} rest={lead.rest} tipLabel="Environments"
+        tip="Every service in every environment: the version it runs and whether it is verified, failed, frozen or waiting. A Stage is one service in one environment." />
+    {/if}
+  </PageHeader>
   <DeliveryNav current="delivery-environments" />
   <div class="ev-tools">
     <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v, environment, tier })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
@@ -201,7 +221,7 @@
         <div class="t-meta ev-legend ev-key" data-testid="environments-legend">
           {#each STATES as st (st.key)}<span><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span>{st.label}</span>{/each}
           <span><span class="ev-dot s-none" aria-hidden="true"></span>Not delivered</span>
-          <span>One column per environment, grouped {andList(groups.map((g) => g.tier || 'other'))}. Hover a dot for its version, click it for the rest.</span>
+          <HelpTip label="a dot" text={`One column per environment, grouped ${andList(groups.map((g) => g.tier || 'other'))}. Point at a dot or tab to it for its version, press it for the rest.`} />
         </div>
         <div class="ev-board">
           <table class="data-table ev-table ev-strip" data-testid="environments-board">
@@ -282,7 +302,7 @@
           </table>
         </div>
       {:else}
-        <p class="t-meta ev-legend" data-testid="environments-legend"><span class="ev-none" aria-hidden="true">–</span> not delivered in that environment. A version opens its history.</p>
+        <p class="t-meta ev-legend" data-testid="environments-legend"><span class="ev-none" aria-hidden="true">–</span> not delivered in that environment</p>
         <div class="ev-board">
           <table class="data-table ev-table" data-testid="environments-board" style:min-width={`calc(13rem + ${shown.length} * 12rem)`}>
             <caption class="visually-hidden">Services by environment</caption>
@@ -318,8 +338,10 @@
       <Pager page={data.page} {href} label="Pages of services" noun="services" testid="environments-pager" />
       {#if observing.length}
         <section class="ev-shadows" data-testid="shadow-summary" aria-labelledby="ev-shadows-title">
-          <h2 id="ev-shadows-title" class="t-section-title">What Pacto would have done <span class="t-meta">{countOf(observing.length, 'observing Stage')} on this page</span></h2>
-          <p class="t-body-2">These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It is advisory and unsigned: status, not a record. "Source reported at" is when GitOps' source showed the candidate, not when it rolled out.</p>
+          <div class="ev-shadows-head">
+            <h2 id="ev-shadows-title" class="t-section-title">What Pacto would have done <span class="t-meta">{countOf(observing.length, 'observing Stage')} on this page, advisory and unsigned</span></h2>
+            <HelpTip label="an observing Stage" text="These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It is status, not a record. Seen in source is when GitOps' source showed the candidate, not when it rolled out." />
+          </div>
           {#each observingCap.slice(observing) as r (r.namespace + '/' + r.stage)}
             <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
               <summary>
@@ -330,7 +352,7 @@
               <div class="ev-scroll">
                 <table class="ev-table">
                   <caption class="visually-hidden">What Pacto would have done with each candidate on {r.service} in {r.environment}, newest first</caption>
-                  <thead><tr><th scope="col">Candidate</th><th scope="col">On Autonomous, Pacto would have</th><th scope="col">Source reported at</th><th scope="col">Verification</th></tr></thead>
+                  <thead><tr><th scope="col">Candidate</th><th scope="col">Pacto would have</th><th scope="col">Seen in source</th><th scope="col">Verification</th></tr></thead>
                   <tbody>
                     {#each r.shadow as sh (sh.candidate + (sh.intentDigest ?? ''))}
                       <tr class:ev-attention={heldButRan(sh)} data-testid="shadow-row">
@@ -411,7 +433,8 @@
   .ev-detail .ev-ready { display: block; overflow: visible; }
   .ev-detail-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
   .ev-shadows { display: flex; flex-direction: column; gap: var(--sp-2); }
-  .ev-shadows > h2, .ev-shadows > p { margin: 0; }
+  .ev-shadows-head { display: flex; align-items: center; gap: var(--sp-2); }
+  .ev-shadows h2 { margin: 0; }
   .ev-shadow summary { display: flex; align-items: baseline; gap: var(--sp-2); cursor: pointer; }
   .ev-shadow-title { margin: 0; font-size: var(--text-sm); font-weight: 600; }
   .ev-shadow[open] > :not(summary) { margin-top: var(--sp-2); }
