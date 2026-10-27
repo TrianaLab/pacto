@@ -36,14 +36,15 @@ ownership metadata`. Label and annotate them for your release once, then run
 the upgrade. Change the release name and namespace if yours differ:
 
 ```bash
-CRDS=$(kubectl get crd -o name | grep -E '/[a-z]+\.pacto\.trianalab\.io$')
-kubectl label $CRDS app.kubernetes.io/managed-by=Helm --overwrite
-kubectl annotate $CRDS --overwrite \
-  meta.helm.sh/release-name=pacto-operator \
-  meta.helm.sh/release-namespace=pacto-operator-system
+for crd in $(kubectl get crd -o name | grep -E '/[a-z]+\.pacto\.trianalab\.io$'); do
+  kubectl label "$crd" app.kubernetes.io/managed-by=Helm --overwrite
+  kubectl annotate "$crd" --overwrite \
+    meta.helm.sh/release-name=pacto-operator \
+    meta.helm.sh/release-namespace=pacto-operator-system
+done
 ```
 
-The `grep` matches only the operator CRDs. The delivery CRDs, group
+The loop runs the same in bash and zsh. The `grep` matches only the operator CRDs. The delivery CRDs, group
 `delivery.pacto.trianalab.io`, were already part of the release.
 
 ## Image values
