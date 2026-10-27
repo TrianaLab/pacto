@@ -12,10 +12,10 @@ fields, blockers and commands.
 | `auto-nonbreaking` | `NON_BREAKING` changes only | Held for a person unless the change is `NON_BREAKING` |
 | `autonomous` | any plan that proceeds | Same floors as any promote |
 
-On every level the existing floors stay: an incompatible consumer asks its
-owners, Unknown holds for `accept-unknown`, `approval.always` asks a person and
-an automatic rollback that cannot run freezes the Stage. The level never
-rejects rollbacks or break-glass overrides.
+On every level the holds in
+[Why you were asked](pactify-decide.md#why-you-were-asked) stay, and an
+automatic rollback that cannot run freezes the Stage. The level never rejects
+rollbacks or [break-glass](glossary.md#break-glass) overrides.
 
 ## Stage fields
 
@@ -87,37 +87,33 @@ pacto delivery approve <operation>
 
 ## Step-down
 
-When a promote that shipped with no person on an automatic level (raised by the
-promoter or an agent, with no approval) has a confirmed Fail (whether it is
-then rolled back or the Stage freezes), the controller raises a `delivery.pacto.trianalab.io/autonomy` operation that
-lowers the Stage one level (never below `advise`). It needs no approval and
-concludes like any other operation. The proposal window starts again. Unknown
-never steps a Stage down.
+The [step-down](autonomy.md#step-down-one-failure-costs-one-level) is a
+`delivery.pacto.trianalab.io/autonomy` operation the controller raises when a
+promote with no approval (raised by the promoter or an agent) has a confirmed
+Fail on an automatic level. It lowers the Stage one level, never below
+`advise`, needs no approval and restarts the proposal window.
 
 ## Leaving observe
 
-The swap that moves `observe` → `advise` also sets `status.pointer` to the
-observed digest, so Pacto owns exactly what was running. Before approving it:
+The raise from `observe` to `advise` also sets `status.pointer` to the
+observed digest, so Pacto owns exactly what was running. It needs two things
+in place first, as [Ship the next version](pactify.md#5-ship-the-next-version)
+does step by step:
 
-1. Remove the version field from the git manifest. Flux reapplies `spec.ref`
-   from git. For Argo CD, add `ignoreDifferences` on
-   `/spec/source/targetRevision` with `RespectIgnoreDifferences=true`.
-2. Label the applyRef `delivery.pacto.trianalab.io/apply-ref=<stage name>`. From then on,
-   admission lets only the promoter and break-glass change the version.
+| Applier | Version field git must stop setting |
+|---|---|
+| Flux `OCIRepository` | `spec.ref`, removed from the git manifest |
+| Argo CD `Application` | `/spec/source/targetRevision`, under `ignoreDifferences` with `RespectIgnoreDifferences=true` |
+
+The applyRef carries the label `delivery.pacto.trianalab.io/apply-ref=<stage name>`. From then on,
+admission lets only the promoter and break-glass change the version.
 
 ## Records
 
 A `delivery.pacto.trianalab.io/autonomy` operation is signed like any other when the recorder is
 on. The record carries the Stage policy, the approver, the `pacto.autonomy`
-verdict with the evidence it cited, and `outcome.level` (`{from, to}`). Check it
-without Pacto:
-
-```bash
-cosign verify-blob-attestation --bundle record.json ...   # prints Verified OK
-jq -r .dsseEnvelope.payload record.json | base64 -d | jq .predicate.outcome.level
-```
-
+verdict with the evidence it cited, and `outcome.level` (`{from, to}`).
 [Check one record without Pacto](verify-a-record.md#check-one-record-without-pacto)
-gives the full commands.
+gives the commands; read `.predicate.outcome.level` from the payload.
 
 Shadow entries are status, not records.
