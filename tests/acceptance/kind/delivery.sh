@@ -303,7 +303,9 @@ infra "download the Flux $FLUX_VERSION install manifest" \
 for img in "${FLUX_IMAGES[@]}" "$PAUSE_IMG"; do pull_pinned "$img"; done
 FLUX_IMAGES=("${FLUX_IMAGES[@]%@*}")
 EXTRA_IMAGES=()
-phase_runs health && for img in "$MIRA_IMG" "$AGNHOST"; do pull_pinned "$img"; EXTRA_IMAGES+=("${img%@*}"); done
+phase_runs health && { pull_pinned "$MIRA_IMG"; EXTRA_IMAGES+=("${MIRA_IMG%@*}"); }
+# The ladder's uncontracted caller runs agnhost too.
+{ phase_runs health || phase_runs ladder; } && { pull_pinned "$AGNHOST"; EXTRA_IMAGES+=("${AGNHOST%@*}"); }
 MIRA_IMG="${MIRA_IMG%@*}" AGNHOST="${AGNHOST%@*}" PAUSE_IMG="${PAUSE_IMG%@*}"
 phase_runs identity && for img in "$DEX_IMG" "$KC_IMG"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
 PACTO="$(build_pacto)"
