@@ -81,7 +81,7 @@ command starts in its own cgroup `pacto-run-<pid>` and an eBPF program sees
 every listener and every connection attempt of the command and its children,
 failures included. Findings cite the collector `pacto-run+ebpf`. In a container
 this needs `--privileged` and its own cgroup namespace. If the program loads but
-the kernel will not start the command in that cgroup, Pacto says so and falls
+the kernel refuses to start the command in that cgroup, Pacto says so and falls
 back to the mode below.
 
 **Without privileges**, Pacto falls back to reading the command's sockets from

@@ -40,7 +40,7 @@ has the full guide.
 
 ## What Pacto watches
 
-Pacto answers three questions about each service, and nothing more:
+Pacto answers three questions about each service:
 
 - **Who listens?** Which TCP ports the service has open for callers.
 - **Who connects?** Which addresses the service dials.
@@ -52,12 +52,11 @@ connection as a peer address and port, with counts and timestamps.
 
 The watching is done with *eBPF*: a small program the Linux kernel runs safely
 each time a TCP connection changes state. It sees connections open, close and
-fail, not the requests sent over them.
+fail. It does not see the requests sent over them.
 
 ## Kept, broken or don't know
 
-Every runtime check ends in one of three answers, and Pacto never guesses
-between them:
+Every runtime check ends in one of three answers:
 
 | Answer | Contract status | Example |
 | --- | --- | --- |
@@ -68,7 +67,7 @@ between them:
 Silence is never a violation. If Pacto cannot see, it says "don't know" and
 names why (for example `EVIDENCE_STALE` or `COLLECTION_FAILED`). A negative must
 also last for a *stabilization window* (two minutes by default) before it is
-reported, so a service that is still starting is not called broken.
+reported, so a service has time to start before Pacto reports it broken.
 
 ## Three ways to run it
 
@@ -115,7 +114,7 @@ read, and a failed connection never, so a dependency is reported reachable or
 ## What stays unverified off Kubernetes
 
 On Kubernetes the operator also reads the cluster API, which knows things the
-network alone cannot show. On a plain host nobody reports them:
+network alone cannot show. On a plain host these fields stay unverified:
 
 | Contract field | On Kubernetes | Elsewhere |
 | --- | --- | --- |
