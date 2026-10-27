@@ -682,8 +682,10 @@ test.describe('WASM dashboard demo — workflows', () => {
     await chooseRevision(page, '#impact-old-rev', '1.0.0');
     await expect(stepNo).toHaveText('5 / 8', { timeout: 20_000 });
     await page.getByRole('button', { name: /Compare revisions/ }).click();
-    const diff = page.getByTestId('changes-what-changed');
+    // The answer leads the page, and the tour lights it; the diff folds below it.
+    const diff = page.getByTestId('changes-answer');
     await expect(diff).toContainText(/Breaking/i, { timeout: 20_000 });
+    await expect.poll(() => spotlightEncloses(page, '[data-testid="changes-answer"]'), { timeout: 20_000 }).toBe(true);
 
     // The tour saw it happen -- nothing below is a button pressed to report the action.
     await expect(page.locator('#pacto-tour-hint')).toHaveText('Done — that is the answer. Read it, then press Continue.', { timeout: 20_000 });
@@ -900,7 +902,7 @@ test.describe('WASM dashboard demo — workflows', () => {
       (window as unknown as { __tourLog: string[] }).__tourLog = log;
       new MutationObserver(() => {
         const step = document.querySelector('[data-testid="demo-tour-step"]')?.textContent ?? '';
-        const diff = !!document.querySelector('[data-testid="changes-what-changed"]');
+        const diff = !!document.querySelector('[data-testid="changes-answer"]');
         const s = `${step}|${diff}`;
         if (step && log[log.length - 1] !== s) log.push(s);
       }).observe(document, { subtree: true, childList: true, characterData: true });

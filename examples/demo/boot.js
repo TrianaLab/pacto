@@ -176,10 +176,10 @@
       // The button, then the comparison it produced: this is the step the whole tour is
       // for, and leaving the light on the form while the bubble says to read the verdict
       // points at the wrong half of the screen.
-      target: ['#sec-revisions button[type=submit]', '[data-testid="changes-what-changed"]'],
+      target: ['#sec-revisions button[type=submit]', '[data-testid="changes-answer"]'],
       wait: "Waiting for the comparison to run.",
       hold: true,
-      gate: function () { return !!q('[data-testid="changes-what-changed"]'); },
+      gate: function () { return !!q('[data-testid="changes-answer"]'); },
       skip: function () {
         var f = q("#sec-revisions");
         if (f) { f.requestSubmit(); }
