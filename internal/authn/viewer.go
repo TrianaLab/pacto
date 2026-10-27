@@ -130,15 +130,21 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 	}
 	key := strings.Join(visible, "\x00")
 	v.mu.Lock()
-	defer v.mu.Unlock()
+	r, ok := v.views[key]
+	ok = ok && v.viewsOf == q.SnapshotID()
+	v.mu.Unlock()
+	if ok {
+		return r, nil
+	}
+	// Restricting a large snapshot takes a while, so it runs unlocked: two
+	// people asking at once may both build the same view.
+	r = q.Restrict(func(ns string) bool { _, ok := slices.BinarySearch(visible, ns); return ok })
+	v.mu.Lock()
 	if v.viewsOf != q.SnapshotID() || len(v.views) >= maxViews {
 		v.viewsOf, v.views = q.SnapshotID(), map[string]*fleet.Query{}
 	}
-	if r, ok := v.views[key]; ok {
-		return r, nil
-	}
-	r := q.Restrict(func(ns string) bool { _, ok := slices.BinarySearch(visible, ns); return ok })
 	v.views[key] = r
+	v.mu.Unlock()
 	return r, nil
 }
 
