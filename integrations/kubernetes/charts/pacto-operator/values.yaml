@@ -572,6 +572,8 @@ delivery:
         secretName: ""
         # -- The key in that Secret
         key: key.pem
+        # -- Generate that Secret at install, with a new Ed25519 key kept across upgrades (for evaluation)
+        generate: false
       # -- Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so
       # it can read this key too and the recorder is not its only holder. The chart refuses
       # `ed25519.secretName` unless this is true. Prefer KMS or keyless signing
@@ -686,3 +688,13 @@ delivery:
   tolerations: []
   # -- Affinity for the promoter pod
   affinity: {}
+
+# Optional bundled dependencies for an evaluation install, both off by default.
+# values-quickstart.yaml turns them on and wires them. Every other key under
+# `zot` and `dex` passes through to the upstream chart.
+zot:
+  # -- Install [zot](https://zotregistry.dev) from its official chart as an in-cluster OCI registry with native referrers. Its values are the upstream chart's
+  enabled: false
+dex:
+  # -- Install [Dex](https://dexidp.io) from its official chart as the dashboard's OpenID Connect issuer. The chart then generates the dashboard's client secret into the Secret `dashboard.auth.oidc.clientSecretRef.name` names, with the keys `client-secret`, `admin-password` and `admin-password-hash`, and keeps it across upgrades. Its values are the upstream chart's
+  enabled: false

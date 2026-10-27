@@ -300,6 +300,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.recorder.serviceAccount.create | bool | `true` | Create a ServiceAccount for the recorder |
 | delivery.recorder.serviceAccount.name | string | `""` | Name override (defaults to `<fullname>-delivery-recorder`) |
 | delivery.recorder.signing.allowOperatorReadableKey | bool | `false` | Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so it can read this key too and the recorder is not its only holder. The chart refuses `ed25519.secretName` unless this is true. Prefer KMS or keyless signing |
+| delivery.recorder.signing.ed25519.generate | bool | `false` | Generate that Secret at install, with a new Ed25519 key kept across upgrades (for evaluation) |
 | delivery.recorder.signing.ed25519.key | string | `"key.pem"` | The key in that Secret |
 | delivery.recorder.signing.ed25519.secretName | string | `""` | A Secret holding a PKCS#8 PEM Ed25519 private key (for kind and tests) |
 | delivery.recorder.signing.keyless.enabled | bool | `false` | Sign keyless with a Fulcio certificate for the recorder's workload identity, presented as a projected service account token for the `sigstore` audience. Rekor upload is off; a timestamp authority dates each signature. |
@@ -321,6 +322,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.serviceAccount.create | bool | `true` | Create a ServiceAccount for the promoter |
 | delivery.serviceAccount.name | string | `""` | Name override (defaults to `<fullname>-delivery`) |
 | delivery.tolerations | list | `[]` | Tolerations for the promoter pod |
+| dex.enabled | bool | `false` | Install [Dex](https://dexidp.io) from its official chart as the dashboard's OpenID Connect issuer. The chart then generates the dashboard's client secret into the Secret `dashboard.auth.oidc.clientSecretRef.name` names, with the keys `client-secret`, `admin-password` and `admin-password-hash`, and keeps it across upgrades. Its values are the upstream chart's |
 | evidence.enabled | bool | `false` | Enable the operator-managed Evidence Server deployment. Disabled by default. When enabled the operator reconciles a SEPARATE Evidence Server Deployment and an internal Service; the image is the same runtime image as the dashboard and is not user-configurable. The Evidence Server is single- writer, so its replica count is fixed at one. |
 | evidence.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the Evidence Server. |
 | evidence.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute. |
@@ -388,6 +390,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | serviceAccount.create | bool | `true` | Create a ServiceAccount for the controller |
 | serviceAccount.name | string | `""` | Name override (defaults to fullname) |
 | tolerations | list | `[]` | Tolerations for the controller pod |
+| zot.enabled | bool | `false` | Install [zot](https://zotregistry.dev) from its official chart as an in-cluster OCI registry with native referrers. Its values are the upstream chart's |
 
 ## Maintainers
 
