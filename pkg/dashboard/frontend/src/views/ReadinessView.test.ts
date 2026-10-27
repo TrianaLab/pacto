@@ -91,6 +91,12 @@ describe('ReadinessView — shared filters + category breakdown', () => {
     expect(text).toContain('Not Ready'); // billing bucket (score 40 < 50)
     unmount(component);
   });
+
+  it('answers how many are ready before any chart', () => {
+    const component = mount(ReadinessView, { target, props: { services } });
+    expect(target.querySelector('[data-testid="readiness-answer"]')?.textContent).toBe('1 of 2 ready, 1 not yet.');
+    unmount(component);
+  });
 });
 
 describe('ReadinessView — paging', () => {

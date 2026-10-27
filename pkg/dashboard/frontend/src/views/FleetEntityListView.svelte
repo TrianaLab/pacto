@@ -185,7 +185,7 @@
         {#if isRevisions}
           <DistributionBar
             title="Contract revision readiness"
-            description="Declared preparedness of each revision, judged against the threshold that revision set for itself. This is not compliance: a passing revision can still be running on a target observed to violate its contract."
+            description="Each revision against its own threshold. This is not compliance: a passing revision can still run on a target that breaks its contract."
             {scopeNote}
             segments={readinessOfMatch}
             total={matched}

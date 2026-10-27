@@ -26,6 +26,7 @@
   import PriorityQuadrant from '../components/PriorityQuadrant.svelte';
   import ReadinessHeatmap from '../components/ReadinessHeatmap.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import HelpTip from '../components/HelpTip.svelte';
   import ReadinessScore from '../components/ReadinessScore.svelte';
   import CategoryIcon from '../components/CategoryIcon.svelte';
   import SortControls from '../components/SortControls.svelte';
@@ -127,6 +128,17 @@
     return total > 0 ? Math.round((weight * 100) / total) : 0;
   }
 
+  // The page's one question, answered before any chart: how many are ready, and how many
+  // are not. Not configured is said apart, because "no gate" is not "not ready".
+  const answer = $derived.by(() => {
+    const total = filtered.length;
+    if (!total || !summary.configured) return '';
+    const ready = summary.ready || 0;
+    const notReady = (summary.notReady || 0) + (summary.partial || 0);
+    return `${formatCount(ready)} of ${formatCount(total)} ready${notReady ? `, ${formatCount(notReady)} not yet` : ''}${summary.notConfigured ? `, ${formatCount(summary.notConfigured)} with no gate` : ''}.`;
+  });
+  const STATUS_HELP = 'Ready: gate met. Partial: score of 50% or more. Not Ready: score under 50%. Not configured: no readiness block.';
+
   const SORT_OPTIONS = [
     { value: 'score', label: 'Score' },
     { value: 'done', label: 'Done checks' },
@@ -149,13 +161,12 @@
   />
 {:else}
   <!-- Shared filter + summary: both react to the active filters. -->
+  {#if answer}<p class="rv-answer" data-testid="readiness-answer">{answer}</p>{/if}
   <FilterBar {services} />
   <SummaryBar services={filtered} />
 
   {#if summary.configured === 0}
-    <p class="empty-hint">
-      No service declares a <code>readiness</code> block yet — all are shown as <em>Not configured</em>.
-    </p>
+    <p class="empty-hint">No <code>readiness</code> block declared yet.</p>
   {:else}
     <div class="charts-container fade-in-up">
       <!-- Focal pair: Where we stand + What to fix first -->
@@ -204,12 +215,6 @@
   {#if rows.length === 0}
     <EmptyState title="No matching services" message="Try a different search or filter." />
   {:else}
-    <p class="readiness-legend">
-      <span class="rl-key"><span class="rl-swatch score-ok"></span>Ready = gate met</span>
-      <span class="rl-key"><span class="rl-swatch score-warn"></span>Partial = score ≥ 50%</span>
-      <span class="rl-key"><span class="rl-swatch score-err"></span>Not Ready = score &lt; 50%</span>
-      <span class="rl-key"><span class="rl-swatch score-none"></span>Not configured = no readiness block</span>
-    </p>
     <div class="table-wrap fade-in-up">
       <table class="readiness-list">
         <colgroup>
@@ -225,7 +230,7 @@
             <th><button type="button" class="col-sort" onclick={() => setSort('name')}>Service{sortIcon('name')}</button></th>
             <th><button type="button" class="col-sort" onclick={() => setSort('owner')}>Owner{sortIcon('owner')}</button></th>
             <th><button type="button" class="col-sort" data-tip="Derived readiness score (0–100%)" onclick={() => setSort('score')}>Score{sortIcon('score')}</button></th>
-            <th data-tip="Ready = gate met · Partial = score ≥ 50% · Not Ready = score < 50% · Not configured = no readiness block">Status</th>
+            <th>Status <HelpTip label="the readiness status" text={STATUS_HELP} /></th>
             <th data-tip="Checks marked done / total declared checks"><button type="button" class="col-sort" onclick={() => setSort('done')}>Checks{sortIcon('done')}</button></th>
             <th data-tip="When the overall assessment expires">Expiry</th>
           </tr>
@@ -350,6 +355,7 @@
     margin-bottom: var(--sp-5); flex-wrap: wrap;
   }
 
+  .rv-answer { margin: 0 0 var(--sp-4); font-size: var(--text-md); color: var(--c-text); }
   .empty-hint {
     font-size: var(--text-sm); color: var(--c-text-3);
     margin: 0 0 var(--sp-4);
@@ -457,18 +463,6 @@
   .text-ok { color: var(--c-ok); }
   .text-warn { color: var(--c-warn); }
   .text-err { color: var(--c-err); }
-
-  .readiness-legend {
-    display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4);
-    margin-bottom: var(--sp-3);
-    font-size: var(--text-xs); color: var(--c-text-3);
-  }
-  .rl-key { display: inline-flex; align-items: center; gap: 6px; }
-  .rl-swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
-  .rl-swatch.score-ok { background: var(--c-ok); }
-  .rl-swatch.score-warn { background: var(--c-warn); }
-  .rl-swatch.score-err { background: var(--c-err); }
-  .rl-swatch.score-none { background: var(--c-neutral); }
 
   /* ── Expandable rows ── */
   .expand-icon {
