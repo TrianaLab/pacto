@@ -8,6 +8,7 @@ Nothing is faked between the handler and the apiserver.
 | test | where | build tag |
 |---|---|---|
 | `TestPerfEnvtest` (dashboard) | `internal/cli/perf_envtest_test.go` | `perfenvtest` |
+| `TestSharedReadsRBACIsolation` (dashboard) | `internal/cli/shared_envtest_test.go` | `perfenvtest` |
 | `TestPerfPromoter` (promoter) | `integrations/kubernetes/internal/delivery/perf_envtest_test.go` | `perfenvtest` |
 
 ## Run it
@@ -42,9 +43,15 @@ The full dashboard run takes about 12 minutes; the promoter about 2.
   all of them. 49 more auditors make the concurrent runs 50 distinct people,
   whom no per-person cache helps.
 - The dashboard runs as `pacto dashboard` does in shared mode (its own
-  `dashboardIdentity`, `dashDelivery`, the RBAC viewer with
-  SubjectAccessReview) on loopback; only the OIDC session is replaced by the
-  bearer token.
+  `dashboardIdentity`, `dashDelivery`, the shared cache of Stages and
+  Operations, the RBAC viewer with SubjectAccessReview) on loopback, with its
+  own identity holding the rights the operator grants its ServiceAccount; only
+  the OIDC session is replaced by the bearer token.
+
+`TestSharedReadsRBACIsolation` checks on a real apiserver that the shared cache
+shows a person only the namespaces their RBAC allows, that a token is the
+person the apiserver says it is (whatever its claims say), that the cache
+answered every read, and that a removed RoleBinding hides its namespace.
 
 Each view is warmed once (the cold column), then served from 1, 10 and 50
 callers. Apiserver requests are counted beneath the dashboard's own cache, so
@@ -56,13 +63,38 @@ process (dashboard and test client).
 The tests fail when a request fails, when the auditors' apiserver requests per
 dashboard request exceed the budget, or when the p95 at 10 callers does; the
 promoter when a promote costs more than 25 apiserver requests or the burst of
-200 takes longer than 4 minutes. The budgets are about twice the numbers
-below, which a heavily loaded laptop measured.
+200 takes longer than 4 minutes. The budgets are about twice the apiserver
+counts and five times the latencies below, which a heavily loaded laptop
+measured.
+
+## The shared cache
+
+Full size, the same laptop and load for both columns. Before reads every list
+with each person's token (the fixes below); after reads Stages and Operations
+from the dashboard's shared cache, filtered per person with a
+SubjectAccessReview kept 10 seconds.
+
+| view | who | callers | p50 before | p50 after | p95 before | p95 after | apiserver req/request before | after | allocations per request before | after |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| inbox | 1 auditor | 1 | 462ms | 85ms | 506ms | 92ms | 4.0 | 3.2 | 2.7M | 472k |
+| inbox | 10 auditors | 10 | 1.1s | 164ms | 1.1s | 195ms | 2.9 | 2.0 | 2.7M | 471k |
+| inbox | 50 auditors | 50 | 11.6s | 821ms | 13.3s | 1.0s | 3.7 | 3.2 | 2.7M | 472k |
+| environments | 10 auditors | 10 | 858ms | 156ms | 917ms | 164ms | 2.8 | 0.5 | 2.7M | 468k |
+| environments | 50 auditors | 50 | 9.7s | 659ms | 12.4s | 783ms | 3.6 | 0.8 | 2.7M | 468k |
+| history, all Stages | 10 auditors | 10 | 1.4s | 220ms | 1.4s | 231ms | 41.4 | 1.0 | 3.3M | 668k |
+| history, all Stages | 50 auditors | 50 | 12.3s | 1.0s | 14.7s | 1.1s | 44.7 | 1.6 | 3.3M | 668k |
+| history, hot Stage | 50 auditors | 50 | 1.4s | 128ms | 1.6s | 177ms | 1.6 | 0.0 | 512k | 73k |
+| inbox | bob | 1 | 40ms | 9ms | 44ms | 17ms | 1.0 | 0.0 | 1.9M | 332k |
+
+The apiserver requests left are each new person's first questions: who their
+token is, the published identity policy and whether they may list Stages and
+Operations everywhere. The cache itself costs one list and one watch of each
+kind for the life of the dashboard.
 
 ## Before and after
 
-Full size (2,000 Stages, 10,000 Operations). Before is the branch point;
-after is this branch.
+Full size (2,000 Stages, 10,000 Operations), before the shared cache. Before
+is without the fixes below; after is with them.
 
 | view | who | callers | p50 before | p50 after | p95 before | p95 after | apiserver req/request before | after |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
@@ -148,16 +180,6 @@ Each was found here, and its effect is in the table above.
 
 ## What is left
 
-- **Fifty distinct people at once is still slow** (34s for the inbox at full
-  size). Every person still lists every Stage they may read with their own
-  token. The fix that scales is an informer-backed cache of Stages and
-  Operations with a SubjectAccessReview per person and namespace for reads,
-  but it reads delivery with the dashboard's own credentials, which the
-  dashboard deliberately never does today; that is a design decision, not a
-  patch.
-- **History, all Stages still reads each Stage on the page again** (25 GETs)
-  although the view just listed them. Passing the listed Stage to the history
-  read would drop it to 2 lists and 25 small selected lists.
 - **The promoter's idle polling eats its whole rate budget.** Every Stage is
   reconciled every 3s and reads its OCIRepositories and Kustomization from the
   apiserver (controller-runtime does not cache unstructured objects by

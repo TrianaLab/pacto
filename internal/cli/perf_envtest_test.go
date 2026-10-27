@@ -656,7 +656,8 @@ func perfTable(rs []perfResult) string {
 }
 
 // perfBudget is a regression tripwire, generous on purpose: about twice the
-// numbers in tests/perf/README.md, which a loaded laptop measured. The
+// apiserver counts and five times the latencies in tests/perf/README.md,
+// which a loaded laptop measured, as its load moves latency that much. The
 // apiserver count is checked on the auditors' rows, fifty distinct people
 // whom no per-person cache helps, so it is the same on any machine; the p95
 // at 10 callers, at both sizes.
@@ -666,11 +667,11 @@ type perfBudget struct {
 }
 
 var perfBudgetTable = map[string]perfBudget{
-	"inbox":               {8, 15 * time.Second},
-	"environments":        {8, 15 * time.Second},
-	"environments?env&q":  {8, 15 * time.Second},
-	"history (all)":       {60, 20 * time.Second},
-	"history (hot Stage)": {4, 5 * time.Second},
+	"inbox":               {6, time.Second},
+	"environments":        {2, time.Second},
+	"environments?env&q":  {2, time.Second},
+	"history (all)":       {10, 1500 * time.Millisecond},
+	"history (hot Stage)": {1, 500 * time.Millisecond},
 	"published":           {3, 8 * time.Second},
 	"autonomy":            {4, 8 * time.Second},
 	"fleet overview":      {2, 2 * time.Second},
