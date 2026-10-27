@@ -1081,6 +1081,9 @@ func (d *demoDelivery) Describe(_ context.Context, st *delivery.StageObject, dig
 // 2.4.3 removes a field, so the version rule asks for a major. The
 // classification is pkg/diff over the two story contracts; the refusal
 // itself is fixed data, and nothing here signed or checked it.
+// Can: the demo's people may do whatever their class allows.
+func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error) { return true, nil }
+
 func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.PublishRefusals, error) {
 	base, _ := story.Bundle("payments", "2.4.2")
 	tried, _ := story.Bundle("payments", "2.4.3")

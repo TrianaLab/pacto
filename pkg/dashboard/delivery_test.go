@@ -59,6 +59,14 @@ type fakeDelivery struct {
 	undoErr     error
 	refusals    *PublishRefusals
 	refusalsErr error
+	// cannot holds "verb resource namespace" the caller's RBAC refuses;
+	// canErr fails every access review.
+	cannot map[string]bool
+	canErr error
+}
+
+func (f *fakeDelivery) Can(_ context.Context, verb, resource, ns string) (bool, error) {
+	return !f.cannot[verb+" "+resource+" "+ns], f.canErr
 }
 
 func (f *fakeDelivery) Stage(_ context.Context, ns, name string) (*delivery.StageObject, error) {
@@ -506,6 +514,12 @@ func TestEnvironments(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	got := strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
 	expect(t, got == "promote", "agent actions %v", got)
+	// Promote creates an Operation: RBAC that refuses that offers nothing.
+	f.cannot = map[string]bool{"create operations " + pay["namespace"].(string): true}
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
+	expect(t, got == "", "read-only actions %v", got)
+	f.cannot = nil
 	// A person outside the team the running contract names is never offered
 	// an unfreeze the promoter would refuse (NotYourTeam); the team is, and
 	// so is break-glass. With no team named, RequireOwnerTeam offers nobody.
@@ -672,6 +686,18 @@ func TestHistoryAndOperation(t *testing.T) {
 	if got := actions("held"); got != "cancel" {
 		t.Fatalf("not my team: %s", got)
 	}
+	// RBAC narrows the offer: a read-only caller is offered nothing, and an
+	// access review that fails leaves the action to the apiserver.
+	f.caller = person("acme:team-checkout")
+	f.cannot = map[string]bool{"create approvals prod": true, "delete operations prod": true, "create operations prod": true}
+	if got := actions("held") + "|" + actions("done"); got != "|" {
+		t.Fatalf("read-only caller: %s", got)
+	}
+	f.canErr = errors.New("review down")
+	if got := actions("held"); got != "approve,reject,cancel" {
+		t.Fatalf("a failed access review: %s", got)
+	}
+	f.cannot, f.canErr = nil, nil
 	f.callerErr = errors.New("who")
 	if code, _ := call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil); code != http.StatusInternalServerError {
 		t.Fatal("whoami error")

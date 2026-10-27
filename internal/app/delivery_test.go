@@ -558,3 +558,29 @@ func TestDeliveryDescribe(t *testing.T) {
 		t.Fatalf("an unreadable OCIRepository: %+v", r)
 	}
 }
+
+func TestDeliveryCan(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "carol", []string{"team-orders"}, nil)
+	var asked map[string]any
+	c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		asked = a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object
+		attrs, _, _ := unstructured.NestedMap(asked, "spec", "resourceAttributes")
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": attrs["namespace"] == "orders-prod"}}}, nil
+	})
+	if ok, err := d.Can(context.Background(), "delete", "operations", "orders-prod"); !ok || err != nil {
+		t.Fatalf("orders-prod: %v %v", ok, err)
+	}
+	attrs, _, _ := unstructured.NestedStringMap(asked, "spec", "resourceAttributes")
+	if attrs["verb"] != "delete" || attrs["resource"] != "operations" || attrs["group"] != "delivery.pacto.trianalab.io" {
+		t.Fatalf("asked %v", attrs)
+	}
+	if ok, err := d.Can(context.Background(), "delete", "operations", "payments-prod"); ok || err != nil {
+		t.Fatalf("payments-prod: %v %v", ok, err)
+	}
+	c.PrependReactor("create", "selfsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("boom")
+	})
+	if _, err := d.Can(context.Background(), "create", "operations", "x"); err == nil {
+		t.Fatal("want the review's error")
+	}
+}

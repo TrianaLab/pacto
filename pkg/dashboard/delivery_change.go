@@ -48,7 +48,7 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	}
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
-	out.Body.Actions = s.actions(ctx, op, e.Stage, caller)
+	out.Body.Actions = s.actions(ctx, op, e.Stage, caller, allowed(ctx, api))
 	if st, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
 		out.Body.Level = ladderOf(*st).Level
 	}
@@ -95,21 +95,45 @@ func undoneBy(entries []delivery.HistoryEntry, name, after, finished string) *de
 }
 
 // actions are what the UI offers on an operation. They only hide what the
-// caller cannot do; the apiserver and the promoter still decide.
-func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller) []string {
+// caller cannot do, by class, team and RBAC; the apiserver and the promoter
+// still decide.
+func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller, may can) []string {
 	acts := []string{}
-	st := op.Status
-	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) {
+	st, ns := op.Status, op.Metadata.Namespace
+	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) && may("create", "approvals", ns) {
 		acts = append(acts, string(d), string(delivery.Reject))
 	}
-	if st.Phase != delivery.PhaseConcluded && !st.Applied {
+	if st.Phase != delivery.PhaseConcluded && !st.Applied && may("delete", "operations", ns) {
 		acts = append(acts, "cancel")
 	}
 	if st.Phase == delivery.PhaseConcluded && st.Applied && st.Pointer.After != "" && st.Pointer.After == stage.Pointer &&
-		delivery.MayRaise(delivery.TypeRollback, caller.Class, false) {
+		delivery.MayRaise(delivery.TypeRollback, caller.Class, false) && may("create", "operations", ns) {
 		acts = append(acts, "rollback")
 	}
 	return acts
+}
+
+// can says whether the caller's RBAC lets them verb a delivery resource in a
+// namespace.
+type can func(verb, resource, namespace string) bool
+
+// allowed asks api once per verb, resource and namespace for one request. A
+// review that fails answers yes: the action stays offered and the apiserver
+// decides when it is taken.
+func allowed(ctx context.Context, api DeliveryAPI) can {
+	seen := map[string]bool{}
+	return func(verb, resource, ns string) bool {
+		k := verb + " " + resource + " " + ns
+		ok, done := seen[k]
+		if !done {
+			var err error
+			if ok, err = api.Can(ctx, verb, resource, ns); err != nil {
+				ok = true
+			}
+			seen[k] = ok
+		}
+		return ok
+	}
 }
 
 // mayOffer: the promoter would count caller's decision on op, apart from how

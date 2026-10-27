@@ -29,6 +29,7 @@ var (
 	gvrOCIRepository = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
 	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
 	gvrSelfReview    = schema.GroupVersionResource{Group: "authentication.k8s.io", Version: "v1", Resource: "selfsubjectreviews"}
+	gvrSelfAccess    = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectaccessreviews"}
 	gvrNamespaces    = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
 	gvrConfigMaps    = schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
 )
@@ -452,6 +453,23 @@ func (d *Delivery) Propose(ctx context.Context, req delivery.Request) (*delivery
 	b, _ := created.MarshalJSON()
 	_ = json.Unmarshal(b, op)
 	return op, plan, nil
+}
+
+// Can asks the apiserver whether the caller may verb a delivery resource
+// (stages, operations, approvals) in namespace, with a
+// SelfSubjectAccessReview in their own name.
+func (d *Delivery) Can(ctx context.Context, verb, resource, namespace string) (bool, error) {
+	review := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+		"spec": map[string]any{"resourceAttributes": map[string]any{
+			"namespace": namespace, "verb": verb, "group": gvrOperations.Group, "resource": resource}},
+	}}
+	out, err := d.Dynamic.Resource(gvrSelfAccess).Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		return false, fmt.Errorf("asking the apiserver whether you may %s %s in %s: %w", verb, resource, namespace, err)
+	}
+	allowed, _, _ := unstructured.NestedBool(out.Object, "status", "allowed")
+	return allowed, nil
 }
 
 // Cancel deletes an Operation. The promoter concludes it Cancelled if nothing

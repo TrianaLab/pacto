@@ -28,6 +28,10 @@ type DeliveryAPI interface {
 	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error)
 	Approve(ctx context.Context, namespace, name string, decision delivery.Decision, note string) (string, error)
 	Cancel(ctx context.Context, namespace, name string) error
+	// Can says whether the caller's RBAC lets them verb a delivery resource
+	// (operations, approvals) in namespace, so the UI offers only what
+	// the apiserver would allow.
+	Can(ctx context.Context, verb, resource, namespace string) (bool, error)
 	// Describe reads what a Stage's artifact digest carries: its contract and
 	// version. A digest never changes, so a host may cache the answer.
 	Describe(ctx context.Context, stage *delivery.StageObject, digest string) delivery.Revision

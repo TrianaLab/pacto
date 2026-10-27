@@ -250,8 +250,9 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 		}
 	}
 	b.Frozen = []EnvironmentRow{}
+	may := allowed(ctx, api)
 	for _, st := range page {
-		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers, teams))
+		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers, teams, may))
 	}
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
@@ -335,8 +336,9 @@ type EnvironmentRow struct {
 
 // environmentRow is one Stage as the board shows it; held counts the held
 // operations by namespace/Stage, vers names the versions of digests and teams
-// the owner their contracts declare.
-func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string) EnvironmentRow {
+// the owner their contracts declare. Promote and unfreeze each create an
+// Operation, so neither is offered to a caller whose RBAC refuses that.
+func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string, may can) EnvironmentRow {
 	ss := st.Status
 	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Environment: st.Spec.Environment,
 		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
@@ -362,6 +364,9 @@ func environmentRow(st delivery.StageObject, held map[string]int, caller deliver
 	}
 	if (ss.Frozen || ss.AutoHold) && delivery.MayRaise(delivery.TypeUnfreeze, caller.Class, false) && mayUnfreeze(caller, teams[ss.Pointer]) {
 		row.Actions = append(row.Actions, "unfreeze")
+	}
+	if len(row.Actions) > 0 && !may("create", "operations", row.Namespace) {
+		row.Actions = []string{}
 	}
 	return row
 }
@@ -515,8 +520,9 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	}
 	teams := map[string]string{}
 	vers := versionsAll(ctx, api, nil, teams, on...)
+	may := allowed(ctx, api)
 	for _, st := range shown {
-		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers, teams))
+		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers, teams, may))
 	}
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))

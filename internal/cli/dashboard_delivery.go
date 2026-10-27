@@ -349,6 +349,10 @@ func (a dashDelivery) Cancel(ctx context.Context, ns, name string) error {
 	return refusal(a.d.Cancel(ctx, ns, name))
 }
 
+func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool, error) {
+	return a.d.Can(ctx, verb, resource, ns)
+}
+
 func (a dashDelivery) Stage(ctx context.Context, ns, name string) (*delivery.StageObject, error) {
 	s, err := a.d.Stage(ctx, ns, name)
 	return s, refusal(err)
