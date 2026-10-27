@@ -9,3 +9,9 @@ func TestCountOf(t *testing.T) {
 		}
 	}
 }
+
+func TestClassWords_UnknownClassPassesThrough(t *testing.T) {
+	if got := classWords("SOMETHING_ELSE"); got != "SOMETHING_ELSE" {
+		t.Errorf("classWords = %q, want the class unchanged", got)
+	}
+}

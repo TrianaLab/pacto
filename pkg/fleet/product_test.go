@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"testing"
 	"testing/fstest"
@@ -406,5 +407,23 @@ func TestOverview_ByScopeCoversEveryTarget(t *testing.T) {
 	want := ScopeTally{Scope: "prod", Targets: s.Targets, NonCompliant: s.NonCompliantTargets, Unknown: s.UnknownTargets, Stale: s.StaleTargets}
 	if got != want {
 		t.Errorf("byScope[0] = %+v, want %+v", got, want)
+	}
+}
+
+// Scopes sort worst first, and a stale target counts against its scope.
+func TestTallyScopes_WorstScopeFirst(t *testing.T) {
+	q := NewQuery(&FleetSnapshot{Targets: map[TargetKey]*TargetRecord{
+		"a": {Scope: "dev", Stale: true},
+		"b": {Scope: "prod", Compliance: StatusNonCompliant},
+		"c": {Scope: "prod"},
+	}})
+	var sum OverviewSummary
+	q.tallyScopes(&sum)
+	want := []ScopeTally{
+		{Scope: "prod", Targets: 2, NonCompliant: 1},
+		{Scope: "dev", Targets: 1, Stale: 1},
+	}
+	if !slices.Equal(sum.ByScope, want) {
+		t.Errorf("byScope = %+v, want %+v", sum.ByScope, want)
 	}
 }
