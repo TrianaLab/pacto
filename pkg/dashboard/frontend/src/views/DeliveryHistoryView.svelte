@@ -115,7 +115,7 @@
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
     {#if one && autonomy?.total}
       <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
-        <strong>{formatCount(autonomy.noPerson)} of {countOf(autonomy.total, 'promotion')} needed no person</strong>{#if autonomy.onlyUnknown}; {formatCount(autonomy.onlyUnknown)} waited for one only because a check was Unknown, which more visibility removes (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}
+        <strong>{formatCount(autonomy.noPerson)} of {countOf(autonomy.total, 'promotion')} needed no person</strong>{#if autonomy.onlyUnknown}; {formatCount(autonomy.onlyUnknown)} waited only on an Unknown check (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how to fix</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}
       </p>
     {/if}
     {#if histories.length === 0}

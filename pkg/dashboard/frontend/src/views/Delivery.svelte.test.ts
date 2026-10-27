@@ -1719,7 +1719,7 @@ describe('Unknown, proof, undo and autonomy', () => {
     const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
     const line = target.querySelector('[data-testid="history-autonomy"]') as HTMLElement;
-    expect(text(line)).toContain('2 of 4 promotions needed no person; 1 waited for one only because a check was Unknown');
+    expect(text(line)).toContain('2 of 4 promotions needed no person; 1 waited only on an Unknown check');
     expect(text(line)).toContain('Counted from the changes shown here, and some histories are partial.');
     destroy();
   });
