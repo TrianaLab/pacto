@@ -259,6 +259,13 @@ func TestAcknowledgeUpstreamStandIn(t *testing.T) {
 		e.create(o)
 		return o
 	}
+	// With no team to ask (nothing runs on the follower yet), a person may not
+	// acknowledge even without RequireOwnerTeam; break-glass can.
+	pointer := e.getStage().Status.Pointer
+	e.setStage(func(s *delivery.StageStatus) { s.Pointer = "" })
+	ack("a0", "checked upstream", "bob", "team-orders")
+	wantOutcome(t, e.drive("a0"), delivery.Rejected, "NoOwnerTeam")
+	e.setStage(func(s *delivery.StageStatus) { s.Pointer = pointer })
 	ack("a1", "checked upstream", bot)
 	wantOutcome(t, e.drive("a1"), delivery.Rejected, "NotPermitted")
 	ack("a2", "checked upstream", "bob", "team-orders")

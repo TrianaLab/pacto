@@ -150,7 +150,9 @@ func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operatio
 // a Stage of their own team's service, the team the contract running there
 // declares, since both take effect at once and can let automation offer a
 // version again. Break-glass may on any Stage. With no team declared, or none
-// readable, any person may, or nobody with RequireOwnerTeam.
+// readable, any person may unfreeze, or nobody with RequireOwnerTeam. Nobody
+// but break-glass may acknowledge then: the stand-in it waves through may be
+// a failed version, and the type promises that only the service's team does.
 func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) string {
 	if op.Spec.Type != delivery.TypeUnfreeze && op.Spec.Type != delivery.TypeAcknowledge || op.Status.ActorClass != delivery.ClassHuman {
 		return ""
@@ -174,7 +176,7 @@ func (r *OperationReconciler) unfreezeRefusal(ctx context.Context, op *dv1.Opera
 			team = []string{t}
 		}
 	}
-	if r.Policy.InTeams(op.Spec.Actor.Groups, team) {
+	if (len(team) > 0 || op.Spec.Type != delivery.TypeAcknowledge) && r.Policy.InTeams(op.Spec.Actor.Groups, team) {
 		return ""
 	}
 	if len(team) == 0 {

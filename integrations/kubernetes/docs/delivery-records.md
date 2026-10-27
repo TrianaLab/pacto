@@ -44,7 +44,9 @@ The acknowledge takes effect at once and is recorded like any other
 operation, with who asked, the record id and the reason. The follower then
 skips that stand-in and offers versions again; any other stand-in still stops
 it. Only a person of that team or break-glass may acknowledge, never an agent
-or the promoter, and a reason is required. Break-glass can still move the
+or the promoter, and a reason is required. When nothing runs on the follower
+yet, or what runs names no team or cannot be read, only break-glass may
+acknowledge, whatever `requireOwnerTeam` says. Break-glass can still move the
 follower with an override instead. A **gap** record marks a
 number no operation holds. A record can be late but is never skipped: an
 Operation keeps its `delivery.pacto.trianalab.io/record` finalizer until the
