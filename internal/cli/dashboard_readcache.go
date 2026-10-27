@@ -67,11 +67,21 @@ func who(r *http.Request) string {
 	return b.String()
 }
 
+// review: a request that asks the apiserver a question (who am I, may I)
+// and changes nothing, so it is not a write; it is not kept either, as the
+// question is in its body.
+func review(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/apis/authentication.k8s.io/") || strings.HasPrefix(r.URL.Path, "/apis/authorization.k8s.io/")
+}
+
 // wrap is a rest.Config WrapTransport.
 func (c *readCache) wrap(rt http.RoundTripper) http.RoundTripper {
 	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		w := who(r)
-		if r.Method != http.MethodGet || r.URL.Query().Get("watch") == "true" {
+		switch {
+		case review(r) || r.Method == http.MethodGet && r.URL.Query().Get("watch") == "true":
+			return rt.RoundTrip(r)
+		case r.Method != http.MethodGet:
 			c.forget(w)
 			return rt.RoundTrip(r)
 		}
@@ -91,7 +101,7 @@ func (c *readCache) wrap(rt http.RoundTripper) http.RoundTripper {
 				return nil, err
 			}
 			e := cachedRead{at: started, who: w, status: resp.StatusCode, header: resp.Header, body: body}
-			if resp.StatusCode == http.StatusOK && len(body) <= c.maxRead {
+			if (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusForbidden) && len(body) <= c.maxRead {
 				c.put(key, e)
 			}
 			return e, nil

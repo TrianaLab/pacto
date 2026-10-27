@@ -119,8 +119,8 @@ func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f
 func (c *counter) wrap(cfg *rest.Config) *rest.Config {
 	cfg = rest.CopyConfig(cfg)
 	outer := cfg.WrapTransport
-	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		rt = roundTrip(func(r *http.Request) (*http.Response, error) { c.n.Add(1); return rt.RoundTrip(r) })
+	cfg.WrapTransport = func(base http.RoundTripper) http.RoundTripper {
+		var rt http.RoundTripper = roundTrip(func(r *http.Request) (*http.Response, error) { c.n.Add(1); return base.RoundTrip(r) })
 		if outer != nil {
 			rt = outer(rt)
 		}
@@ -454,6 +454,7 @@ var perfViews = []perfView{
 type perfResult struct {
 	scale, view, who    string
 	callers, requests   int
+	failed              int // requests that failed or ran past perfHTTP's timeout
 	p50, p95            time.Duration
 	coldAPI, apiPerReq  float64
 	allocsPerReq, kbReq uint64
@@ -462,16 +463,24 @@ type perfResult struct {
 var perfHTTP = &http.Client{Timeout: 5 * time.Minute, Transport: &http.Transport{MaxIdleConnsPerHost: 200}}
 
 func get(t testing.TB, base, path, token string) []byte {
+	b, err := fetch(base, path, token)
+	must(t, err)
+	return b
+}
+
+func fetch(base, path, token string) ([]byte, error) {
 	req, _ := http.NewRequest(http.MethodGet, base+path, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := perfHTTP.Do(req)
-	must(t, err)
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET %s: %d %s", path, resp.StatusCode, b)
+		return nil, fmt.Errorf("GET %s: %d %s", path, resp.StatusCode, b)
 	}
-	return b
+	return b, nil
 }
 
 // measure warms the view once (its apiserver requests are coldAPI), then
@@ -485,13 +494,16 @@ func measure(t testing.TB, base string, cnt *counter, scale string, v perfView, 
 	runtime.ReadMemStats(&ms0)
 	before = cnt.n.Load()
 	lat := make([]time.Duration, n)
+	var failed atomic.Int64
 	next := atomic.Int64{}
 	var wg sync.WaitGroup
 	for range callers {
 		wg.Go(func() {
 			for i := int(next.Add(1) - 1); i < n; i = int(next.Add(1) - 1) {
 				start := time.Now()
-				get(t, base, v.path, ps[i%len(ps)].token)
+				if _, err := fetch(base, v.path, ps[i%len(ps)].token); err != nil {
+					failed.Add(1)
+				}
 				lat[i] = time.Since(start)
 			}
 		})
@@ -503,7 +515,7 @@ func measure(t testing.TB, base string, cnt *counter, scale string, v perfView, 
 	if len(ps) > 1 {
 		who = fmt.Sprintf("%d auditors", min(callers, len(ps)))
 	}
-	return perfResult{scale: scale, view: v.name, who: who, callers: callers, requests: n,
+	return perfResult{scale: scale, view: v.name, who: who, callers: callers, requests: n, failed: int(failed.Load()),
 		p50: lat[n/2], p95: lat[(n*95-1)/100], coldAPI: cold, apiPerReq: float64(cnt.n.Load()-before) / float64(n),
 		allocsPerReq: (ms1.Mallocs - ms0.Mallocs) / uint64(n), kbReq: (ms1.TotalAlloc - ms0.TotalAlloc) / uint64(n) / 1024}
 }
@@ -613,11 +625,11 @@ func TestPerfEnvtest(t *testing.T) {
 
 func perfTable(rs []perfResult) string {
 	var b strings.Builder
-	b.WriteString("| scale | view | who | callers | p50 | p95 | apiserver req (cold) | apiserver req/request (warm) | allocs/req | KiB/req |\n")
-	b.WriteString("|---|---|---|---:|---:|---:|---:|---:|---:|---:|\n")
+	b.WriteString("| scale | view | who | callers | p50 | p95 | failed | apiserver req (cold) | apiserver req/request (warm) | allocs/req | KiB/req |\n")
+	b.WriteString("|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, r := range rs {
-		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %.0f | %.1f | %d | %d |\n", r.scale, r.view, r.who, r.callers,
-			r.p50.Round(time.Millisecond), r.p95.Round(time.Millisecond), r.coldAPI, r.apiPerReq, r.allocsPerReq, r.kbReq)
+		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %d/%d | %.0f | %.1f | %d | %d |\n", r.scale, r.view, r.who, r.callers,
+			r.p50.Round(time.Millisecond), r.p95.Round(time.Millisecond), r.failed, r.requests, r.coldAPI, r.apiPerReq, r.allocsPerReq, r.kbReq)
 	}
 	return b.String()
 }
@@ -637,6 +649,9 @@ var perfBudgets = func(t testing.TB, rs []perfResult) {
 		budgets[b.view] = b
 	}
 	for _, r := range rs {
+		if r.failed > 0 {
+			t.Errorf("%s %s for %s: %d of %d requests failed", r.scale, r.view, r.who, r.failed, r.requests)
+		}
 		b, ok := budgets[r.view]
 		if !ok {
 			continue

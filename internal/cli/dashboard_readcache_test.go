@@ -96,6 +96,13 @@ func TestReadCacheForgetsWhatAWriterRead(t *testing.T) {
 	if b.hits.Load() != 6 {
 		t.Fatalf("a watch is never cached: hits %d", b.hits.Load())
 	}
+	// Asking who you are, or whether you may, writes nothing: the reads stay.
+	call(t, rt, http.MethodPost, "https://api/apis/authentication.k8s.io/v1/selfsubjectreviews", "alice")
+	call(t, rt, http.MethodPost, "https://api/apis/authorization.k8s.io/v1/subjectaccessreviews", "alice")
+	call(t, rt, http.MethodGet, "https://api/a", "alice")
+	if b.hits.Load() != 8 {
+		t.Fatalf("a review is not a write: hits %d", b.hits.Load())
+	}
 }
 
 // writing is a backend that, while answering a read, lets a write through.
@@ -135,21 +142,28 @@ func TestReadCacheKeepsOnlyWholeSuccessfulAnswers(t *testing.T) {
 	rt := c.wrap(b)
 	resp, _, _ := call(t, rt, http.MethodGet, "https://api/a", "alice")
 	call(t, rt, http.MethodGet, "https://api/a", "alice")
-	if resp.StatusCode != http.StatusForbidden || b.hits.Load() != 2 {
-		t.Fatalf("a refusal is passed on and never kept: %d hits %d", resp.StatusCode, b.hits.Load())
+	if resp.StatusCode != http.StatusForbidden || b.hits.Load() != 1 {
+		t.Fatalf("a refusal is the person's answer too, and is kept: %d hits %d", resp.StatusCode, b.hits.Load())
+	}
+	b.status = http.StatusNotFound
+	call(t, rt, http.MethodGet, "https://api/b", "alice")
+	call(t, rt, http.MethodGet, "https://api/b", "alice")
+	if b.hits.Load() != 3 {
+		t.Fatalf("anything else is passed on and never kept: hits %d", b.hits.Load())
 	}
 	b.status, b.err = 0, errors.New("down")
-	if _, _, err := call(t, rt, http.MethodGet, "https://api/a", "alice"); err == nil {
+	if _, _, err := call(t, rt, http.MethodGet, "https://api/c", "alice"); err == nil {
 		t.Fatal("a failed round trip must fail")
 	}
 	b.err, b.body = nil, failingReader{}
-	if _, _, err := call(t, rt, http.MethodGet, "https://api/a", "alice"); err == nil {
+	if _, _, err := call(t, rt, http.MethodGet, "https://api/c", "alice"); err == nil {
 		t.Fatal("a body cut off must fail")
 	}
 	b.body = nil
 	c.maxRead = 3
+	kept := len(c.entries)
 	call(t, rt, http.MethodGet, "https://api/long", "alice")
-	if len(c.entries) != 0 {
+	if len(c.entries) != kept {
 		t.Fatal("an answer over maxRead is not kept")
 	}
 	c.maxRead, c.maxBytes = 1<<20, 10
