@@ -443,9 +443,6 @@
     </section>
   {:else}
     <!-- Focused neighborhood: an actual visual topology. -->
-    {#if answer}
-      <p class="gv-answer" class:has-problems={problems && (problems.failing || problems.undeclared)} data-testid="graph-answer">{#if focusSentence}<span class:gv-focus-err={focusTone === 'err'} data-testid="graph-answer-focus">{focusSentence}</span>{' '}{/if}<span class="gv-around">{answer}</span></p>
-    {/if}
     <!-- No controls over a focus that does not exist: there is nothing for them to drive. -->
     {#if !notFound}
     <div class="workspace-controls is-row" role="group" aria-label="Graph controls">
@@ -504,6 +501,11 @@
         </div>
       </div>
     </div>
+    {/if}
+    <!-- The answer sits under the controls, as on Change analysis, so both workspaces
+         start their body at the same distance from the title. -->
+    {#if answer}
+      <p class="gv-answer" class:has-problems={problems && (problems.failing || problems.undeclared)} data-testid="graph-answer">{#if focusSentence}<span class:gv-focus-err={focusTone === 'err'} data-testid="graph-answer-focus">{focusSentence}</span>{' '}{/if}<span class="gv-around">{answer}</span></p>
     {/if}
 
     <!-- A refresh keeps the rendered graph MOUNTED. Swapping it for a loading line every
@@ -778,7 +780,7 @@
   .gv-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); }
   .gv-main { display: flex; flex-direction: column; gap: var(--sp-4); }
 
-  .gv-answer { margin: 0 0 var(--sp-3); font-size: var(--text-md); color: var(--c-text-2); }
+  .gv-answer { margin: var(--sp-3) 0; font-size: var(--text-md); color: var(--c-text-2); }
   .gv-answer.has-problems .gv-around { color: var(--c-err); font-weight: 600; }
   .disco-more { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-3) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .disco-more-sep { color: var(--c-border); }
