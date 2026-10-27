@@ -424,16 +424,19 @@ $(ENVTEST): $(LOCALBIN)
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
+$(GOLANGCI_LINT): export GOTOOLCHAIN = go$(GO_VERSION)
 $(GOLANGCI_LINT): $(LOCALBIN)
 	@# Force the local Go toolchain so the binary embeds runtime.Version() matching
 	@# the project's go directive. golangci-lint policy lags Go releases by one minor
 	@# version, so its module declares an older `go` directive; without this override
 	@# `go install` would download that older toolchain and the resulting binary would
-	@# refuse to lint code targeting a newer Go version.
-	GOTOOLCHAIN=go$(GO_VERSION) $(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+	@# refuse to lint code targeting a newer Go version. The override is a target-specific
+	@# export (above) because go-install-tool starts with `@[`: a prefix on that line would
+	@# turn `@[` into a command name and never reach the `go install` inside.
+	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 	@test -f .custom-gcl.yml && { \
 		echo "Building custom golangci-lint with plugins..." && \
-		GOTOOLCHAIN=go$(GO_VERSION) $(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
+		$(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
 		mv -f $(LOCALBIN)/golangci-lint-custom $(GOLANGCI_LINT); \
 	} || true
 
