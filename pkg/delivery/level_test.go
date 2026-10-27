@@ -363,3 +363,11 @@ func TestSuiteChangeNeedsAPersonOnEveryLevel(t *testing.T) {
 		t.Fatalf("a floor already set: %+v", held)
 	}
 }
+
+func TestCountTextPluralises(t *testing.T) {
+	for in, want := range map[string]string{"1": "1 runtime caller", "0": "0 runtime callers", "": "0 runtime callers", "3": "3 runtime callers"} {
+		if got := countText(in, "runtime caller"); got != want {
+			t.Errorf("countText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -386,8 +386,8 @@ func graphReady(latest *Plan, cleared bool, service string, block func(kind, sub
 	case v.Citation["completeness"] != string(fleet.CompletenessComplete):
 		block(BlockerPartialGraph, service, "the newest promote saw a "+cmp.Or(v.Citation["completeness"], "unknown")+" graph: "+v.Message)
 	case v.Citation["uncontracted"] != "" || v.Citation["callersUnseen"] != "":
-		block(BlockerMissingContract, service, fmt.Sprintf("the newest promote saw %s runtime callers with no contract and %s callers the graph cannot see: give each a contract",
-			cmp.Or(v.Citation["uncontracted"], "0"), cmp.Or(v.Citation["callersUnseen"], "0")))
+		block(BlockerMissingContract, service, "the newest promote saw "+countText(v.Citation["uncontracted"], "runtime caller")+
+			" with no contract and "+countText(v.Citation["callersUnseen"], "caller")+" the graph cannot see: give each a contract")
 	case v.Result != Pass:
 		block(BlockerUndeclaredRange, service, v.Message)
 	}

@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -746,6 +747,15 @@ func countOf(n int, noun string) string {
 		return "1 " + noun
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// countText is countOf for a count a citation keeps as text; empty reads 0.
+func countText(n, noun string) string {
+	i, err := strconv.Atoi(n)
+	if err != nil {
+		return cmp.Or(n, "0") + " " + noun + "s"
+	}
+	return countOf(i, noun)
 }
 
 // short trims a digest for messages.
