@@ -3,11 +3,9 @@
 Pacto delivery decides which version of each service runs in each
 environment, such as test and prod. It uses your contracts to tell a safe
 change from a risky one, asks a person only when it must and rolls back a
-version that fails its checks. A contract is the file, `pacto.yaml`, in which
-each service says what it offers and which other services it calls. Flux, a
-tool that keeps your Kubernetes cluster running what your files say, does the
-actual switch from one version to the next (Argo CD can do it instead, as an
-experimental option).
+version that fails its checks. [Flux](../../glossary.md#flux) does the actual switch from one
+version to the next (Argo CD can do it instead, as an experimental option).
+Words in links are defined in the [glossary](../../glossary.md).
 
 Delivery is opt-in. It is a separate install, and without it Pacto never
 changes what runs. To set it up for a service, [pactify it](../../pactify.md):
@@ -18,8 +16,8 @@ give it a contract and connect it to delivery.
 
 ## What happens to a change
 
-A change is a request such as "run payments 2.4.0 in prod". A person, your build
-pipeline or an AI agent can ask for one. Every change takes the same path:
+A change is a request such as "run payments 2.4.0 in prod". A
+person, your build pipeline or an [AI agent](#who-may-approve) can ask for one. Every change takes the same path:
 
 ```mermaid
 flowchart LR
@@ -39,7 +37,7 @@ flowchart LR
 `pacto publish`, Pacto's release command, and signed, which proves who
 published it. It compares the new contract with the one running and looks at
 every service in that environment that uses this one. If none of them would
-break, the change goes ahead on its own on an automatic level.
+break, the change goes ahead on its own on an automatic [level](../../glossary.md#level).
 
 **After Flux applies it**, Pacto checks that the running version does what its
 contract says. You can add health checks too, such as error rates from your
@@ -50,36 +48,36 @@ nothing safe to go back to, the rollback itself fails, someone chose the
 running version by hand (a rollback, or a promote during auto-hold) or someone
 else already took the name of the rollback Pacto raises. It then waits for a
 person to roll back or unfreeze it, from the dashboard or the command line. A
-failure of a version Pacto shipped with no person also drops the Stage one
-level, whether it was rolled back or froze.
+failure of a version Pacto shipped with no person also costs the Stage one
+level: see [Step-down](../../autonomy.md#step-down-one-failure-costs-one-level).
 None of a Stage's last 50 failed versions is tried again there.
 
 ## Stages and records
 
 A version reaches prod only after it passed in the environment before it,
-such as test. Each service in each environment is called a **Stage**. Moving a Stage to a new
-version is called promoting it. A Stage can promote on its own only once a
+such as test. Each service in each environment is called a **Stage**, and
+moving a Stage to a new version is called promoting it. A Stage can promote on its own only once a
 person has raised it up [the autonomy ladder](../../autonomy.md).
 
-**Every change that ends**, refusals included, can leave a signed record in
-your container registry, the place your images are stored. The signature shows
-the record was not changed later. Anyone can check who asked for what, who
-approved and what each check said. Records are off until you turn them on, and
-they need a registry that serves OCI Referrers, such as zot; GitHub's registry
-does not.
+**Every change that ends**, refusals included, can leave a signed
+[record](../../glossary.md#record) in your registry. The signature shows the record was not
+changed later. Anyone can check who asked for what, who approved and what each
+check said. Records are off until you turn on the [recorder](../../glossary.md#recorder), and
+they need a registry that serves [OCI Referrers](../../index.md#what-delivery-needs).
 
 ## Who is asked and why
 
 Each contract lists the services it depends on and the versions of each it
-accepts (its version range), for example "checkout accepts payments 2.x".
-That is how Pacto knows who a change can break.
+accepts (its [consumer range](../../glossary.md#consumer-range)), for example "checkout
+accepts payments 2.x". That is how Pacto knows who a change can break.
 
 Say payments 3.0.0 removes a field. In prod, checkout and orders still accept
 only payments 2.x. The change waits and Pacto asks only the checkout and
 orders teams, whose services it would break.
 
 A breaking change that no contract depends on still waits for a person, who
-can accept the unknown, because a service without a contract may call it. A
+can [accept the unknown](#what-unknown-means), because a service without a
+contract may call it. A
 Stage whose every consumer has a contract can say so with
 `gates.impact.declaredConsumersOnly: true`.
 
@@ -89,6 +87,8 @@ Then only the orders team is still asked.
 
 Pacto judges by declared version ranges, per consumer. Traffic shows which
 service calls which; Pacto has no view of the fields or endpoints each call uses.
+[Why you were asked](../../pactify-decide.md#why-you-were-asked) lists every
+case in which a change waits for a person.
 
 ## Who may approve
 
@@ -116,26 +116,6 @@ that changed.
 Unknown never counts as yes. The change waits for a person, who can reject it
 or accept the unknown. An accepted unknown is recorded as accepted, never as a
 pass.
-
-## Words used here
-
-| Word | Meaning |
-|---|---|
-| Environment | A namespace, such as `test` or `prod` |
-| Stage | One service in one environment, and the version it runs there |
-| Promote | Move a Stage to a newer version |
-| Operation | One requested change to a Stage, from request to outcome |
-| Held | An Operation waiting for a person to decide |
-| Unknown | A check that could not see enough to say Pass or Fail; see [What Unknown means](#what-unknown-means) |
-| Accept the unknown | A person's decision to let a change with an Unknown check go ahead, recorded as accepted, never as a pass |
-| Approval | A person's decision on one held Operation |
-| Freeze, unfreeze | Stop automation moving a Stage, and let it move again |
-| Auto-hold | Set when a person or agent rolls back a Stage, or promotes it back to a version this Stage already verified: automation stops promoting there until a person unfreezes it or promotes a version it has not verified yet |
-| Break-glass | A group, `pacto:break-glass` by default, that may force a version past every check |
-| Record | The signed account of one finished Operation |
-| Level | How much a Stage lets Pacto do on its own; see [the autonomy ladder](../../autonomy.md) |
-
-Every other word is in the [glossary](../../glossary.md).
 
 ## Where you follow it
 

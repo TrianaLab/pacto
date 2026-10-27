@@ -1,18 +1,16 @@
 # Pactify a service
 
-To pactify a service is to give it a Pacto contract and let Pacto check every
-new version before it runs. A contract is one file, `pacto.yaml`, kept next to
-your code. It says what the service offers, which other services it calls and
-how it is built and run. This guide takes a plain service to a contract,
+To [pactify](glossary.md#pactify) a service is to give it a Pacto
+[contract](glossary.md#contract), `pacto.yaml` kept next to your code, and let
+Pacto check every new version before it runs. This guide takes a plain service to a contract,
 signed published versions and environments Pacto only watches, and shows how
 an environment moves past watching once it has earned it. Every command is on
 this page except the one-time cluster setup for approvals. To preview the
 result, press **Play the delivery story** in the
 [live dashboard demo](examples/dashboard-demo.md), which runs in your browser.
 
-In the cluster, [Flux](https://fluxcd.io) does the deploying: it is a tool that
-keeps the cluster running what your files say. Pacto tells it which version.
-Each environment starts on observe, the first level of
+In the cluster, [Flux](glossary.md#flux) does the deploying and Pacto tells it
+which version. Each environment starts on observe, the first level of
 [the autonomy ladder](autonomy.md): Pacto watches and moves nothing until a
 person raises it.
 
@@ -29,18 +27,16 @@ You need:
   `docker buildx create --use --driver docker-container`;
 - a container registry, and a login to it:
   `pacto login ghcr.io -u <user>` (or `docker login`). Any registry works
-  for this page. The optional signed record of each change also needs one
-  that serves OCI Referrers, such as [zot](https://zotregistry.dev). GitHub's
-  registry does not serve them, so on `ghcr.io` a Stage gets no records and
-  stops at advise;
+  for this page. The optional signed [record](glossary.md#record) of each
+  change needs one that serves OCI Referrers, and without records a Stage
+  stops at advise; see [What delivery needs](index.md#what-delivery-needs);
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
   People approve with a fresh company login, which needs a one-time cluster
   setup, maybe by you:
   [the cluster trusts your identity provider](integrations/kubernetes/delivery-identity.md#the-cluster-trusts-your-identity-provider).
-  It is tested on kind. EKS, GKE and AKS are not tested yet. Until the setup
-  works, nobody can approve: prod waits and no Stage can move past observe. See
+  Until it works, nobody can approve; see
   [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
 
 Pacto writes the contract from your service.
@@ -178,8 +174,8 @@ kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/instal
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
-Replace `staff` with your people's group: anyone outside it is treated like
-an AI agent, which never approves.
+Replace `staff` with your people's group; [Install](integrations/kubernetes/delivery-setup.md#install)
+says why.
 
 Delivery is opt-in: without it, Pacto never changes what runs. Each environment
 is a namespace of the same name. Create them, give Flux your public key, so it
@@ -200,8 +196,7 @@ kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
 `--registry-secret`, the login Flux and the operator use. A read-only token is enough (on GitHub, `read:packages`); see
 [Private registries](integrations/kubernetes/limitations.md#delivery-and-private-registries).
 
-Each `delivery/<env>.yaml` holds a Stage (one service in one environment and
-the version it runs there) and the Flux pieces that watch
+Each `delivery/<env>.yaml` holds a [Stage](glossary.md#stage) and the Flux pieces that watch
 your registry and apply what the Stage picks. `delivery/pacto.yaml` tells the
 operator to check the service; it ships inside every version, so you never
 apply it.
@@ -252,11 +247,13 @@ the contract check cannot see a consumer with no contract, or tell whether the
 version is healthy. Delete it from `delivery/prod.yaml` once a health check
 judges each version there (`gates.verify.checks`, see
 [Delivery reference: health checks](integrations/kubernetes/delivery-health.md)).
-A version that fails its checks after release is rolled back once, or its
-Stage freezes until a person unfreezes it.
+A version that fails its checks after release is rolled back or freezes its
+Stage, as [What happens to a change](integrations/kubernetes/delivery.md#what-happens-to-a-change)
+explains.
 
-Each move is a change, a Kubernetes object of kind `Operation`; one that waits
-for a person shows `Held`. To approve one, as a member of the owner team:
+Each move is a [change](glossary.md#change); one that waits for a person shows
+`Held`. To approve one, as a member of the owner team
+([Decide, unfreeze and roll back](pactify-decide.md) has the details):
 
 ```bash
 kubectl get operations.delivery.pacto.trianalab.io -n prod   # PHASE shows Held

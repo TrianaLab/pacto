@@ -4,24 +4,10 @@ This page is for the person Pacto asks to decide on a change. It covers
 everything you need to do it. If you set up Pacto for your team, read
 [Pactify a service](pactify.md) first.
 
-## The words on this page
-
-Pacto decides which version of each service runs in each environment, such
-as test or prod. Every service has a **contract**, a file called `pacto.yaml`
-that says who owns the service, what it offers and which other services it
-calls.
-
-| Word | Meaning |
-|---|---|
-| Stage | One service in one environment, for example payments in prod. Its name is the service name and its Kubernetes namespace is the environment, so `-n prod` below means "in prod" |
-| Change | A request to move a Stage to another version. In Kubernetes it is an object of kind `Operation` |
-| Consumer | A service whose contract says it calls yours, and which versions of yours it accepts |
-| Held | A change that waits for a person |
-| Frozen | A Stage that automation no longer moves until a person unfreezes it. It shows under `FROZEN` |
-| On hold (auto-hold) | A Stage that automation no longer promotes after someone rolled it back by hand, or promoted it back to a version it already verified, so it does not undo that choice. It shows under `HOLD`. An unfreeze clears it, and so does a person promoting a version the Stage has not verified yet |
-| Level | How much a Stage lets Pacto do on its own, from observe (watch only) to autonomous; see [the autonomy ladder](autonomy.md) |
-| Record | A signed account of one finished change, kept in your registry. The recorder, a part of Pacto your admin may turn on, writes it |
-| Unknown | Pacto could not see enough to say whether the change is safe |
+Words in links are defined in the [glossary](glossary.md). Commands below name
+a [Stage](glossary.md#stage) by its service and its environment's namespace,
+so `-n prod` means "in prod". A [change](glossary.md#change) is a Kubernetes
+object of kind `Operation`.
 
 ## Why you were asked
 
@@ -47,12 +33,25 @@ Pacto holds a change and asks a person in these cases:
 - **Someone asked to raise the Stage's level.** A raise moves no version, it
   lets Pacto do more on its own. A person of the team that owns the service,
   other than the one who asked, approves it.
+- **The version changes who owns the service** (the team, or the DRI when no
+  team is named). The team that owns the service now approves it, so the
+  author of a version never picks who approves it. A version that only edits
+  the owner's contacts does not wait. When the running contract cannot be
+  read, no team is asked, and only break-glass can answer if the promoter
+  requires an owner team.
+- **The version number is too small for the change.** A breaking change
+  published as a minor (1.9.0 after 1.8.0) would pass every `^1` range, so a
+  person approves it. So does a version whose contract moved to another
+  registry domain, because consumers declared against the old domain would
+  not be counted.
+- **A person or agent asked to roll back to a version a consumer has moved
+  past.** That consumer's team approves it first; see
+  [Cancel and roll back](integrations/kubernetes/delivery-operations.md#cancel-and-roll-back).
 
-Pacto asks only members of the team that owns an affected service, and it
-skips the person who asked for the change. Pacto knows who asked only from the
-request. If an AI agent asked for you without naming you with
-`--on-behalf-of`, Pacto can still ask you; leave that one to a teammate. An AI
-agent can ask for changes. Only a person can decide one.
+Pacto asks only members of the [owner team](glossary.md#owner-team) of an
+affected service, never the person who asked. If an AI agent asked for you
+without naming you, leave that change to a teammate; the rule is in
+[Who may approve](integrations/kubernetes/delivery.md#who-may-approve).
 
 ## Look, then decide
 
@@ -125,12 +124,10 @@ Three things, all set up once by your cluster admin:
    time, set your company's sign-in address, which your admin gives you, in
    your shell: `export PACTO_DELIVERY_OIDC_ISSUER_URL=https://login.example.com`.
 
-The fresh-login check works where your admin sets the Kubernetes API
-server's flags. It is not tested yet on managed clusters such as EKS, GKE and
-AKS. Where it does not work, nobody can give any of the three answers, reject
-included. Ask your admin, who can
-check with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md#where-approving-works).
-A held change then has three ways out: the person who asked cancels it and
+Where the fresh-login check does not work
+([where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works)),
+nobody can give any of the three answers, reject included. A held change then
+has three ways out: the person who asked cancels it and
 publishes a version that asks nothing, it ends after 24 hours, or someone in
 the break-glass group forces it (below).
 
@@ -138,11 +135,9 @@ the break-glass group forces it (below).
 
 A frozen Stage shows `true` under `FROZEN` in
 `kubectl get stages.delivery.pacto.trianalab.io -n prod`, and its reason says
-why. A failed promote is rolled back once, whoever asked for it. Pacto
-freezes the Stage instead when there is no earlier good version, the
-automatic rollback itself failed or someone chose the running version by hand
-(a rollback, or a promote during auto-hold). A forced version
-(below) also freezes it. Fix the cause first, then let automation move it
+why: [What happens to a change](integrations/kubernetes/delivery.md#what-happens-to-a-change)
+lists when a failed version freezes a Stage instead of rolling back. A forced
+version (below) also freezes it. Fix the cause first, then let automation move it
 again:
 
 ```bash
@@ -177,7 +172,7 @@ version, so it does not undo your choice. In the dashboard, the
 
 ## Force a version (break-glass)
 
-Someone in the break-glass group, `pacto:break-glass` by default, can force a
+Someone in the [break-glass](glossary.md#break-glass) group can force a
 version past every check. It shows in the history and freezes the Stage until
 a person unfreezes it. Use it only when nothing else works. `<change>` is
 the held change whose version you force:
