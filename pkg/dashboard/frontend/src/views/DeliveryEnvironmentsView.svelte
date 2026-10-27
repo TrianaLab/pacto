@@ -363,9 +363,10 @@
      the column's width, so dots line up down the page and never scroll. */
   .ev-dots { container-type: inline-size; display: flex; gap: var(--ev-gg); --ev-g: 3px; --ev-gg: 10px;
     --ev-d: clamp(6px, calc((100cqw - (var(--n) - 1) * var(--ev-g) - var(--groups) * (var(--ev-gg) - var(--ev-g))) / var(--n)), 16px); }
-  .ev-group { display: flex; gap: var(--ev-g); flex: none; }
-  .ev-group-head { display: block; width: calc(var(--k) * var(--ev-d) + (var(--k) - 1) * var(--ev-g)); overflow: hidden; text-overflow: clip; white-space: nowrap;
-    border-bottom: 2px solid var(--c-border); font-size: var(--text-xs); text-transform: none; }
+  /* A group is never narrower than its label; the header and the rows share the floor, so they still line up. */
+  .ev-group { display: flex; gap: var(--ev-g); flex: none; min-width: 2.25rem; }
+  .ev-group-head { display: block; width: max(2.25rem, calc(var(--k) * var(--ev-d) + (var(--k) - 1) * var(--ev-g))); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    border-bottom: 2px solid var(--c-border); font-size: var(--text-xs); text-transform: none; letter-spacing: normal; font-variant: normal; }
   .ev-dot { display: inline-block; flex: none; width: var(--ev-d, 12px); height: var(--ev-d, 12px); max-width: 16px; max-height: 16px; min-width: 6px; min-height: 6px;
     padding: 0; border: 2px solid transparent; border-radius: 50%; background: none; cursor: pointer; box-sizing: border-box; }
   .ev-key .ev-dot { width: 12px; height: 12px; cursor: default; }
@@ -391,6 +392,10 @@
   @media (max-width: 720px) {
     .ev-board .ev-table { min-width: 0 !important; }
     .ev-board .ev-table tbody th { position: static; }
+    /* A phone stacks the rows into cards with no header to line up with: the dots wrap at a size a finger can hit. */
+    .ev-dots, .ev-group { flex-wrap: wrap; max-width: 100%; }
+    .ev-group-head { display: none; }
+    .ev-dots { --ev-d: 14px; --ev-g: 6px; --ev-gg: 12px; }
   }
   .ev-table th a, .ev-version { color: var(--c-accent); }
   .ev-cell { display: flex; flex-direction: column; gap: var(--sp-1); }
