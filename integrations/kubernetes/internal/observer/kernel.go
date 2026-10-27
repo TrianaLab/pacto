@@ -503,6 +503,10 @@ func TrimPod(obj any) (any, error) {
 	for i, c := range pod.Spec.Containers {
 		containers[i] = corev1.Container{Name: c.Name, Ports: c.Ports}
 	}
+	var annotations map[string]string
+	if h := pod.Annotations[mirrorAnnotation]; h != "" {
+		annotations = map[string]string{mirrorAnnotation: h} // podsByUID resolves a static pod by it
+	}
 	return &corev1.Pod{
 		TypeMeta: pod.TypeMeta,
 		ObjectMeta: metav1.ObjectMeta{
@@ -513,6 +517,7 @@ func TrimPod(obj any) (any, error) {
 			CreationTimestamp: pod.CreationTimestamp,
 			DeletionTimestamp: pod.DeletionTimestamp,
 			Labels:            pod.Labels,
+			Annotations:       annotations,
 			OwnerReferences:   pod.OwnerReferences,
 		},
 		Spec: corev1.PodSpec{NodeName: pod.Spec.NodeName, HostNetwork: pod.Spec.HostNetwork, Containers: containers},

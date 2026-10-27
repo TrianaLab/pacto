@@ -1010,6 +1010,11 @@ func TestTrimPod(t *testing.T) {
 		!podReady(pod) || !podStart(pod).Equal(podStart(full)) {
 		t.Fatalf("read fields lost: %+v", pod)
 	}
+	// A static pod's mirror keeps the one annotation that names its cgroup.
+	full.Annotations[mirrorAnnotation] = "0123456789abcdef0123456789abcdef"
+	if got, _ := TrimPod(full); !reflect.DeepEqual(got.(*corev1.Pod).Annotations, map[string]string{mirrorAnnotation: "0123456789abcdef0123456789abcdef"}) {
+		t.Fatalf("mirror annotation not kept alone: %v", got.(*corev1.Pod).Annotations)
+	}
 	tombstone := "not a pod"
 	if got, _ := TrimPod(tombstone); got != tombstone {
 		t.Fatal("a non-pod must pass through")
