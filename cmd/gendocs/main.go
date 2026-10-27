@@ -36,24 +36,24 @@ var footer string
 var commandNotes = map[string]string{
 	"init": `Scaffolds three files: a valid ` + "`pacto.yaml`" + `, a placeholder OpenAPI spec at ` + "`interfaces/openapi.yaml`" + ` and a configuration JSON Schema at ` + "`configuration/schema.json`" + `.
 
-` + "`<name>`" + ` is the service name, not a path: it becomes the directory *and* ` + "`service.name`" + `, which must match ` + "`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`" + `. ` + "`pacto init fleet/checkout-web`" + ` therefore scaffolds a bundle that does not validate — ` + "`service.name`" + ` gets the whole path and fails ` + "`SCHEMA_VIOLATION`" + `. To scaffold inside a directory, ` + "`cd`" + ` there first and pass the bare name.
+` + "`<name>`" + ` is the service name: it becomes the directory *and* ` + "`service.name`" + `, which must match ` + "`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`" + `. ` + "`pacto init fleet/checkout-web`" + ` therefore scaffolds a bundle that fails validation: ` + "`service.name`" + ` gets the whole path and fails ` + "`SCHEMA_VIOLATION`" + `. To scaffold inside a directory, ` + "`cd`" + ` there first and pass the bare name.
 
-All three are required **by the scaffolded contract**, because its ` + "`interfaces:`" + ` and ` + "`configurations:`" + ` sections point at the other two files. Deleting a directory without also deleting the section that references it fails validation with ` + "`FILE_NOT_FOUND`" + `. A contract that declares neither section needs only ` + "`pacto.yaml`" + `, so drop the section and the directory together.
+All three are required **by the scaffolded contract**, because its ` + "`interfaces:`" + ` and ` + "`configurations:`" + ` sections point at the other two files. If you delete a directory, also delete the section that references it, or validation fails with ` + "`FILE_NOT_FOUND`" + `. A contract that declares neither section needs only ` + "`pacto.yaml`" + `, so drop the section and the directory together.
 
-!!! note "The scaffold does not pass ` + "`validate --readiness`" + `, by design"
+!!! note "The scaffold fails ` + "`validate --readiness`" + ` on purpose"
     Its two placeholder readiness claims are ` + "`not-done`" + `, which scores 0 against the
     scaffolded ` + "`minScore: 80`" + ` and fails with ` + "`READINESS_GATE_UNMET`" + `. Plain
     ` + "`pacto validate`" + ` passes, because the gate is opt-in. Fill the claims in as the
-    work lands — the placeholder is the starting position of a real assessment, not a
-    template to delete.`,
+    work lands. The placeholder is the starting position of a real assessment, so keep it
+    and update it.`,
 
-	"validate": "The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment — individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. " +
-		"Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). " +
+	"validate": "The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment. Individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. " +
+		"Without the flag, validation checks the contract's structure and rules. It still checks the shape of readiness claims and skips the freshness gate. " +
 		"See the [readiness reference](contract-reference/readiness.md#readiness) for the score and gate semantics.\n\n" +
 		"**Exit code:** Non-zero if validation fails.",
 
 	"explain": "**What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. " +
-		"It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly. " +
+		"To read `configurations` and `policies`, use `pacto doc` or open `pacto.yaml`. " +
 		"`metadata` is carried by `--output-format json` only; the text output omits it.\n\n" +
 		"**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: \"2.0\"` feature), `explain` adds a Readiness block: " +
 		"the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, " +
@@ -61,10 +61,10 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 		"showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight and `evidence`. " +
 		"The Readiness block also includes a revision-history table when `history[]` is present. " +
 		"`--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount` and `expired` (boolean). " +
-		"Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.",
+		"Readiness status is time-dependent: the score is 0 when the current date is past the assessment-level `expires`.",
 
 	"pack": "The contract is validated before packing. If validation fails, no archive is created.\n\n" +
-		"Files matched by `.pactoignore` are excluded from the archive — see [Packaging ignore](pactoignore.md).",
+		"Files matched by `.pactoignore` are excluded from the archive. See [Packaging ignore](pactoignore.md).",
 
 	"generate": "`pacto generate <plugin>` invokes the `pacto-plugin-<plugin>` binary. See [Plugins](plugins.md) for plugin discovery, the plugin registry and the official plugins bundled with Pacto.",
 
@@ -74,11 +74,11 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 		"!!! note \"`--values` has no `-f` shorthand on push\"\n" +
 		"    On every other override-taking command `-f` is the shorthand for `--values`. On `pacto push`, `-f` is `--force`, so `--values` must be spelled out in full here.",
 
-	"diff": `**Exit code:** ` + "`1`" + ` when the overall classification is ` + "`BREAKING`" + ` — and also ` + "`1`" + ` when the diff could not be produced at all, so a non-zero exit is not by itself a contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A ` + "`POTENTIAL_BREAKING`" + ` result exits ` + "`0`" + `, so a CI gate that wants to stop on it has to read the classification rather than the exit code.
+	"diff": `**Exit code:** ` + "`1`" + ` when the overall classification is ` + "`BREAKING`" + `, and also when the diff could not be produced. A non-zero exit alone is therefore no contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A ` + "`POTENTIAL_BREAKING`" + ` result exits ` + "`0`" + `, so a CI gate that stops on it must read the classification.
 
-The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level. The optional ` + "`docs/`" + ` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
+The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level. The optional ` + "`docs/`" + ` directory is ignored: documentation changes produce no diff entries and leave the compatibility classification unchanged.
 
-When both bundles include an ` + "`sbom/`" + ` directory with recognized SBOM files (` + "`.spdx.json`" + ` or ` + "`.cdx.json`" + `), ` + "`pacto diff`" + ` reports package-level changes — added, removed or modified packages (version and license). SBOM changes are informational and do not affect the overall classification or exit code.
+When both bundles include an ` + "`sbom/`" + ` directory with recognized SBOM files (` + "`.spdx.json`" + ` or ` + "`.cdx.json`" + `), ` + "`pacto diff`" + ` reports package-level changes: added, removed or modified packages (version and license). SBOM changes are informational and leave the overall classification and exit code unchanged.
 
 When dependencies change between the old and new contracts (version upgrades, additions or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 
@@ -90,22 +90,22 @@ Reports cycles, version conflicts and unreachable dependencies.
 
 Sibling dependencies are resolved in parallel. OCI bundles are cached locally in ` + "`~/.cache/pacto/oci/`" + ` for faster subsequent operations. Use ` + "`--no-cache`" + ` to bypass the cache.`,
 
-	"doc": "The header line reports the contract's own state, not a runtime measurement: `pacto doc` reads a bundle and never observes a cluster. " +
+	"doc": "The header line reports the contract's own state. `pacto doc` reads a bundle and observes no cluster. " +
 		"A contract that has never been runtime-evaluated therefore reads `status NotEvaluated`, and one that declares no workload reads `compliance REFERENCE`. " +
-		"Both are the expected result for a freshly scaffolded contract — see [Compliance states](model.md#compliance-model).\n\n" +
+		"Both are the expected result for a freshly scaffolded contract. See [Compliance states](model.md#compliance-model).\n\n" +
 		"Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.\n\n`--serve` serves that static site locally. `--ui swagger` launches an interactive API explorer.\n\n`--serve`, `--ui` and `-o` are mutually exclusive. Use `--interface` to pick one OpenAPI interface with `--ui`. `--target` and `--target iface=url` point try-it-out at a backend.\n\nSibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache/pacto/oci/`. `--no-cache` bypasses the cache.",
 
 	"login": "Credentials are stored in `~/.config/pacto/config.json` (or `$XDG_CONFIG_HOME/pacto/config.json`), keeping them separate from Docker's configuration.\n\n" +
 		"### GitHub Container Registry (ghcr.io)\n\n" +
-		"For GitHub registries (`ghcr.io` and `docker.pkg.github.com`), pacto can automatically reuse credentials from the [GitHub CLI](https://cli.github.com/) — no `pacto login` required.\n\n" +
+		"For GitHub registries (`ghcr.io` and `docker.pkg.github.com`), pacto can reuse credentials from the [GitHub CLI](https://cli.github.com/), so you can skip `pacto login`.\n\n" +
 		"If you already have `gh` installed and authenticated, pacto will use `gh auth token` to obtain a token transparently. To verify your setup:\n\n" +
 		"```bash\n# Check if gh is authenticated\ngh auth status\n\n# Verify the token is available\ngh auth token\n```\n\n" +
 		"To push container images or packages, your token needs the `write:packages` scope. If you authenticated `gh` without it, refresh your scopes:\n\n" +
 		"```bash\ngh auth refresh --scopes write:packages\n```\n\n" +
 		"After this, `pacto push oci://ghcr.io/...` will work without any additional login step.\n\n" +
-		"If `gh` is not installed or not authenticated, pacto silently falls back to the next credential source in the chain.",
+		"If `gh` is missing or unauthenticated, pacto moves on to the next credential source in the chain.",
 
-	"update": "!!! note\n    `pacto update` is not available on dev builds. If you built from source without version injection, install a release build first.\n\n" +
+	"update": "!!! note\n    `pacto update` works only on release builds. If you built from source without version injection, install a release build first.\n\n" +
 		"### Update notifications\n\n" +
 		"When a newer version is available, pacto displays a notification after any command:\n\n" +
 		"```\nA new version of pacto is available: v1.0.0 -> v1.2.0\nRun 'pacto update' to update.\n```\n\n" +
@@ -118,16 +118,16 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 	"dashboard": "It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).\n\n" +
 		"For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).",
 
-	"mcp": "The **default** server exposes the four authoring tools below. A bundle reference and four flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:\n\n" +
+	"mcp": "The **default** server exposes the four authoring tools below. A bundle reference and four flags select a different server, each with its own tools. See [Server modes](#server-modes) after this table:\n\n" +
 		"| Tool | Description |\n" +
 		"|------|-------------|\n" +
 		"| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |\n" +
-		"| `pacto_edit` | Edit an existing contract — add/remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |\n" +
+		"| `pacto_edit` | Edit an existing contract: add or remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |\n" +
 		"| `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |\n" +
 		"| `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |\n\n" +
-		"These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and do not resolve `oci://` refs.\n\n" +
+		"These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and accept no `oci://` refs.\n\n" +
 		"### Server modes\n\n" +
-		"The default server exposes the authoring tools above. A bundle reference, `--root`, `--fleet`, `--publish` and `--delivery` each select a different server instead, and they cannot be combined — passing more than one is an error, never a silent choice:\n\n" +
+		"The default server exposes the authoring tools above. A bundle reference, `--root`, `--fleet`, `--publish` and `--delivery` each select a different server. Passing more than one is an error:\n\n" +
 		"| Invocation | Server |\n" +
 		"|------------|--------|\n" +
 		"| `pacto mcp` | Authoring tools. |\n" +
@@ -135,19 +135,19 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"| `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |\n" +
 		"| `pacto mcp --publish` | Authoring tools plus `pacto_publish_plan` and `pacto_publish`, which publish a version to your registry. Stdio only. |\n" +
 		"| `pacto mcp --delivery` | Authoring tools plus the delivery tools over the cluster your kubeconfig points at: read delivery state and, for an agent, ask for or cancel a change. There is no approve tool. |\n" +
-		"| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots, and nothing else: catalog mode registers no authoring tools, so nothing reachable in it writes to disk. |\n\n" +
-		"`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.\n\n" +
+		"| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots. Catalog mode registers only catalog tools, and none of them writes to disk. |\n\n" +
+		"`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so every answer reflects startup state even if a registry tag moves. A root that fails to resolve stays visible with a classified reason, and the catalog reports itself as partial. The catalog reads only the named roots and their closure, never refreshes and persists nothing.\n\n" +
 		"### Fleet tool arguments\n\n" +
-		"The arguments each fleet query tool takes, since none of them is required except where marked:\n\n" +
+		"The arguments each fleet query tool takes. Arguments are optional unless marked:\n\n" +
 		"| Tool | Arguments |\n" +
 		"|------|-----------|" + "\n" +
 		"| `pacto_fleet_search` | `text`, `owner`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |\n" +
-		"| `pacto_fleet_get` | `service` **or** `target` — one names a logical service, the other an operational target by key or name |\n" +
+		"| `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |\n" +
 		"| `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |\n" +
 		"| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `missing_readiness`; plus `limit` |\n" +
-		"| `pacto_fleet_explain` | `subject` (**required**) — a service name or a target key or name |\n" +
+		"| `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |\n" +
 		"| `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |\n\n" +
-		"Argument names are not flag names: the substring filter is `text`, not `query`, and every tool above closes its schema, so a wrong guess is rejected as an error rather than dropped into an unfiltered answer.\n\n" +
+		"Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.\n\n" +
 		"See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.",
 }
 

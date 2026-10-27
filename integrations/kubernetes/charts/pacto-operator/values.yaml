@@ -19,10 +19,10 @@ nameOverride: ""
 # -- Override the full release name
 fullnameOverride: ""
 
-# -- Registry hosts (`host:port`) to reach over plain HTTP instead of HTTPS, for a
-# controlled in-cluster registry. Scoped per host, so every other registry stays
+# -- Registry hosts (`host:port`) to reach over plain HTTP, for a controlled
+# in-cluster registry. Scoped per host, so every other registry stays
 # HTTPS-only. The controller, the managed dashboard and the managed Evidence
-# Server all inherit it — each resolves contract refs itself.
+# Server all inherit it, because each one resolves contract refs itself.
 insecureRegistries: []
 
 serviceAccount:
@@ -167,19 +167,19 @@ dashboard:
     # -- Offline OTLP/JSON trace exports to mount read-only into the dashboard, so
     # its Operational Graph can reconcile declared dependencies against observed
     # ones. Each entry is one named data source:
-    # `name` is its stable Data Source identity (a DNS-1123 label) — reordering
-    # this list never renames a source, and it must not collide with any other
-    # data source the dashboard has (the live cluster, OCI, the disk cache, local
-    # bundles, an Evidence Server); `file` is the trace file's name directly
-    # inside that source's mount — a single path segment, so mount a claim whose
-    # export sits at the top of its own directory; and exactly one of
+    # `name` is its stable Data Source identity (a DNS-1123 label). Reordering
+    # this list keeps every name, and each name must be unique across all the
+    # dashboard's data sources (the live cluster, OCI, the disk cache, local
+    # bundles, an Evidence Server). `file` is the trace file's name directly
+    # inside that source's mount, as a single path segment, so mount a claim whose
+    # export sits at the top of its own directory. Exactly one of
     # `existingClaim` (an existing PVC, for real exports) or `configMap` (small
-    # static exports only, ~1 MiB cap) supplies it. Pacto reads exactly the
-    # declared files — through a root it cannot follow a symlink out of — never
-    # writes to them and never scans the mount. Whoever owns that storage owns
-    # producing and rotating the exports. This configures OFFLINE input only:
-    # Pacto ships no OTLP receiver and no trace collector (the optional node
-    # agent is an eBPF socket observer, not a trace pipeline).
+    # static exports only, ~1 MiB cap) supplies it. Pacto reads only the
+    # declared files, through a root that blocks symlinks out of the mount, and
+    # never writes to them or scans the mount. Whoever owns that storage
+    # produces and rotates the exports. This configures OFFLINE input only:
+    # Pacto ships no OTLP receiver and no trace collector. The optional node
+    # agent observes sockets with eBPF and handles no traces.
     sources: []
     #   - name: orders
     #     file: traces.json
@@ -258,14 +258,14 @@ evidence:
   registry:
     # -- Required when evidence is enabled: the exact, immutable contract
     # revisions evidence may be reported against, each an
-    # oci://<repo>@sha256:<digest> reference. The registry holding them IS the
-    # durable evidence store — every accepted record is published as an OCI 1.1
-    # referrer of one of these manifests — so the chart installs nothing durable
-    # in the cluster. A mutable tag is rejected: it could be moved onto another
-    # manifest and silently change what the stored evidence reports on. That
-    # registry must serve the native OCI 1.1 Referrers API — GHCR and CNCF
-    # distribution (registry:2, registry:3) do not, and the Evidence Server
-    # stays permanently not-ready against them.
+    # oci://<repo>@sha256:<digest> reference. The registry holding them is the
+    # durable evidence store: every accepted record is published as an OCI 1.1
+    # referrer of one of these manifests, so the chart installs nothing durable
+    # in the cluster. A mutable tag is rejected, because moving it onto another
+    # manifest would change what the stored evidence reports on. That registry
+    # must serve the native OCI 1.1 Referrers API. GHCR and CNCF distribution
+    # (registry:2, registry:3) lack it, and the Evidence Server stays
+    # permanently not-ready against them.
     subjects: []
     # -- Optional name of an EXISTING kubernetes.io/dockerconfigjson Secret with
     # credentials for that registry, mounted read-only. The chart never creates

@@ -137,7 +137,7 @@ Flux Kustomization applies the apply `OCIRepository`, both carry the
 `serviceAccountName` Flux applies each version as kustomize-controller, which
 is cluster-admin in a default install, so a version whose contract did not
 change could ship a ClusterRoleBinding and an automatic level would apply it:
-the levels judge the contract, not the manifests. `pacto init --delivery`
+the levels judge only the contract. `pacto init --delivery`
 writes a namespaced deployer account for each environment. On
 Argo CD it is `True` when the Application carries the label, has one source and sets no
 Kustomize images, patches or components, Helm parameters, values or value

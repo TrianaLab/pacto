@@ -16,7 +16,7 @@ Overrides are available on all commands that take a contract reference: `validat
 | `--set <key=value>` | | Set an individual value using dot-notation |
 
 !!! note
-    The `-f` shorthand is not available on `pacto push` because `-f` is already used for `--force`.
+    On `pacto push`, `-f` is the shorthand for `--force`, so spell out `--values`.
 
 ## Precedence
 
@@ -26,21 +26,20 @@ Overrides follow the same precedence logic as Helm (lowest to highest):
 2. Values files (`-f`), in the order they are specified
 3. `--set` values
 
-Later sources override earlier ones. Multiple `-f` flags are applied in order — the last file wins for any conflicting key.
+Later sources override earlier ones. Multiple `-f` flags apply in order, and the last file wins for any conflicting key.
 
 ## `--set` type inference
 
 `--set key=value` infers the value's type from the string, trying in order:
 integer (`int64`) → float (`float64`) → boolean → string. The first parse that
-succeeds wins; anything that matches none stays a string. Consequences worth
-knowing:
+succeeds wins, and a value that matches none stays a string. For example:
 
 - `--set readiness.minScore=80` → integer `80`; `--set ratio=1.5` → float `1.5`.
-- `--set flag=true` → boolean `true` (but `--set flag=1` → integer `1`, not boolean).
-- A multi-dot semver like `--set service.version=1.0.0` has two dots, so it parses
-  as none of the numeric/boolean types and **stays a string** (the desired result).
-  A two-segment value like `1.0` parses as the float `1.0` — quote-sensitive values
-  that must remain strings are better set via a `-f` values file with explicit YAML typing.
+- `--set flag=true` → boolean `true` (but `--set flag=1` → integer `1`).
+- A multi-dot semver like `--set service.version=1.0.0` has two dots, so it matches
+  none of the numeric or boolean types and **stays a string**.
+  A two-segment value like `1.0` parses as the float `1.0`. Set values that must
+  stay strings in a `-f` values file with explicit YAML typing.
 
 ## Examples
 
@@ -61,11 +60,11 @@ pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 pacto validate my-service --set interfaces[0].visibility=internal
 ```
 
-A worked per-environment layout — one values file per environment, the array-replacement caveat and this precedence rule applied end to end — is in [Configurations as composable claims](../patterns/index.md#configurations-as-composable-claims).
+[Configurations as composable claims](../patterns/index.md#configurations-as-composable-claims) shows a worked per-environment layout: one values file per environment, the array-replacement caveat and this precedence rule applied end to end.
 
 ## Diff overrides
 
-`diff` and `impact` each take two contract references — an old one and a new one — so they carry no plain `--values`/`--set`. To override each side independently, use prefixed flags:
+`diff` and `impact` each take two contract references, an old one and a new one. To override each side independently, use these prefixed flags:
 
 | Flag | Description |
 |------|-------------|
@@ -90,7 +89,7 @@ pacto impact old-service new-service --new-set service.version=2.0.0
 
 ## Schema validation
 
-All overrides are validated against the Pacto JSON Schema after they are applied. This means invalid enum values, unknown fields and type mismatches are rejected by every command — not just `validate` and `push`.
+Every command validates the contract against the Pacto JSON Schema after it applies overrides, so every command rejects invalid enum values, unknown fields and type mismatches.
 
 ```bash
 # Rejected: "invalid" is not a valid enum value for state.type

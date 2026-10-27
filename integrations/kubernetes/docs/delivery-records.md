@@ -2,7 +2,7 @@
 
 The recorder writes a signed record of every operation that ends, refusals
 included, into your registry next to the versions it touched. Off by
-default. Only it can sign and push; the promoter can do neither. With it on, history, blame and undo read the records, not
+default. Only the recorder can sign and push records. With it on, history, blame and undo read the records in place of
 the Operations left in the cluster.
 
 ## What a record is

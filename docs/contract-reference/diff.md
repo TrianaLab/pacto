@@ -10,11 +10,11 @@ Every change goes through a fixed rule table, so the same two contracts always g
 
 Each change is classified as:
 
-- **`BREAKING`** — a change that will break consumers or platforms relying on the previous contract
-- **`POTENTIAL_BREAKING`** — a change that *may* break consumers depending on how they use the field
-- **`NON_BREAKING`** — a safe change that doesn't affect compatibility
+- **`BREAKING`**: a change that breaks consumers or platforms relying on the previous contract
+- **`POTENTIAL_BREAKING`**: a change that *may* break consumers, depending on how they use the field
+- **`NON_BREAKING`**: a safe change that keeps compatibility
 
-Any change not matched by a specific rule below defaults to **POTENTIAL_BREAKING**.
+A change that matches no specific rule below defaults to **POTENTIAL_BREAKING**.
 
 ## Service identity
 
@@ -27,12 +27,11 @@ Any change not matched by a specific rule below defaults to **POTENTIAL_BREAKING
 | `service.owner.contacts[]` | Added / Modified / Removed | NON_BREAKING |
 
 The owner block is compared field by field, so changing a `dri` or adding a
-contact while the `team` is unchanged surfaces the specific change rather than an
-opaque whole-owner modification. Contacts are keyed by `type:value`; a `purpose`
-change on an existing contact is a modification. `service` carries identity only —
-there is no `image` or `chart` field to diff. `pactoVersion` is not diffable
-either: `"2.0"` is the only value that loads, so both sides always match and a
-version change is a load error rather than a change entry.
+contact while the `team` is unchanged reports that specific change. Contacts are
+keyed by `type:value`, and a `purpose` change on an existing contact is a
+modification. `service` carries identity only, so the contract has no `image` or
+`chart` field to diff. A `pactoVersion` change, such as `"2.0"` to `"2.1"`, is
+`NON_BREAKING`.
 
 ## Interfaces
 
@@ -61,12 +60,12 @@ Interfaces are keyed by `name`. The `type` enum is `openapi`/`asyncapi`/`grpc`, 
 | `configurations[].values.*` | Added / Modified / Removed | NON_BREAKING |
 
 Dropping a `schema` is `BREAKING`: the configuration a consumer supplies stops
-being validated against anything. Introducing one where there was none is
-`POTENTIAL_BREAKING` rather than safe, because a configuration nothing checked
-before can newly fail validation.
+being validated. Introducing a schema where there was none is
+`POTENTIAL_BREAKING`, because a configuration that was unchecked before can now
+fail validation.
 
-Inline configuration `values` are the provider's own defaults, not part of the
-consumer-facing contract surface, so value changes are diffed key by key (e.g.
+Inline configuration `values` are the provider's own defaults and sit outside the
+consumer-facing contract surface. Value changes are diffed key by key (for example
 `configurations[app].values.replicas`) and classified `NON_BREAKING`.
 
 ## Policy
@@ -81,8 +80,8 @@ consumer-facing contract surface, so value changes are diffed key by key (e.g.
 | `policies[].ref` | Removed | POTENTIAL_BREAKING |
 
 Introducing a policy `schema` where there was none is `POTENTIAL_BREAKING` for
-the same reason it is on a configuration: a policy nothing validated before can
-newly fail against it.
+the same reason it is on a configuration: a contract that no policy checked before
+can now fail against it.
 
 ## Workload and state
 
@@ -96,9 +95,9 @@ newly fail against it.
 | `state.dataCriticality` | Modified | POTENTIAL_BREAKING |
 | `state.dataCriticality` | Added / Removed | NON_BREAKING |
 
-`workload` and `state` are top-level sections. There is no `runtime`, `lifecycle`
-or `scaling` section to diff — scheduling and scaling are delivery concerns the
-contract does not declare.
+`workload` and `state` are top-level sections. Scheduling and scaling are
+delivery concerns, so the contract has no `runtime`, `lifecycle` or `scaling`
+section to diff.
 
 ## Capabilities
 
@@ -108,11 +107,11 @@ contract does not declare.
 | `capabilities` | Removed | POTENTIAL_BREAKING |
 
 Capabilities (`health`, `metrics`, `extension`) are compared as a set, keyed by
-`type` — plus `ref` for an `extension`. Adding a capability is a new signal
-(`NON_BREAKING`); removing one loses an observability guarantee
-(`POTENTIAL_BREAKING`). Only membership of that set is diffed: `binding` is not
-part of the key and is not compared, so re-pointing an existing capability's
-`binding.interface` or `binding.path` produces no change entry at all.
+`type`, plus `ref` for an `extension`. Adding a capability is a new signal
+(`NON_BREAKING`). Removing one loses an observability guarantee
+(`POTENTIAL_BREAKING`). The diff compares only set membership and ignores
+`binding`, so re-pointing an existing capability's `binding.interface` or
+`binding.path` produces no change entry.
 
 ## Dependencies
 
@@ -154,9 +153,10 @@ part of the key and is not compared, so re-pointing an existing capability's
 
 Requiring a parameter is the one parameter change that escalates: introducing a new
 `required` parameter, or flipping an existing one from optional to required, is
-`BREAKING` because existing clients omit it. Relaxing required to optional is not.
+`BREAKING` because existing clients omit it. Relaxing required to optional is
+`POTENTIAL_BREAKING`.
 
-Parameters are identified by `name` + `in` (location: query, path, header, cookie). A parameter renamed or moved to a different location is treated as a removal + addition.
+Parameters are identified by `name` + `in` (location: query, path, header, cookie). A parameter renamed or moved to a different location counts as a removal plus an addition.
 
 ### Request body
 
@@ -173,10 +173,9 @@ Parameters are identified by `name` + `in` (location: query, path, header, cooki
 | `openapi.responses` | Removed | **BREAKING** |
 
 Neither table has a Modified row. A request body or a status code present on
-both sides is never reported as one opaque modification. It is deep-diffed field
-by field and each inner difference is classified by the [JSON Schema
-rules](#json-schema-configuration-policy-schemas) below, so there is no such
-change for a Modified rule to answer.
+both sides is deep-diffed field by field, and the [JSON Schema
+rules](#json-schema-configuration-policy-schemas) below classify each inner
+difference.
 
 Which side of the exchange the body belongs to changes the verdict, because a
 `required` entry means the opposite thing on each side:
@@ -214,7 +213,7 @@ openapi.paths[/users].methods[GET].responses[200].content.application/json.schem
 | `asyncapi.channels` | Added | NON_BREAKING |
 | `asyncapi.channels` | Removed | **BREAKING** |
 
-A channel present on both sides is never reported as one opaque modification. It is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change. The [JSON Schema rules](#json-schema-configuration-policy-schemas) below classify each one: a `required` change is `BREAKING`, every other inner difference is `POTENTIAL_BREAKING`. That is why there is no `asyncapi.channels` Modified row — the engine has no such change to emit.
+A channel present on both sides is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change. The [JSON Schema rules](#json-schema-configuration-policy-schemas) below classify each one: a `required` change is `BREAKING` and every other inner difference is `POTENTIAL_BREAKING`. For that reason the table has no `asyncapi.channels` Modified row.
 
 ### Operations
 
@@ -223,11 +222,11 @@ A channel present on both sides is never reported as one opaque modification. It
 | `asyncapi.operations` | Added | NON_BREAKING |
 | `asyncapi.operations` | Removed | **BREAKING** |
 
-An operation present on both sides is deep-diffed exactly like a channel, so flipping `action` from `send` to `receive` surfaces as `asyncapi.operations[sendOrder].action` (`POTENTIAL_BREAKING`) rather than a modification of the operation as a whole.
+An operation present on both sides is deep-diffed exactly like a channel, so flipping `action` from `send` to `receive` surfaces as `asyncapi.operations[sendOrder].action` (`POTENTIAL_BREAKING`).
 
 Top-level `operations` are an AsyncAPI 3.x concept. A 2.x document has no `operations` map, so only its channels are compared.
 
-Only `channels` and `operations` are compared. `info`, `servers`, `components` and `defaultContentType` are ignored for the same reason `metadata` is: they churn on every release without changing what a consumer can publish or subscribe to.
+Only `channels` and `operations` are compared. The diff ignores `info`, `servers`, `components` and `defaultContentType` for the same reason it ignores `metadata`: they change on most releases and leave what a consumer can publish or subscribe to unchanged.
 
 Change paths pinpoint the exact location, for example:
 
@@ -254,7 +253,7 @@ asyncapi.operations[sendOrder].action
 | `grpc.messages.fields` | Removed | **BREAKING** |
 | `grpc.messages.fields` | Modified | **BREAKING** |
 
-proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. That is why a modified field is `BREAKING` rather than `POTENTIAL_BREAKING`.
+proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. For that reason a modified field is `BREAKING`.
 
 Change paths pinpoint the exact location, for example:
 
@@ -264,20 +263,20 @@ grpc.rpcs[FraudService.EvaluateTransaction]
 grpc.messages[EvaluateTransactionRequest].fields[metadata]
 ```
 
-### What the proto comparison does not do
+### Limits of the proto comparison
 
-The comparison is a text scan of proto3 source, not a protobuf compile. In practice:
+The comparison scans proto3 source as text. It runs no protobuf compiler, which has these effects:
 
-- **`import`s are not resolved.** Only the declarations in the referenced file are compared. A message that moves into an imported file reads as a removal.
-- **Nested messages and `oneof` bodies are not descended into.** Their fields are skipped rather than misread as fields of the enclosing message, so a change inside one produces no change entry.
+- **`import`s stay unresolved.** Pacto compares only the declarations in the referenced file. A message that moves into an imported file reads as a removal.
+- **Nested messages and `oneof` bodies are skipped.** Their fields are left out of the enclosing message, so a change inside one produces no change entry.
 - **Identity is the declared name.** A renamed field or rpc reads as a removal plus an addition even when the field number is unchanged.
-- **Type identity is textual.** The scanner does not resolve names against `package` or `import`, so fully qualifying a type (`Inner` → `pkg.v1.Inner`) reads as a modified field even though the descriptor is unchanged.
-- **Inline field options are ignored.** Adding or removing `[deprecated = true]` is not a change, while a retype behind one still is. A field whose option block contains braces (a nested text-format value such as `[(validate.rules).string = {min_len: 1}]`) is dropped from the revision that carries it, and only from that one — so adding such an option to an existing field reads as a removal and is classified **BREAKING**.
-- **Comments and string literals are inert.** A `//`, a `}` or a `/*` inside a string literal — a URL in an `option` line, say — neither truncates the line nor closes a block early nor opens a comment.
+- **Type identity is textual.** The scanner compares names as written, without `package` or `import` resolution, so fully qualifying a type (`Inner` → `pkg.v1.Inner`) reads as a modified field even though the descriptor is unchanged.
+- **Inline field options are ignored.** Adding or removing `[deprecated = true]` produces no change entry, while a retype behind one still does. A field whose option block contains braces (a nested text-format value such as `[(validate.rules).string = {min_len: 1}]`) is dropped from the revision that carries it, and only from that one. Adding such an option to an existing field therefore reads as a removal and is classified **BREAKING**.
+- **Comments and string literals are inert.** A `//`, a `}` or a `/*` inside a string literal, such as a URL in an `option` line, is read as part of the string.
 
 ## JSON Schema (configuration & policy schemas)
 
-Schema files referenced by `configurations[].schema`, `policies[].schema` or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
+Schema files referenced by `configurations[].schema`, `policies[].schema` or the auto-detected `policy/schema.json` are compared recursively. Pacto detects and classifies every structural difference, including properties, types, constraints, defaults and enums.
 
 | Field | Change | Classification |
 |-------|--------|----------------|
@@ -288,15 +287,15 @@ Schema files referenced by `configurations[].schema`, `policies[].schema` or the
 | `schema.*` (any other path) | Added / Removed / Modified | POTENTIAL_BREAKING |
 
 The same recursive comparison classifies OpenAPI request bodies and responses,
-AsyncAPI payloads and these schema files — but not identically. A `required`
+AsyncAPI payloads and these schema files, with one difference. A `required`
 entry is a promise in one direction and an obligation in the other, so the
 verdict depends on which side supplies the data.
 
 - **OpenAPI request bodies and responses** carry a known direction and use the
   mirrored table under [Responses](#responses) above.
-- **Configuration schemas, policy schemas and AsyncAPI payloads** do not. A
-  configuration schema constrains a value the platform supplies; an AsyncAPI
-  channel is published by one service and subscribed by another. With no
+- **Configuration schemas, policy schemas and AsyncAPI payloads** carry no
+  direction. A configuration schema constrains a value the platform supplies,
+  and one service publishes to an AsyncAPI channel while another subscribes. With no
   direction to read, both `required` transitions take the conservative answer
   and stay `BREAKING`, and a removed property is `POTENTIAL_BREAKING` like any
   other structural difference.
@@ -311,35 +310,34 @@ verdict depends on which side supplies the data.
 | `readiness.partialCredit` | Added / Modified / Removed | NON_BREAKING |
 | `readiness.claims[]` | Added / Modified / Removed | NON_BREAKING |
 
-All readiness changes are classified as `NON_BREAKING` — readiness tracks operational
-maturity and does not affect runtime compatibility. Adding or removing the whole
+All readiness changes are `NON_BREAKING`, because readiness tracks operational
+maturity and leaves runtime compatibility unchanged. Adding or removing the whole
 `readiness` block surfaces as a single `readiness` change; otherwise the gate
 fields (`expires`, `minScore`, `partialCredit`) are compared individually. Claims
 are keyed by `id`, and a claim whose `status`, `weight`, `evidence` or any other
-field changed is reported as a modification of that claim (e.g.
-`readiness.claims[dashboard]`). The `readiness.history` revision log is not diffed:
-it is an append-only changelog that changes on every release and would only add
-noise.
+field changed is reported as a modification of that claim (for example
+`readiness.claims[dashboard]`). The diff skips the `readiness.history` revision
+log, an append-only changelog that changes on every release.
 
-## Not currently compared
+## Fields the diff skips
 
-| Section | Status |
+| Section | Behavior |
 |---------|--------|
-| `metadata` | Not diffed. Free-form `metadata` keys are carried through to documentation and the dashboard but are ignored by the diff engine. |
-| `capabilities[].binding` | Not diffed. Capabilities are keyed by `type` (and `ref`), so a changed `binding.interface` or `binding.path` on an otherwise unchanged capability is invisible to `pacto diff`. |
-| `readiness.history[]` | Not diffed. An append-only changelog that changes on every release; see [Readiness](#readiness). |
+| `metadata` | Skipped. Free-form `metadata` keys appear in documentation and the dashboard. |
+| `capabilities[].binding` | Skipped. Capabilities are keyed by `type` (and `ref`), so `pacto diff` reports no change for a new `binding.interface` or `binding.path` on an otherwise unchanged capability. |
+| `readiness.history[]` | Skipped. An append-only changelog that changes on every release; see [Readiness](#readiness). |
 
-If you rely on any of these being flagged in CI, gate on them separately (for
-example with a policy or a custom check).
+To flag changes to these fields in CI, gate on them separately, for example with
+a policy or a custom check.
 
 ## SBOM
 
-SBOM changes are reported separately from contract changes. They are **informational only** and never affect the overall diff classification.
+SBOM changes are reported separately from contract changes. They are **informational** and leave the overall diff classification unchanged.
 
 | Change | Description |
 |--------|-------------|
 | Package added | A new package appears in the SBOM |
-| Package removed | A package no longer appears in the SBOM |
+| Package removed | A package left the SBOM |
 | Package version modified | A package's version changed |
 | Package license modified | A package's license changed |
 | Package supplier modified | A package's supplier changed |

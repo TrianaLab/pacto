@@ -52,8 +52,8 @@ When no arguments are given, sources are auto-detected:
 
 When running alongside the Kubernetes operator, OCI repositories are
 automatically discovered from the status.contract.resolvedRef fields of Pacto
-CRD resources, on every refresh rather than once at startup. That gives a hybrid
-view: runtime truth from the operator combined with contract truth from OCI.
+CRD resources on every refresh. The result combines runtime state from the
+operator with contract content from OCI.
 
 Every source contributes to one snapshot, rebuilt in the background, and each
 answer carries the as-of time and the completeness of the sources behind it.`,

@@ -30,7 +30,7 @@ When `spec.target` is omitted the Pacto is reference-only: the operator parses a
 | `spec.target.configBindings[].key` | `string` | no |  | Key names the single ConfigMap/Secret key to decode and validate. Omit for existence-only. |
 | `spec.target.configBindings[].kind` | `string` | yes | `ConfigMap`, `Secret` | Kind of the backing object. |
 | `spec.target.configBindings[].name` | `string` | yes |  | Name of the backing ConfigMap/Secret in the Pacto's namespace. |
-| `spec.target.interfaceBindings` | `[]object` | no |  | InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes deployment knowledge — lives on the CR, NOT the platform-agnostic contract. |
+| `spec.target.interfaceBindings` | `[]object` | no |  | InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes deployment knowledge, so it lives on the CR and the contract stays platform-agnostic. |
 | `spec.target.interfaceBindings[].interface` | `string` | yes |  | Interface is the contract interfaces[].name this binding resolves. |
 | `spec.target.interfaceBindings[].servicePort` | `object` | yes |  | ServicePort is the Service port name or number that serves the interface. |
 | `spec.target.serviceName` | `string` | no |  | ServiceName is the name of the Kubernetes Service to observe. |
@@ -78,7 +78,7 @@ spec:
 The three `contractRef.oci` forms are not three styles. They decide what the binding *means* over time, and the operator records which one it inferred in `status.resolutionPolicy` -- `PinnedDigest`, `PinnedTag` or `Latest`.
 
 - **Digest** (`...@sha256:<digest>`) is the only form whose meaning cannot change. Every reconcile re-reads the same bytes, so a compliance verdict is reproducible: what the operator asserted last Tuesday is what it asserts today. The cost is real -- publishing a contract revision becomes a change to the `Pacto` resource too.
-- **Tag** (`...:1.2.3`) is a name you control, not an immutable one. If someone force-pushes that tag the operator notices rather than drifting silently: it records a new `PactoRevision` and emits a `TagOverwritten` Warning Event naming the old and new digests. It does not refuse the new content. Choose a tag when you want a promotable pointer and will treat that Event as a signal.
+- **Tag** (`...:1.2.3`) is a mutable name you control. If someone force-pushes that tag, the operator records a new `PactoRevision` and emits a `TagOverwritten` Warning Event naming the old and new digests. It still accepts the new content. Choose a tag when you want a promotable pointer and will treat that Event as a signal.
 - **Unversioned** (`ghcr.io/org/service-pacto`) re-resolves the highest semver tag on every reconcile -- every `spec.checkIntervalSeconds`, 300 by default. It fits an environment whose job is to run whatever is newest, such as a staging namespace or a preview cluster. It fits production badly, because what is being asserted changes without anyone deciding to change it.
 
 With no other constraint: digest in production, unversioned in staging. The middle form is for teams that already run a tag-promotion discipline.

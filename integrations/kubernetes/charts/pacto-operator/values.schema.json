@@ -307,7 +307,7 @@
                 "properties": {
                   "name": {
                     "type": "string",
-                    "description": "Stable Data Source identity; reordering the list never renames a source.",
+                    "description": "Stable Data Source identity. Reordering the list keeps every name.",
                     "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
                     "maxLength": 59
                   },

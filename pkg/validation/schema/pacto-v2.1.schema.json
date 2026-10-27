@@ -57,7 +57,7 @@
             "contacts": {
               "type": "array",
               "minItems": 1,
-              "description": "Provider-neutral ownership and escalation contact points. The list is a set: order carries no meaning, and repeating an identical contact point names the same one contact point rather than adding another.",
+              "description": "Provider-neutral ownership and escalation contact points. The list is a set: order carries no meaning, and an identical contact point repeated in the list counts once.",
               "items": {
                 "type": "object",
                 "required": [
@@ -715,7 +715,7 @@
               },
               "build": {
                 "type": "object",
-                "description": "How the artifact is built: exactly one of dockerfile or command. Builders never push; Pacto does.",
+                "description": "How the artifact is built: exactly one of dockerfile or command. Builders write the artifact; Pacto pushes it.",
                 "minProperties": 1,
                 "maxProperties": 1,
                 "additionalProperties": false,
@@ -762,7 +762,7 @@
               "sbom": {
                 "type": "string",
                 "pattern": "\\.(spdx|cdx)\\.json$",
-                "description": "The SBOM file the build writes, relative to the contract directory: SPDX JSON (.spdx.json) or CycloneDX JSON (.cdx.json). Pacto attaches it to the image as an OCI referrer and signs it; it never makes one. Images only."
+                "description": "The SBOM file the build writes, relative to the contract directory: SPDX JSON (.spdx.json) or CycloneDX JSON (.cdx.json). Pacto attaches it to the image as an OCI referrer and signs it; the build must write it. Images only."
               }
             }
           }
@@ -826,7 +826,7 @@
     },
     "checks": {
       "type": "array",
-      "description": "Test or eval suites shipped with this version. Pacto never reads them: it packs each file in the bundle, records its sha256 and hands file and digest to the runner a delivery gate names, accepting only a verdict about that exact digest.",
+      "description": "Test or eval suites shipped with this version. Pacto treats them as opaque: it packs each file in the bundle, records its sha256 and hands file and digest to the runner a delivery gate names, accepting only a verdict about that exact digest.",
       "minItems": 1,
       "items": {
         "type": "object",

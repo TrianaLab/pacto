@@ -64,7 +64,7 @@ These patterns are always applied, even when no `.pactoignore` file exists:
 
 ## Immutable files
 
-`pacto.yaml` is **never ignorable**. Listing it in `.pactoignore` is a no-op: the contract file is always included in the bundle.
+`pacto.yaml` is **never ignorable**. Listing it in `.pactoignore` has no effect, because the bundle always includes the contract file.
 
 ---
 

@@ -93,7 +93,7 @@ If any resolved dependency or reference produces a digest that does not match th
 
 A lock below `lockVersion` 3 is reported as `LOCK_STALE`: re-run `pacto lock` to
 rewrite it. Rewriting is the whole migration: Pacto re-resolves the closure from the
-contract, so nothing in an old lock needs translating.
+contract and ignores the old lock's content.
 
 ---
 
@@ -153,7 +153,7 @@ The lockfile starts with `lockVersion` (schema version), `pacto.version` (the CL
 
 Each `dependencies[]` entry records the `source` (oci or local), the full ref or path as written in the contract, the constraint and resolved version and the digest (for OCI) or contentHash (for local). The lockfile's `constraint` is the dependency's `compatibility` range copied from `pacto.yaml`. The `dependsOn` field captures the dependency chain so Pacto can rebuild the full graph structure from the lock without re-resolving upstream refs.
 
-The `references[]` section records config and policy refs with their `kind`, `source` and digest. References carry no `constraint` (only dependencies do). Local file-based refs appear here with a contentHash instead of an OCI digest. A contract that declares no config or policy refs produces a lock with no `references` key at all.
+The `references[]` section records config and policy refs with their `kind`, `source` and digest. Only dependencies carry a `constraint`. Local file-based refs appear here with a contentHash instead of an OCI digest. A contract that declares no config or policy refs produces a lock with no `references` key at all.
 
 ---
 

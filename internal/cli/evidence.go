@@ -115,7 +115,7 @@ func newEvidenceKeygenCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Long: "Writes the private seed to <keyId>.key (base64, 0600) and the public key " +
 			"into --out. With --producer, the public key is written as " +
 			"<producer>__<keyId>.pub, which binds the key to that producer in the trust " +
-			"store — hand that file to the platform. Sign with the SAME --producer and " +
+			"store. Hand that file to the platform. Sign with the SAME --producer and " +
 			"--key-id. With no --producer, a bare <keyId>.pub binds the key to a producer " +
 			"named after the key id (the single-producer default).",
 		Args: cobra.NoArgs,

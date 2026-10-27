@@ -2,26 +2,25 @@
 
 Every command accepts `-v` / `--verbose` for debug-level logging and `--help` for detailed usage. `--output-format` is a global flag taking `text` (the default), `json` or `markdown`.
 
-!!! warning "What `--output-format` does and does not promise"
+!!! warning "What `--output-format` guarantees"
     Read this before you parse Pacto's output in a script.
 
-    - **`json` describes a *successful* result.** When a command cannot produce
-      its result at all — an unreachable reference, a missing `pacto.lock` — the
-      error goes to **stderr as plain text and stdout stays empty**, whatever
-      `--output-format` said. But a *verdict* of "no" is a result, not a
-      failure: `pacto validate` on an invalid contract and `pacto diff` on a
-      breaking change both print their whole JSON document to stdout **and**
-      exit 1. So the exit code does not tell you whether there is anything to parse —
-      an empty stdout does. Read stdout when it is non-empty; read the exit code
-      for the verdict.
-    - **`markdown` is implemented by `pacto diff` only**, for posting a diff as a
-      CI comment. Every other command silently renders text instead.
+    - **`json` describes a *successful* result.** When a command fails to
+      produce its result, for example because a reference is unreachable or
+      `pacto.lock` is missing, the error goes to **stderr as plain text and
+      stdout stays empty**, whatever `--output-format` says. A negative
+      *verdict* is still a result: `pacto validate` on an invalid contract and
+      `pacto diff` on a breaking change both print their whole JSON document to
+      stdout **and** exit 1. An empty stdout tells you there is nothing to
+      parse. Read stdout when it is non-empty, and read the exit code for the
+      verdict.
+    - **Only `pacto diff` implements `markdown`**, for posting a diff as a CI
+      comment. Every other command renders text.
     - **Keys are camelCase** in every command (`"path"`, `"valid"`, `"errors"`,
       `"upToDate"`). Before v4, `init`, `validate`, `pack`, `pull` and `push`
       emitted capitalised keys (`"Path"`, `"Valid"`).
     - **An unrecognised value is rejected.** `--output-format yaml` exits 1 with
-      `unsupported output format "yaml"` before the command runs, so a typo never
-      passes for success.
+      `unsupported output format "yaml"` before the command runs.
 
     The interactive and side-effecting commands (`login`, `logout`, `update`,
     `mcp`, `dashboard`) inherit the flag from the root command and always emit text.

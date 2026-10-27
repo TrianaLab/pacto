@@ -54,7 +54,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared := pflag.NewFlagSet("fleet-source", pflag.ContinueOnError)
 	shared.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
 	shared.StringArray("root", nil, "contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)")
-	shared.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
+	shared.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)")
 	shared.StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
 	shared.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
 	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")

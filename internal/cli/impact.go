@@ -26,14 +26,11 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"holds.\n\n" +
 			"Exit status is non-zero when the change is BREAKING and at least one " +
 			"ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). " +
-			"Active means the snapshot knows of somewhere that consumer is deployed — " +
-			"at least one operational target. A consumer that is incompatible on paper " +
-			"but is running nowhere the snapshot can see does not fail the command, so " +
-			"a declared-only run over `--local` bundles alone exits 0 no matter how " +
-			"incompatible it says the consumers are. The exit is non-zero only when " +
-			"there exists at least one consumer that is BOTH incompatible and has at " +
-			"least one active target. Supply targets with --target-state (or query a " +
-			"live fleet with `pacto fleet`) to make the exit code mean something.",
+			"Active means the snapshot knows at least one operational target where that " +
+			"consumer is deployed. An incompatible consumer with no visible target " +
+			"leaves the exit at 0, so a declared-only run over `--local` bundles alone " +
+			"always exits 0 whatever it classifies. Supply targets with --target-state " +
+			"(or query a live fleet with `pacto fleet`) to make the exit code meaningful.",
 		Example: `  # Impact of upgrading a local service against the local fleet
   pacto impact ./svc-v1 ./svc-v2 --local .
 

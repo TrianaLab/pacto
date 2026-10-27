@@ -21,7 +21,7 @@ func newFleetReconcileCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Short: "Compare declared dependencies against observed traffic",
 		Long: "Reconciles what the fleet's contracts declare against what runtime " +
 			"traces prove. Reports matched dependencies, declared-but-not-observed " +
-			"(dormant or unseen — not proof of a dead dependency) and " +
+			"(dormant or unseen in the trace window, so possibly still in use) and " +
 			"observed-but-not-declared (shadow dependencies).",
 		Example: `  pacto fleet reconcile --traces traces.json --local .`,
 		RunE: func(cmd *cobra.Command, args []string) error {

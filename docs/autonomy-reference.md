@@ -1,7 +1,7 @@
 # Ladder reference
 
-The exact rules behind [the autonomy ladder](autonomy.md). Reference page:
-read it when you need a field name, a blocker or a command.
+This page lists the rules behind [the autonomy ladder](autonomy.md): its
+fields, blockers and commands.
 
 ## Levels and what each one changes
 
@@ -14,8 +14,8 @@ read it when you need a field name, a blocker or a command.
 
 On every level the existing floors stay: an incompatible consumer asks its
 owners, Unknown holds for `accept-unknown`, `approval.always` asks a person and
-an automatic rollback that cannot run freezes the Stage. Rollbacks and
-break-glass overrides are never rejected by the level.
+an automatic rollback that cannot run freezes the Stage. The level never
+rejects rollbacks or break-glass overrides.
 
 ## Stage fields
 
@@ -70,8 +70,8 @@ pacto delivery approve <operation>
 - One level at a time. A jump of two levels is Rejected.
 - `From` must equal the current level, or the request is Rejected as stale.
 - Raising needs an Approval from a person other than the raiser, from the team
-  the running contract declares. If that contract cannot be read the verdict
-  is Unknown.
+  the running contract declares. If Pacto cannot read that contract, the
+  verdict is Unknown.
 - A raise passes only when `status.proposal` names exactly the next level and
   the Stage's status still earns it when the raise is planned. Anything else
   is Unknown and needs `accept-unknown`.
