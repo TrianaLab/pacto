@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"slices"
@@ -29,36 +30,44 @@ func Parse(r io.Reader) (*Contract, error) {
 			Err:     err,
 		}
 	}
+	if err := checkRequired(&c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
 
+func parseStrict(raw []byte) (*Contract, error) { return Parse(bytes.NewReader(raw)) }
+
+// checkRequired enforces the top-level fields Parse requires.
+func checkRequired(c *Contract) error {
 	if c.PactoVersion == "" {
-		return nil, &ParseError{
+		return &ParseError{
 			Path:    "pactoVersion",
 			Message: "pactoVersion is required",
 		}
 	}
 
 	if !slices.Contains(SupportedVersions, c.PactoVersion) {
-		return nil, &ParseError{
+		return &ParseError{
 			Path:    "pactoVersion",
 			Message: fmt.Sprintf("unsupported pactoVersion %q; supported: %s", c.PactoVersion, strings.Join(SupportedVersions, ", ")),
 		}
 	}
 
 	if c.Service.Name == "" {
-		return nil, &ParseError{
+		return &ParseError{
 			Path:    "service.name",
 			Message: "service.name is required",
 		}
 	}
 
 	if c.Service.Version == "" {
-		return nil, &ParseError{
+		return &ParseError{
 			Path:    "service.version",
 			Message: "service.version is required",
 		}
 	}
-
-	return &c, nil
+	return nil
 }
 
 // DecodeYAML unmarshals YAML into out the way Parse sees it: a scalar that

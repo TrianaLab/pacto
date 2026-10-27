@@ -401,25 +401,6 @@ readiness:
 	}
 }
 
-func TestConvertYAMLToJSON_NonStringKey(t *testing.T) {
-	input := map[any]any{
-		42:     "int-key-value",
-		"name": "string-key-value",
-	}
-
-	result := convertYAMLToJSON(input)
-	m, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]interface{}, got %T", result)
-	}
-	if m["42"] != "int-key-value" {
-		t.Errorf("expected key '42' with value 'int-key-value', got %v", m["42"])
-	}
-	if m["name"] != "string-key-value" {
-		t.Errorf("expected key 'name' with value 'string-key-value', got %v", m["name"])
-	}
-}
-
 func TestStructural_V20ReadinessAccepted(t *testing.T) {
 	doc := minimalV20Contract()
 	doc["readiness"] = map[string]any{

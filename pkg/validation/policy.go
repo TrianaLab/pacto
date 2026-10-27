@@ -92,13 +92,15 @@ const PolicySchemaPath = "policy/schema.json"
 // satisfy every policy. Contradictory policies naturally fail — no precedence or
 // override logic is applied.
 func EnforcePolicies(rawYAML []byte, policies []ResolvedPolicy) ValidationResult {
-	var result ValidationResult
 	if len(policies) == 0 {
-		return result
+		return ValidationResult{}
 	}
+	return enforcePolicies(contract.DecodeDocument(rawYAML), policies)
+}
 
-	// Parse contract YAML into generic form for JSON Schema validation.
-	contractDoc, err := yamlToGeneric(rawYAML)
+func enforcePolicies(doc *contract.Document, policies []ResolvedPolicy) ValidationResult {
+	var result ValidationResult
+	contractDoc, err := doc.JSON()
 	if err != nil {
 		result.AddError("", "POLICY_ENFORCEMENT_ERROR",
 			fmt.Sprintf("failed to parse contract for policy enforcement: %v", err))
