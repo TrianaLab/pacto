@@ -12,6 +12,7 @@
   // there is room for one, and a closed disclosure under the page title where there is
   // not. A <details> is both, which is why there is no second implementation and no
   // ARIA of our own -- the open/closed state is native, and so is keyboard and touch.
+  import { tick } from 'svelte';
   import { prefersReducedMotion } from '../lib/motion.ts';
 
   let { label = 'On this page', minEntries = 3, wide = '(min-width: 1100px)' } = $props();
@@ -131,12 +132,20 @@
   function go(id) {
     const el = document.getElementById(id);
     if (!el) return;
-    for (let p = el; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+    const scroll = () => el.scrollIntoView?.({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+    for (let p = el; p; p = p.parentElement) {
+      if (p.tagName !== 'DETAILS' || p.open) continue;
+      // A closed section mounts its content only once it has opened, which grows the
+      // page after the first scroll was aimed. Aim again once that content is in, unless
+      // the reader has taken over or chosen another section since.
+      p.addEventListener('toggle', () => tick().then(() => { if (pinned && current === id) scroll(); }), { once: true });
+      p.open = true;
+    }
     // Answer the click immediately and hold that answer. The section is current because
     // the reader chose it, not because a scroll animation eventually gets there.
     current = id;
     pinned = true;
-    el.scrollIntoView?.({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+    scroll();
     // Send the keyboard caret with the viewport, so the next Tab continues from the
     // section the reader asked for rather than from the next rail entry.
     el.setAttribute('tabindex', '-1');
