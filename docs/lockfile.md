@@ -19,9 +19,9 @@ The lock is optional. Without a `pacto.lock` next to `pacto.yaml`, Pacto resolve
 
 A `pacto.lock` file records:
 
-- **Every dependency, all the way down** — every dependency declared in `dependencies[]`, recursively resolved through the dependency tree, pinned by OCI digest.
-- **Every reference, all the way down** — every config/policy reference declared in `configurations[].ref` and `policies[].ref`, followed through each referenced bundle, pinned by OCI digest. One entry per declared reference *occurrence*, tagged with the contract that declared it, so a root contract's `settings` reference and a referenced bundle's own `settings` reference stay distinct pins.
-- **Local dependencies and references** — file-based deps and refs pinned by their content hash (`sha256:...`) so local changes invalidate the lock.
+- **Every dependency, all the way down**: every dependency declared in `dependencies[]`, recursively resolved through the dependency tree, pinned by OCI digest.
+- **Every reference, all the way down**: every config/policy reference declared in `configurations[].ref` and `policies[].ref`, followed through each referenced bundle, pinned by OCI digest. One entry per declared reference *occurrence*, tagged with the contract that declared it, so a root contract's `settings` reference and a referenced bundle's own `settings` reference stay distinct pins.
+- **Local dependencies and references**: file-based deps and refs pinned by their content hash (`sha256:...`) so local changes invalidate the lock.
 
 The lock does not capture configuration values (`configurations[].values`), runtime metadata or scaling parameters. It only pins the structural dependencies and references that form the contract's external boundary.
 
@@ -43,7 +43,7 @@ pacto lock
 pacto lock ./my-service
 ```
 
-The lock command respects `--values` and `--set` overrides just like `validate` and `graph` — the lock you generate matches the contract as it would be evaluated at command time.
+The lock command respects `--values` and `--set` overrides like `validate` and `graph`, so the lock you generate matches the contract as it would be evaluated at command time.
 
 ### `pacto lock --update`
 
@@ -89,11 +89,11 @@ If any resolved dependency or reference produces a digest that does not match th
 | `LOCK_MISSING` | `pacto lock --check` was run but no `pacto.lock` file exists. It is the only command that treats a missing lock as an error; the commands listed above skip verification entirely when there is no lock to verify |
 | `LOCK_AMBIGUOUS_REFERENCE` | One declared reference would have to be pinned to two different destinations, so the lock cannot record it |
 | `LOCK_DUPLICATE_DECLARATION` | A contract in the closure declares the same configuration or policy name twice, so it holds two declarations the lock cannot tell apart |
-| `LOCK_ERROR` | Fallback for a lock failure that carries no more specific `LOCK_*` code — for example a `lockVersion` outside the supported range |
+| `LOCK_ERROR` | Fallback for a lock failure that carries no more specific `LOCK_*` code, for example a `lockVersion` outside the supported range |
 
 A lock below `lockVersion` 3 is reported as `LOCK_STALE`: re-run `pacto lock` to
-rewrite it. Rewriting is the whole migration — the closure is re-resolved from the
-contract, so nothing in an old lock has to be translated.
+rewrite it. Rewriting is the whole migration: Pacto re-resolves the closure from the
+contract, so nothing in an old lock needs translating.
 
 ---
 
@@ -153,7 +153,7 @@ The lockfile starts with `lockVersion` (schema version), `pacto.version` (the CL
 
 Each `dependencies[]` entry records the `source` (oci or local), the full ref or path as written in the contract, the constraint and resolved version and the digest (for OCI) or contentHash (for local). The lockfile's `constraint` is the dependency's `compatibility` range copied from `pacto.yaml`. The `dependsOn` field captures the dependency chain so Pacto can rebuild the full graph structure from the lock without re-resolving upstream refs.
 
-The `references[]` section records config and policy refs with their `kind`, `source` and digest — references carry no `constraint` (only dependencies do). Local file-based refs appear here with a contentHash instead of an OCI digest. A contract that declares no config or policy refs produces a lock with no `references` key at all, rather than an empty list.
+The `references[]` section records config and policy refs with their `kind`, `source` and digest. References carry no `constraint` (only dependencies do). Local file-based refs appear here with a contentHash instead of an OCI digest. A contract that declares no config or policy refs produces a lock with no `references` key at all.
 
 ---
 

@@ -6,8 +6,7 @@ long-running services on a Docker host, a VM or a bare-metal server.
 [Runtime conformance](runtime-conformance.md) explains what it watches and what
 the answers mean; this page shows how to run it.
 
-On Kubernetes you do not run it yourself: the operator deploys the same agent on
-every node. See [the Kubernetes way](integrations/kubernetes/runtime-conformance.md).
+On Kubernetes the operator deploys the same agent on every node. See [the Kubernetes way](integrations/kubernetes/runtime-conformance.md).
 
 ## Quick start on a Docker host
 
@@ -126,8 +125,7 @@ agent reports no undeclared dependency for that workload at all.
   contract revision. Your platform sees every host's results in one place.
 - **`stdout`** prints the raw observations as JSON, one line per round, for
   debugging or for your own tooling.
-- **`kubernetes`** is what the operator's node agent uses. You do not set it by
-  hand.
+- **`kubernetes`** is what the operator's node agent uses. The operator sets it.
 
 ### Sending evidence
 

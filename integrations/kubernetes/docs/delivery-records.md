@@ -177,8 +177,8 @@ Eval runners:
   runner-signed answer, when the answer is for another operation or version,
   or when the signed counts and the Stage's `minPassRate` give another result.
 - `providers` on a runner key lists the gate providers whose verdicts a
-  runner must sign, so you decide which verdicts are exams, not the promoter.
-- A runner key never verifies a record, nor a recorder key a runner's answer.
+  runner must sign, so you decide which verdicts are exams.
+- A runner key verifies only runner answers, and a recorder key only records.
 - To check a runner's signature with cosign, see
   [Verify a record](../../verify-a-record.md#check-who-ran-an-exam).
 

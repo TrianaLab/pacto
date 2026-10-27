@@ -11,14 +11,14 @@ ghcr.io/trianalab/pacto/dashboard:<version>
 ```
 
 The tag matches the Pacto release version, without a `v` prefix, and there is no
-`latest` — swap the pinned version below for the release you want. The image is
+`latest` tag. Swap the pinned version below for the release you want. The image is
 signed keylessly; verify it with the command in
 [Supply chain](installation.md#supply-chain-what-is-signed-and-what-is-not).
 
 ## Quick Start
 
 Every `docker run` here publishes to `127.0.0.1` on purpose: the image sets
-`--host 0.0.0.0` and the dashboard has [no authentication at all](#security).
+`--host 0.0.0.0` and the dashboard has [no authentication by default](#security).
 
 ```bash
 # Run with OCI registry sources
@@ -56,15 +56,15 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_REGISTRY_PASSWORD` | Registry authentication password | `""` |
 | `PACTO_REGISTRY_TOKEN` | Registry authentication token | `""` |
 
-Most `PACTO_DASHBOARD_*` variables map to the CLI flag of the same name. Two do
-not: `PACTO_DASHBOARD_REPO` is the repository positional argument, and
+Most `PACTO_DASHBOARD_*` variables map to the CLI flag of the same name. Two
+are different: `PACTO_DASHBOARD_REPO` is the repository positional argument, and
 `PACTO_DASHBOARD_TRACE_SOURCES` maps to `--trace-source`, singular.
 
 The two trace variables let the dashboard learn which services really call
 each other, from trace files. Pacto has no OpenTelemetry (OTLP) receiver, so
 you export traces to files and mount them in. Each file becomes a
 [named observation source](operational-graph-reference.md#sources). Under Kubernetes the operator-managed dashboard sets
-`PACTO_DASHBOARD_TRACE_SOURCES` for you from `dashboard.observation.sources` —
+`PACTO_DASHBOARD_TRACE_SOURCES` for you from `dashboard.observation.sources`;
 see [offline trace sources](integrations/kubernetes/installation.md#offline-trace-sources-for-the-dashboard).
 
 `PACTO_CACHE_DIR` sets only where the dashboard **reads** cached bundles. It
@@ -120,7 +120,7 @@ docker run -p 127.0.0.1:3000:3000 \
 | `GET /openapi.json` | OpenAPI 3.1 specification (includes a server URL matching the bind address). Also served as `/openapi.yaml`, and downgraded to OpenAPI 3.0.3 at `/openapi-3.0.json`. |
 | `GET /docs` | Interactive API documentation. |
 
-`/openapi` on its own is a prefix, not a route: it returns `404`. The image also
+`/openapi` on its own is a prefix and returns `404`. The image also
 carries a Docker `HEALTHCHECK` polling `/health` every 10 seconds.
 
 The `status` filters of `/api/fleet/services`, `/api/fleet/entities` and
@@ -131,14 +131,16 @@ example `query.kinds[1]`.
 
 ## Security
 
-!!! warning "The dashboard has no authentication — do not expose it"
+!!! warning "Keep the dashboard private unless sign-in protects it"
 
-    It ships no login, no API key and no authorization. Anyone who can reach
-    the port reads every contract, dependency and compliance result, and can
-    make the container pull from your registries. Publish it to `127.0.0.1`
-    (`-p 127.0.0.1:3000:3000`) or put an authenticating proxy in front of it.
-    The protections below are CSRF and resource-exhaustion defences, not access
-    control, and none of them stop a client that can simply reach the port.
+    By default the dashboard has no login, API key or authorization. Anyone who
+    can reach the port reads every contract, dependency and compliance result,
+    and can make the container pull from your registries. Publish it to
+    `127.0.0.1` (`-p 127.0.0.1:3000:3000`), put an authenticating proxy in front
+    of it, or configure sign-in with `PACTO_DASHBOARD_OIDC_ISSUER_URL` and
+    `PACTO_DASHBOARD_AUTH_REQUIRED=true`. The protections below defend against
+    CSRF and resource exhaustion. They give no access control against a client
+    that reaches the port.
 
 A few endpoints mutate local state (`POST /api/resolve`, `POST /api/versions`
 and `POST /api/refresh` pull and cache OCI artifacts). Against those:

@@ -11,7 +11,7 @@ A plugin turns a contract into files: Helm charts, Terraform, Kubernetes manifes
 | **pacto-plugin-schema-infer** | Infers a JSON Schema from sample configuration files (JSON, YAML, TOML) |
 | **pacto-plugin-openapi-infer** | Extracts OpenAPI 3.1 specs from source code (FastAPI, Huma) |
 
-Both work in the other direction: they read files you already have and write contract inputs, so you do not hand-write a schema. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` is a plugin you write or install, not one Pacto provides. Without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found (looked for pacto-plugin-helm in $PATH and ~/.config/pacto/plugins/)`.
+Both work in the other direction: they read files you already have and write contract inputs, so you skip hand-writing a schema. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` needs a plugin you write or install. Without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found (looked for pacto-plugin-helm in $PATH and ~/.config/pacto/plugins/)`.
 
 See [Installation](installation.md#installing-the-official-plugins) for how to install them. Refer to each plugin's README for usage:
 
@@ -103,7 +103,7 @@ The plugin writes a JSON object to stdout:
 
 ```bash
 #!/usr/bin/env bash
-# pacto-plugin-readme — Generates a README from a Pacto contract
+# pacto-plugin-readme: generates a README from a Pacto contract
 
 set -euo pipefail
 
@@ -150,4 +150,4 @@ pacto generate readme my-service
 - **Write only to stdout.** Do not write files directly; return them in the response. Pacto handles file creation.
 - **Follow the protocol.** Return clean relative paths, write errors to stderr and exit non-zero on failure.
 - **Be deterministic.** Given the same input, produce the same output.
-- **Handle missing optional fields.** Only `pactoVersion` and `service` are required — not all contracts have `workload`, `state`, `configurations`, `dependencies` or `capabilities`.
+- **Handle missing optional fields.** Only `pactoVersion` and `service` are required, so a contract may lack `workload`, `state`, `configurations`, `dependencies` or `capabilities`.

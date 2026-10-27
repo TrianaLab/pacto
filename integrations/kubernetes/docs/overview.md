@@ -12,7 +12,7 @@ kubectl get pactos -A
 ```
 
 With the optional [node agent](runtime-conformance.md), Pacto also checks what
-your service actually does on the network against what its contract says, and
+your service does on the network against what its contract says, and
 tells you only what it can prove. It catches a pod that reports ready while
 nothing listens on its port, a dependency it keeps failing to reach and a
 service it calls without declaring it. The node agent is
@@ -49,8 +49,7 @@ resource. It runs on every change and on a timer, and follows the same steps:
    and updates the `Pacto` resource status with structured conditions, a contract
    compliance status and Prometheus metrics.
 
-The revisions in step 1 accumulate, and they are keyed by content rather than by
-time. The name is `<pacto>-<version>-<7 hex of the sha256 of the contract YAML>`,
+The revisions in step 1 accumulate, and they are keyed by content. The name is `<pacto>-<version>-<7 hex of the sha256 of the contract YAML>`,
 and the controller looks it up before creating it. Reconciling the same bytes a
 thousand times therefore produces one `PactoRevision`. Republishing a different
 contract under the same tag produces a second one alongside it, which is how a
@@ -75,15 +74,15 @@ flowchart LR
 The operator sets `status.contractStatus` on each `Pacto` resource to one of six
 values (`Compliant`, `Warning`, `NonCompliant`, `Reference`, `Unknown`,
 `Invalid`), derived from the findings. It measures whether the service matches
-its contract, not whether it is healthy. The schema (CRD) accepts a seventh,
+its contract. Health is a separate question. The schema (CRD) accepts a seventh,
 [`NotEvaluated`, which the operator never writes](limitations.md#notevaluated-is-reserved).
 [Runtime observations](runtime-observations.md) lists every status, finding code
 and what is observed.
 
 `Unknown` here means *checked, and one required claim of the contract could not
-be decided*: a verdict about this contract. It is not the `unknown` used
-elsewhere in Pacto, which describes how much of the world an **answer** saw (see
-[Knowledge](../../operational-graph.md#knowledge)). The two never mix.
+be decided*: a verdict about this contract. Elsewhere in Pacto, `unknown` describes how much
+of the world an **answer** saw (see
+[Knowledge](../../operational-graph.md#knowledge)). The two are separate fields.
 
 Alongside the status the operator exports five Prometheus gauges. The names,
 labels and the scrape permission you have to grant yourself are in

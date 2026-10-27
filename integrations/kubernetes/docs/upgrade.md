@@ -20,7 +20,7 @@ enough. The currently published chart:
     `controller.enableMetricsObservation` and `nodeAgent.enabled`, which
     survive an upgrade. A flag with no chart value, such as name-match
     discovery, has to be patched again after every upgrade; see
-    [Limitations — opt-in features](limitations.md#opt-in-features).
+    [Limitations: opt-in features](limitations.md#opt-in-features).
 
 ## Upgrading across a major version (CRD migration)
 
@@ -31,7 +31,7 @@ changed CRD nor adds a new one. A release that changes the schema or ships a
 new CRD therefore has one extra, ordered step: **apply the new CRDs before you
 run `helm upgrade`**.
 
-**Step 1 — apply the new CRDs yourself.** Use server-side apply
+**Step 1: apply the new CRDs yourself.** Use server-side apply
 (`--server-side`): these CRDs are too large for the annotation a client-side
 apply writes, and `--force-conflicts` takes over the fields the previous
 install set.
@@ -40,27 +40,27 @@ apply is the one the chart in step 2 expects:
 
 --8<-- "integrations/kubernetes/docs/generated/_crd-apply.md"
 
-**Step 2 — upgrade the release to the new chart version**, exactly the command
+**Step 2: upgrade the release to the new chart version**, exactly the command
 from [Upgrade with Helm](#upgrade-with-helm) above:
 
 --8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
 The API version stays `v1alpha1` across the major bump and the stored version is
 unchanged. Every existing `Pacto` resource therefore remains stored and readable
-under the new CRD — no conversion webhook, no decode error — and the upgraded
+under the new CRD, with no conversion webhook and no decode error, and the upgraded
 operator reconciles it in place. That holds because **`spec` is additive**: v5 adds
 `spec.target.configBindings` and `spec.target.interfaceBindings` and removes
 nothing, so a contract resource written for v4 still validates unchanged.
 
-### Status is redesigned, not extended
+### Status is redesigned
 
 !!! warning "The upgrade drops v4 status observations on sight"
-    `status` was redesigned, not extended: v5 removes 51 status paths and adds 35.
+    v5 redesigns `status`: it removes 51 status paths and adds 35.
     `status.runtime`, `status.endpoints`, `status.ports`, `status.scaling`,
     `status.readiness.checks`, `status.contract.imageRef` and
     `status.summary.{passed,failed,total}` are gone, replaced by
     `status.findings`, `status.evaluationCoverage` and
-    `status.summary.{errorCount,warningCount,infoCount,unknownCount}` — which is
+    `status.summary.{errorCount,warningCount,infoCount,unknownCount}`. That is
     why the printer columns change from `PASSED`/`FAILED` to
     `ERRORS`/`WARNINGS`.
 
@@ -68,9 +68,9 @@ nothing, so a contract resource written for v4 still validates unchanged.
     lands. A `kubectl get pacto -o yaml` taken between step 1 and step 2
     therefore shows a resource whose `spec` is intact and whose `status` looks
     half-empty.
-    That is the CRD, not data loss: the old values are still in etcd and are
-    lost for good only once something writes `status` again. Do not read that
-    window as a failed migration.
+    The CRD causes this. The old values are still in etcd and are lost for
+    good only once something writes `status` again, so that window is a normal
+    part of the migration.
 
 ### Confirming the migration
 
@@ -83,7 +83,7 @@ kubectl get pacto -A                                                    # existi
 ```
 
 If a future release ever ships an incompatible schema change, the server-side
-apply or the resource read fails loudly rather than silently dropping resources.
+apply or the resource read fails with an error, so no resource disappears silently.
 See the [CRD reference](crd-reference.md) for the current field set.
 
 This exact flow is exercised against a real cluster by
@@ -121,7 +121,7 @@ before `helm upgrade`:
 **Within** a major, `helm rollback pacto-operator` reverts what the chart owns
 and leaves your `Pacto` resources untouched; re-apply any
 [hand-patched controller flags](#upgrade-with-helm) afterwards. **Across** a
-major it is not that clean. Helm does not manage `crds/` in either direction, so
+major it takes more work. Helm does not manage `crds/` in either direction, so
 a rollback leaves the new CRD in place. The old controller then writes v4-only
 status fields that the API server drops while still reporting success. A real return to the
 previous major means rolling the chart back *and* server-side applying the
@@ -130,8 +130,8 @@ previous release's CRDs, the mirror image of step 1.
 ## Turning on the Evidence Server during an upgrade
 
 The Evidence Server arrived in chart 5.2.0 and is off by default, so an upgrade
-changes nothing until you set `evidence.enabled`. Its requirements — a subject
-list and a registry serving the native Referrers API — are on
+changes nothing until you set `evidence.enabled`. Its requirements, a subject
+list and a registry serving the native Referrers API, are on
 [The Evidence Server](evidence-server.md). Turning it back off later removes the
 whole footprint and loses nothing: every accepted record already lives in your
 contract registry.

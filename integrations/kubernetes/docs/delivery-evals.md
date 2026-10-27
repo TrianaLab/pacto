@@ -80,13 +80,13 @@ delivery:
             trustedRoot: '{"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1", ...}'
 ```
 
-The Stage decides, not the runner:
+The Stage sets the pass bar:
 
 | Param | Default | Meaning |
 |---|---|---|
 | `minPassRate` | 1 | The share of cases that must pass, above 0 and up to 1. Fewer fails |
 
-These are Unknown, never Pass or Fail:
+These answers count as Unknown:
 
 - an answer no listed signer signed
 - an answer about another version or another suite
