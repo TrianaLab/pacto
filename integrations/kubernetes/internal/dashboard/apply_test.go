@@ -142,7 +142,7 @@ func TestDeploymentAC_Auth(t *testing.T) {
 // TestDashboardRoleGrantsNoDeliveryRight: sign-in passes each person's token
 // through, so the dashboard's own role never grows: nothing in the delivery
 // group and no impersonation. Its one write is asking the apiserver what a
-// signed-in person may read.
+// signed-in person may read; it lists namespaces only to know whom to ask.
 func TestDashboardRoleGrantsNoDeliveryRight(t *testing.T) {
 	role := clusterRoleAC().(*rbacv1ac.ClusterRoleApplyConfiguration)
 	sar := false
@@ -151,6 +151,9 @@ func TestDashboardRoleGrantsNoDeliveryRight(t *testing.T) {
 			slices.Equal(r.Verbs, []string{"create"}) {
 			sar = true
 			continue
+		}
+		if slices.Equal(r.APIGroups, []string{""}) && slices.Equal(r.Resources, []string{"namespaces"}) && !slices.Equal(r.Verbs, []string{"list"}) {
+			t.Errorf("the dashboard role may %v namespaces", r.Verbs)
 		}
 		for _, g := range r.APIGroups {
 			if g == "delivery.pacto.trianalab.io" || g == "*" {

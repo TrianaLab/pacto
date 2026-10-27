@@ -23,6 +23,12 @@ rules:
   - patch
 - apiGroups:
   - ""
+  resources:
+  - namespaces
+  verbs:
+  - list
+- apiGroups:
+  - ""
   resourceNames:
   - pacto-node-agent
   resources:

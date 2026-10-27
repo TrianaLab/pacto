@@ -49,6 +49,12 @@ func clusterRoleAC() runtime.ApplyConfiguration {
 				WithAPIGroups("authorization.k8s.io").
 				WithResources("subjectaccessreviews").
 				WithVerbs("create"),
+			// Delivery asks, per namespace, where a signed-in person may list
+			// Stages, so it lists the namespaces' names to ask about.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("").
+				WithResources("namespaces").
+				WithVerbs("list"),
 		)
 }
 

@@ -40,3 +40,10 @@ enabled, since Kubernetes lets it grant only what it has. A dashboard you run
 yourself with `pacto dashboard --oidc-issuer-url` needs the same right for the
 credentials it runs with. A remote `pacto mcp --fleet` with `--auth-issuer`
 does too.
+
+For delivery, the ServiceAccount also lists namespaces. A person who may not
+list Stages in every namespace sees the Stages of each namespace where their
+own RBAC lets them list Stages, including a namespace that runs no Pacto yet.
+The ServiceAccount learns only the namespace names; the person's own token reads
+the Stages. Without this right the dashboard reads Stages only in the
+namespaces of the fleet's workloads and marks the answer partial.
