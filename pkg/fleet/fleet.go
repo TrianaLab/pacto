@@ -392,6 +392,12 @@ type ServiceRecord struct {
 	Labels    map[string]string `json:"labels,omitempty"`
 	Status    string            `json:"status,omitempty"`
 	Sources   []string          `json:"sources,omitempty"`
+	// HiddenDependencies and HiddenDependents count the services this one
+	// depends on or calls, and that depend on or call it, which the caller's
+	// Kubernetes permissions hide. They are never named. Zero outside a
+	// restricted answer.
+	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
+	HiddenDependents   int `json:"hiddenDependents,omitempty"`
 }
 
 // ContractRevision is an immutable resolved revision. It embeds a reference to
@@ -609,6 +615,10 @@ type Relationship struct {
 	// is the free-text version an external dependency with no ref declares.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
+	// Hidden marks a declared dependency that resolves to a service the
+	// caller's Kubernetes permissions hide: ToService and ResolvedRevision are
+	// blank, and To is only what the declaring contract itself says.
+	Hidden bool `json:"hidden,omitempty"`
 	// ObservedCount is the TOTAL runtime calls witnessed across all sources for an
 	// observed (Provenance == observed) edge. Zero for declared edges.
 	ObservedCount int `json:"observedCount,omitempty"`

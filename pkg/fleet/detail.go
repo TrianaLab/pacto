@@ -921,7 +921,9 @@ func (q *Query) revisionRefResolutions(revKey RevisionKey) (cfg, pol map[string]
 				res.Service = &ref
 			} else {
 				res.Resolved = false
-				res.Reason = "the referenced service is not present in this snapshot"
+				if !rel.Hidden { // a hidden one keeps the reason that says so
+					res.Reason = "the referenced service is not present in this snapshot"
+				}
 			}
 		}
 		into[rel.To] = res
