@@ -524,21 +524,3 @@ export function proposalText(rung: string | undefined, proposal: { rung?: string
   const what = rung === 'observe' ? `version${n === 1 ? '' : 's'} GitOps ran that verified` : `verified promotion${n === 1 ? '' : 's'}`;
   return `Pacto proposes ${rungLabel(proposal.rung)}: ${n} ${what}, no incident.`;
 }
-
-// ── Environments ────────────────────────────────────────────────────────────
-
-/** The usual promotion order; an environment named otherwise comes after these. */
-const ENV_ORDER = ['dev', 'test', 'qa', 'stag', 'preprod', 'prod'];
-
-/**
- * sortEnvironments orders environment names the way changes travel: dev,
- * test, staging, prod, then the rest with numbers in number order (env-2
- * before env-10).
- */
-export function sortEnvironments(envs: string[]): string[] {
-  const rank = (e: string) => {
-    const i = ENV_ORDER.findIndex((w) => e.toLowerCase().startsWith(w));
-    return i < 0 ? ENV_ORDER.length : i;
-  };
-  return [...envs].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'en', { numeric: true }));
-}
