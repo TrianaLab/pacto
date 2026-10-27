@@ -18,10 +18,12 @@
   import DecisionPanel from '../components/DecisionPanel.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
   import RefusalNotice from '../components/RefusalNotice.svelte';
+  import Fold from '../components/Fold.svelte';
+  import HelpTip from '../components/HelpTip.svelte';
 
-  // One change: the plan, what Pacto predicted next to what happened with the
-  // proof behind each check, who decided, the affected services, a timeline and
-  // what the caller may do about it.
+  // One change. It leads with where it stands and, while held, the decision;
+  // the affected services, the checks with their proof and the details (facts,
+  // decisions, timeline) fold below. A fold with a problem in it starts open.
   let { namespace, name, refreshTick = 0, miraURL = '' } = $props();
 
   const loader = createProductLoader(() => api.deliveryOperation(namespace, name));
@@ -41,6 +43,15 @@
   const happened = $derived(!!st?.applied || e?.status?.phase === 'Concluded');
   const after = $derived(st?.pointer?.after || '');
   const blocked = $derived(!!after && (e?.stage?.failedDigests ?? []).includes(after));
+  const held = $derived(e?.status?.phase === 'Held');
+  const checks = $derived([...(st?.plan?.verdicts ?? []), ...(happened ? e?.verdicts ?? [] : [])]);
+  // Anything but a pass is a problem worth reading, so the checks open on their own.
+  const checksOpen = $derived(checks.some((v) => v.result && v.result !== 'Pass'));
+  const checksMeta = $derived.by(() => {
+    const n = {};
+    for (const v of checks) n[v.result || 'Not run'] = (n[v.result || 'Not run'] ?? 0) + 1;
+    return Object.entries(n).map(([r, c]) => `${formatCount(c)} ${r.toLowerCase()}`).join(' · ');
+  });
 
   // The change that undid this one: the server reads it from the
   // environment's history, so the page never downloads the whole history.
@@ -87,6 +98,25 @@
   }
 </script>
 
+{#snippet changeActions()}
+  {#if !gone && (actions.includes('cancel') || actions.includes('rollback'))}
+    <div class="cd-actions">
+      {#if actions.includes('rollback')}
+        <button type="button" class="btn" bind:this={rollbackBtn} onclick={() => (rollingBack = true)} data-testid="change-rollback">Roll back this change</button>
+      {/if}
+      {#if actions.includes('cancel')}
+        {#if confirmCancel}
+          <span class="t-body-2">Cancel this change? Nothing has moved yet, and nothing will.</span>
+          <button type="button" class="btn btn-sm" onclick={cancel}>Yes, cancel it</button>
+          <button type="button" class="btn btn-sm" bind:this={keepBtn} onclick={() => askCancel(false)}>Keep it</button>
+        {:else}
+          <button type="button" class="btn" bind:this={cancelBtn} onclick={() => askCancel(true)}>Cancel this change</button>
+        {/if}
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Delivery', href: deliveryInboxUrl() }, { label: `${namespace}/${name}` }]} />
   <PageHeader
@@ -113,17 +143,6 @@
       {#if e.status.reason}<span class="t-body-2" title={e.status.reason}>{reasonWords(e.status.reason)}{#if e.status.message}: {shortDigests(e.status.message)}{/if}</span>{/if}
     </section>
 
-    <dl class="cd-facts t-body-2">
-      <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(frozen{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
-      {#if data.level}<dt>Level</dt><dd data-testid="change-level"><span class="badge badge-neutral">{levelLabel(data.level)}</span> {levelHelp(data.level)}</dd>{/if}
-      {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
-        {#if d && e.spec.type === AUTONOMY_TYPE}<dt>{label}</dt><dd>{levelLabel(d)}</dd>
-        {:else if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}</dd>{/if}
-      {/each}
-      <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} {me} />{#if asker}{' '}<span class="badge {asker.tone}" data-testid="actor-badge">{asker.label}</span>{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} {me} />{/if}</dd>
-      {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}
-    </dl>
-
     {#if undo || blocked}
       <div class="cd-undone t-body-2" data-testid="change-undone">
         {#if undo}<p>Undone by <a href={deliveryChangeUrl(namespace, undo.operation)}>{undo.operation}</a>{#if undo.actorClass === 'controller'}{@const cause = undoCause(e.status.reason, e.status.message)}{' '}(automatic{#if cause.by}: <Person user={cause.by} people={data?.people} {me} /> rejected the unknown{:else if cause.text}: {cause.text}{/if}){:else if undo.actor}, by <Person user={undo.actor} people={data?.people} {me} />{/if}.</p>{/if}
@@ -138,22 +157,7 @@
     {:else if loader.error}
       <p class="cd-stale t-body-2" role="alert" data-testid="change-stale">The last refresh failed, so this may be out of date. <button type="button" class="btn btn-sm" onclick={() => loader.refresh()}>Retry</button></p>
     {/if}
-    {#if !gone && (actions.includes('cancel') || actions.includes('rollback'))}
-      <div class="cd-actions">
-        {#if actions.includes('rollback')}
-          <button type="button" class="btn" bind:this={rollbackBtn} onclick={() => (rollingBack = true)} data-testid="change-rollback">Roll back this change</button>
-        {/if}
-        {#if actions.includes('cancel')}
-          {#if confirmCancel}
-            <span class="t-body-2">Cancel this change? Nothing has moved yet, and nothing will.</span>
-            <button type="button" class="btn btn-sm" onclick={cancel}>Yes, cancel it</button>
-            <button type="button" class="btn btn-sm" bind:this={keepBtn} onclick={() => askCancel(false)}>Keep it</button>
-          {:else}
-            <button type="button" class="btn" bind:this={cancelBtn} onclick={() => askCancel(true)}>Cancel this change</button>
-          {/if}
-        {/if}
-      </div>
-    {/if}
+    {#if !held}{@render changeActions()}{/if}
     {#if cancelRefusal}<RefusalNotice error={cancelRefusal} />{/if}
     {#if rollingBack && !gone}
       <ProposePanel request={{ namespace, stage: e.spec.stage, type: 'delivery.pacto.trianalab.io/rollback', undoes: name }} {miraURL}
@@ -165,59 +169,74 @@
       <DecisionPanel {op} {actions} stage={e.stage} versions={data?.versions} people={data?.people} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
     {/if}
 
-    <section aria-labelledby="cd-affected">
-      <h2 id="cd-affected" class="t-section-title">Affected services{#if consumers.length}{' '}<span class="t-meta">({formatCount(consumers.length)})</span>{/if}</h2>
-      {#if consumers.length}
-        <p class="t-body-2">These services are why a person is needed. Open one to see it on the operational graph.</p>
-        <div class="cd-consumers">
-          <CappedList items={consumers} max={12} inline={true} label="Affected services" testid="affected-services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList>
-        </div>
-      {:else}
-        <p class="t-body-2">The plan names no other service this change affects.</p>
-      {/if}
-    </section>
-
-    <div class="cd-compare">
-      <section aria-labelledby="cd-predicted">
-        <h2 id="cd-predicted" class="t-section-title">What Pacto predicted</h2>
-        {#if st?.plan}
-          <p class="t-body-2">{predictionLabel(st.plan.predicted)}</p>
-          <VerdictList verdicts={st.plan.verdicts ?? []} {miraURL} testid="predicted-verdicts" />
+    <div class="cd-folds">
+      <Fold title={`Affected services${consumers.length ? ` (${formatCount(consumers.length)})` : ''}`} id="cd-affected" labelledby="cd-affected" meta={consumers.length ? 'why a person is needed' : 'none'}>
+        {#if consumers.length}
+          <div class="cd-consumers">
+            <CappedList items={consumers} max={12} inline={true} label="Affected services" testid="affected-services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList>
+          </div>
         {:else}
-          <p class="t-body-2">No plan was recorded for this change.</p>
+          <p class="t-body-2">The plan names no other service this change affects.</p>
         {/if}
-      </section>
-      {#if happened}
-        <section aria-labelledby="cd-actual">
-          <h2 id="cd-actual" class="t-section-title">What happened</h2>
-          <VerdictList verdicts={e.verdicts ?? []} {miraURL} testid="actual-verdicts" />
-        </section>
-      {/if}
-    </div>
+      </Fold>
 
-    <section aria-labelledby="cd-decisions">
-      <h2 id="cd-decisions" class="t-section-title">Decisions</h2>
-      {#if st?.approvals?.length}
-        <ul class="cd-approvals">
-          {#each st.approvals as a (a.name)}
-            <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={data?.people} {me} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
+      <Fold title="Checks" meta={checksMeta || 'none recorded'} open={checksOpen} testid="change-checks">
+        <div class="cd-compare">
+          <section aria-labelledby="cd-predicted">
+            <h3 id="cd-predicted" class="t-subsection-title">What Pacto predicted</h3>
+            {#if st?.plan}
+              <p class="t-body-2">{predictionLabel(st.plan.predicted)}</p>
+              <VerdictList verdicts={st.plan.verdicts ?? []} {miraURL} testid="predicted-verdicts" />
+            {:else}
+              <p class="t-body-2">No plan was recorded for this change.</p>
+            {/if}
+          </section>
+          {#if happened}
+            <section aria-labelledby="cd-actual">
+              <h3 id="cd-actual" class="t-subsection-title">What happened</h3>
+              <VerdictList verdicts={e.verdicts ?? []} {miraURL} testid="actual-verdicts" />
+            </section>
+          {/if}
+        </div>
+      </Fold>
+
+      <Fold title="Details" meta="environment, versions, decisions, timeline" testid="change-details">
+        <dl class="cd-facts t-body-2">
+          <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(frozen{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
+          {#if data.level}<dt>Level</dt><dd data-testid="change-level"><span class="badge badge-neutral">{levelLabel(data.level)}</span>{' '}<HelpTip label={levelLabel(data.level)} text={levelHelp(data.level)} /></dd>{/if}
+          {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
+            {#if d && e.spec.type === AUTONOMY_TYPE}<dt>{label}</dt><dd>{levelLabel(d)}</dd>
+            {:else if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}</dd>{/if}
           {/each}
-        </ul>
-      {:else}
-        <p class="t-body-2">Nobody has decided on this change.</p>
-      {/if}
-    </section>
+          <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} {me} />{#if asker}{' '}<span class="badge {asker.tone}" data-testid="actor-badge">{asker.label}</span>{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} {me} />{/if}</dd>
+          {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}
+        </dl>
 
-    <section aria-labelledby="cd-timeline">
-      <h2 id="cd-timeline" class="t-section-title">Timeline</h2>
-      {#if timeline.length}
-        <ol class="cd-timeline t-body-2">
-          {#each timeline as t (t.k)}<li><time datetime={t.at} title={t.at}>{timeLabel(t.at)}</time> {t.label}</li>{/each}
-        </ol>
-      {:else}
-        <p class="t-body-2">Nothing has happened yet.</p>
-      {/if}
-    </section>
+        <section aria-labelledby="cd-decisions">
+          <h3 id="cd-decisions" class="t-subsection-title">Decisions</h3>
+          {#if st?.approvals?.length}
+            <ul class="cd-approvals">
+              {#each st.approvals as a (a.name)}
+                <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={data?.people} {me} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="t-body-2">Nobody has decided yet.</p>
+          {/if}
+        </section>
+        <section aria-labelledby="cd-timeline">
+          <h3 id="cd-timeline" class="t-subsection-title">Timeline</h3>
+          {#if timeline.length}
+            <ol class="cd-timeline t-body-2">
+              {#each timeline as t (t.k)}<li><time datetime={t.at} title={t.at}>{timeLabel(t.at)}</time> {t.label}</li>{/each}
+            </ol>
+          {:else}
+            <p class="t-body-2">Nothing has happened yet.</p>
+          {/if}
+        </section>
+        {#if held}{@render changeActions()}{/if}
+      </Fold>
+    </div>
   {/if}
 </div>
 
@@ -236,5 +255,7 @@
   .cd-consumers { margin: var(--sp-2) 0 0; display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; }
   .cd-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--sp-4); }
   .cd-compare section { display: flex; flex-direction: column; gap: var(--sp-2); }
-  .cd-approvals, .cd-timeline { margin: var(--sp-2) 0 0; padding-left: var(--sp-5); }
+  .cd-approvals, .cd-timeline { margin: var(--sp-1) 0 0; padding-left: var(--sp-5); }
+  .cd-folds section h3 { margin: 0; }
+  .cd-folds { display: flex; flex-direction: column; }
 </style>

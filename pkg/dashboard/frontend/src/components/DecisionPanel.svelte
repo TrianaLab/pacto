@@ -51,30 +51,35 @@
   const rollsBack = $derived(applied && op.spec?.type === 'delivery.pacto.trianalab.io/promote' && !!before && !beforeFailed);
   const backV = $derived(before ? versionLabel(before, versions) : '');
 
-  // What each answer does, as the promoter acts on it.
+  // What each answer does, as the promoter acts on it. Short lines: the
+  // details of the change sit folded below the panel.
   const ifApprove = $derived([
     applied
-      ? `${toV} stays on ${env}, and the checks that ended Unknown count as accepted.`
-      : `${toV} goes to ${env} now. The checks after the change still run.`,
+      ? `${toV} stays on ${env}, and the Unknown checks count as accepted.`
+      : `${toV} goes to ${env} now.`,
     ...(!applied && consumers.length
       ? [asked === 'approve'
-        ? `${andList(consumers, 3)} do not accept it and may break until they are updated.`
+        ? `${andList(consumers, 3)} may break until they are updated.`
         : `Pacto could not tell whether ${andList(consumers, 3)} accept it.`]
       : []),
-    `It is kept as your decision, with your name, your note and when you signed in.`,
-    ...(applied ? [] : ['You can undo it from the history of the environment.']),
+    ...(applied ? [] : ['You can undo it later.']),
   ]);
   // Thirty owner teams are named three at a time, the rest on request.
   let allOwners = $state(false);
   const ownerList = $derived(andList(owners, allOwners ? Infinity : 3, 'or'));
   const ownersCut = $derived(owners.length > 4);
-  // The page lists every affected service right below the panel.
-  const toAffected = () => document.getElementById('cd-affected')?.scrollIntoView();
+  // The page lists every affected service in a fold below the panel: open it, then go there.
+  function toAffected() {
+    const h = document.getElementById('cd-affected');
+    const fold = h?.closest('details');
+    if (fold) fold.open = true;
+    h?.scrollIntoView?.();
+  }
   const ifReject = $derived([
     rollsBack ? `${env} rolls back to ${backV}.`
       : applied ? `Nothing moves: ${env} keeps running ${toV}${beforeFailed ? `, because ${backV} already failed here` : ''}.`
       : `Nothing moves: ${env} keeps running ${fromV || 'what it runs now'}.`,
-    `The change ends, and ${asker} sees your name and note as the reason.`,
+    `${asker} sees your note.`,
   ]);
   // A button names the version, cut short when it is long (the title keeps it
   // whole); the environment is in the panel's heading, not on the button.
@@ -93,6 +98,8 @@
   let needsFresh = $state(null);
   let decided = $state('');
   const noteMissing = $derived(breaking && !note.trim());
+  // The note and a button per answer are offered only to a signed-in person in a shared dashboard who may decide.
+  const offer = $derived(!!s && s.mode !== 'local' && s.signedIn && canDecide);
   // A session the server already calls stale goes to sign in first, instead of
   // pressing a button only to be told to; back here, the kept choice is the
   // one button to press, and it says so.
@@ -145,75 +152,73 @@
 <section class="dp" aria-labelledby="dp-title" data-testid="decision-panel">
   <h2 id="dp-title" class="t-section-title">The decision</h2>
   {#if op.status?.question}<p class="dp-question t-body">{shortDigests(op.status.question)}</p>{/if}
+  <p class="dp-chips t-meta">{#if breaking}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}<span>{owners.length ? `Only ${ownerList} may answer` : ownerless}</span>{#if ownersCut}<button type="button" class="btn btn-sm" aria-expanded={allOwners} onclick={() => { allOwners = !allOwners; }}>{allOwners ? 'Show fewer' : `Show all ${formatCount(owners.length)} teams`}</button>{/if}</p>
   {#if asked === 'accept-unknown'}
-    <p class="t-body-2" data-testid="decision-unknown">Pacto is asking because a check ended Unknown: it could not see enough to say yes or no, and Unknown is never a yes. Accepting the unknown is recorded as accepted, never as a pass. <a class="dp-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means and how to resolve it</a></p>
+    <p class="t-body-2" data-testid="decision-unknown">A check ended Unknown: Pacto could not see enough to say yes or no, and Unknown is never a yes. <a class="dp-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means</a></p>
   {/if}
-  <p class="t-body-2">Asked: <strong>{decisionLabel(asked)}</strong> or reject. {owners.length ? `Only ${ownerList} may answer.` : ownerless}{#if ownersCut}{' '}<button type="button" class="btn btn-sm" aria-expanded={allOwners} onclick={() => { allOwners = !allOwners; }}>{allOwners ? 'Show fewer' : `Show all ${formatCount(owners.length)} teams`}</button>{/if}{#if breaking}{' '}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}</p>
 
-  {#if !decided}
+  {#if decided}
+    <p class="dp-ok" role="status">{decided}</p>
+  {:else}
+    {#if offer}
+      {#if kept && s?.fresh}
+        <p class="dp-kept t-body-2" role="status" data-testid="decision-kept">Your choice was <strong>{decisionLabel(kept.decision)}</strong>. Nothing is sent until you confirm it below.</p>
+      {/if}
+      {#if needsFresh}
+        <div class="dp-fresh" role="alert" data-testid="fresh-login">
+          <p><strong>Deciding needs a fresh sign-in.</strong> {needsFresh.message}</p>
+          <p class="t-body-2">Your choice and note are kept.</p>
+          <button type="button" class="btn btn-primary btn-sm" onclick={signInAgain}>Sign in again</button>
+        </div>
+      {/if}
+      {#if stale && !needsFresh}<p class="t-body-2" data-testid="decision-stale">Your sign-in is too old to decide. A button below takes you to sign in again; your choice and note are kept.</p>{/if}
+      <label class="dp-field">
+        <span><strong>Note</strong> (kept with the decision){#if breaking} · required to approve{/if}</span>
+        <textarea class="input" rows="2" maxlength="500" bind:value={note} placeholder={breaking ? 'Why should it ship anyway?' : ''} aria-describedby={noteMissing ? 'dp-note-why' : undefined}></textarea>
+      </label>
+      {#if noteMissing}<p id="dp-note-why" class="t-meta" data-testid="decision-note-required">A breaking change needs a note to be approved.</p>{/if}
+    {/if}
+    <!-- One card per answer: what it does, then its button. The two buttons weigh the same. -->
     <div class="dp-outcomes" data-testid="decision-consequences">
-      <div class="dp-outcome">
+      <div class="dp-outcome dp-approve">
         <h3 class="t-body">If you approve</h3>
         <ul>{#each ifApprove as line (line)}<li>{line}</li>{/each}</ul>
         {#if !applied && consumers.length > 4}<button type="button" class="btn btn-sm dp-more" onclick={toAffected}>See all {formatCount(consumers.length)} affected services</button>{/if}
+        {#if offer}<button type="button" class="btn dp-btn" data-testid="decide-approve" bind:this={approveBtn} class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)} title={asked === 'approve' ? `Approve shipping ${toV} to ${env}` : undefined}>{label(asked, approveLabel)}</button>{/if}
       </div>
-      <div class="dp-outcome">
+      <div class="dp-outcome dp-reject">
         <h3 class="t-body">If you reject</h3>
         <ul>{#each ifReject as line (line)}<li>{line}</li>{/each}</ul>
+        {#if offer}<button type="button" class="btn dp-btn" data-testid="decide-reject" bind:this={rejectBtn} class:dp-was={kept?.decision === 'reject'} disabled={busy} onclick={() => decide('reject')} title={rollsBack ? `Reject and roll back ${env} to ${backV}` : undefined}>{label('reject', rejectLabel)}</button>{/if}
       </div>
     </div>
     {#if moveFirst}
       <div class="dp-safer" data-testid="decision-safer">
         <h3 class="t-body">Safer: update these first</h3>
-        <p class="t-body-2">Pacto keeps this list current while the change waits. Each team drops out once its service runs a version that accepts the new one, and when nobody is left the change can be approved as it is. Pacto never moves them for you.</p>
+        <p class="t-body-2">Once nobody is left here, the change needs no person. Pacto keeps this list current and never moves them for you.</p>
         <MoveFirstList order={st.plan.order} />
       </div>
     {/if}
-  {/if}
 
-  {#if decided}
-    <p class="dp-ok" role="status">{decided}</p>
-  {:else if s?.mode === 'local'}
-    <p class="t-body-2" data-testid="decide-cli">A dashboard on your own machine does not decide, because any program here could do it as you. Decide from the command line:</p>
-    <CopyableIdentifier value={cliDecision(ns, name, asked)} label="command" />
-  {:else if s && !s.signedIn}
-    <p class="t-body-2">Sign in to decide.</p>
-    <a class="btn btn-sm btn-primary" href={loginUrl(location.hash)}>Sign in</a>
-  {:else if canDecide}
-    {#if kept && s?.fresh}
-      <p class="dp-kept t-body-2" role="status" data-testid="decision-kept">You signed in again. Your choice was <strong>{decisionLabel(kept.decision)}</strong>, and nothing was sent yet: confirm it below to send it.</p>
+    {#if offer}
+      <!-- the buttons are in the cards above -->
+    {:else if s?.mode === 'local'}
+      <p class="t-body-2" data-testid="decide-cli">A dashboard on your own machine does not decide, because any program here could do it as you. Decide from the command line:</p>
+      <CopyableIdentifier value={cliDecision(ns, name, asked)} label="command" />
+    {:else if s && !s.signedIn}
+      <p class="t-body-2">Sign in to decide.</p>
+      <a class="btn btn-sm btn-primary" href={loginUrl(location.hash)}>Sign in</a>
+    {:else if caller?.user && (caller.user === op.spec?.actor?.user || caller.user === op.spec?.onBehalfOf?.user)}
+      <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
+    {:else if caller?.class === 'agent' || caller?.class === 'controller'}
+      <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({caller.user}), and agents may not decide.</p>
+    {:else if cannotApproveHere(caller)}
+      <p class="t-body-2" data-testid="decide-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in. <a class="dp-link" href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
+    {:else if !owners.length}
+      <p class="t-body-2" data-testid="decide-no-owner">No team is declared for this service, so only break-glass can override, from the command line. Declare service.owner so a team can answer.</p>
+    {:else}
+      <p class="t-body-2" data-testid="decide-not-team">Only {ownerList} may answer this question{#if caller?.groups?.length}; you are in {andList(caller.groups, 3)}{/if}.</p>
     {/if}
-    {#if needsFresh}
-      <div class="dp-fresh" role="alert" data-testid="fresh-login">
-        <p><strong>Deciding needs a fresh sign-in.</strong> {needsFresh.message}</p>
-        <p class="t-body-2">Your choice and note are kept. After you sign in you come back here and press it once more.</p>
-        <button type="button" class="btn btn-primary btn-sm" onclick={signInAgain}>Sign in again</button>
-      </div>
-    {/if}
-    <label class="dp-field">
-      <span>Note (kept with the decision){#if breaking}, required to approve a breaking change{/if}</span>
-      <textarea class="input" rows="2" maxlength="500" bind:value={note} aria-describedby={noteMissing ? 'dp-note-why' : undefined}></textarea>
-    </label>
-    {#if stale && !needsFresh}<p class="t-body-2" data-testid="decision-stale">A decision needs a recent sign-in, and yours is older. Pressing a button below takes you to sign in again; your choice and note are kept, and you confirm it once you are back.</p>{/if}
-    {#if noteMissing}<p id="dp-note-why" class="t-body-2" data-testid="decision-note-required">This change is breaking: say why it should ship anyway before you approve it.</p>{/if}
-    <div class="dp-btns">
-      <button type="button" class="btn" data-testid="decide-approve" bind:this={approveBtn} class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)} title={asked === 'approve' ? `Approve shipping ${toV} to ${env}` : undefined}>{label(asked, approveLabel)}</button>
-      <button type="button" class="btn" data-testid="decide-reject" bind:this={rejectBtn} class:dp-was={kept?.decision === 'reject'} disabled={busy} onclick={() => decide('reject')} title={rollsBack ? `Reject and roll back ${env} to ${backV}` : undefined}>{label('reject', rejectLabel)}</button>
-    </div>
-  {:else if caller?.user && (caller.user === op.spec?.actor?.user || caller.user === op.spec?.onBehalfOf?.user)}
-    <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
-  {:else if caller?.class === 'agent' || caller?.class === 'controller'}
-    <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({caller.user}), and agents may not decide.</p>
-  {:else if cannotApproveHere(caller)}
-    <p class="t-body-2" data-testid="decide-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in, so Pacto cannot count a decision here. <a class="dp-link" href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
-  {:else if !owners.length}
-    <p class="t-body-2" data-testid="decide-no-owner">
-      No team is declared for this service, so only break-glass can override, from the command line. Declare service.owner so a team can answer.
-    </p>
-  {:else}
-    <p class="t-body-2" data-testid="decide-not-team">
-      Only {ownerList} may answer this question{#if caller?.groups?.length}; you are in {andList(caller.groups, 3)}{/if}.
-    </p>
   {/if}
   {#if refusal}<RefusalNotice error={refusal} />{/if}
 </section>
@@ -223,18 +228,15 @@
   .dp p { margin: 0; }
   .dp-question { font-weight: 600; }
   .dp-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); color: var(--c-text-2); }
-  /* The answer stays on screen while the reasons above it scroll past. */
-  .dp-btns {
-    display: flex; gap: var(--sp-2); flex-wrap: wrap;
-    position: sticky; bottom: 0; z-index: 1;
-    padding: var(--sp-2) 0; background: linear-gradient(var(--c-warn-bg), var(--c-warn-bg)), var(--c-surface);
-  }
   .dp-more { align-self: flex-start; }
-  .dp-btns .btn { flex: 1 1 0; min-width: 12rem; }
+  .dp-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--c-text-2); }
+  /* Each button closes its card, level with the other card's button. */
+  .dp-btn { margin-top: auto; width: 100%; }
+  .dp-outcome ul { margin-bottom: var(--sp-2); }
   .dp-outcomes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: var(--sp-2); }
   .dp-outcome, .dp-safer { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
   .dp-outcome h3, .dp-safer h3 { margin: 0; font-weight: 600; }
-  .dp-outcome ul { margin: 0; padding-left: var(--sp-5); }
+  .dp-outcome ul { margin-top: 0; padding-left: var(--sp-5); }
   .dp-was { outline: 2px solid var(--c-accent); outline-offset: 2px; }
   /* The warn tint is translucent: on the panel's own warn tint it loses contrast, so lay it on the surface. */
   .dp .badge-warn { background: linear-gradient(var(--c-warn-bg), var(--c-warn-bg)), var(--c-surface); }

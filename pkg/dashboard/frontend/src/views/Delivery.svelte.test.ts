@@ -510,6 +510,36 @@ describe('change detail', () => {
     destroy();
   });
 
+  it('leads with the decision and folds the affected services, the checks and the details, opening the checks on a problem', async () => {
+    const op = heldOperation();
+    op.operation.status.plan.floor.consumers = ['a', 'b', 'c', 'd', 'e'];
+    fns.operation.mockResolvedValue(op);
+    let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const folds = [...r.target.querySelectorAll('details.fold')] as HTMLDetailsElement[];
+    expect(folds.map((d) => d.querySelector('summary h2')?.textContent)).toEqual(['Affected services (5)', 'Checks', 'Details']);
+    // The plan's one check ended Unknown: a problem, so the checks start open; the rest stay folded.
+    expect(folds.map((d) => d.open)).toEqual([false, true, false]);
+    expect(text(folds[1].querySelector('summary') as HTMLElement)).toContain('1 unknown');
+    // The decision comes before every fold.
+    const panel = r.target.querySelector('[data-testid="decision-panel"]')!;
+    expect(panel.compareDocumentPosition(folds[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Cancelling a held change is a detail, not a second answer next to the decision.
+    expect(folds[2].querySelector('.cd-actions')).not.toBeNull();
+    // "See all" opens the fold that lists them.
+    (panel.querySelector('.dp-more') as HTMLButtonElement).click();
+    expect(folds[0].open).toBe(true);
+    r.destroy();
+
+    const passed = heldOperation();
+    passed.operation.status.plan.verdicts = [{ gate: 'pacto.impact', phase: 'pre', result: 'Pass' }];
+    fns.operation.mockResolvedValue(passed);
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect((r.target.querySelector('[data-testid="change-checks"]') as HTMLDetailsElement).open).toBe(false);
+    r.destroy();
+  });
+
   it('shows the plan, predicted next to actual verdicts, decisions, the timeline and a Mira link', async () => {
     // Before it applies, what happened is the plan's checks again, so it is not shown.
     fns.operation.mockResolvedValue(heldOperation());
@@ -550,12 +580,13 @@ describe('change detail', () => {
     await settle();
     const safer = target.querySelector('[data-testid="decision-safer"]') as HTMLElement;
     expect(safer.querySelector('h3')?.textContent).toBe('Safer: update these first');
-    // The safer way out is read before either button.
-    const approveBtn = target.querySelector('[data-testid="decide-approve"]')!;
-    expect(safer.compareDocumentPosition(approveBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The safer way out sits in the decision panel, right under the two answers.
+    const cards = target.querySelector('[data-testid="decision-consequences"]')!;
+    expect(cards.compareDocumentPosition(safer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(safer.closest('[data-testid="decision-panel"]')).not.toBeNull();
     // The promoter re-plans a held change while it waits, but it still needs a person once nothing holds it.
     const intro = safer.querySelector('h3')?.nextElementSibling?.textContent ?? '';
-    expect(intro).toContain('Pacto keeps this list current while the change waits');
+    expect(intro).toContain('Pacto keeps this list current');
     expect(intro).not.toContain('propose this change again');
     expect(intro).not.toContain('no longer holds');
     const mf = target.querySelector('[data-testid="move-first"]') as HTMLElement;
@@ -598,12 +629,14 @@ describe('change detail', () => {
     const outcomes = text(panel.querySelector('[data-testid="decision-consequences"]') as HTMLElement);
     expect(outcomes).toContain('If you approve');
     expect(outcomes).toContain('3.0.0 goes to prod/pay now.');
-    expect(outcomes).toContain('checkout, orders and billing do not accept it and may break until they are updated.');
-    expect(outcomes).toContain('It is kept as your decision, with your name, your note and when you signed in.');
-    expect(outcomes).toContain('You can undo it from the history of the environment.');
+    expect(outcomes).toContain('checkout, orders and billing may break until they are updated.');
+    expect(outcomes).toContain('You can undo it later.');
     expect(outcomes).toContain('If you reject');
     expect(outcomes).toContain('Nothing moves: prod/pay keeps running 2.3.0.');
-    expect(outcomes).toContain('pay-agent sees your name and note as the reason.');
+    expect(outcomes).toContain('pay-agent sees your note.');
+    // One button per answer, each in its own card.
+    expect(panel.querySelector('.dp-approve [data-testid="decide-approve"]')).not.toBeNull();
+    expect(panel.querySelector('.dp-reject [data-testid="decide-reject"]')).not.toBeNull();
     expect(panel.querySelector('[data-testid="decision-breaking"]')?.textContent).toBe('Breaking');
     const approve = panel.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement;
     const reject = panel.querySelector('[data-testid="decide-reject"]') as HTMLButtonElement;
@@ -616,7 +649,7 @@ describe('change detail', () => {
     // A breaking change ships only with a note saying why; rejecting needs none.
     expect(approve.disabled).toBe(true);
     expect(reject.disabled).toBe(false);
-    expect(text(panel)).toContain('required to approve a breaking change');
+    expect(text(panel)).toContain('required to approve');
     expect(panel.querySelector('textarea')?.getAttribute('aria-describedby')).toBe('dp-note-why');
     const area = panel.querySelector('textarea') as HTMLTextAreaElement;
     area.value = '   ';
@@ -654,7 +687,7 @@ describe('change detail', () => {
     expect(outcomes).toContain('this change goes to prod/pay now.');
     expect(outcomes).toContain('Pacto could not tell whether orders accept it.');
     expect(outcomes).toContain('Nothing moves: prod/pay keeps running what it runs now.');
-    expect(outcomes).toContain('whoever asked sees your name and note as the reason.');
+    expect(outcomes).toContain('whoever asked sees your note.');
     expect(panel.querySelector('[data-testid="decision-breaking"]')).toBeNull();
     destroy();
   });
@@ -724,7 +757,7 @@ describe('change detail', () => {
     expect(target.querySelector('[data-testid="decision-breaking"]')).toBeNull();
     // Rejecting a promote that already shipped rolls it back.
     expect(target.querySelector('[data-testid="decide-reject"]')?.textContent).toBe('Reject and roll back to 1.0.0');
-    expect(text(target.querySelector('[data-testid="decision-consequences"]') as HTMLElement)).toContain('2.0.0 stays on prod/pay, and the checks that ended Unknown count as accepted.');
+    expect(text(target.querySelector('[data-testid="decision-consequences"]') as HTMLElement)).toContain('2.0.0 stays on prod/pay, and the Unknown checks count as accepted.');
     expect(text(target.querySelector('[data-testid="decision-consequences"]') as HTMLElement)).toContain('prod/pay rolls back to 1.0.0.');
     accept.click();
     await settle();
