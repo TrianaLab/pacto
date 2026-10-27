@@ -24,6 +24,10 @@ staticPasswords:
    hash: "$2y$10$DAEyVa6nk/7.uhSBPKKcXeA7F2VBczegxEUeWj71vOQuwNmXD/61G"}
 - {email: carol@example.com, username: carol, userID: u-carol, groups: [team-checkout],
    hash: "$2y$10$DAEyVa6nk/7.uhSBPKKcXeA7F2VBczegxEUeWj71vOQuwNmXD/61G"}
+# A person bound to nothing but one namespace's Pactos (team-viewers): the
+# dashboard shows them that namespace's services and no other.
+- {email: erin@example.com, username: erin, userID: u-erin, groups: [team-viewers],
+   hash: "$2y$10$DAEyVa6nk/7.uhSBPKKcXeA7F2VBczegxEUeWj71vOQuwNmXD/61G"}
 # An agent that signs in like a person: its group makes it an agent.
 - {email: robot@example.com, username: robot, userID: u-robot, groups: [team-checkout, "pacto:agents"],
    hash: "$2y$10$DAEyVa6nk/7.uhSBPKKcXeA7F2VBczegxEUeWj71vOQuwNmXD/61G"}

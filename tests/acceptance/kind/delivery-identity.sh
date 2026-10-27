@@ -33,6 +33,8 @@
 #   - an agent reaches Pacto over HTTP as itself (token exchange) and cannot
 #     approve through the dashboard, the MCP server or the apiserver
 #   - the dashboard's ServiceAccount can do nothing in delivery
+#   - signed in, a person sees only the services of the namespaces Kubernetes
+#     RBAC lets them read; a visitor who has not signed in sees none
 
 # mktemp -d makes the directory 0700. Keycloak runs as uid 1000, not the runner's
 # uid, so it could not open the import directory and refused to start on CI.
@@ -268,6 +270,46 @@ audited() { # VERB RESOURCE USER — the apiserver's audit log saw USER do it
     jq -e --arg v "$1" --arg r "$2" --arg u "$3" 'select(.verb == $v and .objectRef.resource == $r and .user.username == $u and .responseStatus.code < 300)' >/dev/null
 }
 
+# identity_rbac_views: viewing the dashboard reuses Kubernetes RBAC. erin may
+# list Pactos in rbac-open only; alice's approver role reads them everywhere.
+# Each Pacto names a readable contract of its own, depending on nothing: a
+# Pacto with no contract would count in every environment's graph and hold the
+# plans of the phases running beside this one.
+identity_rbac_views() {
+  local ns ref
+  for ns in rbac-open rbac-closed; do
+    ref="$(contract "$ns-svc" 1.0.0 service)"
+    kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl apply -n "$ns" -f - >/dev/null <<YAML
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata: {name: $ns-svc}
+spec:
+  checkIntervalSeconds: 30
+  contractRef: {oci: "$ref"}
+  target: {workloadRef: {name: $ns-svc, kind: Deployment}}
+YAML
+  done
+  kubectl -n rbac-open create role pacto-viewer --verb=get,list --resource=pactos.pacto.trianalab.io \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n rbac-open create rolebinding pacto-viewer --role=pacto-viewer --group=team-viewers \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  local erin alice out
+  erin="$(login erin)" || fail "erin could not sign in to the dashboard"
+  alice="$(login alice)" || fail "alice could not sign in to the dashboard"
+  names() { dash "$1" GET "/api/fleet/services?text=rbac-" | cut -d' ' -f2- | jq -c '[.services[].name] | sort'; }
+  # The dashboard rebuilds its snapshot on an interval.
+  both() { [ "$(names "$alice")" = '["rbac-closed-svc","rbac-open-svc"]' ]; }
+  eventually 40 both || fail "alice, who reads Pactos everywhere, does not see both services: $(names "$alice")"
+  [ "$(names "$erin")" = '["rbac-open-svc"]' ] || fail "erin sees services outside the namespace she may read: $(names "$erin")"
+  out="$(dash "$erin" GET /api/fleet/snapshot)"
+  [ "${out%% *}" = 200 ] && ! grep -q "rbac-closed" <<<"$out" || fail "erin's snapshot names what she may not read: ${out:0:300}"
+  dash "$erin" GET /api/capabilities | cut -d' ' -f2- | jq -e '.auth.hidden == true' >/dev/null \
+    || fail "erin is not told that some services are hidden"
+  [ "$(names "")" = '[]' ] || fail "a visitor who has not signed in sees services: $(names "")"
+  pass "signed in, erin sees only rbac-open's services, alice sees both and a visitor none"
+}
+
 identity_scenario() {
   section "phase 4: the dashboard and identity"
   # --- structured authentication ---
@@ -360,6 +402,7 @@ identity_scenario() {
   local out; out="$(dash "" GET /api/delivery/inbox)"
   [ "${out%% *}" = 401 ] && grep -q LoginRequired <<<"$out" || fail "delivery without sign-in: $out"
   pass "delivery is offered where it is installed, and only to people who signed in"
+  identity_rbac_views
 
   # --- the dashboard: people act as themselves ---
   # Automation stays out of the way: prod is frozen from phase 1, and nothing
