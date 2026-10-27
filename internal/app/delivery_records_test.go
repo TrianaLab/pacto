@@ -619,7 +619,9 @@ func TestFleetVerify(t *testing.T) {
 func TestFleetAuditUnreadable(t *testing.T) {
 	e := newRecordEnv(t)
 	ctx := context.Background()
-	e.c.PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+	// The walk hands each listed Stage to its history read, so what fails is
+	// the read of the Stage's changes.
+	e.c.PrependReactor("list", "operations", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("gone")
 	})
 	if hs, _ := e.d.HistoryAll(ctx, ""); len(hs.Histories) != 0 || len(hs.Unreadable) != 2 || hs.Completeness != "partial" ||

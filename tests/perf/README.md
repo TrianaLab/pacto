@@ -22,7 +22,7 @@ One test at a time, with assets you already have:
 ```sh
 export KUBEBUILDER_ASSETS=$(make -s -C integrations/kubernetes setup-envtest | tail -n 1)
 PERF_QUICK=1 go test -tags perfenvtest -run TestPerfEnvtest -v ./internal/cli/     # 500 Stages only
-PERF_VIEWS=inbox,history go test -tags perfenvtest -run TestPerfEnvtest -v ./internal/cli/
+PERF_VIEWS='inbox,history (all)' go test -tags perfenvtest -run TestPerfEnvtest -v ./internal/cli/
 PERF_CPUPROFILE=/tmp/cpu.prof go test -tags perfenvtest -run TestPerfEnvtest -v ./internal/cli/
 cd integrations/kubernetes && go test -tags perfenvtest -run TestPerfPromoter -v ./internal/delivery/
 ```
@@ -149,6 +149,11 @@ Each was found here, and its effect is in the table above.
    the client wrote it back to JSON and decoded it again into the typed
    struct. It now converts the decoded objects directly: 2.1 times faster and
    3.7 times fewer bytes on a list of 2,000 Stages.
+6. **History, all Stages read each Stage on the page again** (25 GETs)
+   although the view had just listed them. The listed Stage is now handed to
+   the history read, as is the Stage the change view reads, and the fleet
+   audit's walk. One auditor, 500 Stages: 41.6 apiserver requests per request
+   to 21.6, 52 cold to 25.
 
 ## What is left
 
@@ -159,9 +164,6 @@ Each was found here, and its effect is in the table above.
   but it reads delivery with the dashboard's own credentials, which the
   dashboard deliberately never does today; that is a design decision, not a
   patch.
-- **History, all Stages still reads each Stage on the page again** (25 GETs)
-  although the view just listed them. Passing the listed Stage to the history
-  read would drop it to 2 lists and 25 small selected lists.
 - **The promoter's idle polling eats its whole rate budget.** Every Stage is
   reconciled every 3s and reads its OCIRepositories and Kustomization from the
   apiserver (controller-runtime does not cache unstructured objects by

@@ -26,7 +26,9 @@ type DeliveryAPI interface {
 	Get(ctx context.Context, namespace, name string) (*delivery.OperationObject, error)
 	Stage(ctx context.Context, namespace, name string) (*delivery.StageObject, error)
 	Explain(ctx context.Context, namespace, name string) (*delivery.Explanation, error)
-	History(ctx context.Context, namespace, stage string) (*delivery.History, error)
+	// History reads a Stage's history. listed, when not nil, is the Stage as
+	// the caller just read it, so the host need not read it again.
+	History(ctx context.Context, namespace, stage string, listed *delivery.StageObject) (*delivery.History, error)
 	Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error)
 	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error)
 	Approve(ctx context.Context, namespace, name string, decision delivery.Decision, note string) (string, error)

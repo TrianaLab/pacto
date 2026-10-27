@@ -336,7 +336,11 @@ func (a dashDelivery) Explain(ctx context.Context, ns, name string) (*delivery.E
 	return e, refusal(err)
 }
 
-func (a dashDelivery) History(ctx context.Context, ns, stage string) (*delivery.History, error) {
+func (a dashDelivery) History(ctx context.Context, ns, stage string, listed *delivery.StageObject) (*delivery.History, error) {
+	if listed != nil {
+		h, err := a.d.HistoryOf(ctx, *listed)
+		return h, refusal(err)
+	}
 	h, err := a.d.History(ctx, ns, stage)
 	return h, refusal(err)
 }

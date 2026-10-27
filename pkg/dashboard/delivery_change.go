@@ -49,13 +49,16 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
 	out.Body.Actions = s.actions(ctx, op, e.Stage, caller)
-	if st, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
-		out.Body.Level = ladderOf(*st).Level
+	stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage)
+	if err == nil {
+		out.Body.Level = ladderOf(*stage).Level
+	} else {
+		stage = nil
 	}
 	if st := op.Status; st.Phase == delivery.PhaseConcluded && st.Pointer.After != "" {
 		// ponytail: one history read per concluded change shown; the live
 		// host's record stream read is what it costs.
-		if h, err := api.History(ctx, in.Namespace, op.Spec.Stage); err == nil {
+		if h, err := api.History(ctx, in.Namespace, op.Spec.Stage, stage); err == nil {
 			out.Body.UndoneBy = undoneBy(h.Entries, in.Name, st.Pointer.After, st.Times.Finished)
 		}
 	}

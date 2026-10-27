@@ -649,7 +649,7 @@ var perfBudgetTable = map[string]perfBudget{
 	"inbox":               {8, 15 * time.Second},
 	"environments":        {8, 15 * time.Second},
 	"environments?env&q":  {8, 15 * time.Second},
-	"history (all)":       {60, 20 * time.Second},
+	"history (all)":       {40, 20 * time.Second}, // 52 when each listed Stage was read again
 	"history (hot Stage)": {4, 5 * time.Second},
 	"published":           {3, 8 * time.Second},
 	"autonomy":            {4, 8 * time.Second},
