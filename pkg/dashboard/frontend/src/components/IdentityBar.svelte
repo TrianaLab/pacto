@@ -49,7 +49,8 @@
   {:else if s.signedIn}
     <p>
       {#if user}
-        Signed in{#if s.method === 'token'}{' with a token'}{/if} as <strong><Person {user} {me} /></strong>{#if groups.length}{', in '}<CappedList items={groups} max={3} inline label="Your groups" testid="identity-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{/if}.
+        <!-- The word joiner (U+2060) keeps the comma and the full stop on the line of the box before them: a browser may break after an inline-flex box, such as the username chip, even before punctuation. -->
+        Signed in{#if s.method === 'token'}{' with a token'}{/if} as <strong><Person {user} {me} /></strong>{#if groups.length}{'\u2060, in '}<CappedList items={groups} max={3} inline label="Your groups" testid="identity-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{/if}{'\u2060.'}
       {:else}
         <!-- The ID token's name alone is self-asserted, so it is never shown as who you are. -->
         Signed in. <span class="who-err">The cluster did not say who you are{#if s.callerError}: {s.callerError}{:else}.{/if}</span>

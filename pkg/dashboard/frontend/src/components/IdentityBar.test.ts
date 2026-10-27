@@ -33,7 +33,8 @@ function show(session: unknown, C: any = IdentityBar) {
   flushSync();
   const c = document.body.cloneNode(true) as Element;
   c.querySelectorAll('[hidden]').forEach((h) => h.remove());
-  return c.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  // The word joiners that glue punctuation to the box before it are tested on their own.
+  return c.textContent?.replace(/\u2060/g, '').replace(/\s+/g, ' ').trim() ?? '';
 }
 const bar = () => document.body.querySelector('[data-testid="identity"]');
 const human = { user: 'https://idp#carol', class: 'human', groups: ['team-checkout', 'team-orders'] };
@@ -45,6 +46,14 @@ describe('IdentityBar', () => {
     expect(bar()?.querySelector('[data-testid="sign-out"]')?.textContent).toBe('Sign out');
     // The verifiable username is printed, never only in a tooltip.
     expect(bar()?.querySelector('[title]:not(.copyable)')).toBeNull();
+  });
+
+  it('keeps the comma and the full stop on the line of the username chip before them', () => {
+    show({ mode: 'shared', login: true, signedIn: true, name: 'Carol Diaz', caller: human });
+    expect(bar()?.textContent).toContain('⧉\u2060, in ');
+    unmount(app!); app = null; document.body.innerHTML = '';
+    show({ mode: 'shared', login: true, signedIn: true, name: 'Carol Diaz', caller: { ...human, groups: [] } });
+    expect(bar()?.textContent).toContain('⧉\u2060.');
   });
 
   it('says a person signed in with a token', () => {
