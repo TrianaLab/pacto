@@ -45,6 +45,8 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     await page.goto('/');
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Is anything wrong?' })).toBeVisible({ timeout: T });
+    // The question in the title is answered in one line straight under it.
+    await expect(page.getByTestId('overview-answer')).toBeVisible({ timeout: T });
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
     await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Operational graph', 'Change analysis', 'Delivery']);
     await expectNoLegacyScreen(page);
