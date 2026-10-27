@@ -197,7 +197,7 @@ func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
 	}
 }
 
-func TestDeliveryProposeFreezeAndLevel(t *testing.T) {
+func TestDeliveryProposeFreeze(t *testing.T) {
 	d, _ := proposeFixture(t)
 	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeUnfreeze})
 	if err != nil || op.Spec.Facet != delivery.FacetFreeze {
@@ -215,7 +215,11 @@ func TestDeliveryProposeFreezeAndLevel(t *testing.T) {
 		!strings.HasPrefix(plan.Conflicts[0], "NoUpstreamRecords") {
 		t.Fatalf("acknowledge: %+v %+v %v", plan, spec, err)
 	}
-	op, _, err = d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAutonomy, To: "advise"})
+}
+
+func TestDeliveryProposeLevel(t *testing.T) {
+	d, _ := proposeFixture(t)
+	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAutonomy, To: "advise"})
 	if err != nil || op.Spec.Facet != delivery.FacetLevel || op.Spec.Params.To != "advise" || op.Spec.Params.From != string(delivery.LevelAutonomous) {
 		t.Fatalf("a level change moves from the level the Stage is on: %+v %v", op, err)
 	}

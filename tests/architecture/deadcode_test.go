@@ -62,7 +62,7 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/validation.EnforcePolicies": "public API of the released v4 major for callers that hold only " +
 		"the raw YAML; in-tree validation now decodes once and goes through ValidateDocument",
 
-	"pkg/dashboard.GetStatus":"huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
+	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
 		"through that interface, never by name",
 
 	"pkg/contract.PolicyTargetContract":     schemaVocabulary,

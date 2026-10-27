@@ -48,26 +48,13 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	if len(hiddenNS) == 0 {
 		return q
 	}
-	kube := func(t *TargetRecord) bool { return t.Kind == SourceKindKubernetes && t.Scope != "" }
-	hiddenSvc := map[ServiceKey]bool{}
-	for k, svc := range s.Services {
-		hidden, shown := false, false
-		for _, tk := range svc.Targets {
-			if t := s.Targets[tk]; kube(t) {
-				hidden = hidden || hiddenNS[t.Scope]
-				shown = shown || !hiddenNS[t.Scope]
-			}
-		}
-		if hidden && !shown {
-			hiddenSvc[k] = true
-		}
-	}
+	hiddenSvc := hiddenServices(s, hiddenNS)
 
 	out := *s
-	out.Targets = make(map[TargetKey]*TargetRecord, len(s.Targets))
 	var hiddenNames []string
+	out.Targets = make(map[TargetKey]*TargetRecord, len(s.Targets))
 	for k, t := range s.Targets {
-		if (kube(t) && hiddenNS[t.Scope]) || hiddenSvc[t.ServiceKey] {
+		if (kubeTarget(t) && hiddenNS[t.Scope]) || hiddenSvc[t.ServiceKey] {
 			hiddenNames = append(hiddenNames, t.Name, string(k))
 			continue
 		}
@@ -79,51 +66,8 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 			out.Revisions[k] = r
 		}
 	}
-
-	hiddenDeps, hiddenDependents := map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}
-	count := func(m map[ServiceKey]map[ServiceKey]bool, at, other ServiceKey) {
-		if m[at] == nil {
-			m[at] = map[ServiceKey]bool{}
-		}
-		m[at][other] = true
-	}
-	out.Relationships = make([]Relationship, 0, len(s.Relationships))
-	for _, rel := range s.Relationships {
-		from, to := hiddenSvc[rel.FromService], hiddenSvc[rel.ToService]
-		switch {
-		case from && to:
-			continue
-		case from:
-			if rel.Type == RelationshipDependency && rel.ToService != "" {
-				count(hiddenDependents, rel.ToService, rel.FromService)
-			}
-			continue
-		case to:
-			count(hiddenDeps, rel.FromService, rel.ToService)
-			if rel.Provenance == ProvenanceObserved {
-				continue // runtime evidence about the hidden service, not the caller's declaration
-			}
-			rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason = "", "", true, hiddenMessage
-		}
-		out.Relationships = append(out.Relationships, rel)
-	}
-
-	out.Services = make(map[ServiceKey]*ServiceRecord, len(s.Services))
-	for k, svc := range s.Services {
-		if hiddenSvc[k] {
-			hiddenNames = append(hiddenNames, svc.Name, string(k))
-			continue
-		}
-		targets := slices.DeleteFunc(slices.Clone(svc.Targets), func(tk TargetKey) bool { return out.Targets[tk] == nil })
-		if len(targets) == len(svc.Targets) && hiddenDeps[k] == nil && hiddenDependents[k] == nil {
-			out.Services[k] = svc
-			continue
-		}
-		cp := *svc
-		cp.Targets, cp.HiddenDependencies, cp.HiddenDependents = targets, len(hiddenDeps[k]), len(hiddenDependents[k])
-		cp.Status = serviceStatus(&out, &cp)
-		out.Services[k] = &cp
-	}
+	hiddenDeps, hiddenDependents := restrictRelationships(&out, s.Relationships, hiddenSvc)
+	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenDeps, hiddenDependents)...)
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
 	out.reverseDeps = restrictIndex(s.reverseDeps, keep, keep)
@@ -137,22 +81,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 		ns, _, _ := strings.Cut(rest, "/")
 		return hiddenSvc[c.ToService] || (k8s && hiddenNS[ns])
 	})
-
-	out.Sources = slices.Clone(s.Sources)
-	for i := range out.Sources {
-		id := out.Sources[i].ID
-		out.Sources[i].RevisionCount, out.Sources[i].TargetCount = 0, 0
-		for _, r := range out.Revisions {
-			if slices.Contains(r.Sources, id) {
-				out.Sources[i].RevisionCount++
-			}
-		}
-		for _, t := range out.Targets {
-			if slices.Contains(t.Sources, id) {
-				out.Sources[i].TargetCount++
-			}
-		}
-	}
+	recountSources(&out)
 
 	// ponytail: a limitation's subject is only in its prose, so any that mentions
 	// a hidden name goes, even where the match is a coincidence. It costs
@@ -168,6 +97,107 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.Completeness = CompletenessPartial
 	out.SnapshotID = computeSnapshotID(&out)
 	return NewQuery(&out)
+}
+
+// kubeTarget reports whether t is a Kubernetes target with a namespace, the
+// only kind a caller's permissions decide.
+func kubeTarget(t *TargetRecord) bool { return t.Kind == SourceKindKubernetes && t.Scope != "" }
+
+// hiddenServices is the services whose Kubernetes targets all run in a hidden
+// namespace. A service with no Kubernetes target is never hidden.
+func hiddenServices(s *FleetSnapshot, hiddenNS map[string]bool) map[ServiceKey]bool {
+	hiddenSvc := map[ServiceKey]bool{}
+	for k, svc := range s.Services {
+		hidden, shown := false, false
+		for _, tk := range svc.Targets {
+			if t := s.Targets[tk]; kubeTarget(t) {
+				hidden = hidden || hiddenNS[t.Scope]
+				shown = shown || !hiddenNS[t.Scope]
+			}
+		}
+		if hidden && !shown {
+			hiddenSvc[k] = true
+		}
+	}
+	return hiddenSvc
+}
+
+// restrictRelationships sets out.Relationships to rels without the hidden
+// services, and returns, per visible service, the hidden services it depends
+// on and that depend on it.
+func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool) (deps, dependents map[ServiceKey]map[ServiceKey]bool) {
+	deps, dependents = map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}
+	count := func(m map[ServiceKey]map[ServiceKey]bool, at, other ServiceKey) {
+		if m[at] == nil {
+			m[at] = map[ServiceKey]bool{}
+		}
+		m[at][other] = true
+	}
+	out.Relationships = make([]Relationship, 0, len(rels))
+	for _, rel := range rels {
+		from, to := hiddenSvc[rel.FromService], hiddenSvc[rel.ToService]
+		switch {
+		case from && to:
+			continue
+		case from:
+			if rel.Type == RelationshipDependency && rel.ToService != "" {
+				count(dependents, rel.ToService, rel.FromService)
+			}
+			continue
+		case to:
+			count(deps, rel.FromService, rel.ToService)
+			if rel.Provenance == ProvenanceObserved {
+				continue // runtime evidence about the hidden service, not the caller's declaration
+			}
+			rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason = "", "", true, hiddenMessage
+		}
+		out.Relationships = append(out.Relationships, rel)
+	}
+	return deps, dependents
+}
+
+// restrictServices sets out.Services to the visible services, copying any
+// that lost a target or gained a hidden count, and returns the names and keys
+// of the hidden ones. out.Targets must already be restricted.
+func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, deps, dependents map[ServiceKey]map[ServiceKey]bool) []string {
+	var hiddenNames []string
+	out.Services = make(map[ServiceKey]*ServiceRecord, len(services))
+	for k, svc := range services {
+		if hiddenSvc[k] {
+			hiddenNames = append(hiddenNames, svc.Name, string(k))
+			continue
+		}
+		targets := slices.DeleteFunc(slices.Clone(svc.Targets), func(tk TargetKey) bool { return out.Targets[tk] == nil })
+		if len(targets) == len(svc.Targets) && deps[k] == nil && dependents[k] == nil {
+			out.Services[k] = svc
+			continue
+		}
+		cp := *svc
+		cp.Targets, cp.HiddenDependencies, cp.HiddenDependents = targets, len(deps[k]), len(dependents[k])
+		cp.Status = serviceStatus(out, &cp)
+		out.Services[k] = &cp
+	}
+	return hiddenNames
+}
+
+// recountSources recomputes each source's revision and target counts from
+// what out still holds.
+func recountSources(out *FleetSnapshot) {
+	out.Sources = slices.Clone(out.Sources)
+	for i := range out.Sources {
+		id := out.Sources[i].ID
+		out.Sources[i].RevisionCount, out.Sources[i].TargetCount = 0, 0
+		for _, r := range out.Revisions {
+			if slices.Contains(r.Sources, id) {
+				out.Sources[i].RevisionCount++
+			}
+		}
+		for _, t := range out.Targets {
+			if slices.Contains(t.Sources, id) {
+				out.Sources[i].TargetCount++
+			}
+		}
+	}
 }
 
 // restrictIndex copies an adjacency index without the keys keyOK refuses and

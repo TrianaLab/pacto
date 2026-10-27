@@ -476,18 +476,8 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	}
 	stages = filter(stages, func(st delivery.StageObject) bool { return matches(in.Q, st.Spec.Service.Name) })
 	out := &environmentsOutput{}
-	out.Body.Listing, out.Body.Environments, out.Body.EnvironmentTiers = l, []EnvironmentRow{}, map[string]string{}
-	envs := []string{}
-	for _, st := range stages {
-		envs = append(envs, st.Spec.Environment)
-		if _, tier := envRank(st.Spec.Environment); tier != "" {
-			out.Body.EnvironmentTiers[st.Spec.Environment] = tier
-		}
-	}
-	slices.Sort(envs)
-	envs = slices.Compact(envs)
-	sortEnvironments(envs)
-	out.Body.EnvironmentNames = envs
+	out.Body.Listing, out.Body.Environments = l, []EnvironmentRow{}
+	out.Body.EnvironmentNames, out.Body.EnvironmentTiers = environmentColumns(stages)
 	// The environment and tier filters narrow the rows, not the columns a
 	// person picks from: a service with no Stage there is left out.
 	stages = filter(stages, func(st delivery.StageObject) bool {
@@ -520,6 +510,22 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
 	})
 	return out, nil
+}
+
+// environmentColumns is the board's columns for stages, ordered the way
+// changes travel, and the tier of each environment whose name says it.
+func environmentColumns(stages []delivery.StageObject) ([]string, map[string]string) {
+	envs, tiers := []string{}, map[string]string{}
+	for _, st := range stages {
+		envs = append(envs, st.Spec.Environment)
+		if _, tier := envRank(st.Spec.Environment); tier != "" {
+			tiers[st.Spec.Environment] = tier
+		}
+	}
+	slices.Sort(envs)
+	envs = slices.Compact(envs)
+	sortEnvironments(envs)
+	return envs, tiers
 }
 
 // PublishedVersion is one digest a service's Stages know about.

@@ -554,6 +554,22 @@ func (d *demoDelivery) plan(req delivery.Request, actor story.Persona) (delivery
 		}
 		b.From, b.To, b.Version = spec.Params.From, spec.Params.To, versionOf(req.Stage, running)
 	}
+	d.surroundings(&b, req)
+	in, err := b.PlanInput(context.Background())
+	if err != nil {
+		return delivery.Plan{}, spec, dashboard.Refuse(http.StatusBadRequest, "Unplannable", err.Error())
+	}
+	in.Spec, in.Stage, in.Status = spec, st.Spec, st.Status
+	in.Status.Proposal = d.proposal(st)
+	if up := st.Spec.Candidates.UpstreamStage; up != nil {
+		in.Upstream = &d.stage(up.Namespace, up.Name).Status
+	}
+	return delivery.PlanFor(context.Background(), in), spec, nil
+}
+
+// surroundings fills b with what else runs in the Stage's environment and,
+// for prod, what each consumer's test Stage verified.
+func (d *demoDelivery) surroundings(b *story.Beat, req delivery.Request) {
 	for _, o := range d.stages {
 		svc := o.Metadata.Name
 		if svc == req.Stage || o.Status.Pointer == "" {
@@ -568,16 +584,6 @@ func (d *demoDelivery) plan(req delivery.Request, actor story.Persona) (delivery
 			}
 		}
 	}
-	in, err := b.PlanInput(context.Background())
-	if err != nil {
-		return delivery.Plan{}, spec, dashboard.Refuse(http.StatusBadRequest, "Unplannable", err.Error())
-	}
-	in.Spec, in.Stage, in.Status = spec, st.Spec, st.Status
-	in.Status.Proposal = d.proposal(st)
-	if up := st.Spec.Candidates.UpstreamStage; up != nil {
-		in.Upstream = &d.stage(up.Namespace, up.Name).Status
-	}
-	return delivery.PlanFor(context.Background(), in), spec, nil
 }
 
 // ── the promoter, in miniature ──────────────────────────────────────────

@@ -113,6 +113,14 @@ func toJSON(v any) (any, error) {
 			}
 		}
 		return out, nil
+	default:
+		return scalarToJSON(v)
+	}
+}
+
+// scalarToJSON is toJSON for a value that is neither a map nor a list.
+func scalarToJSON(v any) (any, error) {
+	switch v := v.(type) {
 	case int:
 		return float64(v), nil
 	case int64:
@@ -165,23 +173,29 @@ func knownFields(n *yaml.Node, t reflect.Type) bool {
 			}
 		}
 	case yaml.MappingNode:
-		switch t.Kind() {
-		case reflect.Map:
-			for i := 1; i < len(n.Content); i += 2 {
-				if n.Content[i-1].Value == "<<" || !knownFields(n.Content[i], t.Elem()) {
-					return false
-				}
-			}
-		case reflect.Struct:
-			fields, ok := structFields(t)
-			if !ok {
+		return knownMappingFields(n, t)
+	}
+	return true
+}
+
+// knownMappingFields is knownFields for a mapping node.
+func knownMappingFields(n *yaml.Node, t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Map:
+		for i := 1; i < len(n.Content); i += 2 {
+			if n.Content[i-1].Value == "<<" || !knownFields(n.Content[i], t.Elem()) {
 				return false
 			}
-			for i := 1; i < len(n.Content); i += 2 {
-				ft, known := fields[n.Content[i-1].Value]
-				if !known || !knownFields(n.Content[i], ft) {
-					return false
-				}
+		}
+	case reflect.Struct:
+		fields, ok := structFields(t)
+		if !ok {
+			return false
+		}
+		for i := 1; i < len(n.Content); i += 2 {
+			ft, known := fields[n.Content[i-1].Value]
+			if !known || !knownFields(n.Content[i], ft) {
+				return false
 			}
 		}
 	}

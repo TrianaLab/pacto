@@ -80,9 +80,9 @@ func TestUndoneBy(t *testing.T) {
 
 func page(v any) map[string]any { return v.(map[string]any) }
 
-// Every long delivery list pages on the server, keeps the newest change
-// first and filters with q.
-func TestDeliveryListsPage(t *testing.T) {
+// The environments board pages services on the server, keeps every column on
+// every page and filters with q, environment and tier.
+func TestDeliveryEnvironmentsPage(t *testing.T) {
 	f := sampleCluster("acme:team-checkout")
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 
@@ -113,7 +113,13 @@ func TestDeliveryListsPage(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?q=ledger", nil)
 	led := page(envs["environments"].([]any)[0])
 	expect(t, led["ready"] == "False: NoCandidateSource" && led["readyMessage"] == "the Stage names no candidates", "why it cannot promote, in words: %v", led)
+}
 
+// Every other long delivery list pages on the server, keeps the newest change
+// first and filters with q.
+func TestDeliveryListsPage(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?limit=2", nil)
 	expect(t, len(pub["services"].([]any)) == 2 && page(pub["page"])["total"] == float64(3), "published services are paged: %v", pub["page"])
 	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?q=pay", nil)

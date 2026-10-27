@@ -59,7 +59,20 @@ func restrictFleet(t *testing.T) *Query {
 	return NewQuery(snap)
 }
 
-func TestRestrict(t *testing.T) {
+var (
+	rAPI, rWeb, rDB, rReg = NewServiceKey("api"), NewServiceKey("web"), NewServiceKey("db"), NewServiceKey("reg")
+)
+
+// restrictShop is restrictFleet as a caller who may read only shop sees it:
+// the restricted query, its snapshot and the original snapshot.
+func restrictShop(t *testing.T) (q, r *Query, s, orig *FleetSnapshot) {
+	t.Helper()
+	q = restrictFleet(t)
+	r = q.Restrict(func(ns string) bool { return ns == "shop" })
+	return q, r, r.SnapshotForSerialization(), q.SnapshotForSerialization()
+}
+
+func TestRestrictNothingHidden(t *testing.T) {
 	q := restrictFleet(t)
 	if got := q.Namespaces(); !slices.Equal(got, []string{"secret", "shop"}) {
 		t.Fatalf("Namespaces = %v", got)
@@ -67,10 +80,11 @@ func TestRestrict(t *testing.T) {
 	if q.Restrict(func(string) bool { return true }) != q {
 		t.Fatal("nothing hidden must return the same query")
 	}
-	r := q.Restrict(func(ns string) bool { return ns == "shop" })
-	s, orig := r.SnapshotForSerialization(), q.SnapshotForSerialization()
+}
 
-	api, web, db, reg := NewServiceKey("api"), NewServiceKey("web"), NewServiceKey("db"), NewServiceKey("reg")
+func TestRestrictServices(t *testing.T) {
+	_, _, s, orig := restrictShop(t)
+	api, web, db, reg := rAPI, rWeb, rDB, rReg
 	if s.Services[api] != nil || s.Services[web] == nil || s.Services[db] == nil || s.Services[reg] == nil || len(orig.Services) != 5 {
 		t.Fatalf("services = %v", slices.Collect(func(yield func(ServiceKey) bool) {
 			for k := range s.Services {
@@ -83,6 +97,11 @@ func TestRestrict(t *testing.T) {
 			t.Error("a hidden service's revision stayed")
 		}
 	}
+}
+
+func TestRestrictServiceRecords(t *testing.T) {
+	_, _, s, orig := restrictShop(t)
+	web, db, reg := rWeb, rDB, rReg
 	if d := s.Services[db]; len(d.Targets) != 1 || d.Status != StatusCompliant || orig.Services[db].Status != StatusNonCompliant {
 		t.Errorf("db = %+v, want its shop target only and a status from it", d)
 	}
@@ -98,7 +117,11 @@ func TestRestrict(t *testing.T) {
 	if s.Services[web] == orig.Services[web] || orig.Services[web].HiddenDependencies != 0 {
 		t.Error("the original record must stay untouched")
 	}
+}
 
+func TestRestrictRelationships(t *testing.T) {
+	_, _, s, _ := restrictShop(t)
+	api, web := rAPI, rWeb
 	var hidden []Relationship
 	for _, rel := range s.Relationships {
 		if rel.FromService == api || rel.ToService == api || rel.ResolvedRevision != "" && strings.Contains(string(rel.ResolvedRevision), "api") {
@@ -116,11 +139,19 @@ func TestRestrict(t *testing.T) {
 			t.Errorf("hidden relationship = %+v", h)
 		}
 	}
-	cfg, _ := r.revisionRefResolutions(s.Services[web].Revisions[0])
+}
+
+func TestRestrictHiddenConfiguration(t *testing.T) {
+	_, r, s, _ := restrictShop(t)
+	cfg, _ := r.revisionRefResolutions(s.Services[rWeb].Revisions[0])
 	if res := cfg["tuning"]; res == nil || res.Resolved || res.Reason != hiddenMessage {
 		t.Errorf("tuning = %+v", res)
 	}
+}
 
+func TestRestrictQueries(t *testing.T) {
+	_, r, _, _ := restrictShop(t)
+	api, web := rAPI, rWeb
 	nb, err := r.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(web), Depth: 2, Views: []KnowledgeView{ViewExpected, ViewObserved}})
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +173,13 @@ func TestRestrict(t *testing.T) {
 	if g, err := r.Graph(GraphQuery{Service: "web", Transitive: true}); err != nil || slices.ContainsFunc(g.Nodes, func(n GraphNode) bool { return n.Key == api }) {
 		t.Errorf("graph = %+v %v", g, err)
 	}
+	if res, _ := r.Search(SearchFilter{Text: "api"}); res.Total != 0 {
+		t.Errorf("search finds a hidden service: %+v", res)
+	}
+}
 
+func TestRestrictSnapshotMetadata(t *testing.T) {
+	_, _, s, orig := restrictShop(t)
 	if len(s.UncontractedCallers) != 1 || s.UncontractedCallers[0].Caller != "k8s:shop/Deployment/y" {
 		t.Errorf("uncontracted callers = %+v", s.UncontractedCallers)
 	}
@@ -162,10 +199,10 @@ func TestRestrict(t *testing.T) {
 	if s.Completeness != CompletenessPartial || s.SnapshotID == orig.SnapshotID || s.SnapshotID != computeSnapshotID(s) {
 		t.Errorf("completeness %s, id %s (was %s)", s.Completeness, s.SnapshotID, orig.SnapshotID)
 	}
-	if res, _ := r.Search(SearchFilter{Text: "api"}); res.Total != 0 {
-		t.Errorf("search finds a hidden service: %+v", res)
-	}
+}
 
+func TestRestrictSeeingNothing(t *testing.T) {
+	q, reg := restrictFleet(t), rReg
 	// Seeing nothing hides every service with a Kubernetes target and keeps the registry-only one.
 	none := q.Restrict(func(string) bool { return false }).SnapshotForSerialization()
 	if len(none.Services) != 1 || none.Services[reg] == nil || len(none.Targets) != 0 || len(none.Relationships) != 0 {

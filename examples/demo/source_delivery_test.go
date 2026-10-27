@@ -299,13 +299,12 @@ func storyProblems(t *testing.T, d *demoDelivery) {
 	}
 }
 
-// TestReplayClimbsTheLadder: the world at load shows the autonomy ladder from
-// examples/story. fraud observes and Pacto noted it would have shipped 1.0.0,
-// which earns the proposal of advise, decided by team risk; payments in prod
-// stepped down after B2's failure; a workload with no contract held the
-// breaking 3.0.0 in test until alice accepted that unknown; and pay-agent's
-// evals ran through a runner that signed its count.
-func TestReplayClimbsTheLadder(t *testing.T) {
+// The world at load shows the autonomy ladder from examples/story, one test
+// per beat.
+
+// TestReplayFraudEarnsAdvise: fraud observes and Pacto noted it would have
+// shipped 1.0.0, which earns the proposal of advise, decided by team risk.
+func TestReplayFraudEarnsAdvise(t *testing.T) {
 	d, h := demoServer(t)
 	fraud, _ := d.Stage(t.Context(), story.Test, "fraud")
 	sh := fraud.Status.Shadow
@@ -318,20 +317,34 @@ func TestReplayClimbsTheLadder(t *testing.T) {
 	if code := call(t, h, "POST", "/api/delivery/plan", body, &p); code != 200 || p.Predicted != delivery.PredictHeld || !slices.Equal(p.Floor.Owners, []string{"risk"}) {
 		t.Fatalf("the raise of fraud: %d %+v", code, p)
 	}
+}
 
+// TestReplayPaymentsStepsDown: payments in prod stepped down after B2's failure.
+func TestReplayPaymentsStepsDown(t *testing.T) {
+	d, _ := demoServer(t)
 	prod, _ := d.Stage(t.Context(), story.Prod, "payments")
 	down := d.op(story.Prod, "payments-autonomy-4")
 	if prod.Status.Level != delivery.LevelAutoNonBreaking || down == nil || down.Status.Outcome != delivery.Succeeded ||
 		down.Spec.Cause == nil || down.Spec.Cause.Operation != d.op(story.Prod, "payments-promote-2").Metadata.UID {
 		t.Fatalf("payments prod steps down after B2: %+v %+v", prod.Status, down)
 	}
+}
 
+// TestReplayUnknownCallerAccepted: a workload with no contract held the
+// breaking 3.0.0 in test until alice accepted that unknown.
+func TestReplayUnknownCallerAccepted(t *testing.T) {
+	d, _ := demoServer(t)
 	b4 := d.op(story.Test, "payments-promote-9")
 	if len(b4.Status.Approvals) != 1 || b4.Status.Approvals[0].Decision != delivery.AcceptUnknown || b4.Status.Outcome != delivery.Succeeded ||
 		!strings.Contains(b4.Status.Plan.Question, "ledger-export calls payments at runtime") {
 		t.Fatalf("B4 waits on ledger-export's missing contract: %+v", b4.Status)
 	}
+}
 
+// TestReplaySignedEvals: pay-agent's evals ran through a runner that signed
+// its count.
+func TestReplaySignedEvals(t *testing.T) {
+	d, _ := demoServer(t)
 	failed := d.op(story.Test, "pay-agent-promote-14")
 	i := slices.IndexFunc(failed.Status.Verdicts, func(v delivery.Verdict) bool { return v.Gate == "evals" })
 	if failed.Status.Outcome != delivery.Failed || i < 0 {

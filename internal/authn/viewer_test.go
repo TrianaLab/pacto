@@ -75,15 +75,23 @@ func services(q *fleet.Query) []string {
 	return out
 }
 
-func TestViewer(t *testing.T) {
-	q := viewerFleet(t, "a", "b", "c")
-	alice := Person{User: "alice", Groups: []string{"team-x", "team-a"}}
+var alice = Person{User: "alice", Groups: []string{"team-x", "team-a"}}
+
+// testViewer is a Viewer over reviews where root reads everything and alice
+// and bob read namespace a, and a clock at now.
+func testViewer() (*Viewer, *reviews, *time.Time) {
 	r := &reviews{allow: func(p Person, ns string) (bool, error) {
 		return p.User == "root" || (p.User == "alice" && ns == "a") || (p.User == "bob" && ns == "a"), nil
 	}}
 	v := NewViewer(r.review)
 	now := time.Unix(1000, 0)
 	v.now = func() time.Time { return now }
+	return v, r, &now
+}
+
+func TestViewer(t *testing.T) {
+	q := viewerFleet(t, "a", "b", "c")
+	v, r, now := testViewer()
 
 	got, err := v.Query(context.Background(), alice, q)
 	if err != nil || !slices.Equal(services(got), []string{"svc-a"}) {
@@ -109,11 +117,18 @@ func TestViewer(t *testing.T) {
 		t.Errorf("root asked %v", r.asked)
 	}
 	// Answers expire.
-	now = now.Add(2 * time.Minute)
+	*now = now.Add(2 * time.Minute)
 	r.asked = nil
 	_, _ = v.Query(context.Background(), alice, q)
 	if len(r.asked) != 4 {
 		t.Errorf("expired answers asked %v", r.asked)
+	}
+}
+
+func TestViewerSnapshots(t *testing.T) {
+	v, r, _ := testViewer()
+	if _, err := v.Query(context.Background(), alice, viewerFleet(t, "a", "b", "c")); err != nil {
+		t.Fatal(err)
 	}
 	// A new snapshot starts the views over.
 	q2 := viewerFleet(t, "a", "b", "d")

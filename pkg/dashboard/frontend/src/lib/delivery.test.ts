@@ -298,4 +298,3 @@ describe('what a change says about itself', () => {
     expect(undoCause()).toEqual({});
   });
 });
-
