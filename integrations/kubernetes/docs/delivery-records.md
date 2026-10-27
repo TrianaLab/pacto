@@ -24,6 +24,8 @@ An eval verdict carries two signatures:
   in `citation.runner`
 - the recorder's, on the whole record around it
 
+## Streams, stand-ins and gaps
+
 Each Stage has one stream: records are numbered (`seq`) and each names the one
 before (`parent`). An **unrecordable** record stands in for an operation that
 failed a check before signing (a value that looks like a secret, an approval no

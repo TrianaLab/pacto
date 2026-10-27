@@ -12,6 +12,9 @@ mapping [the cluster trusts](delivery-identity.md#the-cluster-trusts-your-identi
 the apiserver never takes from a token. The dashboard adds no prefix to
 groups, so the cluster's authenticator must not add one either, or the review
 asks about groups other than the ones the apiserver grants.
+
+## What stays hidden
+
 Change analysis on raw references answers only for services you can see: a
 hidden one, on either side of the change, reads as not found. A service known only from a registry, with no Pacto in any
 namespace, stays visible. A hidden service is never named: the dashboard says
