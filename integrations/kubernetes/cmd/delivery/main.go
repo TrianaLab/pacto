@@ -296,7 +296,8 @@ func upstreamReader(file string, keychain authn.Keychain) (
 	opts := ocireferrer.Options{Keychain: keychain, Insecure: insecure}
 	// One Reader for the process: every record it verified is fetched once.
 	reader := &deliveryrecord.Reader{Verify: verify}
-	return func(ctx context.Context, r core.RemoteStage, seen core.RecordMark, acked []string) (*core.StageStatus, string) {
+	return func(ctx context.Context, r core.RemoteStage, seen core.RecordMark,
+		acked []string) (*core.StageStatus, string) {
 		repo, err := ocireferrer.Open(r.Repository, opts)
 		if err != nil {
 			return nil, err.Error()
