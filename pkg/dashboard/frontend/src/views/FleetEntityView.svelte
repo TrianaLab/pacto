@@ -64,7 +64,7 @@
   // this revision valid and ready. Kinds without a single question get none.
   const entityAnswer = $derived.by(() => {
     if (!detail) return null;
-    if (detail.service) return postureAnswer(detail.service.summary, knowledge.incomplete);
+    if (detail.service) return postureAnswer(detail.service.summary, knowledge.incomplete, detail.service.ownership?.conflicts?.total ?? 0);
     if (detail.owner) return postureAnswer(detail.owner.summary, knowledge.incomplete);
     if (detail.revision) return revisionAnswer(detail.revision);
     return null;

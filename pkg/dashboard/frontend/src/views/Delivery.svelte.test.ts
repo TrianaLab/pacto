@@ -847,6 +847,16 @@ describe('change detail', () => {
     destroy();
   });
 
+  it('tells a person who can answer which team lets them, and marks the Inbox tab', async () => {
+    fns.operation.mockResolvedValue(heldOperation({ actions: ['approve', 'reject'] }));
+    fns.session.mockResolvedValue(shared({ caller: human(['team-checkout']) }));
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(target.querySelector('[data-testid="decision-who"]')?.textContent).toBe('You can answer: you are in team-checkout.');
+    expect(target.querySelector('.dn-tab[aria-current="page"]')?.textContent).toBe('Inbox');
+    destroy();
+  });
+
   it('shows refusals: not your team, an agent, a local dashboard, a signed-out person and a server refusal', async () => {
     fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel'] }));
     fns.session.mockResolvedValue(shared({ caller: human(['team-payments']) }));

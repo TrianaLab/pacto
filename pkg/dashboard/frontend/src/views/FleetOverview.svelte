@@ -14,6 +14,7 @@
   import OperationalSummary from '../components/OperationalSummary.svelte';
   import SourceHealth from '../components/SourceHealth.svelte';
   import EntityLink from '../components/EntityLink.svelte';
+  import EvidenceList from '../components/EvidenceList.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import SeverityBadge from '../components/SeverityBadge.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -111,8 +112,8 @@
   const scopes = $derived(s.byScope ?? []);
   const worstScope = $derived(scopes[0]?.nonCompliant > 0 ? scopes[0] : null);
   const whereText = $derived(!worstScope ? ''
-    : (s.scopes ?? scopes.length) === 1 ? `All of them run in ${worstScope.scope || 'one unnamed scope'}.`
-    : `${formatCount(worstScope.nonCompliant)} of them run in ${worstScope.scope || 'an unnamed scope'}.`);
+    : (s.scopes ?? scopes.length) === 1 ? `All the targets that break their contract run in ${worstScope.scope || 'one unnamed scope'}.`
+    : `${formatCount(worstScope.nonCompliant)} of the targets that break their contract run in ${worstScope.scope || 'an unnamed scope'}.`);
   // The overview shows the worst few open items; the rest is one link away.
   const topAttention = $derived((overview?.attention?.items ?? []).slice(0, 3));
 
@@ -175,7 +176,8 @@
     {#if errorPoints.length}
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Yes.</strong> {errorText}.{#if whereText}{' '}{whereText}{/if}</p>
     {:else if knowledge.incomplete}
-      <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing broken found</strong>, but some data is missing.</p>
+      <!-- The banner right under it says what is missing, so the answer does not say it twice. -->
+      <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing broken found.</strong></p>
     {:else if isEmptyFleet}
       <p class="page-answer t-body empty-fleet" role="status" data-testid="overview-answer"><strong>No services tracked yet.</strong> Nothing has reported a contract or a running target yet. Health appears here once a source reports.</p>
     {:else if canAllClear}
@@ -299,14 +301,7 @@
     <section class="ov-section" id="sec-evidence" data-toc="Recent evidence" aria-labelledby="ov-evidence">
       <h2 id="ov-evidence" class="t-section-title">Recent evidence</h2>
       {#if overview.recentEvidence.items.length}
-        <ul class="evi-list pl-list">
-          {#each overview.recentEvidence.items as ev}
-            <li class="evi-item pl-row">
-              <EntityLink ref={ev.target} showStatus={false} />
-              {#if ev.at}<time class="evi-at" datetime={ev.at} title={ev.at}>{formatDateTime(ev.at)}</time>{/if}
-            </li>
-          {/each}
-        </ul>
+        <EvidenceList items={overview.recentEvidence.items} when={formatDateTime} />
       {:else}
         <!-- The window is the engine's: fleet.RecentEvidenceWindow, 24 hours before the snapshot. -->
         <p class="ov-none">No evidence arrived in the 24 hours before this snapshot.</p>
@@ -347,11 +342,10 @@
   /* Shape only. The frame, the divider and the hover come from the shared .pl-row in
      styles/components.css; these rows keep their own padding because the entity link is
      a middle child, so handing it the padding would leave the badge flush to the edge. */
-  .attn-item, .evi-item {
+  .attn-item {
     gap: var(--sp-2); flex-wrap: wrap;
     padding: var(--sp-2) var(--sp-3);
   }
   .attn-reason { color: var(--c-text-3); font-size: var(--text-sm); }
-  .evi-at { color: var(--c-text-3); font-size: var(--text-xs); margin-left: auto; white-space: nowrap; }
   .ov-none, .ov-more { color: var(--c-text-3); font-size: var(--text-sm); }
 </style>

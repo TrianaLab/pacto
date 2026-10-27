@@ -9,7 +9,7 @@
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
-  import { AUTONOMY_TYPE, levelLabel, levelHelp, proposalText, shadowLabel, blockerLabel, blockerService, sentence } from '../lib/delivery.ts';
+  import { AUTONOMY_TYPE, levelLabel, levelHelp, proposalText, shadowLabel, blockerLabel, blockerService, blockerReason, sentence } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -171,7 +171,8 @@
                         <!-- Plain text, not a link: a link inside a summary is a control inside a control. The link is in the detail. -->
                         {#if b.subject}<code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>{:else}<span class="au-subject cell-clip">{b.stages?.length ? `${countOf(b.stages.length, 'Stage')}` : 'Every Stage'}</span>{/if}
                         <span class="t-meta au-count">{#if !b.subject}{:else if b.stages?.length}{countOf(b.stages.length, 'Stage')}{:else}No Stage{/if}</span>
-                        <span class="t-meta au-msg cell-clip" title={b.message ? sentence(b.message) : undefined}>{b.message ? sentence(b.message) : ''}</span>
+                        <!-- The subject is printed just before, so the reason drops it rather than repeating it. -->
+                        <span class="t-meta au-msg cell-clip" title={b.message ? sentence(b.message) : undefined}>{b.message ? sentence(blockerReason(b.message, b.subject)) : ''}</span>
                         {#if fix}<span class="badge badge-neutral au-hasfix">Copy fix</span>{/if}
                       </summary>
                       <div class="au-detail">

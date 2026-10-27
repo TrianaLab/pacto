@@ -10,6 +10,8 @@ export function joinAnd(parts: string[], word = 'and'): string {
 
 interface PostureSummary {
   targets?: number;
+  revisions?: number;
+  revisionsInUse?: number;
   invalidRevisions?: number;
   compliance?: { compliant?: number; nonCompliant?: number; unknown?: number };
 }
@@ -17,9 +19,11 @@ interface PostureSummary {
 /**
  * postureAnswer reads a service, owner or fleet posture aggregate and says whether
  * anything is broken. `incomplete` (the snapshot is missing data) withholds the
- * all-good claim: it becomes "nothing broken found" instead.
+ * all-good claim. `conflicts` counts revisions that name a different owner: it and an
+ * estate where no running target matches a known revision are named in the answer, so
+ * the line never says "nothing broken" above either.
  */
-export function postureAnswer(sum: PostureSummary = {}, incomplete = false): { tone: 'err' | 'warn' | 'ok' | 'neutral'; lead: string; rest: string } {
+export function postureAnswer(sum: PostureSummary = {}, incomplete = false, conflicts = 0): { tone: 'err' | 'warn' | 'ok' | 'neutral'; lead: string; rest: string } {
   const targets = sum.targets ?? 0;
   const nc = sum.compliance?.nonCompliant ?? 0;
   const unknown = sum.compliance?.unknown ?? 0;
@@ -28,11 +32,16 @@ export function postureAnswer(sum: PostureSummary = {}, incomplete = false): { t
     nc ? `${plural(nc, 'running target breaks its', 'running targets break their')} contract` : '',
     invalid ? `${plural(invalid, 'revision is', 'revisions are')} invalid` : '',
   ].filter(Boolean);
-  if (problems.length) return { tone: 'err', lead: 'Needs work.', rest: `${cap(joinAnd(problems))}.` };
+  const concerns = [
+    targets && unknown ? `${plural(unknown, 'running target has', 'running targets have')} unknown compliance` : '',
+    targets && sum.revisionsInUse === 0 && (sum.revisions ?? 0) > 0 ? 'no running target matches a known revision' : '',
+    conflicts ? `${plural(conflicts, 'revision names', 'revisions name')} a different owner` : '',
+  ].filter(Boolean);
+  if (problems.length) return { tone: 'err', lead: 'Needs work.', rest: `${cap(joinAnd([...problems, ...concerns]))}.` };
+  if (concerns.length) return { tone: 'warn', lead: 'Needs a look.', rest: `${cap(joinAnd(concerns))}.` };
   if (targets === 0) return { tone: 'neutral', lead: 'Nothing running yet.', rest: 'There is no compliance picture until a target is observed.' };
-  if (unknown || incomplete) {
-    return { tone: 'warn', lead: 'Nothing broken found.', rest: unknown ? `${cap(plural(unknown, 'running target has', 'running targets have'))} unknown compliance.` : 'Some data is missing.' };
-  }
+  // The knowledge banner under the answer says what is missing; saying it here too doubled it.
+  if (incomplete) return { tone: 'warn', lead: 'Nothing broken found.', rest: '' };
   if ((sum.compliance?.compliant ?? 0) === targets) {
     return { tone: 'ok', lead: 'Healthy.', rest: targets === 1 ? 'The one running target is compliant.' : `All ${plural(targets, 'running target', 'running targets')} are compliant.` };
   }

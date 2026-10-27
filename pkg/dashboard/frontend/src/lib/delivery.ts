@@ -543,6 +543,20 @@ export function blockerService(b: { kind?: string; subject?: string }): string {
   return s;
 }
 
+/**
+ * blockerReason is a blocker's message for its one-line row, where the subject is
+ * already printed beside it: "orders calls cart at runtime but has no contract" reads
+ * "It calls cart at runtime but has no contract" and "incident for orders" reads
+ * "incident". The row's detail keeps the whole message.
+ */
+export function blockerReason(message: string | undefined, subject: string | undefined): string {
+  const m = message ?? '';
+  if (!subject || !m.includes(subject)) return m;
+  if (m.startsWith(`${subject} `)) return `It ${m.slice(subject.length + 1)}`;
+  const esc = subject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return m.replace(new RegExp(`\\s+(?:for|of|on|in|by)\\s+${esc}(?=$|[\\s.,;:])`), '');
+}
+
 /** blockerLabel names what keeps a Stage from the next level. */
 export function blockerLabel(kind: string | undefined): string {
   return BLOCKERS[kind ?? ''] ?? (kind || 'Blocker');

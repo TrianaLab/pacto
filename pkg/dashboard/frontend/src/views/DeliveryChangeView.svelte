@@ -159,7 +159,9 @@
     subtitle={changeSummary(e, namespace, data?.versions)}
     revalidating={!!data && loader.loading}
   />
-  <DeliveryNav current="" />
+  <!-- The tab this change is listed under: the inbox while it waits for this person,
+       history once it has moved on. A held change for another team is in neither. -->
+  <DeliveryNav current={!e ? '' : !held ? 'delivery-history' : actions.some((a) => a === 'approve' || a === 'accept-unknown') ? 'delivery-inbox' : ''} />
 
   {#if !data && loader.loading}
     <EmptyState loading={true} />

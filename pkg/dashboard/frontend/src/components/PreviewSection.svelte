@@ -156,8 +156,9 @@
   .ps-more a:hover { text-decoration: underline; }
 
   /* The gap between a section title and its content is the same everywhere, whether the
-     section opens or is always visible. */
-  .ps > .ps-head { margin-bottom: var(--sp-3); }
+     section opens or is always visible. A closed disclosure has no content below its
+     head, so it gets no gap: the old rule matched its summary too and left an empty band. */
+  section.ps > .ps-head { margin-bottom: var(--sp-3); }
   .ps-panel { margin-top: var(--sp-3); }
 
   /* Layout, caret and hit area come from the shared `.disclosure` in components.css --
