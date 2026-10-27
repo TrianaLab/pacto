@@ -512,7 +512,7 @@ func (a dashDelivery) Describe(ctx context.Context, stage *delivery.StageObject,
 }
 
 func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool, error) {
-	ok, err := a.act.Can(ctx, verb, resource, ns)
+	ok, err := a.d.Can(ctx, verb, resource, ns)
 	return ok, refusal(err)
 }
 
@@ -548,7 +548,7 @@ func (a dashDelivery) StageNamespaces(ctx context.Context) ([]string, error) {
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(reviewsInFlight)
 	for i, ns := range all {
-		g.Go(func() (err error) { allowed[i], err = a.act.Can(gctx, "list", "stages", ns); return err })
+		g.Go(func() (err error) { allowed[i], err = a.d.Can(gctx, "list", "stages", ns); return err })
 	}
 	if err := g.Wait(); err != nil {
 		return nil, refusal(err)

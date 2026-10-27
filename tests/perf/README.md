@@ -209,3 +209,8 @@ Each was found here, and its effect is in the table above.
 
 - **Operations still poll every 3s while they wait on Flux.** Waking them on
   Kustomization events as well would remove that poll if it becomes a cost.
+- **The environments board asks one access review per namespace shown** for
+  each new person, so it offers promote and unfreeze only where their RBAC
+  allows. Fifty new auditors at once at full size: 21 apiserver requests per
+  request and 9.6s p50, bound by the dashboard's 100 reviews per second. A
+  person's answers are then kept 10 seconds.

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,6 +64,7 @@ type fakeDelivery struct {
 	// ("verb resource" for every namespace); canErr fails every review.
 	deny   map[string]bool
 	canErr error
+	cans   atomic.Int32
 	// stageNS answers StageNamespaces; nsErr fails it.
 	stageNS []string
 	nsErr   error
@@ -177,6 +179,7 @@ func (f *fakeDelivery) Approve(_ context.Context, ns, name string, d delivery.De
 }
 
 func (f *fakeDelivery) Can(_ context.Context, verb, resource, ns string) (bool, error) {
+	f.cans.Add(1)
 	what := verb + " " + resource
 	return !f.deny[what] && !f.deny[what+" "+ns], f.canErr
 }

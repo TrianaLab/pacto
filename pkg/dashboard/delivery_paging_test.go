@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -190,4 +191,16 @@ func TestOperationUndoneBy(t *testing.T) {
 	_, out = call(t, http.MethodGet, base+"/api/delivery/operations/prod/done", nil)
 	_, has := out["undoneBy"]
 	expect(t, !has, "an unreadable history says nothing: %v", out)
+}
+
+// A row that offers nothing asks no access review, so a reader's board costs
+// none; a namespace RBAC refuses loses its actions.
+func TestMayRaiseAsksOnlyForAnAction(t *testing.T) {
+	f := &fakeDelivery{deny: map[string]bool{"create operations team-b": true}}
+	rows := []EnvironmentRow{{Namespace: "team-a", Actions: []string{"promote"}}, {Namespace: "team-b", Actions: []string{"unfreeze"}},
+		{Namespace: "team-c", Actions: []string{}}}
+	mayRaise(context.Background(), f, rows)
+	if len(rows[0].Actions) != 1 || len(rows[1].Actions) != 0 || f.cans.Load() != 2 {
+		t.Errorf("rows %v, %d reviews", rows, f.cans.Load())
+	}
 }

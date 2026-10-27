@@ -75,9 +75,11 @@ type verdict struct {
 // sharedGVRs are the delivery objects the dashboard keeps, and the fields of
 // each a list may select on: the ones the CRD declares selectable.
 var sharedGVRs = map[schema.GroupVersionResource][]string{
-	{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}:     nil,
-	{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}: {"spec.stage", "status.outcome"},
+	{Group: deliveryGroup, Version: "v1alpha1", Resource: "stages"}:     nil,
+	{Group: deliveryGroup, Version: "v1alpha1", Resource: "operations"}: {"spec.stage", "status.outcome"},
 }
+
+const deliveryGroup = "delivery.pacto.trianalab.io"
 
 // Bounds. A permission answer is kept 10 seconds, so a revoked RoleBinding
 // stops showing a namespace within that; ponytail: past maxAnswers the
@@ -88,6 +90,7 @@ const (
 )
 
 var sarGVR = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "subjectaccessreviews"}
+var ssarGVR = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectaccessreviews"}
 var ssrGVR = schema.GroupVersionResource{Group: "authentication.k8s.io", Version: "v1", Resource: "selfsubjectreviews"}
 
 // newSharedReads starts watching the delivery objects with sa until ctx ends.
@@ -124,8 +127,11 @@ type sharedClient struct {
 
 func (c sharedClient) Resource(gvr schema.GroupVersionResource) dynamic.NamespaceableResourceInterface {
 	own := c.Interface.Resource(gvr)
-	if gvr == ssrGVR {
+	switch gvr {
+	case ssrGVR:
 		return selfReview{NamespaceableResourceInterface: own, c: c}
+	case ssarGVR:
+		return selfAccess{NamespaceableResourceInterface: own, c: c}
 	}
 	if _, ok := sharedGVRs[gvr]; !ok {
 		return own
@@ -148,6 +154,32 @@ func (r selfReview) Create(ctx context.Context, _ *unstructured.Unstructured, _ 
 	b, _ := json.Marshal(map[string]any{"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview", "status": map[string]any{"userInfo": who}})
 	u := &unstructured.Unstructured{}
 	return u, u.UnmarshalJSON(b)
+}
+
+// selfAccess answers "may I" on a delivery object from the same cached
+// SubjectAccessReview the reads use, so the actions a view offers cost no
+// review of their own. Any other question goes to the apiserver.
+type selfAccess struct {
+	dynamic.NamespaceableResourceInterface
+	c sharedClient
+}
+
+func (r selfAccess) Create(ctx context.Context, obj *unstructured.Unstructured, o metav1.CreateOptions, sub ...string) (*unstructured.Unstructured, error) {
+	attrs, _, _ := unstructured.NestedStringMap(obj.Object, "spec", "resourceAttributes")
+	if attrs["group"] != deliveryGroup || attrs["subresource"] != "" || attrs["name"] != "" || len(sub) > 0 {
+		return r.NamespaceableResourceInterface.Create(ctx, obj, o, sub...)
+	}
+	who, err := r.c.s.whoami(ctx, r.c)
+	if err != nil {
+		return nil, err
+	}
+	gvr := schema.GroupVersionResource{Group: deliveryGroup, Version: attrs["version"], Resource: attrs["resource"]}
+	ok, err := r.c.s.may(ctx, who, attrs["verb"], gvr, attrs["namespace"])
+	if err != nil {
+		return nil, err
+	}
+	return &unstructured.Unstructured{Object: map[string]any{"apiVersion": "authorization.k8s.io/v1",
+		"kind": "SelfSubjectAccessReview", "status": map[string]any{"allowed": ok}}}, nil
 }
 
 // sharedResource is a resource across every namespace; Namespace narrows it.

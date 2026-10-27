@@ -179,6 +179,43 @@ func TestSharedReadsServesWhatRBACAllows(t *testing.T) {
 	expect(t, !isShared, "configmaps are not shared")
 }
 
+// TestSharedReadsAnswersMayI: a delivery "may I" is the cached review the
+// reads use; any other question, or a failing review, reaches the caller.
+func TestSharedReadsAnswersMayI(t *testing.T) {
+	w := newSharedWorld(t)
+	ctx := context.Background()
+	own := person(t, "alice", nil)
+	own.PrependReactor("create", "selfsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": true}}}, nil
+	})
+	alice := w.s.client(own, "alice").Resource(ssarGVR)
+	may := func(group, verb, ns string) (bool, error) {
+		r, err := alice.Create(ctx, &unstructured.Unstructured{Object: map[string]any{"spec": map[string]any{
+			"resourceAttributes": map[string]any{"group": group, "verb": verb, "resource": "approvals", "namespace": ns}}}}, metav1.CreateOptions{})
+		if err != nil {
+			return false, err
+		}
+		ok, _, _ := unstructured.NestedBool(r.Object, "status", "allowed")
+		return ok, nil
+	}
+	ok, err := may(deliveryGroup, "create", "a")
+	expect(t, ok && err == nil, "alice may act in a: %v", err)
+	ok, err = may(deliveryGroup, "create", "b")
+	expect(t, !ok && err == nil, "alice may not act in b: %v", err)
+	n := w.sars.Load()
+	_, _ = may(deliveryGroup, "create", "a")
+	expect(t, w.sars.Load() == n, "a kept answer asks nothing")
+	ok, err = may("apps", "create", "b")
+	expect(t, ok && err == nil && w.sars.Load() == n, "another group asks the apiserver with alice's token: %v", err)
+	w.sarErr, w.now = errors.New("apiserver down"), w.now.Add(sharedTTL)
+	_, err = may(deliveryGroup, "create", "a")
+	expect(t, err != nil, "a failed review is an error, never an allow")
+	_, err = w.s.client(person(t, "bob", errors.New("token expired")), "bob").Resource(ssarGVR).Create(ctx,
+		&unstructured.Unstructured{Object: map[string]any{"spec": map[string]any{
+			"resourceAttributes": map[string]any{"group": deliveryGroup}}}}, metav1.CreateOptions{})
+	expect(t, err != nil, "a token the apiserver does not know is an error")
+}
+
 func TestSharedReadsSelectsOperations(t *testing.T) {
 	names := namesOf(t)
 	w := newSharedWorld(t)

@@ -668,9 +668,10 @@ type perfBudget struct {
 }
 
 var perfBudgetTable = map[string]perfBudget{
-	"inbox":               {6, time.Second},
-	"environments":        {2, time.Second},
-	"environments?env&q":  {2, time.Second},
+	"inbox": {6, time.Second},
+	// Each new person asks once per namespace shown whether they may promote there.
+	"environments":        {50, 6 * time.Second},
+	"environments?env&q":  {25, 3 * time.Second},
 	"history (all)":       {10, 1500 * time.Millisecond},
 	"history (hot Stage)": {1, 500 * time.Millisecond},
 	"published":           {1, time.Second},

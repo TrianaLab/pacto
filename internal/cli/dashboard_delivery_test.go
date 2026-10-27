@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -459,4 +460,22 @@ func TestDashDeliveryStageNamespaces(t *testing.T) {
 	nsErr = errors.New("down")
 	_, err = api.StageNamespaces(ctx)
 	expect(t, err != nil, "a failed namespace list is an error")
+
+	// A full table starts over; a failed review is an error, never "none".
+	nsErr, id.stageNS = nil, map[string]stageNamespaces{}
+	for i := range maxCallers {
+		id.stageNS[strconv.Itoa(i)] = stageNamespaces{}
+	}
+	_, err = api.StageNamespaces(ctx)
+	expect(t, err == nil && len(id.stageNS) == 1, "a full table starts over: %d %v", len(id.stageNS), err)
+	id.stageNS = map[string]stageNamespaces{}
+	api.(dashDelivery).d.Dynamic.(*dynamicfake.FakeDynamicClient).PrependReactor("create", "selfsubjectaccessreviews",
+		func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("review down") })
+	_, err = api.StageNamespaces(ctx)
+	expect(t, err != nil, "a failed review is an error")
+
+	id.nsAt = time.Time{}
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("no config") }
+	_, err = api.StageNamespaces(ctx)
+	expect(t, err != nil, "a client that cannot be built is an error")
 }

@@ -12,6 +12,8 @@ follows that person's Kubernetes RBAC and every action runs as them:
 - **Actions use your token.** Propose, approve, cancel, roll back and unfreeze
   go to the API server with your own token, so RBAC and admission decide and
   the audit log names you. The reads an action is built on use your token too.
+  The dashboard offers an action only where your RBAC allows it, with the same
+  10-second review as the reads.
 - **The fleet views** show only the namespaces you may read
   ([who sees what](dashboard-access.md)). A service known only from a registry
   belongs to no namespace, so only people who may list Pactos in every
