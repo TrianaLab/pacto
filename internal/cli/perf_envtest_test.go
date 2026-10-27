@@ -293,9 +293,9 @@ func seedStages(t testing.TB, ctx context.Context, adm dynamic.Interface, w *wor
 		}
 		for _, env := range perfEnvs {
 			ss := delivery.StageStatus{Pointer: published[10], Verified: published[8:11], Published: published, Candidate: published[12],
-				Level: delivery.Level([]string{"observe", "advise", "auto-nonbreaking", "autonomous"}[r.IntN(4)]),
+				Level:      delivery.Level([]string{"observe", "advise", "auto-nonbreaking", "autonomous"}[r.IntN(4)]),
 				Conditions: []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready", LastTransitionTime: "2026-10-20T10:00:00Z"}},
-				Stream: delivery.Stream{ID: "cid/" + ns + "/" + svc + "-" + env}}
+				Stream:     delivery.Stream{ID: "cid/" + ns + "/" + svc + "-" + env}}
 			for k := range 20 {
 				ss.Stream.Concluded = append(ss.Stream.Concluded, delivery.Concluded{UID: fmt.Sprintf("u-%d", k), Seq: int64(k + 1), Outcome: delivery.Succeeded})
 			}
@@ -303,7 +303,7 @@ func seedStages(t testing.TB, ctx context.Context, adm dynamic.Interface, w *wor
 				ss.Frozen, ss.FrozenReason = true, "Errored"
 			}
 			add = append(add, delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: ns, Name: svc + "-" + env},
-				Spec: delivery.StageSpec{Service: delivery.ServiceRef{Name: svc}, Environment: env, ApplyRef: delivery.ApplyRef{Name: svc + "-" + env}},
+				Spec:   delivery.StageSpec{Service: delivery.ServiceRef{Name: svc}, Environment: env, ApplyRef: delivery.ApplyRef{Name: svc + "-" + env}},
 				Status: ss})
 		}
 	}
@@ -408,8 +408,11 @@ func perfDashboard(t testing.TB, cp *controlPlane, cnt *counter, q *atomic.Point
 	newClient := func(c *rest.Config) (dynamic.Interface, error) { return dynamic.NewForConfig(cnt.wrap(c)) }
 	id := &dashboardIdentity{cluster: cp.config("", 0), auth: authn.NewShared(&authn.OIDC{}), policyNS: perfPolicyNS,
 		registry: func(...string) app.DeliveryRegistry { return perfRegistry{} }, newClient: newClient, now: time.Now,
-		served:    func(*rest.Config, string) (bool, error) { return true, nil },
-		state:     func(ctx context.Context) authn.State { tok, _ := ctx.Value(perfTokenKey{}).(string); return authn.State{SignedIn: tok != "", Token: tok} },
+		served: func(*rest.Config, string) (bool, error) { return true, nil },
+		state: func(ctx context.Context) authn.State {
+			tok, _ := ctx.Value(perfTokenKey{}).(string)
+			return authn.State{SignedIn: tok != "", Token: tok}
+		},
 		revisions: map[string]delivery.Revision{}, reads: newReadCache()}
 	id.viewer = authn.NewViewer(clusterReview(cp.config(cp.admin, 0), newClient))
 	o := dashboard.Options{UI: fstest.MapFS{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -650,5 +653,3 @@ var perfBudgets = func(t testing.TB, rs []perfResult) {
 // perfBudgetTable: set from the measured numbers in the README with ample
 // headroom.
 var perfBudgetTable = []perfBudget{}
-
-
