@@ -55,7 +55,7 @@ version back and all Pass verifies it without the person.
 
 `pacto.runtime` is built in. Every other provider is configured in the
 operator chart's delivery section, so a Stage or an agent can name a provider
-but never point the promoter at a host:
+and only the chart sets the host it calls:
 
 ```yaml
 delivery:

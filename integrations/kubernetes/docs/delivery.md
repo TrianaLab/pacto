@@ -87,15 +87,14 @@ Pacto also says what to update first. If checkout 1.9.0 accepts both payments
 2.x and 3.0.0 and already passed in test, Pacto's plan says to ship it first.
 Then only the orders team is still asked.
 
-Pacto judges by declared version ranges, not by which fields or endpoints a
-service uses. Watching traffic shows only which service calls which,
-not what each call uses.
+Pacto judges by declared version ranges, per consumer. Traffic shows which
+service calls which; Pacto has no view of the fields or endpoints each call uses.
 
 ## Who may approve
 
 AI agents can plan, ask for and cancel their own changes, but only people can
-approve. Whoever asked may not approve, nor the person an agent says it acts
-for (`--on-behalf-of`, claimed and never checked). An agent that leaves it out
+approve. The person who asked cannot approve, and neither can the person an agent says
+it acts for (`--on-behalf-of`, which the agent claims and Pacto never checks). An agent that leaves it out
 hides who is behind it, so the two-person rule holds only for changes a person
 asks for directly or an agent asks for in their name.
 
