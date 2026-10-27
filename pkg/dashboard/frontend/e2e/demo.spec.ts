@@ -91,12 +91,13 @@ async function leaveStep(page: Page) {
   await next.click();
 }
 
-// The revision pickers read "1.0.0 · <short digest>": pick the one of a version.
+// The revision pickers read "1.0.0 · <short digest>": pick the one of a version,
+// once the revisions have loaded into the picker.
 async function chooseRevision(page: Page, sel: string, version: string) {
-  const value = await page.locator(`${sel} option`).evaluateAll(
+  const read = () => page.locator(`${sel} option`).evaluateAll(
     (os, v) => (os as HTMLOptionElement[]).find((o) => (o.textContent ?? '').startsWith(`${v} `))?.value ?? '', version);
-  expect(value, `no ${version} revision in ${sel}`).not.toBe('');
-  await page.locator(sel).selectOption(value);
+  await expect.poll(read, { message: `no ${version} revision in ${sel}`, timeout: 20_000 }).not.toBe('');
+  await page.locator(sel).selectOption(await read());
 }
 
 // Does the cut-out actually contain the element it claims to spotlight? A rotted
