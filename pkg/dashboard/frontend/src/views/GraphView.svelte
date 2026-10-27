@@ -96,6 +96,7 @@
     }
   });
   const loading = $derived(focused && loader.loading);
+  const notFound = $derived(focused && !shown && loader.error instanceof ApiError && loader.error.status === 404);
   const error = $derived(focused ? loader.error : null);
   const knowledge = $derived(snapshotKnowledge(shown?.meta));
   const focusRef = $derived(shown?.requestedFocus ?? null);
@@ -419,6 +420,8 @@
     {#if answer}
       <p class="gv-answer" class:has-problems={problems && (problems.failing || problems.undeclared)} data-testid="graph-answer">{answer}.</p>
     {/if}
+    <!-- No controls over a focus that does not exist: there is nothing for them to drive. -->
+    {#if !notFound}
     <div class="workspace-controls is-row" role="group" aria-label="Graph controls">
       <div class="gv-ctl">
         <span class="gv-ctl-k">Perspective</span>
@@ -475,6 +478,7 @@
         </div>
       </div>
     </div>
+    {/if}
 
     <!-- A refresh keeps the rendered graph MOUNTED. Swapping it for a loading line every
          poll destroyed the canvas and rebuilt it from scratch, which is what made a
@@ -487,7 +491,7 @@
     {:else if !shown && error}
       <!-- A focus that does not exist is not a failure to retry: say so and offer the way
            back. Anything else is a load error with a Retry. -->
-      {#if error instanceof ApiError && error.status === 404}
+      {#if notFound}
         <div class="gv-error-state" role="alert" data-testid="graph-not-found">
           <h2>Nothing found for “{gs.key}”</h2>
           <a class="btn" href={fleetGraphDiscoveryUrl()}>Search again</a>

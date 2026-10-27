@@ -471,7 +471,6 @@
         <span>{answerText}</span>
       </p>
       <p class="impact-summary">
-        {#if result.service}<EntityLink ref={result.service} showStatus={false} />{/if}
         {#if result.oldRevision || result.newRevision}
           <span class="text-2">{result.oldRevision?.label || '?'} → {result.newRevision?.label || '?'}</span>
         {/if}
