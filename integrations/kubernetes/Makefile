@@ -292,6 +292,7 @@ helm-install: docker-build ## Build image and install the Helm chart to the curr
 	helm install $(HELM_RELEASE) charts/pacto-operator \
 		--namespace $(HELM_NAMESPACE) \
 		--create-namespace \
+		--set global.imageRegistry= \
 		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
 		--set image.tag=$(VERSION) \
 		--set image.pullPolicy=Never \
@@ -306,6 +307,7 @@ helm-upgrade: docker-build ## Build image and upgrade the Helm release.
 	@echo "==> Upgrading $(HELM_RELEASE) with image $(IMG)..."
 	helm upgrade $(HELM_RELEASE) charts/pacto-operator \
 		--namespace $(HELM_NAMESPACE) \
+		--set global.imageRegistry= \
 		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
 		--set image.tag=$(VERSION) \
 		--set image.pullPolicy=Never \

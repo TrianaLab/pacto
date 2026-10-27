@@ -8,25 +8,17 @@ operator's own.
 {{- end }}
 
 {{/*
-Common labels of the delivery objects. They never carry the operator's bare
-selector labels, so the operator's Services and ServiceMonitor select none of
-the delivery pods.
+Labels and selector labels of the delivery objects: the common ones with
+app.kubernetes.io/name <name>-delivery, never the operator's bare name, so the
+operator's Services and ServiceMonitor select none of the delivery pods. Each
+takes the root context, or (dict "ctx" $ "component" "delivery-recorder").
 */}}
 {{- define "pacto-operator.delivery.labels" -}}
-helm.sh/chart: {{ include "pacto-operator.chart" . }}
-{{ include "pacto-operator.delivery.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- include "pacto-operator.labels" (dict "ctx" (.ctx | default .) "part" "delivery" "component" .component) }}
 {{- end }}
 
-{{/*
-Selector labels of the delivery objects.
-*/}}
 {{- define "pacto-operator.delivery.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "pacto-operator.name" . }}-delivery
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- include "pacto-operator.selectorLabels" (dict "ctx" (.ctx | default .) "part" "delivery" "component" .component) }}
 {{- end }}
 
 {{/*
@@ -50,11 +42,7 @@ delivery.admissionPolicies.allowUnguarded skips the check.
 The promoter's ServiceAccount name.
 */}}
 {{- define "pacto-operator.delivery.serviceAccountName" -}}
-{{- if .Values.delivery.serviceAccount.create }}
-{{- default (include "pacto-operator.delivery.fullname" .) .Values.delivery.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.delivery.serviceAccount.name }}
-{{- end }}
+{{- include "pacto-operator.serviceAccountName.of" (list .Values.delivery.serviceAccount (include "pacto-operator.delivery.fullname" .)) }}
 {{- end }}
 
 {{/*
@@ -76,11 +64,14 @@ A CEL list literal of the given strings.
 The recorder's ServiceAccount name.
 */}}
 {{- define "pacto-operator.delivery.recorderServiceAccountName" -}}
-{{- if .Values.delivery.recorder.serviceAccount.create }}
-{{- default (printf "%s-recorder" (include "pacto-operator.delivery.fullname" .)) .Values.delivery.recorder.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.delivery.recorder.serviceAccount.name }}
+{{- include "pacto-operator.serviceAccountName.of" (list .Values.delivery.recorder.serviceAccount (include "pacto-operator.delivery.recorderName" .)) }}
 {{- end }}
+
+{{/*
+The recorder's base name: its Deployment, roles, ConfigMaps and metrics.
+*/}}
+{{- define "pacto-operator.delivery.recorderName" -}}
+{{- printf "%s-recorder" (include "pacto-operator.delivery.fullname" .) }}
 {{- end }}
 
 {{/*
@@ -116,16 +107,6 @@ every client (CLI, MCP server, dashboard) reads from the published ConfigMap.
 {{- range .Values.delivery.gates.providers }}{{ $_ := set $types .name .type }}{{ end -}}
 {{- if $types }}{{ $_ := set $p "gateProviders" $types }}{{ end -}}
 {{- $p | toJson -}}
-{{- end }}
-
-{{/*
-The container image: repository:tag, pinned as repository:tag@digest when
-image.digest is set. The tag defaults to the chart appVersion.
-*/}}
-{{- define "pacto-operator.delivery.image" -}}
-{{- $ref := printf "%s:%s" .Values.delivery.image.repository (.Values.delivery.image.tag | default .Chart.AppVersion) -}}
-{{- with .Values.delivery.image.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
-{{- $ref -}}
 {{- end }}
 
 {{/*

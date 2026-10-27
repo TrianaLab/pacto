@@ -44,7 +44,8 @@ docker build -f integrations/kubernetes/Dockerfile --target delivery --build-arg
   -t registry.example.com/pacto-delivery:dev .
 helm upgrade --install pacto-operator integrations/kubernetes/charts/pacto-operator \
   -n pacto-operator-system --create-namespace --set delivery.enabled=true \
-  --set delivery.image.repository=registry.example.com/pacto-delivery --set delivery.image.tag=dev
+  --set delivery.image.registry=registry.example.com --set delivery.image.repository=pacto-delivery \
+  --set delivery.image.tag=dev
 ```
 
 ## Metrics and Events

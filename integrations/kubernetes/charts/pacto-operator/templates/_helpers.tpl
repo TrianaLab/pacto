@@ -29,34 +29,71 @@ Create chart name and version as used by the chart label.
 {{- end }}
 
 {{/*
-Common labels
+Labels and selector labels. Every object the chart renders takes its labels
+from these two. Each takes the root context, or a dict:
+  ctx        the root context
+  part       a suffix for app.kubernetes.io/name, for a part of the release
+             whose pods the operator's selectors must never match (delivery)
+  component  app.kubernetes.io/component
+global.commonLabels is added to the labels, never to a selector.
 */}}
 {{- define "pacto-operator.labels" -}}
-helm.sh/chart: {{ include "pacto-operator.chart" . }}
-{{ include "pacto-operator.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- $ctx := .ctx | default . -}}
+helm.sh/chart: {{ include "pacto-operator.chart" $ctx }}
+{{ include "pacto-operator.selectorLabels" (dict "ctx" $ctx "part" .part) }}
+{{- with $ctx.Chart.AppVersion }}
+app.kubernetes.io/version: {{ . | quote }}
 {{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/managed-by: {{ $ctx.Release.Service }}
+{{- with .component }}
+app.kubernetes.io/component: {{ . }}
+{{- end }}
+{{- with $ctx.Values.global.commonLabels }}
+{{ toYaml . }}
+{{- end }}
 {{- end }}
 
-{{/*
-Selector labels
-*/}}
 {{- define "pacto-operator.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "pacto-operator.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- $ctx := .ctx | default . -}}
+app.kubernetes.io/name: {{ include "pacto-operator.name" $ctx }}{{ with .part }}-{{ . }}{{ end }}
+app.kubernetes.io/instance: {{ $ctx.Release.Name }}
+{{- with .component }}
+app.kubernetes.io/component: {{ . }}
+{{- end }}
 {{- end }}
 
 {{/*
-Create the name of the service account to use
+The controller's labels and selector labels: the common ones plus the
+control-plane label its Deployment, pods and metrics Service share.
+*/}}
+{{- define "pacto-operator.controller.labels" -}}
+control-plane: controller-manager
+{{ include "pacto-operator.labels" . }}
+{{- end }}
+
+{{- define "pacto-operator.controller.selectorLabels" -}}
+control-plane: controller-manager
+{{ include "pacto-operator.selectorLabels" . }}
+{{- end }}
+
+{{/*
+A ServiceAccount name from its values (create, name) and the name it takes
+when created unnamed: (list .Values.serviceAccount "fallback-name").
+*/}}
+{{- define "pacto-operator.serviceAccountName.of" -}}
+{{- $sa := index . 0 }}
+{{- if $sa.create }}
+{{- default (index . 1) $sa.name }}
+{{- else }}
+{{- default "default" $sa.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+The controller's ServiceAccount name.
 */}}
 {{- define "pacto-operator.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "pacto-operator.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
+{{- include "pacto-operator.serviceAccountName.of" (list .Values.serviceAccount (include "pacto-operator.fullname" .)) }}
 {{- end }}
 
 {{/*
@@ -103,7 +140,7 @@ Controller arguments derived from values
 {{- with .Values.nodeAgent }}
 {{- if .enabled }}
 - --enable-node-agent
-{{- range $.Values.imagePullSecrets }}
+{{- range include "pacto-operator.imagePullSecrets.list" (dict "ctx" $ "values" $.Values) | fromYamlArray }}
 - --node-agent-image-pull-secret={{ .name }}
 {{- end }}
 {{- if .publishInterval }}
@@ -249,11 +286,124 @@ Whether kernel evidence is on: either switch turns it on.
 {{- end }}
 
 {{/*
-The container image: repository:tag, pinned as repository:tag@digest when
-image.digest is set. The tag defaults to the chart appVersion.
+A container's image and pull policy, from an image block (registry,
+repository, tag, digest, pullPolicy): (dict "ctx" $ "image" .Values.image).
+The registry defaults to global.imageRegistry, and with neither set the
+repository is the whole reference. The tag defaults to the chart appVersion,
+and a digest pins the image as repository:tag@digest.
 */}}
 {{- define "pacto-operator.image" -}}
-{{- $ref := printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) -}}
-{{- with .Values.image.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
-{{- $ref -}}
+{{- $img := .image -}}
+{{- $ref := printf "%s:%s" $img.repository ($img.tag | default .ctx.Chart.AppVersion) -}}
+{{- with ($img.registry | default .ctx.Values.global.imageRegistry) }}{{ $ref = printf "%s/%s" . $ref }}{{ end -}}
+{{- with $img.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
+image: {{ $ref | quote }}
+imagePullPolicy: {{ $img.pullPolicy }}
+{{- end }}
+
+{{/*
+The image pull secrets of a component: global.imagePullSecrets, then the
+component's own. (dict "ctx" $ "values" .Values.delivery)
+*/}}
+{{- define "pacto-operator.imagePullSecrets.list" -}}
+{{- concat (.ctx.Values.global.imagePullSecrets | default list) (.values.imagePullSecrets | default list) | uniq | toYaml }}
+{{- end }}
+
+{{/*
+A pod template's metadata: the component's labels, its podLabels and
+podAnnotations, and any annotations the chart sets itself, which win.
+(dict "ctx" $ "values" .Values.delivery "labels" (include ...) "annotations" (dict ...))
+*/}}
+{{- define "pacto-operator.podMetadata" -}}
+{{- with merge (dict) (.annotations | default dict) (.values.podAnnotations | default dict) }}
+annotations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+labels:
+  {{- .labels | nindent 2 }}
+  {{- with .values.podLabels }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}
+
+{{/*
+The head of a pod spec every chart workload shares: pull secrets,
+ServiceAccount, the pod securityContext (the component's, or
+global.podSecurityContext) and the grace period.
+(dict "ctx" $ "values" .Values.delivery "serviceAccountName" "...")
+*/}}
+{{- define "pacto-operator.podSpec" -}}
+{{- with include "pacto-operator.imagePullSecrets.list" . | fromYamlArray }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+serviceAccountName: {{ .serviceAccountName }}
+securityContext:
+  {{- toYaml (.values.podSecurityContext | default .ctx.Values.global.podSecurityContext) | nindent 2 }}
+terminationGracePeriodSeconds: 10
+{{- end }}
+
+{{/*
+A container's securityContext: the component's, or global.securityContext.
+(dict "ctx" $ "values" .Values.delivery)
+*/}}
+{{- define "pacto-operator.securityContext" -}}
+securityContext:
+  {{- toYaml (.values.securityContext | default .ctx.Values.global.securityContext) | nindent 2 }}
+{{- end }}
+
+{{/*
+The health and metrics ports every chart container serves.
+*/}}
+{{- define "pacto-operator.ports" -}}
+ports:
+  {{- if .metrics }}
+  - name: metrics
+    containerPort: {{ .metrics }}
+    protocol: TCP
+  {{- end }}
+  - name: health
+    containerPort: 8081
+    protocol: TCP
+{{- end }}
+
+{{/*
+The liveness and readiness probes on the health port. A dict may set
+readinessPeriod (default 10) and readinessTimeout.
+*/}}
+{{- define "pacto-operator.probes" -}}
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: health
+  initialDelaySeconds: 15
+  periodSeconds: 20
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: health
+  initialDelaySeconds: 5
+  periodSeconds: {{ .readinessPeriod | default 10 }}
+  {{- with .readinessTimeout }}
+  timeoutSeconds: {{ . }}
+  {{- end }}
+{{- end }}
+
+{{/*
+A pod's scheduling: nodeSelector, affinity and tolerations from a component's
+values.
+*/}}
+{{- define "pacto-operator.scheduling" -}}
+{{- with .nodeSelector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .affinity }}
+affinity:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .tolerations }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 {{- end }}

@@ -179,7 +179,7 @@ echo "  handed to the release: ${CRDS//$'\n'/ }"
 echo
 echo "== STEP 4: helm upgrade to the v6 chart (built from the working tree) =="
 helm upgrade pacto-operator "$NEW_CHART" -n "$NS" \
-  --set image.repository="$NEW_REPO" --set image.tag="$NEW_TAG" --set image.pullPolicy=Never \
+  --set global.imageRegistry= --set image.repository="$NEW_REPO" --set image.tag="$NEW_TAG" --set image.pullPolicy=Never \
   --set dashboard.enabled=true --set controller.stabilizationWindow=5s --wait --timeout 180s
 wait_ready pacto-operator 120s >/dev/null
 # helm upgrade itself migrates the CRDs now: the schema changed and the CRD v4

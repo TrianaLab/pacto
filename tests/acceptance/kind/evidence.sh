@@ -89,7 +89,7 @@ DIGEST="$(push_bundle "$PACTO_BIN" "$LOCAL_REG_PORT" "$BDIR" checkout:1.0.0)"
 CONTRACT_REF="oci://${REG_HOST}/demo/checkout@${DIGEST}"
 LOCAL_SUBJECT="127.0.0.1:${LOCAL_REG_PORT}/demo/checkout@${DIGEST}"
 
-common_sets=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
+common_sets=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
              --set dashboard.enabled=true
              --set "insecureRegistries[0]=${REG_HOST}"
              --set evidence.enabled=true

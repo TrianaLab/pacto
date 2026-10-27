@@ -4,39 +4,20 @@ metadata:
   name: {{ include "pacto-operator.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    control-plane: controller-manager
-    {{- include "pacto-operator.labels" . | nindent 4 }}
+    {{- include "pacto-operator.controller.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      control-plane: controller-manager
-      {{- include "pacto-operator.selectorLabels" . | nindent 6 }}
+      {{- include "pacto-operator.controller.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      labels:
-        control-plane: controller-manager
-        {{- include "pacto-operator.labels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
+      {{- include "pacto-operator.podMetadata" (dict "ctx" . "values" .Values "labels" (include "pacto-operator.controller.labels" .)) | trim | nindent 6 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "pacto-operator.serviceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      terminationGracePeriodSeconds: 10
+      {{- include "pacto-operator.podSpec" (dict "ctx" . "values" .Values "serviceAccountName" (include "pacto-operator.serviceAccountName" .)) | trim | nindent 6 }}
       containers:
         - name: manager
-          image: {{ include "pacto-operator.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- include "pacto-operator.image" (dict "ctx" . "image" .Values.image) | nindent 10 }}
           env:
             - name: POD_NAMESPACE
               valueFrom:
@@ -53,40 +34,11 @@ spec:
             {{- end }}
           args:
             {{- include "pacto-operator.controllerArgs" . | nindent 12 }}
-          ports:
-            {{- if .Values.metrics.enabled }}
-            - name: metrics
-              containerPort: {{ .Values.metrics.service.port }}
-              protocol: TCP
-            {{- end }}
-            - name: health
-              containerPort: 8081
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: health
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /readyz
-              port: health
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- include "pacto-operator.ports" (dict "metrics" (and .Values.metrics.enabled .Values.metrics.service.port)) | nindent 10 }}
+          {{- include "pacto-operator.probes" dict | nindent 10 }}
+          {{- include "pacto-operator.securityContext" (dict "ctx" . "values" .Values) | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
+      {{- with include "pacto-operator.scheduling" .Values | trim }}
+      {{- . | nindent 6 }}
       {{- end }}

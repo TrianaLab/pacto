@@ -40,7 +40,7 @@ load_images "$DASH_IMG" "$OP_IMG"
 # Operator image loaded into kind (Never). The dashboard image the operator
 # deploys is its coupled DASHBOARD_IMAGE (also kind-loaded); its tag is a real
 # version so the pod's default pullPolicy is IfNotPresent -> uses the loaded image.
-common_sets=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
+common_sets=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
              --set dashboard.enabled=true)
 
 echo "== install the PREVIOUS fixture =="

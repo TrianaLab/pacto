@@ -69,9 +69,10 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.identities.teamGroupPrefix` | `""` | Only members of the teams a held question names may answer it. A contract owner team `T` is the identity-provider group `T`, or once this prefix is set only this prefix followed by `T` (for example `acme:`). A `system:` group is never a team. |
 | `delivery.image.digest` | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | `delivery.image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `delivery.image.repository` | `ghcr.io/trianalab/pacto/delivery` | Promoter image repository (the pacto-delivery image) |
+| `delivery.image.registry` | `""` | Promoter and recorder image registry (defaults to `global.imageRegistry`) |
+| `delivery.image.repository` | `trianalab/pacto/delivery` | Promoter and recorder image repository (the pacto-delivery image) |
 | `delivery.image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |
-| `delivery.imagePullSecrets` | `[]` | Image pull secrets for private registries |
+| `delivery.imagePullSecrets` | `[]` | Image pull secrets of the promoter and the recorder, after `global.imagePullSecrets` |
 | `delivery.insecureRegistries` | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
 | `delivery.metrics.enabled` | `true` | Expose the promoter's metrics (plain HTTP, port 8080) through a Service. The recorder's come with `delivery.recorder.monitoring` |
 | `delivery.metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
@@ -79,8 +80,9 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.metrics.serviceMonitor.scrapeTimeout` | `""` | Scrape timeout (empty uses Prometheus' default) |
 | `delivery.namespace` | `pacto-delivery` | Dedicated namespace the promoter and the recorder run in. The chart creates it; it must not be the release or node agent namespace (the operator can create Deployments, DaemonSets and Secrets there). |
 | `delivery.nodeSelector` | `{}` | Node selector for the promoter pod |
-| `delivery.podSecurityContext.runAsNonRoot` | `true` | Run pod as non-root |
-| `delivery.podSecurityContext.seccompProfile.type` | `RuntimeDefault` | Seccomp profile type |
+| `delivery.podAnnotations` | `{}` | Annotations to add to the promoter and recorder pods |
+| `delivery.podLabels` | `{}` | Labels to add to the promoter and recorder pods |
+| `delivery.podSecurityContext` | `{}` | Pod securityContext of the promoter and the recorder (defaults to `global.podSecurityContext`) |
 | `delivery.promoter.authFreshness` | `15m` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration). Every Stage publishes it in `status.authFreshness` |
 | `delivery.promoter.leaderElect` | `true` | Elect one active promoter |
 | `delivery.promoter.poll` | `3s` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
@@ -119,11 +121,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.resources.limits.memory` | `256Mi` | Memory limit |
 | `delivery.resources.requests.cpu` | `10m` | CPU request |
 | `delivery.resources.requests.memory` | `64Mi` | Memory request |
-| `delivery.securityContext.allowPrivilegeEscalation` | `false` | Disallow privilege escalation |
-| `delivery.securityContext.capabilities.drop` | `null` | Drop all capabilities |
-| `delivery.securityContext.readOnlyRootFilesystem` | `true` | Read-only root filesystem |
-| `delivery.securityContext.runAsNonRoot` | `true` | Run as non-root |
-| `delivery.securityContext.runAsUser` | `65532` | Run as UID 65532 (nonroot in distroless) |
+| `delivery.securityContext` | `{}` | Container securityContext of the promoter and the recorder (defaults to `global.securityContext`) |
 | `delivery.serviceAccount.annotations` | `{}` | Annotations to add to the ServiceAccount |
 | `delivery.serviceAccount.create` | `true` | Create a ServiceAccount for the promoter |
 | `delivery.serviceAccount.name` | `""` | Name override (defaults to `<fullname>-delivery`) |
@@ -148,11 +146,22 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `evidence.service.type` | `ClusterIP` | Evidence exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-evidence) for in-cluster access; this chart-managed Service provides optional external access and backs any Ingress/HTTPRoute. |
 | `evidence.trust.existingSecret` | `""` | Name of an existing Secret of trusted producer public keys, mounted read-only. Signature verification is mandatory, so this is required when evidence is enabled. |
 | `fullnameOverride` | `""` | Override the full release name |
+| `global.commonLabels` | `{}` | Labels added to every object the chart renders |
+| `global.imagePullSecrets` | `[]` | Image pull secrets for every pod the chart runs, before each component's own |
+| `global.imageRegistry` | `ghcr.io` | Registry of every image the chart runs (the controller, the delivery promoter and the recorder), unless an image sets its own `registry`. Set it empty to give each `repository` as a whole reference. |
+| `global.podSecurityContext.runAsNonRoot` | `true` | Run pod as non-root |
+| `global.podSecurityContext.seccompProfile.type` | `RuntimeDefault` | Seccomp profile type |
+| `global.securityContext.allowPrivilegeEscalation` | `false` | Disallow privilege escalation |
+| `global.securityContext.capabilities.drop` | `null` | Drop all capabilities |
+| `global.securityContext.readOnlyRootFilesystem` | `true` | Read-only root filesystem |
+| `global.securityContext.runAsNonRoot` | `true` | Run as non-root |
+| `global.securityContext.runAsUser` | `65532` | Run as UID 65532 (nonroot in distroless) |
 | `image.digest` | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `image.repository` | `ghcr.io/trianalab/pacto/operator` | Controller image repository |
+| `image.registry` | `""` | Controller image registry (defaults to `global.imageRegistry`) |
+| `image.repository` | `trianalab/pacto/operator` | Controller image repository |
 | `image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |
-| `imagePullSecrets` | `[]` | Image pull secrets for private registries |
+| `imagePullSecrets` | `[]` | Image pull secrets of the controller pod, after `global.imagePullSecrets`. The managed node agent gets them too |
 | `insecureRegistries` | `[]` | Registry hosts (`host:port`) to reach over plain HTTP, for a controlled in-cluster registry. Scoped per host, so every other registry stays HTTPS-only. The controller, the managed dashboard and the managed Evidence Server all inherit it, because each one resolves contract refs itself. |
 | `leaderElection.enabled` | `true` | Enable leader election for HA deployments |
 | `metrics.enabled` | `true` | Enable the metrics endpoint |
@@ -172,18 +181,13 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `nodeSelector` | `{}` | Node selector for the controller pod |
 | `podAnnotations` | `{}` | Annotations to add to the controller pod |
 | `podLabels` | `{}` | Labels to add to the controller pod |
-| `podSecurityContext.runAsNonRoot` | `true` | Run pod as non-root |
-| `podSecurityContext.seccompProfile.type` | `RuntimeDefault` | Seccomp profile type |
+| `podSecurityContext` | `{}` | Pod securityContext of the controller (defaults to `global.podSecurityContext`) |
 | `replicaCount` | `1` | Number of controller replicas |
 | `resources.limits.cpu` | `500m` | CPU limit |
 | `resources.limits.memory` | `128Mi` | Memory limit |
 | `resources.requests.cpu` | `10m` | CPU request |
 | `resources.requests.memory` | `64Mi` | Memory request |
-| `securityContext.allowPrivilegeEscalation` | `false` | Disallow privilege escalation |
-| `securityContext.capabilities.drop` | `null` | Drop all capabilities |
-| `securityContext.readOnlyRootFilesystem` | `true` | Read-only root filesystem |
-| `securityContext.runAsNonRoot` | `true` | Run as non-root |
-| `securityContext.runAsUser` | `65532` | Run as UID 65532 (nonroot in distroless) |
+| `securityContext` | `{}` | Container securityContext of the controller (defaults to `global.securityContext`) |
 | `serviceAccount.annotations` | `{}` | Annotations to add to the ServiceAccount |
 | `serviceAccount.automount` | `true` | Automount API credentials |
 | `serviceAccount.create` | `true` | Create a ServiceAccount for the controller |

@@ -157,7 +157,7 @@ only violations they see. These things stay out of reach:
   [`pacto agent`](../../runtime-agent.md) yourself; the cluster-only checks
   then stay unverified ([what stays unverified off Kubernetes](../../runtime-conformance.md#what-stays-unverified-off-kubernetes)).
 - **Private registries.** The agent's ServiceAccount carries the chart's
-  `imagePullSecrets`, which must also exist in the agent namespace
+  `global.imagePullSecrets` and `imagePullSecrets`, which must also exist in the agent namespace
   (`nodeAgent.namespace`): a pull secret is read from the pod's own namespace.
   An operator installed without the chart passes
   `--node-agent-image-pull-secret` itself.

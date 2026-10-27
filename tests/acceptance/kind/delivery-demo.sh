@@ -432,7 +432,7 @@ cmd_up() {
   infra "install Flux" kubectl apply --server-side -f "$flux" >/dev/null
   kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
   helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s \
-    --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+    --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
     --set "insecureRegistries[0]=$REG_HOST" \
     --set delivery.enabled=true --set delivery.createNamespace=false --set delivery.identities.allowEmptyHumanGroups=true --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
     --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
@@ -1140,7 +1140,7 @@ cmd_reach() {
   trust="$DEMO/us-values.json"
   jq -n --arg k "$(cat "$KEYS/recorder.pub")" --arg s "$stream" --arg eu "${stream%%/*}/prod-eu/payments" \
     '{delivery: {promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s, $eu]}]} | tojson)}}}' > "$trust"
-  us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set image.repository=localhost:5001/pacto-operator/pacto-controller \
+  us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set global.imageRegistry= --set image.repository=localhost:5001/pacto-operator/pacto-controller \
     --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" \
     --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true --set delivery.image.repository=localhost:5001/pacto-delivery --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
     --set delivery.image.tag="$ver" --set delivery.image.pullPolicy=Never --set "delivery.insecureRegistries[0]=$REG_HOST" \

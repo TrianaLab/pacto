@@ -24,20 +24,10 @@
 {{- if and (eq .Values.delivery.namespace .Release.Namespace) (eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.serviceAccountName" .)) }}
 {{- fail "the recorder resolves to the operator's own ServiceAccount, so the operator could sign and write records: give delivery.recorder.serviceAccount another name" }}
 {{- end }}
-{{- $name := printf "%s-recorder" (include "pacto-operator.delivery.fullname" .) }}
+{{- $name := include "pacto-operator.delivery.recorderName" . }}
+{{- $labels := include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-recorder") }}
 {{- if $r.serviceAccount.create }}
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ include "pacto-operator.delivery.recorderServiceAccountName" . }}
-  namespace: {{ include "pacto-operator.delivery.namespace" . }}
-  labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
-  {{- with $r.serviceAccount.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+{{- include "pacto-operator.serviceAccount" (dict "name" (include "pacto-operator.delivery.recorderServiceAccountName" .) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" $labels "sa" $r.serviceAccount) }}
 ---
 {{- end }}
 # The recorder: it reads concluded operations, their Stages and approvals,
@@ -50,8 +40,7 @@ kind: ClusterRole
 metadata:
   name: {{ $name }}
   labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- $labels | nindent 4 }}
 rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages, approvals]
@@ -80,8 +69,7 @@ kind: ClusterRoleBinding
 metadata:
   name: {{ $name }}
   labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- $labels | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -97,8 +85,7 @@ metadata:
   name: {{ $name }}-leader-election
   namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- $labels | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -117,8 +104,7 @@ metadata:
   name: {{ $name }}-trust
   namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- $labels | nindent 4 }}
 data:
   trust.yaml: {{ $r.trust | quote }}
 ---
@@ -132,8 +118,7 @@ metadata:
   name: {{ $name }}-keyless
   namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- $labels | nindent 4 }}
 data:
   trusted_root.json: {{ $r.signing.keyless.trustedRoot | quote }}
 ---
@@ -144,8 +129,7 @@ metadata:
   name: {{ $name }}
   namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- $labels | nindent 4 }}
 spec:
   # One writer per stream: the leader writes, a second replica only waits.
   replicas: 1
@@ -153,26 +137,15 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/component: delivery-recorder
-      {{- include "pacto-operator.delivery.selectorLabels" . | nindent 6 }}
+      {{- include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-recorder") | nindent 6 }}
   template:
     metadata:
-      labels:
-        app.kubernetes.io/component: delivery-recorder
-        {{- include "pacto-operator.delivery.labels" . | nindent 8 }}
+      {{- include "pacto-operator.podMetadata" (dict "ctx" . "values" .Values.delivery "labels" $labels) | trim | nindent 6 }}
     spec:
-      {{- with .Values.delivery.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "pacto-operator.delivery.recorderServiceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.delivery.podSecurityContext | nindent 8 }}
-      terminationGracePeriodSeconds: 10
+      {{- include "pacto-operator.podSpec" (dict "ctx" . "values" .Values.delivery "serviceAccountName" (include "pacto-operator.delivery.recorderServiceAccountName" .)) | trim | nindent 6 }}
       containers:
         - name: recorder
-          image: {{ include "pacto-operator.delivery.image" . | quote }}
-          imagePullPolicy: {{ .Values.delivery.image.pullPolicy }}
+          {{- include "pacto-operator.image" (dict "ctx" . "image" .Values.delivery.image) | nindent 10 }}
           args:
             - recorder
             - --leader-elect={{ $r.leaderElect }}
@@ -211,28 +184,9 @@ spec:
             {{- with $r.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          ports:
-            - name: health
-              containerPort: 8081
-              protocol: TCP
-            - name: metrics
-              containerPort: 8080
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: health
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /readyz
-              port: health
-            initialDelaySeconds: 5
-            periodSeconds: 30
-            timeoutSeconds: 15
-          securityContext:
-            {{- toYaml .Values.delivery.securityContext | nindent 12 }}
+          {{- include "pacto-operator.ports" (dict "metrics" 8080) | nindent 10 }}
+          {{- include "pacto-operator.probes" (dict "readinessPeriod" 30 "readinessTimeout" 15) | nindent 10 }}
+          {{- include "pacto-operator.securityContext" (dict "ctx" . "values" .Values.delivery) | nindent 10 }}
           resources:
             {{- toYaml $r.resources | nindent 12 }}
           volumeMounts:
@@ -298,17 +252,8 @@ spec:
               - key: .dockerconfigjson
                 path: config.json
         {{- end }}
-      {{- with .Values.delivery.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.delivery.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.delivery.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
+      {{- with include "pacto-operator.scheduling" .Values.delivery | trim }}
+      {{- . | nindent 6 }}
       {{- end }}
 {{- end }}
 {{- end }}

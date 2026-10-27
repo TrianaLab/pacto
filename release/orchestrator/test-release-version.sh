@@ -159,7 +159,7 @@ op="$C4/integrations/kubernetes/charts/pacto-operator"
 eq "$(yq '.appVersion' "$op/Chart.yaml")" "$want_k8s" "operator chart appVersion"
 grep -q "image: ghcr.io/trianalab/pacto/delivery:$want_k8s$" "$op/Chart.yaml" \
   || fail "operator chart artifacthub.io/images does not name ghcr.io/trianalab/pacto/delivery:$want_k8s"
-eq "$(yq '.delivery.image.repository' "$op/values.yaml")" "ghcr.io/trianalab/pacto/delivery" "delivery default image"
+eq "$(yq '.global.imageRegistry + "/" + .delivery.image.repository' "$op/values.yaml")" "ghcr.io/trianalab/pacto/delivery" "delivery default image"
 eq "$(yq '.delivery.image.tag' "$op/values.yaml")" "" "delivery image tag (empty, so it defaults to appVersion)"
 echo "  E: k8s changeset -> delivery image moves to $want_k8s with the operator chart"
 

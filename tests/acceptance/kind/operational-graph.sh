@@ -191,7 +191,7 @@ done < <(cat "$HELM_VALUES" "$EV_VALUES")
 # The remaining --set values are this RUN's, not the fixture's: the image kind
 # just loaded, the registry it just brought up, the components under test. They
 # have one consumer and no counterpart in the scenario, so they stay here.
-common_sets=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
+common_sets=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
              --set dashboard.enabled=true --set evidence.enabled=true
              --set evidence.trust.existingSecret=pacto-evidence-trust
              --set "insecureRegistries[0]=${REG_HOST}"
