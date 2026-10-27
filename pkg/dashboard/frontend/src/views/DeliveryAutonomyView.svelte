@@ -15,6 +15,8 @@
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
+  import DeliveryLead from '../components/DeliveryLead.svelte';
+  import HelpTip from '../components/HelpTip.svelte';
 
   // How far each Stage runs on its own, what Pacto proposes next and what
   // stands in the way. The page only reads: a level moves through a proposed
@@ -52,6 +54,19 @@
   const seen = $derived(share ? share.services + share.uncontractedCallers : 0);
   const promotions = $derived(data?.promotionsWithoutPerson ?? { count: 0, of: 0, untyped: 0 });
 
+  // The page's answer: what stands in the way, over every page, and which
+  // Stages on this page can move up now.
+  const lead = $derived.by(() => {
+    if (!data) return null;
+    const total = data.blockersPage?.total ?? blockers.length;
+    const ready = stages.filter((s) => s.proposal?.level).length;
+    const onPage = (data.page?.total ?? 0) > stages.length ? ' on this page' : '';
+    return {
+      head: total ? `${countOf(total, 'blocker')} ${total === 1 ? 'stands' : 'stand'} in the way.` : 'Nothing Pacto can see blocks the next level.',
+      rest: ready ? `${countOf(ready, 'Stage')} can move up now${onPage}.` : '',
+    };
+  });
+
   let proposing = $state(null);
   let proposingLabel = $state('');
   let opener = null;
@@ -77,11 +92,13 @@
 <div class="product-page">
   <PageHeader
     title="Path to autonomy"
-    subtitle="How far each Stage runs on its own, what Pacto proposes next and what stands in the way. A person confirms every step up; this page only reads."
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
-  />
+  >
+    {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} tipLabel="the path to autonomy"
+      tip="How far each Stage runs on its own, what Pacto proposes next and what stands in the way. A person confirms every step up; this page only reads." />{/if}
+  </PageHeader>
   <DeliveryNav current="delivery-autonomy" />
   <ListFilter value={q} href={(v) => deliveryAutonomyUrl({ q: v })} label="Filter Stages and blockers by service, environment or kind"
     placeholder="Service, environment or blocker" testid="autonomy-filter" />
@@ -98,16 +115,16 @@
         <dt>Services with a contract</dt>
         {#if share && seen}
           <dd class="au-value">{percent(share.services, seen)}</dd>
-          <dd class="t-body-2">{formatCount(share.services)} of the {formatCount(seen)} services Pacto has seen{#if share.uncontractedCallers}: {countOf(share.uncontractedCallers, 'workload')} call{share.uncontractedCallers === 1 ? 's' : ''} a contracted service with no contract of {share.uncontractedCallers === 1 ? 'its' : 'their'} own{/if}.</dd>
+          <dd class="t-body-2">{formatCount(share.services)} of the {formatCount(seen)} services Pacto has seen</dd>
+          {#if share.uncontractedCallers}<dd class="t-meta au-callers">{countOf(share.uncontractedCallers, 'uncontracted caller')} <HelpTip label="an uncontracted caller" text="A workload that calls a contracted service with no contract of its own." /></dd>{/if}
         {:else}
           <dd class="t-body-2">Pacto has seen no service here yet, so it cannot say.</dd>
         {/if}
       </div>
       <div class="au-metric" data-testid="autonomy-promotions">
-        <dt>Promotions without a person</dt>
+        <dt>Promotions without a person <HelpTip label="this count" text="Counted over the last 20 operations per environment." /></dt>
         {#if promotions.of}
           <dd class="au-value">{formatCount(promotions.count)} of {formatCount(promotions.of)}</dd>
-          <dd class="t-body-2">Counted over the last 20 operations per environment.</dd>
           {#if promotions.untyped}
             <dd class="t-body-2">Pacto cannot tell what {formatCount(promotions.untyped)} more {promotions.untyped === 1 ? 'operation was' : 'operations were'}.</dd>
           {/if}
@@ -128,12 +145,12 @@
           <table class="data-table au-table" data-testid="autonomy-stages">
             <caption class="visually-hidden">The level of each Stage and what Pacto proposes next</caption>
             <colgroup><col style="width: 28%" /><col style="width: 30%" /><col style="width: 42%" /></colgroup>
-            <thead><tr><th scope="col">Stage</th><th scope="col">Level</th><th scope="col">Next step</th></tr></thead>
+            <thead><tr><th scope="col">Stage</th><th scope="col">Level</th><th scope="col">Next step <HelpTip label="a would-have line" text="On an observing Stage, what Pacto would have done with the newest candidate on Autonomous. Advisory, not signed." /></th></tr></thead>
             <tbody>
               {#each stages as s (s.namespace + '/' + s.stage)}
                 <tr data-stage={`${s.namespace}/${s.stage}`}>
                   <th scope="row"><a href={deliveryHistoryUrl({ namespace: s.namespace, stage: s.stage })}>{s.service}</a> <span class="t-meta">in {s.environment}</span></th>
-                  <td data-label="Level"><span class="badge badge-neutral" data-testid="level">{levelLabel(s.level)}</span><span class="t-meta au-help">{levelHelp(s.level)}</span></td>
+                  <td data-label="Level"><span class="au-level"><span class="badge badge-neutral" data-testid="level">{levelLabel(s.level)}</span><HelpTip label={levelLabel(s.level)} text={levelHelp(s.level)} /></span></td>
                   <td data-label="Next step">
                     <span>{proposalText(s.level, s.proposal)}</span>
                     {#if s.proposal?.level}
@@ -141,7 +158,7 @@
                     {:else if s.proposal?.blockers?.length}
                       <span class="t-meta">{countOf(s.proposal.blockers.length, 'blocker')} below.</span>
                     {/if}
-                    {#if s.lastShadow}<span class="t-meta au-help">Newest candidate: on Autonomous, Pacto would have chosen to {shadowLabel(s.lastShadow)}.</span>{/if}
+                    {#if s.lastShadow}<span class="t-meta au-help" data-testid="would-have">Pacto would have chosen to {shadowLabel(s.lastShadow)}.</span>{/if}
                   </td>
                 </tr>
                 {#if proposing && proposing.namespace === s.namespace && proposing.stage === s.stage}
@@ -160,11 +177,13 @@
     </section>
 
     <section aria-labelledby="au-blockers">
-      <h2 id="au-blockers" class="t-section-title">What stands in the way</h2>
+      <div class="au-head">
+        <h2 id="au-blockers" class="t-section-title">What stands in the way</h2>
+        {#if blockers.length}<HelpTip label="a fix" text="Copying a fix changes nothing in the cluster: you review it and run it yourself." />{/if}
+      </div>
       {#if blockers.length === 0}
         <p class="t-body-2" data-testid="autonomy-no-blockers">{q ? `No blocker matches “${q}”.` : 'Nothing Pacto can see blocks the next level.'}</p>
       {:else}
-        <p class="t-body-2">Copying a fix changes nothing in the cluster: you review it and run it yourself.</p>
         <div class="au-groups" data-testid="autonomy-blockers">
           {#each groups as g, gi (g.kind + gi)}
             <section class="au-group" aria-label={blockerLabel(g.kind)}>
@@ -222,6 +241,10 @@
   .au-table thead th { color: var(--c-text-3); font-weight: 600; }
   .au-table th a { color: var(--c-accent); }
   .au-table td > * + * { margin-left: var(--sp-2); }
+  .au-head { display: flex; align-items: center; gap: var(--sp-2); }
+  .au-head h2 { margin: 0; }
+  .au-level { display: inline-flex; align-items: center; gap: var(--sp-2); }
+  .au-callers { display: flex; align-items: center; gap: var(--sp-1); }
   .au-help { display: block; margin: var(--sp-1) 0 0 !important; }
   .au-groups { display: flex; flex-direction: column; gap: var(--sp-3); }
   .au-group-title { margin: var(--sp-2) 0 var(--sp-1); font: 600 var(--text-sm) / 1.4 var(--font-sans, inherit); font-style: normal; color: var(--c-text); }

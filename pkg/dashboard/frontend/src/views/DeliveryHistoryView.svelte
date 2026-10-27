@@ -5,7 +5,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl } from '../lib/router.ts';
   import { typeLabel, shortDigest, versionLabel, timeLabel, decisionLabel, actorBadge, autonomyOf, sentence,
-    verificationLabel, outcomeTone, reasonAfter, UNKNOWN_DOCS } from '../lib/delivery.ts';
+    verificationLabel, outcomeTone, reasonAfter, andList, UNKNOWN_DOCS } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
@@ -20,6 +20,8 @@
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
+  import DeliveryLead from '../components/DeliveryLead.svelte';
+  import HelpTip from '../components/HelpTip.svelte';
 
   // What happened on each Stage: from its signed records where the recorder
   // runs, otherwise from the changes still in the cluster. Every history says
@@ -87,6 +89,30 @@
   const partial = $derived(histories.some((h) => h.completeness !== 'complete'));
   const more = $derived(histories.some((h) => (h.entriesPage?.total ?? 0) > (h.entries ?? []).length));
 
+  const ABOUT = 'Where the recorder runs, history is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story.';
+  // The page's answer. Every Stage: what needs a look on this page. One Stage:
+  // its newest change and how it ended.
+  const lead = $derived.by(() => {
+    if (one) {
+      const en = histories.length === 1 ? histories[0].entries?.[0] : undefined;
+      if (!en) return null;
+      const what = `${changeLabel(en)}${en.from || en.to ? ` ${move(en)}` : ''}`;
+      return { head: `${what}:`, rest: `${(en.outcome || en.phase || 'not known').toLowerCase()}.`, tip: `What happened on this Stage, newest change first. ${ABOUT}` };
+    }
+    if (!histories.length) return null;
+    const count = (f) => histories.filter(f).length;
+    const waiting = count((h) => h.entries?.[0]?.phase === 'Held');
+    const issues = count((h) => (h.problemCount ?? 0) + (h.unreadableCount ?? 0) > 0);
+    const frozen = count((h) => h.stage.frozen);
+    const parts = [waiting && `${formatCount(waiting)} waiting for a person`, issues && `${formatCount(issues)} with record problems`, frozen && `${formatCount(frozen)} frozen`].filter(Boolean);
+    const onPage = (data?.page?.total ?? 0) > histories.length;
+    return {
+      head: `${parts.length ? andList(parts) : 'Nothing needs a look'}${onPage ? '' : '.'}`,
+      rest: onPage ? 'on this page.' : '',
+      tip: `What happened on each Stage, listed by namespace and name, with its newest change. ${ABOUT}`,
+    };
+  });
+
   /** The people who decided a change: an approval or a rejection, never only who asked. */
   const deciders = (en) => (en.approvals ?? []).filter((a) => a.by);
 </script>
@@ -96,11 +122,12 @@
 <div class="product-page">
   <PageHeader
     title={stage ? `History of ${namespace}/${stage}` : 'History'}
-    subtitle={one ? 'Newest change first.' : 'Each Stage with its newest change.'}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
-  />
+  >
+    {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} tip={lead.tip} tipLabel="History" />{/if}
+  </PageHeader>
   <DeliveryNav current="delivery-history" />
   {#if stage}<p class="t-body-2"><a class="hv-link" href={deliveryHistoryUrl()}>Show every Stage</a></p>{/if}
   <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v })} testid="history-filter"
@@ -166,29 +193,29 @@
       {#each histories as h (h.namespace + '/' + h.stage.name)}
         {@const known = knownIds(h)}
         <section class="hv-stage" aria-label={`History of ${h.namespace}/${h.stage.name}`}>
-          <h2 class="t-section-title">{h.namespace}/{h.stage.name}</h2>
-          <p class="t-body-2">
-            <span class="hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source">{sourceLabel(h)}.</span>
-            Runs {#if h.stage.pointer}<strong>{version(h.stage.pointer)}</strong>{#if data.versions?.[h.stage.pointer]}{' '}<code class="hv-digest" title={h.stage.pointer}>{shortDigest(h.stage.pointer)}</code>{/if}{:else}nothing yet{/if}{#if h.stage.frozen}, frozen{/if}. {sentence(h.note)}
-          </p>
-          {#if h.stage.pointer}
-            <div><button type="button" class="btn btn-sm" onclick={(e) => show(e, { kind: 'blame', ns: h.namespace, key: h.stage.name })}>Who put {version(h.stage.pointer)} here?</button></div>
-          {/if}
+          <h2 class="t-section-title" class:visually-hidden={histories.length === 1}>{h.namespace}/{h.stage.name}</h2>
+          <div class="hv-facts t-body-2">
+            <span>Runs {#if h.stage.pointer}<strong>{version(h.stage.pointer)}</strong>{#if data.versions?.[h.stage.pointer]}{' '}<code class="hv-digest" title={h.stage.pointer}>{shortDigest(h.stage.pointer)}</code>{/if}{:else}nothing yet{/if}</span>
+            {#if h.stage.frozen}<span class="badge badge-warn">Frozen</span>{/if}
+            <span class="hv-source-line"><span class="hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source">{sourceLabel(h)}.</span>{#if h.note}<HelpTip label="where this history comes from" text={sentence(h.note)} />{/if}</span>
+            {#if h.stage.pointer}
+              <button type="button" class="btn btn-sm" onclick={(e) => show(e, { kind: 'blame', ns: h.namespace, key: h.stage.name })}>Who put {version(h.stage.pointer)} here?</button>
+            {/if}
+            {#if (h.problems ?? []).length}
+              <details class="disclosure hv-chip hv-chip-warn" data-testid="history-problems">
+                <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>{countOf(h.problems.length, 'record problem')}</summary>
+                <div class="hv-notes"><CappedList items={h.problems} max={5}>{#snippet item(p)}<DigestText text={p} {known} />{/snippet}</CappedList></div>
+              </details>
+            {/if}
+            {#if (h.unreadable ?? []).length}
+              <details class="disclosure hv-chip" data-testid="history-unreadable">
+                <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>{formatCount(h.unreadable.length)} not read or verified</summary>
+                <div class="hv-notes"><CappedList items={h.unreadable} max={5}>{#snippet item(u)}<DigestText text={u} {known} />{/snippet}</CappedList></div>
+              </details>
+            {/if}
+          </div>
           {#if isOpen('blame', h.namespace, h.stage.name)}
             <BlamePanel namespace={h.namespace} stage={h.stage.name} {miraURL} onClose={close} />
-          {/if}
-          <!-- What is wrong with the records, and what could not be read, fold behind a count that says so in the warn tone. -->
-          {#if (h.problems ?? []).length}
-            <details class="disclosure hv-notes" data-testid="history-problems">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h3 class="t-body-2">What the records show is wrong</h3> <span class="badge badge-warn">{formatCount(h.problems.length)}</span></summary>
-              <CappedList items={h.problems} max={5}>{#snippet item(p)}<DigestText text={p} {known} />{/snippet}</CappedList>
-            </details>
-          {/if}
-          {#if (h.unreadable ?? []).length}
-            <details class="disclosure hv-notes" data-testid="history-unreadable">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h3 class="t-body-2">What could not be read or verified</h3> <span class="badge badge-warn">{formatCount(h.unreadable.length)}</span></summary>
-              <CappedList items={h.unreadable} max={5}>{#snippet item(u)}<DigestText text={u} {known} />{/snippet}</CappedList>
-            </details>
           {/if}
           {#if (h.entries ?? []).length === 0}
             <p class="t-body-2 hv-none">{q ? 'No change matches the filter.' : 'No change kept for this Stage.'}</p>
@@ -215,7 +242,8 @@
                         <div class="cell-stack">
                           <span class="badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>
                           {#if en.verification}{' '}<span>{verificationLabel(en.verification)}</span>{/if}
-                          {#if reason}{' '}<span class="hv-reason"><DigestText text={reason} {known} /></span>{/if}
+                          <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the reason for a keyboard reader; it is whole in the DOM for a screen reader) -->
+                          {#if reason}{' '}<span class="hv-reason" tabindex="0"><DigestText text={reason} {known} /></span>{/if}
                         </div>
                       </td>
                       <td data-label="When">{@render when(en)}</td>
@@ -244,18 +272,30 @@
   .hv-stage p { margin: 0; }
   .hv-source { font-weight: 600; color: var(--c-text-2); margin-right: var(--sp-2); }
   .hv-source.hv-partial { color: var(--c-text-3); }
-  .hv-notes h3 { margin: 0; font-weight: 600; }
-  .hv-notes > summary { gap: var(--sp-2); }
   .hv-notes { overflow-wrap: break-word; }
+  /* A Stage's facts on one wrapping line: what runs, where the history comes from, and the lists behind a count. */
+  .hv-facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+  .hv-source-line { display: inline-flex; align-items: center; gap: var(--sp-1); }
+  .hv-facts .hv-source { margin: 0; }
+  /* A count that opens its list: a chip while closed, the whole row's width once open. */
+  .hv-chip > summary { display: inline-flex; align-items: center; min-height: 2rem; gap: var(--sp-1); padding: 2px var(--sp-2); border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-sm); }
+  .hv-chip-warn > summary { color: var(--c-warn); border-color: var(--c-warn-border); background: var(--c-warn-bg); }
+  .hv-chip[open] { flex-basis: 100%; }
+  .hv-chip[open] > .hv-notes { margin-top: var(--sp-2); }
   .hv-table a { color: var(--c-accent); }
   .hv-table a.badge-warn { color: var(--c-warn); text-decoration: none; }
   /* The summary is a page of twenty-five short rows: the page scrolls, not a box. */
   .hv-table tbody th .hv-source { margin: 0; font-weight: 400; }
   .hv-none { color: var(--c-text-3); }
   .hv-seq, .hv-class, .hv-digest { color: var(--c-text-2); }
-  .hv-reason { color: var(--c-text-2); }
+  .hv-reason { color: var(--c-text-2); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* Two lines until a reader points at it or tabs to it; then the whole reason. */
+  .hv-reason:hover, .hv-reason:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }
   /* Who asked and the Agent chip share a line, so a row stays one line tall. */
   .hv-asked { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); min-width: 0; }
+  /* A very long login (an issuer URL and subject) wraps inside its cell instead of running over the next one. */
+  .hv-asked { overflow-wrap: anywhere; }
+  .hv-asked > :global(*) { min-width: 0; max-width: 100%; }
   .hv-nowrap { white-space: nowrap; }
   .hv-deciders { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .hv-undo-row td { background: var(--c-surface-inset); }

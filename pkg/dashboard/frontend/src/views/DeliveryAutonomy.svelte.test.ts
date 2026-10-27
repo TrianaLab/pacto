@@ -80,18 +80,27 @@ describe('path to autonomy', () => {
     await settle();
     const share = text(target.querySelector('[data-testid="autonomy-contracted"]')!);
     expect(share).toContain('80%');
-    expect(share).toContain('12 of the 15 services Pacto has seen: 3 workloads call a contracted service with no contract of their own.');
+    expect(share).toContain('12 of the 15 services Pacto has seen');
+    expect(share).toContain('3 uncontracted callers');
     expect(share).not.toMatch(/fleet/);
     const promos = text(target.querySelector('[data-testid="autonomy-promotions"]')!);
     expect(promos).toContain('17 of 20');
-    expect(promos).toContain('last 20 operations per environment');
+    // How it is counted is one (?) away.
+    expect(promos).not.toContain('last 20 operations per environment');
+    (target.querySelector('[data-testid="autonomy-promotions"] button[aria-label="What is this count?"]') as HTMLButtonElement).click();
+    flushSync();
+    expect(text(target.querySelector('[data-testid="autonomy-promotions"]')!)).toContain('last 20 operations per environment');
+    // The page answers first: what stands in the way and what can move up now.
+    expect(text(target.querySelector('[data-testid="page-answer"]')!)).toContain('3 blockers stand in the way. 1 Stage can move up now.');
     const rows = [...target.querySelectorAll('[data-testid="autonomy-stages"] tbody tr')];
     expect(text(rows[0])).toContain('Advise');
     expect(text(rows[0])).toContain('Pacto proposes Auto non-breaking: 10 verified promotions, no incident.');
     expect(text(rows[1])).toContain('Nothing to propose yet. 1 blocker below.');
-    expect(text(rows[1])).toContain('on Autonomous, Pacto would have chosen to hold for team-checkout');
+    expect(text(rows[1].querySelector('[data-testid="would-have"]')!)).toBe('Pacto would have chosen to hold for team-checkout.');
+    // A level says what it means behind its (?), not under every row.
+    expect(text(rows[0])).not.toContain('A person proposes or approves every promote');
     expect(text(rows[2])).toContain('Not reported');
-    expect(rows[1].querySelector('button')).toBeNull();
+    expect(rows[1].querySelector('button.btn')).toBeNull();
     destroy();
   });
 
@@ -163,6 +172,8 @@ describe('path to autonomy', () => {
     expect(items[1].querySelector('a.au-subject')!.getAttribute('title')).toBe('checkout');
     expect(items[0].querySelector('a.au-subject')).toBeNull();
     expect(items[2].querySelector('a.au-subject')).toBeNull();
+    (target.querySelector('button[aria-label="What is a fix?"]') as HTMLButtonElement).click();
+    flushSync();
     expect(text(target)).toContain('Copying a fix changes nothing in the cluster');
     expect(text(target)).not.toMatch(/one-click/i);
     (items[1].querySelector('button') as HTMLButtonElement).click();
@@ -205,7 +216,7 @@ describe('path to autonomy', () => {
     fns.autonomy.mockResolvedValue({ ...page, contracted: { services: 1, uncontractedCallers: 1 }, stages: [], blockers: [] });
     r = render(DeliveryAutonomyView);
     await settle();
-    expect(text(r.target)).toContain('1 workload calls a contracted service with no contract of its own.');
+    expect(text(r.target)).toContain('1 uncontracted caller');
     expect(text(r.target.querySelector('[data-testid="autonomy-empty"]')!)).toContain('in this cluster');
     r.destroy();
     fns.autonomy.mockRejectedValue(new ApiError(404, 'Install pacto-operator with delivery.enabled=true', 'DeliveryNotInstalled'));
