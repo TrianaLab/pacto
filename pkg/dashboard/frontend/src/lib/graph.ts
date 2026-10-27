@@ -14,7 +14,7 @@ import { wrapWideRanks } from './layout.ts';
 // has no business pulling a charting library in for one media query.
 import { MOTION, prefersReducedMotion } from './motion.ts';
 import { statusTone } from './format.ts';
-import { LANE_CAP, MORE_SUFFIX } from './neighborhoodGraph.ts';
+import { LANE_CAP } from './neighborhoodGraph.ts';
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
@@ -87,9 +87,9 @@ export interface GraphData {
 }
 
 /** fullName is the whole name a node's label may cut, for its hover title. */
-export function fullName(node: { id: string; serviceName?: string; version?: string; group?: number }): string {
+export function fullName(node: { id: string; serviceName?: string; version?: string; group?: number; owner?: string }): string {
   const raw = node.serviceName || node.id;
-  if (node.group) return node.id.endsWith(MORE_SUFFIX) ? `${node.group} more direct neighbors. Select to show them.` : `${raw}: ${node.group} entities. Select to show them.`;
+  if (node.group) return `${node.owner || raw}: ${node.group} entities. Select to show them.`;
   return node.version ? `${raw} ${node.version}` : raw;
 }
 
@@ -502,8 +502,7 @@ interface LaneNode { id: string; depth?: number; side?: number; owner?: string; 
 export function laneLayout(nodes: LaneNode[], canvas: { width: number; height: number }): Map<string, { x: number; y: number }> {
   const cols = new Map<number, string[]>();
   const pos = new Map<string, { x: number; y: number }>();
-  // A lane's "+N more" sits at its bottom.
-  const sorted = nodes.filter((n) => !n.lane).sort((a, b) => +a.id.endsWith(MORE_SUFFIX) - +b.id.endsWith(MORE_SUFFIX) || (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
+  const sorted = nodes.filter((n) => !n.lane).sort((a, b) => (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
   for (const n of sorted) {
     const d = Math.max(0, n.depth ?? 1);
     if (d === 0) { pos.set(n.id, { x: 0, y: 0 }); continue; }
@@ -519,7 +518,7 @@ export function laneLayout(nodes: LaneNode[], canvas: { width: number; height: n
   const lane = Math.max(0, ...[...cols.entries()].filter(([k]) => Math.abs(k) === 2).map(([, c]) => c.length));
   let rows = tallest;
   let bestZoom = -1;
-  for (let r = Math.min(lane, LANE_CAP + 1) || 1; r <= tallest; r++) {
+  for (let r = Math.min(lane, LANE_CAP) || 1; r <= tallest; r++) {
     const subs = [...cols.values()].reduce((t, c) => t + Math.ceil(c.length / r), 0);
     const gaps = [...cols.keys()].reduce((t, k) => t + gapBefore(Math.abs(k)), 0);
     const zoom = Math.min(w / ((subs + 1) * LANE_COL + gaps), h / ((r + 0.5) * LANE_ROW));

@@ -9,7 +9,7 @@
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
     canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
   } from '../lib/graphState.ts';
-  import { cyEdgeId, neighborhoodToGraph, laneGraph, GROUP_PREFIX, LANE_CAP, GROUP_THRESHOLD as GROUP_LIMIT } from '../lib/neighborhoodGraph.ts';
+  import { cyEdgeId, neighborhoodToGraph, laneGraph, GROUP_PREFIX, LANE_CAP, GROUP_THRESHOLD as GROUP_LIMIT, OTHER_TEAMS } from '../lib/neighborhoodGraph.ts';
   import { abbreviateDigests, formatCount, countOf, statusTone } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
@@ -177,10 +177,11 @@
   $effect(() => { if (queryKey !== groupedFor) { groupedFor = queryKey; openGroups = new Set(); showEvery = false; } });
   const grouped = $derived(shown ? laneGraph(neighborhoodToGraph(shown), { open: openGroups, all: showEvery }) : null);
   function openGroup(id) { openGroups = new Set([...openGroups, id]); }
-  const sideWords = (g) => (g.side === 'depends-on' ? 'that it depends on' : 'that use it');
+  // The two "Other teams" groups already name their direction.
+  const sideWords = (g) => (g.owner.startsWith(OTHER_TEAMS) ? '' : g.side === 'depends-on' ? ' that it depends on' : ' that use it');
   function selectEdgeByCyId(cyId) {
     // The one edge a group draws stands for many relationships: selecting it opens the group.
-    const g = [...(grouped?.groups ?? []), ...(grouped?.more ?? [])].find((x) => cyId?.startsWith(`${x.id}→`) || cyId?.includes(`→${x.id}:`));
+    const g = (grouped?.groups ?? []).find((x) => cyId?.startsWith(`${x.id}→`) || cyId?.includes(`→${x.id}:`));
     if (g) { openGroup(g.id); return; }
     selectEdge((shown?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
   }
@@ -256,25 +257,50 @@
   // proof of non-use), so it stays on the canvas and out of this line.
   const problems = $derived.by(() => {
     if (!shown || carrying || neighborhoodIsEmpty(shown)) return null;
-    const failing = shown.nodes.filter((n) => n.ref?.kind !== 'source' && n.status && statusTone(n.status) === 'err').length;
+    const failing = shown.nodes.filter((n) => !n.focus && n.ref?.kind !== 'source' && n.status && statusTone(n.status) === 'err').length;
     const undeclared = shown.edges.filter((e) => e.relation !== 'runs' && e.difference === 'observed-not-expected').length;
     return { failing, undeclared };
+  });
+  // The focus comes first: it is what the reader asked about. Then what is around it.
+  const focusTone = $derived(focusNode?.status ? statusTone(focusNode.status) : '');
+  const focusSentence = $derived.by(() => {
+    if (!problems) return '';
+    const name = focusRef?.label || focusRef?.key || gs.key;
+    if (focusTone === 'err') return `${name} breaks its contract.`;
+    if (focusTone === 'ok') return `${name} meets its contract.`;
+    return focusNode?.status ? `${name} has no confirmed contract result yet.` : '';
   });
   const answer = $derived.by(() => {
     if (!problems) return '';
     const parts = [
       problems.failing ? `${countOf(problems.failing, 'entity', 'entities')} ${problems.failing === 1 ? 'breaks its' : 'break their'} contract` : '',
-      problems.undeclared ? countOf(problems.undeclared, 'undeclared call') : '',
+      problems.undeclared ? `${countOf(problems.undeclared, 'call')} ${problems.undeclared === 1 ? 'is' : 'are'} undeclared` : '',
     ].filter(Boolean);
-    if (parts.length) return parts.join(' and ');
-    return knowledge?.incomplete ? 'Nothing wrong found here, but some data is missing' : 'Nothing wrong found here';
+    const it = focusSentence ? 'it' : focusRef?.label || focusRef?.key || gs.key;
+    if (parts.length) return `Around ${it}, ${parts.join(' and ')}.`;
+    return knowledge?.incomplete ? `Nothing wrong found around ${it}, but some data is missing.` : `Nothing wrong found around ${it}.`;
   });
+
+  // ── one notice line above the canvas ─────────────────────────────────────────
+  // Missing data, a cut answer, team groups and capped lanes each used to be a box of
+  // their own, and together they pushed the canvas below the fold. One line names them;
+  // the full sentences and their buttons open under it.
+  const showTruncated = $derived(!carrying && !!shown?.truncated);
+  const showEveryNote = $derived(!grouped?.groups.length && showEvery && (shown?.nodes.length ?? 0) > GROUP_LIMIT);
+  const noticeParts = $derived(!shown ? [] : [
+    knowledge?.incomplete ? 'Some data is missing' : '',
+    showTruncated ? (withheldNodes ? `${formatCount(shown.nodes.length)} of ${formatCount(totalNodes)} entities shown` : 'Some relationships are not drawn') : '',
+    oneHopNote ? 'One hop deep' : '',
+    grouped?.groups.length ? `${formatCount(grouped.folded)} grouped by team` : '',
+    showEveryNote ? 'Every entity is drawn' : '',
+    grouped?.more ? `${LANE_CAP} worst direct neighbors per side` : '',
+  ].filter(Boolean));
 
   const graphSummary = $derived(!shown ? '' : [
     `${formatCount(shown.nodes.length)} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${formatCount(shown.edges.length)} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
     withheldNodes ? `${withheldNodes} more within this depth are not shown.` : '',
     grouped?.folded ? `${grouped.folded} of them are grouped by team on the canvas; the list below names each one.` : '',
-    grouped?.more ? `${grouped.more.reduce((t, m) => t + m.count, 0)} direct neighbors wait behind "more" on the canvas${grouped.folded ? '.' : '; the list below names each one.'}` : '',
+    grouped?.more ? `${grouped.more.reduce((t, m) => t + m.count, 0)} direct neighbors are not drawn until you show them${grouped.folded ? '.' : '; the list below names each one.'}` : '',
     hiddenLabels.length ? `Dimmed on the canvas: ${hiddenLabels.join(', ')}.` : '',
     selectedSummary,
   ].filter(Boolean).join(' '));
@@ -418,7 +444,7 @@
   {:else}
     <!-- Focused neighborhood: an actual visual topology. -->
     {#if answer}
-      <p class="gv-answer" class:has-problems={problems && (problems.failing || problems.undeclared)} data-testid="graph-answer">{answer}.</p>
+      <p class="gv-answer" class:has-problems={problems && (problems.failing || problems.undeclared)} data-testid="graph-answer">{#if focusSentence}<span class:gv-focus-err={focusTone === 'err'} data-testid="graph-answer-focus">{focusSentence}</span>{' '}{/if}<span class="gv-around">{answer}</span></p>
     {/if}
     <!-- No controls over a focus that does not exist: there is nothing for them to drive. -->
     {#if !notFound}
@@ -505,9 +531,13 @@
       {:else if error}
         <div class="gv-error" role="alert" data-testid="graph-refresh-error">Couldn't refresh the neighborhood, so this is the last answer we got: {error instanceof Error ? error.message : String(error)}</div>
       {/if}
+      {#if noticeParts.length}
+      <details class="gv-notice disclosure" data-testid="graph-notice">
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>{noticeParts.join(' · ')}</summary>
+        <div class="gv-notice-body">
       <KnowledgeBanner {knowledge} noun="neighborhood" testid="graph-knowledge-caveat" />
-      {#if !carrying && shown.truncated}
-        <div class="gv-caveat tone-warn" role="status" data-testid="graph-truncated">
+      {#if showTruncated}
+        <div class="gv-caveat" data-testid="graph-truncated">
           {truncationNote}
           {#if moreNodes}
             <button type="button" class="gv-more" data-testid="graph-show-more" onclick={() => go({ maxNodes: moreNodes })}>
@@ -519,9 +549,32 @@
         </div>
       {/if}
       {#if oneHopNote}
-        <div class="gv-caveat tone-info" role="status" data-testid="graph-effective-depth">
+        <div class="gv-caveat" data-testid="graph-effective-depth">
           The {gs.perspective} view is one hop deep. Use Revisions to go deeper.
         </div>
+      {/if}
+      {#if !neighborhoodIsEmpty(shown)}
+            {#if grouped?.groups.length}
+              <div class="gv-caveat" data-testid="graph-grouped">
+                {formatCount(grouped.folded)} grouped by team ({countOf(grouped.groups.length, 'group')}). Open one:
+                <CappedList items={grouped.groups} max={6} row={true} label="Teams grouped on the graph">{#snippet item(g)}<button type="button" class="gv-more" data-testid="graph-open-group" title="{g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'}{sideWords(g)}" aria-label="Open {g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'}{sideWords(g)}" onclick={() => openGroup(g.id)}><span aria-hidden="true">{g.side === 'depends-on' ? '← ' : ''}</span>{g.owner} ({formatCount(g.count)})<span aria-hidden="true">{g.side === 'used-by' ? ' →' : ''}</span></button>{/snippet}</CappedList>
+                <button type="button" class="gv-more" data-testid="graph-show-every" onclick={() => { showEvery = true; }}>Show every entity</button>
+              </div>
+            {:else if showEveryNote}
+              <div class="gv-caveat" data-testid="graph-grouped">
+                Every entity is drawn.
+                <button type="button" class="gv-more" data-testid="graph-group-again" onclick={() => { showEvery = false; openGroups = new Set(); }}>Group by team again</button>
+              </div>
+            {/if}
+            {#if grouped?.more}
+              <div class="gv-caveat" data-testid="graph-lane-cap">
+                Showing the {LANE_CAP} worst direct neighbors per side.
+                {#each grouped.more as m (m.id)}<button type="button" class="gv-more" data-testid="graph-open-more" onclick={() => openGroup(m.id)}>Show {formatCount(m.count)} more {m.side === 'depends-on' ? 'dependencies' : 'dependents'}</button>{/each}
+              </div>
+            {/if}
+      {/if}
+        </div>
+      </details>
       {/if}
 
       <!-- The drawer column is reserved only while a drawer is open. Reserved always, the
@@ -534,25 +587,6 @@
             <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} known under these views.</p>
           {:else}
             <!-- Primary: the visual Cytoscape topology. -->
-            {#if grouped?.groups.length}
-              <div class="gv-caveat tone-info" role="status" data-testid="graph-grouped">
-                {formatCount(grouped.folded)} grouped by team ({countOf(grouped.groups.length, 'group')}). Open one:
-                <CappedList items={grouped.groups} max={6} row={true} label="Teams grouped on the graph">{#snippet item(g)}<button type="button" class="gv-more" data-testid="graph-open-group" title="{g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'} {sideWords(g)}" aria-label="Open {g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'} {sideWords(g)}" onclick={() => openGroup(g.id)}><span aria-hidden="true">{g.side === 'depends-on' ? '← ' : ''}</span>{g.owner} ({formatCount(g.count)})<span aria-hidden="true">{g.side === 'used-by' ? ' →' : ''}</span></button>{/snippet}</CappedList>
-                <button type="button" class="gv-more" data-testid="graph-show-every" onclick={() => { showEvery = true; }}>Show every entity</button>
-              </div>
-            {:else if showEvery && shown.nodes.length > GROUP_LIMIT}
-              <div class="gv-caveat tone-info" role="status" data-testid="graph-grouped">
-                Every entity is drawn.
-                <button type="button" class="gv-more" data-testid="graph-group-again" onclick={() => { showEvery = false; openGroups = new Set(); }}>Group by team again</button>
-              </div>
-            {/if}
-            {#if grouped?.more}
-              <!-- The "+N more" node on the canvas is not keyboard reachable; these buttons do the same. -->
-              <div class="gv-caveat tone-info" role="status" data-testid="graph-lane-cap">
-                Showing the {LANE_CAP} worst direct neighbors per side.
-                {#each grouped.more as m (m.id)}<button type="button" class="gv-more" data-testid="graph-open-more" onclick={() => openGroup(m.id)}>Show {formatCount(m.count)} more {m.side === 'depends-on' ? 'dependencies' : 'dependents'}</button>{/each}
-              </div>
-            {/if}
             <NeighborhoodGraph neighborhood={shown} graph={grouped?.graph} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
 
             <!-- Legend, and the canvas's filter: every item is a REAL canvas distinction.
@@ -561,11 +595,8 @@
                  width + tone), never a decorative badge for a state the canvas can't show.
                  Because each entry names something the canvas draws, each entry can also
                  switch it off. The drawer/text list keeps the precise, scoped wording. -->
-            <!-- Folded: the canvas reads without it once learnt, and it is two rows of text
-                 on every visit. The summary still says when it is hiding something. -->
-            <details class="gv-legend-fold disclosure" data-testid="graph-legend">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Legend and filters{#if hiddenKeys.length}<span class="t-meta"> · {formatCount(hiddenKeys.length)} hidden</span>{/if}</summary>
-            <div class="gv-legend" role="group" aria-label="Graph legend and filters">
+            <!-- Always shown: a reader new to the canvas needs the key right beside it. -->
+            <div class="gv-legend" role="group" aria-label="Graph legend and filters" data-testid="graph-legend">
               {#each LEGEND_GROUPS as grp (grp.title)}
                 <span class="lg-group">{grp.title}</span>
                 {#each grp.items as it (it.key)}
@@ -580,8 +611,8 @@
                   ><span class={it.cls} aria-hidden="true"></span> {it.label}</button>
                 {/each}
               {/each}
+              <span class="t-meta lg-hint">Select an entry to hide it.</span>
             </div>
-            </details>
 
             <!-- Accessible text alternative: the same nodes and edges as
                  a semantic list, keyboard-focusable, driving the same drawer. The summary
@@ -748,11 +779,16 @@
   .gv-main { display: flex; flex-direction: column; gap: var(--sp-4); }
 
   .gv-answer { margin: 0 0 var(--sp-3); font-size: var(--text-md); color: var(--c-text-2); }
-  .gv-answer.has-problems { color: var(--c-err); font-weight: 600; }
+  .gv-answer.has-problems .gv-around { color: var(--c-err); font-weight: 600; }
   .disco-more { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-3) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .disco-more-sep { color: var(--c-border); }
-  .gv-legend-fold { font-size: var(--text-sm); color: var(--c-text-2); }
-  .gv-legend-fold[open] .gv-legend { margin-top: var(--sp-2); }
+  .gv-focus-err { color: var(--c-err); }
+  .lg-hint { margin-left: auto; }
+  /* One line until opened; the pieces inside lose their own boxes. */
+  .gv-notice { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm); background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); }
+  .gv-notice > summary { color: var(--c-text-2); }
+  .gv-notice-body { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
+  .gv-notice-body .gv-caveat, .gv-notice-body :global(.knowledge) { padding: 0; background: none; border: 0; }
   .gv-fold-title { display: inline; }
   .gv-chip { display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--c-text-2); background: var(--c-bg); }
   .gv-legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); font-size: var(--text-sm); color: var(--c-text-2); }

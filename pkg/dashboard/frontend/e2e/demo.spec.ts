@@ -334,6 +334,9 @@ test.describe('WASM dashboard demo — workflows', () => {
 
   test('graph honesty: a partial snapshot surfaces the incompleteness caveat', async ({ page }) => {
     await gotoGraphFocus(page, 'service', 'payments-service');
+    // One notice line above the canvas names it; the full sentence opens under it.
+    await expect(page.getByTestId('graph-notice')).toContainText('Some data is missing');
+    await page.getByTestId('graph-notice').locator('summary').click();
     await expect(page.getByTestId('graph-knowledge-caveat')).toBeVisible();
   });
 

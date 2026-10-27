@@ -71,6 +71,9 @@ test.describe('keyboard operability', () => {
     await page.getByRole('button', { name: 'Refresh' }).click();
     const groups = page.getByTestId('graph-open-group');
     await expect(groups).toHaveCount(4, { timeout: 15_000 });
+    // The group buttons sit under the one notice line; open it from the keyboard.
+    await page.getByTestId('graph-notice').locator('summary').focus();
+    await page.keyboard.press('Enter');
     const first = groups.first();
     await expect(first).toHaveAccessibleName(/^Open team-\d: 15 entities that use it$/);
     await first.focus();
@@ -108,6 +111,8 @@ test.describe('keyboard operability', () => {
     await page.goto(cur.includes('?') ? `${cur}&depth=6` : `${cur}?depth=6`);
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('graph-depth')).toHaveCount(0);
+    await expect(page.getByTestId('graph-notice')).toContainText('One hop deep');
+    await page.getByTestId('graph-notice').locator('summary').click();
     await expect(page.getByTestId('graph-effective-depth')).toBeVisible();
   });
 });

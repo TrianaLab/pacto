@@ -264,7 +264,8 @@ describe('laneGraph', () => {
     const { graph: out, groups } = laneGraph(g);
     const other = groups.find((x) => x.id === 'group:depends-on:*')!;
     expect(groups.filter((x) => x.id !== other.id)).toHaveLength(MAX_GROUPS_PER_SIDE);
-    expect(other).toMatchObject({ owner: 'Other teams', side: 'depends-on' });
+    // Listed by name, the two Other teams groups say which side they are on.
+    expect(other).toMatchObject({ owner: 'Other teams that it depends on', side: 'depends-on' });
     expect(other.count).toBe(61 - groups.filter((x) => x !== other).reduce((t, x) => t + x.count, 0));
     expect(byId(out, 'group:depends-on:*').serviceName).toBe('Other teams');
     // Opening Other teams shows its entities.
@@ -309,7 +310,7 @@ describe('laneGraph', () => {
     expect(byId(out, 'group:used-by:team-u').edges).toEqual([{ targetId: 'focus', type: 'dependency', edgeState: 'matched', label: 'matched (1)' }]);
   });
 
-  it('shows a lane its first eight direct neighbors, the ones worth a look first, and holds the rest behind "+N more"', () => {
+  it('shows a lane its first eight direct neighbors, the ones worth a look first, and holds the rest back undrawn', () => {
     const g = graph(12, 0);
     byId(g, 'focus').edges!.find((e) => e.targetId === 'n11')!.edgeState = 'drift';
     byId(g, 'n10').status = 'NonCompliant';
@@ -317,12 +318,12 @@ describe('laneGraph', () => {
     expect([groups, folded]).toEqual([[], 0]);
     expect(more).toEqual([{ id: 'group:depends-on:+', owner: '+4 more', side: 'depends-on', count: 4 }]);
     const shown = out.nodes.filter((n) => n.parent === 'lane:depends-on').map((n) => n.id);
-    expect(shown).toHaveLength(LANE_CAP + 1);
-    expect(shown).toEqual(expect.arrayContaining(['n11', 'n10', 'group:depends-on:+']));
-    expect(byId(out, 'group:depends-on:+')).toMatchObject({ serviceName: '+4 more', group: 4, depth: 1, side: -1 });
-    // Its one edge has no words: the gap by the focus has no room for them.
-    expect(byId(out, 'focus').edges!.find((e) => e.targetId === 'group:depends-on:+')).toEqual({ targetId: 'group:depends-on:+', type: 'dependency' });
-    // Opened, the lane shows every direct neighbor; nine is not worth a "+1 more".
+    expect(shown).toHaveLength(LANE_CAP);
+    expect(shown).toEqual(expect.arrayContaining(['n11', 'n10']));
+    // No "+N more" box on the canvas: the button above it is the one way in.
+    expect(out.nodes.some((n) => n.id === 'group:depends-on:+')).toBe(false);
+    expect(byId(out, 'focus').edges!.some((e) => e.targetId === 'group:depends-on:+')).toBe(false);
+    // Opened, the lane shows every direct neighbor; nine is not worth holding one back.
     expect(laneGraph(g, { open: new Set(['group:depends-on:+']) }).more).toBeUndefined();
     expect(laneGraph(graph(LANE_CAP + 1, 0)).more).toBeUndefined();
   });

@@ -144,15 +144,21 @@ export const LANE_PREFIX = 'lane:';
  *  with a single entity out there, share one "Other teams" group. */
 export const MAX_GROUPS_PER_SIDE = 7;
 
-/** A lane shows at most this many direct neighbors; the rest wait behind one "+N more"
- *  node, so a lane never wraps into a second column with lines running under its boxes. */
+/** A lane shows at most this many direct neighbors; the rest wait behind a "Show N more"
+ *  button above the canvas, so a lane never wraps into a second column with lines running
+ *  under its boxes. */
 export const LANE_CAP = 8;
 
-/** The id suffix of a lane's "+N more" node (after GROUP_PREFIX and the side). */
+/** The id suffix of a lane's held-back neighbors (after GROUP_PREFIX and the side). */
 export const MORE_SUFFIX = ':+';
 
-/** The name of the group the small teams share. */
+/** The name of the group the small teams share, as drawn on the canvas. */
 export const OTHER_TEAMS = 'Other teams';
+/** Its full name, by side: the two groups are told apart wherever they are listed. */
+export const OTHER_TEAMS_BY_SIDE: Record<string, string> = {
+  'depends-on': 'Other teams that it depends on',
+  'used-by': 'Other teams that depend on it',
+};
 
 /** Which side of the focus an entity sits on: what the focus depends on (left) or what
  *  uses the focus (right). */
@@ -174,7 +180,7 @@ export interface GroupedGraph {
   groups: LaneGroup[];
   /** How many entities the groups fold away. */
   folded: number;
-  /** The lanes' "+N more" nodes, and how many direct neighbors each holds back. */
+  /** Per capped lane, how many direct neighbors it holds back (not drawn). */
   more?: LaneGroup[];
 }
 
@@ -256,7 +262,7 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
     members.delete(id);
     const other = `${GROUP_PREFIX}${s}:*`; // "*" is no owner's name, so no team collides with it
     if (open.has(other)) continue;
-    ownerName.set(other, OTHER_TEAMS);
+    ownerName.set(other, OTHER_TEAMS_BY_SIDE[s]);
     members.set(other, [...(members.get(other) ?? []), ...ms]);
   }
   const rep = new Map<string, string>(); // entity id -> the group that stands for it
@@ -270,13 +276,14 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
     const owner = ownerName.get(id) ?? ownerOf(ms[0]);
     groups.push({ id, owner, side: s, count: ms.length });
     groupNodes.push({
-      id, serviceName: owner, version: `${formatCount(ms.length)} ${ms.length === 1 ? 'entity' : 'entities'}`, status: 'group', kind: 'service',
+      id, serviceName: id.endsWith(':*') ? OTHER_TEAMS : owner, version: `${formatCount(ms.length)} ${ms.length === 1 ? 'entity' : 'entities'}`, status: 'group', kind: 'service',
       owner, depth, group: ms.length, side: sign(s), edges: [], ...(depth <= 1 ? { parent: LANE_PREFIX + s } : {}),
     });
   }
 
   // A lane past its cap shows the direct neighbors most worth a look (the worst state on
-  // their link with the focus, then the worst status) and holds the rest behind "+N more".
+  // their link with the focus, then the worst status) and holds the rest back. They are
+  // not drawn: the "Show N more" button above the canvas brings them in.
   const attention = (n: GraphNode) => Math.max(0, ...[...(focus.edges ?? []).filter((e) => e.targetId === n.id), ...(n.edges ?? []).filter((e) => e.targetId === focus.id)]
     .map((e) => STATE_RANK[e.edgeState || ''] ?? 0)) * 10 + (TONE_RANK[statusTone(n.status)] ?? 0);
   const more: LaneGroup[] = [];
@@ -286,14 +293,10 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
     const near = gd.nodes.filter((n) => n !== focus && !far(n) && !rep.has(n.id) && side.get(n.id) === s);
     // ponytail: a lane of more than LANE_CAP team groups still wraps; folding groups into groups is not worth it yet.
     const room = Math.max(0, LANE_CAP - groupNodes.filter((g) => g.parent === LANE_PREFIX + s).length);
-    if (near.length - room < 2) continue; // "+1 more" takes the room the one would
+    if (near.length - room < 2) continue; // holding back one would save no room
     const hidden = near.sort((a, b) => attention(b) - attention(a) || a.id.localeCompare(b.id)).slice(room);
     for (const m of hidden) rep.set(m.id, id);
     more.push({ id, owner: `+${hidden.length} more`, side: s, count: hidden.length });
-    groupNodes.push({
-      id, serviceName: `+${hidden.length} more`, version: 'Select to show', status: 'group', kind: 'service',
-      owner: '', depth: 1, group: hidden.length, side: sign(s), edges: [], parent: LANE_PREFIX + s,
-    });
   }
 
   // A lane exists for each side anything sits on; its box holds that side's direct neighbors.
@@ -347,7 +350,7 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
       type: a.runs ? 'runs' : 'dependency',
       ...(a.worst ? { edgeState: a.worst } : {}),
       // A "+N more" edge sits in the narrow gap by the focus: no room for words there.
-      ...(g.id.endsWith(MORE_SUFFIX) ? {} : { label: a.worst ? `${STATE_WORDS[a.worst]} (${formatCount(a.worstCount)})` : `${formatCount(a.count)} ${a.count === 1 ? 'link' : 'links'}` }),
+      label: a.worst ? `${STATE_WORDS[a.worst]} (${formatCount(a.worstCount)})` : `${formatCount(a.count)} ${a.count === 1 ? 'link' : 'links'}`,
     };
     // Depends-on: the lane points out at the group. Used-by: the group points in.
     if (g.side === -1) (inner === focus.id ? byId.get(focus.id)! : lanes.find((l) => l.id === inner)!).edges!.push(edge);
