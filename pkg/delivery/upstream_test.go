@@ -31,20 +31,20 @@ func TestUpstreamFromRecords(t *testing.T) {
 	recs[6].Statement.Predicate.Intent.Cause = &Cause{Verdict: &Verdict{Gate: "smoke", Result: Fail}}
 	recs = append(recs, StoredRecord{ID: "r6", Statement: Statement{Predicate: RecordPredicate{Kind: RecordOperation,
 		Chain: Chain{Stream: "c2/test/payments", Seq: 10, Parent: "r9"}}}}) // no outcome
-	s, why := UpstreamFromRecords(recs, RecordMark{})
+	s, why := UpstreamFromRecords(recs, RecordMark{}, nil)
 	if why != "" || !slices.Equal(s.Verified, []string{dC}) || !slices.Equal(s.Offered, []string{dA, c1}) || !slices.Equal(s.FailedDigests, []string{dA, c1, c2}) {
 		t.Fatalf("got %+v %q", s, why)
 	}
 	if st := s.Stream; st.ID != "c2/test/payments" || st.Seq != 10 || st.Head != "r6" {
 		t.Fatalf("the view names its newest record: %+v", s.Stream)
 	}
-	if s, why := UpstreamFromRecords(recs[1:], RecordMark{}); s != nil || !strings.Contains(why, "not whole") {
+	if s, why := UpstreamFromRecords(recs[1:], RecordMark{}, nil); s != nil || !strings.Contains(why, "not whole") {
 		t.Fatalf("a stream with a hole offers nothing: %+v %q", s, why)
 	}
-	if s, why := UpstreamFromRecords(recs, RecordMark{Stream: "c2/test/payments", Seq: 3, Record: "x3"}); s != nil || !strings.Contains(why, "rewritten") {
+	if s, why := UpstreamFromRecords(recs, RecordMark{Stream: "c2/test/payments", Seq: 3, Record: "x3"}, nil); s != nil || !strings.Contains(why, "rewritten") {
 		t.Fatalf("a stream that no longer holds the record the Stage read offers nothing: %+v %q", s, why)
 	}
-	if s, why := UpstreamFromRecords(recs, RecordMark{Stream: "c2/test/payments", Seq: 3, Record: "r3"}); s == nil || why != "" {
+	if s, why := UpstreamFromRecords(recs, RecordMark{Stream: "c2/test/payments", Seq: 3, Record: "r3"}, nil); s == nil || why != "" {
 		t.Fatalf("a stream that holds it reads: %+v %q", s, why)
 	}
 }
@@ -62,7 +62,7 @@ func TestUpstreamFoldsAFailedFreeze(t *testing.T) {
 	recs[2].Statement.Predicate.Intent.Params.From = dA // a person paused on dA, no failed check
 	recs[3].Statement.Predicate.Intent.Params.From = dB
 	recs[3].Statement.Predicate.Intent.Cause = &Cause{Verdict: &Verdict{Gate: "smoke", Result: Fail}}
-	s, why := UpstreamFromRecords(recs, RecordMark{})
+	s, why := UpstreamFromRecords(recs, RecordMark{}, nil)
 	if why != "" || !slices.Equal(s.Verified, []string{dA}) || !slices.Equal(s.FailedDigests, []string{dB}) {
 		t.Fatalf("got %+v %q", s, why)
 	}
@@ -71,7 +71,7 @@ func TestUpstreamFoldsAFailedFreeze(t *testing.T) {
 		Cause: &Cause{Operation: "uid-p1", Verdict: &Verdict{Gate: "smoke", Result: Fail}}},
 		Status: OperationStatus{Outcome: Succeeded, Verification: Unverified}}
 	rec := NewOperationRecord(RecordInput{Operation: fz, Chain: Chain{Stream: "c2/test/payments", Seq: 5, Parent: "r4"}})
-	s, why = UpstreamFromRecords(append(recs, StoredRecord{ID: "r5", Statement: rec}), RecordMark{})
+	s, why = UpstreamFromRecords(append(recs, StoredRecord{ID: "r5", Statement: rec}), RecordMark{}, nil)
 	if why != "" || len(s.Verified) != 0 || !slices.Equal(s.FailedDigests, []string{dB, dA}) {
 		t.Fatalf("a recorded freeze: %+v %q", s, why)
 	}
@@ -122,8 +122,17 @@ func TestUpstreamRefusesAnUnrecordableStandIn(t *testing.T) {
 			Unrecordable: &Refusal{Check: CheckSensitive, Message: "a field looks like a secret"},
 			Chain:        Chain{Stream: "c2/test/payments", Seq: 2, Parent: "r1"}}}},
 	}
-	if s, why := UpstreamFromRecords(recs, RecordMark{}); s != nil ||
-		!strings.Contains(why, "seq 2 (promote-x-rollback) is an unrecordable stand-in (sensitive-value: a field looks like a secret)") {
+	if s, why := UpstreamFromRecords(recs, RecordMark{}, nil); s != nil ||
+		!strings.Contains(why, "seq 2 (promote-x-rollback, record r2) is an unrecordable stand-in (sensitive-value: a field looks like a secret)") ||
+		!strings.Contains(why, "acknowledge it ("+TypeAcknowledge) {
 		t.Fatalf("an unrecordable stand-in offers nothing: %+v %q", s, why)
+	}
+	// Once a person on the follower acknowledged that exact stand-in, the
+	// follower offers again; another record id acknowledges nothing.
+	if s, why := UpstreamFromRecords(recs, RecordMark{}, []string{"r9"}); s != nil || why == "" {
+		t.Fatalf("another acknowledgement clears nothing: %+v %q", s, why)
+	}
+	if s, why := UpstreamFromRecords(recs, RecordMark{}, []string{"r2"}); s == nil || why != "" || len(s.Offered) != 1 || s.Stream.Seq != 2 {
+		t.Fatalf("an acknowledged stand-in no longer stops the follower: %+v %q", s, why)
 	}
 }

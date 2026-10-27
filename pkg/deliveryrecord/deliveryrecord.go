@@ -281,17 +281,18 @@ func Unchecked(string, int64, []byte) error { return nil }
 // says how many referrers on the anchor it could not verify: a record hidden
 // there, or signed by a key the trust config does not list after a rotation,
 // is not part of the view, so the follower says so rather than look whole.
-func Upstream(ctx context.Context, repo *remote.Repository, stream string, verify delivery.Verifier, seen delivery.RecordMark) (*delivery.StageStatus, string) {
-	return (&Reader{Verify: verify}).Upstream(ctx, repo, stream, seen)
+// acked are the stand-ins the following Stage acknowledged.
+func Upstream(ctx context.Context, repo *remote.Repository, stream string, verify delivery.Verifier, seen delivery.RecordMark, acked []string) (*delivery.StageStatus, string) {
+	return (&Reader{Verify: verify}).Upstream(ctx, repo, stream, seen, acked)
 }
 
 // Upstream is the package Upstream through r's cache.
-func (r *Reader) Upstream(ctx context.Context, repo *remote.Repository, stream string, seen delivery.RecordMark) (*delivery.StageStatus, string) {
+func (r *Reader) Upstream(ctx context.Context, repo *remote.Repository, stream string, seen delivery.RecordMark, acked []string) (*delivery.StageStatus, string) {
 	l, err := r.ListStream(ctx, repo, stream)
 	if err != nil {
 		return nil, "reading the records: " + err.Error()
 	}
-	s, why := delivery.UpstreamFromRecords(l.Records, seen)
+	s, why := delivery.UpstreamFromRecords(l.Records, seen, acked)
 	if s != nil && len(l.Unreadable) > 0 {
 		why = fmt.Sprintf("%d referrers on the upstream anchor could not be verified, so a record signed by a key the trust config "+
 			"does not list is not seen: %s", len(l.Unreadable), strings.Join(l.Unreadable, "; "))

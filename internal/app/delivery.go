@@ -282,7 +282,7 @@ func (p planSources) Upstream(ctx context.Context, stage delivery.StageObject) (
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		s, why := deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier(), stage.Status.UpstreamSeen)
+		s, why := deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier(), stage.Status.UpstreamSeen, stage.Status.UpstreamAcknowledged)
 		return s, why, nil
 	}
 	up := stage.Spec.Candidates.UpstreamStage

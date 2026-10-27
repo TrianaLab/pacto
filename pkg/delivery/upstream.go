@@ -24,15 +24,19 @@ import (
 // Stream.Seq and Stream.Head name the newest record read: what a decision on
 // this view cites. seen is the newest record the Stage already read
 // (status.upstreamSeen), which the stream must still hold (UpstreamTruncated).
-func UpstreamFromRecords(recs []StoredRecord, seen RecordMark) (*StageStatus, string) {
+// acked are the stand-ins a person on the following Stage acknowledged
+// (status.upstreamAcknowledged): they no longer stop it offering.
+func UpstreamFromRecords(recs []StoredRecord, seen RecordMark, acked []string) (*StageStatus, string) {
 	f := FoldStream(recs)
 	if len(f.Problems) > 0 {
 		return nil, "the stream is not whole: " + strings.Join(f.Problems, "; ")
 	}
-	if bad := UnrecordableProblems(f.Records); len(bad) > 0 {
+	open := slices.DeleteFunc(slices.Clone(f.Records), func(r StoredRecord) bool { return slices.Contains(acked, r.ID) })
+	if bad := UnrecordableProblems(open); len(bad) > 0 {
 		// Its type, params and outcome are gone: it could be the Fail that
 		// marks a version failed, so nothing is offered until a person looks.
-		return nil, strings.Join(bad, "; ")
+		return nil, strings.Join(bad, "; ") + "; once a person of this Stage's team has checked what it did upstream, " +
+			"they can acknowledge it (" + TypeAcknowledge + " with that record id and a reason), or break-glass can override"
 	}
 	s := &StageStatus{}
 	at := map[int64]string{}
@@ -56,8 +60,8 @@ func UnrecordableProblems(recs []StoredRecord) []string {
 	var out []string
 	for _, r := range recs {
 		if u := r.Statement.Predicate.Unrecordable; u != nil {
-			out = append(out, fmt.Sprintf("seq %d (%s) is an unrecordable stand-in (%s: %s): what it did is not in the record",
-				r.Statement.Predicate.Chain.Seq, cmp.Or(r.Statement.Predicate.Intent.Name, short(r.ID)), u.Check, u.Message))
+			out = append(out, fmt.Sprintf("seq %d (%s, record %s) is an unrecordable stand-in (%s: %s): what it did is not in the record",
+				r.Statement.Predicate.Chain.Seq, cmp.Or(r.Statement.Predicate.Intent.Name, short(r.ID)), r.ID, u.Check, u.Message))
 		}
 	}
 	return out

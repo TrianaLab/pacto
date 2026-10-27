@@ -184,7 +184,7 @@ func refusal(in PlanInput) string {
 	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
 		return "FailedDigest: " + in.Spec.Params.To + " is one of the last 50 versions that failed on this Stage, which are never promoted again"
 	}
-	return ""
+	return AdmitAcknowledge(in.Spec, in.Stage)
 }
 
 // holdForRecords asks a person to approve a promote or rollback an agent or

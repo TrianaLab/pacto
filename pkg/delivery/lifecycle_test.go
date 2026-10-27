@@ -144,6 +144,8 @@ func TestApplyEffects(t *testing.T) {
 			func(s StageStatus) bool { return !s.AutoHold }},
 		"unfreeze": {in{typ: TypeUnfreeze, c: Conclusion{Outcome: Succeeded}, s: StageStatus{Frozen: true, FrozenReason: "x", AutoHold: true}},
 			func(s StageStatus) bool { return !s.Frozen && s.FrozenReason == "" && !s.AutoHold }},
+		"acknowledge": {in{typ: TypeAcknowledge, c: Conclusion{Outcome: Succeeded}, s: StageStatus{UpstreamAcknowledged: []string{"sha256:old"}}},
+			func(s StageStatus) bool { return strings.Join(s.UpstreamAcknowledged, ",") == "sha256:old,sha256:rec" && !s.Frozen }},
 		"freeze": {in{typ: TypeFreeze, c: Conclusion{Outcome: Succeeded}},
 			func(s StageStatus) bool { return s.Frozen && s.FrozenReason == "op: frozen: because" }},
 		"freeze keeps an earlier reason": {in{typ: TypeFreeze, c: Conclusion{Outcome: Succeeded}, s: StageStatus{Frozen: true, FrozenReason: "re-check"}},
@@ -168,7 +170,7 @@ func TestApplyEffects(t *testing.T) {
 			func(s StageStatus) bool { return s.FrozenReason == "op: ExecutionDeadline: x" }},
 	} {
 		s := c.in.s
-		spec := OperationSpec{Type: c.in.typ, Reason: "because", Params: Params{From: c.in.before, To: dB}}
+		spec := OperationSpec{Type: c.in.typ, Reason: "because", Params: Params{From: c.in.before, To: dB, Record: "sha256:rec"}}
 		st := OperationStatus{ActorClass: c.in.class, Applied: c.in.applied, Pointer: PointerChange{Before: c.in.before, After: dB}}
 		ApplyEffects(&s, "op", "uid", spec, st, c.in.c)
 		if !c.want(s) {

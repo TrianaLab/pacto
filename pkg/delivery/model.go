@@ -26,6 +26,9 @@ const (
 	FacetFreeze  = "freeze"
 	// FacetRung is the Stage's autonomy rung (status.rung).
 	FacetRung = "rung"
+	// FacetUpstream is what the Stage accepts from the upstream stream it
+	// follows (status.upstreamAcknowledged).
+	FacetUpstream = "upstream"
 )
 
 // Result is a gate verdict.
@@ -524,6 +527,11 @@ type StageStatus struct {
 	// records removed from the upstream's tail never go unseen.
 	// +optional
 	UpstreamSeen RecordMark `json:"upstreamSeen,omitzero"`
+	// UpstreamAcknowledged holds the ids of the unrecordable stand-ins in the
+	// upstream stream that a person on this Stage checked and acknowledged,
+	// oldest first (cap 50). They no longer stop the Stage offering.
+	// +optional
+	UpstreamAcknowledged []string `json:"upstreamAcknowledged,omitempty"`
 	// Candidate is the newest eligible candidate the stage reconciler saw.
 	// +optional
 	Candidate string `json:"candidate,omitempty"`
@@ -595,6 +603,9 @@ type Params struct {
 	// Undoes is the uid of the operation a rollback undoes.
 	// +optional
 	Undoes string `json:"undoes,omitempty"`
+	// Record is the id of the upstream stand-in an acknowledge accepts.
+	// +optional
+	Record string `json:"record,omitempty"`
 }
 
 // Actor is the apiserver identity that created the operation.
@@ -638,11 +649,11 @@ type Cause struct {
 
 // OperationSpec is the intent. It is frozen at admission.
 type OperationSpec struct {
-	// +kubebuilder:validation:Enum=delivery.pacto.trianalab.io/promote;delivery.pacto.trianalab.io/rollback;delivery.pacto.trianalab.io/override;delivery.pacto.trianalab.io/unfreeze;delivery.pacto.trianalab.io/freeze;delivery.pacto.trianalab.io/autonomy
+	// +kubebuilder:validation:Enum=delivery.pacto.trianalab.io/promote;delivery.pacto.trianalab.io/rollback;delivery.pacto.trianalab.io/override;delivery.pacto.trianalab.io/unfreeze;delivery.pacto.trianalab.io/freeze;delivery.pacto.trianalab.io/autonomy;delivery.pacto.trianalab.io/acknowledge
 	Type string `json:"type"`
 	// Stage is the name of a Stage in the operation's namespace.
 	Stage string `json:"stage"`
-	// +kubebuilder:validation:Enum=pointer;freeze;rung
+	// +kubebuilder:validation:Enum=pointer;freeze;rung;upstream
 	Facet string `json:"facet"`
 	// +optional
 	Params Params `json:"params,omitzero"`
