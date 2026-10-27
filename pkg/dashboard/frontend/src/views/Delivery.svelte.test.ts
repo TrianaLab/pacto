@@ -372,7 +372,13 @@ describe('environments', () => {
     expect(board.classList.contains('ev-strip')).toBe(true);
     expect(board.style.minWidth).toBe('');
     expect([...board.querySelectorAll('thead .ev-group-head')].map((g) => g.textContent)).toEqual(['dev', 'test', 'prod', 'other']);
-    expect(text(target.querySelector('[data-testid="environments-legend"]') as HTMLElement)).toContain('Dots run dev, test, prod and other, left to right.');
+    expect(text(target.querySelector('[data-testid="environments-legend"]') as HTMLElement)).toContain('One column per environment, grouped dev, test, prod and other.');
+    // Every dot column is named in the header, the full name in its title.
+    const cols = [...board.querySelectorAll('[data-testid="env-column"]')] as HTMLElement[];
+    expect(cols.map((c) => c.textContent)).toEqual(envs);
+    expect(cols.map((c) => c.title)).toEqual(envs);
+    // The dots column fits its dots: groups of 1, 4, 2 and 1 dots are 36 + 76 + 36 + 36 px, 12px apart.
+    expect((board.querySelectorAll('col')[1] as HTMLElement).style.width).toBe('calc(220px + 2 * var(--sp-3))');
     const pay = target.querySelector('[data-testid="env-row-payments"]') as HTMLElement;
     const dots = [...pay.querySelectorAll('button[data-testid="env-dot"]')] as HTMLButtonElement[];
     expect(dots.map((d) => `${d.dataset.env}:${d.className.match(/s-(\w+)/)?.[1]}`)).toEqual(
