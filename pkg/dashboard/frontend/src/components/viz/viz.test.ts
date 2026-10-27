@@ -55,6 +55,13 @@ describe('DistributionBar', () => {
     expect(target.querySelector('.dist-pct')?.textContent).toBe('(<0.1% of 3,000)');
   });
 
+  it('draws no bar and no share for a population of one', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments: [{ label: 'Unknown', value: 1, tone: 'warn' }], total: 1 } });
+    expect(target.querySelector('.dist-bar')).toBeNull();
+    expect(target.querySelector('.dist-pct')).toBeNull();
+    expect(target.querySelector('.dist-legend')?.textContent).toContain('Unknown');
+  });
+
   it('names the figure from its own caption heading at the requested level', () => {
     comp = mount(DistributionBar, { target, props: { title: 'Compliance', level: 2, segments, total: 7 } });
     const fig = target.querySelector('figure');

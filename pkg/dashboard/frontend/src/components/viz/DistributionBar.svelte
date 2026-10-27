@@ -108,7 +108,10 @@
     const p = pct(v);
     return p === 0 && v > 0 ? `<${denom >= 100 ? '0.1' : '1'}` : `${p}`;
   };
-  const pctLabel = (v) => (denom > 0 ? `(${pctText(v)}% of ${formatCount(denom)})` : '(share unavailable)');
+  // A population of one has no proportion to draw: a full bar and "(100% of 1)" only
+  // restate the count. The legend line says it alone.
+  const one = $derived(denom === 1 && over === 0);
+  const pctLabel = (v) => (one ? '' : denom > 0 ? `(${pctText(v)}% of ${formatCount(denom)})` : '(share unavailable)');
 
   // ONE stacked bar for every population, labelled on the bar itself. The bar used to
   // switch to a field of squares (one per member) under 120 members; reviewers read the
@@ -169,6 +172,7 @@
          would put a decorative shape back into it. The pointer gesture they carry is
          presentational, and its keyboard equivalent is the legend entry below, which IS
          focusable. -->
+    {#if !one}
     <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true" bind:clientWidth={barWidth}>
       {#each rows as r (r.label)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -184,6 +188,7 @@
         >{#if fits(r.value, formatCount(r.value))}<span class="dist-seg-text"><span class="dist-seg-value">{formatCount(r.value)}</span>{#if fits(r.value, `${formatCount(r.value)} ${r.label}`)}{' '}<span class="dist-seg-name">{r.label}</span>{/if}</span>{/if}</span>
       {/each}
     </div>
+    {/if}
     <ul class="dist-legend">
       {#each rows as r (r.label)}
         <li
@@ -199,13 +204,13 @@
               <span class="dist-swatch" aria-hidden="true"></span>
               <span class="dist-label">{r.label}</span>
               <span class="dist-value">{formatCount(r.value)}</span>
-              <span class="dist-pct">{pctLabel(r.value)}</span>
+              {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
             </a>
           {:else}
             <span class="dist-swatch" aria-hidden="true"></span>
             <span class="dist-label">{r.label}</span>
             <span class="dist-value">{formatCount(r.value)}</span>
-            <span class="dist-pct">{pctLabel(r.value)}</span>
+            {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
           {/if}
         </li>
       {/each}
