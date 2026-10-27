@@ -46,8 +46,9 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | Trusted cross-origin allowed to call the API | `""` (same-origin only) |
 | `PACTO_DASHBOARD_TRACES` | Offline OTLP/JSON trace exports to fold observed dependencies from. **Space-separated** list of paths | `""` |
-| `PACTO_DASHBOARD_OIDC_ISSUER_URL` | Identity provider people sign in with; delivery then runs as the signed-in person (also `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_EXTRA_SCOPES`) | `""` (no sign-in) |
-| `PACTO_DASHBOARD_AUTH_REQUIRED` | With sign-in configured, `true` puts the fleet views and the whole API behind it too, not only delivery. `/health` stays open for probes | `false` |
+| `PACTO_DASHBOARD_OIDC_ISSUER_URL` | Identity provider people sign in with before the dashboard shows anything; every view then follows their Kubernetes RBAC (also `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_EXTRA_SCOPES` and the claim mapping, see [dashboard authentication](integrations/kubernetes/dashboard-authentication.md)) | `""` (no sign-in) |
+| `PACTO_DASHBOARD_TOKEN_LOGIN` | `true` lets people sign in by pasting a Kubernetes bearer token | `false` |
+| `PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT`, `PACTO_DASHBOARD_SESSION_MAX_AGE` | How long a session lasts idle and in all | `1h`, `12h` |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | The same input with a stable identity per file: **space-separated** `NAME=PATH` entries, where `NAME` is the Data Source name the API and UI show | `""` |
 | `PACTO_CACHE_DIR` | Directory the dashboard scans for cached OCI bundles (read side) | `/home/pacto/.cache/pacto/oci` |
 | `PACTO_NO_CACHE` | Disable OCI bundle caching (`1`) | `0` |
@@ -137,8 +138,8 @@ example `query.kinds[1]`.
     can reach the port reads every contract, dependency and compliance result,
     and can make the container pull from your registries. Publish it to
     `127.0.0.1` (`-p 127.0.0.1:3000:3000`), put an authenticating proxy in front
-    of it, or configure sign-in with `PACTO_DASHBOARD_OIDC_ISSUER_URL` and
-    `PACTO_DASHBOARD_AUTH_REQUIRED=true`. The protections below defend against
+    of it, or configure [sign-in](integrations/kubernetes/dashboard-authentication.md)
+    with `PACTO_DASHBOARD_OIDC_ISSUER_URL`. The protections below defend against
     CSRF and resource exhaustion. They give no access control against a client
     that reaches the port.
 

@@ -61,6 +61,7 @@ words. Where the dashboard shows a different label, the last column gives it.
 | <a id="rollback"></a>Rollback | Put back the version that ran before. See [What happens to a change](integrations/kubernetes/delivery.md#what-happens-to-a-change) and [Roll back by hand](pactify-decide.md#roll-back-by-hand) | Roll back |
 | <a id="service"></a>Service | Something you run and other things call, such as `payments` | Service |
 | <a id="shadow-consumer"></a>Shadow consumer | A service seen calling another at runtime that no contract declares. See [Observed dependencies](operational-graph.md#observed-dependencies-and-reconciliation) | — |
+| <a id="sign-in"></a>Sign-in | How a person proves who they are to a shared dashboard, with your identity provider or a pasted Kubernetes token. Every view then shows what their Kubernetes RBAC lets them read. See [Dashboard authentication](integrations/kubernetes/dashboard-authentication.md) | Sign in |
 | <a id="stage"></a>Stage | One service in one environment, such as payments in prod, and the version it runs there. See [Stages and records](integrations/kubernetes/delivery.md#stages-and-records) | Environments |
 | <a id="step-down"></a>Step-down | Dropping one level after a version Pacto shipped with no person fails. See [Step-down](autonomy.md#step-down-one-failure-costs-one-level) | — |
 | <a id="target"></a>Target | One running deployment of a service, such as payments in one cluster. See [Three identities](operational-graph.md#three-identities) | Targets |

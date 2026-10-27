@@ -1,17 +1,18 @@
 # Who sees what in the dashboard
 
-With sign-in, the fleet views reuse Kubernetes RBAC. You see a namespace's
-services, revisions, targets, edges and evidence only if you may list Pactos
-there. The dashboard asks the apiserver with a SubjectAccessReview for your
-username and groups, keeps each answer a minute and applies one filter to every
-view: counts, search, the graph, change analysis and the remote MCP fleet tools.
-A visitor who has not signed in is checked as `system:anonymous`.
+With [sign-in](dashboard-authentication.md), the fleet views reuse Kubernetes
+RBAC. You see a namespace's services, revisions, targets, edges and evidence
+only if you may list Pactos there. The dashboard asks the apiserver with a
+SubjectAccessReview for your username and groups, keeps each answer a minute
+and applies one filter to every view: counts, search, the graph, change
+analysis and the remote MCP fleet tools. A visitor who has not signed in gets
+the sign-in screen and no fleet data.
 
-The username is `<issuer>#<sub>` and the groups claim is taken as it is, the
-mapping [the cluster trusts](delivery-identity.md#the-cluster-trusts-your-identity-provider), less any group starting with `system:`, which
-the apiserver never takes from a token. The dashboard adds no prefix to
-groups, so the cluster's authenticator must not add one either, or the review
-asks about groups other than the ones the apiserver grants.
+Your username and groups come from your ID token through the
+[claim mapping](dashboard-authentication.md#match-the-api-servers-claim-mapping),
+which must match the API server's. After a token sign-in they are what the API
+server answered for that token. When your RBAC lets you read no namespace, the
+dashboard says so and names your groups.
 
 ## What stays hidden
 

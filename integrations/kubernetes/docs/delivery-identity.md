@@ -98,30 +98,25 @@ in, and anyone outside them is an agent. The chart refuses delivery with
 
 ## Sign in to the dashboard
 
-Set the sign-in on the operator chart. The client secret stays in a Secret in
-the operator namespace, and TLS must end in front of the dashboard because its
-session cookie is `Secure`:
+[Dashboard authentication](dashboard-authentication.md) sets up the sign-in:
+the chart values, the claim mapping, sessions, token sign-in and recipes per
+identity provider. With sign-in configured, people sign in before the
+dashboard shows anything and see only
+[what their RBAC lets them read](dashboard-access.md). For approvals, add the
+extra scope `audience:server:client_id:pacto-cli` (see above) and tell the
+dashboard where delivery publishes its identity policy:
 
 ```yaml
 dashboard:
   auth:
     oidc:
-      issuerURL: https://idp.example.com
-      clientID: pacto-dashboard
-      clientSecretRef: {name: dashboard-oidc, key: client-secret}
-      redirectURL: https://pacto.example.com/auth/callback
       extraScopes: [audience:server:client_id:pacto-cli]
-    required: true             # sign-in for the fleet views and the whole API too, not only delivery
-    deliveryNamespace: ""      # where delivery publishes its identity policy; empty means delivery.namespace when delivery.enabled
+    deliveryNamespace: ""      # empty means delivery.namespace when delivery.enabled
   miraURL: http://mira.observability:4318
 ```
 
-Without `required`, anyone who reaches the dashboard sees the fleet views; only
-delivery asks for sign-in. `pacto dashboard` takes the same settings as
-`--oidc-*` flags and `--auth-required`, with the secret in
-`PACTO_DASHBOARD_OIDC_CLIENT_SECRET`. The dashboard's ServiceAccount gains
-nothing in delivery and cannot impersonate. With sign-in, people see only
-[what their RBAC lets them read](dashboard-access.md).
+The dashboard's ServiceAccount gains nothing in delivery and cannot
+impersonate.
 
 Without sign-in, a dashboard bound beyond loopback shows no delivery data and
 offers no actions. On loopback it acts as your kubeconfig user and prints a URL
@@ -207,7 +202,7 @@ tools.
   by default) after that person signed in again, and can take their other
   actions until it ends.
 - Sessions live in the dashboard's memory: it runs as one replica and a restart
-  signs everyone out. A session ends after an hour idle or twelve in all.
+  signs everyone out ([sessions](dashboard-authentication.md#sessions)).
 - A change's timeline shows only the Operation's own times, not Kubernetes
   events. Published versions are those your Stages know, and refused publishes
   are listed as the registry holds them, without checking their signatures.
