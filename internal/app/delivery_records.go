@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -103,7 +104,8 @@ func (d *Delivery) history(ctx context.Context, ns, stage string) (*delivery.His
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	ops, err := d.Operations(ctx, ns)
+	ops, err := d.operationsWhere(ctx, ns, fields.OneTermEqualSelector("spec.stage", stage),
+		func(o delivery.OperationObject) bool { return o.Spec.Stage == stage })
 	if err != nil {
 		return nil, nil, nil, err
 	}

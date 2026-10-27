@@ -61,6 +61,8 @@ type StageList struct {
 // +kubebuilder:printcolumn:name="Outcome",type=string,JSONPath=`.status.outcome`
 // +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.reason`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:selectablefield:JSONPath=`.spec.stage`
+// +kubebuilder:selectablefield:JSONPath=`.status.outcome`
 
 // Operation is one decision to change one facet of one Stage. Its spec is the
 // intent and never changes after admission; to change your mind, cancel and

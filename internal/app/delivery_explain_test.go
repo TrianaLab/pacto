@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stesting "k8s.io/client-go/testing"
 
@@ -124,6 +126,50 @@ func TestDeliveryHistory(t *testing.T) {
 	})
 	_, err = d.History(context.Background(), "prod", "payments-prod")
 	wantErrContaining(t, err, "listing Operations in prod: forbidden")
+}
+
+// The apiserver is asked for only the Operations a read needs; a cluster
+// whose CRD has no such selectable field refuses the selector and the whole
+// list is filtered here instead, to the same answer.
+func TestOperationsAreSelectedByField(t *testing.T) {
+	spec := func(stage string) map[string]any {
+		return map[string]any{"type": delivery.TypePromote, "stage": stage, "params": map[string]any{"from": dlA, "to": dlB},
+			"actor": map[string]any{"user": "bot"}}
+	}
+	d, c, _ := deliveryFixture(t, "alice", nil, nil,
+		opFixture("shipped", spec("payments-prod"), map[string]any{"phase": "Concluded", "outcome": "Succeeded"}),
+		opFixture("held", spec("payments-prod"), map[string]any{"phase": "Held"}),
+		opFixture("broke", spec("payments-test"), map[string]any{"phase": "Concluded", "outcome": "Errored"}))
+	var asked []string
+	refuse := false
+	c.PrependReactor("list", "operations", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		sel := a.(k8stesting.ListAction).GetListRestrictions().Fields.String()
+		asked = append(asked, sel)
+		if refuse && sel != "" {
+			return true, nil, apierrors.NewBadRequest(`Unable to find "delivery.pacto.trianalab.io/v1alpha1, Resource=operations" that match label selector "", field selector "` + sel + `": field label not supported: status.outcome`)
+		}
+		return false, nil, nil
+	})
+	names := func(ops []delivery.OperationObject) string {
+		var out []string
+		for _, o := range ops {
+			out = append(out, o.Metadata.Name)
+		}
+		slices.Sort(out)
+		return strings.Join(out, ",")
+	}
+	for _, r := range []bool{false, true} {
+		refuse, asked = r, nil
+		ops, err := d.OperationsNotSucceeded(context.Background(), "prod")
+		if err != nil || names(ops) != "broke,held" || asked[0] != "status.outcome!=Succeeded" || len(asked) != map[bool]int{false: 1, true: 2}[r] {
+			t.Fatalf("refused=%v: %s %v, asked %q", r, names(ops), err, asked)
+		}
+		asked = nil
+		h, err := d.History(context.Background(), "prod", "payments-prod")
+		if err != nil || len(h.Entries) != 2 || asked[0] != "spec.stage=payments-prod" {
+			t.Fatalf("refused=%v: history %+v %v, asked %q", r, h, err, asked)
+		}
+	}
 }
 
 func TestDeliveryProposeCarriesTheCause(t *testing.T) {

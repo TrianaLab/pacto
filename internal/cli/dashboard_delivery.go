@@ -78,6 +78,8 @@ type dashboardIdentity struct {
 	revisions map[string]delivery.Revision
 	// streams keeps verified record streams across requests (see app.StreamCache).
 	streams app.StreamCache
+	// reads keeps each caller's apiserver reads for a moment (see readCache).
+	reads *readCache
 }
 
 // Discovery: an answer is kept a minute, a failure a few seconds, and no call
@@ -98,7 +100,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	}
 	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
 		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
-		revisions: map[string]delivery.Revision{}, policyNS: v.GetString("dashboard.delivery-namespace")}
+		revisions: map[string]delivery.Revision{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache()}
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
 	var o *authn.OIDC
 	if issuer := v.GetString("dashboard.oidc-issuer-url"); issuer != "" {
@@ -238,6 +240,9 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		}
 		cfg = authn.RESTConfig(id.cluster, st.Token)
 	}
+	cfg = rest.CopyConfig(cfg)
+	cfg.QPS, cfg.Burst = callerQPS, callerQPS
+	cfg.Wrap(id.reads.wrap)
 	dyn, err := id.newClient(cfg)
 	if err != nil {
 		return nil, err
@@ -245,6 +250,12 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 	return dashDelivery{d: &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
 		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}, id: id}, nil
 }
+
+// callerQPS bounds one dashboard request's apiserver reads per second. The
+// client lives for one request, so client-go's default (5, bursting to 10)
+// only made a history page, a read per Stage on it, wait eight seconds on
+// itself; the apiserver's priority and fairness protects the cluster.
+const callerQPS = 100
 
 // describe caches what a digest carries: a digest never changes.
 // ponytail: a bounded map reset when full; an LRU if dashboards ever cycle
@@ -311,7 +322,7 @@ func (a dashDelivery) Stages(ctx context.Context, ns string) ([]delivery.StageOb
 }
 
 func (a dashDelivery) Operations(ctx context.Context, ns string) ([]delivery.OperationObject, error) {
-	o, err := a.d.Operations(ctx, ns)
+	o, err := a.d.OperationsNotSucceeded(ctx, ns)
 	return o, refusal(err)
 }
 

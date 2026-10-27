@@ -69,23 +69,32 @@ func operations(ctx context.Context, api DeliveryAPI, ns string, want bool) ([]d
 	return api.Operations(ctx, ns)
 }
 
-// listEach lists each namespace, dropping (and naming) one that refuses.
+// listEach lists each namespace, describeParallel at once (one after
+// another, a person who reads forty namespaces waited on eighty round trips
+// in a row), dropping (and naming) one that refuses.
 func listEach(ctx context.Context, api DeliveryAPI, namespaces []string, l Listing, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
+	sts, oss, errs := make([][]delivery.StageObject, len(namespaces)), make([][]delivery.OperationObject, len(namespaces)), make([]error, len(namespaces))
+	var g errgroup.Group
+	g.SetLimit(describeParallel)
+	for i, ns := range namespaces {
+		g.Go(func() error {
+			if sts[i], errs[i] = api.Stages(ctx, ns); errs[i] == nil {
+				oss[i], errs[i] = operations(ctx, api, ns, withOps)
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
 	var stages []delivery.StageObject
 	var ops []delivery.OperationObject
-	for _, ns := range namespaces {
-		st, err := api.Stages(ctx, ns)
-		var os []delivery.OperationObject
-		if err == nil {
-			os, err = operations(ctx, api, ns, withOps)
-		}
-		switch {
+	for i, ns := range namespaces {
+		switch err := errs[i]; {
 		case forbidden(err):
 			l.Completeness, l.Unreadable = "partial", append(l.Unreadable, ns)
 		case err != nil:
 			return nil, nil, l, err
 		default:
-			stages, ops = append(stages, st...), append(ops, os...)
+			stages, ops = append(stages, sts[i]...), append(ops, oss[i]...)
 		}
 	}
 	return stages, ops, l, nil

@@ -18,6 +18,9 @@ import (
 type DeliveryAPI interface {
 	WhoAmI(ctx context.Context) (delivery.Caller, error)
 	// Stages and Operations list one namespace, or all of them for "".
+	// Operations may leave out those that concluded Succeeded: no view reads
+	// them, and on a cluster that has run delivery a while they are nearly
+	// all of them.
 	Stages(ctx context.Context, namespace string) ([]delivery.StageObject, error)
 	Operations(ctx context.Context, namespace string) ([]delivery.OperationObject, error)
 	Get(ctx context.Context, namespace, name string) (*delivery.OperationObject, error)

@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
@@ -146,21 +149,24 @@ func getInto[T any](ctx context.Context, ri dynamic.ResourceInterface, name stri
 	return json.Unmarshal(b, into)
 }
 
-func listInto[T any](ctx context.Context, r dynamic.NamespaceableResourceInterface, ns, what string) ([]T, error) {
+// listInto lists what in ns ("" for every namespace), only the objects
+// fieldSelector (when set) matches.
+func listInto[T any](ctx context.Context, r dynamic.NamespaceableResourceInterface, ns, what string, fieldSelector ...string) ([]T, error) {
 	var ri dynamic.ResourceInterface = r
 	if ns != "" {
 		ri = r.Namespace(ns)
 	}
-	list, err := ri.List(ctx, metav1.ListOptions{})
+	list, err := ri.List(ctx, metav1.ListOptions{FieldSelector: strings.Join(fieldSelector, ",")})
 	if err != nil {
 		return nil, fmt.Errorf("listing %s in %s: %w", what, cmp.Or(ns, "every namespace"), err)
 	}
-	var out struct {
-		Items []T `json:"items"`
+	// Converted from the decoded objects, not written back to JSON and read
+	// again: on a list of thousands that round trip was most of the work.
+	out := make([]T, len(list.Items))
+	for i := range list.Items {
+		_ = runtime.DefaultUnstructuredConverter.FromUnstructured(list.Items[i].Object, &out[i]) // a malformed item stays partly read, as before
 	}
-	b, _ := list.MarshalJSON()
-	_ = json.Unmarshal(b, &out)
-	return out.Items, nil
+	return out, nil
 }
 
 // Stages lists the Stages in a namespace, or in every namespace for "".
@@ -168,9 +174,27 @@ func (d *Delivery) Stages(ctx context.Context, ns string) ([]delivery.StageObjec
 	return listInto[delivery.StageObject](ctx, d.Dynamic.Resource(gvrStages), ns, "Stages")
 }
 
-// Operations lists the Operations in a namespace, or in every namespace for "".
-func (d *Delivery) Operations(ctx context.Context, ns string) ([]delivery.OperationObject, error) {
-	return listInto[delivery.OperationObject](ctx, d.Dynamic.Resource(gvrOperations), ns, "Operations")
+// OperationsNotSucceeded lists the Operations in ns ("" for all) that did
+// not conclude Succeeded: held, in flight, failed, errored, rejected or
+// cancelled. On a cluster that has run delivery a while, the ones it leaves
+// out are nearly all of them.
+func (d *Delivery) OperationsNotSucceeded(ctx context.Context, ns string) ([]delivery.OperationObject, error) {
+	return d.operationsWhere(ctx, ns, fields.OneTermNotEqualSelector("status.outcome", string(delivery.Succeeded)),
+		func(o delivery.OperationObject) bool { return o.Status.Outcome != delivery.Succeeded })
+}
+
+// operationsWhere lists the Operations in ns that keep says yes to, asking
+// the apiserver to filter with sel, the same test over a selectable field of
+// the Operation CRD. A cluster whose CRD predates that field refuses the
+// selector; the whole list is then filtered here, so the answer is the same
+// either way.
+func (d *Delivery) operationsWhere(ctx context.Context, ns string, sel fields.Selector, keep func(delivery.OperationObject) bool) ([]delivery.OperationObject, error) {
+	r := d.Dynamic.Resource(gvrOperations)
+	ops, err := listInto[delivery.OperationObject](ctx, r, ns, "Operations", sel.String())
+	if apierrors.IsBadRequest(err) {
+		ops, err = listInto[delivery.OperationObject](ctx, r, ns, "Operations")
+	}
+	return slices.DeleteFunc(ops, func(o delivery.OperationObject) bool { return !keep(o) }), err
 }
 
 // Describe reads what one of a Stage's artifact digests carries: the
