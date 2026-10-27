@@ -8,8 +8,8 @@ search:
 # Quickstart
 
 In this tutorial you write a contract, check it and use it to catch a
-breaking change. It takes about five minutes. A contract is one file, `pacto.yaml`, that says who owns a
-service, what it offers and which other services it calls. Everything here
+breaking change. It takes about five minutes. A
+[contract](glossary.md#contract) is one file, `pacto.yaml`. Everything here
 runs on your machine, with no account and no registry.
 
 ---
@@ -20,13 +20,7 @@ runs on your machine, with no account and no registry.
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
 ```
 
-Or via Go:
-
-```bash
-go install github.com/trianalab/pacto/v4/cmd/pacto@latest
-```
-
-See [Installation](installation.md) for other methods and for what to do if the script exits with `Failed to fetch latest version`. That message means you hit the anonymous GitHub API rate limit.
+[Installation](installation.md) covers the other ways to install and what to do if the script fails.
 
 ## 2. Create a contract
 

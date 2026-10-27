@@ -25,7 +25,7 @@ flowchart LR
 pacto init my-service
 ```
 
-This creates a `my-service/` directory (a *bundle*: the contract plus the files it points to) with a valid starter contract. Edit `pacto.yaml` to match your service.
+This creates a `my-service/` directory (a [bundle](glossary.md#bundle)) with a valid starter contract. Edit `pacto.yaml` to match your service.
 
 ### 2. Infer schemas from your code (optional)
 

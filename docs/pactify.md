@@ -127,8 +127,8 @@ API changes only there. Every field is in [Publish](contract-reference/publish.m
 and [Dependencies](contract-reference/dependencies-and-state.md). For private
 images, add `imagePullSecrets: [{name: registry-creds}]` under
 `spec.template.spec` in your Deployment. With dependencies, run `pacto lock .`
-([Lockfile](lockfile.md)). Commit `pacto.yaml`, `.pactoignore`, `.gitignore`,
-`delivery/` and any `pacto.lock`.
+([Lockfile](lockfile.md)), and commit what `init` wrote, as
+[What to commit](ci.md#what-to-commit) lists.
 
 ## 3. Publish a version
 
