@@ -74,7 +74,10 @@ func newSharedWorld(t *testing.T) *sharedWorld {
 		ns, _, _ := unstructured.NestedString(o.Object, "spec", "resourceAttributes", "namespace")
 		groups, _, _ := unstructured.NestedStringSlice(o.Object, "spec", "groups")
 		extra, _, _ := unstructured.NestedStringSlice(o.Object, "spec", "extra", "k")
-		allowed := user == "root" || user == "alice" && ns == "a" && len(groups) == 1 && len(extra) == 1
+		verb, _, _ := unstructured.NestedString(o.Object, "spec", "resourceAttributes", "verb")
+		name, _, _ := unstructured.NestedString(o.Object, "spec", "resourceAttributes", "name")
+		allowed := user == "root" || user == "alice" && ns == "a" && len(groups) == 1 && len(extra) == 1 ||
+			user == "carol" && ns == "b" && verb == "get" && name == "s2" // a Role with resourceNames
 		o.Object["status"] = map[string]any{"allowed": allowed}
 		return true, o, nil
 	})
@@ -292,9 +295,65 @@ func TestDashboardDeliveryReadsShared(t *testing.T) {
 	_, shared := dd.d.Dynamic.(sharedClient)
 	expect(t, shared && dd.act.Dynamic == sa, "reads go through the shared cache, actions do not")
 
+	// Kept answers are the token's, not the claim mapping's: two tokens that
+	// both map to the anonymous Person share none.
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Token: "bob", Person: authn.Anonymous}
+	}
+	bob, _ := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Token: "carol", Person: authn.Anonymous}
+	}
+	carol, _ := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, bob.(dashDelivery).who != carol.(dashDelivery).who && bob.(dashDelivery).who != "", "each token keeps its own namespaces")
+
 	failing := identityFor(t, v, "0.0.0.0", &rest.Config{Host: "https://k"})
 	failing.newClient = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("no") }
 	expect(t, failing.sharedReads() == nil, "no client, no shared cache")
 	local := identityFor(t, viper.New(), "127.0.0.1", &rest.Config{Host: "https://k"})
 	expect(t, local.sharedReads() == nil, "local mode reads as the kubeconfig user")
+}
+
+// TestSharedReadsGetsNamedObjects: a get asks about the object by name, so a
+// Role that grants get on named objects only still reads them.
+func TestSharedReadsGetsNamedObjects(t *testing.T) {
+	w := newSharedWorld(t)
+	ctx := context.Background()
+	stages := w.s.client(person(t, "carol", nil), "carol").Resource(gvrTestStages).Namespace("b")
+	got, err := stages.Get(ctx, "s2", metav1.GetOptions{})
+	expect(t, err == nil && got.GetName() == "s2", "carol gets the Stage her Role names: %v", err)
+	_, err = stages.Get(ctx, "other", metav1.GetOptions{})
+	expect(t, apierrors.IsForbidden(err), "and no other: %v", err)
+	_, err = stages.List(ctx, metav1.ListOptions{})
+	expect(t, apierrors.IsForbidden(err), "nor the list: %v", err)
+}
+
+// ctxChecking fails every create made with a context already done, as a
+// real apiserver round trip does.
+type ctxChecking struct{ dynamic.Interface }
+
+func (c ctxChecking) Resource(gvr schema.GroupVersionResource) dynamic.NamespaceableResourceInterface {
+	return ctxCheckingResource{c.Interface.Resource(gvr)}
+}
+
+type ctxCheckingResource struct {
+	dynamic.NamespaceableResourceInterface
+}
+
+func (r ctxCheckingResource) Create(ctx context.Context, o *unstructured.Unstructured, opts metav1.CreateOptions, sub ...string) (*unstructured.Unstructured, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return r.NamespaceableResourceInterface.Create(ctx, o, opts, sub...)
+}
+
+// TestSharedReadsOutliveTheAskersCancel: the reviews are shared by every
+// waiter, so the first asker's cancel does not fail them.
+func TestSharedReadsOutliveTheAskersCancel(t *testing.T) {
+	w := newSharedWorld(t)
+	w.s.sa = ctxChecking{w.s.sa}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := w.s.client(ctxChecking{person(t, "alice", nil)}, "alice").Resource(gvrTestStages).Namespace("a").Get(ctx, "s1", metav1.GetOptions{})
+	expect(t, err == nil && got.GetName() == "s1", "the reviews run past the asker's cancel: %v", err)
 }

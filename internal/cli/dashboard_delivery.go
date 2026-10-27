@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -264,7 +265,10 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 			return nil, dashboard.Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to see and act on delivery")
 		}
 		cfg, token = authn.RESTConfig(id.cluster, st.Token), st.Token
-		who = st.Person.User + "\x00" + strings.Join(st.Person.Groups, "\x00")
+		// The token, not the claim mapping's Person: tokens without the
+		// username claim all map to the one anonymous Person.
+		sum := sha256.Sum256([]byte(st.Token))
+		who = string(sum[:])
 	}
 	cfg = rest.CopyConfig(cfg)
 	cfg.QPS, cfg.Burst = callerQPS, callerQPS
@@ -338,7 +342,7 @@ func (id *dashboardIdentity) describe(ctx context.Context, d *app.Delivery, stag
 type dashDelivery struct {
 	d, act *app.Delivery
 	id     *dashboardIdentity
-	// who names the caller as RBAC decides on them: "" in local mode.
+	// who keys the caller's cached answers: their token's hash, "" in local mode.
 	who string
 }
 

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -181,5 +182,22 @@ func TestReadCacheKeepsOnlyWholeSuccessfulAnswers(t *testing.T) {
 	call(t, rt, http.MethodGet, "https://api/ghijkl", "alice")
 	if len(c.entries) != 1 || c.size != len("/ghijkl") {
 		t.Fatalf("past maxBytes the cache starts over: %d entries, %d bytes", len(c.entries), c.size)
+	}
+}
+
+// TestReadCacheOutlivesTheAskersCancel: the round trip is shared by every
+// waiter on its key, so the first asker's cancel does not fail them.
+func TestReadCacheOutlivesTheAskersCancel(t *testing.T) {
+	rt := newReadCache().wrap(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if err := r.Context().Err(); err != nil {
+			return nil, err
+		}
+		return (&backend{}).RoundTrip(r)
+	}))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api/a", nil)
+	if _, err := rt.RoundTrip(req); err != nil {
+		t.Fatalf("the shared round trip ran with the asker's cancel: %v", err)
 	}
 }

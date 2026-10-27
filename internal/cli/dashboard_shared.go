@@ -174,7 +174,7 @@ func (r selfAccess) Create(ctx context.Context, obj *unstructured.Unstructured, 
 		return nil, err
 	}
 	gvr := schema.GroupVersionResource{Group: deliveryGroup, Version: attrs["version"], Resource: attrs["resource"]}
-	ok, err := r.c.s.may(ctx, who, attrs["verb"], gvr, attrs["namespace"])
+	ok, err := r.c.s.may(ctx, who, attrs["verb"], gvr, attrs["namespace"], "")
 	if err != nil {
 		return nil, err
 	}
@@ -299,14 +299,14 @@ func (r sharedResource) get(ctx context.Context, ns, name string, o metav1.GetOp
 }
 
 // allow is nil when the person c acts for may verb gvr in ns ("" for every
-// namespace), else the 403 the apiserver would answer. A review that fails
-// is that error, never a quiet allow.
+// namespace) and, for a get, on the object name, else the 403 the apiserver
+// would answer. A review that fails is that error, never a quiet allow.
 func (s *sharedReads) allow(ctx context.Context, c sharedClient, verb string, gvr schema.GroupVersionResource, ns, name string) error {
 	who, err := s.whoami(ctx, c)
 	if err != nil {
 		return err
 	}
-	ok, err := s.may(ctx, who, verb, gvr, ns)
+	ok, err := s.may(ctx, who, verb, gvr, ns, name)
 	if err != nil || ok {
 		return err
 	}
@@ -329,7 +329,8 @@ func (s *sharedReads) whoami(ctx context.Context, c sharedClient) (subject, erro
 		return v.s, nil
 	}
 	out, err, _ := s.group.Do("who\x00"+key, func() (any, error) {
-		ctx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+		// Not the caller's cancel: every waiter shares this answer.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discoveryTimeout)
 		defer cancel()
 		r, err := c.Interface.Resource(ssrGVR).Create(ctx, &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"}}, metav1.CreateOptions{})
@@ -350,10 +351,11 @@ func (s *sharedReads) whoami(ctx context.Context, c sharedClient) (subject, erro
 }
 
 // may asks, with the dashboard's own credentials, whether who may verb gvr in
-// ns; answers are kept ttl and concurrent identical questions share one.
-func (s *sharedReads) may(ctx context.Context, who subject, verb string, gvr schema.GroupVersionResource, ns string) (bool, error) {
+// ns, on the object name when not "" (a Role may grant get on named objects
+// only); answers are kept ttl and concurrent identical questions share one.
+func (s *sharedReads) may(ctx context.Context, who subject, verb string, gvr schema.GroupVersionResource, ns, name string) (bool, error) {
 	b, _ := json.Marshal(who)
-	key := string(b) + "\x00" + verb + "\x00" + gvr.Resource + "\x00" + ns
+	key := string(b) + "\x00" + verb + "\x00" + gvr.Resource + "\x00" + ns + "\x00" + name
 	s.mu.Lock()
 	v, ok := s.answers[key]
 	s.mu.Unlock()
@@ -361,10 +363,11 @@ func (s *sharedReads) may(ctx context.Context, who subject, verb string, gvr sch
 		return v.allowed, nil
 	}
 	out, err, _ := s.group.Do("may\x00"+key, func() (any, error) {
-		ctx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+		// Not the caller's cancel: every waiter shares this answer.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discoveryTimeout)
 		defer cancel()
 		spec := map[string]any{"user": who.User, "uid": who.UID, "resourceAttributes": map[string]any{
-			"namespace": ns, "verb": verb, "group": gvr.Group, "version": gvr.Version, "resource": gvr.Resource}}
+			"namespace": ns, "name": name, "verb": verb, "group": gvr.Group, "version": gvr.Version, "resource": gvr.Resource}}
 		if len(who.Groups) > 0 {
 			spec["groups"] = anyStrings(who.Groups)
 		}

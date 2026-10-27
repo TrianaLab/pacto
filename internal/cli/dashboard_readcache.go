@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -94,7 +95,8 @@ func (c *readCache) wrap(rt http.RoundTripper) http.RoundTripper {
 		}
 		v, err, _ := c.group.Do(key, func() (any, error) {
 			started := c.now()
-			resp, err := rt.RoundTrip(r)
+			// Not the caller's cancel: every waiter on key shares this answer.
+			resp, err := rt.RoundTrip(r.WithContext(context.WithoutCancel(r.Context())))
 			if err != nil {
 				return nil, err
 			}
