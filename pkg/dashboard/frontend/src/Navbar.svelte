@@ -147,9 +147,21 @@
   }
 
   const enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
+  // "Kubernetes — live cluster runtime data" reads as a name and a label, so the name is
+  // printed once instead of the wire type above a sentence that repeats it.
+  function sourceParts(type) {
+    const [name, ...rest] = sourceTooltip(type).split(' — ');
+    return { name: rest.length ? name : type, desc: rest.join(' — ') };
+  }
+  // The popover is native and survives a hash navigation, so following its own link left
+  // it open over the page it opened. Any navigation closes it.
+  function closeSourcesPop() {
+    try { document.getElementById('navbar-sources')?.hidePopover?.(); } catch { /* not open */ }
+  }
 </script>
 
 <svelte:document onclick={handleClickOutside} />
+<svelte:window onhashchange={closeSourcesPop} />
 
 <!-- The application chrome is a BANNER, not a navigation landmark. It used to be a
      bare <nav>, which meant every page exposed two navigation landmarks -- one named
@@ -195,11 +207,12 @@
         <p class="sources-pop-title t-label">Data sources</p>
         <ul class="sources-pop-list">
           {#each enabledSources as src}
-            <li><SourceDot source={src.type} /><span><strong>{src.type}</strong><span class="t-meta sources-pop-desc">{sourceTooltip(src.type)}</span></span></li>
+            {@const sp = sourceParts(src.type)}
+            <li><SourceDot source={src.type} /><span><strong>{sp.name}</strong>{#if sp.desc}<span class="t-meta sources-pop-desc">{sp.desc}</span>{/if}</span></li>
           {/each}
         </ul>
         {#if discovering}<p class="t-meta sources-pop-note">Still discovering services.</p>{/if}
-        {#if capabilities?.fleet}<a class="sources-pop-link" href={fleetSourcesUrl()}>Health of every data source</a>{/if}
+        {#if capabilities?.fleet}<a class="sources-pop-link" href={fleetSourcesUrl()}>Source health</a>{/if}
       </div>
     {/if}
 
