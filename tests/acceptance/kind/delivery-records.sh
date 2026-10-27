@@ -239,7 +239,10 @@ records_audit() {
   section "history and blame answer from the records"
   local first h b
   first="$(kubectl -n prod get operations -o json | jq -r '[.items[] | select(.status.record)] | sort_by(.status.seq) | .[0].metadata.name')"
-  kubectl -n prod delete operation "$first" --wait=true >/dev/null
+  # Admission keeps a moved operation from hand deletes; the namespace
+  # controller may still remove it, which is how a cluster forgets one.
+  kubectl -n prod delete operation "$first" --wait=true \
+    --as system:serviceaccount:kube-system:namespace-controller >/dev/null || fail "the namespace controller could not remove $first"
   h="$(rec history -n prod --stage payments --output-format json)"
   jq -e --arg n "$first" '.source == "records" and .completeness == "complete" and
     ([.entries[] | select(.operation == $n and .record != "")] | length) == 1' <<<"$h" >/dev/null \
