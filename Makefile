@@ -82,7 +82,7 @@ test-integration:
 # tests/perf/README.md. PERF_REPORT=<file> also writes the dashboard table.
 perf-envtest:
 	@assets="$$($(MAKE) -s -C integrations/kubernetes setup-envtest | tail -n 1)"; \
-	KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run TestPerfEnvtest -count=1 -timeout 120m -v ./internal/cli/ && \
+	KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run "TestPerfEnvtest|TestSharedReadsRBACIsolation" -count=1 -timeout 120m -v ./internal/cli/ && \
 	cd integrations/kubernetes && KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run TestPerfPromoter -count=1 -timeout 30m -v ./internal/delivery/
 
 # Level 4 — local acceptance, cluster-free: builds pacto and drives the whole
