@@ -785,9 +785,9 @@
   .gv-focus-err { color: var(--c-err); }
   .lg-hint { margin-left: auto; }
   /* One line until opened; the pieces inside lose their own boxes. */
-  .gv-notice { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm); background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); }
+  .gv-notice { padding: 0 var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm); background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); }
   .gv-notice > summary { color: var(--c-text-2); }
-  .gv-notice-body { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
+  .gv-notice-body { display: flex; flex-direction: column; gap: var(--sp-2); padding-bottom: var(--sp-3); }
   .gv-notice-body .gv-caveat, .gv-notice-body :global(.knowledge) { padding: 0; background: none; border: 0; }
   .gv-fold-title { display: inline; }
   .gv-chip { display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--c-text-2); background: var(--c-bg); }
