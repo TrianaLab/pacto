@@ -98,12 +98,10 @@ flowchart LR
 - Before: `pacto.published` admits only a version
   [`pacto publish`](../../publishing.md) published, `pacto.diff` compares the
   contracts and `pacto.impact` checks every consumer in the environment that
-  declares a range on the service. A broken consumer holds the change for its
-  owners; anything unseen (an unreadable Pacto, a registry silent for 10
-  seconds) holds it for a person to accept the unknown. Pacto sees only
-  consumers with a contract, so a breaking change that no Pacto depends on also
-  waits for a person, unless the Stage sets
-  `gates.impact.declaredConsumersOnly: true` to say every consumer has one.
+  declares a range on the service, as
+  [Who is asked and why](delivery.md#who-is-asked-and-why) explains. Anything
+  unseen (an unreadable Pacto, a registry silent for 10 seconds) is
+  [Unknown](delivery.md#what-unknown-means).
   `pacto.suites` holds a version that does not ship a suite one of the Stage's
   checks names, for a person to accept the unknown. It also holds a version
   that changes a suite it ships, on every level.
@@ -112,16 +110,15 @@ flowchart LR
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`
   and `Invalid` fail, anything else is Unknown.
   [Health checks](delivery-health.md) can join it.
-- None of a Stage's last 50 failed versions is promoted again there. The
-  promoter raises one rollback per failure; if that fails, is refused or is
-  unclear, or the version before failed too, the Stage freezes until a person
-  unfreezes it. A person's rollback puts an auto-hold on a Stage on an
-  automatic level, so automation does not undo it.
+- Rollbacks, freezes and the 50 failed versions never tried again work as
+  [What happens to a change](delivery.md#what-happens-to-a-change) says. A
+  rollback that is refused or unclear also freezes the Stage, and a person's
+  rollback puts an [auto-hold](../../glossary.md#auto-hold) on a Stage on an
+  automatic level.
 
 Only six built-in operation types exist: promote, rollback, override, freeze,
 unfreeze and autonomy, which moves the Stage up or down
-[the autonomy ladder](../../autonomy.md). The promoter freezes a Stage when a
-check after release fails and it cannot roll back. Stage approval policy is
+[the autonomy ladder](../../autonomy.md). Stage approval policy is
 `approval.always`, not an expression.
 
 ## What the pointer guarantees

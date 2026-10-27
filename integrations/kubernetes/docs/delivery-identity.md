@@ -56,12 +56,8 @@ To check a cluster, sign in again and run `kubectl auth whoami -o yaml`. If
 `extra` holds no `delivery.pacto.trianalab.io/auth-time`, nobody can approve there. Delivery
 still promotes every change that needs no decision. People can still freeze,
 unfreeze, roll back and cancel. The dashboard and the CLI still read
-everything. A held change then ends one of three ways: it expires, someone
-cancels it and publishes a version that asks nothing, or a member of the
-break-glass group raises an override with
-`pacto delivery propose --type override --to sha256:...`. An override moves the version at once with no checks, is kept
-in the history like any change and freezes the Stage until a person unfreezes
-it.
+everything. [What you need to be allowed](../../pactify-decide.md#what-you-need-to-be-allowed)
+lists the three ways a held change still ends.
 
 ## Who counts as a person, an agent or a team
 

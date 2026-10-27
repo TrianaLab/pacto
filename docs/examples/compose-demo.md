@@ -10,8 +10,8 @@ This demo runs a small set of services and Pacto on your machine with Docker.
 Use it to see Pacto work against real parts:
 
 - a container registry holds published contracts;
-- an Evidence Server, which stores signed reports from other environments,
-  holds one from a pretend remote environment;
+- an [Evidence Server](../glossary.md#evidence-server) holds a signed report
+  from a pretend remote environment;
 - the dashboard shows all of it as one graph of who calls whom;
 - `pacto agent` watches the containers' network connections and reports a
   service that says it is up but serves nothing.

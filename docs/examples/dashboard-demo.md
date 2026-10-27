@@ -28,7 +28,7 @@ browser keeps a copy afterwards.
   versions. The graph shows which services call it and what a change would
   reach.
 - **Change analysis**: the `v1.2.1 → v2.0.1` step removes the `/charges` API
-  and shows which consumers, the services that call it, the break reaches.
+  and shows which [consumers](../glossary.md#consumer) the break reaches.
 - **Delivery, simulated**: press **Play the delivery story**. First
   `pacto init` gives a plain service a contract. Then a safe change ships on
   its own, a bad release is rolled back, a breaking change asks only the

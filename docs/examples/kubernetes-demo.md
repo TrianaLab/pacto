@@ -9,12 +9,12 @@ search:
 This demo runs Pacto delivery on a real Kubernetes cluster on your machine
 and follows one service, payments, through its releases. Use it to see every
 part working before you try your own service. The parts
-are real: the registry, Flux, delivery (which picks the version), the
-recorder (which signs a record of every step), a health check, the node
+are real: the registry, Flux, [delivery](../glossary.md#delivery), the
+[recorder](../glossary.md#recorder), a health check, the node
 agent (which sees calls between services), sign-in and the dashboard. The
 services themselves, their traffic and the people signing in are made up
-(see [What is generated](#what-is-generated)). Its Stages start on fixed
-levels of the autonomy ladder: payments on autonomous in test and prod, the
+(see [What is generated](#what-is-generated)). Its [Stages](../glossary.md#stage) start on fixed
+[levels](../glossary.md#level): payments on autonomous in test and prod, the
 other services on autonomous in test and advise in prod, and fraud on
 observe. To see a Stage earn a proposal to move up a level, use the
 [browser demo](dashboard-demo.md).

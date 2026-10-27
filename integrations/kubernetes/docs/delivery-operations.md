@@ -42,9 +42,9 @@ and `<stage>-auto-` or `<stage>-witnessed-` names, are the promoter's own:
 admission refuses them to everyone else, so nobody can take the name of a
 rollback before the promoter raises it.
 
-`pacto mcp --delivery` gives agents the read, plan, history, blame, undo and
-record-verify tools, plus propose and cancel only when the apiserver says the
-caller is an agent. There is no approve tool.
+`pacto mcp --delivery` gives agents the tools
+[Which tools exist](../../mcp-integration.md#which-tools-exist) lists, with
+propose and cancel only when the apiserver says the caller is an agent.
 
 ## When another service must move first
 
