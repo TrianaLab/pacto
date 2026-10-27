@@ -8,7 +8,7 @@
   import { formatCount } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
-  import { shortDigest, shortDigests, sentence, timeLabel } from '../lib/delivery.ts';
+  import { shortDigest, sentence, timeLabel } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -48,6 +48,8 @@
   // what the reader asked to see whole, keyed by service (and digest).
   const VERSIONS = 5;
   let open = $state({});
+  // A contract reference by its digest alone; the repository is on hover and in the copy.
+  const contractShort = (ref) => (ref.includes('@') ? shortDigest(ref.slice(ref.lastIndexOf('@') + 1)) : ref);
   // Running and failed first, so the list a count opens leads with what matters.
   const stagesFirst = (stages) => [...(stages ?? [])].sort((a, b) => (b.running || b.failed ? 1 : 0) - (a.running || a.failed ? 1 : 0));
   const BUMPS = { major: 'a major version', minor: 'at least a minor version', patch: 'a patch version' };
@@ -125,7 +127,7 @@
                   {#if v.version}<strong>{v.version}</strong>{/if}
                   {#if v.signed}<span class="badge badge-ok">Signature checked</span>{:else}<span class="badge badge-neutral">Signature not checked here</span>{/if}
                   <CopyableIdentifier value={v.digest} display={shortDigest(v.digest)} label="digest" />
-                  {#if v.contract}<span class="t-meta pv-contract">Contract <CopyableIdentifier value={v.contract} display={shortDigests(v.contract)} label="contract reference" /></span>{/if}
+                  {#if v.contract}<span class="t-meta pv-contract">Contract <CopyableIdentifier value={v.contract} display={contractShort(v.contract)} label="contract reference" /></span>{/if}
                   {#if stages.length}
                     {@const running = stages.filter((on) => on.running).length}
                     {@const failed = stages.filter((on) => on.failed).length}

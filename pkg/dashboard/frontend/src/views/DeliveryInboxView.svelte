@@ -160,8 +160,9 @@
   .dl-note { margin: var(--sp-1) 0 var(--sp-2); color: var(--c-text-3); }
   .dl-title { font-weight: 600; color: var(--c-accent); }
   .dl-question { margin: 0; }
-  .dl-facts { display: flex; flex-wrap: wrap; gap: 2px var(--sp-4); margin: 0; }
-  .dl-facts > div { display: flex; gap: var(--sp-2); align-items: baseline; min-width: 0; }
+  /* Centred, not baseline: the "Show all" button in the affected services is taller than text. */
+  .dl-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-4); margin: 0; }
+  .dl-facts > div { display: flex; gap: var(--sp-2); align-items: center; min-width: 0; }
   .dl-facts dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .dl-facts dd { margin: 0; }
   .dl-facts a { text-decoration: underline; }

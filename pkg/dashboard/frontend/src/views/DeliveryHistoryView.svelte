@@ -91,7 +91,7 @@
   const deciders = (en) => (en.approvals ?? []).filter((a) => a.by);
 </script>
 
-{#snippet when(en)}{#if en?.finished}<time datetime={en.finished} title={en.finished}>{timeLabel(en.finished)}</time>{:else if en?.since}<span class="hv-class">Since <time datetime={en.since} title={en.since}>{timeLabel(en.since)}</time></span>{/if}{/snippet}
+{#snippet when(en)}{#if en?.finished}<time datetime={en.finished} title={en.finished}>{timeLabel(en.finished)}</time>{:else if en?.since}<span class="hv-class" title={`Waiting since ${en.since}`}><span class="visually-hidden">{'Waiting since '}</span><time datetime={en.since}>{timeLabel(en.since)}</time></span>{/if}{/snippet}
 
 <div class="product-page">
   <PageHeader
@@ -195,7 +195,7 @@
             <div class="data-scroll">
               <table class="data-table hv-table">
                 <caption class="visually-hidden">Changes on {h.namespace}/{h.stage.name}, newest first</caption>
-                <colgroup><col style="width: 12%" /><col style="width: 15%" /><col style="width: 18%" /><col style="width: 15%" /><col style="width: 16%" /><col style="width: 12%" /><col style="width: 12%" /></colgroup>
+                <colgroup><col style="width: 9%" /><col style="width: 14%" /><col style="width: 18%" /><col style="width: 15%" /><col style="width: 15%" /><col style="width: 16%" /><col style="width: 13%" /></colgroup>
                 <thead><tr><th scope="col">Change</th><th scope="col">Version</th><th scope="col">Asked by</th><th scope="col">Decided by</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Record</th></tr></thead>
                 <tbody>
                   {#each h.entries as en, i (`${en.seq ?? ''}/${en.record ?? ''}/${en.operation}/${i}`)}

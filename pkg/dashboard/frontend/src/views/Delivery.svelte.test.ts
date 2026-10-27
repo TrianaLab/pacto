@@ -938,7 +938,8 @@ describe('history and published', () => {
     await settle();
     const cells = [...target.querySelectorAll('tbody td')];
     const when = cells.find((c) => c.getAttribute('data-label') === 'When') as HTMLElement;
-    expect(text(when).trim()).toBe('Since 2026-10-21 09:00 UTC');
+    expect(text(when).trim()).toBe('Waiting since 2026-10-21 09:00 UTC');
+    expect(when.querySelector('[title]')?.getAttribute('title')).toBe('Waiting since 2026-10-21T09:00:00Z');
     const ver = cells.find((c) => c.getAttribute('data-label') === 'Version')!.querySelector('.cell-clip')!;
     expect(ver.getAttribute('title')).toBe(`1.0.0 → 12.104.3-rc.15+build.20261026\n${D1} → ${D2}`);
     // The Agent chip sits beside who asked, and the record cell never wraps.
@@ -1030,15 +1031,15 @@ describe('history and published', () => {
       { digest: D2, version: '2.0.0', contract: `oci://r/p@sha256:${'c'.repeat(64)}`, signed: true, stages: [
         { namespace: 'test', stage: 'pay', environment: 'test', running: false, verified: true, failed: false },
         { namespace: 'prod', stage: 'pay', environment: 'prod', running: true, verified: true, failed: false }] },
-      { digest: D1, signed: false, stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: false, verified: false, failed: true }] },
+      { digest: D1, signed: false, contract: 'oci://r/p:1.0', stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: false, verified: false, failed: true }] },
     ] }] });
     let r = render(DeliveryPublishView);
     await settle();
     // One line per version: short digests with a copy button, and environments as a count.
     const rows = [...r.target.querySelectorAll('li.pv-row')].map((li) => text(li as HTMLElement).trim());
     expect(rows).toEqual([
-      '2.0.0 Signature checked 222222222222 ⧉ Contract oci://r/p@sha256:cccccccccccc ⧉ 2 environments, 1 running',
-      'Signature not checked here 111111111111 ⧉ 1 environment, 1 failed',
+      '2.0.0 Signature checked 222222222222 ⧉ Contract cccccccccccc ⧉ 2 environments, 1 running',
+      'Signature not checked here 111111111111 ⧉ Contract oci://r/p:1.0 ⧉ 1 environment, 1 failed',
     ]);
     expect(r.target.querySelector('.pv-contract .copyable')?.getAttribute('title')).toBe(`oci://r/p@sha256:${'c'.repeat(64)}`);
     expect(r.target.querySelector('[data-testid="published-stages"]')).toBeNull();
