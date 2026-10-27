@@ -381,10 +381,21 @@ identity_scenario() {
   out="$(dash "$carol" POST /api/delivery/operations '{"namespace":"prod","stage":"payments","type":"delivery.pacto.trianalab.io/unfreeze","name":"idp-unfreeze","reason":"phase 4"}' "$cs")"
   [ "${out%% *}" = 201 ] || fail "carol's unfreeze: $out"
   eventually 40 concluded prod idp-unfreeze || fail "carol's unfreeze never concluded: $(field prod idp-unfreeze message)"
-  [[ "$(outcome prod idp-unfreeze)" == Succeeded/* ]] || fail "carol's unfreeze concluded $(outcome prod idp-unfreeze)"
-  [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}')" != true ] || fail "prod is still frozen"
+  # carol is on team-checkout: only payments' own team, or break-glass, unfreezes payments.
+  [ "$(outcome prod idp-unfreeze)" = Rejected/ ] || fail "carol's unfreeze concluded $(outcome prod idp-unfreeze)"
+  field prod idp-unfreeze reason | grep -q NotYourTeam || field prod idp-unfreeze message | grep -q "NotYourTeam\|not in team-payments" \
+    || fail "carol's unfreeze was refused for the wrong reason: $(field prod idp-unfreeze reason) $(field prod idp-unfreeze message)"
   [ "$(kubectl -n prod get operation idp-unfreeze -o jsonpath='{.spec.actor.user}')" = "$CAROL" ] || fail "the unfreeze is not carol's"
-  pass "propose, cancel and unfreeze from the dashboard run as carol, and the audit log shows her"
+  local alice_u; alice_u="$(login alice)" || fail "alice could not sign in to the dashboard"
+  out="$(dash "$alice_u" GET /api/session)"
+  local ALICE; ALICE="$(jq -r .caller.user <<<"${out#* }")"
+  out="$(dash "$alice_u" POST /api/delivery/operations '{"namespace":"prod","stage":"payments","type":"delivery.pacto.trianalab.io/unfreeze","name":"idp-unfreeze-alice","reason":"phase 4"}' "$(csrf_of "$alice_u")")"
+  [ "${out%% *}" = 201 ] || fail "alice's unfreeze: $out"
+  eventually 40 concluded prod idp-unfreeze-alice || fail "alice's unfreeze never concluded: $(field prod idp-unfreeze-alice message)"
+  [[ "$(outcome prod idp-unfreeze-alice)" == Succeeded/* ]] || fail "alice's unfreeze concluded $(outcome prod idp-unfreeze-alice)"
+  [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}')" != true ] || fail "prod is still frozen"
+  [ "$(kubectl -n prod get operation idp-unfreeze-alice -o jsonpath='{.spec.actor.user}')" = "$ALICE" ] || fail "the unfreeze is not alice's"
+  pass "propose and cancel from the dashboard run as carol; her unfreeze of payments is refused, alice of payments' team unfreezes it, and the audit log shows them"
 
   # --- remote MCP: agents as themselves, people read-only, nobody approves ---
   out="$(curl -s -D - -o /dev/null -X POST "$MCP_URL/mcp")"
