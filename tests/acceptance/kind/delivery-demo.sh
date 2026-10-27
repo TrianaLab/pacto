@@ -621,6 +621,9 @@ failed_on() { kubectl -n "$1" get stage "$2" -o json | jq -e --arg d "$3" '.stat
 offered() { kubectl -n test get stage "$1" -o json | jq -e --arg d "$2" '.status.offered // [] | index($d)' >/dev/null; }
 published_in() { kubectl -n "$1" get stage "$2" -o json | jq -e --arg d "$3" '.status.published // [] | index($d)' >/dev/null; }
 digest_of() { cat "$DEMO/digests/$1-$2"; } # SERVICE VERSION
+# prod_op VERSION — the promote moving payments in prod to VERSION. payments
+# advances on its own there (autonomous), so the promoter names it.
+prod_op() { op_to prod payments "$(digest_of payments "$1")" | head -1; }
 remember() { mkdir -p "$DEMO/digests"; echo "$3" > "$DEMO/digests/$1-$2"; }
 propose() { KUBECONFIG="$AGENT_KC" "$PACTO" delivery propose "$@" >/dev/null; } # as pay-agent
 # ship_test SERVICE VERSION — publish it and wait until test verified it.
@@ -632,17 +635,22 @@ ship_test() {
 # starting point is set by people: prod advises, so a promote pay-agent raised
 # would wait for a person to approve it.
 owner_propose() { local svc="$1"; shift; KUBECONFIG="$(person alice@example.com "team-$svc")" "$PACTO" delivery propose "$@" >/dev/null; }
-# ship_prod SERVICE VERSION — its team promotes a verified version in prod.
+# ship_prod SERVICE VERSION — a verified version reaches prod: on autonomous
+# the promoter promotes it, on advise its team proposes it.
 ship_prod() {
-  local d; d="$(digest_of "$1" "$2")"
+  local d op="$1-${2//./-}"; d="$(digest_of "$1" "$2")"
   eventually 60 offered "$1" "$d" || fail "test never offered $1 $2 to prod"
-  owner_propose "$1" -n prod --stage "$1" --to "$d" --name "$1-${2//./-}" --reason "the demo's starting point"
-  wait_concluded prod "$1-${2//./-}" Succeeded/Verified
+  if [ "$(kubectl -n prod get stage "$1" -o jsonpath='{.spec.startLevel}')" = autonomous ]; then
+    op="$(wait_op prod "$1" "$d")"
+  else
+    owner_propose "$1" -n prod --stage "$1" --to "$d" --name "$op" --reason "the demo's starting point"
+  fi
+  wait_concluded prod "$op" Succeeded/Verified
 }
 
 bootstrap() {
   environment payments test candidates true "$(payments_gates test)"
-  environment payments prod upstream false "$(payments_gates prod 10s)"
+  environment payments prod upstream true "$(payments_gates prod 10s)"
   environment checkout test candidates true
   environment checkout prod upstream false
   # orders ships to prod only: nothing in test depends on it.
@@ -712,10 +720,10 @@ story_b1() {
   ship_test payments 2.4.0
   local d; d="$(digest_of payments 2.4.0)"
   eventually 60 offered payments "$d" || fail "test never offered payments 2.4.0 to prod"
-  propose -n prod --stage payments --to "$d" --name payments-2-4-0 --reason "B1: adds an endpoint"
-  predicted B1 prod payments-2-4-0
-  same B1 "a person asked" "$(field prod payments-2-4-0 plan.floor.decision)" "$(expect B1 Decision | jq -r .)"
-  wait_concluded prod payments-2-4-0 Succeeded/Verified
+  local op; op="$(wait_op prod payments "$d")"
+  predicted B1 prod "$op"
+  same B1 "a person asked" "$(field prod "$op" plan.floor.decision)" "$(expect B1 Decision | jq -r .)"
+  wait_concluded prod "$op" Succeeded/Verified
   pass "payments 2.4.0 shipped to prod with nobody involved"
 }
 
@@ -723,7 +731,7 @@ story_b2() {
   beat B2
   mode prod.2.4.0 errors
   echo "  the span generator now sends prod errors for payments 2.4.0 (generated traffic)"
-  local rb=payments-2-4-0-rollback
+  local rb; rb="$(prod_op 2.4.0)-rollback"
   eventually 90 kubectl -n prod get operation "$rb" >/dev/null 2>&1 || fail "the failed health check raised no rollback"
   local cause; cause="$(op_json prod "$rb" | jq -c .spec.cause.verdict)"
   same B2 "the check after release" "$(jq -r .result <<<"$cause")" "$(expect B2 Verify | jq -r .)"
@@ -787,10 +795,10 @@ story_b5() {
   diffs B5 2.3.0 3.0.0
   local d; d="$(digest_of payments 3.0.0)"
   eventually 60 offered payments "$d" || fail "test never offered payments 3.0.0 to prod"
-  propose -n prod --stage payments --to "$d" --name payments-3-0-0 --reason "B5: removes a field"
-  eventually 60 held prod payments-3-0-0 || fail "payments 3.0.0 was not held: $(field prod payments-3-0-0 phase) $(field prod payments-3-0-0 message)"
-  predicted B5 prod payments-3-0-0
-  local plan; plan="$(field prod payments-3-0-0 plan)"
+  local op; op="$(wait_op prod payments "$d")"
+  eventually 60 held prod "$op" || fail "payments 3.0.0 was not held: $(field prod "$op" phase) $(field prod "$op" message)"
+  predicted B5 prod "$op"
+  local plan; plan="$(field prod "$op" plan)"
   same B5 "who is asked" "$(jq -c '.floor.owners | sort' <<<"$plan")" "$(expect B5 Asked)"
   same B5 "the decision" "$(jq -r .floor.decision <<<"$plan")" "$(expect B5 Decision | jq -r .)"
   same B5 "what moves first" "$(jq -c '[.order.moveFirst[] | select(.candidate) | "\(.service) \(.candidate.version)"]' <<<"$plan")" "$(expect B5 MoveFirst)"
@@ -827,25 +835,26 @@ cmd_story() {
 
 # --- browser -----------------------------------------------------------------
 
-# b6 — the agent ships checkout 1.9 to prod (compatible, nobody involved), and
+# b6 — checkout's team ships checkout 1.9 to prod (its prod Stage advises), and
 # the operation held in B5 now asks only orders: the same operation, not a new one.
 b6() {
+  local p3; p3="$(prod_op 3.0.0)"
   beat B6
   local d; d="$(digest_of checkout 1.9.0)"
   if ! runs prod checkout "$d"; then
-    propose -n prod --stage checkout --to "$d" --name checkout-1-9-0 --reason "B6: move first"
+    owner_propose checkout -n prod --stage checkout --to "$d" --name checkout-1-9-0 --reason "B6: move first"
     wait_concluded prod checkout-1-9-0 Succeeded/Verified
   fi
-  asks() { [ "$(field prod payments-3-0-0 plan.floor.owners)" = "$(expect B6 Asked | jq -c .)" ]; }
-  eventually 60 asks || drift B6 "who is asked" "$(field prod payments-3-0-0 plan.floor.owners)" "$(expect B6 Asked)"
-  held prod payments-3-0-0 || fail "payments 3.0.0 is no longer held: $(field prod payments-3-0-0 phase)"
-  pass "checkout 1.9.0 shipped with nobody involved, and the same held operation now asks only orders"
+  asks() { [ "$(field prod "$p3" plan.floor.owners)" = "$(expect B6 Asked | jq -c .)" ]; }
+  eventually 60 asks || drift B6 "who is asked" "$(field prod "$p3" plan.floor.owners)" "$(expect B6 Asked)"
+  held prod "$p3" || fail "payments 3.0.0 is no longer held: $(field prod "$p3" phase)"
+  pass "checkout 1.9.0 shipped first, and the same held operation now asks only orders"
 }
 
 # journeys BEAT — the dashboard journeys whose titles start with "BEAT: ", against
 # the live demo; the team they expect to be asked comes from examples/story.
 journeys() {
-  ( cd "$ROOT/pkg/dashboard/frontend" && PW_BASE_URL="$DASH_URL/" PW_DELIVERY_DEMO=1 PW_ASKED="$(expect B7 Asked | jq -r 'join(" or ")')" \
+  ( cd "$ROOT/pkg/dashboard/frontend" && PW_BASE_URL="$DASH_URL/" PW_DELIVERY_DEMO=1 PW_CHANGE="$(prod_op 3.0.0)" PW_ASKED="$(expect B7 Asked | jq -r 'join(" or ")')" \
     timeout 600 npx playwright test --config playwright.live.config.ts e2e-live/delivery-journeys.spec.ts --grep "$1: " ) \
     || fail "the dashboard journeys failed: $1"
 }
@@ -854,15 +863,16 @@ journeys() {
 # (span-modes prod.3.0.0=silent), so the check says Unknown and the operation
 # waits for carol to accept the unknown.
 b8() {
+  local p3; p3="$(prod_op 3.0.0)"
   beat B8
-  left_held() { ! held prod payments-3-0-0; }
-  eventually 60 left_held || fail "carol's approval did not move payments 3.0.0 on: $(field prod payments-3-0-0 phase) $(field prod payments-3-0-0 message)"
-  [ "$(field prod payments-3-0-0 phase)" != Concluded ] || fail "payments 3.0.0 concluded $(outcome prod payments-3-0-0) instead of verifying"
-  unknown_held() { held prod payments-3-0-0 && [ "$(field prod payments-3-0-0 applied)" = true ]; }
-  eventually 150 unknown_held || fail "payments 3.0.0 never waited on its check: $(field prod payments-3-0-0 phase) $(field prod payments-3-0-0 message)"
-  same B8 "the check after release" "$(op_json prod payments-3-0-0 | jq -r '[.status.verdicts[]? | select(.phase == "verify") | .result] | if index("Fail") then "Fail" elif index("Unknown") then "Unknown" else "Pass" end')" "$(expect B8 Verify | jq -r .)"
+  left_held() { ! held prod "$p3"; }
+  eventually 60 left_held || fail "carol's approval did not move payments 3.0.0 on: $(field prod "$p3" phase) $(field prod "$p3" message)"
+  [ "$(field prod "$p3" phase)" != Concluded ] || fail "payments 3.0.0 concluded $(outcome prod "$p3") instead of verifying"
+  unknown_held() { held prod "$p3" && [ "$(field prod "$p3" applied)" = true ]; }
+  eventually 150 unknown_held || fail "payments 3.0.0 never waited on its check: $(field prod "$p3" phase) $(field prod "$p3" message)"
+  same B8 "the check after release" "$(op_json prod "$p3" | jq -r '[.status.verdicts[]? | select(.phase == "verify") | .result] | if index("Fail") then "Fail" elif index("Unknown") then "Unknown" else "Pass" end')" "$(expect B8 Verify | jq -r .)"
   journeys B8
-  wait_concluded prod payments-3-0-0 Succeeded/AcceptedUnknown
+  wait_concluded prod "$p3" Succeeded/AcceptedUnknown
   pass "payments 3.0.0 shipped, its check said Unknown, and it stays recorded as an accepted unknown, never a pass"
 }
 
@@ -871,10 +881,10 @@ b8() {
 b9() {
   beat B9
   journeys B9
-  local d op; d="$(digest_of payments 2.3.0)"
-  rolled() { op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vx payments-2-4-0-rollback | grep -q .; }
+  local d op first; d="$(digest_of payments 2.3.0)"; first="$(prod_op 2.4.0)-rollback"
+  rolled() { op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vx "$first" | grep -q .; }
   eventually 60 rolled || fail "carol's rollback of payments 3.0.0 raised no operation"
-  op="$(op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vx payments-2-4-0-rollback | head -1)"
+  op="$(op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vx "$first" | head -1)"
   predicted B9 prod "$op"
   wait_concluded prod "$op" Succeeded/Verified
   runs prod payments "$d" || fail "prod is not back on payments 2.3.0"
@@ -1022,7 +1032,8 @@ cmd_browser() {
   [ -e "$DEMO/digests/payments-3.0.0" ] || fail "run the story first: make e2e-delivery-demo-story"
   # Carol's approval (B7) moves 3.0.0 on and B9 rolls prod back for good, so
   # once 3.0.0 has left its first hold the step cannot be played again.
-  { held prod payments-3-0-0 && [ "$(field prod payments-3-0-0 applied)" != true ]; } \
+  local p3; p3="$(prod_op 3.0.0)"
+  { [ -n "$p3" ] && held prod "$p3" && [ "$(field prod "$p3" applied)" != true ]; } \
     || fail "the browser step already ran on this cluster: 'make e2e-delivery-demo-down' and up again to replay it"
   b6
   ( cd "$ROOT/pkg/dashboard/frontend" \

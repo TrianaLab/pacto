@@ -260,7 +260,7 @@ var Beats = []Beat{
 	// which is what both paths ask.
 	{
 		ID:      "B6",
-		Says:    "checkout 1.9 ships with nobody involved, and planning 3.0.0 again now asks only orders.",
+		Says:    "checkout 1.9 ships first, and planning 3.0.0 again now asks only orders.",
 		Why:     "checkout 1.9 accepts payments ^2 || ^3, so the only consumer left that does not accept 3.0.0 is orders 1.4.",
 		Service: "payments", Environment: Prod, Actor: PayAgent, From: "2.3.0", To: "3.0.0", Running: after6, Verified: inTest,
 		Expect: Outcome{Classification: "BREAKING", RequiredBump: diff.BumpMajor, Predicted: delivery.PredictHeld,

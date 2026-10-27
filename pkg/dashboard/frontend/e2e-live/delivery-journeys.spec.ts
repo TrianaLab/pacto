@@ -12,7 +12,10 @@ import AxeBuilder from '@axe-core/playwright';
 // rollback, and History reads the signed records last.
 
 const DEMO = !!process.env.PW_DELIVERY_DEMO;
-const CHANGE = '/#/delivery/changes/prod/payments-3-0-0';
+// The held change's name: payments advances on its own in prod, so the promoter
+// names the operation and the demo script passes it in.
+const OP = process.env.PW_CHANGE ?? 'payments-3-0-0';
+const CHANGE = `/#/delivery/changes/prod/${OP}`;
 const T = 30_000;
 // The team examples/story says is asked about payments 3.0.0 after B6.
 const ASKED = process.env.PW_ASKED ?? 'orders';
@@ -96,8 +99,8 @@ test('B7: carol finds the change in her inbox and approves it after a fresh sign
   const held = page.getByTestId('inbox-held');
   await expect(held).toContainText('payments', { timeout: T });
   await axe(page, 'inbox');
-  await held.locator('a[href="#/delivery/changes/prod/payments-3-0-0"]').first().click();
-  await expect(page).toHaveURL(/#\/delivery\/changes\/prod\/payments-3-0-0$/);
+  await held.locator(`a[href="#/delivery/changes/prod/${OP}"]`).first().click();
+  await expect(page).toHaveURL(new RegExp(`#/delivery/changes/prod/${OP}$`));
 
   await axe(page, 'change, as carol');
   await decide(page, 'Approve', 'orders 1.4 is ready for payments 3');
@@ -114,7 +117,7 @@ test('B9: carol rolls the change back from the dashboard', async ({ page }) => {
   const panel = page.getByTestId('propose-panel');
   await expect(panel.getByTestId('plan-prediction')).toBeVisible({ timeout: T });
   await panel.getByRole('button', { name: 'Propose roll back' }).click();
-  await expect(page).not.toHaveURL(/payments-3-0-0$/, { timeout: T });
+  await expect(page).not.toHaveURL(new RegExp(`${OP}$`), { timeout: T });
 });
 
 test('History: the payments prod steps read back from signed records that verify', async ({ page }) => {
