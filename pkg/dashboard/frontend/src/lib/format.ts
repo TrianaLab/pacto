@@ -1073,3 +1073,11 @@ const COUNT = new Intl.NumberFormat('en-US');
 export function formatCount(n: number): string {
   return COUNT.format(n);
 }
+
+/**
+ * countOf is a count with its noun in the matching form: "1 consumer", "2 consumers",
+ * "1,500 Stages". The plural is the singular plus "s" unless one is given.
+ */
+export function countOf(n: number, one: string, many: string = `${one}s`): string {
+  return `${formatCount(n)} ${n === 1 ? one : many}`;
+}

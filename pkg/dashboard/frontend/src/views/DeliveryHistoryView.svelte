@@ -7,7 +7,7 @@
   import { typeLabel, shortDigest, versionLabel, timeLabel, decisionLabel, actorBadge, autonomyOf, sentence,
     verificationLabel, outcomeTone, reasonAfter, UNKNOWN_DOCS } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
-  import { formatCount } from '../lib/format.ts';
+  import { formatCount, countOf } from '../lib/format.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import BlamePanel from '../components/BlamePanel.svelte';
   import UndoPanel from '../components/UndoPanel.svelte';
@@ -115,7 +115,7 @@
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
     {#if one && autonomy?.total}
       <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
-        <strong>{autonomy.noPerson} of {autonomy.total} promotion{autonomy.total === 1 ? '' : 's'} needed no person</strong>{#if autonomy.onlyUnknown}; {autonomy.onlyUnknown} waited for one only because a check was Unknown, which more visibility removes (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}
+        <strong>{autonomy.noPerson} of {countOf(autonomy.total, 'promotion')} needed no person</strong>{#if autonomy.onlyUnknown}; {autonomy.onlyUnknown} waited for one only because a check was Unknown, which more visibility removes (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}
       </p>
     {/if}
     {#if histories.length === 0}

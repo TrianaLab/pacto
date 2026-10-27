@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryAutonomyUrl, serviceUrl } from '../lib/router.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
-  import { formatCount } from '../lib/format.ts';
+  import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
@@ -98,7 +98,7 @@
         <dt>Services with a contract</dt>
         {#if share && seen}
           <dd class="au-value">{percent(share.services, seen)}</dd>
-          <dd class="t-body-2">{formatCount(share.services)} of the {formatCount(seen)} services Pacto has seen{#if share.uncontractedCallers}: {formatCount(share.uncontractedCallers)} workload{share.uncontractedCallers === 1 ? '' : 's'} call{share.uncontractedCallers === 1 ? 's' : ''} a contracted service with no contract of {share.uncontractedCallers === 1 ? 'its' : 'their'} own{/if}.</dd>
+          <dd class="t-body-2">{formatCount(share.services)} of the {formatCount(seen)} services Pacto has seen{#if share.uncontractedCallers}: {countOf(share.uncontractedCallers, 'workload')} call{share.uncontractedCallers === 1 ? 's' : ''} a contracted service with no contract of {share.uncontractedCallers === 1 ? 'its' : 'their'} own{/if}.</dd>
         {:else}
           <dd class="t-body-2">Pacto has seen no service here yet, so it cannot say.</dd>
         {/if}
@@ -139,7 +139,7 @@
                     {#if s.proposal?.level}
                       <button type="button" class="btn btn-sm" onclick={(e) => propose(s, e)} aria-label={`Propose ${levelLabel(s.proposal.level)} for ${s.service} in ${s.environment}`}>Propose</button>
                     {:else if s.proposal?.blockers?.length}
-                      <span class="t-meta">{s.proposal.blockers.length} blocker{s.proposal.blockers.length === 1 ? '' : 's'} below.</span>
+                      <span class="t-meta">{countOf(s.proposal.blockers.length, 'blocker')} below.</span>
                     {/if}
                     {#if s.lastShadow}<span class="t-meta au-help">Newest candidate: on Autonomous, Pacto would have chosen to {shadowLabel(s.lastShadow)}.</span>{/if}
                   </td>
@@ -183,14 +183,14 @@
                         {:else}
                           <code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>
                         {/if}
-                        <span class="t-meta au-count">{#if b.stages?.length}{formatCount(b.stages.length)} Stage{b.stages.length === 1 ? '' : 's'}{:else}No Stage{/if}</span>
+                        <span class="t-meta au-count">{#if b.stages?.length}{countOf(b.stages.length, 'Stage')}{:else}No Stage{/if}</span>
                         <span class="t-meta au-msg cell-clip" title={b.message ? sentence(b.message) : undefined}>{b.message ? sentence(b.message) : ''}</span>
                         {#if fix}<span class="badge badge-neutral au-hasfix">Fix to copy</span>{/if}
                       </summary>
                       <div class="au-detail">
                         <!-- The row clips a long name; here it is whole. -->
                         <p class="au-full"><code>{b.subject}</code></p>
-                        {#if b.stages?.length}<p class="t-meta au-stages">On {formatCount(b.stages.length)} Stage{b.stages.length === 1 ? '' : 's'}: <CappedList items={b.stages} max={3} inline={true} label={`Stages ${b.subject} blocks`}>{#snippet item(st)}{st}{/snippet}</CappedList></p>{/if}
+                        {#if b.stages?.length}<p class="t-meta au-stages">On {countOf(b.stages.length, 'Stage')}: <CappedList items={b.stages} max={3} inline={true} label={`Stages ${b.subject} blocks`}>{#snippet item(st)}{st}{/snippet}</CappedList></p>{/if}
                         {#if b.message}<p class="t-body-2">{sentence(b.message)}</p>{/if}
                         {#if fix}
                           <pre class="au-fix"><code>{fix}</code></pre>

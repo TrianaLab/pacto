@@ -499,7 +499,7 @@ func diffGate(ctx context.Context, in PlanInput) Verdict {
 		}
 		v.Citation["owner"] = strings.Join(owner, ", ")
 	}
-	v.Message = fmt.Sprintf("%s: %d contract changes", d.Classification, len(d.Changes))
+	v.Message = fmt.Sprintf("%s: %s", d.Classification, countOf(len(d.Changes), "contract change"))
 	return v
 }
 
@@ -562,7 +562,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
 		p.Question = "Pacto cannot see enough to clear " + in.Stage.Service.Name + " " + res.NewVersion + ": " + v.Message + ". Accept the unknown?"
 	default:
-		v.Message = fmt.Sprintf("%d consumers, none incompatible", len(res.Consumers))
+		v.Message = countOf(len(res.Consumers), "consumer") + ", none incompatible"
 	}
 	p.Verdicts = append(p.Verdicts, v)
 }
@@ -738,6 +738,14 @@ func limitationCodes(ls []fleet.Limitation) string {
 		return "a source is not available"
 	}
 	return strings.Join(codes, ", ")
+}
+
+// countOf is a count with its noun in the matching form: "1 consumer", "2 consumers".
+func countOf(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // short trims a digest for messages.

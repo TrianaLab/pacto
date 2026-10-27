@@ -5,7 +5,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { serviceUrl, deliveryPublishUrl } from '../lib/router.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
-  import { formatCount } from '../lib/format.ts';
+  import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import { shortDigest, sentence, timeLabel } from '../lib/delivery.ts';
@@ -59,7 +59,7 @@
   <PageHeader
     title="Published versions"
     subtitle="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes Pacto refused."
-    count={data ? `${formatCount(serviceTotal)} service${serviceTotal === 1 ? '' : 's'}` : ''}
+    count={data ? countOf(serviceTotal, 'service') : ''}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}

@@ -5,7 +5,7 @@
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, serviceUrl } from '../lib/router.ts';
   import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
-  import { formatCount } from '../lib/format.ts';
+  import { countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -159,7 +159,7 @@
   <PageHeader
     title="Environments"
     subtitle="Every service in every environment: the version it runs and whether that version is verified, failed, frozen or waiting. A Stage is one service in one environment."
-    count={data ? `${formatCount(serviceTotal)} service${serviceTotal === 1 ? '' : 's'}, ${environments.length} environment${environments.length === 1 ? '' : 's'}` : ''}
+    count={data ? `${countOf(serviceTotal, 'service')}, ${countOf(environments.length, 'environment')}` : ''}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
@@ -307,14 +307,14 @@
       <Pager page={data.page} {href} label="Pages of services" noun="services" testid="environments-pager" />
       {#if observing.length}
         <section class="ev-shadows" data-testid="shadow-summary" aria-labelledby="ev-shadows-title">
-          <h2 id="ev-shadows-title" class="t-section-title">What Pacto would have done <span class="t-meta">{formatCount(observing.length)} observing Stage{observing.length === 1 ? '' : 's'} on this page</span></h2>
+          <h2 id="ev-shadows-title" class="t-section-title">What Pacto would have done <span class="t-meta">{countOf(observing.length, 'observing Stage')} on this page</span></h2>
           <p class="t-body-2">These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It is advisory and unsigned: status, not a record. "Source reported at" is when GitOps' source showed the candidate, not when it rolled out.</p>
           {#each observingCap.slice(observing) as r (r.namespace + '/' + r.stage)}
             <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
               <summary>
                 <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
                 <h3 id={`shadow-${r.namespace}-${r.stage}`} class="ev-shadow-title">{r.service} in {r.environment}</h3>
-                <span class="t-meta">{formatCount(r.shadow.length)} candidate{r.shadow.length === 1 ? '' : 's'}</span>
+                <span class="t-meta">{countOf(r.shadow.length, 'candidate')}</span>
               </summary>
               <div class="ev-scroll">
                 <table class="ev-table">
