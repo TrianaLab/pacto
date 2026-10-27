@@ -6,15 +6,17 @@ your code. It says what the service offers, which other services it calls and
 how it is built and run. This guide takes a plain service to a contract,
 signed published versions and environments Pacto only watches, and shows how
 an environment moves past watching once it has earned it. Every command is on
-this page except the one-time cluster setup for approvals. To see where it leads first,
-with nothing to install, press **Play the delivery story** in the
-[live dashboard demo](examples/dashboard-demo.md); it runs in your browser.
+this page except the one-time cluster setup for approvals. To preview the
+result, press **Play the delivery story** in the
+[live dashboard demo](examples/dashboard-demo.md), which runs in your browser.
 
 In the cluster, [Flux](https://fluxcd.io) does the deploying: it is a tool that
 keeps the cluster running what your files say. Pacto tells it which version.
 Each environment starts on observe, the first level of
 [the autonomy ladder](autonomy.md): Pacto watches and moves nothing until a
 person raises it.
+
+## Before you begin
 
 You need:
 
@@ -28,23 +30,22 @@ You need:
 - a container registry, and a login to it:
   `pacto login ghcr.io -u <user>` (or `docker login`). Any registry works
   for this page. The optional signed record of each change also needs one
-  that serves OCI Referrers, such as [zot](https://zotregistry.dev); GitHub's
-  registry does not, so on `ghcr.io` you get no records, and without records
-  a Stage stops at advise and never ships on its own;
+  that serves OCI Referrers, such as [zot](https://zotregistry.dev). GitHub's
+  registry does not serve them, so on `ghcr.io` a Stage gets no records and
+  stops at advise;
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
   People approve with a fresh company login, which needs a one-time cluster
   setup, maybe by you:
   [the cluster trusts your identity provider](integrations/kubernetes/delivery-identity.md#the-cluster-trusts-your-identity-provider).
-  It is tested on kind, not yet on EKS, GKE and AKS. Until it works,
-  everything here works except approving: prod waits and no Stage can be
-  raised past observe; see
+  It is tested on kind. EKS, GKE and AKS are not tested yet. Until the setup
+  works, nobody can approve: prod waits and no Stage can move past observe. See
   [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
 
-You do not write the contract by hand: Pacto writes it from your service.
+Pacto writes the contract from your service.
 
-Only want the contract and its CI checks? Leave out `--delivery`, stop after
+If you only want the contract and its CI checks, leave out `--delivery`, stop after
 step 2 and go on to [Put it in your repository](ci.md): `pacto push` uploads
 the contract alone.
 
@@ -69,8 +70,8 @@ changes nothing. For a private registry, add `--registry-secret registry-creds`
 transparency log, add `--no-transparency-log`.
 
 The plan lists the services yours depends on, what Pacto could not work out,
-marked Unknown, and a **Next** list of what to do after. Unknown is not an
-error but a question Pacto will not guess.
+marked Unknown, and a **Next** list of what to do after. Unknown marks a
+question that Pacto leaves for you to answer.
 
 ## 2. Write the contract
 
@@ -117,7 +118,7 @@ publish:
   sign: {key: cosign.key}
 ```
 
-You never edit the long `command` line. It copies your Kubernetes files with
+Leave the long `command` line as it is. It copies your Kubernetes files with
 the image pinned to the digest this version built, in every manifest that runs
 it, and names any file it cannot rewrite. `k8s/deployment.yaml` stays as it is.
 
@@ -281,7 +282,7 @@ Drafts are never published, and an invalid one fails the command. The MCP tool
 `pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,
 and only plans unless `dry_run` is false.
 
-## Where next
+## What's next
 
 | Goal | Page |
 |------|------|
