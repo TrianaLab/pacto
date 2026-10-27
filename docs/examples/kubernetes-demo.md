@@ -19,7 +19,9 @@ the [browser demo](dashboard-demo.md) does, with nothing to install.
 
 ## Run it
 
-You need Docker, [kind](https://kind.sigs.k8s.io/), kubectl, Helm, Go, Node,
+You need Docker with a builder that can export OCI images
+(`docker buildx create --use --driver docker-container`),
+[kind](https://kind.sigs.k8s.io/), kubectl, Helm, Go, Node,
 [oras](https://oras.land/), cosign, jq, openssl and GNU `timeout` (on macOS,
 `brew install coreutils`), and a clone of the Pacto repository. It builds the
 images from the clone. Host ports 3300, 8585, 5556, 8443 and 5602 must
