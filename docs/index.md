@@ -15,10 +15,8 @@ that depend on it, and decides which version runs in each environment. Flux
 or Argo CD, the tools that keep a Kubernetes cluster running what you ask for,
 still apply the version.
 
-GitlessOps, in one line: which version runs where is set from signed
-artifacts in your container registry and from evidence, not from commits to
-git. Your code and your
-deployment files stay in git; only that one line moves out.
+With GitlessOps, signed artifacts in your container registry and evidence set
+which version runs where. Your code and your deployment files stay in git.
 [What GitlessOps means](manifesto.md#what-gitlessops-means) gives the three
 rules behind it.
 
@@ -76,15 +74,14 @@ Affected consumers (2):
 `pacto diff` lists the breaking change itself. `checkout` accepts `^2.0.0`
 and 3.0.0 falls outside it. `reporting` accepts
 `>=2.0.0 <4.0.0` and 3.0.0 is inside. `direct` means each one declares auth
-itself rather than reaching it through another service, and `contractual` means
-the answer comes from the declared ranges alone: Pacto has not also seen the
-call happen at runtime.
+itself. `contractual` means the answer comes from the declared ranges alone,
+without a runtime observation of the call.
 
-One file, checked when you write it, compared against the previous revision,
-then compared against what is actually running.
+You check one file when you write it, compare it with the previous revision
+and then compare it with what is running.
 
-When Pacto cannot observe something it says `Unknown`. It never reports it as a
-pass.
+When Pacto cannot observe something, it reports `Unknown`, and `Unknown` never
+counts as a pass.
 
 ## What each command answers
 
@@ -115,8 +112,8 @@ pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./paym
 ```
 
 Pacto watches TCP connections in the Linux kernel with eBPF (small, safe
-programs the kernel runs on events). It never reads payloads or secrets, and
-when it cannot see it says "don't know" instead of guessing. Run it three ways:
+programs the kernel runs on events). It reads connection metadata, never
+payloads or secrets. When it cannot see something, it says so. Run it three ways:
 `pacto run` wraps one command (a laptop, a CI job), `pacto agent` watches a
 Docker host or a server and the Kubernetes operator deploys the same agent on
 every node. See [Runtime conformance](runtime-conformance.md).
@@ -132,21 +129,21 @@ versions, is alpha: its settings and commands may still change. It needs:
 - For signed records, and so for the two automatic levels, a registry that
   serves the OCI Referrers API: the feature that lets a registry list the
   files attached to an image, here the signed records. zot, an open source
-  registry, does. GitHub's registry does not today, so with it a Stage can
-  observe and advise but never ship on its own. For any other registry,
+  registry, serves it. GitHub's registry does not serve it today, so a Stage
+  that uses it stays on observe or advise. For any other registry,
   check its documentation for "referrers API".
 - For checks on error rates after a release, traces in
   [Mira](https://github.com/trianalab/mira), an OpenTelemetry trace store, or
   a check you call over HTTP. Without them Pacto still checks the contract.
 - For a person to approve anything, a cluster that can tell how recently that
   person signed in to your company login. That works where you set the
-  Kubernetes API server's flags yourself (tested on kind). It is not verified
-  yet on EKS, GKE and AKS. Where it does not work, nobody can approve, so
-  nothing can be raised up the ladder; see
+  Kubernetes API server's flags yourself (tested on kind). EKS, GKE and AKS
+  are not verified yet. Where it does not work, nobody can approve, so no Stage
+  can move up the ladder. See
   [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
 
-Trying it costs nothing: a new service starts on observe and moves nothing,
-and the [live demo](examples/dashboard-demo.md) runs in your browser.
+To try it, start a new service on observe, where Pacto moves nothing, or open
+the [live demo](examples/dashboard-demo.md) in your browser.
 
 ## Where to start
 
