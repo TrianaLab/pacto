@@ -292,10 +292,9 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.recorder.operationTTL | string | `"168h"` | Keep a recorded operation this long after it concluded, then delete it: its record holds what happened. The operation a Stage runs is never deleted. `0s` keeps them all (a Go duration). |
 | delivery.recorder.poll | string | `"30s"` | How long a registry or signer failure backs off (a Go duration) |
 | delivery.recorder.registryCredentials.secretName | string | `""` | A `kubernetes.io/dockerconfigjson` Secret with push access to the streams, apply and contract repositories. Only the recorder mounts it. |
-| delivery.recorder.resources.limits.cpu | string | `"500m"` | CPU limit |
-| delivery.recorder.resources.limits.memory | string | `"256Mi"` | Memory limit |
-| delivery.recorder.resources.requests.cpu | string | `"10m"` | CPU request |
-| delivery.recorder.resources.requests.memory | string | `"64Mi"` | Memory request |
+| delivery.recorder.resources.limits.memory | string | `"256Mi"` | Memory limit of the recorder |
+| delivery.recorder.resources.requests.cpu | string | `"50m"` | CPU request of the recorder. Signing and pushing a record is the costly part. |
+| delivery.recorder.resources.requests.memory | string | `"64Mi"` | Memory request of the recorder |
 | delivery.recorder.serviceAccount.annotations | object | `{}` | Annotations to add to the recorder's ServiceAccount (workload identity for KMS or keyless) |
 | delivery.recorder.serviceAccount.create | bool | `true` | Create a ServiceAccount for the recorder |
 | delivery.recorder.serviceAccount.name | string | `""` | Name override (defaults to `<fullname>-delivery-recorder`) |
@@ -312,10 +311,9 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.recorder.streamsRepository | string | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
 | delivery.recorder.trust | string | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one, and set `untilSeq` and `untilRecord` on a leaked key to revoke it after the last record it signed. The recorder's own key is always trusted. A record no listed key signed is skipped as untrusted. |
 | delivery.replicaCount | int | `1` | Number of promoter replicas. Only the elected leader acts. |
-| delivery.resources.limits.cpu | string | `"500m"` | CPU limit |
-| delivery.resources.limits.memory | string | `"256Mi"` | Memory limit |
-| delivery.resources.requests.cpu | string | `"10m"` | CPU request |
-| delivery.resources.requests.memory | string | `"64Mi"` | Memory request |
+| delivery.resources.limits.memory | string | `"256Mi"` | Memory limit of the promoter |
+| delivery.resources.requests.cpu | string | `"100m"` | CPU request of the promoter. It looks at every waiting operation once per `promoter.poll`, so raise it with the number of Stages. |
+| delivery.resources.requests.memory | string | `"128Mi"` | Memory request of the promoter |
 | delivery.securityContext | object | `{}` | Container securityContext of the promoter and the recorder (defaults to `global.securityContext`) |
 | delivery.serviceAccount.annotations | object | `{}` | Annotations to add to the ServiceAccount |
 | delivery.serviceAccount.create | bool | `true` | Create a ServiceAccount for the promoter |
@@ -378,10 +376,9 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | podLabels | object | `{}` | Labels to add to the controller pod |
 | podSecurityContext | object | `{}` | Pod securityContext of the controller (defaults to `global.podSecurityContext`) |
 | replicaCount | int | `1` | Number of controller replicas |
-| resources.limits.cpu | string | `"500m"` | CPU limit |
-| resources.limits.memory | string | `"128Mi"` | Memory limit |
-| resources.requests.cpu | string | `"10m"` | CPU request |
-| resources.requests.memory | string | `"64Mi"` | Memory request |
+| resources.limits.memory | string | `"256Mi"` | Memory limit of the controller. It caches every Deployment, StatefulSet, ReplicaSet, Job, CronJob and Service it targets. |
+| resources.requests.cpu | string | `"100m"` | CPU request of the controller |
+| resources.requests.memory | string | `"128Mi"` | Memory request of the controller |
 | securityContext | object | `{}` | Container securityContext of the controller (defaults to `global.securityContext`) |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the ServiceAccount |
 | serviceAccount.automount | bool | `true` | Automount API credentials |

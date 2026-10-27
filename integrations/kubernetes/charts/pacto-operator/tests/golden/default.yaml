@@ -1993,6 +1993,8 @@ spec:
               port: health
             initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           readinessProbe:
             httpGet:
               path: /readyz
@@ -2009,8 +2011,7 @@ spec:
             runAsUser: 65532
           resources:
             limits:
-              cpu: 500m
-              memory: 128Mi
+              memory: 256Mi
             requests:
-              cpu: 10m
-              memory: 64Mi
+              cpu: 100m
+              memory: 128Mi

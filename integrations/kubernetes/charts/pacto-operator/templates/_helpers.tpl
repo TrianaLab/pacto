@@ -397,7 +397,9 @@ ports:
 
 {{/*
 The liveness and readiness probes on the health port. A dict may set
-readinessPeriod (default 10) and readinessTimeout.
+readinessPeriod (default 10) and readinessTimeout. The liveness probe allows
+5s per answer and restarts after 2 minutes of failures, so a busy node slows
+the process down without getting it killed.
 */}}
 {{- define "pacto-operator.probes" -}}
 livenessProbe:
@@ -406,6 +408,8 @@ livenessProbe:
     port: health
   initialDelaySeconds: 15
   periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 6
 readinessProbe:
   httpGet:
     path: /readyz
