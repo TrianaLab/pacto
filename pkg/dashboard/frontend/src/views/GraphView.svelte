@@ -9,7 +9,7 @@
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
     canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
   } from '../lib/graphState.ts';
-  import { cyEdgeId, neighborhoodToGraph, laneGraph, GROUP_PREFIX, GROUP_THRESHOLD as GROUP_LIMIT } from '../lib/neighborhoodGraph.ts';
+  import { cyEdgeId, neighborhoodToGraph, laneGraph, GROUP_PREFIX, LANE_CAP, GROUP_THRESHOLD as GROUP_LIMIT } from '../lib/neighborhoodGraph.ts';
   import { abbreviateDigests, formatCount } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
@@ -178,7 +178,7 @@
   const sideWords = (g) => (g.side === 'depends-on' ? 'that it depends on' : 'that use it');
   function selectEdgeByCyId(cyId) {
     // The one edge a group draws stands for many relationships: selecting it opens the group.
-    const g = grouped?.groups.find((x) => cyId?.startsWith(`${x.id}→`) || cyId?.includes(`→${x.id}:`));
+    const g = [...(grouped?.groups ?? []), ...(grouped?.more ?? [])].find((x) => cyId?.startsWith(`${x.id}→`) || cyId?.includes(`→${x.id}:`));
     if (g) { openGroup(g.id); return; }
     selectEdge((shown?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
   }
@@ -252,6 +252,7 @@
     `${formatCount(shown.nodes.length)} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${formatCount(shown.edges.length)} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
     withheldNodes ? `${withheldNodes} more within this depth are not shown.` : '',
     grouped?.folded ? `${grouped.folded} of them are grouped by team on the canvas; the list below names each one.` : '',
+    grouped?.more ? `${grouped.more.reduce((t, m) => t + m.count, 0)} direct neighbors wait behind "more" on the canvas${grouped.folded ? '.' : '; the list below names each one.'}` : '',
     hiddenLabels.length ? `Dimmed on the canvas: ${hiddenLabels.join(', ')}.` : '',
     selectedSummary,
   ].filter(Boolean).join(' '));
@@ -515,6 +516,13 @@
               <div class="gv-caveat tone-info" role="status" data-testid="graph-grouped">
                 Every entity is drawn.
                 <button type="button" class="gv-more" data-testid="graph-group-again" onclick={() => { showEvery = false; openGroups = new Set(); }}>Group by team again</button>
+              </div>
+            {/if}
+            {#if grouped?.more}
+              <!-- The "+N more" node on the canvas is not keyboard reachable; these buttons do the same. -->
+              <div class="gv-caveat tone-info" role="status" data-testid="graph-lane-cap">
+                Each side shows {LANE_CAP} direct neighbors first, the ones with the worst link or status.
+                {#each grouped.more as m (m.id)}<button type="button" class="gv-more" data-testid="graph-open-more" onclick={() => openGroup(m.id)}>Show {formatCount(m.count)} more {m.side === 'depends-on' ? 'dependencies' : 'dependents'}</button>{/each}
               </div>
             {/if}
             <NeighborhoodGraph neighborhood={shown} graph={grouped?.graph} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import cytoscape from 'cytoscape';
-import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, buildElements, cyLayout, LEGEND_SELECTORS, fullName, spread, seedPositions, laneLayout, type GraphData } from './graph.ts';
+import { extractSubgraph, nodeLabel, fitLines, graphLabels, buildVersionSubgraph, renderGraph, buildElements, cyLayout, LEGEND_SELECTORS, fullName, spread, seedPositions, laneLayout, type GraphData } from './graph.ts';
 import { laneGraph } from './neighborhoodGraph.ts';
 
 const sampleGraph = {
@@ -90,11 +90,46 @@ describe('nodeLabel', () => {
     expect(nodeLabel({ id: 'ext-svc' })).toEqual({ name: 'ext-svc', version: '' });
   });
 
-  it('truncates long names to 18 chars with ellipsis', () => {
-    const { name } = nodeLabel({ id: 'x', serviceName: 'a-really-long-service-name', version: '1.0.0' });
-    expect(name).toBe('a-really-…ice-name');
-    expect(nodeLabel({ id: 'payments-ledger-replica-07' }).name).not.toBe(nodeLabel({ id: 'payments-ledger-replica-08' }).name);
-    expect(name.length).toBe(18);
+  it('cuts a long name at the end, over two lines without a version and one with', () => {
+    expect(nodeLabel({ id: 'x', serviceName: 'a-really-long-service-name', version: '1.0.0' }).name).toBe('a-really-long-se…');
+    expect(nodeLabel({ id: 'inventory-order-gateway-risk-thumbnail' }).name).toBe('inventory-order-\ngateway-risk-thu…');
+    expect(nodeLabel({ id: 'payments' }).name).toBe('payments');
+  });
+
+  it('never cuts the focus: it wraps at word breaks in a wider box', () => {
+    const raw = 'inventory-order-gateway-risk-thumbnail-refund-service-search-notification';
+    const { name } = nodeLabel({ id: raw }, true);
+    expect(name.replace(/\n/g, '')).toBe(raw);
+    expect(name.split('\n').every((l) => l.length <= 25)).toBe(true);
+    const focus = buildElements({ nodes: [{ id: raw, serviceName: raw, status: 'Compliant' }] }, raw)[0].data;
+    expect(focus).toMatchObject({ w: 240, isFocus: 1 });
+    expect(focus.h).toBeGreaterThan(42);
+  });
+});
+
+describe('fitLines', () => {
+  it('breaks at word breaks, hard-breaks a word longer than a line and cuts only past the limit', () => {
+    expect(fitLines('aaaa-bbbb-cccc', 10)).toEqual(['aaaa-bbbb-', 'cccc']);
+    expect(fitLines('abcdefghijkl', 5)).toEqual(['abcde', 'fghij', 'kl']);
+    expect(fitLines('abcdefghijkl', 5, 2)).toEqual(['abcde', 'fghi…']);
+    expect(fitLines('short', 5, 1)).toEqual(['short']);
+  });
+});
+
+describe('graphLabels', () => {
+  const n = (id: string, version?: string) => ({ id, serviceName: id, status: 'Compliant', ...(version ? { version } : {}) });
+  it('tells apart names cut to the same words by keeping the part where they differ', () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `payments-ledger-replica-zone-eu-west-${String(i).padStart(2, '0')}`);
+    const labels = graphLabels(ids.map((id) => n(id)));
+    expect(new Set(labels.values()).size).toBe(12);
+    expect(labels.get(ids[7])).toBe('payments-ledger-\nreplica-zone-…07');
+    // With a version line the name has one line; the version is never cut.
+    const v = graphLabels([n('checkout-orchestrator-a', '1.0.0'), n('checkout-orchestrator-b', '1.0.0')]);
+    expect([...v.values()]).toEqual(['checkout-…a\n1.0.0', 'checkout-…b\n1.0.0']);
+    // The same name twice (two revisions of one service) is not a clash to resolve.
+    expect([...graphLabels([{ ...n('svc@1', '1'), serviceName: 'svc' }, { ...n('svc@2', '2'), serviceName: 'svc' }]).values()]).toEqual(['svc\n1', 'svc\n2']);
+    // One long word: the kept end starts just before the difference.
+    expect(graphLabels([n('abcdefghijklmnopqrstuvwxyz0123456789A'), n('abcdefghijklmnopqrstuvwxyz0123456789B')]).get('abcdefghijklmnopqrstuvwxyz0123456789A')).toBe('abcdefghijklmnopq\nrstuvwxyz0123…89A');
   });
 });
 
@@ -380,6 +415,7 @@ describe('large neighborhoods', () => {
     expect(fullName({ id: 'x', serviceName: 'a-very-long-service-name-indeed' })).toBe('a-very-long-service-name-indeed');
     expect(fullName({ id: 'x', serviceName: 'payments', version: '1.2.0' })).toBe('payments 1.2.0');
     expect(fullName({ id: 'group:t', serviceName: 'team-a', group: 7 })).toBe('team-a: 7 entities. Select to show them.');
+    expect(fullName({ id: 'group:used-by:+', serviceName: '+3 more', group: 3 })).toBe('3 more direct neighbors. Select to show them.');
     const els = buildElements({ nodes: [{ id: 'a', serviceName: 'a-very-long-service-name-indeed', status: 'Compliant', depth: 1, owner: 'o' }] });
     expect(els[0].data).toMatchObject({ fullName: 'a-very-long-service-name-indeed', depth: 1, owner: 'o', group: 0 });
   });
@@ -436,6 +472,13 @@ describe('large neighborhoods', () => {
     // A tall canvas affords taller columns.
     const tall = laneLayout(nodes, { width: 600, height: 2400 });
     expect(new Set(nodes.filter((n) => /^d\d/.test(n.id)).map((n) => tall.get(n.id)!.x)).size).toBeLessThan(cols.size);
+    // A lane up to its cap stays one column even on a wide, short canvas, with its
+    // "+N more" at the bottom.
+    const capped = [{ id: 'focus', depth: 0, side: 0 }, { id: 'group:depends-on:+', depth: 1, side: -1, group: 3, owner: '' },
+      ...Array.from({ length: 8 }, (_, i) => ({ id: `c${i}`, depth: 1, side: -1, owner: 'z' }))];
+    const one = laneLayout(capped, { width: 2400, height: 300 });
+    expect(new Set(capped.slice(1).map((n) => one.get(n.id)!.x)).size).toBe(1);
+    expect(one.get('group:depends-on:+')!.y).toBe(Math.max(...capped.slice(1).map((n) => one.get(n.id)!.y)));
   });
 });
 

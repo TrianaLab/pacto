@@ -333,6 +333,38 @@ describe('GraphView — product Operational Graph', () => {
     unmount(again.component); document.body.removeChild(again.target);
   });
 
+  it('holds a crowded lane back behind "+N more" and opens it from the canvas, its edge or the note', async () => {
+    const base = neighborhood();
+    const focus = base.nodes.find((n: { focus?: boolean }) => n.focus)!.ref;
+    const users = Array.from({ length: 12 }, (_, i) => ({ ref: ref('service', `domain-c/u${i}`, `u${i}`), depth: 1, status: 'Compliant' }));
+    const userEdges = users.map((n) => ({
+      id: `${n.ref.key}|${focus.key}`, relation: 'dependency', from: n.ref, to: focus, expected: true, observed: true, provenance: 'declared',
+      declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] },
+    }));
+    neighborhoodFn.mockResolvedValue(neighborhood({ nodes: [...base.nodes, ...users], edges: [...base.edges, ...userEdges], truncated: false }));
+    applyTopologySpy.mockReset();
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-lane-cap"]')).toBeTruthy());
+    const btn = q(target, '[data-testid="graph-open-more"]') as HTMLButtonElement;
+    expect(btn.textContent).toMatch(/^Show \d+ more dependents$/);
+    expect(q(target, '[data-testid="graph-summary"]')?.textContent).toMatch(/\d+ direct neighbors wait behind "more"/);
+    const drawn = renderSpy.mock.calls.at(-1)![1];
+    expect(drawn.nodes.some((n: { id: string }) => n.id === 'group:used-by:+')).toBe(true);
+    // Selecting its edge opens it, and so does the note's button.
+    renderSpy.mock.calls.at(-1)![2].onSelectEdge(`group:used-by:+→${focus.key}:dependency`);
+    flushSync();
+    expect(q(target, '[data-testid="graph-lane-cap"]')).toBeNull();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes.some((n: { id: string }) => n.id === 'group:used-by:+')).toBe(false);
+    unmount(component); document.body.removeChild(target);
+
+    const again = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(again.target, '[data-testid="graph-open-more"]')).toBeTruthy());
+    (q(again.target, '[data-testid="graph-open-more"]') as HTMLButtonElement).click();
+    flushSync();
+    expect(q(again.target, '[data-testid="graph-lane-cap"]')).toBeNull();
+    unmount(again.component); document.body.removeChild(again.target);
+  });
+
   it('asks the backend for the node budget in the URL', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web', maxNodes: '150' });
     await vi.waitFor(() => expect(neighborhoodFn).toHaveBeenCalled());

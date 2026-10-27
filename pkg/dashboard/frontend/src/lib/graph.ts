@@ -14,6 +14,7 @@ import { wrapWideRanks } from './layout.ts';
 // has no business pulling a charting library in for one media query.
 import { MOTION, prefersReducedMotion } from './motion.ts';
 import { statusTone } from './format.ts';
+import { LANE_CAP, MORE_SUFFIX } from './neighborhoodGraph.ts';
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
@@ -88,17 +89,80 @@ export interface GraphData {
 /** fullName is the whole name a node's label may cut, for its hover title. */
 export function fullName(node: { id: string; serviceName?: string; version?: string; group?: number }): string {
   const raw = node.serviceName || node.id;
-  if (node.group) return `${raw}: ${node.group} entities. Select to show them.`;
+  if (node.group) return node.id.endsWith(MORE_SUFFIX) ? `${node.group} more direct neighbors. Select to show them.` : `${raw}: ${node.group} entities. Select to show them.`;
   return node.version ? `${raw} ${node.version}` : raw;
 }
 
-/** Computes the displayed label lines for a node: truncated name + version. */
-export function nodeLabel(node: { id: string; serviceName?: string; version?: string }): { name: string; version: string } {
+// Characters per label line: what fits a NODE_W box at 14px, and the wider focus box.
+const LINE = 17;
+const FOCUS_LINE = 25;
+const FOCUS_W = 240;
+
+/** fitLines breaks a name into at most `max` lines of `per` characters, at a hyphen,
+ *  dot, slash, underscore or space where it can. Whatever does not fit is cut at the END
+ *  of the last line: the start of a name is what a reader recognises. `max` 0 = never cut. */
+export function fitLines(raw: string, per: number, max = 0): string[] {
+  const lines: string[] = [];
+  let cur = '';
+  for (const tok of raw.split(/(?<=[-_./ ])/)) {
+    for (let t = tok; t; ) {
+      if (cur && cur.length + t.length > per) { lines.push(cur); cur = ''; }
+      cur += t.slice(0, per);
+      t = t.slice(per);
+    }
+  }
+  if (cur) lines.push(cur);
+  if (!max || lines.length <= max) return lines;
+  const last = lines.slice(max - 1).join('');
+  return [...lines.slice(0, max - 1), `${last.slice(0, per - 1)}…`];
+}
+
+/** Computes the displayed label lines for a node: the name, cut at the end, and the
+ *  version on its own line. The focus is never cut: it wraps in a wider box. */
+export function nodeLabel(node: { id: string; serviceName?: string; version?: string }, focus = false): { name: string; version: string } {
   const raw = node.serviceName || node.id;
-  // Middle ellipsis: in a fleet of payments-ledger-replica-01..60 the END is what tells
-  // two nodes apart, so it stays; cutting the tail made 59 of 60 read the same.
-  const name = raw.length > 18 ? `${raw.slice(0, 9)}…${raw.slice(-8)}` : raw;
+  const name = focus ? fitLines(raw, FOCUS_LINE).join('\n') : fitLines(raw, LINE, node.version ? 1 : 2).join('\n');
   return { name, version: node.version || '' };
+}
+
+const isFocusNode = (n: { id: string; serviceName?: string }, focusId?: string) => !!focusId && (n.serviceName === focusId || n.id === focusId);
+
+/**
+ * graphLabels is every node's label, told apart: two names cut to the same words (in a
+ * fleet of payments-ledger-replica-01..60 the start is shared and the end is what
+ * differs) keep their start up to a word break, an ellipsis, and the part from the word
+ * where they differ. The full name is always on hover.
+ */
+export function graphLabels(nodes: GraphNode[], focusId?: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const text = (n: GraphNode, name: string) => (n.version ? `${name}\n${n.version}` : name);
+  const by = new Map<string, GraphNode[]>();
+  for (const n of nodes) {
+    const l = text(n, nodeLabel(n, isFocusNode(n, focusId)).name);
+    out.set(n.id, l);
+    by.set(l, [...(by.get(l) ?? []), n]);
+  }
+  for (const same of by.values()) {
+    const raws = same.map((n) => n.serviceName || n.id);
+    if (new Set(raws).size < 2) continue;
+    same.forEach((n, i) => {
+      const raw = raws[i];
+      // Where this name parts from the closest other one, rounded back to a word break.
+      const d = Math.max(...raws.filter((_, j) => j !== i && raws[j] !== raw).map((o) => { let k = 0; while (o[k] === raw[k]) k++; return k; }));
+      const max = n.version ? 1 : 2;
+      let from = Math.max(0, ...['-', '_', '.', '/', ' '].map((c) => raw.lastIndexOf(c, d - 1) + 1));
+      // A word too long to show whole starts just before the difference instead, so the
+      // cut at the end can never reach it.
+      if (raw.length - from > (LINE * max) / 2) from = Math.max(from, d - 2);
+      const keep = raw.slice(0, from).split(/(?<=[-_./ ])/);
+      let head = '';
+      // As much of the start as leaves room for the differing end, and at least half.
+      const room = Math.max((LINE * max) / 2, LINE * max - 1 - (raw.length - from));
+      for (const t of keep) { if (head.length + t.length > room) break; head += t; }
+      out.set(n.id, text(n, fitLines(`${head || raw.slice(0, Math.floor(room))}…${raw.slice(from)}`, LINE, max).join('\n')));
+    });
+  }
+  return out;
 }
 
 interface VersionDetail {
@@ -271,6 +335,11 @@ interface RenderOptions {
   onSpatialChange?: (s: SpatialState) => void;
 }
 
+/** boxSize is a node's box: the focus is wider, and as tall as its whole name. */
+function boxSize(label: string, focus: boolean): { w: number; h: number } {
+  return focus ? { w: FOCUS_W, h: Math.max(NODE_H, label.split('\n').length * 18 + 12) } : { w: NODE_W, h: NODE_H };
+}
+
 /**
  * Build Cytoscape elements from the graph data. Pure (no Cytoscape/DOM), so the
  * node/edge shape is unit-testable. Edge ids include the type because a node can
@@ -280,13 +349,15 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
   const nodes = graphData.nodes || [];
   const ids = new Set(nodes.map((n) => n.id));
   const els: ElementDefinition[] = [];
+  const labels = graphLabels(nodes, focusId);
   for (const n of nodes) {
-    const { name, version } = nodeLabel(n);
+    const label = labels.get(n.id)!;
     els.push({
       data: {
         id: n.id,
         serviceName: n.serviceName,
-        label: version ? `${name}\n${version}` : name,
+        label,
+        ...boxSize(label, isFocusNode(n, focusId)),
         fullName: fullName(n),
         owner: n.owner || '',
         depth: n.depth ?? -1,
@@ -298,7 +369,7 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
         reason: n.reason || '',
         kind: n.kind || 'service',
         external: n.status === 'external' ? 1 : 0,
-        isFocus: n.serviceName === focusId || n.id === focusId ? 1 : 0,
+        isFocus: isFocusNode(n, focusId) ? 1 : 0,
       },
     });
   }
@@ -407,7 +478,7 @@ export function seedPositions(nodes: Array<{ id: string; depth?: number; owner?:
 const LANE_COL = NODE_W + 20;
 const LANE_ROW = NODE_H + 20;
 const LANE_GAP = 60;
-const LANE_GAP_FAR = 130;
+const LANE_GAP_FAR = 150;
 // The columns on one side, inside out: the lane (rank 2), then per hop d >= 2 the team
 // groups (2d), which sit next to what they attach to so their words have room, and then
 // the entities of an opened group (2d + 1), whose plain lines can cross behind the groups.
@@ -431,7 +502,8 @@ interface LaneNode { id: string; depth?: number; side?: number; owner?: string; 
 export function laneLayout(nodes: LaneNode[], canvas: { width: number; height: number }): Map<string, { x: number; y: number }> {
   const cols = new Map<number, string[]>();
   const pos = new Map<string, { x: number; y: number }>();
-  const sorted = nodes.filter((n) => !n.lane).sort((a, b) => (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
+  // A lane's "+N more" sits at its bottom.
+  const sorted = nodes.filter((n) => !n.lane).sort((a, b) => +a.id.endsWith(MORE_SUFFIX) - +b.id.endsWith(MORE_SUFFIX) || (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
   for (const n of sorted) {
     const d = Math.max(0, n.depth ?? 1);
     if (d === 0) { pos.set(n.id, { x: 0, y: 0 }); continue; }
@@ -441,9 +513,13 @@ export function laneLayout(nodes: LaneNode[], canvas: { width: number; height: n
   const tallest = Math.max(1, ...[...cols.values()].map((c) => c.length));
   const w = Math.max(1, canvas.width - 60);
   const h = Math.max(1, canvas.height - 60);
+  // A lane up to its cap stays one column: wrapped, the lines from the focus to the outer
+  // sub-column run under the inner one's boxes. Only a lane the reader opened past its
+  // cap wraps.
+  const lane = Math.max(0, ...[...cols.entries()].filter(([k]) => Math.abs(k) === 2).map(([, c]) => c.length));
   let rows = tallest;
   let bestZoom = -1;
-  for (let r = 1; r <= tallest; r++) {
+  for (let r = Math.min(lane, LANE_CAP + 1) || 1; r <= tallest; r++) {
     const subs = [...cols.values()].reduce((t, c) => t + Math.ceil(c.length / r), 0);
     const gaps = [...cols.keys()].reduce((t, k) => t + gapBefore(Math.abs(k)), 0);
     const zoom = Math.min(w / ((subs + 1) * LANE_COL + gaps), h / ((r + 0.5) * LANE_ROW));
@@ -553,8 +629,8 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       selector: 'node',
       style: {
         shape: 'round-rectangle',
-        width: NODE_W,
-        height: NODE_H,
+        width: (ele: NodeSingular) => ele.data('w') || NODE_W,
+        height: (ele: NodeSingular) => ele.data('h') || NODE_H,
         'background-color': pal.surface,
         'border-color': (ele: NodeSingular) => nodeColor(pal, ele.data('status'), ele.data('reason')),
         'border-width': (ele: NodeSingular) => {
@@ -570,7 +646,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         'text-valign': 'center',
         'text-halign': 'center',
         'text-wrap': 'wrap',
-        'text-max-width': `${NODE_W - 18}`,
+        'text-max-width': (ele: NodeSingular) => `${(ele.data('w') || NODE_W) - 18}`,
         'line-height': 1.25,
         'overlay-opacity': 0,
         // Smooth fades/emphasis when focus, hover or filter changes. The two colours are
@@ -689,9 +765,12 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       // An edge that stands for many says how many, and in which state, on the line.
       selector: 'edge[elabel]',
       style: {
-        label: 'data(elabel)', 'font-size': 12, color: pal.text, 'text-rotation': 'none', 'text-wrap': 'wrap', 'text-max-width': '110px',
-        'text-background-color': pal.surface, 'text-background-opacity': 0.92, 'text-background-padding': '3px',
-        'text-background-shape': 'roundrectangle', opacity: 0.9, 'target-arrow-shape': 'triangle',
+        // As large as a node's name, on a solid chip ringed in the line's own colour, so the
+        // words read at the zoom the nodes do and say which line they belong to.
+        label: 'data(elabel)', 'font-size': 14, 'font-weight': 600, color: pal.text, 'text-rotation': 'none', 'text-wrap': 'wrap', 'text-max-width': '130px',
+        'text-background-color': pal.surface, 'text-background-opacity': 1, 'text-background-padding': '4px',
+        'text-background-shape': 'roundrectangle', 'text-border-opacity': 1, 'text-border-width': 1,
+        'text-border-color': (ele: EdgeSingular) => ({ matched: pal.ok, 'expected-not-observed': pal.info, drift: pal.warn, insufficient: pal.neutral } as Record<string, string>)[ele.data('state')] || pal.textDim, opacity: 1, 'target-arrow-shape': 'triangle',
       },
     },
     { selector: 'edge.pacto-dense', style: { opacity: 0.16 } },
@@ -1250,13 +1329,15 @@ export function renderGraph(
   // the status/kind/state selectors re-apply.
   function patchData(next: GraphData): void {
     const byId = new Map((next.nodes || []).map((n) => [n.id, n]));
+    const labels = graphLabels(next.nodes || [], focusId);
     cy.batch(() => {
       for (const cn of cy.nodes()) {
         const n = byId.get(cn.id());
         if (!n) continue;
-        const { name, version } = nodeLabel(n);
+        const label = labels.get(n.id)!;
         cn.data('status', n.status);
-        cn.data('label', version ? `${name}\n${version}` : name);
+        cn.data('label', label);
+        cn.data(boxSize(label, isFocusNode(n, focusId)));
         cn.data('fullName', fullName(n));
         cn.data('serviceName', n.serviceName);
         cn.data('kind', n.kind || 'service');
