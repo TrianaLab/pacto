@@ -130,14 +130,14 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 }
 
 // demoImpactProvider returns the impact provider the demo wires into the
-// dashboard. It analyzes against the SAME published snapshot the Operational
-// Graph serves (so snapshotIds match, section 2.2), resolving the two revisions from the
+// dashboard. It analyzes against the snapshot the dashboard hands it, the SAME
+// published snapshot the Operational Graph serves (so snapshotIds match, section 2.2), resolving the two revisions from the
 // in-memory ref index. Observed edges are folded into that snapshot by
 // buildDemoFleet, so include-observed is a real capability driven by the SAME
 // pipeline the Operational Graph uses (surfacing a shadow consumer), not a placebo
 // and not a second, divergent source of observed data.
-func demoImpactProvider(snap *fleet.FleetSnapshot, byRef map[string]*contract.Bundle) func(context.Context, string, string, bool) (*impact.Result, error) {
-	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+func demoImpactProvider(byRef map[string]*contract.Bundle) func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
+	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 		oldB, newB := byRef[oldRef], byRef[newRef]
 		if oldB == nil || newB == nil {
 			return nil, fmt.Errorf("unknown revision reference (old=%q new=%q)", oldRef, newRef)

@@ -2044,18 +2044,7 @@ func sortSnapshot(snap *FleetSnapshot) {
 		return a.RequestedRef < b.RequestedRef
 	})
 	sort.Slice(snap.Sources, func(i, j int) bool { return snap.Sources[i].ID < snap.Sources[j].ID })
-	sort.Slice(snap.Limitations, func(i, j int) bool {
-		a, b := snap.Limitations[i], snap.Limitations[j]
-		if a.Code != b.Code {
-			return a.Code < b.Code
-		}
-		if a.Source != b.Source {
-			return a.Source < b.Source
-		}
-		// Message is the tertiary key so limitations with the same code+source but
-		// different subjects order deterministically (permutation-invariant).
-		return a.Message < b.Message
-	})
+	sortSnapshotLimitations(snap)
 	for _, s := range snap.Services {
 		sort.Slice(s.Revisions, func(i, j int) bool { return s.Revisions[i] < s.Revisions[j] })
 		sort.Slice(s.Targets, func(i, j int) bool { return s.Targets[i] < s.Targets[j] })
@@ -2090,6 +2079,23 @@ func sortSnapshot(snap *FleetSnapshot) {
 	for k := range snap.forwardDepsByRevision {
 		sortKeys(snap.forwardDepsByRevision[k])
 	}
+}
+
+// sortSnapshotLimitations orders the snapshot's limitations by code, source
+// and message.
+func sortSnapshotLimitations(snap *FleetSnapshot) {
+	sort.Slice(snap.Limitations, func(i, j int) bool {
+		a, b := snap.Limitations[i], snap.Limitations[j]
+		if a.Code != b.Code {
+			return a.Code < b.Code
+		}
+		if a.Source != b.Source {
+			return a.Source < b.Source
+		}
+		// Message is the tertiary key so limitations with the same code+source but
+		// different subjects order deterministically (permutation-invariant).
+		return a.Message < b.Message
+	})
 }
 
 // sortKeys sorts service keys lexicographically in place.

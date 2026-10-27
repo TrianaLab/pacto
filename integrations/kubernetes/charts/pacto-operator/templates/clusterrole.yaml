@@ -96,6 +96,13 @@ rules:
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [clusterroles, clusterrolebindings]
     verbs: [create, delete, get, list, patch, update, watch]
+  # The dashboard asks the apiserver which namespaces a signed-in person may
+  # read (SubjectAccessReview), and Kubernetes lets the operator grant that
+  # right in the dashboard's ClusterRole only if it holds it too. It reveals
+  # nothing but yes or no about the permissions of the person asked about.
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
   {{- end }}
   {{- if .Values.nodeAgent.enabled }}
   # Node agent, cluster-scoped half. Nodes get is the orphan prune: the objects

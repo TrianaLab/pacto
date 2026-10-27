@@ -38,6 +38,8 @@
   // case it is the ONLY place its revisions appear and collapsing it leaves the page
   // saying nothing (the default has to be sensible, not uniform).
   const noneInUse = $derived((d.activeRevisions?.count ?? 0) === 0);
+  // Neighbours Kubernetes permissions hide from this person: counted, never named.
+  const hidden = (n, plus) => (n ? `${plus ? 'Plus ' : ''}${n === 1 ? '1 service' : `${n} services`} hidden by your Kubernetes permissions.` : '');
   const allTargetsHref = $derived(fleetEntityListUrl('target', { service: key }));
 
   const sum = $derived(d.summary ?? {});
@@ -174,12 +176,14 @@
       <EntityRefList items={d.revisions?.items ?? []} showStatus={false} />
     </PreviewSection>
 
-    <PreviewSection title="Expected dependencies" collapsible open={false} summary="Declared in the contract" total={d.dependencies?.total ?? 0} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty="No declared dependencies.">
+    <PreviewSection title="Expected dependencies" collapsible open={false} summary="Declared in the contract" total={d.dependencies?.total ?? 0} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependencies, false) || 'No declared dependencies.'}>
       <EntityRefList items={d.dependencies?.items ?? []} showStatus={false} />
+      {#if d.hiddenDependencies}<p class="se-hidden t-body-2" data-testid="hidden-dependencies">{hidden(d.hiddenDependencies, true)}</p>{/if}
     </PreviewSection>
 
-    <PreviewSection title="Dependents" collapsible open={false} summary="Services that declare this one" total={d.dependents?.total ?? 0} count={d.dependents?.count ?? 0} truncated={d.dependents?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty="Nothing depends on this service.">
+    <PreviewSection title="Dependents" collapsible open={false} summary="Services that declare this one" total={d.dependents?.total ?? 0} count={d.dependents?.count ?? 0} truncated={d.dependents?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependents, false) || 'Nothing depends on this service.'}>
       <EntityRefList items={d.dependents?.items ?? []} showStatus={false} />
+      {#if d.hiddenDependents}<p class="se-hidden t-body-2" data-testid="hidden-dependents">{hidden(d.hiddenDependents, true)}</p>{/if}
     </PreviewSection>
   </div>
 
@@ -203,6 +207,7 @@
 
 <style>
   .svc-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
+  .se-hidden { margin: var(--sp-2) 0 0; color: var(--c-text-3); }
   .se-facts { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .se-fact { display: flex; align-items: center; gap: var(--sp-2); }
   .se-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }

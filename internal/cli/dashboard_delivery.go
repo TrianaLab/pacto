@@ -25,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // deliveryGroupVersion is the API the chart's delivery section installs.
@@ -62,6 +63,9 @@ type dashboardIdentity struct {
 	served    func(*rest.Config, string) (bool, error)
 	now       func() time.Time
 	state     func(context.Context) authn.State
+	// viewer narrows the fleet views to what the signed-in person's Kubernetes
+	// RBAC lets them read; nil outside shared mode with sign-in.
+	viewer *authn.Viewer
 
 	// probe guards the discovery answer; mu guards revisions. A slow cluster
 	// never holds up describe.
@@ -104,6 +108,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 			return nil, err
 		}
 		id.auth = authn.NewShared(o)
+		id.viewer = authn.NewViewer(clusterReview(cluster, d.dynamicFor))
 		if v.GetBool("dashboard.auth-required") {
 			id.auth.RequireLogin()
 		}
@@ -124,10 +129,46 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 			st := id.state(r.Context())
 			return dashboard.AuthState{SignedIn: st.SignedIn, Fresh: st.Fresh, CSRF: st.CSRF, Name: tokenName(st.Token)}
 		}}
+	if id.viewer != nil {
+		o.View = id.view
+	}
 	if id.cluster != nil {
 		o.Delivery = id.delivery
 		o.DeliveryInstalled = id.deliveryInstalled
 	}
+}
+
+// view is the fleet as the caller's Kubernetes RBAC lets them read it: a
+// signed-in person as their ID token names them, anyone else as the
+// apiserver's anonymous user.
+func (id *dashboardIdentity) view(ctx context.Context, q *fleet.Query) (*fleet.Query, error) {
+	p := authn.Anonymous
+	if st := id.state(ctx); st.SignedIn {
+		p = authn.PersonFromToken(st.Token)
+	}
+	r, err := id.viewer.Query(ctx, p, q)
+	if err != nil {
+		return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
+	}
+	return r, nil
+}
+
+// errNoClusterToAsk: the fleet holds Kubernetes namespaces but the dashboard
+// has no cluster to ask who may read them.
+var errNoClusterToAsk = errors.New("the dashboard has no cluster to ask who may read which namespace")
+
+// clusterReview asks the cluster, with the dashboard's own credentials, what a
+// person may read.
+func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.Interface, error)) authn.Review {
+	var dyn dynamic.Interface
+	err := errNoClusterToAsk
+	if cluster != nil {
+		dyn, err = newClient(cluster)
+	}
+	if err != nil {
+		return func(context.Context, authn.Person, string) (bool, error) { return false, err }
+	}
+	return authn.SubjectAccessReview(dyn)
 }
 
 // tokenName is the person's name in an ID token the identity layer already

@@ -43,6 +43,12 @@ func clusterRoleAC() runtime.ApplyConfiguration {
 				WithAPIGroups("").
 				WithResources("services").
 				WithVerbs("get", "list", "watch"),
+			// With sign-in, the dashboard shows each person only the namespaces
+			// their own RBAC lets them read, asking the apiserver per person.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("authorization.k8s.io").
+				WithResources("subjectaccessreviews").
+				WithVerbs("create"),
 		)
 }
 

@@ -28,6 +28,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func identityFor(t *testing.T, v *viper.Viper, host string, cluster *rest.Config) *dashboardIdentity {
@@ -316,5 +317,76 @@ func TestDashboardConfigSchemaMatchesTheFlags(t *testing.T) {
 		if s.Properties[k] == nil {
 			t.Errorf("schema leaves out %s", k)
 		}
+	}
+}
+
+func viewFleet(t *testing.T) *fleet.Query {
+	t.Helper()
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
+		Targets: []fleet.RawTarget{{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "web", Service: "web"}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fleet.NewQuery(snap)
+}
+
+// TestDashboardIdentityView: with sign-in, the fleet views ask Kubernetes RBAC
+// as the signed-in person, or as the anonymous user; without it, nothing is
+// narrowed.
+func TestDashboardIdentityView(t *testing.T) {
+	v := viper.New()
+	var o dashboard.Options
+	identityFor(t, v, "127.0.0.1", nil).options(&o)
+	expect(t, o.View == nil, "a local dashboard narrows nothing")
+
+	v.Set("dashboard.oidc-issuer-url", "https://idp.example")
+	v.Set("dashboard.oidc-client-id", "pacto-dashboard")
+	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
+	id := identityFor(t, v, "0.0.0.0", nil)
+	var asked []authn.Person
+	id.viewer = authn.NewViewer(func(_ context.Context, p authn.Person, ns string) (bool, error) {
+		asked = append(asked, p)
+		return false, nil
+	})
+	o = dashboard.Options{}
+	id.options(&o)
+	q := viewFleet(t)
+
+	id.state = func(context.Context) authn.State { return authn.State{} }
+	r, err := o.View(context.Background(), q)
+	expect(t, err == nil && len(r.SnapshotForSerialization().Services) == 0 && asked[0].User == authn.Anonymous.User,
+		"a visitor who has not signed in is the anonymous user: %v %+v", err, asked)
+
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"https://idp.example","sub":"u1","groups":["g"]}`))
+	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Token: "h." + payload + ".s"} }
+	asked = nil
+	_, _ = o.View(context.Background(), q)
+	expect(t, len(asked) > 0 && asked[0].User == "https://idp.example#u1", "a signed-in person is issuer#sub: %+v", asked)
+
+	boom := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"x","sub":"y"}`))
+	id.viewer = authn.NewViewer(func(context.Context, authn.Person, string) (bool, error) { return false, errors.New("apiserver down") })
+	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Token: "h." + boom + ".s"} }
+	_, err = o.View(context.Background(), q)
+	expect(t, err != nil && strings.Contains(err.Error(), "checking your Kubernetes permissions failed"), "a failed check: %v", err)
+}
+
+func TestClusterReview(t *testing.T) {
+	if _, err := clusterReview(nil, nil)(context.Background(), authn.Anonymous, "a"); !errors.Is(err, errNoClusterToAsk) {
+		t.Errorf("no cluster: %v", err)
+	}
+	broken := errors.New("bad config")
+	if _, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return nil, broken })(context.Background(), authn.Anonymous, "a"); !errors.Is(err, broken) {
+		t.Errorf("no client: %v", err)
+	}
+	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	c.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		obj := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).DeepCopy()
+		_ = unstructured.SetNestedField(obj.Object, true, "status", "allowed")
+		return true, obj, nil
+	})
+	ok, err := clusterReview(&rest.Config{}, func(*rest.Config) (dynamic.Interface, error) { return c, nil })(context.Background(), authn.Anonymous, "a")
+	if err != nil || !ok {
+		t.Errorf("review through the cluster: %v %v", ok, err)
 	}
 }

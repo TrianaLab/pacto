@@ -123,8 +123,9 @@ dashboard:
 Without `required`, anyone who reaches the dashboard sees the fleet views; only
 delivery asks for sign-in. `pacto dashboard` takes the same settings as
 `--oidc-*` flags and `--auth-required`, with the secret in
-`PACTO_DASHBOARD_OIDC_CLIENT_SECRET`. The dashboard's ServiceAccount stays
-read-only: it gains nothing in delivery and cannot impersonate.
+`PACTO_DASHBOARD_OIDC_CLIENT_SECRET`. The dashboard's ServiceAccount gains
+nothing in delivery and cannot impersonate. With sign-in, people see only
+[what their RBAC lets them read](dashboard-access.md).
 
 Without sign-in, a dashboard bound beyond loopback shows no delivery data and
 offers no actions. On loopback it acts as your kubeconfig user and prints a URL
@@ -187,7 +188,8 @@ caller's token at the identity provider (RFC 8693) for one the apiserver
 accepts and asks the apiserver who the caller is on every request. Everyone
 gets the read tools, an agent also propose and cancel, nobody an approve tool. Put agent clients in `pacto:agents` (or
 your agent group), or set `humanGroups`. Without token exchange the server refuses `--delivery` over
-HTTP.
+HTTP. With `--fleet` and `--auth-issuer`, the fleet tools answer
+[as the dashboard does](dashboard-access.md).
 
 Both servers log every refused token, sign-in and signed-in request as a
 warning with the issuer, audience or client, the reason and where it came from

@@ -224,6 +224,7 @@ nav:
       - Publish reference: publishing.md
       - Delivery reference:
           - Sign-in, approvals and agents: integrations/kubernetes/delivery-identity.md
+          - Who sees what in the dashboard: integrations/kubernetes/dashboard-access.md
           - Signed records and history: integrations/kubernetes/delivery-records.md
           - Record keys: integrations/kubernetes/delivery-record-keys.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md

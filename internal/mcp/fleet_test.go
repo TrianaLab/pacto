@@ -271,7 +271,7 @@ func TestFleetExplainHandler_NotFound(t *testing.T) {
 func connectFleetServer(t *testing.T, q *fleet.Query, provideImpact impactProvider) *mcpsdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewFleetServer("test", q, provideImpact, nil)
+	server := NewFleetServer("test", q, provideImpact, nil, nil)
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
 	t1, t2 := mcpsdk.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, t1, nil); err != nil {

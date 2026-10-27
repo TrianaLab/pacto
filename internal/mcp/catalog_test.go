@@ -352,7 +352,7 @@ func TestAuthoringAndFleetServersExposeNoCatalogSurface(t *testing.T) {
 	t.Parallel()
 	for name, server := range map[string]*mcpsdk.Server{
 		"authoring": NewServer(nil, "v-test"),
-		"fleet":     NewFleetServer("v-test", buildFleetQuery(t), nil, nil),
+		"fleet":     NewFleetServer("v-test", buildFleetQuery(t), nil, nil, nil),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

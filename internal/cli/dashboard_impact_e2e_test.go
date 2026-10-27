@@ -18,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // This file is the REAL-provider Product Impact integration test. It exercises
@@ -129,10 +130,21 @@ func singleRevKey(t *testing.T, snap *fleet.FleetSnapshot) string {
 func serveImpact(t *testing.T, mgr *fleet.Manager, svc *app.Service, fleetOverride func(context.Context) (*fleet.Query, error)) string {
 	t.Helper()
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
+	provide := impactProviderForFleet(svc)
 	if fleetOverride == nil {
 		fleetOverride = managerFleetProvider(mgr)
+	} else {
+		// A provider that analyses over the manager's snapshot, not the one it is
+		// handed: the server's own parity check must still catch the difference.
+		provide = func(ctx context.Context, _ *fleet.FleetSnapshot, o, n string, obs bool) (*impact.Result, error) {
+			snap, err := currentSnapshot(ctx, mgr)
+			if err != nil {
+				return nil, err
+			}
+			return impactProviderForFleet(svc)(ctx, snap, o, n, obs)
+		}
 	}
-	srv := dashboard.NewServer(dashboard.Options{UI: ui, Fleet: fleetOverride, Impact: impactProviderForFleet(svc, mgr)})
+	srv := dashboard.NewServer(dashboard.Options{UI: ui, Fleet: fleetOverride, Impact: provide})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

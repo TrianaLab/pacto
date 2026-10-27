@@ -72,7 +72,7 @@ func main() {
 	} else {
 		q := fleet.NewQuery(snap)
 		opts.Fleet = func(context.Context) (*fleet.Query, error) { return q, nil }
-		opts.Impact = demoImpactProvider(snap, byRef)
+		opts.Impact = demoImpactProvider(byRef)
 		// The observed capability is derived from the snapshot's observed edges;
 		// the demo carries them, so no flag is needed.
 	}

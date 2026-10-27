@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -38,6 +39,9 @@ type capabilityAuth struct {
 	Mode     string `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user; shared: people sign in; none: no identity layer"`
 	Login    bool   `json:"login" doc:"People sign in with the identity provider"`
 	SignedIn bool   `json:"signedIn" doc:"This caller is signed in"`
+	// Hidden: the fleet views leave out services this caller's Kubernetes
+	// permissions do not let them read. Which ones is never said.
+	Hidden bool `json:"hidden" doc:"Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace"`
 }
 
 // registerCapabilitiesOperation registers the always-on capabilities endpoint. It
@@ -62,12 +66,11 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	// it carry any observed relationship?), never a hardcoded flag — so the
 	// capability is honest on every host, including the WASM demo. Until a snapshot
 	// is published, observed is reported false (we cannot confirm it).
-	if q := s.publishedQuery(ctx); q != nil && q.HasObserved() {
-		out.Body.Observed = true
-	}
+	q := s.publishedQuery(ctx)
+	out.Body.Observed = q != nil && q.HasObserved()
 	out.Body.Auth.Mode = "none"
 	if a := s.opts.Auth; a != nil {
-		out.Body.Auth = capabilityAuth{Mode: "shared", Login: a.Login, SignedIn: s.authState(ctx).SignedIn}
+		out.Body.Auth = capabilityAuth{Mode: "shared", Login: a.Login, SignedIn: s.authState(ctx).SignedIn, Hidden: hiddenByPermissions(q)}
 		if a.Local {
 			out.Body.Auth.Mode = "local"
 		}
@@ -81,6 +84,12 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	}
 	out.Body.MiraURL = s.opts.MiraURL
 	return out, nil
+}
+
+// hiddenByPermissions reports whether q left out what the caller may not read.
+func hiddenByPermissions(q *fleet.Query) bool {
+	return q != nil && slices.ContainsFunc(q.SnapshotForSerialization().Limitations,
+		func(l fleet.Limitation) bool { return l.Code == fleet.LimitationHiddenByPermissions })
 }
 
 // registerFleetOperations registers the fleet endpoints when a provider is set.
@@ -158,7 +167,7 @@ type fleetSnapshotOutput struct {
 }
 
 func (s *Server) fleetSnapshot(ctx context.Context, _ *struct{}) (*fleetSnapshotOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -183,7 +192,7 @@ type fleetSearchOutput struct {
 }
 
 func (s *Server) fleetSearch(ctx context.Context, in *fleetSearchInput) (*fleetSearchOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -206,7 +215,7 @@ type fleetServiceDetailOutput struct {
 }
 
 func (s *Server) fleetServiceDetail(ctx context.Context, in *fleetServiceDetailInput) (*fleetServiceDetailOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -226,7 +235,7 @@ type fleetTargetDetailOutput struct {
 }
 
 func (s *Server) fleetTargetDetail(ctx context.Context, in *fleetTargetDetailInput) (*fleetTargetDetailOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -267,7 +276,7 @@ type fleetGraphOutput struct {
 }
 
 func (s *Server) fleetGraph(ctx context.Context, in *fleetGraphInput) (*fleetGraphOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -291,7 +300,7 @@ type fleetStatusOutput struct {
 }
 
 func (s *Server) fleetStatus(ctx context.Context, _ *struct{}) (*fleetStatusOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -328,7 +337,15 @@ type fleetImpactOutput struct {
 }
 
 func (s *Server) fleetImpact(ctx context.Context, in *fleetImpactInput) (*fleetImpactOutput, error) {
-	res, err := s.opts.Impact(ctx, in.Old, in.New, in.IncludeObserved)
+	var snap *fleet.FleetSnapshot
+	if s.opts.Fleet != nil {
+		q, err := s.fleetQuery(ctx)
+		if err != nil {
+			return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		}
+		snap = q.SnapshotForSerialization()
+	}
+	res, err := s.opts.Impact(ctx, snap, in.Old, in.New, in.IncludeObserved)
 	if err != nil {
 		return nil, impactHTTPError(err)
 	}

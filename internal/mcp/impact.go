@@ -5,14 +5,16 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
-// impactProvider resolves the old and new contract revisions, builds a fleet
-// snapshot and analyzes the change's blast radius over it. It is supplied by the
-// command layer (from app.Service.Impact) so this package depends only on the
-// pure result type — never on OCI, Kubernetes or the app service.
-type impactProvider func(ctx context.Context, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error)
+// impactProvider resolves the old and new contract revisions and analyzes the
+// change's blast radius over snap, or over a fresh fleet snapshot when snap is
+// nil. It is supplied by the command layer (from app.Service.Impact) so this
+// package depends only on the pure result type — never on OCI, Kubernetes or
+// the app service.
+type impactProvider func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error)
 
 func impactTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
@@ -37,9 +39,11 @@ type impactArgs struct {
 	Traces          string `json:"traces"`
 }
 
-func impactHandler(provide impactProvider) mcpsdk.ToolHandlerFor[impactArgs, any] {
+// impactHandler analyses over snap: the caller's view of the fleet, or nil for
+// a fresh snapshot.
+func impactHandler(provide impactProvider, snap *fleet.FleetSnapshot) mcpsdk.ToolHandlerFor[impactArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, a impactArgs) (*mcpsdk.CallToolResult, any, error) {
-		res, err := provide(ctx, a.OldRef, a.NewRef, a.IncludeObserved, a.Traces)
+		res, err := provide(ctx, snap, a.OldRef, a.NewRef, a.IncludeObserved, a.Traces)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
