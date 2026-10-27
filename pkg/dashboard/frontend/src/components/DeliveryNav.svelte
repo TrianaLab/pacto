@@ -77,6 +77,10 @@
 <style>
   /* One row that scrolls on a phone, never a tab alone on a second line. */
   .dn-tabs { display: flex; gap: var(--sp-1); overflow-x: auto; scrollbar-width: thin; box-shadow: inset 0 -1px 0 var(--c-border); }
+  /* On a narrow screen the last tab runs off the edge: a fade says there is more to scroll to. */
+  @media (max-width: 30rem) {
+    .dn-tabs { mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent); padding-right: 2rem; }
+  }
   .dn-tab {
     padding: var(--sp-2) var(--sp-3); color: var(--c-text-2); text-decoration: none;
     border-bottom: 2px solid transparent; font-size: var(--text-sm); font-weight: 500;

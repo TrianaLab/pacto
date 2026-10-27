@@ -483,7 +483,8 @@ describe('environments', () => {
     await settle();
     expect(fns.environments).toHaveBeenLastCalledWith(expect.objectContaining({ tier: 'prod', q: 'pay' }));
     expect([...prod.target.querySelectorAll('[data-testid="environments-board"] thead th')].map((t) => t.textContent)).toEqual(['Service', 'prod-eu', 'prod-us']);
-    expect(prod.target.querySelector('[data-testid="environments-pager"]')).not.toBeNull();
+    // One page: the header counts the services, so no footer repeats it.
+    expect(prod.target.querySelector('[data-testid="environments-pager"]')).toBeNull();
     prod.destroy();
   });
 

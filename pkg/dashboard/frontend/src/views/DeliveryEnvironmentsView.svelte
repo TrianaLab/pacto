@@ -109,6 +109,8 @@
   }, new Map()));
   const cell = (svc, env) => cells.get(`${svc}\u0000${env}`) ?? [];
   const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
+  // The '–' key is only worth reading when a '–' cell is on the page.
+  const anyMissing = $derived(services.some((svc) => shown.some((env) => cell(svc, env).length === 0)));
   const serviceTotal = $derived(data?.page?.total ?? services.length);
   const observing = $derived(rows.filter((r) => r.level === 'observe' && r.shadow?.length && shown.includes(r.environment)));
   const observingCap = cap(5);
@@ -221,7 +223,7 @@
       {#if strip}
         <div class="t-meta ev-legend ev-key" data-testid="environments-legend">
           {#each STATES as st (st.key)}<span><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span>{st.label}</span>{/each}
-          <span><span class="ev-dot s-none" aria-hidden="true"></span>Not delivered</span>
+          {#if anyMissing}<span><span class="ev-dot s-none" aria-hidden="true"></span>Not delivered</span>{/if}
           <HelpTip label="the dots" text={`One column per environment, grouped ${andList(groups.map((g) => g.tier || 'other'))}. Point at a dot or tab to it for its version, press it for the rest.`} />
         </div>
         <div class="ev-board">
@@ -303,7 +305,7 @@
           </table>
         </div>
       {:else}
-        <p class="t-meta ev-legend" data-testid="environments-legend"><span class="ev-none" aria-hidden="true">–</span> not delivered in that environment</p>
+        {#if anyMissing}<p class="t-meta ev-legend" data-testid="environments-legend"><span class="ev-none" aria-hidden="true">–</span> not delivered in that environment</p>{/if}
         <div class="ev-board">
           <table class="data-table ev-table" data-testid="environments-board" style:min-width={`calc(13rem + ${shown.length} * 12rem)`}>
             <caption class="visually-hidden">Services by environment</caption>
@@ -336,7 +338,8 @@
           </table>
         </div>
       {/if}
-      <Pager page={data.page} {href} label="Pages of services" noun="services" testid="environments-pager" />
+      <!-- One page needs no footer: the header already counts the services. -->
+      {#if onPage || (data.page?.offset ?? 0) > 0}<Pager page={data.page} {href} label="Pages of services" noun="services" testid="environments-pager" />{/if}
       {#if observing.length}
         <section class="ev-shadows" data-testid="shadow-summary" aria-labelledby="ev-shadows-title">
           <div class="ev-shadows-head">
