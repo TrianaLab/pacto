@@ -44,7 +44,12 @@ function render(C: any, props: Record<string, unknown> = {}) {
   const c = mount(C, { target, props });
   return { target, destroy: () => { unmount(c); target.remove(); } };
 }
-const text = (t: Element) => t.textContent?.replace(/\s+/g, ' ') ?? '';
+// The text a reader sees: a closed help tip stays in the DOM, hidden, so leave it out.
+const text = (t: Element) => {
+  const c = t.cloneNode(true) as Element;
+  c.querySelectorAll('[hidden]').forEach((h) => h.remove());
+  return c.textContent?.replace(/\s+/g, ' ') ?? '';
+};
 
 const page = {
   ...listing,

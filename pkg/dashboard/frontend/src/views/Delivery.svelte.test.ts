@@ -62,7 +62,12 @@ function render(C: any, props: Record<string, unknown> = {}) {
 
 // jsdom's selector engine misreads an `&` inside an attribute value.
 const linkTo = (t: HTMLElement, href: string) => [...t.querySelectorAll('a')].find((a) => a.getAttribute('href') === href);
-const text = (t: HTMLElement) => t.textContent?.replace(/\s+/g, ' ') ?? '';
+// The text a reader sees: a closed help tip stays in the DOM, hidden, so leave it out.
+const text = (t: HTMLElement) => {
+  const c = t.cloneNode(true) as Element;
+  c.querySelectorAll('[hidden]').forEach((h) => h.remove());
+  return c.textContent?.replace(/\s+/g, ' ') ?? '';
+};
 
 beforeEach(() => {
   for (const f of Object.values(fns)) f.mockReset();
@@ -1063,7 +1068,7 @@ describe('history and published', () => {
     // Both lists fold behind a warn count, so the changes come first.
     const problems = target.querySelector('[data-testid="history-problems"]') as HTMLDetailsElement;
     expect(problems.open).toBe(false);
-    expect(text(problems.querySelector('summary') as HTMLElement)).toBe('▸What the records show is wrong 2');
+    expect(text(problems.querySelector('summary') as HTMLElement)).toBe('▸2 record problems');
     expect(target.querySelector('[data-testid="history-unreadable"]')?.textContent).toContain('not trusted here');
     // Ids are short inline; the full one is on hover and copied on a click.
     const ids = [...target.querySelectorAll('[data-testid^="history-"] button.dt-id')];
