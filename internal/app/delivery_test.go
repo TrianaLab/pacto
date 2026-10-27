@@ -207,6 +207,14 @@ func TestDeliveryProposeFreezeAndRung(t *testing.T) {
 	if err != nil || op.Spec.Facet != delivery.FacetFreeze || op.Spec.Params.From == "" || op.Spec.Params.To != "" {
 		t.Fatalf("freeze names the version it stays on: %+v %v", op, err)
 	}
+	// An acknowledge names the upstream stand-in; this Stage follows no
+	// records, so the plan predicts the promoter's refusal.
+	plan, spec, err := d.Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAcknowledge,
+		Record: "sha256:" + strings.Repeat("e", 64), Reason: "checked"})
+	if err != nil || spec.Facet != delivery.FacetUpstream || spec.Params.Record == "" || plan.Predicted != delivery.PredictRejected ||
+		!strings.HasPrefix(plan.Conflicts[0], "NoUpstreamRecords") {
+		t.Fatalf("acknowledge: %+v %+v %v", plan, spec, err)
+	}
 	op, _, err = d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAutonomy, To: "advise"})
 	if err != nil || op.Spec.Facet != delivery.FacetRung || op.Spec.Params.To != "advise" || op.Spec.Params.From != string(delivery.RungAutonomous) {
 		t.Fatalf("a rung change moves from the rung the Stage is on: %+v %v", op, err)

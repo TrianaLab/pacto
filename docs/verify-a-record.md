@@ -40,7 +40,7 @@ Every field sits under `.predicate`:
 
 | Field | What it says |
 |---|---|
-| `kind` | `operation` for a change, `gap` for a placeholder (see below), `unrecordable` for a signed stand-in for a change whose own record failed a check. A stand-in takes that change's number in the chain and hangs on the anchor only |
+| `kind` | `operation` for a change, `gap` for a placeholder (see below), `unrecordable` for a signed stand-in for a change whose own record failed a check. A stand-in takes that change's number in the chain and hangs on the anchor only. A Stage in another cluster that follows the stream stops offering at a stand-in until a person acknowledges it (an `acknowledge` record on that Stage names its record id in `intent.params.record`) |
 | `intent` | What was asked: the change's name, its Stage (`intent.stage.namespace` and `intent.stage.name`) and its reason |
 | `actor.user`, `actor.class` | Who asked, and whether that is a `human`, an `agent`, `break-glass` (a member of the emergency group, whose change skips every check and approval and freezes the Stage) or Pacto itself (`controller`) |
 | `actor.onBehalfOf` | The person an agent said it acted for. Only claimed, never checked, and marked so |

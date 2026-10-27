@@ -165,6 +165,8 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"json", append(plan, "--to", cliB), false, []string{`"intentDigest": "sha256:`}},
 		{"text", append(plan, "--to", "v2"), true, []string{cliB}},
 		{"text", append(plan, "--to", cliB, "--from", cliB), false, []string{"conflict:  PointerMoved"}},
+		{"text", append(plan, "--type", "acknowledge", "--record", "sha256:"+strings.Repeat("e", 64), "--reason", "checked"), false,
+			[]string{"conflict:  NoUpstreamRecords"}},
 		{"text", []string{"get", "-n", "prod", "held"}, false, []string{"question:  Approve?", "reason:    AwaitingHuman: m", "pacto.diff"}},
 		{"text", []string{"get", "-n", "prod", "missing"}, true, nil},
 		{"text", append(plan, "--to", cliB, "--cause-verdict", "{"), true, []string{"--cause-verdict is not a verdict"}},

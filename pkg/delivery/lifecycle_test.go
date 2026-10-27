@@ -145,7 +145,9 @@ func TestApplyEffects(t *testing.T) {
 		"unfreeze": {in{typ: TypeUnfreeze, c: Conclusion{Outcome: Succeeded}, s: StageStatus{Frozen: true, FrozenReason: "x", AutoHold: true}},
 			func(s StageStatus) bool { return !s.Frozen && s.FrozenReason == "" && !s.AutoHold }},
 		"acknowledge": {in{typ: TypeAcknowledge, c: Conclusion{Outcome: Succeeded}, s: StageStatus{UpstreamAcknowledged: []string{"sha256:old"}}},
-			func(s StageStatus) bool { return strings.Join(s.UpstreamAcknowledged, ",") == "sha256:old,sha256:rec" && !s.Frozen }},
+			func(s StageStatus) bool {
+				return strings.Join(s.UpstreamAcknowledged, ",") == "sha256:old,sha256:rec" && !s.Frozen
+			}},
 		"freeze": {in{typ: TypeFreeze, c: Conclusion{Outcome: Succeeded}},
 			func(s StageStatus) bool { return s.Frozen && s.FrozenReason == "op: frozen: because" }},
 		"freeze keeps an earlier reason": {in{typ: TypeFreeze, c: Conclusion{Outcome: Succeeded}, s: StageStatus{Frozen: true, FrozenReason: "re-check"}},

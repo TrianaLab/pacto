@@ -191,6 +191,7 @@ func addRequestFlags(cmd *cobra.Command) {
 	cmd.Flags().String("to", "", "where to move: an artifact digest (sha256:...) for a pointer type, or a rung (observe, advise, auto-nonbreaking or autonomous) for "+delivery.TypeAutonomy)
 	cmd.Flags().String("from", "", "where the Stage is now: a digest, or a rung for "+delivery.TypeAutonomy+" (defaults to its pointer, or to its current rung)")
 	cmd.Flags().String("undoes", "", "for a rollback: the name of the operation it undoes")
+	cmd.Flags().String("record", "", "for "+delivery.TypeAcknowledge+": the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it")
 	cmd.Flags().String("reason", "", "why, for the record")
 	cmd.Flags().String("on-behalf-of", "", "the person an agent acts for (asserted, not verified)")
 	cmd.Flags().String("cause-verdict", "", "a verdict (JSON, as `pacto delivery explain --output-format json` prints it) you cite as the cause; "+
@@ -205,7 +206,7 @@ func requestFrom(cmd *cobra.Command, ns string) (delivery.Request, error) {
 		typ = "delivery.pacto.trianalab.io/" + typ
 	}
 	req := delivery.Request{Namespace: ns, Stage: get("stage"), Type: typ, To: get("to"), From: get("from"),
-		Undoes: get("undoes"), Reason: get("reason"), OnBehalfOf: get("on-behalf-of")}
+		Undoes: get("undoes"), Record: get("record"), Reason: get("reason"), OnBehalfOf: get("on-behalf-of")}
 	if raw := get("cause-verdict"); raw != "" {
 		var v delivery.Verdict
 		if err := json.Unmarshal([]byte(raw), &v); err != nil {
