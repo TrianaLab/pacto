@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
@@ -159,12 +160,13 @@ func listInto[T any](ctx context.Context, r dynamic.NamespaceableResourceInterfa
 	if err != nil {
 		return nil, fmt.Errorf("listing %s in %s: %w", what, cmp.Or(ns, "every namespace"), err)
 	}
-	var out struct {
-		Items []T `json:"items"`
+	// Converted from the decoded objects, not written back to JSON and read
+	// again: on a list of thousands that round trip was most of the work.
+	out := make([]T, len(list.Items))
+	for i := range list.Items {
+		_ = runtime.DefaultUnstructuredConverter.FromUnstructured(list.Items[i].Object, &out[i]) // a malformed item stays partly read, as before
 	}
-	b, _ := list.MarshalJSON()
-	_ = json.Unmarshal(b, &out)
-	return out.Items, nil
+	return out, nil
 }
 
 // Stages lists the Stages in a namespace, or in every namespace for "".
