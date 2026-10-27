@@ -6,6 +6,7 @@
   import { kindLabel } from '../lib/entityLabels.ts';
   import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, hashForHref } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
+  import { postureAnswer, revisionAnswer } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -58,6 +59,16 @@
   // every page since stale-while-revalidate landed; the header is the first thing to
   // actually say it, in words rather than by spinning something.
   const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
+
+  // The one-line answer under the title: is this service or owner estate broken, is
+  // this revision valid and ready. Kinds without a single question get none.
+  const entityAnswer = $derived.by(() => {
+    if (!detail) return null;
+    if (detail.service) return postureAnswer(detail.service.summary, knowledge.incomplete);
+    if (detail.owner) return postureAnswer(detail.owner.summary, knowledge.incomplete);
+    if (detail.revision) return revisionAnswer(detail.revision);
+    return null;
+  });
 
   // Entity-relationship breadcrumbs from canonical DTO refs; a minimal
   // trail while loading/erroring.
@@ -116,6 +127,10 @@
     asOf={detail?.meta?.asOf}
     {revalidating}
   />
+
+  {#if state.kind === 'ready' && entityAnswer}
+    <p class="page-answer t-body ev-answer tone-{entityAnswer.tone}" data-testid="entity-answer"><strong>{entityAnswer.lead}</strong> {entityAnswer.rest}</p>
+  {/if}
 
   {#if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={kindLabel(kind).toLowerCase()} onRetry={load} />
@@ -176,6 +191,10 @@
 </div>
 
 <style>
+  /* The answer's lead word carries the tone; the words say it too (WCAG 1.4.1). */
+  .ev-answer.tone-err strong { color: var(--c-err); }
+  .ev-answer.tone-warn strong { color: var(--c-warn); }
+  .ev-answer.tone-ok strong { color: var(--c-ok); }
   /* The resolved page. Its own element (rather than a bare fragment) is what lets a
      test say "the entity BODY is on screen" without that also being true while the
      page header is still waiting for the request. The column layout comes from the

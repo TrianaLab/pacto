@@ -136,7 +136,7 @@
   {/if}
 
   {#if (d.relationships?.count ?? 0) > 0}
-    <PreviewSection title="Observed traffic and differences" total={d.relationships?.total ?? null} count={d.relationships?.count ?? 0} truncated={d.relationships?.truncated} viewAllHref={graphHref} viewAllLabel="Open differences view" help="What Pacto has actually seen this service talk to, and where that disagrees with what its contract declares.">
+    <PreviewSection title="Observed traffic and differences" collapsible open={false} summary="What Pacto saw against what is declared" total={d.relationships?.total ?? null} count={d.relationships?.count ?? 0} truncated={d.relationships?.truncated} viewAllHref={graphHref} viewAllLabel="Open differences view" help="What Pacto has actually seen this service talk to, and where that disagrees with what its contract declares.">
       <RelationshipList items={d.relationships?.items ?? []} selfKey={key} />
     </PreviewSection>
   {/if}
@@ -161,7 +161,7 @@
          dependency graph, so nothing above and nothing in the graph would ever mention
          it, and the referenced service had no way to learn who reaches into it. This is
          the reverse side of the reference the revision page links forward. -->
-    <PreviewSection title="Referenced by" total={d.referencedBy?.total ?? 0} count={d.referencedBy?.count ?? 0} truncated={d.referencedBy?.truncated} empty="No service references this service's configuration or policy." help="These services reference this one's configuration or policy contract. That is not a runtime dependency, so it never appears in the graph.">
+    <PreviewSection title="Referenced by" collapsible={(d.referencedBy?.count ?? 0) > 0} open={false} total={d.referencedBy?.total ?? 0} count={d.referencedBy?.count ?? 0} truncated={d.referencedBy?.truncated} empty="No service references this service's configuration or policy." help="These services reference this one's configuration or policy contract. That is not a runtime dependency, so it never appears in the graph.">
       <EntityRefList items={d.referencedBy?.items ?? []} showStatus={false} />
     </PreviewSection>
   </div>

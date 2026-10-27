@@ -13,6 +13,8 @@
   import FindingList from '../../components/FindingList.svelte';
   import LimitationsList from '../../components/LimitationsList.svelte';
   import HorizontalBars from '../../components/viz/HorizontalBars.svelte';
+  import HelpTip from '../../components/HelpTip.svelte';
+  import { joinAnd } from '../../lib/answers.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import { fleetEntityListUrl } from '../../lib/router.ts';
 
@@ -58,6 +60,14 @@
     ...(sbom?.licenses ?? []).map((l) => ({ label: l.license, value: l.count, tone: l.license === 'unspecified' ? 'warn' : 'info' })),
     ...(sbom?.otherLicensed ? [{ label: 'Less common licenses', value: sbom.otherLicensed, tone: 'neutral' }] : []),
   ]);
+  // What the revision declares is inspection detail on a page about one item, so a
+  // declared section opens on request and the empty ones share a single line instead of
+  // three cards that each say "none".
+  const declaredEmpty = $derived(joinAnd([
+    (d.interfaces?.count ?? 0) === 0 ? 'interfaces' : '',
+    (d.configurations?.count ?? 0) === 0 ? 'configuration' : '',
+    (d.policies?.count ?? 0) === 0 ? 'policies' : '',
+  ].filter(Boolean), 'or'));
 </script>
 
 <div class="rev-entity">
@@ -124,13 +134,13 @@
     <section class="re-readiness" id="sec-readiness" data-toc="Readiness">
       <div class="rr-head">
         <h2 class="t-section-title">Readiness</h2>
+        <HelpTip label="readiness" text="What the authors declared about this revision's preparedness — not a measurement of the running system." />
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
       </div>
       <!-- The distinction a first-time user cannot guess from the word "readiness":
            this is the contract's own self-assessment of how prepared this revision is,
            scored against a gate its authors declared. It says nothing about whether the
            running system obeys the contract -- that is compliance, shown on the targets. -->
-      <p class="rr-lead t-body-2">What the authors declared about this revision's preparedness — not a measurement of the running system.</p>
       <p class="rr-line t-body">Score {r.score} / {r.minScore} required · {formatCount(r.doneCount)} done · {formatCount(r.partialCount)} partial · {formatCount(r.notDoneCount)} not done{r.deferredCount ? ` · ${r.deferredCount} deferred` : ''}{r.expired ? ' · expired' : ''}</p>
       {#if (r.checks?.count ?? 0) > 0}
         <!-- Requirement 13 draws the line here and not on the section: FAILING readiness
@@ -175,8 +185,15 @@
 
   <!-- ── what this revision declares ────────────────────────────────────────── -->
 
+  {#if declaredEmpty}
+    <p class="re-none t-body-2" data-testid="revision-declares-none">Declares no {declaredEmpty}.</p>
+  {/if}
+
+  {#if (d.interfaces?.count ?? 0) > 0}
   <PreviewSection
     title="Interfaces"
+    collapsible
+    open={false}
     total={d.interfaces?.total ?? 0}
     count={d.interfaces?.count ?? 0}
     truncated={d.interfaces?.truncated}
@@ -229,9 +246,13 @@
       {/each}
     </ul>
   </PreviewSection>
+  {/if}
 
+  {#if (d.configurations?.count ?? 0) > 0}
   <PreviewSection
     title="Configuration"
+    collapsible
+    open={false}
     total={d.configurations?.total ?? 0}
     count={d.configurations?.count ?? 0}
     truncated={d.configurations?.truncated}
@@ -268,9 +289,13 @@
       {/each}
     </ul>
   </PreviewSection>
+  {/if}
 
+  {#if (d.policies?.count ?? 0) > 0}
   <PreviewSection
     title="Policies"
+    collapsible
+    open={false}
     total={d.policies?.total ?? 0}
     count={d.policies?.count ?? 0}
     truncated={d.policies?.truncated}
@@ -295,6 +320,7 @@
       </tbody>
     </table>
   </PreviewSection>
+  {/if}
 
   <PreviewSection
     title="Capabilities"
@@ -336,7 +362,7 @@
     <!-- showClaims: on the contract inspector a dependency is a DECLARATION, so the row
          carries what was declared (requested ref, required, compatibility, lockfile pin)
          rather than only the name of the other service. -->
-    <PreviewSection title="Declared dependencies" total={d.dependencies?.total ?? null} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated}>
+    <PreviewSection title="Declared dependencies" collapsible open={false} total={d.dependencies?.total ?? null} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated}>
       <RelationshipList items={d.dependencies?.items ?? []} showClaims />
     </PreviewSection>
   {/if}
@@ -478,6 +504,7 @@
 </div>
 
 <style>
+  .re-none { margin: 0; color: var(--c-text-3); }
   .rev-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
   .re-facts, .re-idrows, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .re-fact, .re-idrow, .re-adj { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
@@ -488,7 +515,7 @@
   .re-ctrunc { margin: var(--sp-2) 0 0; color: var(--c-text-3); }
   .re-readiness, .re-sbom { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   .re-readiness { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
+  .rr-head { display: flex; align-items: center; gap: var(--sp-3); }
   .rr-head h2 { margin: 0; }
   .rr-line, .rr-lead { margin: 0; }
   /* A section that happens to collapse must not rank below one that does not, so the

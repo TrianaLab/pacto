@@ -120,11 +120,25 @@
   // ask the exact question. With the free-text filter the count and its destination
   // disagree the moment one owner's key is a substring of another's.
   const rank = $derived(ownerRanking(agg, (o) => fleetServicesUrl({ ownerKey: o, ownership: 'consistent' })));
+  // The answer line: how much of the fleet has one clear owner, and what does not.
+  const ownAnswer = $derived.by(() => {
+    if (!agg || services === 0) return null;
+    const o = agg.ownership ?? {};
+    const rest = [
+      o.conflicting ? `${formatCount(o.conflicting)} ${o.conflicting === 1 ? 'is' : 'are'} disputed` : '',
+      o.unowned ? `${formatCount(o.unowned)} ${o.unowned === 1 ? 'has' : 'have'} no owner` : '',
+    ].filter(Boolean).join(' and ');
+    return { lead: `${formatCount(o.consistent ?? 0)} of ${formatCount(services)} ${services === 1 ? 'service has' : 'services have'} one clear owner.`, rest: rest ? `${rest[0].toUpperCase()}${rest.slice(1)}.` : '' };
+  });
 </script>
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Owners' }]} />
   <PageHeader title="Owners" count={list ? `${formatCount(total)} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={answer.paging} />
+
+  {#if ownAnswer}
+    <p class="page-answer t-body" data-testid="owners-answer"><strong>{ownAnswer.lead}</strong> {ownAnswer.rest}</p>
+  {/if}
 
   <div class="ow-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">

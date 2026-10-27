@@ -7,6 +7,7 @@
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
+  import { joinAnd } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
@@ -101,7 +102,6 @@
   // The answer line. It names the error-grade entry points the backend counted -- the
   // same split the tiles below use -- and never claims "no" past what the knowledge allows.
   const errorPoints = $derived(splitEntryPoints(overview?.entryPoints).lead.filter((ep) => (ep.count || 0) > 0));
-  const joinAnd = (parts) => (parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`);
   // Plain sentences for the categories we know; any other entry point keeps the
   // backend's own label, so a new category still reaches the answer.
   const PHRASE = {
@@ -198,9 +198,9 @@
       <OperationalSummary summary={overview.summary} entryPoints={overview.entryPoints} {attentionTotal} />
     </section>
 
-    <section class="band" id="sec-posture" data-toc="Fleet posture" aria-labelledby="ov-posture">
+    <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
       <div class="ov-head">
-        <div class="ov-title"><h2 id="ov-posture" class="t-section-title">Fleet posture</h2><HelpTip label="fleet posture" text="Three separate questions about every running target, never rolled into one score." /></div>
+        <div class="ov-title"><h2 id="ov-posture" class="t-section-title">Operational posture</h2><HelpTip label="operational posture" text="Three separate questions about every running target, never rolled into one score." /></div>
         <span class="ov-tally t-body-2">{formatCount(totalTargets)} operational {totalTargets === 1 ? 'target' : 'targets'}</span>
       </div>
       <PostureBars summary={posture} {attentionUrl} />
