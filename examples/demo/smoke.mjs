@@ -214,6 +214,13 @@ check("history has a verified stream and one with problems",
   hist.some((h) => h.verified && h.completeness === "complete")
     && hist.some((h) => (h.problems || []).length > 0 && (h.unreadable || []).length > 0));
 check("the refused 2.4.3 is listed", (json(call("GET", "/api/delivery/refusals")).refusals || []).some((r) => r.version === "2.4.3" && r.requiredBump === "major"));
+const ladder = json(call("GET", "/api/delivery/autonomy")).stages || [];
+const rung = (ns, st) => ladder.find((s) => s.namespace === ns && s.stage === st) || {};
+check("fraud observes, and Pacto noted it would have shipped 1.0.0",
+  rung("test", "fraud").rung === "observe" && rung("test", "fraud").lastShadow?.predicted === "Proceeds" && rung("test", "fraud").proposal?.rung === "advise");
+check("payments in prod stepped down after B2's failure", rung("prod", "payments").rung === "auto-nonbreaking");
+const evals = (json(call("GET", "/api/delivery/operations/test/pay-agent-promote-14")).operation?.status?.verdicts || []).find((v) => v.gate === "evals");
+check("pay-agent 1.1.0 failed evals its runner signed", evals?.result === "Fail" && evals.citation?.runner === "story-evals" && !!evals.citation?.runnerBundle, JSON.stringify(evals?.citation?.runner));
 check("the pacto init plan is embedded", JSON.parse(globalThis.__pactoPactifyPlan).files.some((f) => f.path === "pacto.yaml"));
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);

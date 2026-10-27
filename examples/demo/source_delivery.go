@@ -1,16 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -147,8 +151,9 @@ func newStage(service, env string) *delivery.StageObject {
 	s.Spec = delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.ApplyRef{Name: service}}
 	s.Spec.Gates.Impact.DeclaredConsumersOnly = true // every service in the story has a contract
 	s.Spec.Gates.Verify.Checks = story.Checks(service, env)
-	// The simulated Stages have already climbed the autonomy ladder, so the
+	// Most simulated Stages have already climbed the autonomy ladder, so the
 	// story's agent promotes plan as they would on a real autonomous Stage.
+	// fraud is new and observes (replay).
 	s.Status.Rung = delivery.RungAutonomous
 	if env == story.Test {
 		s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: service + "-candidates"}
@@ -187,11 +192,16 @@ func versionOf(service, digest string) string {
 }
 
 var storyVersions = map[string][]string{
-	"payments": {"2.3.0", "2.4.0", "2.4.2", "2.4.3", "3.0.0"},
-	"checkout": {"1.8.0", "1.9.0"},
-	"orders":   {"1.4.0"},
-	"fraud":    {"1.0.0"},
+	"payments":  {"2.3.0", "2.4.0", "2.4.2", "2.4.3", "3.0.0"},
+	"checkout":  {"1.8.0", "1.9.0"},
+	"orders":    {"1.4.0"},
+	"fraud":     {"1.0.0"},
+	"pay-agent": {"1.0.0", "1.1.0"},
 }
+
+// uncontracted are the workloads the node agent saw call a service in an
+// environment that have no contract, by "namespace/service": the cold start.
+var uncontracted = map[string][]string{"test/payments": {"ledger-export"}}
 
 func (d *demoDelivery) clock() time.Time {
 	if !d.at.IsZero() {
@@ -207,18 +217,30 @@ func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 // replay builds the world the guided path starts from: every Stage, what
 // pacto publish published, and the story's beats up to B4 played through the
-// same plan and lifecycle as a live change. fraud's history is read from
-// status only, as on a cluster without the recorder; the payments test
-// stream holds a deliberate gap and a record signed by a key nobody trusts.
+// same plan and lifecycle as a live change, then the agent beat. fraud is new:
+// its Stages observe and its history is read from status only, as on a
+// cluster without the recorder. The payments test stream holds a deliberate
+// gap and a record signed by a key nobody trusts.
 func (d *demoDelivery) replay(start time.Time) error {
 	d.at = start
 	defer func() { d.at = time.Time{} }()
-	for _, svc := range []string{"checkout", "fraud", "orders", "payments"} {
+	for _, svc := range []string{"checkout", "fraud", "orders", "pay-agent", "payments"} {
 		for _, env := range []string{story.Test, story.Prod} {
 			s := newStage(svc, env)
 			if svc != "fraud" {
 				s.Status.Stream = delivery.Stream{ID: clusterID + "/" + env + "/" + svc, Anchor: "registry.example/story/records@sha256:" + svc + env}
+				s.Status.Conditions = []delivery.Condition{{Type: delivery.ConditionRecordStoreReady, Status: "True"}}
 				d.streams[stageKey(env, svc)] = &stream{}
+			} else {
+				// pacto init starts a new Stage on observe. On test, fraud's
+				// team labelled the applyRef and asks for a proposal after one
+				// verified version (the default is 10), so the demo can show one.
+				s.Status.Rung = delivery.RungObserve
+				s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: delivery.ReasonObserving}}
+				if env == story.Test {
+					s.Status.Conditions[0].Reason = delivery.ReasonObservingGuarded
+					s.Spec.Autonomy.ProposeAfter = 1
+				}
 			}
 			if env == story.Test {
 				for _, v := range storyVersions[svc] {
@@ -238,25 +260,92 @@ func (d *demoDelivery) replay(start time.Time) error {
 		s, dg := d.stage(p.env, p.svc), story.ArtifactDigest(p.svc, p.v)
 		s.Status.Pointer, s.Status.Verified, s.Status.Offered = dg, []string{dg}, []string{dg}
 	}
+	// pactify: GitOps applied fraud 1.0.0 in test, and Pacto only noted what
+	// it would have done.
+	if err := d.observe(story.Test, "fraud", "1.0.0"); err != nil {
+		return err
+	}
 	steps := []struct{ svc, env, to string }{
-		{"fraud", story.Test, "1.0.0"},    // pactify
 		{"payments", story.Test, "2.4.0"}, // B1 in test
-		{"payments", story.Prod, "2.4.0"}, // B1, then the health check fails and B2 rolls it back
-		{"payments", story.Test, "2.4.2"}, // B3: the claim check fails
+		{"payments", story.Prod, "2.4.0"}, // B1, then the health check fails, B2 rolls it back and prod steps down
+		{"payments", story.Test, "2.4.2"}, // B3: the claim check fails, and test steps down
 		{"checkout", story.Test, "1.9.0"},
-		{"payments", story.Test, "3.0.0"}, // B4: the signed 3.0.0
+		{"payments", story.Test, "3.0.0"}, // B4: the signed 3.0.0, which ledger-export's missing contract holds
 		{"orders", story.Test, "1.4.0"},
+		{"pay-agent", story.Test, "1.0.0"}, // the agent beat: 1.0.0 passes its evals
+		{"pay-agent", story.Prod, "1.0.0"},
+		{"pay-agent", story.Test, "1.1.0"}, // and 1.1.0 passes 1 of 2, rolls back and steps test down
 	}
 	for _, s := range steps {
 		req := delivery.Request{Namespace: s.env, Stage: s.svc, To: story.ArtifactDigest(s.svc, s.to)}
-		if _, _, err := d.propose(req, story.PayAgent); err != nil {
+		o, _, err := d.propose(req, story.PayAgent)
+		if err != nil {
 			return err
+		}
+		if o.Status.Phase == delivery.PhaseHeld {
+			// Test auto-promotes only non-breaking changes since 2.4.2 failed,
+			// and a workload with no contract calls payments: alice, on its
+			// team, accepts that unknown.
+			d.decide(o, d.callerOf(story.Alice), o.Status.Plan.Floor.Decision, "ledger-export only reads payment ids, which 3.0.0 keeps")
 		}
 		if s.to == "2.4.2" {
 			d.gapAndStranger(d.stage(s.env, s.svc))
 		}
 	}
+	for _, s := range d.stages {
+		s.Status.Proposal = d.proposal(s)
+	}
 	return nil
+}
+
+// observe is the stage reconciler on a Stage that observes, after GitOps
+// applied version: it plans what a fully automatic Stage would have done with
+// it (the shadow plan, advisory and unsigned), then runs the Stage's checks
+// on it once its verify window passed.
+func (d *demoDelivery) observe(env, svc, version string) error {
+	st := d.stage(env, svc)
+	dg, from := story.ArtifactDigest(svc, version), ""
+	if r := st.Status.ObservedRevision; r != nil {
+		from = r.Digest
+	}
+	saved := st.Status
+	st.Status.Rung, st.Status.Pointer = delivery.RungAutonomous, from
+	p, _, err := d.plan(delivery.Request{Namespace: env, Stage: svc, To: dg, Reason: "shadow plan while the Stage observes"}, story.Promoter)
+	st.Status = saved
+	if err != nil {
+		return err
+	}
+	at := d.clock()
+	e := delivery.Shadow{Candidate: dg, From: from, Predicted: p.Predicted, IntentDigest: p.IntentDigest, ImpactDigest: p.ImpactDigest,
+		PlannedAt: stamp(at), ObservedAt: stamp(at), Question: p.Question}
+	if p.Floor.Human {
+		e.Decision, e.Owners = p.Floor.Decision, p.Floor.Owners
+	}
+	st.Status.ObservedRevision = &delivery.ObservedRevision{Digest: dg, Since: stamp(at)}
+	if delivery.Worst(d.checks(env, svc, dg, delivery.GateInput{Facet: delivery.FacetPointer}, at)) == delivery.Pass {
+		e.Verification = delivery.Verified
+		st.Status.Verified = delivery.AddDigest(st.Status.Verified, dg, delivery.MaxVerified)
+		if slices.Contains(st.Status.Published, dg) {
+			st.Status.Offered = delivery.AddDigest(st.Status.Offered, dg, delivery.MaxOffered)
+		}
+	}
+	st.Status.Shadow = append([]delivery.Shadow{e}, st.Status.Shadow...)
+	return nil
+}
+
+// proposal is the rung Pacto proposes next for s, or why not, as the stage
+// reconciler writes it: on auto-nonbreaking it reads the graph from the plan
+// of the operation that last moved the pointer.
+func (d *demoDelivery) proposal(s *delivery.StageObject) *delivery.Proposal {
+	var latest *delivery.Plan
+	if delivery.CurrentRung(s.Spec, s.Status) == delivery.RungAutoNonBreaking {
+		for _, o := range d.ops {
+			if o.Metadata.UID == s.Status.LastOp {
+				latest = o.Status.Plan
+			}
+		}
+	}
+	return delivery.ProposeRung(s.Spec, s.Status, latest)
 }
 
 // health is the recorded Mira verdict that fails payments 2.4.0 in prod (B2).
@@ -311,6 +400,14 @@ func (s edSigner) Sign(_ context.Context, payloadType string, payload []byte) ([
 
 // verifier checks a bundle was signed by the tab's key.
 func (d *demoDelivery) verifier(_ string, _ int64, bundle []byte) error {
+	if err := verifyDSSE(d.key.Public().(ed25519.PublicKey), bundle); err != nil {
+		return errors.New("not signed by the key this tab trusts")
+	}
+	return nil
+}
+
+// verifyDSSE checks bundle is one DSSE envelope signed by pub.
+func verifyDSSE(pub ed25519.PublicKey, bundle []byte) error {
 	var b struct {
 		DSSEEnvelope struct {
 			Payload     []byte `json:"payload"`
@@ -324,11 +421,49 @@ func (d *demoDelivery) verifier(_ string, _ int64, bundle []byte) error {
 		return errors.New("not one DSSE signature")
 	}
 	sig, _ := base64.StdEncoding.DecodeString(b.DSSEEnvelope.Signatures[0].Sig)
-	if !ed25519.Verify(d.key.Public().(ed25519.PublicKey), pae(b.DSSEEnvelope.PayloadType, b.DSSEEnvelope.Payload), sig) {
-		return errors.New("not signed by the key this tab trusts")
+	if !ed25519.Verify(pub, pae(b.DSSEEnvelope.PayloadType, b.DSSEEnvelope.Payload), sig) {
+		return errors.New("the signature does not verify")
 	}
 	return nil
 }
+
+// ── the eval runner ─────────────────────────────────────────────────────
+
+// evalCounts are the cases the story's stand-in runner counts as passed of
+// all, by pay-agent version: 1.1.0 swaps its model and passes 1 of its 2.
+var evalCounts = map[string][2]int{"1.0.0": {2, 2}, "1.1.0": {1, 2}}
+
+// storyRunner answers a suite gate's request in the tab, as the story's
+// stand-in runner: it counts with evalCounts and signs its answer with the
+// story runner key (story.SignEval).
+type storyRunner struct{}
+
+func (storyRunner) RoundTrip(r *http.Request) (*http.Response, error) {
+	var q struct {
+		Input delivery.GateInput `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&q); err != nil || len(q.Input.Subjects) == 0 {
+		return nil, errors.New("not a suite gate request")
+	}
+	n := evalCounts[versionOf(q.Input.Service.Name, q.Input.Subjects[0])]
+	body := story.SignEval(q.Input, "story-evals/"+q.Input.OperationUID, n[0], n[1])
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(body)), Request: r}, nil
+}
+
+// runners checks an answer was signed by a runner key the gate provider
+// trusts: the story's runner, by its PEM public key.
+var runners, _ = delivery.RunnersOf([]delivery.TrustedKey{story.RunnerTrust()}, func(k delivery.TrustedKey) (func([]byte) error, error) {
+	blk, _ := pem.Decode([]byte(k.PublicKey))
+	pub, err := x509.ParsePKIXPublicKey(blk.Bytes) // story.RunnerTrust is always an Ed25519 PEM key
+	return func(b []byte) error { return verifyDSSE(pub.(ed25519.PublicKey), b) }, err
+})
+
+// gates are the providers a Stage check may name: the suite runner.
+var gates = map[string]delivery.Gate{"evals": delivery.Eval{URL: "https://evals.story.example/run", Client: &http.Client{Transport: storyRunner{}},
+	Verify: runners, Revision: func(_ context.Context, in delivery.GateInput) delivery.Revision {
+		r, _ := story.Revision(in.Service.Name, versionOf(in.Service.Name, in.Subjects[0]))
+		return r
+	}}}
 
 // store signs st with key and reads it back as a registry reader would: a
 // record that verifies joins the stream, one that does not is unreadable.
@@ -349,10 +484,12 @@ func (d *demoDelivery) store(stage *delivery.StageObject, st delivery.Statement,
 
 // ── planning ────────────────────────────────────────────────────────────
 
-func (d *demoDelivery) caller() delivery.Caller {
-	p := personas[d.persona]
+func (d *demoDelivery) caller() delivery.Caller { return d.callerOf(personas[d.persona]) }
+
+// callerOf is p as the simulated sign-in names them.
+func (d *demoDelivery) callerOf(p story.Persona) delivery.Caller {
 	return delivery.Caller{Identity: delivery.Identity{User: p.User, Groups: p.Groups}, Class: p.Class(),
-		AuthTime: stamp(d.authAt[d.persona]), Policy: story.Policy}
+		AuthTime: stamp(d.authAt[p.Name]), Policy: story.Policy}
 }
 
 // spec turns a request into the intent, as the CLI and the cluster
@@ -377,6 +514,8 @@ func (d *demoDelivery) spec(req delivery.Request, st *delivery.StageObject, acto
 			return spec, dashboard.Refuse(http.StatusBadRequest, "UnknownVersion", req.To+" is not a version of "+req.Stage+" in this demo")
 		}
 		spec.Params = delivery.Params{From: cmpOr(req.From, st.Status.Pointer), To: req.To}
+	case t.Facet == delivery.FacetRung:
+		spec.Params = delivery.Params{From: cmpOr(req.From, string(delivery.CurrentRung(st.Spec, st.Status))), To: req.To}
 	}
 	spec.IntentDigest = delivery.IntentDigest(spec, st.Spec)
 	return spec, nil
@@ -403,9 +542,16 @@ func (d *demoDelivery) plan(req delivery.Request, actor story.Persona) (delivery
 	}
 	b := story.Beat{ID: "live", Service: req.Stage, Environment: req.Namespace, Type: spec.Type, Actor: actor,
 		From: versionOf(req.Stage, spec.Params.From), To: versionOf(req.Stage, spec.Params.To),
-		Running: map[string]string{}, Verified: map[string][]string{}}
-	if b.Type == delivery.TypePromote {
+		Running: map[string]string{}, Verified: map[string][]string{}, Uncontracted: uncontracted[stageKey(req.Namespace, req.Stage)]}
+	switch b.Type {
+	case delivery.TypePromote:
 		b.Type = ""
+	case delivery.TypeAutonomy: // From and To are rungs; Version is what runs
+		running := st.Status.Pointer
+		if r := st.Status.ObservedRevision; running == "" && r != nil {
+			running = r.Digest
+		}
+		b.From, b.To, b.Version = spec.Params.From, spec.Params.To, versionOf(req.Stage, running)
 	}
 	for _, o := range d.stages {
 		svc := o.Metadata.Name
@@ -426,6 +572,7 @@ func (d *demoDelivery) plan(req delivery.Request, actor story.Persona) (delivery
 		return delivery.Plan{}, spec, dashboard.Refuse(http.StatusBadRequest, "Unplannable", err.Error())
 	}
 	in.Spec, in.Stage, in.Status = spec, st.Spec, st.Status
+	in.Status.Proposal = d.proposal(st)
 	if up := st.Spec.Candidates.UpstreamStage; up != nil {
 		in.Upstream = &d.stage(up.Namespace, up.Name).Status
 	}
@@ -477,6 +624,11 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 // version in its verify window, then concludes.
 func (d *demoDelivery) start(o *delivery.OperationObject) {
 	o.Status.Phase, o.Status.Times.Started = delivery.PhaseRunning, stamp(d.clock())
+	if o.Spec.Facet == delivery.FacetRung { // a rung change is the swap itself: nothing to check after it
+		o.Status.Applied, o.Status.Times.Applied = true, o.Status.Times.Started
+		d.conclude(o, delivery.Succeeded, "")
+		return
+	}
 	d.step(func() {
 		st := d.stage(o.Metadata.Namespace, o.Spec.Stage)
 		o.Status.Pointer = delivery.PointerChange{Before: st.Status.Pointer, After: o.Spec.Params.To}
@@ -518,24 +670,37 @@ func pactoView(env string, r delivery.Revision, findings ...delivery.FindingView
 var undeclared = delivery.FindingView{Code: "DEPENDENCY_UNDECLARED", Severity: "error", Subject: "fraud",
 	Message: "payments calls fraud, which its contract does not declare", EvidenceRefs: []delivery.EvidenceRefView{{Collector: "ebpf", DetectedAt: "in the verify window"}}}
 
-// verify runs the checks after release: the contract and runtime claim
-// checks over the fixed Pacto evaluation, and the recorded health verdict.
-func (d *demoDelivery) verify(o *delivery.OperationObject) {
-	svc, env := o.Spec.Stage, o.Metadata.Namespace
-	v := versionOf(svc, o.Spec.Params.To)
+// checks are the checks after release of digest on a Stage: the contract and
+// runtime claim checks over the fixed Pacto evaluation, the recorded health
+// verdict and the Stage's own checks (pay-agent's evals, run by the story's
+// signing runner). in names the operation, if any, and the facet.
+func (d *demoDelivery) checks(env, svc, digest string, in delivery.GateInput, at time.Time) []delivery.Verdict {
+	v := versionOf(svc, digest)
 	r, _ := story.Revision(svc, v)
 	var findings []delivery.FindingView
 	if svc == "payments" && v == "2.4.2" {
 		findings = append(findings, undeclared)
 	}
-	in := delivery.ContractCheck{ContractRef: r.ContractRef, Applied: true, Pactos: []delivery.PactoView{pactoView(env, r, findings...)}}
-	verdicts := []delivery.Verdict{delivery.ContractVerdict(in), delivery.RuntimeVerdict(in)}
+	c := delivery.ContractCheck{ContractRef: r.ContractRef, Applied: true, Pactos: []delivery.PactoView{pactoView(env, r, findings...)}}
+	verdicts := []delivery.Verdict{delivery.ContractVerdict(c), delivery.RuntimeVerdict(c)}
 	if f := recorded[stageKey(env, svc)+"@"+v]; f != nil {
 		verdicts = append(verdicts, f...)
 	} else {
 		verdicts = append(verdicts, delivery.Verdict{Gate: "health", Phase: "verify", Result: delivery.Pass,
 			Citation: map[string]string{"provider": "mira"}, Message: "recorded for this demo: the error ratio stayed under 1% in the verify window"})
 	}
+	if checks := d.stage(env, svc).Spec.Gates.Verify.Checks; len(checks) > 0 {
+		in.Stage, in.Service, in.Subjects, in.Version = delivery.StageRef{Name: svc, Namespace: env}, delivery.ServiceRef{Name: svc}, []string{digest}, v
+		in.Window = delivery.Window{From: at, To: at.Add(5 * time.Minute)}
+		verdicts = append(verdicts, delivery.RunChecks(context.Background(), gates, checks, in)...)
+	}
+	return verdicts
+}
+
+// verify runs the checks after release, then concludes or rolls back.
+func (d *demoDelivery) verify(o *delivery.OperationObject) {
+	verdicts := d.checks(o.Metadata.Namespace, o.Spec.Stage, o.Spec.Params.To,
+		delivery.GateInput{OperationUID: o.Metadata.UID, Facet: o.Spec.Facet}, d.clock())
 	o.Status.Verdicts = append(o.Status.Verdicts, verdicts...)
 	switch delivery.Worst(verdicts) {
 	case delivery.Fail:
@@ -563,9 +728,6 @@ func (d *demoDelivery) verify(o *delivery.OperationObject) {
 // autoRollback is the promoter undoing a version that failed its checks,
 // once, citing the failed verdict.
 func (d *demoDelivery) autoRollback(failed *delivery.OperationObject, verdicts []delivery.Verdict, reason string) {
-	if failed.Status.Pointer.Before == "" {
-		return
-	}
 	var cause *delivery.Verdict
 	for _, v := range verdicts {
 		if v.Result == delivery.Fail {
@@ -573,10 +735,32 @@ func (d *demoDelivery) autoRollback(failed *delivery.OperationObject, verdicts [
 			break
 		}
 	}
-	req := delivery.Request{Namespace: failed.Metadata.Namespace, Stage: failed.Spec.Stage, Type: delivery.TypeRollback,
-		Undoes: failed.Metadata.Name, Reason: reason,
-		Cause: &delivery.Cause{Operation: failed.Metadata.UID, Verdict: cause}}
-	_, _, _ = d.propose(req, story.Promoter) // bound to the failed change by construction
+	if failed.Status.Pointer.Before != "" {
+		req := delivery.Request{Namespace: failed.Metadata.Namespace, Stage: failed.Spec.Stage, Type: delivery.TypeRollback,
+			Undoes: failed.Metadata.Name, Reason: reason,
+			Cause: &delivery.Cause{Operation: failed.Metadata.UID, Verdict: cause}}
+		_, _, _ = d.propose(req, story.Promoter) // bound to the failed change by construction
+	}
+	d.stepDown(failed, cause)
+}
+
+// stepDown is the promoter lowering the Stage one rung after a promote that
+// shipped with no person on an automatic rung failed a check, as the
+// operator's raiseStepDown does: it needs no approval, cites the failure and
+// never goes below advise.
+func (d *demoDelivery) stepDown(failed *delivery.OperationObject, cause *delivery.Verdict) {
+	st := d.stage(failed.Metadata.Namespace, failed.Spec.Stage)
+	from := delivery.CurrentRung(st.Spec, st.Status)
+	to, _ := from.Below()
+	if failed.Spec.Type != delivery.TypePromote || failed.Status.ActorClass == delivery.ClassHuman || len(failed.Status.Approvals) > 0 ||
+		cause == nil || !from.Automatic() {
+		return
+	}
+	req := delivery.Request{Namespace: failed.Metadata.Namespace, Stage: failed.Spec.Stage, Type: delivery.TypeAutonomy,
+		From: string(from), To: string(to),
+		Reason: "automatic step-down: " + failed.Metadata.Name + ", which shipped with no person on " + string(from) + ", failed (" + cause.Gate + ")",
+		Cause:  &delivery.Cause{Operation: failed.Metadata.UID, Verdict: cause}}
+	_, _, _ = d.propose(req, story.Promoter)
 }
 
 // conclude ends an operation: it takes the Stage's next seq and, where the
@@ -588,15 +772,31 @@ func (d *demoDelivery) conclude(o *delivery.OperationObject, outcome delivery.Ou
 	seq := st.Status.Stream.Seq
 	o.Status.Phase, o.Status.Outcome, o.Status.Verification = delivery.PhaseConcluded, outcome, verification
 	o.Status.Seq, o.Status.StageUID, o.Status.Times.Finished, o.Status.Policy = seq, st.Metadata.UID, stamp(d.clock()), &st.Spec
-	st.Status.Stream.Concluded = append(st.Status.Stream.Concluded, delivery.Concluded{UID: o.Metadata.UID, Seq: seq, Outcome: outcome,
-		Verification: verification, Reason: o.Status.Reason})
+	done := delivery.Concluded{UID: o.Metadata.UID, Seq: seq, Outcome: outcome, Verification: verification, Reason: o.Status.Reason,
+		Type: o.Spec.Type, Person: len(o.Status.Approvals) > 0 || o.Status.ActorClass == delivery.ClassHuman,
+		ClearedBreaking: delivery.ClearedBreaking(o.Status.Plan)}
+	if c := o.Spec.Cause; c != nil && o.Status.ActorClass == delivery.ClassController {
+		done.Cause = c.Operation // only the promoter's own cause excuses what follows
+	}
+	st.Status.Stream.Concluded = append(st.Status.Stream.Concluded, done)
+	st.Status.Stream.Concluded = st.Status.Stream.Concluded[max(0, len(st.Status.Stream.Concluded)-delivery.MaxConcluded):]
+	before := st.Status.Pointer
 	// The promoter's own rules for what the Stage remembers.
 	delivery.ApplyEffects(&st.Status, o.Metadata.Name, o.Metadata.UID, o.Spec, o.Status,
 		delivery.Conclusion{Outcome: outcome, Verification: verification, Reason: o.Status.Reason})
+	to, from := o.Spec.Params.To, o.Spec.Params.From
+	if o.Spec.Facet == delivery.FacetRung { // leaving observe adopts the pointer; the record shows it
+		o.Status.Pointer = delivery.PointerChange{}
+		if st.Status.Pointer != before {
+			o.Status.Pointer = delivery.PointerChange{Before: before, After: st.Status.Pointer}
+		}
+		to, from = o.Status.Pointer.After, o.Status.Pointer.Before
+	}
+	st.Status.Proposal = d.proposal(st)
 	if s := d.streams[stageKey(st.Metadata.Namespace, st.Metadata.Name)]; s != nil {
-		r, _ := story.Revision(o.Spec.Stage, versionOf(o.Spec.Stage, o.Spec.Params.To))
+		r, _ := story.Revision(o.Spec.Stage, versionOf(o.Spec.Stage, to))
 		in := delivery.RecordInput{ClusterID: clusterID, Stage: *st, Operation: *o, Approvals: d.approvals,
-			Subjects: delivery.RecordSubjects{To: o.Spec.Params.To, From: o.Spec.Params.From, Contract: delivery.ContractDigest(r.ContractRef),
+			Subjects: delivery.RecordSubjects{To: to, From: from, Contract: delivery.ContractDigest(r.ContractRef),
 				Anchor: "sha256:" + strings.Repeat("a", 64)},
 			Chain: delivery.Chain{Stream: st.Status.Stream.ID, Seq: int64(len(s.recs) + 1), Parent: st.Status.Stream.Head}}
 		if id := d.store(st, delivery.NewOperationRecord(in), d.key); id != "" {
@@ -809,8 +1009,14 @@ func (d *demoDelivery) Approve(_ context.Context, ns, name string, decision deli
 	if o == nil || o.Status.Phase != delivery.PhaseHeld {
 		return "", dashboard.Refuse(http.StatusConflict, "NotHeld", name+" is not waiting for a decision")
 	}
+	return d.decide(o, d.caller(), decision, note), nil
+}
+
+// decide records c's decision on the held o and acts on it: what the
+// promoter does when it consumes an Approval.
+func (d *demoDelivery) decide(o *delivery.OperationObject, c delivery.Caller, decision delivery.Decision, note string) string {
+	name := o.Metadata.Name
 	d.n++
-	c := d.caller()
 	approval := fmt.Sprintf("%s-approval-%d", name, d.n)
 	d.approvals[approval] = delivery.ApprovalSpec{Operation: name, OperationUID: o.Metadata.UID, IntentDigest: o.Spec.IntentDigest,
 		Decision: decision, Note: note, By: c.User, AuthTime: c.AuthTime, Groups: c.Groups}
@@ -838,7 +1044,7 @@ func (d *demoDelivery) Approve(_ context.Context, ns, name string, decision deli
 		o.Status.Question = ""
 		d.start(o)
 	}
-	return approval, nil
+	return approval
 }
 
 func (d *demoDelivery) Cancel(_ context.Context, ns, name string) error {
