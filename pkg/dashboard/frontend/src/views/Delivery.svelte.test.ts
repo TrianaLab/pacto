@@ -964,6 +964,8 @@ describe('history and published', () => {
     await settle();
     expect(fns.history).toHaveBeenCalledWith('prod', 'pay', { offset: undefined, limit: undefined, q: undefined });
     expect(text(target)).toContain('History of prod/pay');
+    // The source's note is one (?) away; the source itself stays on the page.
+    expect(text(target)).not.toContain('Partial until records exist.');
     expect(target.querySelector('a[href="#/delivery/changes/prod/op1"]')?.textContent).toBe('Roll back');
     expect(text(target.querySelector('[data-testid="history-end"]') as HTMLElement).trim()).toBe('Succeeded Verified');
     expect(text(target)).toContain('No change kept for this Stage.');
@@ -1086,8 +1088,11 @@ describe('history and published', () => {
     expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 51–100 of 120 changes');
     expect(target.querySelector('[data-testid="history-pager-next"]')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay&q=carol&offset=100');
     expect((target.querySelector('[data-testid="history-filter"] input') as HTMLInputElement).value).toBe('carol');
-    // Nine problems show five and offer the rest.
+    // The newest change and how it ended answer the page; the problems are a count that opens.
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toMatch(/^\s*Promote \S+ → \S+: succeeded\./);
     const problems = target.querySelector('[data-testid="history-problems"]') as HTMLElement;
+    expect(problems.tagName).toBe('DETAILS');
+    expect(text(problems.querySelector('summary') as HTMLElement)).toContain('9 record problems');
     expect(problems.querySelectorAll('li').length).toBe(5);
     expect(text(problems)).toContain('Show all 9');
     // Undo opens in a row right under its change, not after the whole table.
@@ -1121,6 +1126,8 @@ describe('history and published', () => {
     expect(target.querySelector('[data-testid="history-issues"]')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
     expect(target.querySelector('[data-testid="history-source"]')?.getAttribute('title')).toBe('From signed records, every signature verified, complete');
     expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 1–25 of 30 Stages');
+    // The page answers first: what needs a look among the Stages shown.
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('1 with record problems and 1 frozen on this page.');
     expect(target.querySelector('[data-testid="history-pager-size"]')).not.toBeNull();
     destroy();
   });
@@ -1368,7 +1375,7 @@ describe('history blame and undo', () => {
     await settle();
     const open = async (ns: string) => {
       const sec = target.querySelector(`section[aria-label="History of ${ns}/pay"]`) as HTMLElement;
-      (sec.querySelector('button') as HTMLButtonElement).click();
+      ([...sec.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Who put')) as HTMLButtonElement).click();
       await settle();
       return target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
     };
