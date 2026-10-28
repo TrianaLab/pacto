@@ -9,7 +9,7 @@
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import FindingList from '../../components/FindingList.svelte';
-  import LimitationsList from '../../components/LimitationsList.svelte';
+  import LimitationsSection from '../../components/LimitationsSection.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
   import { fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
 
@@ -164,11 +164,7 @@
     </PreviewSection>
   {/if}
 
-  {#if (d.limitations?.count ?? 0) > 0}
-    <PreviewSection title="Limitations" tone="warn" collapsible open={false} summary="What Pacto could not determine" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
-      <LimitationsList items={d.limitations?.items ?? []} />
-    </PreviewSection>
-  {/if}
+  <LimitationsSection page={d.limitations} />
 </div>
 
 <style>
