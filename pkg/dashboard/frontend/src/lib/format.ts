@@ -263,52 +263,6 @@ export function countHighImpact(services: Array<{ blastRadius?: number }>): numb
   return services.filter(s => (s.blastRadius || 0) >= HIGH_IMPACT_THRESHOLD).length;
 }
 
-/**
- * Apply all active filters (name, source, status) to a service list.
- * Used to derive the visible set that stats like "high impact" should reflect.
- */
-export function filterServices(
-  services: Array<Record<string, any>>,
-  filters: { nameFilter?: string; sourceFilter?: string; statusFilter?: string },
-): Array<Record<string, any>> {
-  let list = services;
-  if (filters.nameFilter) {
-    const q = filters.nameFilter.toLowerCase();
-    list = list.filter((s) => s.name.toLowerCase().includes(q) || ownerMatchesFilter(s.owner, q));
-  }
-  if (filters.sourceFilter && filters.sourceFilter !== 'all') {
-    list = list.filter((s) => (s.sources || [s.source]).includes(filters.sourceFilter));
-  }
-  if (filters.statusFilter && filters.statusFilter !== 'all') {
-    list = list.filter((s) => s.contractStatus === filters.statusFilter);
-  }
-  return list;
-}
-
-/** Result of paginating a list: the visible slice plus navigation metadata. */
-export interface Paginated<T> {
-  items: T[];
-  page: number; // clamped current page (1-based)
-  totalPages: number;
-  total: number;
-  perPage: number;
-}
-
-/**
- * Slice `items` into a single page. `page` is 1-based and clamped to the valid
- * range; a non-positive `perPage` disables pagination (everything on one page).
- */
-export function paginate<T>(items: T[], page: number, perPage: number): Paginated<T> {
-  const total = items.length;
-  if (perPage <= 0) {
-    return { items: items.slice(), page: 1, totalPages: 1, total, perPage: total };
-  }
-  const totalPages = Math.max(1, Math.ceil(total / perPage));
-  const clamped = Math.min(Math.max(1, Math.floor(page) || 1), totalPages);
-  const start = (clamped - 1) * perPage;
-  return { items: items.slice(start, start + perPage), page: clamped, totalPages, total, perPage };
-}
-
 // ── Owner helpers ──
 
 /** The owner's name as a reader sees it: the team if there is one, else the DRI. */
@@ -378,12 +332,6 @@ export function ownerKeyKind(key: string): string {
   const p = parseOwnerKey(key);
   if (!p) return '';
   return p.kind === 'dri' ? 'DRI' : 'Team';
-}
-
-/** Extract the team from an owner object. */
-export function ownerTeam(owner: unknown): string {
-  if (!owner || typeof owner !== 'object') return '';
-  return String((owner as Record<string, unknown>).team || '');
 }
 
 /** Check whether an owner object matches a search query (case-insensitive). */
@@ -733,12 +681,6 @@ export interface ReadinessSummary {
   totalDeferred: number; // sum of deferredCount across configured
 }
 
-/** Aggregate readiness across services. Services without a readiness block are
- *  counted as "not configured" and excluded from the average score. */
-export function summarizeReadiness(services: WithReadiness[]): ReadinessSummary {
-  return summarize(services).readiness;
-}
-
 /** Whether a readiness check's evidence string is a clickable web URL. */
 export function isUrlEvidence(evidence: string | null | undefined): boolean {
   if (!evidence) return false;
@@ -786,57 +728,7 @@ export function assessmentCountdownLabel(
   return `expires in ${days} days`;
 }
 
-/** Sorted unique evidence-kind types present across all declared checks. */
-export function readinessCheckTypes(services: WithReadiness[]): string[] {
-  const types = new Set<string>();
-  for (const svc of services) {
-    for (const c of svc.readiness?.checks ?? []) {
-      if (c.type) types.add(c.type);
-    }
-  }
-  return Array.from(types).sort();
-}
-
 // ── Fleet overview ──
-
-/** Headline fleet metrics for the landing-page overview. */
-export interface FleetSummary {
-  total: number;
-  assessed: number; // compliant + warning + nonCompliant + unknown + invalid (excludes reference/notEvaluated)
-  compliant: number;
-  warning: number;
-  nonCompliant: number;
-  reference: number;
-  unknown: number;
-  invalid: number;
-  notEvaluated: number;
-  needsAttention: number; // warning + nonCompliant + invalid (unknown surfaced separately)
-  compliancePercent: number; // compliant / assessed * 100; -1 if nothing assessed
-  highImpact: number; // services with blast radius >= HIGH_IMPACT_THRESHOLD
-  runtimeEvaluated: number; // compliant + warning + nonCompliant + unknown (secondary metric)
-  conclusive: number; // compliant + warning + nonCompliant (secondary metric)
-}
-
-/** Roll up the whole service list into the few signals that matter at a glance. */
-export function summarizeFleet(services: Array<Record<string, unknown>>): FleetSummary {
-  const metrics = summarize(services);
-  return {
-    total: metrics.total,
-    assessed: metrics.assessed,
-    compliant: metrics.compliant,
-    warning: metrics.warning,
-    nonCompliant: metrics.nonCompliant,
-    reference: metrics.reference,
-    unknown: metrics.unknown,
-    invalid: metrics.invalid,
-    notEvaluated: metrics.notEvaluated,
-    needsAttention: metrics.needsAttention,
-    compliancePercent: metrics.compliancePercent,
-    highImpact: metrics.highImpact,
-    runtimeEvaluated: metrics.runtimeEvaluated,
-    conclusive: metrics.conclusive,
-  };
-}
 
 /** Category breakdown for readiness checks. */
 export interface CategoryBreakdown {
@@ -874,7 +766,7 @@ export interface Metrics {
 
 /**
  * Unified metrics computation — single-pass aggregation producing all KPIs + breakdowns.
- * This is the single source of truth; legacy summarizers delegate to this.
+ * This is the single source of truth.
  */
 export function summarize(services: Array<Record<string, unknown>>): Metrics {
   const m: Metrics = {
@@ -1021,48 +913,6 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
   m.byCategory = Array.from(categoryMap.values()).sort((a, b) => a.category.localeCompare(b.category));
 
   return m;
-}
-
-// ── Tooltip positioning ──
-
-export interface TooltipPosition {
-  left: number;
-  top: number;
-}
-
-/**
- * Compute tooltip position in fixed viewport coordinates, avoiding clipping.
- * Prefers placement above the cursor, centered horizontally.
- * Falls back to below if insufficient space above.
- * Clamps horizontally to stay within viewport.
- */
-export function computeTooltipPosition(
-  cursorX: number,
-  cursorY: number,
-  tipWidth: number,
-  tipHeight: number,
-  margin: number = 8,
-): TooltipPosition {
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-
-  // Horizontal: center on cursor, clamp to viewport
-  let left = cursorX - tipWidth / 2;
-  if (left < margin) left = margin;
-  if (left + tipWidth > vw - margin) left = vw - margin - tipWidth;
-
-  // Vertical: prefer above cursor
-  let top = cursorY - tipHeight - margin;
-  if (top < margin) {
-    // Not enough room above — place below cursor
-    top = cursorY + margin;
-  }
-  // Clamp bottom
-  if (top + tipHeight > vh - margin) {
-    top = vh - margin - tipHeight;
-  }
-
-  return { left, top };
 }
 
 // ── Counts ──
