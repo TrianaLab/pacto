@@ -418,6 +418,17 @@ describe('delivery endpoints', () => {
     expect(await mutating[3].json()).toEqual({ decision: 'reject' });
   });
 
+  it('shares one session read between the session store and a mutating call made while it is in flight', async () => {
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(new URL(req.url).pathname === '/api/session'
+      ? jsonResponse({ mode: 'shared', login: true, signedIn: true, csrf: 'shared' }) : jsonResponse({ status: 'ok' })));
+    await api.signOut().catch(() => {}); // forget any token an earlier test left
+    mockFetch.mockClear();
+    await Promise.all([api.session(), api.refresh()]);
+    const calls = mockFetch.mock.calls.map((c) => c[0] as Request);
+    expect(calls.filter((r) => new URL(r.url).pathname === '/api/session')).toHaveLength(1);
+    expect(calls.find((r) => r.method === 'POST')?.headers.get('X-Pacto-CSRF')).toBe('shared');
+  });
+
   it('reads the session again and retries once when a new sign-in replaced the token', async () => {
     let token = 'old';
     mockFetch.mockImplementation((req: Request) => {

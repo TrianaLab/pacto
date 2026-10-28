@@ -311,10 +311,14 @@ async function csrfHeaders(): Promise<Record<string, string>> {
   return csrf ? { 'X-Pacto-CSRF': csrf } : {};
 }
 
-async function readSession(): Promise<Session> {
-  const s = await unwrap(client.GET('/api/session'));
-  csrf = s?.csrf ?? '';
-  return s;
+// One /api/session read at a time: the session store and a mutating call that
+// needs the token while the store's read is in flight share the same request.
+let reading: Promise<Session> | null = null;
+function readSession(): Promise<Session> {
+  reading ??= unwrap(client.GET('/api/session'))
+    .then((s) => { csrf = s?.csrf ?? ''; return s; })
+    .finally(() => { reading = null; });
+  return reading;
 }
 
 // A mutating request kept unsent, so a refusal for a stale token can be retried.

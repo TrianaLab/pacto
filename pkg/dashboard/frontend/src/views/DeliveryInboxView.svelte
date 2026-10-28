@@ -5,7 +5,7 @@
   import { deliveryChangeUrl, deliveryHistoryUrl, deliveryInboxUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { session, me, teamGroups } from '../lib/session.svelte.ts';
-  import { typeLabel, shortDigest, shortDigests, andList, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
+  import { typeLabel, shortDigest, shortDigests, andList } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -152,9 +152,6 @@
       {:else}
       <section aria-labelledby="inbox-held">
         <h2 id="inbox-held" class="t-section-title">Waiting for your decision</h2>
-        {#if held.length && cannotApproveHere(session.caller)}
-          <p class="t-body-2" data-testid="inbox-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in. <a href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
-        {/if}
         {#if held.length === 0}
           <p class="t-body-2 dl-none">No change is held for your teams.</p>
         {:else}

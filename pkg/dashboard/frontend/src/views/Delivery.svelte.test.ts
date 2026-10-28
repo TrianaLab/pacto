@@ -200,15 +200,14 @@ describe('inbox', () => {
     destroy();
   });
 
-  it('says up front that approving is not possible on a cluster that reports no login time', async () => {
+  it('leaves whether approving works on this cluster to the change page, which knows the Stage', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
       held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'] }] });
     fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: '' } }));
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
-    const note = target.querySelector('[data-testid="inbox-no-auth-time"]') as HTMLElement;
-    expect(text(note)).toContain('Approving is not possible on this cluster');
-    expect(note.querySelector('a')?.getAttribute('href')).toContain('delivery-identity/#where-approving-works');
+    expect(target.querySelector('[data-testid="inbox-held"]')).not.toBeNull();
+    expect(text(target)).not.toContain('Approving is not possible');
     destroy();
   });
 
