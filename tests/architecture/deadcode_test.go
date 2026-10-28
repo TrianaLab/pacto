@@ -28,12 +28,9 @@ import (
 // direction matters more than the precision -- a red run is always a real
 // finding, and a green run is the weaker claim.
 //
-// A live example of that under-report, so the limitation is not theoretical:
-// pkg/otelobserver.Observe has no caller, but the operator calls a method also
-// named Observe on its own runtime observer, and the two are indistinguishable
-// here. Resolving them apart needs the import graph, and a first pass at that
-// showed why it is not worth it: qualifying non-method uses is easy, but a
-// method use is a selector on a value whose type only a type-checker knows, so
+// Resolving same-named symbols apart needs the import graph, and a first pass
+// at that showed why it is not worth it: qualifying non-method uses is easy, but
+// a method use is a selector on a value whose type only a type-checker knows, so
 // every method in the repo would read as dead.
 
 // deadCodeAllowlist names symbols the gate would otherwise report, each with
