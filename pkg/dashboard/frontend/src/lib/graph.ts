@@ -912,6 +912,83 @@ function placeInLanes(cy: Core, fresh: Set<string>): void {
   });
 }
 
+// Dimming is what fades a node: a pinned spotlight, an owner emphasis, a status/name
+// filter and a legend filter. They are independent; applyDimming composes them.
+interface Dimming {
+  pinned: string | null;
+  owners: Set<string> | null;
+  filterHidden: Set<string> | null;
+  legendHidden: Set<string> | null;
+}
+
+const HL = 'pacto-faded pacto-dep pacto-dependent pacto-hot';
+
+// ownerVisible is an owner's services plus their direct neighbors.
+function ownerVisible(cy: Core, owners: Set<string>): Set<string> {
+  const vis = new Set<string>();
+  cy.nodes().forEach((n) => { if (owners.has(n.data('serviceName'))) vis.add(n.id()); });
+  for (const id of [...vis]) {
+    cy.getElementById(id).neighborhood('node').forEach((n) => { vis.add(n.id()); });
+  }
+  return vis;
+}
+
+// Directional spotlight — the one interaction used EVERYWHERE (fleet, owner,
+// service detail) so the graph behaves identically wherever it appears. A
+// service's DEPENDENCIES light up in accent (arrows out), its DEPENDENTS / blast
+// radius in warm (arrows in), everything else fades. Only this node's edges show,
+// so nothing overlaps.
+function spotlight(cy: Core, n: cytoscape.NodeSingular): void {
+  const succ = n.successors();
+  const pred = n.predecessors();
+  const keep = n.union(succ).union(pred);
+  // batch → Cytoscape recomputes style once for the whole change, not per class op
+  cy.batch(() => {
+    cy.elements().not(keep).addClass('pacto-faded');
+    succ.edges().addClass('pacto-dep');
+    pred.edges().addClass('pacto-dependent');
+    n.addClass('pacto-hot');
+  });
+}
+
+// Additive only, and always last: a legend filter narrows whatever is already on
+// screen, so it can never resurrect something a pin or an owner view has faded, and
+// never overrides them. Hiding a node kind hides its edges too — an edge to nowhere is
+// a line the reader cannot resolve.
+function fadeLegendHidden(cy: Core, legendHidden: Set<string> | null): void {
+  if (!legendHidden?.size) return;
+  for (const key of legendHidden) {
+    const sel = LEGEND_SELECTORS[key];
+    if (!sel) continue;
+    const els = cy.$(sel);
+    els.addClass('pacto-faded');
+    if (key.startsWith('kind:')) els.connectedEdges().addClass('pacto-faded');
+  }
+}
+
+// Resting emphasis (no hover/pin): owner view dims to the owner's services; the
+// status/name filter dims non-matches; otherwise the calm full map. The legend filter
+// composes on top of all of them.
+function applyDimming(cy: Core, d: Dimming): void {
+  cy.batch(() => {
+    cy.elements().removeClass(HL);
+    if (!d.pinned) {
+      if (d.owners) {
+        const ids = ownerVisible(cy, d.owners);
+        const kn = cy.nodes().filter((n) => ids.has(n.id()));
+        const keep = kn.union(kn.connectedEdges());
+        cy.elements().not(keep).addClass('pacto-faded');
+      } else if (d.filterHidden) {
+        const faded = cy.nodes().filter((n) => d.filterHidden!.has(n.id()));
+        faded.addClass('pacto-faded');
+        faded.connectedEdges().addClass('pacto-faded');
+      }
+    }
+  });
+  if (d.pinned) spotlight(cy, cy.getElementById(d.pinned));
+  cy.batch(() => fadeLegendHidden(cy, d.legendHidden));
+}
+
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
@@ -968,72 +1045,8 @@ export function renderGraph(
   let filterHidden: Set<string> | null = null;
   let legendHidden: Set<string> | null = null;
 
-  function ownerVisible(): Set<string> {
-    // Owner's services + their direct neighbors.
-    const vis = new Set<string>();
-    cy.nodes().forEach((n) => { if (ownerSet!.has(n.data('serviceName'))) vis.add(n.id()); });
-    for (const id of [...vis]) {
-      cy.getElementById(id).neighborhood('node').forEach((n) => { vis.add(n.id()); });
-    }
-    return vis;
-  }
-
-  const HL = 'pacto-faded pacto-dep pacto-dependent pacto-hot';
-
-  // Directional spotlight — the one interaction used EVERYWHERE (fleet, owner,
-  // service detail) so the graph behaves identically wherever it appears. A
-  // service's DEPENDENCIES light up in accent (arrows out), its DEPENDENTS / blast
-  // radius in warm (arrows in), everything else fades. Only this node's edges show,
-  // so nothing overlaps.
-  function spotlight(n: cytoscape.NodeSingular): void {
-    const succ = n.successors();
-    const pred = n.predecessors();
-    const keep = n.union(succ).union(pred);
-    // batch → Cytoscape recomputes style once for the whole change, not per class op
-    cy.batch(() => {
-      cy.elements().not(keep).addClass('pacto-faded');
-      succ.edges().addClass('pacto-dep');
-      pred.edges().addClass('pacto-dependent');
-      n.addClass('pacto-hot');
-    });
-  }
-
-  // Additive only, and always last: a legend filter narrows whatever is already on
-  // screen, so it can never resurrect something a pin or an owner view has faded, and
-  // never overrides them. Hiding a node kind hides its edges too — an edge to nowhere is
-  // a line the reader cannot resolve.
-  function fadeLegendHidden(): void {
-    if (!legendHidden?.size) return;
-    for (const key of legendHidden) {
-      const sel = LEGEND_SELECTORS[key];
-      if (!sel) continue;
-      const els = cy.$(sel);
-      els.addClass('pacto-faded');
-      if (key.startsWith('kind:')) els.connectedEdges().addClass('pacto-faded');
-    }
-  }
-
-  // Resting emphasis (no hover/pin): owner view dims to the owner's services; the
-  // status/name filter dims non-matches; otherwise the calm full map. The legend filter
-  // composes on top of all of them.
-  function applyDimming(): void {
-    cy.batch(() => {
-      cy.elements().removeClass(HL);
-      if (!clickFocusId) {
-        if (ownerSet) {
-          const ids = ownerVisible();
-          const kn = cy.nodes().filter((n) => ids.has(n.id()));
-          const keep = kn.union(kn.connectedEdges());
-          cy.elements().not(keep).addClass('pacto-faded');
-        } else if (filterHidden) {
-          const faded = cy.nodes().filter((n) => filterHidden!.has(n.id()));
-          faded.addClass('pacto-faded');
-          faded.connectedEdges().addClass('pacto-faded');
-        }
-      }
-    });
-    if (clickFocusId) spotlight(cy.getElementById(clickFocusId));
-    cy.batch(fadeLegendHidden);
+  function dim(): void {
+    applyDimming(cy, { pinned: clickFocusId, owners: ownerSet, filterHidden, legendHidden });
   }
 
   // ── Interactions ─────────────────────────────────────────────────────────
@@ -1043,7 +1056,7 @@ export function renderGraph(
   // ask for the pin without the canvas answering back into the call that made it.
   function pinFocus(id: string | null): void {
     clickFocusId = id;
-    applyDimming();
+    dim();
     if (!id) return;
     const n = cy.getElementById(id);
     if (n.empty()) return;
@@ -1060,7 +1073,7 @@ export function renderGraph(
   cy.on('tap', 'node', (evt) => {
     const n = evt.target as NodeSingular;
     // A lane box is background: a tap on it clears like a tap on the canvas.
-    if (n.data('lane')) { onSelectEdge?.(null); if (clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); onSelectNode?.(null); } return; }
+    if (n.data('lane')) { onSelectEdge?.(null); if (clickFocusId) { clickFocusId = null; dim(); onSelect?.(null); onSelectNode?.(null); } return; }
     const id = n.id();
     // A group opens in place, on the first tap: the caller redraws it as its entities, so
     // there is nothing to pin or open, and centring on a node about to vanish would leave
@@ -1102,7 +1115,7 @@ export function renderGraph(
   cy.on('tap', (evt) => {
     if (evt.target !== cy) return;
     onSelectEdge?.(null);
-    if (clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); onSelectNode?.(null); }
+    if (clickFocusId) { clickFocusId = null; dim(); onSelect?.(null); onSelectNode?.(null); }
   });
 
   // Hover previews the spotlight (click pins it). A pinned focus takes precedence.
@@ -1115,16 +1128,16 @@ export function renderGraph(
     container.title = n.data('fullName') || '';
     if (clickFocusId) return;
     cy.batch(() => cy.elements().removeClass(HL));
-    spotlight(n);
+    spotlight(cy, n);
     // The wipe above clears every fade, including the legend's. Re-apply it, or a hover
     // would silently un-hide the categories the reader just turned off.
-    cy.batch(fadeLegendHidden);
+    cy.batch(() => fadeLegendHidden(cy, legendHidden));
   });
   cy.on('mouseout', 'node', () => {
     container.style.cursor = 'default';
     container.removeAttribute('title');
     if (clickFocusId) return;
-    applyDimming(); // restore the resting owner/filter emphasis (batched, clears HL)
+    dim(); // restore the resting owner/filter emphasis (batched, clears HL)
   });
 
   // Pin the initial focus (service-detail page) before the first layout, unless the
@@ -1219,7 +1232,7 @@ export function renderGraph(
 
   function settle(): void {
     if (filterFn) applyFilter(filterFn);
-    else applyDimming();
+    else dim();
     // The graph has laid out and painted: publish the readiness snapshot for the
     // visual-graph browser acceptance (a real non-headless canvas with rendered nodes
     // and edges), and never before positions exist.
@@ -1328,9 +1341,9 @@ export function renderGraph(
   }
 
   function applyFilter(fn: ((n: GraphNode) => boolean) | null): void {
-    if (!fn) { filterHidden = null; applyDimming(); return; }
+    if (!fn) { filterHidden = null; dim(); return; }
     filterHidden = new Set(nodes.filter((n) => fn(n)).map((n) => n.id));
-    applyDimming();
+    dim();
   }
 
   function zoomBy(factor: number): void {
@@ -1421,7 +1434,7 @@ export function renderGraph(
     placeNewNodes(cy, fresh);
     fresh.forEach((id) => restored.add(id)); // now arranged; a later refresh must keep it
     if (filterFn) applyFilter(filterFn);
-    else applyDimming();
+    else dim();
     emitSpatial();
   }
 
@@ -1442,7 +1455,7 @@ export function renderGraph(
     destroy: () => { ro?.disconnect(); clearTimeout(resizeTimer); clearTimeout(spatialTimer); cy.destroy(); },
     zoomIn: () => zoomBy(1.4),
     zoomOut: () => zoomBy(0.7),
-    resetView: () => { clickFocusId = null; applyDimming(); fitView(300); },
+    resetView: () => { clickFocusId = null; dim(); fitView(300); },
     fit: () => fitView(250),
     patchData,
     applyTopology,
@@ -1450,7 +1463,7 @@ export function renderGraph(
     resetLayout,
     spatialState: () => snapshotSpatial(cy),
     applyFilter,
-    applyLegendFilter: (hidden) => { legendHidden = hidden?.size ? hidden : null; applyDimming(); },
+    applyLegendFilter: (hidden) => { legendHidden = hidden?.size ? hidden : null; dim(); },
     focusNode: pinFocus,
     diagnostics: computeDiagnostics,
   };
