@@ -179,7 +179,7 @@ func TestCallbackRefusals(t *testing.T) {
 	g.nonce = "other"
 	f.codes["c"+st] = g
 	f.mu.Unlock()
-	if r := call(c, "code=c"+st+"&state="+st); r.Code != http.StatusUnauthorized || !strings.Contains(r.Body.String(), "not for this sign-in") {
+	if r := call(c, "code=c"+st+"&state="+st); r.Code != http.StatusUnauthorized || !strings.Contains(r.Body.String(), "not for this login") {
 		t.Fatalf("nonce: %d %s", r.Code, r.Body)
 	}
 	// No auth_time.

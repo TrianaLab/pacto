@@ -95,6 +95,9 @@ type Session struct {
 	// person is who the cluster says the ID token is, resolved at sign-in
 	// and on every refresh.
 	person Person
+	// subject is the ID token's sub: a refresh whose review fails keeps
+	// person only for the same subject.
+	subject string
 	// authTime is the ID token's auth_time, in Unix seconds.
 	authTime string
 	// CSRF is the token mutating requests must carry in CSRFHeader.
@@ -119,15 +122,16 @@ func (s *Session) AuthTime() string { return s.authTime }
 
 // person asks the API server who raw is; without a cluster to ask, or when it
 // does not answer, the claim mapping names them.
-func (o *OIDC) person(ctx context.Context, raw string) Person {
+func (o *OIDC) person(ctx context.Context, raw string) (Person, bool) {
 	if o.cfg.Review != nil {
 		p, err := o.cfg.Review(ctx, raw)
 		if err == nil && p.User != "" {
-			return p
+			return p, true
 		}
-		slog.WarnContext(ctx, "the cluster did not say who a signed-in person is; naming them with the claim mapping", "error", err)
+		slog.WarnContext(ctx, "the cluster did not say who a signed-in person is", "error", err)
+		return o.cfg.Claims.Person(raw), false
 	}
-	return o.cfg.Claims.Person(raw)
+	return o.cfg.Claims.Person(raw), true
 }
 
 type provider struct {
@@ -319,24 +323,24 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 		refuse(http.StatusUnauthorized, "the identity provider's ID token does not verify: "+err.Error())
 		return
 	}
-	at, hasAuthTime := authTime(id)
-	switch {
-	case id.Nonce != st.Nonce:
-		refuse(http.StatusUnauthorized, "the ID token is not for this sign-in")
-		return
-	case !hasAuthTime:
-		refuse(http.StatusUnauthorized, "the ID token carries no auth_time, which the dashboard needs to tell a fresh login")
-		return
-	case st.Fresh && at.Before(time.Unix(st.Started, 0).Add(-skew)):
-		refuse(http.StatusUnauthorized, "the identity provider did not ask you to log in again; a decision needs a fresh login")
+	// Every sign-in is this login's and dated; one started with ?fresh=1 must
+	// also be a login after it started. The zero time asks for no such login.
+	var started time.Time
+	if st.Fresh {
+		started = time.Unix(st.Started, 0)
+	}
+	if err := fresh(id, st.Nonce, started); err != nil {
+		refuse(http.StatusUnauthorized, err.Error())
 		return
 	}
+	at, _ := authTime(id)
+	person, _ := o.person(r.Context(), raw)
 	if old, err := r.Cookie(SessionCookie); err == nil {
 		o.end(r.Context(), old.Value)
 	}
 	now := o.now()
-	s := &Session{id: random(32), idToken: raw, refresh: tok.RefreshToken, expiry: id.Expiry, created: now, seen: now,
-		person: o.person(r.Context(), raw), authTime: strconv.FormatInt(at.Unix(), 10), CSRF: random(32), refreshing: &sync.Mutex{}}
+	s := &Session{id: random(32), idToken: raw, refresh: tok.RefreshToken, expiry: id.Expiry, created: now, seen: now, person: person,
+		subject: id.Subject, authTime: strconv.FormatInt(at.Unix(), 10), CSRF: random(32), refreshing: &sync.Mutex{}}
 	o.mu.Lock()
 	o.sessions[s.id] = s
 	o.mu.Unlock()
@@ -497,7 +501,13 @@ func (o *OIDC) refreshSession(r *http.Request, s *Session) error {
 	if err != nil {
 		return fmt.Errorf("the refreshed ID token does not verify: %w", err)
 	}
-	s.idToken, s.expiry, s.person = raw, id.Expiry, o.person(r.Context(), raw)
+	s.idToken, s.expiry = raw, id.Expiry
+	// A review that fails here (a cancelled navigation, a slow API server)
+	// keeps the person the cluster named for this subject, so a short failure
+	// never swaps it for the claim mapping until the next refresh.
+	if p, ok := o.person(context.WithoutCancel(r.Context()), raw); ok || id.Subject != s.subject {
+		s.person, s.subject = p, id.Subject
+	}
 	if tok.RefreshToken != "" {
 		s.refresh = tok.RefreshToken
 	}

@@ -17,6 +17,7 @@ import (
 // every refresh; only when the cluster cannot be asked does the claim mapping.
 func TestOIDCSessionNamesThePersonAsTheClusterDoes(t *testing.T) {
 	f := newIdP(t)
+	f.rotate = true // every refresh token stays the same subject's
 	o := newTestOIDC(t, f)
 	who, reviewErr := "oidc:alice", error(nil)
 	var asked []string
@@ -37,8 +38,19 @@ func TestOIDCSessionNamesThePersonAsTheClusterDoes(t *testing.T) {
 	s = o.Session(withCookie(c))
 	expect(t, s.Person().User == "oidc:alice2" && len(asked) == 2 && asked[1] == s.IDToken(), "a refresh names the person again: %+v", s.Person())
 
-	// A cluster that does not answer leaves the claim mapping.
+	// A refresh whose review fails keeps the person the cluster named.
 	reviewErr = errors.New("Unauthorized")
+	o.sessions[c.Value].expiry = time.Now().Add(-time.Second)
+	s = o.Session(withCookie(c))
+	expect(t, s.Person().User == "oidc:alice2" && len(asked) == 3, "a failed refresh review keeps the cluster's person: %+v", s.Person())
+
+	// A refresh for another subject takes the claim mapping, not the old person.
+	o.sessions[c.Value].subject = "someone-else"
+	o.sessions[c.Value].expiry = time.Now().Add(-time.Second)
+	s = o.Session(withCookie(c))
+	expect(t, s.Person().User == f.issuer()+"#u-1", "another subject is not kept: %+v", s.Person())
+
+	// A cluster that does not answer at sign-in leaves the claim mapping.
 	c = cookieNamed(t, login(t, o, f, ""), SessionCookie)
 	s = o.Session(withCookie(c))
 	expect(t, s.Person().User == f.issuer()+"#u-1", "the claim mapping names a person the cluster does not: %+v", s.Person())

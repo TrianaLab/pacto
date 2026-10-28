@@ -119,8 +119,8 @@ func answer(state string, codes chan<- string, refused chan<- error) http.Handle
 	})
 }
 
-// fresh checks the ID token is this login's and the login happened after
-// started.
+// fresh checks the ID token is this login's, carries an auth_time and the
+// login happened after started (any login does for the zero time).
 func fresh(id *oidc.IDToken, nonce string, started time.Time) error {
 	at, ok := authTime(id)
 	switch {
@@ -129,7 +129,7 @@ func fresh(id *oidc.IDToken, nonce string, started time.Time) error {
 	case !ok:
 		return errors.New("the ID token carries no auth_time, so it cannot show the login is fresh")
 	case at.Before(started.Add(-skew)):
-		return errors.New("the identity provider did not ask you to log in again; an approval needs a fresh login")
+		return errors.New("the identity provider did not ask you to log in again; a decision needs a fresh login")
 	}
 	return nil
 }
