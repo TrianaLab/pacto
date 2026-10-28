@@ -5,36 +5,28 @@
  * delivery is served, the store also holds who delivery classifies the caller
  * as (their class and the published team rule).
  */
-import { api, ApiError, type DeliveryCaller, type Session } from './api.ts';
+import { api, type DeliveryCaller, type Session } from './api.ts';
 
 export const session = $state<{
   data: Session | null;
   caller: DeliveryCaller | null;
-  callerError: string;
   error: unknown;
   loaded: boolean;
-}>({ data: null, caller: null, callerError: '', error: null, loaded: false });
+}>({ data: null, caller: null, error: null, loaded: false });
 
 let inflight: Promise<void> | null = null;
 
 /** loadSession reads the session and, for a signed-in caller, who delivery
  *  classifies them as; concurrent callers share one request. It never
- *  rejects: a failure lands in session.error, or session.callerError for the
- *  delivery read. A cluster without delivery adds nothing. */
+ *  rejects: a failure lands in session.error. A delivery read that fails
+ *  leaves session.caller empty, and the views then offer no decision. */
 export function loadSession(): Promise<void> {
   inflight ??= Promise.resolve()
     .then(() => api.session())
     .then(async (s) => {
       session.data = s;
       session.error = null;
-      session.caller = null;
-      session.callerError = '';
-      if (!s?.signedIn) return;
-      try {
-        session.caller = await api.deliveryCaller();
-      } catch (e) {
-        if (!(e instanceof ApiError && e.status === 404)) session.callerError = (e as Error)?.message ?? String(e);
-      }
+      session.caller = s?.signedIn ? await api.deliveryCaller().catch(() => null) : null;
     })
     .catch((e) => { session.error = e; })
     .finally(() => { session.loaded = true; inflight = null; });
@@ -48,6 +40,19 @@ export const TOKEN_DOCS = 'https://pacto.run/latest/integrations/kubernetes/dash
 export interface Me {
   user?: string;
   name?: string;
+  groups?: string[] | null;
+}
+
+/**
+ * me is the signed-in person as the API server names them: their username,
+ * their groups (the identity their Kubernetes RBAC is checked for) and the
+ * name their identity provider gave, which only ever labels that username.
+ * The header, every Person, the inbox and the decision read it, so they all
+ * name the same person. Read inside $derived, it follows the session.
+ */
+export function me(): Me {
+  const d = session.data;
+  return { user: d?.user, name: d?.name, groups: d?.groups };
 }
 
 /**
@@ -56,10 +61,10 @@ export interface Me {
  * `issuer#subject` username by its subject. Person prints the full username
  * next to it, never only in a tooltip.
  */
-export function personLabel(user: string | undefined, people?: Record<string, string> | null, me?: Me | null): string {
+export function personLabel(user: string | undefined, people?: Record<string, string> | null, self: Me | null = me()): string {
   if (!user) return '';
   if (people?.[user]) return people[user];
-  if (me?.name && me.user === user) return me.name;
+  if (self?.name && self.user === user) return self.name;
   const sa = /^system:serviceaccount:[^:]+:(.+)$/.exec(user);
   if (sa) return sa[1];
   const hash = user.lastIndexOf('#');

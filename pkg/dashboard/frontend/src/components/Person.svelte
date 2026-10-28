@@ -8,8 +8,8 @@
   import { breakableIdentifierHtml } from '../lib/format.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
 
-  let { user, people = null, me = null } = $props();
-  const name = $derived(personLabel(user, people, me));
+  let { user, people = null } = $props();
+  const name = $derived(personLabel(user, people));
   const sa = $derived(/^system:serviceaccount:([^:]+):([^:]+)$/.exec(user ?? ''));
   const own = $derived(!!sa && name === sa[2]);
 </script>

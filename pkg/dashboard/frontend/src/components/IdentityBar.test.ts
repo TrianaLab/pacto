@@ -29,10 +29,10 @@ beforeEach(() => {
 
 // The store holds the session and delivery's caller apart; a fixture names both.
 function setSession(fixture: unknown) {
-  const { caller = null, callerError = '', ...data } = (fixture ?? {}) as Record<string, unknown>;
-  auth.data = fixture ? (data as typeof auth.data) : null;
+  const { caller = null, ...data } = (fixture ?? {}) as Record<string, unknown>;
+  const c = (caller ?? {}) as { user?: string; groups?: string[] };
+  auth.data = fixture ? ({ user: c.user, groups: c.groups, ...data } as typeof auth.data) : null;
   auth.caller = caller as typeof auth.caller;
-  auth.callerError = callerError as string;
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- component handle
 function show(session: unknown, C: any = IdentityBar) {
@@ -73,18 +73,16 @@ describe('IdentityBar', () => {
     expect(bar()?.querySelector('a')).toBeNull();
   });
 
-  it('falls back to the ID token as the cluster maps it when delivery has not asked the apiserver', () => {
-    const t = show({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#dave', groups: ['team-shop'] });
+  it('names the person the session names, whatever delivery says', () => {
+    const t = show({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#dave', groups: ['team-shop'], caller: human });
     expect(t).toContain('Signed in as dave ⧉, in team-shop.');
+    expect(t).not.toContain('carol');
   });
 
   it('does not name a person from the ID token name alone', () => {
-    const t = show({ mode: 'shared', login: true, signedIn: true, name: 'Release Bot', callerError: 'whoami: forbidden' });
+    const t = show({ mode: 'shared', login: true, signedIn: true, name: 'Release Bot' });
     expect(t).not.toContain('Release Bot');
-    expect(t).toContain('The cluster did not say who you are: whoami: forbidden');
-    setSession({ mode: 'shared', login: true, signedIn: true });
-    flushSync();
-    expect(bar()?.textContent).toContain('The cluster did not say who you are.');
+    expect(t).toContain('The cluster did not say who you are.');
   });
 
   it('says a local dashboard acts as the kubeconfig user', () => {

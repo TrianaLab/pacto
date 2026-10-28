@@ -11,7 +11,8 @@ export function reactiveProps<T extends object>(initial: T): T {
 }
 
 /** sessionApi serves a test's session fixture through the two reads the session
- *  store makes: /api/session (the fixture without its delivery caller) and
+ *  store makes: /api/session (the fixture without its delivery caller, naming
+ *  the caller's user and groups as the API server does) and
  *  /api/delivery/caller (the fixture's caller, or a 404 where it has none). */
 export function sessionApi(
   read: () => Promise<Record<string, unknown> | null | undefined>,
@@ -19,8 +20,9 @@ export function sessionApi(
 ) {
   return {
     session: async () => {
-      const { caller: _c, requireOwnerTeam: _r, ...s } = (await read()) ?? {};
-      return s;
+      const { caller, requireOwnerTeam: _r, ...s } = (await read()) ?? {};
+      const c = (caller ?? {}) as { user?: string; groups?: string[] };
+      return { user: c.user, groups: c.groups, ...s };
     },
     deliveryCaller: async () => {
       const s = await read();

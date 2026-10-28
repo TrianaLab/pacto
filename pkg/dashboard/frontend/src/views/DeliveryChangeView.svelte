@@ -10,7 +10,6 @@
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import CappedList from '../components/CappedList.svelte';
   import { formatCount } from '../lib/format.ts';
-  import { session } from '../lib/session.svelte.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
@@ -38,7 +37,6 @@
   const st = $derived(op?.status);
   const actions = $derived(data?.actions ?? []);
   const consumers = $derived(st?.plan?.floor?.consumers ?? []);
-  const me = $derived({ user: session.caller?.user, name: session.data?.name });
   const asker = $derived(actorBadge(e?.status?.actorClass));
   // What Pacto saw after the change only exists once it applied; before that
   // it is the plan's checks again, so it stays hidden.
@@ -184,7 +182,7 @@
 
     {#if undo || blocked}
       <div class="cd-undone t-body-2" data-testid="change-undone">
-        {#if undo}<p>Undone by <a href={deliveryChangeUrl(namespace, undo.operation)}>{undo.operation}</a>{#if undo.actorClass === 'controller'}{@const cause = undoCause(e.status.reason, e.status.message)}{' '}(automatic{#if cause.by}: <Person user={cause.by} people={data?.people} {me} /> rejected the unknown{:else if cause.text}: {cause.text}{/if}){:else if undo.actor}, by <Person user={undo.actor} people={data?.people} {me} />{/if}.</p>{/if}
+        {#if undo}<p>Undone by <a href={deliveryChangeUrl(namespace, undo.operation)}>{undo.operation}</a>{#if undo.actorClass === 'controller'}{@const cause = undoCause(e.status.reason, e.status.message)}{' '}(automatic{#if cause.by}: <Person user={cause.by} people={data?.people} /> rejected the unknown{:else if cause.text}: {cause.text}{/if}){:else if undo.actor}, by <Person user={undo.actor} people={data?.people} />{/if}.</p>{/if}
         {#if blocked}<p>{versionLabel(after, data?.versions)} is blocked on {namespace}/{e.spec.stage}: it failed its checks here, so Pacto never promotes it here again.</p>{/if}
       </div>
     {/if}
@@ -246,7 +244,7 @@
             {#if d && e.spec.type === AUTONOMY_TYPE}<dt>{label}</dt><dd>{levelLabel(d)}</dd>
             {:else if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}</dd>{/if}
           {/each}
-          <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} {me} />{#if asker}{' '}<span class="badge {asker.tone}" data-testid="actor-badge">{asker.label}</span>{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} {me} />{/if}</dd>
+          <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} />{#if asker}{' '}<span class="badge {asker.tone}" data-testid="actor-badge">{asker.label}</span>{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} />{/if}</dd>
           {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}
         </dl>
 
@@ -255,7 +253,7 @@
           {#if st?.approvals?.length}
             <ul class="cd-approvals">
               {#each st.approvals as a (a.name)}
-                <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={data?.people} {me} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
+                <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={data?.people} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
               {/each}
             </ul>
           {:else}

@@ -7,7 +7,7 @@
   import { syncPageTitle } from './lib/pageTitle.ts';
   import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
-  import { session as auth, loadSession, hostSignsIn, teamGroups } from './lib/session.svelte.ts';
+  import { session as auth, me, loadSession, hostSignsIn, teamGroups } from './lib/session.svelte.ts';
   import Person from './components/Person.svelte';
   import SignInScreen from './components/SignInScreen.svelte';
   import CappedList from './components/CappedList.svelte';
@@ -346,7 +346,7 @@
       <h1 class="t-page-title">You can see no services</h1>
       <p class="t-body">
         Your Kubernetes permissions let you read none of the namespaces this dashboard's services run in.
-        You are signed in as <strong>{#if session?.user}<Person user={session.user} me={{ user: session.user, name: session.name }} />{:else}{session?.name || 'an unnamed user'}{/if}</strong>{#if teamGroups(session?.groups).length}, in <CappedList items={teamGroups(session.groups)} max={5} inline label="Your groups" testid="nothing-visible-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{:else}, in no groups{/if}.
+        You are signed in as <strong>{#if me().user}<Person user={me().user} />{:else}a person the cluster did not name{/if}</strong>{#if teamGroups(me().groups).length}, in <CappedList items={teamGroups(me().groups)} max={5} inline label="Your groups" testid="nothing-visible-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{:else}, in no groups{/if}.
       </p>
       <p class="t-body">To see a team's services, ask a cluster administrator for <code>list</code> on <code>pactos.pacto.trianalab.io</code> in that team's namespace.</p>
     </div>

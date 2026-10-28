@@ -1,6 +1,6 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { session, loadSession, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
+  import { session, me, loadSession, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
   import { fleetOverviewUrl } from '../lib/router.ts';
   import Person from './Person.svelte';
   import CappedList from './CappedList.svelte';
@@ -15,17 +15,13 @@
   let { drawer = false } = $props();
 
   const s = $derived(session.data);
-  const caller = $derived(session.caller);
-  // The apiserver's answer when delivery could ask it, else what the session
-  // says the cluster calls the person.
-  const user = $derived(caller?.user || s?.user || '');
+  // Who the API server says the person is. Person names them by the name the
+  // identity provider gave and keeps the cluster's username in its copy button.
+  const user = $derived(me().user || '');
   // A system: group (system:authenticated) names no team, so it is left out.
-  const groups = $derived(teamGroups(caller?.groups?.length ? caller.groups : s?.groups));
-  // Person names them by the name the identity provider gave and keeps the
-  // cluster's username in its copy button.
-  const me = $derived({ user, name: s?.name });
-  const label = $derived(s?.mode === 'local' ? (personLabel(user, null, me) || 'This machine')
-    : s?.signedIn ? (personLabel(user, null, me) || 'Signed in') : 'Signed out');
+  const groups = $derived(teamGroups(me().groups));
+  const label = $derived(s?.mode === 'local' ? (personLabel(user) || 'This machine')
+    : s?.signedIn ? (personLabel(user) || 'Signed in') : 'Signed out');
   const here = () => location.hash || fleetOverviewUrl();
   let signOutError = $state('');
 
@@ -46,15 +42,15 @@
 
 {#snippet details()}
   {#if s.mode === 'local'}
-    <p>Acting as <strong>{#if user}<Person {user} {me} />{:else}your kubeconfig user{/if}</strong> from this machine. <HelpTip label="deciding here" text="A dashboard on your own machine shows held changes. Decide them with pacto delivery approve." /></p>
+    <p>Acting as <strong>{#if user}<Person {user} />{:else}your kubeconfig user{/if}</strong> from this machine. <HelpTip label="deciding here" text="A dashboard on your own machine shows held changes. Decide them with pacto delivery approve." /></p>
   {:else if s.signedIn}
     <p>
       {#if user}
         <!-- The word joiner (U+2060) keeps the comma and the full stop on the line of the box before them: a browser may break after an inline-flex box, such as the username chip, even before punctuation. -->
-        Signed in{#if s.method === 'token'}{' with a token'}{/if} as <strong><Person {user} {me} /></strong>{#if groups.length}{'\u2060, in '}<CappedList items={groups} max={3} inline label="Your groups" testid="identity-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{/if}{'\u2060.'}
+        Signed in{#if s.method === 'token'}{' with a token'}{/if} as <strong><Person {user} /></strong>{#if groups.length}{'\u2060, in '}<CappedList items={groups} max={3} inline label="Your groups" testid="identity-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{/if}{'\u2060.'}
       {:else}
         <!-- The ID token's name alone is self-asserted, so it is never shown as who you are. -->
-        Signed in. <span class="who-err">The cluster did not say who you are{#if session.callerError}: {session.callerError}{:else}.{/if}</span>
+        Signed in. <span class="who-err">The cluster did not say who you are.</span>
       {/if}
     </p>
     <button type="button" class="btn btn-sm" data-testid="sign-out" onclick={signOut}>{hostSignsIn() ? 'Switch person' : 'Sign out'}</button>

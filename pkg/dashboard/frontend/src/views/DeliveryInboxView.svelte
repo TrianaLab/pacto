@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl, deliveryInboxUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
-  import { session, teamGroups } from '../lib/session.svelte.ts';
+  import { session, me, teamGroups } from '../lib/session.svelte.ts';
   import { typeLabel, shortDigest, shortDigests, andList, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
@@ -50,7 +50,7 @@
   const mine = $derived(held.filter((it) => (it.owners?.length ?? 0) <= 1));
   const shared = $derived(held.filter((it) => (it.owners?.length ?? 0) > 1));
   // The other teams a shared question names: the reader's own groups are left out.
-  const myGroups = $derived(teamGroups(session.caller?.groups));
+  const myGroups = $derived(teamGroups(me().groups));
   const sharedWith = $derived.by(() => {
     const all = [...new Set(shared.flatMap((it) => it.owners ?? []))];
     const others = all.filter((t) => !myGroups.includes(t));

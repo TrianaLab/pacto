@@ -1,7 +1,7 @@
 <script>
   import { untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { session, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
+  import { session, me, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
   import { decisionAsked, decisionLabel, cliDecision, keepPending, pendingFor, dropPending,
     versionLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import { formatCount } from '../lib/format.ts';
@@ -30,7 +30,7 @@
   const s = $derived(session.data);
   const caller = $derived(session.caller);
   // Who may answer a question that names no team depends on the published
-  // policy, which the session carries with the caller.
+  // policy, which delivery's caller read carries.
   const ownerless = $derived(!caller ? 'No team is declared.'
     : caller.requireOwnerTeam ? 'No team is declared, so nobody may answer; only break-glass can override.'
     : 'Any person may answer.');
@@ -75,7 +75,7 @@
   // The team that lets this person answer, named back to them. The cluster maps a team
   // to a group by a prefix the session does not carry, so a group that ends in the team
   // name is taken as that team; failing a match the line still says they can answer.
-  const myTeam = $derived(owners.find((t) => teamGroups(caller?.groups).some((g) => g === t || g.endsWith(t))) ?? '');
+  const myTeam = $derived(owners.find((t) => teamGroups(me().groups).some((g) => g === t || g.endsWith(t))) ?? '');
   // The page lists every affected service in a fold below the panel: open it, then go there.
   function toAffected() {
     const h = document.getElementById('cd-affected');
@@ -252,16 +252,16 @@
     {:else if s && !s.signedIn}
       <p class="t-body-2">Sign in to decide.</p>
       <a class="btn btn-sm btn-primary" href={loginUrl(location.hash)}>Sign in</a>
-    {:else if caller?.user && (caller.user === op.spec?.actor?.user || caller.user === op.spec?.onBehalfOf?.user)}
+    {:else if me().user && (me().user === op.spec?.actor?.user || me().user === op.spec?.onBehalfOf?.user)}
       <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
     {:else if caller?.class === 'agent' || caller?.class === 'controller'}
-      <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({caller.user}), and agents may not decide.</p>
+      <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({me().user}), and agents may not decide.</p>
     {:else if freshness > 0 && cannotApproveHere(caller)}
       <p class="t-body-2" data-testid="decide-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in. <a class="dp-link" href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
     {:else if !owners.length}
       <p class="t-body-2" data-testid="decide-no-owner">No team is declared for this service, so only break-glass can override, from the command line. Declare service.owner so a team can answer.</p>
     {:else}
-      <p class="t-body-2" data-testid="decide-not-team">Only {ownerList} may answer this question{#if caller?.groups?.length}; you are in {andList(caller.groups, 3)}{/if}.</p>
+      <p class="t-body-2" data-testid="decide-not-team">Only {ownerList} may answer this question{#if me().groups?.length}; you are in {andList(me().groups, 3)}{/if}.</p>
     {/if}
   {/if}
   {#if refusal}<RefusalNotice error={refusal} />{/if}

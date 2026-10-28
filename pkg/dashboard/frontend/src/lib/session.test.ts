@@ -7,7 +7,7 @@ vi.mock('./api.ts', async (importOriginal) => {
 });
 
 import { ApiError } from './api.ts';
-import { session, loadSession, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from './session.svelte.ts';
+import { session, me, loadSession, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from './session.svelte.ts';
 
 describe('loadSession', () => {
   it('reads the session once for concurrent callers, and who delivery says a signed-in caller is', async () => {
@@ -15,20 +15,25 @@ describe('loadSession', () => {
     fns.caller.mockResolvedValue({ user: 'u', class: 'human', requireOwnerTeam: true });
     await Promise.all([loadSession(), loadSession()]);
     expect(fns.session).toHaveBeenCalledTimes(1);
-    expect([session.loaded, session.data?.user, session.caller?.class, session.callerError]).toEqual([true, 'u', 'human', '']);
+    expect([session.loaded, session.data?.user, session.caller?.class]).toEqual([true, 'u', 'human']);
   });
 
-  it('adds nothing where delivery is not served or nobody signed in, and keeps why delivery could not say', async () => {
+  it('names me as the session does, and labels my username with my name', async () => {
+    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#c', name: 'Carol', groups: ['team-a'] });
+    fns.caller.mockResolvedValue({ user: 'someone-else', class: 'human', groups: ['team-b'], requireOwnerTeam: false });
+    await loadSession();
+    expect(me()).toEqual({ user: 'https://idp#c', name: 'Carol', groups: ['team-a'] });
+    expect(personLabel('https://idp#c')).toBe('Carol');
+  });
+
+  it('adds no caller where delivery cannot say or nobody signed in', async () => {
     fns.caller.mockRejectedValue(new ApiError(404, 'no delivery', 'DeliveryNotInstalled'));
     await loadSession();
-    expect([session.caller, session.callerError]).toEqual([null, '']);
-    fns.caller.mockRejectedValue(new ApiError(503, 'apiserver down', 'ClusterUnreachable'));
-    await loadSession();
-    expect(session.callerError).toBe('apiserver down');
+    expect(session.caller).toBeNull();
     fns.caller.mockReset();
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false });
     await loadSession();
-    expect([session.caller, session.callerError, fns.caller.mock.calls.length]).toEqual([null, '', 0]);
+    expect([session.caller, fns.caller.mock.calls.length]).toEqual([null, 0]);
   });
 
   it('keeps a session it cannot read as an error, and never rejects', async () => {
