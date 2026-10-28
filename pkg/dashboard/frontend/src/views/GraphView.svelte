@@ -497,7 +497,7 @@
           <button type="button" onclick={() => controls?.fit()} data-testid="graph-fit" aria-label="Fit graph to view">Fit</button>
           <button type="button" onclick={() => controls?.zoomIn()} data-testid="graph-zoom-in" aria-label="Zoom in">+</button>
           <button type="button" onclick={() => controls?.zoomOut()} data-testid="graph-zoom-out" aria-label="Zoom out">-</button>
-          <button type="button" onclick={() => controls?.resetLayout()} data-testid="graph-reset-layout" aria-label="Reset the graph layout, discarding your arrangement">Reset layout</button>
+          <button type="button" onclick={() => controls?.resetLayout()} data-testid="graph-reset-layout" aria-label="Reset layout, discarding your arrangement">Reset layout</button>
         </div>
       </div>
     </div>

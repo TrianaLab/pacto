@@ -93,7 +93,7 @@ describe('Navbar — search affordance communicates the actual action (A6)', () 
 
   it('labels the visible affordance as the command palette with the Cmd/Ctrl-K hint otherwise', () => {
     const { target, component, btn } = mountWithSearch(false);
-    expect(btn.getAttribute('aria-label')).toBe('Open command palette');
+    expect(btn.getAttribute('aria-label')).toBe('Search: open command palette');
     expect(btn.querySelector('.search-kbd')?.textContent).toMatch(/K$/);
     unmount(component); document.body.removeChild(target);
   });

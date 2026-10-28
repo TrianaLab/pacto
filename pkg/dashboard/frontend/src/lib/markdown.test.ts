@@ -61,5 +61,7 @@ describe('renderMarkdown', () => {
     expect(cfg.fontFamily).toBe('inherit');
     expect(cfg.securityLevel).toBe('strict');
     expect(cfg.htmlLabels).toBe(false);
+    expect(cfg.layout).toBe('dagre');
+    expect(cfg.look).toBe('classic');
   });
 });

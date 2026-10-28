@@ -44,6 +44,11 @@ export const MERMAID_CONFIG = {
   htmlLabels: false,
   flowchart: { htmlLabels: false },
   theme: 'neutral' as const,
+  // Mermaid 12 switched the defaults to the ELK layout and the `neo` look, which
+  // re-lays out and recolours every diagram. Keep the dagre layout and classic
+  // look the dashboard was designed against.
+  layout: 'dagre',
+  look: 'classic' as const,
   fontFamily: 'inherit',
   secure: [
     'secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'suppressErrorRendering', 'maxEdges',
