@@ -37,7 +37,6 @@ import (
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -120,8 +119,8 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	keychain := registryKeychain()
-	insecure := loader.InsecureClientOptions(os.Getenv(loader.InsecureRegistriesEnvVar))
+	keychain := oci.NewKeychain(oci.EnvCredentialOptions())
+	insecure := oci.EnvInsecureRegistries()
 	providers, err := core.ParseProviders(*gateProviders)
 	if err != nil {
 		return err
@@ -132,7 +131,7 @@ func runPromoter(args []string) error {
 	}
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), CacheApplications: *argocd,
 		Registry: func(hosts ...string) core.Registry {
-			return oci.NewClient(keychain, slices.Concat(insecure, []oci.ClientOption{oci.WithInsecureRegistries(hosts...)})...)
+			return oci.NewClient(keychain, oci.WithInsecureRegistries(slices.Concat(insecure, hosts)...))
 		}}
 	if *upstreamTrust != "" {
 		if cluster.Upstream, err = upstreamReader(*upstreamTrust, keychain); err != nil {
@@ -220,8 +219,8 @@ func runRecorder(args []string) error {
 	if err != nil {
 		return err
 	}
-	keychain := registryKeychain()
-	insecure := delivery.SplitList(os.Getenv(loader.InsecureRegistriesEnvVar))
+	keychain := oci.NewKeychain(oci.EnvCredentialOptions())
+	insecure := oci.EnvInsecureRegistries()
 	store := &delivery.RecordStore{Streams: *streams, Verify: verify,
 		Options: ocireferrer.Options{Keychain: keychain, Insecure: insecure}}
 	cluster := delivery.Cluster{Client: mgr.GetClient()}
@@ -280,16 +279,6 @@ func readClusterID(mgr ctrl.Manager) (string, error) {
 	return string(kubeSystem.UID), nil
 }
 
-// registryKeychain is Pacto's ordered keychain: the env token or user and
-// password, then a mounted Docker config (DOCKER_CONFIG).
-func registryKeychain() authn.Keychain {
-	return oci.NewKeychain(oci.CredentialOptions{
-		Token:    os.Getenv("PACTO_REGISTRY_TOKEN"),
-		Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
-		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
-	})
-}
-
 // upstreamReader reads what a Stage in another cluster verified from its
 // signed records, verified against the trust config in file, under a timeout.
 func upstreamReader(file string, keychain authn.Keychain) (
@@ -307,7 +296,7 @@ func upstreamReader(file string, keychain authn.Keychain) (
 	if err != nil {
 		return nil, err
 	}
-	insecure := delivery.SplitList(os.Getenv(loader.InsecureRegistriesEnvVar))
+	insecure := oci.EnvInsecureRegistries()
 	opts := ocireferrer.Options{Keychain: keychain, Insecure: insecure}
 	// One Reader for the process: every record it verified is fetched once.
 	reader := &deliveryrecord.Reader{Verify: verify}

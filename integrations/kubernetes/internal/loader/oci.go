@@ -11,7 +11,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"os"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -28,37 +27,18 @@ type OCIPuller struct {
 // NewOCIPuller creates an OCIPuller with credentials resolved via the Pacto
 // library keychain (env vars, pacto config, gh CLI, Docker config).
 func NewOCIPuller() *OCIPuller {
-	return &OCIPuller{
-		keychain: oci.NewKeychain(oci.CredentialOptions{
-			Token:    os.Getenv("PACTO_REGISTRY_TOKEN"),
-			Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
-			Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
-		}),
-		clientOpts: InsecureClientOptions(os.Getenv(InsecureRegistriesEnvVar)),
+	p := &OCIPuller{keychain: oci.NewKeychain(oci.EnvCredentialOptions())}
+	if hosts := oci.EnvInsecureRegistries(); len(hosts) > 0 {
+		p.clientOpts = []oci.ClientOption{oci.WithInsecureRegistries(hosts...)}
 	}
+	return p
 }
 
 // InsecureRegistriesEnvVar names the comma-separated list of registry hosts to
-// reach over plain HTTP. The operator honours the same variable the pacto CLI
-// does, so one chart value configures the controller and the workloads it
-// manages identically.
+// reach over plain HTTP (oci.EnvInsecureRegistries reads it). The operator
+// passes the same variable on to the workloads it manages, so one chart value
+// configures the controller and those workloads identically.
 const InsecureRegistriesEnvVar = "PACTO_INSECURE_REGISTRIES"
-
-// InsecureClientOptions turns a comma-separated host list into OCI client
-// options. It is scoped per host, so https registries are unaffected; an empty
-// or blank list yields no options at all.
-func InsecureClientOptions(hosts string) []oci.ClientOption {
-	var parsed []string
-	for h := range strings.SplitSeq(hosts, ",") {
-		if s := strings.TrimSpace(h); s != "" {
-			parsed = append(parsed, s)
-		}
-	}
-	if len(parsed) == 0 {
-		return nil
-	}
-	return []oci.ClientOption{oci.WithInsecureRegistries(parsed...)}
-}
 
 // Pull fetches a Pacto bundle from an OCI registry reference.
 // The ref may have an "oci://" prefix which is stripped.
