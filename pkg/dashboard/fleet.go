@@ -174,7 +174,7 @@ type fleetSnapshotOutput struct {
 func (s *Server) fleetSnapshot(ctx context.Context, _ *struct{}) (*fleetSnapshotOutput, error) {
 	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	// No defensive copy: the response is marshalled straight to the wire and never
 	// retained, so Snapshot()'s marshal-and-unmarshal round trip would double the
@@ -199,7 +199,7 @@ type fleetSearchOutput struct {
 func (s *Server) fleetSearch(ctx context.Context, in *fleetSearchInput) (*fleetSearchOutput, error) {
 	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	res, err := q.Search(fleet.SearchFilter{
 		Text: in.Text, Owner: in.Owner, Scope: in.Scope, Status: in.Status,
@@ -222,7 +222,7 @@ type fleetServiceDetailOutput struct {
 func (s *Server) fleetServiceDetail(ctx context.Context, in *fleetServiceDetailInput) (*fleetServiceDetailOutput, error) {
 	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	view, err := q.GetService(in.Key)
 	if err != nil {
@@ -242,7 +242,7 @@ type fleetTargetDetailOutput struct {
 func (s *Server) fleetTargetDetail(ctx context.Context, in *fleetTargetDetailInput) (*fleetTargetDetailOutput, error) {
 	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	view, err := q.GetTarget(in.Key)
 	if err != nil {
@@ -283,7 +283,7 @@ type fleetGraphOutput struct {
 func (s *Server) fleetGraph(ctx context.Context, in *fleetGraphInput) (*fleetGraphOutput, error) {
 	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	res, err := q.Graph(fleet.GraphQuery{
 		Service: in.Name, Revision: fleet.RevisionKey(in.Revision), Target: in.Target,
@@ -307,7 +307,7 @@ type fleetStatusOutput struct {
 func (s *Server) fleetStatus(ctx context.Context, _ *struct{}) (*fleetStatusOutput, error) {
 	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	return &fleetStatusOutput{Body: q.Status(fleet.StatusQuery{NeedsAttention: true})}, nil
 }
@@ -346,7 +346,7 @@ func (s *Server) fleetImpact(ctx context.Context, in *fleetImpactInput) (*fleetI
 	if s.opts.Fleet != nil {
 		q, err := s.fleetQuery(ctx)
 		if err != nil {
-			return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+			return nil, err
 		}
 		snap = q.SnapshotForSerialization()
 	}

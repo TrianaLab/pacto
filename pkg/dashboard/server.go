@@ -390,13 +390,17 @@ func (s *Server) publishedQuery(ctx context.Context) *fleet.Query {
 }
 
 // fleetQuery is the fleet query as the request's caller sees it: the one
-// place every fleet answer is narrowed.
+// place every fleet answer is narrowed. Any failure is the 503 every fleet
+// endpoint answers with.
 func (s *Server) fleetQuery(ctx context.Context) (*fleet.Query, error) {
 	q, err := s.opts.Fleet(ctx)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		q, err = s.view(ctx, q)
 	}
-	return s.view(ctx, q)
+	if err != nil {
+		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+	}
+	return q, nil
 }
 
 func (s *Server) view(ctx context.Context, q *fleet.Query) (*fleet.Query, error) {
