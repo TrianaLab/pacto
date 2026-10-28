@@ -1,10 +1,10 @@
 name: Security
 
 # Vulnerability scanning: govulncheck (Go source + dependencies of both modules,
-# reachability aware) and Trivy (every shipped container image, OS + language
-# CVEs). The two scan jobs
-# run in parallel (no `needs`); a follow-up `comment` job posts a summary on pull
-# requests.
+# reachability aware), Trivy (every shipped container image, OS + language
+# CVEs), npm audit (the dashboard bundle and the root release tooling) and, on
+# pull requests, dependency review. The scan jobs run in parallel (no `needs`);
+# a follow-up `comment` job posts a summary on pull requests.
 #
 # Both scans are fail-closed, but until `security-required` existed neither one
 # blocked anything: they reported status contexts branch protection does not
@@ -181,6 +181,47 @@ jobs:
           path: trivy.sarif
           if-no-files-found: ignore
 
+  # npm: the dashboard bundle ships its production dependencies (dompurify,
+  # mermaid, katex...) inside the CLI and dashboard images as minified JS, where
+  # Trivy cannot see them, and govulncheck reads Go only. So npm audit is the
+  # scan for them. A HIGH or CRITICAL advisory in the production tree fails the
+  # job. Dev-only advisories (build and test tooling, and the root changesets
+  # CLI) are printed but do not fail it, because they never reach a user.
+  npm-audit:
+    name: npm audit (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [., pkg/dashboard/frontend]
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+      - name: Report every advisory, dev included
+        run: npm audit || true
+      - name: Fail on HIGH/CRITICAL in production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  # A pull request may not add a dependency (any ecosystem: npm, Go modules,
+  # actions) that carries a known HIGH or CRITICAL advisory. Skipped on push and
+  # schedule, which security-required treats as a pass.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
   comment:
     name: PR security summary
     needs: [govulncheck, trivy-image]
@@ -264,6 +305,8 @@ jobs:
     needs:
       - govulncheck
       - trivy-image
+      - npm-audit
+      - dependency-review
     runs-on: ubuntu-latest
     steps:
       - name: Verify no scan failed

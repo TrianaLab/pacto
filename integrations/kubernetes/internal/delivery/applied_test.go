@@ -43,3 +43,30 @@ func TestAppliedMatchesSourceNamespace(t *testing.T) {
 		t.Fatalf("another namespace's applier must not count: ok=%v failed=%v %q %v", ok, failed, msg, err)
 	}
 }
+
+// TestAppliedWhileFluxReappliesTheSameRevision: Flux sets Ready Unknown
+// (Progressing) at the start of every reconcile. A Kustomization re-applying
+// the revision it last applied has still applied it; one progressing to a new
+// revision has not applied that one yet.
+func TestAppliedWhileFluxReappliesTheSameRevision(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name               string
+		applied, attempted string
+		want               bool
+	}{
+		{"re-applying B", "latest@" + dB, "latest@" + dB, true},
+		{"moving from A to B", "latest@" + dA, "latest@" + dB, false},
+	} {
+		k := kustomization("payments", "payments", "Unknown", "Progressing", tc.applied, tc.attempted)
+		e := newEnv(t, ociRepo("payments", dB, "latest@"+dB, true), k)
+		c := Cluster{Client: e.c}
+		a, err := c.freshApplier(ctx, ns, delivery.ApplyRef{Name: "payments"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok, failed, msg, err := c.applied(ctx, ns, a, dB); err != nil || ok != tc.want || failed {
+			t.Errorf("%s: ok=%v failed=%v %q %v, want ok=%v", tc.name, ok, failed, msg, err, tc.want)
+		}
+	}
+}
