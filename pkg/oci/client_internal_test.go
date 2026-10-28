@@ -86,3 +86,23 @@ func TestClient_Push_DigestError(t *testing.T) {
 		t.Error("expected error when the digest cannot be read")
 	}
 }
+
+// TestClient_Do parses with the plain-HTTP hosts, hands op the reference and
+// returns a bad ref as a typed error without calling op.
+func TestClient_Do(t *testing.T) {
+	t.Parallel()
+	c := NewClient(authn.NewMultiKeychain(), WithInsecureRegistries("reg.internal"))
+	var scheme string
+	err := c.Do(context.Background(), "reg.internal/acme/x:1", func(r name.Reference, _ []remote.Option) error {
+		scheme = r.Context().Scheme()
+		return nil
+	})
+	if err != nil || scheme != "http" {
+		t.Fatalf("Do = %v, scheme %q; want nil, http", err, scheme)
+	}
+	called := false
+	err = c.Do(context.Background(), "BAD REF", func(name.Reference, []remote.Option) error { called = true; return nil })
+	if _, ok := err.(*InvalidRefError); !ok || called {
+		t.Fatalf("Do(bad ref) = %v, op called %v; want *InvalidRefError, not called", err, called)
+	}
+}
