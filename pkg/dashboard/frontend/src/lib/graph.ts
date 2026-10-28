@@ -797,6 +797,37 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
   ] as any;
 }
 
+// entityNodes are the graph's entities: a focused neighborhood's lane boxes (see
+// laneGraph) are scaffolding, never counted, saved, hovered or selected.
+function entityNodes(cy: Core): cytoscape.NodeCollection {
+  return cy.nodes('[lane = 0]');
+}
+
+// snapshotSpatial is the graph's presentation geometry: where each entity sits and how
+// the viewport looks at them.
+function snapshotSpatial(cy: Core): SpatialState {
+  const positions: Record<string, { x: number; y: number }> = {};
+  entityNodes(cy).forEach((n) => { positions[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+  return { positions, pan: { ...cy.pan() }, zoom: cy.zoom() };
+}
+
+// restoreSavedPositions moves each entity to its saved position and returns the ids it
+// placed. Ids not in the saved state are ignored rather than defaulted, so a saved state
+// from a smaller graph pre-arranges what it knows and leaves the rest to be placed.
+function restoreSavedPositions(cy: Core, saved: Record<string, { x: number; y: number }> | undefined): Set<string> {
+  const restored = new Set<string>();
+  if (!saved) return restored;
+  cy.batch(() => {
+    entityNodes(cy).forEach((n) => {
+      const p = saved[n.id()];
+      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+      n.position({ x: p.x, y: p.y });
+      restored.add(n.id());
+    });
+  });
+  return restored;
+}
+
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
@@ -842,7 +873,7 @@ export function renderGraph(
   // A focused neighborhood arrives with lane boxes (see laneGraph) and is laid out in
   // lanes. The boxes are scaffolding: never counted, saved, hovered or selected.
   const lanes = (): boolean => cy.nodes('[lane = 1]').nonempty();
-  const entities = () => cy.nodes('[lane = 0]');
+  const entities = () => entityNodes(cy);
 
   // ── Dimming state ────────────────────────────────────────────────────────
   // A node can be dimmed by four independent things; recompute the union so they
@@ -1051,7 +1082,7 @@ export function renderGraph(
 
   // Ids we restored a position for. Non-empty means the user has already arranged this
   // exact graph query, so the initial layout is skipped entirely.
-  const restored = new Set<string>();
+  const restored = restoreSavedPositions(cy, savedPositions);
   // True once the arrangement or the viewport belongs to the user (a drag, a pan, a
   // zoom, or a restored state). While it is false the container-resize handler is free
   // to re-fit; once true, re-fitting would throw away a deliberate choice.
@@ -1063,35 +1094,14 @@ export function renderGraph(
 
   function suppressViewport(ms: number): void { suppressViewportUntil = Date.now() + ms; }
 
-  function snapshotSpatial(): SpatialState {
-    const positions: Record<string, { x: number; y: number }> = {};
-    entities().forEach((n) => { positions[n.id()] = { x: n.position('x'), y: n.position('y') }; });
-    return { positions, pan: { ...cy.pan() }, zoom: cy.zoom() };
-  }
 
   // Debounced: a drag or a pinch-zoom emits a continuous stream of events, and the
   // caller writes this to storage.
   function emitSpatial(): void {
     if (!onSpatialChange) return;
     clearTimeout(spatialTimer);
-    spatialTimer = setTimeout(() => onSpatialChange(snapshotSpatial()), 250);
+    spatialTimer = setTimeout(() => onSpatialChange(snapshotSpatial(cy)), 250);
   }
-
-  function restoreSavedPositions(): void {
-    if (!savedPositions) return;
-    cy.batch(() => {
-      entities().forEach((n) => {
-        const p = savedPositions[n.id()];
-        // Ids not in the saved state are ignored rather than defaulted, so a saved
-        // state from a smaller graph pre-arranges what it knows and leaves the rest
-        // to be placed.
-        if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
-        n.position({ x: p.x, y: p.y });
-        restored.add(n.id());
-      });
-    });
-  }
-  restoreSavedPositions();
 
   // How far a brand-new node sits from the neighbor it attaches to.
   const NEW_NODE_OFFSET = 150;
@@ -1430,7 +1440,7 @@ export function renderGraph(
     applyTopology,
     restyle: () => { cy.style(cyStylesheet(resolvePalette(container), layout, edgeStyle)); },
     resetLayout,
-    spatialState: snapshotSpatial,
+    spatialState: () => snapshotSpatial(cy),
     applyFilter,
     applyLegendFilter: (hidden) => { legendHidden = hidden?.size ? hidden : null; applyDimming(); },
     focusNode: pinFocus,
