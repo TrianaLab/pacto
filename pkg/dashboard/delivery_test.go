@@ -663,6 +663,12 @@ func TestHistoryAndOperation(t *testing.T) {
 		t.Fatalf("a change made on my behalf: %s", got)
 	}
 	f.ops[0].Spec.OnBehalfOf = nil
+	// A pasted token is offered no decision, since the decision would be refused.
+	a.state = AuthState{SignedIn: true, Method: "token"}
+	if got := actions("held"); got != "cancel" {
+		t.Fatalf("a token session: %s", got)
+	}
+	a.state = AuthState{SignedIn: true}
 	// With no login freshness published, a login the cluster cannot date
 	// decides, and the change says no login is too old.
 	f.caller.AuthTime = ""

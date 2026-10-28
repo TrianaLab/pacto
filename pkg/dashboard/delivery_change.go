@@ -203,8 +203,8 @@ func answerRefusal(op *delivery.OperationObject, caller delivery.Caller, decisio
 	return code
 }
 
-// decisionsServed: decisions only in shared mode, from a signed-in browser.
+// decisionsServed: a decision is offered only to a session decisionSession
+// lets decide, so the offer and the check share one rule.
 func (s *Server) decisionsServed(ctx context.Context) bool {
-	a := s.opts.Auth
-	return a != nil && !a.Local && a.Login && s.authState(ctx).SignedIn
+	return s.decisionSession(ctx, "") == nil
 }
