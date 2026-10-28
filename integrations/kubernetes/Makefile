@@ -224,12 +224,13 @@ build: manifests generate fmt vet ## Build manager binary.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build \
+	@# The Dockerfile builds from the repository root (go.work, the engine module), as CI does.
+	$(CONTAINER_TOOL) build -f Dockerfile \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg DASHBOARD_IMAGE=$(DASHBOARD_IMG) \
-		-t ${IMG} .
+		-t ${IMG} ../..
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
