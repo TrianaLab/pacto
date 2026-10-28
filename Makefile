@@ -23,7 +23,7 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
         e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
-        e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind e2e-observed e2e-docs \
+        e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind \
         e2e-observation-kind e2e-observation-kind-up e2e-observation-kind-status \
         e2e-observation-kind-logs e2e-observation-kind-down \
         e2e-runtime-conformance-kind e2e-runtime-conformance-kind-up e2e-runtime-conformance-kind-status \
@@ -31,7 +31,7 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
         e2e-runtime-docker e2e-runtime-run \
         e2e-delivery-demo e2e-delivery-demo-up e2e-delivery-demo-story e2e-delivery-demo-status \
         e2e-delivery-demo-logs e2e-delivery-demo-browser e2e-delivery-demo-reach e2e-delivery-demo-down \
-        e2e-dashboard-kind-browser e2e-all-operational-graph test-browser-docs-site \
+        test-browser-docs-site \
         generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift \
         bpf-generate test-ebpf
 
@@ -244,29 +244,14 @@ e2e-delivery-demo-down:
 e2e-runtime-docker: test-acceptance-local-runtime-docker
 e2e-runtime-run: test-acceptance-local-runtime-run
 
-# ── Operational-graph story acceptances (section M) ─────────────────────────
-# Observed relationships end to end in a real browser: the demo folds observed
-# edges into the snapshot, so the Operational Graph's Observed layer and the impact
-# shadow-consumer are real, not placebos.
-e2e-observed:
-	$(MAKE) -C examples/demo build
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --project=desktop --grep "observed"
-
 # Level 6 — deterministic browser acceptance for the DOCUMENTATION SITE, which is
 # a different product from the dashboard: `mkdocs build --strict` with the real
 # config, served over HTTP, driven in Chromium. Proves the diagrams a reader opens
 # actually render — on a core page, on a page the integration hook injects, and
 # after Material's instant navigation, with every cross-origin request aborted so
 # the site cannot pass by borrowing someone else's runtime.
-# Named for the site, not for "docs", because e2e-docs below is the dashboard's
-# bundle-documentation tab.
 test-browser-docs-site: $(MERMAID_RUNTIME)
 	cd pkg/dashboard/frontend && npx playwright install chromium && npx playwright test -c playwright.docs-site.config.ts
-
-# Bundle-doc Mermaid diagrams actually render to SVG in a real browser.
-e2e-docs:
-	$(MAKE) -C examples/demo build
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --project=desktop e2e/mermaid.spec.ts
 
 # Level 7 — live-browser acceptance: the full vertical (operator + dashboard +
 # Evidence Server + registry + reconciled CRs + ingested evidence) plus a
@@ -274,7 +259,6 @@ e2e-docs:
 # DISCOVERED from the real Product API.
 test-browser-live:
 	bash tests/acceptance/kind/operational-graph.sh browser
-e2e-dashboard-kind-browser: test-browser-live
 
 # Level 7 on the OTHER surface: the same journeys, in the same browser, against
 # the demo a stranger pulled — so what ships as "try Pacto" is held to the product
@@ -282,10 +266,6 @@ e2e-dashboard-kind-browser: test-browser-live
 # target skips here, naming the capability Compose declares it lacks.
 test-browser-compose:
 	bash tests/acceptance/local/compose-demo.sh browser
-
-# The whole operational-graph story: cluster-free core, the deterministic browser
-# suite, and the live-Kind vertical + live browser acceptance.
-e2e-all-operational-graph: e2e-operational-graph-core test-browser test-browser-live
 
 coverage:
 	go test -race $(COVER_PKGS) -coverprofile=coverage.out

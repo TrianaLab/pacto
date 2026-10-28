@@ -8,8 +8,7 @@ BUNDLE_DIR := pactos/pacto-dashboard
 REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-perf-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile \
-       ci-e2e-compose test-acceptance-compose test-browser-compose \
+       ci-e2e-envtest ci-perf-envtest ci-e2e-compose ci-release-version docs-serve docs-deploy \
        test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
@@ -207,12 +206,6 @@ test-acceptance-kind-delivery:
 # (.github/workflows/delivery-demo.yml), never per PR.
 test-acceptance-kind-delivery-demo:
 	bash tests/acceptance/kind/delivery-demo.sh all
-
-# Compatibility aliases for the older names. Temporary.
-ci-e2e-kind:                    test-acceptance-kind
-ci-e2e-kind-dashboard:          test-acceptance-kind-dashboard
-ci-e2e-kind-upgrade:            test-acceptance-kind-upgrade
-ci-e2e-kind-reconcile:          test-acceptance-kind-reconcile
 
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:
