@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"fmt"
 	"sort"
 	"strings"
@@ -600,26 +601,28 @@ func healthRank(status string) int {
 // naturalLess compares two labels case-insensitively, reading each run of
 // digits as a number, so target-2 sorts before target-10.
 func naturalLess(a, b string) bool {
-	a, b = strings.ToLower(a), strings.ToLower(b)
+	return NaturalCompare(strings.ToLower(a), strings.ToLower(b)) < 0
+}
+
+// NaturalCompare compares a and b case-sensitively, reading each run of ASCII
+// digits as a number (env-2 before env-10) and the rest byte by byte.
+func NaturalCompare(a, b string) int {
 	for a != "" && b != "" {
 		da, db := digitRun(a), digitRun(b)
 		if da > 0 && db > 0 {
 			na, nb := strings.TrimLeft(a[:da], "0"), strings.TrimLeft(b[:db], "0")
-			if len(na) != len(nb) {
-				return len(na) < len(nb)
-			}
-			if na != nb {
-				return na < nb
+			if c := cmp.Or(cmp.Compare(len(na), len(nb)), cmp.Compare(na, nb)); c != 0 {
+				return c
 			}
 			a, b = a[da:], b[db:]
 			continue
 		}
-		if a[0] != b[0] {
-			return a[0] < b[0]
+		if c := cmp.Compare(a[0], b[0]); c != 0 {
+			return c
 		}
 		a, b = a[1:], b[1:]
 	}
-	return len(a) < len(b)
+	return cmp.Compare(len(a), len(b))
 }
 
 // digitRun is the length of the ASCII digits s starts with.
