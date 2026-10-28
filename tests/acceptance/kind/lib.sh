@@ -389,9 +389,11 @@ PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b34
 # other platforms are not present — the very artifact that used to break the
 # load. load_images narrows it at load time, so re-pulling cannot restore a
 # broken state and there is no pre-flattened local image for a later pull to
-# overwrite.
+# overwrite. A scenario that already put the image on the host under its tag
+# (the delivery demo loads it from CI's one-time pull) sets
+# PACTO_REGISTRY_IMAGE_PRESENT and the pull is skipped.
 install_registry() {
-  pull_pinned "$PACTO_REGISTRY_IMAGE"
+  [ -n "${PACTO_REGISTRY_IMAGE_PRESENT:-}" ] || pull_pinned "$PACTO_REGISTRY_IMAGE"
   load_images "${PACTO_REGISTRY_IMAGE%@*}"
   kubectl -n "$NS" apply -f - >/dev/null <<YAML
 apiVersion: apps/v1

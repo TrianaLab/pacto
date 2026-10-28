@@ -23,6 +23,7 @@
 #   logs     diagnostics of the cluster.
 #   down     delete the cluster and the containers beside it.
 #   all      up, story, browser, reach and down: the whole demo, in order.
+#   save-images FILE  pull the third-party images once and save them to FILE.
 #   play BEAT...  play the named beats on the running cluster (see SHARDS).
 #
 # DELIVERY_DEMO_SHARD=NAME makes `all` run one CI shard instead: up, seeded
@@ -30,7 +31,9 @@
 # shard's beats, then down. Each shard runs on its own runner and cluster, and
 # no shard reads another's state; CI runs them all at once (delivery-demo.yml).
 # DELIVERY_LOAD_IMAGES=FILE loads the three Pacto images delivery.sh saved
-# (DELIVERY_SAVE_IMAGES) instead of building them.
+# (DELIVERY_SAVE_IMAGES) instead of building them, and DELIVERY_DEMO_IMAGES=FILE
+# loads the third-party images `save-images FILE` pulled once instead of
+# pulling them, so a CI shard pulls nothing from a public registry.
 #
 # Keys and kubeconfigs live in tmp/delivery-demo/ (ignored by git), so every
 # subcommand finds them. Host ports 3300, 8585, 5556, 8443 and 5602 must be
@@ -60,6 +63,10 @@ FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5@sha256:6f20d232d596a758c923
 MIRA_IMG=ghcr.io/trianalab/mira:0.4.3@sha256:2fc95e0d4c8ffa38aa2de1a2389c98eb83e020ab7a1719ca27db90a62794fbcc
 PODINFO_IMG=ghcr.io/stefanprodan/podinfo:6.7.1@sha256:862ca45e61b32392f7941a1bdfdbe5ff8b6899070135f1bdca1c287d0057fc94
 PYTHON_IMG=python:3.13-alpine@sha256:bf12ecc0bea3f171d55145dd02c78b5eeb09f30ee2ac9cc2b4c9e4e8f5e30741
+ARGOCD_VERSION=v3.5.2
+# The images Argo CD's core install runs; us_argocd refuses a manifest that asks for others.
+ARGO_IMAGES=(quay.io/argoproj/argocd:v3.5.2@sha256:e2aadfae709d904e87f46ba4aa49601d827b3022db22cd4d03aae816a2e7097b
+  public.ecr.aws/docker/library/redis:8.2.3-alpine@sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$HERE/lib.sh"
@@ -96,6 +103,65 @@ registry_pf() { [ -n "$PF_PIDS" ] || PF_PIDS=" $(pf "$LOCAL_REG_PORT" svc/pacto-
 PF_PIDS=""
 stop_pf() { local p; for p in $PF_PIDS; do kill "$p" 2>/dev/null || true; done; PF_PIDS=""; }
 
+# --- third-party images ------------------------------------------------------
+
+# third_party — every third-party image the demo runs, each pinned by digest.
+third_party() {
+  printf '%s\n' "$DEX_IMG" "$KC_IMG" "${FLUX_IMAGES[@]}" "$MIRA_IMG" "$PODINFO_IMG" "$PYTHON_IMG" \
+    "$PACTO_REGISTRY_IMAGE" "${ARGO_IMAGES[@]}"
+}
+
+# local_ref IMG — the name the demo runs a pinned image by: REPO:TAG, or
+# REPO:sha256-HEX for one pinned without a tag (docker save keeps tags, not digests).
+local_ref() {
+  local ref="${1%@*}" dig="${1#*@}"
+  case "${ref##*/}" in *:*) echo "$ref" ;; *) echo "$ref:${dig/:/-}" ;; esac
+}
+
+# fetch_pinned IMG — pull it by digest and tag it as local_ref names it. An image
+# from public.ecr.aws/docker/library, whose anonymous pulls from shared runners hit
+# "Data limit exceeded", falls back to the Docker Hub image it mirrors: same digest.
+fetch_pinned() {
+  local ref repo dig hub
+  ref="$(local_ref "$1")" dig="${1#*@}"; repo="${ref%:*}"
+  if docker pull -q "$repo@$dig" >/dev/null; then docker tag "$repo@$dig" "$ref"; return; fi
+  [[ "$repo" == public.ecr.aws/docker/library/* ]] || return 1
+  hub="docker.io/library/${repo#public.ecr.aws/docker/library/}"
+  echo "  $repo failed; trying $hub, which it mirrors under the same digest" >&2
+  docker pull -q "$hub@$dig" >/dev/null && docker tag "$hub@$dig" "$ref"
+}
+
+# cmd_save_images FILE — pull every third-party image once and save them to FILE,
+# narrowed to this host's platform (the runner's, which the shards' kind nodes
+# share) when the docker CLI can narrow an export.
+cmd_save_images() {
+  local f="${1:?usage: $0 save-images FILE}" img plat refs=()
+  for img in $(third_party); do infra "pull $img" fetch_pinned "$img"; refs+=("$(local_ref "$img")"); done
+  plat="linux/$(docker version -f '{{.Server.Arch}}')"
+  if docker save --help | grep -q -- --platform; then
+    docker save --platform "$plat" -o "$f" "${refs[@]}"
+  else
+    docker save -o "$f" "${refs[@]}"
+  fi
+  echo "saved ${#refs[@]} third-party images ($plat) to $f"
+}
+
+# demo_images — every third-party image on this host under its local_ref: loaded
+# from DELIVERY_DEMO_IMAGES when CI pulled them once, pulled here otherwise.
+demo_images() {
+  local img
+  if [ -n "${DELIVERY_DEMO_IMAGES:-}" ]; then
+    docker load -i "$DELIVERY_DEMO_IMAGES" >/dev/null || fail "could not load $DELIVERY_DEMO_IMAGES"
+    for img in $(third_party); do
+      docker image inspect "$(local_ref "$img")" >/dev/null 2>&1 || fail "$DELIVERY_DEMO_IMAGES has no $img: save-images ran on another tree"
+    done
+  else
+    for img in $(third_party); do infra "pull $img" fetch_pinned "$img"; done
+  fi
+  # shellcheck disable=SC2034  # read by lib.sh's install_registry
+  PACTO_REGISTRY_IMAGE_PRESENT=1
+}
+
 # --- up ----------------------------------------------------------------------
 
 
@@ -128,9 +194,9 @@ node_pulls_from_registry() {
 idp_start() {
   cp "$IDP_FIXTURES/dex.yaml" "$IDP_FIXTURES/pacto-realm.json" "$IDP_DIR/"
   chmod 644 "$IDP_DIR/dex.yaml" "$IDP_DIR/pacto-realm.json"
-  in_node pacto-e2e-dex -e DEX_SESSIONS_ENABLED=true -v "$IDP_DIR:/etc/dex:ro" "$DEX_IMG" dex serve /etc/dex/dex.yaml
+  in_node pacto-e2e-dex -e DEX_SESSIONS_ENABLED=true -v "$IDP_DIR:/etc/dex:ro" "$(local_ref "$DEX_IMG")" dex serve /etc/dex/dex.yaml
   in_node pacto-e2e-keycloak -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
-    -v "$IDP_DIR:/opt/keycloak/data/import:ro" -v "$IDP_DIR:/etc/x509:ro" "$KC_IMG" \
+    -v "$IDP_DIR:/opt/keycloak/data/import:ro" -v "$IDP_DIR:/etc/x509:ro" "$(local_ref "$KC_IMG")" \
     start-dev --import-realm --http-enabled=false --https-port=8443 --http-management-port=9100 \
     --https-certificate-file=/etc/x509/tls.crt --https-certificate-key-file=/etc/x509/tls.key --hostname="https://127.0.0.1:8443"
 }
@@ -405,8 +471,7 @@ cmd_up() {
   infra "download the Flux $FLUX_VERSION install manifest" \
     curl -fsSL --retry 2 --max-time 60 -o "$flux" "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
   [ "$(shasum -a 256 "$flux" | cut -d' ' -f1)" = "$FLUX_INSTALL_SHA256" ] || fail "the Flux install manifest changed upstream"
-  for img in "$DEX_IMG" "$KC_IMG"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
-  for img in "${FLUX_IMAGES[@]}" "$MIRA_IMG" "$PODINFO_IMG" "$PYTHON_IMG"; do pull_pinned "$img"; done
+  demo_images
   wait "$gobuild" || { cat "$DEMO/go-build.log" >&2; fail "pacto or the login helper did not build"; }
   local op_chart
   op_chart="$(package_chart "$PACTO_CHART")"
@@ -1152,7 +1217,6 @@ cmd_browser() {
 # not Flux, applies what it promotes.
 US_CLUSTER=pacto-delivery-demo-us
 US_KC="$DEMO/us.kubeconfig"
-ARGOCD_VERSION=v3.5.2
 us() { KUBECONFIG="$US_KC" "$@"; }
 
 # us_registry — prod-us reaches the first cluster's registry under the same
@@ -1184,14 +1248,14 @@ YAML
 # Applications in the prod namespace, to fetch the registry over plain HTTP
 # and to accept the layer type pacto publish writes (Flux's).
 us_argocd() {
-  local m img; m="$(mktemp)"
+  local m; m="$(mktemp)"
   infra "download Argo CD $ARGOCD_VERSION" curl -fsSL --max-time 60 -o "$m" \
     "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/core-install.yaml"
   sed -i.bak 's/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/' "$m"
-  for img in $(awk '$1 == "image:" { print $2 }' "$m" | sort -u); do
-    infra "pull $img" docker pull -q "$img" >/dev/null
-    CLUSTER="$US_CLUSTER" infra "load $img into prod-us" load_images "$img"
-  done
+  [ "$(awk '$1 == "image:" { print $2 }' "$m" | sort -u)" = "$(printf '%s\n' "${ARGO_IMAGES[@]%@*}" | sort -u)" ] \
+    || fail "Argo CD $ARGOCD_VERSION's install runs other images than ARGO_IMAGES pins"
+  # up put them on this host (demo_images); the node never pulls them.
+  CLUSTER="$US_CLUSTER" infra "load Argo CD's images into prod-us" load_images "${ARGO_IMAGES[@]%@*}"
   us kubectl create namespace argocd --dry-run=client -o yaml | us kubectl apply -f - >/dev/null
   us kubectl apply -n argocd --server-side -f "$m" >/dev/null
   crds() { us kubectl get applications.argoproj.io -A >/dev/null 2>&1 && us kubectl get appprojects.argoproj.io -A >/dev/null 2>&1; }
@@ -1519,6 +1583,7 @@ case "$CMD" in
   status) cmd_status ;;
   logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$DNS" logs deploy/pacto-operator-delivery --tail=100 2>&1 || true ;;
   down) cmd_down ;;
+  save-images) cmd_save_images "${2:-}" ;;
   all)
     rc=0
     if [ -n "${DELIVERY_DEMO_SHARD:-}" ]; then
@@ -1531,5 +1596,5 @@ case "$CMD" in
     # A failed run in CI keeps the cluster for scripts/ci/kind-diagnostics.sh.
     { [ -n "${CI:-}" ] && [ $rc -ne 0 ]; } || bash "$0" down
     exit $rc ;;
-  *) echo "usage: $0 up|story|status|logs|browser|reach|play BEAT...|down|all"; exit 2 ;;
+  *) echo "usage: $0 up|story|status|logs|browser|reach|play BEAT...|down|all|save-images FILE"; exit 2 ;;
 esac

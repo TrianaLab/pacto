@@ -214,6 +214,27 @@ func TestEveryDemoShardHasAJob(t *testing.T) {
 	}
 }
 
+// TestDemoShardsPullNoThirdPartyImages: the demo's third-party images are
+// pulled once, by fetch_pinned in the images job, and every shard loads that
+// archive. A `docker pull` anywhere else in delivery-demo.sh is a shard pulling
+// from a public registry again, which is how a shared runner's rate limit
+// failed a demo that had passed every check.
+func TestDemoShardsPullNoThirdPartyImages(t *testing.T) {
+	sh := code(t, filepath.Join(kindDir(t), "delivery-demo.sh"))
+	_, fn, _ := strings.Cut(sh, "\nfetch_pinned() {")
+	fn, _, _ = strings.Cut(fn, "\n}")
+	if strings.Count(sh, "docker pull") != strings.Count(fn, "docker pull") || !strings.Contains(fn, "docker pull") {
+		t.Error("delivery-demo.sh pulls an image outside fetch_pinned; add it to third_party instead")
+	}
+	if strings.Contains(sh, "pull_pinned") {
+		t.Error("delivery-demo.sh calls pull_pinned; add the image to third_party instead")
+	}
+	wf := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "delivery-demo.yml"))
+	if !strings.Contains(wf, "export DELIVERY_DEMO_IMAGES=") {
+		t.Error("the demo shards must load the images job's third-party archive (DELIVERY_DEMO_IMAGES)")
+	}
+}
+
 func TestScenariosLoadImagesThroughTheSharedBoundary(t *testing.T) {
 	for _, path := range scenarios(t) {
 		if body := code(t, path); strings.Contains(body, "kind load") {

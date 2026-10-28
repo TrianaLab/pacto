@@ -8,8 +8,8 @@ name: Delivery demo
 # It runs as parallel shards (tests/acceptance/kind/delivery-demo.sh, SHARDS):
 # each shard is `make e2e-delivery-demo` with DELIVERY_DEMO_SHARD set, on its own
 # runner and clusters, seeded only as far as its beats need, over the three
-# Pacto images built once (ci.yml's delivery-images artifact when ci.yml calls
-# it, the images job below otherwise).
+# Pacto images built once and its third-party images pulled once (ci.yml's
+# delivery-images artifact when ci.yml calls it, the images job below otherwise).
 
 on:
   schedule:
@@ -36,7 +36,7 @@ jobs:
   images:
     if: inputs.images-artifact == ''
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # delivery.sh checks for these before it builds (see ci.yml's delivery-images).
@@ -45,12 +45,19 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Build the operator, dashboard and delivery images
         timeout-minutes: 25
-        run: DELIVERY_SAVE_IMAGES="$RUNNER_TEMP/delivery-images.tar" bash tests/acceptance/kind/delivery.sh
+        run: |
+          mkdir -p "$RUNNER_TEMP/delivery-images"
+          DELIVERY_SAVE_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar" bash tests/acceptance/kind/delivery.sh
+      # The demo's third-party images (Argo CD, Dex, Keycloak, Flux, zot...), pulled
+      # once here with retries so no demo shard pulls from a public registry.
+      - name: Pull the delivery demo's third-party images
+        timeout-minutes: 15
+        run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/save-images.log" bash tests/acceptance/kind/delivery-demo.sh save-images "$RUNNER_TEMP/delivery-images/demo-third-party.tar"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         timeout-minutes: 10
         with:
           name: delivery-demo-images
-          path: ${{ runner.temp }}/delivery-images.tar
+          path: ${{ runner.temp }}/delivery-images
           compression-level: 1
           retention-days: 1
           overwrite: true
@@ -93,6 +100,7 @@ jobs:
           DELIVERY_DEMO_SHARD: ${{ matrix.shard }}
         run: |
           export DELIVERY_LOAD_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar"
+          export DELIVERY_DEMO_IMAGES="$RUNNER_TEMP/delivery-images/demo-third-party.tar"
           bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make e2e-delivery-demo
       - name: Collect cluster diagnostics
         if: failure()
