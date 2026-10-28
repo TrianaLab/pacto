@@ -1,1 +1,0 @@
-import{G as e,Rn as t,Vn as n,W as r,Zt as i,dn as a,fn as o,jn as s,kn as c,mn as l,wn as u,zn as d}from"./format-DO41kAzJ.js";var f=l(`<span><span class="badge-dot"></span> </span>`);function p(l,p){d(p,!0);var m=f(),h=s(c(m),1,!0);n(m),u((e,t)=>{i(m,1,`badge status-badge badge-${e??``}`),a(h,t)},[()=>r(p.status),()=>e(p.status)]),o(l,m),t()}export{p as t};
