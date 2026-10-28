@@ -644,12 +644,7 @@ func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 			Gate: "recheck", Phase: "verify", Result: delivery.Unknown,
 			Message: "the operation that shipped the running version is gone, so nothing is re-checked",
 		}}}
-		return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
-			if !moved(gone, st.Status) {
-				st.Status.LastCheck = gone
-				st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(gone, st.Generation), now)
-			}
-		})
+		return r.recordCheck(ctx, stage, gone, now)
 	}
 	if shipped.Status.Outcome != delivery.Succeeded || shipped.Status.Verification == delivery.Unverified ||
 		shipped.Spec.Params.To != s.Pointer {
@@ -664,14 +659,20 @@ func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 	check := &delivery.Recheck{Operation: s.LastOp, Digest: s.Pointer, At: ts(now), Verdicts: vs}
 	f := failing(vs)
 	if f == nil {
-		return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
-			if !moved(check, st.Status) {
-				st.Status.LastCheck = check
-				st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(check, st.Generation), now)
-			}
-		})
+		return r.recordCheck(ctx, stage, check, now)
 	}
 	return r.recheckFailed(ctx, stage, shipped, check, f)
+}
+
+// recordCheck records check as the Stage's last re-check, unless the Stage
+// moved since.
+func (r *StageReconciler) recordCheck(ctx context.Context, stage *dv1.Stage, check *delivery.Recheck, now time.Time) error {
+	return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
+		if !moved(check, st.Status) {
+			st.Status.LastCheck = check
+			st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(check, st.Generation), now)
+		}
+	})
 }
 
 // moved reports whether the Stage is no longer the one a check is about.
