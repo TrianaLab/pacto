@@ -67,8 +67,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		if o, err = authn.NewOIDC(authn.Config{IssuerURL: issuer, HTTPClient: client, ClientID: v.GetString("dashboard.oidc-client-id"),
 			ClientSecret: v.GetString("dashboard.oidc-client-secret"), RedirectURL: v.GetString("dashboard.oidc-redirect-url"),
 			ExtraScopes: splitList(v.GetStringSlice("dashboard.oidc-extra-scopes")), Lifetime: life, Review: review,
-			Claims: authn.Claims{UsernameClaim: v.GetString("dashboard.oidc-username-claim"), UsernamePrefix: v.GetString("dashboard.oidc-username-prefix"),
-				GroupsClaim: v.GetString("dashboard.oidc-groups-claim"), GroupsPrefix: v.GetString("dashboard.oidc-groups-prefix")}}); err != nil {
+			Claims: claimsFlags(func(name string) string { return v.GetString("dashboard." + name) })}); err != nil {
 			return nil, err
 		}
 	}

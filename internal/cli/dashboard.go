@@ -16,7 +16,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
@@ -232,6 +234,19 @@ func addClaimFlags(cmd *cobra.Command) {
 	cmd.Flags().String("oidc-username-prefix", "", "prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)")
 	cmd.Flags().String("oidc-groups-claim", "", "ID token claim the API server takes the groups from; must match its claim mapping (default groups)")
 	cmd.Flags().String("oidc-groups-prefix", "", "prefix the API server puts before every group; must match its claim mapping")
+}
+
+// claimsFlags is the claim mapping addClaimFlags registers, each setting read
+// by its flag name from get: the dashboard's viper, which also reads
+// PACTO_DASHBOARD_*, or the MCP server's flags.
+func claimsFlags(get func(name string) string) authn.Claims {
+	return authn.Claims{UsernameClaim: get("oidc-username-claim"), UsernamePrefix: get("oidc-username-prefix"),
+		GroupsClaim: get("oidc-groups-claim"), GroupsPrefix: get("oidc-groups-prefix")}
+}
+
+// flagString reads a string flag of cmd by name.
+func flagString(cmd *cobra.Command) func(string) string {
+	return func(name string) string { v, _ := cmd.Flags().GetString(name); return v }
 }
 
 // parseDashboardArgs splits positional arguments into a local directory and

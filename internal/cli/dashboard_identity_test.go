@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -253,4 +254,18 @@ func TestLocalDashboardNamesTheKubeconfigUser(t *testing.T) {
 	o = dashboard.Options{}
 	none.options(&o)
 	expect(t, o.Auth.State(r).User == "", "no cluster names nobody")
+}
+
+// The dashboard and the MCP server read one claim mapping from the same flags.
+func TestClaimsFlags(t *testing.T) {
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", defaultDeps())
+	for f, v := range map[string]string{"oidc-username-claim": "email", "oidc-groups-claim": "roles", "oidc-groups-prefix": "idp:", "oidc-username-prefix": "-"} {
+		_ = cmd.Flags().Set(f, v)
+	}
+	tok := "h." + base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"https://idp","sub":"u","email":"carol@example.com","roles":["orders"]}`)) + ".s"
+	p := claimsFlags(flagString(cmd)).Person(tok)
+	expect(t, p.User == "carol@example.com" && len(p.Groups) == 1 && p.Groups[0] == "idp:orders", "the MCP server maps claims as its flags say: %+v", p)
+	v := viper.New()
+	v.Set("dashboard.oidc-username-claim", "email")
+	expect(t, claimsFlags(func(n string) string { return v.GetString("dashboard." + n) }).Person(tok).User == "carol@example.com", "the dashboard reads the same names")
 }

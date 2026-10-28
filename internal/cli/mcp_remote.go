@@ -104,14 +104,17 @@ type remoteDelivery struct {
 	records   app.RecordRepo
 	trust     *delivery.TrustConfig
 	policyNS  string
-	build     func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server
+	// claims names a caller in the logs as the cluster does (see claimsFlags).
+	claims authn.Claims
+	build  func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server
 }
 
 func (rd remoteDelivery) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		info := auth.TokenInfoFromContext(r.Context())
+		user := rd.claims.PersonFromTokenInfo(info).User
 		refuse := func(code int, what string, err error) {
-			authn.Refused(r.Context(), r, what, "user", info.UserID, "reason", err.Error())
+			authn.Refused(r.Context(), r, what, "user", user, "reason", err.Error())
 			http.Error(w, err.Error(), code)
 		}
 		tok, err := rd.auth.Exchange(r.Context(), info)
@@ -132,7 +135,7 @@ func (rd remoteDelivery) middleware(next http.Handler) http.Handler {
 			return
 		}
 		writes := caller.Class == delivery.ClassAgent
-		logging.LoggerFromContext(r.Context()).Info("remote MCP delivery request", "user", info.UserID, "as", caller.User,
+		logging.LoggerFromContext(r.Context()).Info("remote MCP delivery request", "user", user, "as", caller.User,
 			"class", caller.Class, "writeTools", writes)
 		srv := rd.build(mcpDelivery{c}, writes)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), mcpServerKey{}, srv)))
@@ -198,7 +201,7 @@ func remoteDeliveryFor(cmd *cobra.Command, svc *app.Service, version string, d d
 	}
 	rd := remoteDelivery{auth: s.auth, cluster: cluster, registry: d.newDeliveryRegistry, newClient: d.dynamicFor,
 		records: d.newRecordRepo, trust: trust,
-		policyNS: policyNS,
+		policyNS: policyNS, claims: claimsFlags(flagString(cmd)),
 		build: func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server {
 			return pactomcp.NewDeliveryServer(version, api, writes, svc.ValidationReport)
 		}}

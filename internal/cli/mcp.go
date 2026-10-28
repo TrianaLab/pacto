@@ -343,9 +343,7 @@ func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 	}
 	cluster, _ := d.clusterConfig()
 	viewer := authn.NewViewer(clusterReview(cluster, d.dynamicFor))
-	flag := func(name string) string { v, _ := cmd.Flags().GetString(name); return v }
-	claims := authn.Claims{UsernameClaim: flag("oidc-username-claim"), UsernamePrefix: flag("oidc-username-prefix"),
-		GroupsClaim: flag("oidc-groups-claim"), GroupsPrefix: flag("oidc-groups-prefix")}
+	claims := claimsFlags(flagString(cmd))
 	return func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		r, err := viewer.Query(ctx, claims.PersonFromTokenInfo(caller), q)
 		if err != nil {
