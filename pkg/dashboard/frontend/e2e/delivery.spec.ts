@@ -44,7 +44,8 @@ function installDelivery(persona: Persona): void {
     token: { user: 'system:serviceaccount:shop:viewer', class: 'human', groups: ['team-checkout', 'system:serviceaccounts'], authTime: '1792560000' },
   };
   // The token persona is signed out until the stand-in /auth/token accepted a token.
-  const signedOut = () => persona === 'signed-out' || (persona === 'token' && !document.cookie.includes('mock-token=1'));
+  // mock.ended: the session ended (expired, or signed out in another tab) while a page was open.
+  const signedOut = () => persona === 'signed-out' || S.getItem('mock.ended') === '1' || (persona === 'token' && !document.cookie.includes('mock-token=1'));
   const caller = callers[persona] as { groups: string[]; class: string } | undefined;
   const mayDecide = persona === 'carol';
   const listing = { asOf: '2026-10-21T10:00:00Z', completeness: 'complete' };
@@ -72,7 +73,7 @@ function installDelivery(persona: Persona): void {
         return json(200, { mode: 'shared', login: false, tokenLogin: true, signedIn: !signedOut(),
           ...(signedOut() ? {} : { method: 'token', csrf: 't', user: 'system:serviceaccount:shop:viewer' }) });
       }
-      if (persona === 'signed-out') return json(200, { mode: 'shared', login: true, signedIn: false });
+      if (signedOut()) return json(200, { mode: 'shared', login: true, signedIn: false });
       return json(200, { mode: persona === 'local' ? 'local' : 'shared', login: persona !== 'local', signedIn: true,
         csrf: 't', ...(caller as object) });
     }
@@ -346,6 +347,18 @@ test.describe('Delivery views', () => {
       await expect(page.getByTestId('identity')).toHaveCount(0);
     }
     await audit(page, 'signed out');
+  });
+
+  test('a session that ends on an open page brings back the sign-in screen for the page asked for', async ({ page }) => {
+    await as(page, 'carol');
+    await page.goto('/#/delivery/inbox');
+    await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible({ timeout: T });
+    await page.evaluate(() => sessionStorage.setItem('mock.ended', '1'));
+    await page.getByRole('navigation', { name: 'Delivery' }).getByRole('link', { name: 'History' }).click();
+    const screen = page.getByTestId('sign-in');
+    await expect(screen).toBeVisible({ timeout: T });
+    await expect(screen.getByRole('link', { name: 'Sign in with OIDC', exact: true })).toHaveAttribute('href', `/auth/login?return=${encodeURIComponent('/#/delivery/history')}`);
+    await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
   });
 
   test('a token sign-in checks the token, then shows the fleet, and a token session is offered no decision', async ({ page }) => {
