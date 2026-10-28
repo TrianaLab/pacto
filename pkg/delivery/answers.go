@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // The answers below (history, blame and undo) are pure: the CLI, MCP and the
@@ -27,9 +29,9 @@ type RecordsRead struct {
 // complete is the completeness of an answer read from records.
 func (r *RecordsRead) complete() string {
 	if r.Trust == "" || len(r.Fold.Problems) > 0 || len(r.Unreadable) > 0 {
-		return "partial"
+		return string(fleet.CompletenessPartial)
 	}
-	return "complete"
+	return string(fleet.CompletenessComplete)
 }
 
 func (r *RecordsRead) note() string {
@@ -65,7 +67,7 @@ func AssembleHistory(st *StageObject, ops []OperationObject, r *RecordsRead, rea
 		return cmp.Or(cmp.Compare(inFlight(a), inFlight(b)), cmp.Compare(a.Status.Seq, b.Status.Seq),
 			cmp.Compare(a.Metadata.CreationTimestamp, b.Metadata.CreationTimestamp))
 	})
-	h := &History{Stage: NowOf(st), AsOf: asOf, Completeness: "partial", Note: historyNote, Source: SourceStatus, Entries: []HistoryEntry{}}
+	h := &History{Stage: NowOf(st), AsOf: asOf, Completeness: string(fleet.CompletenessPartial), Note: historyNote, Source: SourceStatus, Entries: []HistoryEntry{}}
 	if readErr != nil {
 		h.Unreadable, h.Note = []string{readErr.Error()}, "the records could not be read, so this is "+historyNote
 	}
@@ -179,7 +181,7 @@ func BlameOf(h *History, recs []StoredRecord, ops []OperationObject, digest stri
 		}
 		// Read from the Operation's status: no signed record vouches for it,
 		// whatever the history's completeness.
-		b.Completeness, b.Unsigned = "partial", []string{"change", "approvals", "verdicts", "intentReason", "onBehalfOf"}
+		b.Completeness, b.Unsigned = string(fleet.CompletenessPartial), []string{"change", "approvals", "verdicts", "intentReason", "onBehalfOf"}
 		b.Note += ", read from its Operation's unsigned status"
 		if e.Record != "" {
 			b.Note += ": its record could not vouch for it (" + e.Reason + ")"
@@ -203,11 +205,11 @@ func noChange(b *Blame, entries []HistoryEntry) {
 		return e.Kind == RecordUnrecordable && e.Pointer == nil
 	})
 	switch {
-	case b.Completeness == "complete" && hidden:
-		b.Completeness = "partial"
+	case b.Completeness == string(fleet.CompletenessComplete) && hidden:
+		b.Completeness = string(fleet.CompletenessPartial)
 		b.Note = "no readable change moved the Stage to " + b.Digest + ", but an unrecordable record hides what its " +
 			"change moved, and that change may have"
-	case b.Completeness == "complete":
+	case b.Completeness == string(fleet.CompletenessComplete):
 		b.Note = "no change in the stream moved the Stage to " + b.Digest
 	default:
 		b.Note = "no change Pacto could read moved the Stage to " + b.Digest + ", and the history is partial, " +
