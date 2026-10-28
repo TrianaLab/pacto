@@ -224,10 +224,12 @@ nav:
       - Operational graph reference: operational-graph-reference.md
       - MCP reference: mcp-reference.md
       - Publish reference: publishing.md
-      - Delivery reference:
-          - Sign-in, approvals and agents: integrations/kubernetes/delivery-identity.md
+      - Dashboard reference:
           - Dashboard authentication: integrations/kubernetes/dashboard-authentication.md
           - Who sees what in the dashboard: integrations/kubernetes/dashboard-access.md
+          - Dashboard container: dashboard-docker.md
+      - Delivery reference:
+          - Approvals and agents: integrations/kubernetes/delivery-identity.md
           - Signed records and history: integrations/kubernetes/delivery-records.md
           - Record keys: integrations/kubernetes/delivery-record-keys.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md
@@ -250,7 +252,6 @@ nav:
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md
       - Evidence: evidence.md
-      - Dashboard container: dashboard-docker.md
       - Plugin development: plugins.md
       # Kubernetes pages are owned by integrations/kubernetes/docs and assembled
       # into this site by release/scripts/mkdocs_integration_hook.py. Reference

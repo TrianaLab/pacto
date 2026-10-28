@@ -35,15 +35,19 @@ no impersonation.
    `HttpOnly`, `Secure` cookie. Browser JavaScript never sees a token.
 4. Each request uses the session's token. The API server says who it belongs
    to and RBAC decides, exactly as for `kubectl`. The dashboard keeps each
-   answer about what you may read for 10 seconds, so a removed RoleBinding
-   hides its namespace within that time. Until the shared cache has loaded,
+   answer about the delivery objects you may read for 10 seconds and each
+   answer about the namespaces the fleet views show for a minute, so a removed
+   RoleBinding hides its namespace within that time. Until the shared cache has loaded,
    and for a moment after you change something, the dashboard reads with your
    token instead.
 
 On every page, the person button in the header opens who you are, your groups
 and **Sign out**.
-Approving a held change needs a fresh identity provider sign-in
-([where approving works](delivery-identity.md#where-approving-works)).
+Approving a held change needs an identity provider sign-in, and a recent one
+where delivery asks for it
+([a recent sign-in to decide](delivery-identity.md#a-recent-sign-in-to-decide)).
+The delivery views read their own settings under `dashboard.delivery`
+([the dashboard's delivery settings](delivery-identity.md#the-dashboards-delivery-settings)).
 
 A dashboard on your own machine (`pacto dashboard` on loopback, with no
 sign-in configured) acts as your kubeconfig user and shows no sign-in screen.
@@ -115,22 +119,6 @@ dashboard:
 `pacto dashboard` takes them as `--oidc-ca-file` and
 `--oidc-internal-issuer-url`.
 
-## Verify History
-
-The dashboard verifies delivery records against a trust config before History
-shows them. Put the trust config (or the recorder's PEM public key) in a
-ConfigMap in the operator namespace and name it:
-
-```yaml
-dashboard:
-  deliveryTrust: {configMap: delivery-trust, key: trust.yaml}
-```
-
-The trust config is the one the CLI reads
-([trust and key rotation](delivery-record-keys.md#trust-and-key-rotation)).
-`pacto dashboard` takes it as `--delivery-trust`. Without it, History shows
-records unverified and every answer says it is partial.
-
 ## Match the API server's claim mapping
 
 The API server decides who a token is. At sign-in and on every renewal the
@@ -162,8 +150,9 @@ The dashboard renews the ID token with the refresh token before it expires, so
 a session lasts until `idleTimeout` passes without a request or `maxAge` after
 sign-in. A provider that issues refresh tokens only for `offline_access` needs
 it in `extraScopes`; without a refresh token the session ends when the ID token
-expires. Renewal keeps the original login time, so it never counts as a fresh
-sign-in.
+expires. Renewal keeps the original login time, which is what
+[a recent sign-in to decide](delivery-identity.md#a-recent-sign-in-to-decide)
+measures when delivery asks for one (`delivery.promoter.authFreshness`).
 
 **Sign out** ends the session, revokes the refresh token where the provider
 supports revocation and, where the provider publishes an

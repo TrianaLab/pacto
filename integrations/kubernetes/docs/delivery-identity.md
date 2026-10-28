@@ -1,4 +1,4 @@
-# Delivery reference: sign-in, approvals and agents
+# Delivery reference: approvals and agents
 
 People decide in the dashboard and agents reach Pacto over the network, each
 under their own Kubernetes identity. The dashboard and the MCP server pass the
@@ -97,32 +97,28 @@ keyboard and get a login time. Set `humanGroups` to the groups your people are
 in, and anyone outside them is an agent. The chart refuses delivery with
 `humanGroups` empty unless you set `allowEmptyHumanGroups: true`.
 
-## Sign in to the dashboard
+## The dashboard's delivery settings
 
-[Dashboard authentication](dashboard-authentication.md) sets up the sign-in:
-the chart values, the claim mapping, sessions, token sign-in and recipes per
-identity provider. With sign-in configured, people sign in before the
-dashboard shows anything and see only
-[what their RBAC lets them read](dashboard-access.md). For approvals, add the
-extra scope `audience:server:client_id:pacto-cli` (see above) and tell the
-dashboard where delivery publishes its identity policy:
+The delivery views need [dashboard sign-in](dashboard-authentication.md). For
+approvals, add the extra scope `audience:server:client_id:pacto-cli` (see
+above). The delivery settings sit under `dashboard.delivery`:
 
 ```yaml
 dashboard:
   auth:
     oidc:
       extraScopes: [audience:server:client_id:pacto-cli]
-    deliveryNamespace: ""      # empty means delivery.namespace when delivery.enabled
-  miraURL: http://mira.observability:4318
+  delivery:
+    namespace: ""      # where the identity policy is; empty means delivery.namespace when delivery.enabled
+    trust: {configMap: delivery-trust, key: trust.yaml}   # verifies History
+    miraURL: http://mira.observability:4318
 ```
 
+`trust` is the trust config the CLI reads
+([trust and key rotation](delivery-record-keys.md#trust-and-key-rotation)).
 The dashboard's ServiceAccount gains nothing in delivery and cannot
-impersonate.
-
-Without sign-in, a dashboard bound beyond loopback shows no delivery data and
-offers no actions. On loopback it acts as your kubeconfig user and prints a URL
-with a launch token that its delivery reads and actions need. It never decides there, because any
-process on your machine could do it as you; it shows the
+impersonate. A dashboard on loopback without sign-in never decides, because
+any process on your machine could do it as you; it shows the
 `pacto delivery approve` command instead.
 
 ## Follow delivery in the dashboard

@@ -32,13 +32,12 @@ kubectl -n pacto-operator-system get secret pacto-dashboard-oidc \
   -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
-The dashboard asks the API server who each signed-in person's token belongs
-to and sends their actions with it, so per-person Kubernetes RBAC needs the API server to trust the Dex issuer through
+Per-person Kubernetes RBAC needs the API server to trust the Dex issuer through
 [structured authentication](dashboard-authentication.md#match-the-api-servers-claim-mapping)
-with the profile's claim mapping (`email` and `groups`, no prefixes). That is
-an API server setting, which no chart can set; kind takes it at cluster
-creation. The API server also accepts only an `https` issuer, so the bundled
-Dex needs TLS first. Until the API server trusts it, a Dex sign-in completes
-and every request is refused, so use
+with the profile's claim mapping (`email` and `groups`, no prefixes). No chart
+can set that; kind takes it at cluster creation. The API server also accepts
+only an `https` issuer, so the bundled Dex needs TLS first. Until then, a Dex
+sign-in completes and every request is refused, so use
 [token sign-in](dashboard-authentication.md#token-sign-in), which the profile
-turns on.
+turns on. A token session decides on no held change, so approve with
+`pacto delivery approve` ([approve or unblock a change](../../pactify-decide.md)).

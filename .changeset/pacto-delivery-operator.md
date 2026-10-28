@@ -152,12 +152,9 @@ published, signed and versioned with the operator.
 one to a `sha256:` digest and that image is pulled as `tag@digest`, so the pod
 runs exactly that image whatever the tag later points at.
 
-**The `pacto-operator` chart** gains `dashboard.auth.oidc` (`issuerURL`,
-`clientID`, `clientSecretRef`, `redirectURL`, `extraScopes`, `displayName` and the claim
-mapping `usernameClaim`, `usernamePrefix`, `groupsClaim`, `groupsPrefix`),
-`dashboard.auth.session` (`idleTimeout`, `maxAge`),
-`dashboard.auth.tokenLogin.enabled`, `dashboard.auth.deliveryNamespace` and
-`dashboard.miraURL` for the managed dashboard's sign-in, which then gates the
-whole dashboard. The dashboard's role gains no delivery right and no
-impersonation. The operator now passes the managed dashboard its namespace
+**The `pacto-operator` chart** gains `dashboard.delivery` for the managed
+dashboard's delivery views: `namespace` (where delivery publishes its identity
+policy), `trust` (the ConfigMap holding the trust config History verifies
+records with) and `miraURL`. The dashboard's role gains no delivery right and
+no impersonation. The operator now passes the managed dashboard its namespace
 scope in `PACTO_DASHBOARD_NAMESPACE`, the variable the dashboard reads.

@@ -142,7 +142,7 @@ referrer-write paths; the Evidence Server uses the latter.
 read delivery over the ambient cluster. `approve` records only a decision the
 promoter would count, or it says why not; where the Stage asks for a recent
 sign-in, it logs the person in again in the browser and records the decision
-with that login alone. `plan` gathers
+with that login alone, trusting a private issuer CA with `--oidc-ca-file`. `plan` gathers
 its input as the promoter does, so it predicts what the promoter will do. `history` and `record verify` read the
 signed records, say `asOf`, `source` and `completeness` and list forks, gaps
 and anything unreadable; `--all` walks every Stage you can list. `pacto mcp
@@ -166,9 +166,8 @@ version Pacto shipped on its own fails and rolls back, the promoter lowers the
 Stage one level; an Unknown never does. `pacto delivery propose --type
 autonomy --to <level>` asks for a move.
 
-**Dashboard.** `pacto dashboard` signs people in with OpenID Connect
-(`--oidc-*`, secret in `PACTO_DASHBOARD_OIDC_CLIENT_SECRET`) and gains a
-Delivery tab: an inbox of what waits on your teams, an environments board, a
+**Dashboard.** `pacto dashboard` gains a Delivery tab for signed-in people
+(`--delivery-namespace`, `--delivery-trust`, `--mira-url`): an inbox of what waits on your teams, an environments board, a
 page per change with its plan, verdicts and proof, history with blame and undo,
 published versions with recent refused publishes and a path to autonomy: each
 Stage's level, what Pacto would have done on observe, the next proposal and
@@ -179,11 +178,7 @@ from an agent or a pasted token; the dashboard offers and records only a
 decision the promoter would count. Where the Stage asks for a recent sign-in,
 the dashboard says when a person's sign-in is too old, asks in a dialog to
 sign in again and keeps their choice and note for one more click, and says up
-front when a cluster reports no login time, so nobody can approve there. With sign-in configured, people sign in
-before the dashboard shows anything, every view follows their Kubernetes RBAC
-and the header names who they are; `--token-login` adds sign-in with a pasted
-Kubernetes token for clusters that trust no identity provider. The sign-in
-button says Sign in with OIDC, or names the provider with `--oidc-display-name`.
+front when a cluster reports no login time, so nobody can approve there.
 The dashboard also takes a new look: serif titles and numbers,
 a grouped data-sources menu and labelled status bars.
 

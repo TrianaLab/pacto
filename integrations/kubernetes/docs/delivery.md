@@ -102,7 +102,7 @@ asks for directly or an agent asks for in their name.
 A person approves with the sign-in they have, and the record names them. You
 can also [ask for a recent sign-in to decide](delivery-identity.md#a-recent-sign-in-to-decide).
 That needs a cluster that trusts your company login, untested on EKS, GKE and
-AKS; [Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
+AKS; [where approving works](delivery-identity.md#where-approving-works)
 says how to check and what to do without it.
 
 ## What Unknown means
@@ -141,7 +141,8 @@ None of these is required reading:
 - [Health checks](delivery-health.md): monitoring, the suites a version ships and the
   calls a service makes
 - [Eval providers](delivery-evals.md): suite runners and their signed answers
-- [Sign-in, approvals and agents](delivery-identity.md)
+- [Approvals and agents](delivery-identity.md): who may approve, agents over the
+  network and the dashboard's delivery settings
 - [Signed records and history](delivery-records.md): records, blame, undo and
   verification
 - [Record keys](delivery-record-keys.md): trust, key rotation and revocation
