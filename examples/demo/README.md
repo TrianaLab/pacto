@@ -28,7 +28,7 @@ Compliant transition:
 ## How it works
 
 ```
-index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base=/pacto/demo/
+index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base=./
    └─ boot.js                   starts the engine worker; routes /api,/health,/metrics to it
                                      │
    app fetch('/api/services') ──────┘  (a fetch shim intercepts only those paths)
@@ -68,10 +68,10 @@ is needed.
 Requirements: Go 1.26+, Node 22+, make.
 
 ```bash
-make build                 # builds dist/ at base /pacto/demo/
+make build                 # builds dist/ at the relative base ./
 make build BASE=/          # build at site root for local preview
 make smoke                 # exercise the built wasm engine in Node
-make serve                 # preview at http://localhost:8088/pacto/demo/
+make serve                 # preview at http://localhost:8088/
 ```
 
 `make build` rebuilds the dashboard UI from `../../pkg/dashboard/frontend` into a

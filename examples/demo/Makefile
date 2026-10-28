@@ -156,8 +156,8 @@ smoke:
 
 ## Preview locally under the same base path the site is deployed at.
 serve:
-	@rm -rf .serve && mkdir -p ".serve$(BASE)" && cp -r $(DIST)/. ".serve$(BASE)"
-	@echo "==> Open http://localhost:$(SERVE_PORT)$(BASE)"
+	@rm -rf .serve && mkdir -p ".serve/$(BASE)" && cp -r $(DIST)/. ".serve/$(BASE)"
+	@echo "==> Open http://localhost:$(SERVE_PORT)$(patsubst ./%,/%,$(BASE))"
 	@cd .serve && python3 -m http.server $(SERVE_PORT)
 
 ## -- CLI demo narrative (published demo contracts) -------------------------
