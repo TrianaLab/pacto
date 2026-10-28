@@ -139,9 +139,10 @@ referrer-write paths; the Evidence Server uses the latter.
 
 `pacto delivery types`, `describe`, `plan`, `propose`, `get`, `cancel`,
 `approve`, `explain`, `history`, `blame`, `undo` and `record verify` drive and
-read delivery over the ambient cluster, except `approve`: it logs the person
-in again in the browser and records the decision with that login alone, and
-only a decision the promoter would count, or it says why not. `plan` gathers
+read delivery over the ambient cluster. `approve` records only a decision the
+promoter would count, or it says why not; where the Stage asks for a recent
+sign-in, it logs the person in again in the browser and records the decision
+with that login alone. `plan` gathers
 its input as the promoter does, so it predicts what the promoter will do. `history` and `record verify` read the
 signed records, say `asOf`, `source` and `completeness` and list forks, gaps
 and anything unreadable; `--all` walks every Stage you can list. `pacto mcp
@@ -173,10 +174,12 @@ published versions with recent refused publishes and a path to autonomy: each
 Stage's level, what Pacto would have done on observe, the next proposal and
 what blocks it, with the command that fixes each blocker. Promote, roll back,
 unfreeze, cancel and decisions run there under the person's own token. A
-decision needs a recent login and membership of a team the question names, and
-is never taken from an agent; the dashboard offers and records only a decision
-the promoter would count, and says up front when a cluster reports no login
-time, so nobody can approve there. With sign-in configured, people sign in
+decision needs membership of a team the question names and is never taken
+from an agent or a pasted token; the dashboard offers and records only a
+decision the promoter would count. Where the Stage asks for a recent sign-in,
+the dashboard says when a person's sign-in is too old, asks in a dialog to
+sign in again and keeps their choice and note for one more click, and says up
+front when a cluster reports no login time, so nobody can approve there. With sign-in configured, people sign in
 before the dashboard shows anything, every view follows their Kubernetes RBAC
 and the header names who they are; `--token-login` adds sign-in with a pasted
 Kubernetes token for clusters that trust no identity provider. The sign-in

@@ -87,7 +87,7 @@ cluster, and checks it against `examples/story`:
 
 - checkout's team ships checkout 1.9 first, and the held payments 3.0.0 then
   asks only orders.
-- carol signs in again and approves.
+- carol approves.
 - 3.0.0 sends too little telemetry, so its check says Unknown until carol
   accepts that. She then rolls 3.0.0 back, and automation holds off.
 - The newest signed record of payments in prod is deleted from the registry,

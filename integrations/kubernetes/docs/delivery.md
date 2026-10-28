@@ -99,11 +99,10 @@ it acts for (`--on-behalf-of`, which the agent claims and Pacto never checks). A
 hides who is behind it, so the two-person rule holds only for changes a person
 asks for directly or an agent asks for in their name.
 
-To approve, a person must have signed in to the dashboard (or the
-cluster) with their own company login in the last 15 minutes (the default of
-`delivery.promoter.authFreshness`), and the record names them. That needs a
-cluster that trusts your company login, untested on EKS, GKE and AKS;
-[Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
+A person approves with the sign-in they have, and the record names them. You
+can also [ask for a recent sign-in to decide](delivery-identity.md#a-recent-sign-in-to-decide).
+That needs a cluster that trusts your company login, untested on EKS, GKE and
+AKS; [Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
 says how to check and what to do without it.
 
 ## What Unknown means
