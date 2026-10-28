@@ -120,6 +120,20 @@ func TestShadowWouldHaveRefused(t *testing.T) {
 	if b == nil || b.Predicted != delivery.PredictRejected || !strings.HasPrefix(b.Question, "NotPublished: ") || b.ObservedAt == "" {
 		t.Fatalf("what GitOps applied that Pacto would have refused: %+v", b)
 	}
+	// Flux verifies the same digest on the candidates a moment later: the
+	// refusal is replanned, and the entry keeps when GitOps applied it.
+	e.setStage(func(st *delivery.StageStatus) { st.Published = []string{dA, dB, dC} })
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	st := e.getStage().Status
+	if c := shadowOf(st, dC); c == nil || c.Predicted == delivery.PredictRejected || c.ObservedAt != b.ObservedAt || len(st.Shadow) != 3 {
+		t.Fatalf("a refusal only for an unverified publish is replanned once published: %+v", st.Shadow)
+	}
+	rv := e.getStage().ResourceVersion
+	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().ResourceVersion != rv {
+		t.Fatalf("the replanned entry stays: %v", err)
+	}
 }
 
 // TestShadowVerify: once the verify window passed, the Stage's own checks run

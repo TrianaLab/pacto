@@ -11,6 +11,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -72,6 +73,20 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 		}
 		add = append(add, e)
 	}
+	// A plan refused only because the candidate source had not verified the
+	// version yet is replanned once it has: Flux may store the applied
+	// version a moment before it verifies the same digest on the candidates.
+	for _, x := range st.Shadow {
+		if !stalePublished(x, st.Published) || slices.ContainsFunc(add, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate }) {
+			continue
+		}
+		e, err := r.wouldHave(ctx, stage, r.shadowSpec(stage, x.From, x.Candidate), now)
+		if err != nil {
+			return err
+		}
+		e.ObservedAt, e.Verification = x.ObservedAt, x.Verification
+		add = append(add, e)
+	}
 	if len(add) == 0 && d == old {
 		return r.shadowVerify(ctx, stage, now)
 	}
@@ -81,7 +96,8 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 		// that changed replaces an entry that has not run yet.
 		fresh := slices.DeleteFunc(slices.Clone(add), func(e delivery.Shadow) bool {
 			return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool {
-				return x.Candidate == e.Candidate && (x.IntentDigest == e.IntentDigest || x.ObservedAt != "")
+				return x.Candidate == e.Candidate && (x.IntentDigest == e.IntentDigest || x.ObservedAt != "") &&
+					!stalePublished(x, s.Status.Published)
 			})
 		})
 		kept := slices.DeleteFunc(slices.Clone(s.Status.Shadow), func(x delivery.Shadow) bool {
@@ -123,6 +139,13 @@ func (r *StageReconciler) shadowSpec(stage *dv1.Stage, from, to string) delivery
 // done then stays as it was.
 func planned(s delivery.Shadow, spec delivery.OperationSpec) bool {
 	return s.Candidate == spec.Params.To && (s.IntentDigest == spec.IntentDigest || s.ObservedAt != "")
+}
+
+// stalePublished says s was refused only by the published gate and the
+// candidate source has since verified its version.
+func stalePublished(s delivery.Shadow, published []string) bool {
+	return s.Predicted == delivery.PredictRejected && strings.HasPrefix(s.Question, notPublished) &&
+		slices.Contains(published, s.Candidate)
 }
 
 // wouldHave plans the promote from to on the Stage as a fully automatic

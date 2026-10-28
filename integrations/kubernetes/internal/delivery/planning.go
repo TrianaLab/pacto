@@ -19,11 +19,14 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
+// notPublished starts the refusal of a version the published gate failed.
+const notPublished = "NotPublished: "
+
 func planRefusal(p delivery.Plan) string {
 	for _, v := range p.Verdicts {
 		switch {
 		case v.Result == delivery.Fail && v.Gate == delivery.GatePublished:
-			return "NotPublished: " + v.Message
+			return notPublished + v.Message
 		case v.Result == delivery.Fail:
 			return "GateFailed: " + v.Gate + ": " + v.Message
 		}
