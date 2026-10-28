@@ -389,7 +389,11 @@ func freshClient(cmd *cobra.Command, v *viper.Viper, d deps, decision, ns, name 
 	if err != nil {
 		return nil, err
 	}
-	token, err := d.freshLogin(cmd.Context(), authn.FreshConfig{IssuerURL: issuer,
+	client, err := authn.IssuerClient(issuer, "", v.GetString("delivery.oidc-ca-file"))
+	if err != nil {
+		return nil, err
+	}
+	token, err := d.freshLogin(cmd.Context(), authn.FreshConfig{IssuerURL: issuer, HTTPClient: client,
 		ClientID: v.GetString("delivery.oidc-client-id"), ClientSecret: v.GetString("delivery.oidc-client-secret"),
 		ExtraScopes: v.GetStringSlice("delivery.oidc-extra-scopes"), Port: v.GetInt("delivery.oidc-redirect-port"),
 		Prompt: func(u string) {
@@ -460,7 +464,8 @@ func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 		"(a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET)")
 	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
 	cmd.Flags().Int("oidc-redirect-port", 0, "loopback port the identity provider sends the browser back to (default: a free port)")
-	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-extra-scopes", "oidc-redirect-port"} {
+	cmd.Flags().String("oidc-ca-file", "", "PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)")
+	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-extra-scopes", "oidc-redirect-port", "oidc-ca-file"} {
 		_ = v.BindPFlag("delivery."+f, cmd.Flags().Lookup(f))
 	}
 	// A secret never goes on a command line, where any process can read it.

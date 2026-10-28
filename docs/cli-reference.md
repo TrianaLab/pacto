@@ -230,7 +230,7 @@ pacto dashboard [sources...] [flags]
       --oidc-groups-claim string          ID token claim the API server takes the groups from; must match its claim mapping (default groups)
       --oidc-groups-prefix string         prefix the API server puts before every group; must match its claim mapping
       --oidc-internal-issuer-url string   address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)
-      --oidc-issuer-url string            OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and delivery actions run as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
+      --oidc-issuer-url string            OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
       --oidc-redirect-url string          the dashboard's /auth/callback as browsers reach it (https)
       --oidc-username-claim string        ID token claim the API server takes the username from; must match its claim mapping (default sub)
       --oidc-username-prefix string       prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
@@ -281,6 +281,7 @@ pacto delivery approve <operation> [flags]
       --decision string             approve, reject or accept-unknown (default "approve")
   -h, --help                        help for approve
       --note string                 why, for the record
+      --oidc-ca-file string         PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)
       --oidc-client-id string       OpenID Connect client used only for approvals, never by a kubeconfig (a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET) (default "pacto-approve")
       --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
       --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)

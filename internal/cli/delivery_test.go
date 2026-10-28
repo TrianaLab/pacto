@@ -276,7 +276,7 @@ func TestDeliveryApproveFreshLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.IssuerURL != "https://idp" || got.ClientID != "pacto-approve" || got.ClientSecret != "s3cret" ||
-		strings.Join(got.ExtraScopes, ",") != "a,b" || got.Port != 8000 {
+		strings.Join(got.ExtraScopes, ",") != "a,b" || got.Port != 8000 || got.HTTPClient == nil {
 		t.Fatalf("login config %+v", got)
 	}
 	if !strings.Contains(errOut.String(), "To record approve on prod/held, log in again in your browser") ||
@@ -302,6 +302,12 @@ func TestDeliveryApproveFreshLogin(t *testing.T) {
 		d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
 	}, "no kubeconfig")
 	fail(func(d *deps) { t.Setenv(trustEnv, "/nonexistent/trust.pem") }, "trust")
+	// The issuer's CA bundle is read before the login starts.
+	t.Setenv(trustEnv, "")
+	if _, err := runDelivery(t, approveDeps("alice", nil), "text", "approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp",
+		"--oidc-ca-file", "/nonexistent/ca.crt"); err == nil || !strings.Contains(err.Error(), "CA bundle") {
+		t.Fatalf("an unreadable CA bundle: %v", err)
+	}
 }
 
 func TestPrintPlanQuestion(t *testing.T) {
