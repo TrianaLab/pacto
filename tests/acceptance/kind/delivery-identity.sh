@@ -32,7 +32,7 @@
 #   - only the named team may approve; the promoter ignores anyone else
 #   - an agent reaches Pacto over HTTP as itself (token exchange) and cannot
 #     approve through the dashboard, the MCP server or the apiserver
-#   - the dashboard's ServiceAccount can do nothing in delivery
+#   - the dashboard's ServiceAccount only lists and watches Stages and Operations
 #   - signed in, a person sees only the services of the namespaces Kubernetes
 #     RBAC lets them read; a visitor who has not signed in sees none
 
@@ -392,12 +392,21 @@ identity_scenario() {
   # auth-time extra is a subresource of userextras, as RBAC grants it.
   local v ans
   for v in "create approvals.delivery.pacto.trianalab.io -A" "create operations.delivery.pacto.trianalab.io -A" \
-    "list stages.delivery.pacto.trianalab.io -A" "impersonate users" "impersonate userextras --subresource=delivery.pacto.trianalab.io/auth-time"; do
+    "delete operations.delivery.pacto.trianalab.io -A" "update stages.delivery.pacto.trianalab.io -A" \
+    "update stages.delivery.pacto.trianalab.io -A --subresource=status" "list approvals.delivery.pacto.trianalab.io -A" \
+    "impersonate users" "impersonate userextras --subresource=delivery.pacto.trianalab.io/auth-time"; do
     # shellcheck disable=SC2086
     ans="$(kubectl auth can-i $v --as "$DSA" 2>/dev/null || true)"
     [[ "$ans" == no* ]] || fail "the dashboard's ServiceAccount may $v, or kubectl could not say: '$ans'"
   done
-  pass "the dashboard's ServiceAccount can do nothing in delivery and cannot impersonate"
+  # Its shared cache lists and watches Stages and Operations, nothing more.
+  for v in "list stages.delivery.pacto.trianalab.io -A" "watch stages.delivery.pacto.trianalab.io -A" \
+    "list operations.delivery.pacto.trianalab.io -A" "watch operations.delivery.pacto.trianalab.io -A"; do
+    # shellcheck disable=SC2086
+    ans="$(kubectl auth can-i $v --as "$DSA" 2>/dev/null || true)"
+    [[ "$ans" == yes ]] || fail "the dashboard's ServiceAccount may not $v for its shared cache: '$ans'"
+  done
+  pass "the dashboard's ServiceAccount only reads Stages and Operations in delivery and cannot impersonate"
   kubectl -n "$NS" get deploy pacto-dashboard -o json | jq -e '.spec.template.spec.containers[0].env as $e |
       ($e | map(select(.name == "PACTO_DASHBOARD_OIDC_ISSUER_URL"))[0].value == "'"$DEX_ISSUER"'") and
       ($e | map(select(.name == "PACTO_DASHBOARD_OIDC_CLIENT_SECRET"))[0].valueFrom.secretKeyRef.name == "dashboard-oidc")' >/dev/null \
