@@ -10,4 +10,4 @@ holds the delivery record streams, Dex signs people in to the dashboard and
 the chart generates the dashboard's client secret, the first sign-in password
 and the recorder's signing key (`delivery.recorder.signing.ed25519.generate`)
 at install. See
-[Quickstart with a bundled registry and sign-in](https://pacto.run/latest/integrations/kubernetes/installation/#quickstart-with-a-bundled-registry-and-sign-in).
+[Quickstart with a bundled registry and sign-in](https://pacto.run/latest/integrations/kubernetes/quickstart/).

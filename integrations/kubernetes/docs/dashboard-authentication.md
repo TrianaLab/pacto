@@ -71,7 +71,7 @@ dashboard:
 ```
 
 For an evaluation cluster, the chart can bundle Dex and wire it for you
-([quickstart](installation.md#quickstart-with-a-bundled-registry-and-sign-in)).
+([quickstart](quickstart.md)).
 
 Register `https://<dashboard>/auth/callback` as the client's redirect URL and
 terminate TLS in front of the dashboard. `pacto dashboard` takes the same

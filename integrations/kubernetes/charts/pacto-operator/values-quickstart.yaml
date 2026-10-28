@@ -13,7 +13,7 @@
 # recorder's signing key sits in a Secret the operator can read. For
 # production, use your own registry, identity provider and KMS or keyless
 # signing:
-# https://pacto.run/latest/integrations/kubernetes/installation/#quickstart-with-a-bundled-registry-and-sign-in
+# https://pacto.run/latest/integrations/kubernetes/quickstart/
 
 # The registry host every component reaches zot at. It names the release
 # namespace, so a different namespace changes it in all three places below.
