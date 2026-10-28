@@ -199,11 +199,12 @@ jobs:
               - 'pkg/dashboard/ui/**'
               - 'pkg/dashboard/frontend/e2e-live/**'
               - 'examples/story/**'
-              # delivery-demo.sh sources lib.sh and delivery-identity.sh, and
-              # delivery-demo.yml runs it through kind-run.sh.
+              # delivery-demo.sh sources lib.sh, delivery-identity.sh and
+              # delivery-lib.sh, and delivery-demo.yml runs it through kind-run.sh.
               - 'tests/acceptance/kind/lib.sh'
               - 'tests/acceptance/kind/delivery-demo.sh'
               - 'tests/acceptance/kind/delivery-identity.sh'
+              - 'tests/acceptance/kind/delivery-lib.sh'
               - 'scripts/ci/kind-run.sh'
               - 'tests/acceptance/kind/fixtures/delivery-demo/**'
               - '.github/workflows/delivery-demo.yml'

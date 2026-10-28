@@ -131,6 +131,8 @@ fi
 curl() { command curl --connect-timeout 5 --max-time 30 "$@"; }
 # shellcheck source=tests/acceptance/kind/delivery-identity.sh
 source "$(dirname "$0")/delivery-identity.sh"
+# shellcheck source=tests/acceptance/kind/delivery-lib.sh
+source "$(dirname "$0")/delivery-lib.sh"
 
 dump_delivery() {
   echo "--- stages + operations + approvals ---"
@@ -260,18 +262,6 @@ FLUX_INSTALL_SHA256=cc3dcd743af16215838b6937e1fce83745bf24c0dcc6c59737c59df15429
 FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5@sha256:6f20d232d596a758c923d2861f23511718fc303b8a2e36a1434a7c736b9f4268
   ghcr.io/fluxcd/kustomize-controller:v1.9.5@sha256:a3a955eb2bc432c2eaa94d2d3714e3beae7fdf17586fd23aadf71ab597ac3339)
 
-# build_images — the three Pacto images at once, each build's output in its own
-# log, printed when it fails.
-build_images() {
-  local logs; logs="$(mktemp -d)"
-  build_operator_images "$OP_IMG" "$DASH_IMG" "$VER" > "$logs/operator.log" 2>&1 &
-  local op=$!
-  docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$VER" \
-    --target delivery --build-arg CMD=cmd/delivery -t "$DL_IMG" "$_PACTO_ROOT" > "$logs/delivery.log" 2>&1 &
-  local dl=$!
-  wait "$op" || { cat "$logs/operator.log" >&2; fail "the dashboard or operator image did not build"; }
-  wait "$dl" || { cat "$logs/delivery.log" >&2; fail "the pacto-delivery image did not build"; }
-}
 if [ -n "${DELIVERY_SAVE_IMAGES:-}" ]; then
   timed "build the operator, dashboard and pacto-delivery images" build_images
   docker save -o "$DELIVERY_SAVE_IMAGES" "$OP_IMG" "$DL_IMG" "$DASH_IMG"
@@ -710,28 +700,6 @@ YAML
 
 # --- reading the cluster's state ---------------------------------------------
 reconciled() { [ -n "$(kubectl -n "$1" get pacto "$2" -o jsonpath='{.status.contract.serviceName}' 2>/dev/null)" ]; }
-pointer() { kubectl -n "$1" get stage payments -o jsonpath='{.status.pointer}'; }
-has_pointer() { [ "$(pointer "$1")" = "$2" ]; }
-ops() { kubectl -n "$1" get operations -o json; }
-# op_to NS DIGEST [TYPE] — the names of operations moving NS to DIGEST.
-op_to() { ops "$1" | jq -r --arg d "$2" --arg t "${3:-delivery.pacto.trianalab.io/promote}" \
-  '.items[] | select(.spec.params.to == $d and .spec.type == $t) | .metadata.name'; }
-field() { kubectl -n "$1" get operation "$2" -o jsonpath="{.status.$3}"; }
-concluded() { [ "$(field "$1" "$2" phase)" = Concluded ]; }
-outcome() { echo "$(field "$1" "$2" outcome)/$(field "$1" "$2" verification)"; }
-op_exists() { [ -n "$(op_to "$@")" ]; }
-wait_op() { # NS DIGEST [TYPE] — prints the one operation that appears
-  eventually 60 op_exists "$@" || fail "no ${3:-promote} to $2 appeared in $1"
-  op_to "$@" | head -1
-}
-wait_concluded() { # NS OP WANT_OUTCOME
-  eventually 80 concluded "$1" "$2" || fail "$1/$2 never concluded: phase=$(field "$1" "$2" phase) reason=$(field "$1" "$2" reason) message=$(field "$1" "$2" message)"
-  [ "$(outcome "$1" "$2")" = "$3" ] || fail "$1/$2 concluded $(outcome "$1" "$2"), want $3 ($(field "$1" "$2" reason): $(field "$1" "$2" message))"
-}
-held() { [ "$(field "$1" "$2" phase)" = Held ]; }
-# published_in NS DIGEST — the Stage remembers DIGEST as published: Flux
-# verified its signature on the candidate OCIRepository.
-published_in() { kubectl -n "$1" get stage "${3:-payments}" -o json | jq -e --arg d "$2" '.status.published // [] | index($d)' >/dev/null; }
 
 # Phase 1, the core. DELIVERY_SKIP_CORE=1 skips it; DELIVERY_PHASES=health runs the setup and phase 2 only.
 phase_core() {
@@ -800,7 +768,7 @@ spec:
 YAML
 
 section "bootstrap: alice ships A to test and prod, and each Stage climbs to autonomous"
-eventually 60 published_in test "$A" || fail "A was never verified as published in test"
+eventually 60 published_in test payments "$A" || fail "A was never verified as published in test"
 first test payments team-payments "$A"
 climb test payments team-payments
 first prod payments team-payments "$A"
@@ -813,7 +781,7 @@ section "items 1, 3 and 8: B (compatible) ships to production with no person, an
 kubectl -n "$NS" scale deploy pacto-operator --replicas=0 >/dev/null
 kubectl -n "$NS" rollout status deploy/pacto-operator --timeout=60s >/dev/null
 B="$(publish B "$C110")"; candidate B
-OPB="$(wait_op test "$B")"
+OPB="$(wait_op test payments "$B")"
 verifying() { [ "$(field test "$OPB" phase)" = Verifying ]; }
 eventually 60 verifying || fail "B never reached Verifying: $(field test "$OPB" phase) $(field test "$OPB" message)"
 stale_ignored() {
@@ -834,8 +802,8 @@ fi
 kubectl -n "$NS" scale deploy pacto-operator --replicas=1 >/dev/null
 wait_concluded test "$OPB" Succeeded/Verified
 signal operator-back
-OPBP="$(wait_op prod "$B")"; wait_concluded prod "$OPBP" Succeeded/Verified
-has_pointer prod "$B" || fail "prod does not run B"
+OPBP="$(wait_op prod payments "$B")"; wait_concluded prod "$OPBP" Succeeded/Verified
+runs prod payments "$B" || fail "prod does not run B"
 [ "$(kubectl -n prod get deploy payments -o jsonpath='{.spec.template.metadata.annotations.version}')" = B ] \
   || fail "prod's Deployment is not the B manifest"
 for pair in "test:$OPB" "prod:$OPBP"; do
@@ -848,7 +816,7 @@ pass "items 1 and 3: B passed test and reached production with nobody involved"
 
 section "item 2: C (broken) fails in test, is rolled back once, never reaches prod and is never retried"
 C="$(publish C "$C120")"; candidate C
-OPC="$(wait_op test "$C")"
+OPC="$(wait_op test payments "$C")"
 # C changes its workload, a BREAKING change, yet calls itself a minor, so the
 # consumers' ranges cannot judge it: Pacto holds it as Unknown, and carol, of
 # payments' team, accepts the unknown to try it in test.
@@ -857,12 +825,12 @@ eventually 30 held test "$OPC" || fail "C was not held: $(field test "$OPC" phas
 decide test "$OPC" carol team-payments accept-unknown "try it in test"
 wait_concluded test "$OPC" Failed/
 [ "$(field test "$OPC" reason)" = VerifyFailed ] || fail "C failed for the wrong reason: $(field test "$OPC" reason)"
-RB="$(wait_op test "$B" delivery.pacto.trianalab.io/rollback)"
+RB="$(wait_op test payments "$B" delivery.pacto.trianalab.io/rollback)"
 wait_concluded test "$RB" Succeeded/Verified
-has_pointer test "$B" || fail "test is not back on B"
+runs test payments "$B" || fail "test is not back on B"
 kubectl -n test get stage payments -o json | jq -e --arg c "$C" '.status.failedDigests | index($c)' >/dev/null || fail "C is not remembered as failed"
-[ "$(op_to test "$B" delivery.pacto.trianalab.io/rollback | wc -l | tr -d ' ')" = 1 ] || fail "more than one automatic rollback for one cause"
-never_retried() { [ "$(op_to test "$C" | wc -l | tr -d ' ')" = 1 ] && [ -z "$(op_to prod "$C")" ] && has_pointer prod "$B"; }
+[ "$(op_to test payments "$B" delivery.pacto.trianalab.io/rollback | wc -l | tr -d ' ')" = 1 ] || fail "more than one automatic rollback for one cause"
+never_retried() { [ "$(op_to test payments "$C" | wc -l | tr -d ' ')" = 1 ] && [ -z "$(op_to prod payments "$C")" ] && runs prod payments "$B"; }
 # 18s: nine candidate scans and nine promoter polls (2s each).
 always 6 never_retried || fail "C was retried in test or reached prod"
 pass "item 2: C rolled back by one bound rollback, absent from prod, not retried"
@@ -870,11 +838,11 @@ pass "item 2: C rolled back by one bound rollback, absent from prod, not retried
 section "item 5: a published artifact whose contract cannot be read waits for a person instead of shipping"
 # E is signed and names a digest-pinned contract that is not in the registry.
 E="$(publish E "oci://${REG_HOST}/demo/payments@sha256:$(printf '0%.0s' $(seq 64))")"; candidate E
-OPE="$(wait_op test "$E")"
+OPE="$(wait_op test payments "$E")"
 eventually 30 held test "$OPE" || fail "E was not held: $(field test "$OPE" phase) $(field test "$OPE" reason)"
 field test "$OPE" question | grep -q "cannot see enough" || fail "E's question does not say Pacto cannot see enough: $(field test "$OPE" question)"
 kubectl -n test get operation "$OPE" -o json | jq -e '.status.plan.floor.decision == "accept-unknown"' >/dev/null || fail "E's floor is not accept-unknown"
-stays_on_b() { has_pointer test "$B" && held test "$OPE"; }
+stays_on_b() { runs test payments "$B" && held test "$OPE"; }
 always 5 stays_on_b || fail "E moved while Pacto could not judge it"
 # Move the candidate tag back to B before cancelling: a tag pointing at a digest
 # test already verified is not a new version, so nothing raises E again once its
@@ -896,7 +864,7 @@ as_person alice humans cancel -n test "$OPE" >/dev/null
 # let go once the recorder has recorded it.
 cancelled() { ! kubectl -n test get operation "$OPE" >/dev/null 2>&1 || [ "$(outcome test "$OPE")" = Cancelled/ ]; }
 eventually 20 cancelled || fail "E was not cancelled: $(field test "$OPE" phase) $(field test "$OPE" outcome)"
-always 5 has_pointer test "$B" || fail "cancelling E moved the pointer"
+always 5 runs test payments "$B" || fail "cancelling E moved the pointer"
 pass "item 5: E held for accept-unknown, refused to the agent and cancelled by a person; nothing moved"
 
 section "item 6: two agents propose at once; exactly one wins"
@@ -910,7 +878,7 @@ H="$(publish H "$C140")"
 move_level test payments team-payments advise >/dev/null
 for v in G H; do
   candidate "$v"
-  eventually 60 published_in test "${!v}" || fail "$v was never verified as published: $(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.conditions}')"
+  eventually 60 published_in test payments "${!v}" || fail "$v was never verified as published: $(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.conditions}')"
 done
 as_agent "$AGENT_A" propose -n test --stage payments --to "$G" --name race-g --reason "agent a" >/dev/null &
 PA=$!
@@ -934,7 +902,7 @@ for o in race-g race-h; do
 done
 [ "$WON" = 1 ] || fail "$WON of two racing promotes won"
 WINNER="$G"; [ "$(outcome test race-h)" = Succeeded/Verified ] && WINNER="$H"
-has_pointer test "$WINNER" || fail "test does not run the winner"
+runs test payments "$WINNER" || fail "test does not run the winner"
 pass "item 6: race-g $(outcome test race-g), race-h $(outcome test race-h); one winner"
 # The candidate tag goes to the winner (already verified, so nothing new) and
 # test climbs back to autonomous.
@@ -943,11 +911,11 @@ candidate "$WLABEL"
 candidate_is_winner() { [ "$(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.artifact.revision}')" = "candidate@$WINNER" ]; }
 eventually 30 candidate_is_winner || fail "the candidate OCIRepository never saw the tag move to the winner"
 climb test payments team-payments
-OPW="$(wait_op prod "$WINNER")"; wait_concluded prod "$OPW" Succeeded/Verified
+OPW="$(wait_op prod payments "$WINNER")"; wait_concluded prod "$OPW" Succeeded/Verified
 
 section "item 4: F (payments 2.0.0) breaks checkout; it waits, and only checkout's team is asked"
 F="$(publish F "$C200")"; candidate F
-OPF="$(wait_op test "$F")"
+OPF="$(wait_op test payments "$F")"
 eventually 30 held test "$OPF" || fail "F was not held: $(field test "$OPF" phase) $(field test "$OPF" message)"
 Q="$(field test "$OPF" question)"
 echo "  question: $Q"
@@ -955,7 +923,7 @@ grep -q "team-checkout" <<<"$Q" || fail "the question does not name checkout's t
 if grep -q "team-ledger" <<<"$Q" || grep -q "team-payments" <<<"$Q"; then fail "the question asks a team whose service does not break"; fi
 kubectl -n test get operation "$OPF" -o json | jq -e '.status.plan.floor.owners == ["team-checkout"]' >/dev/null \
   || fail "the floor is not routed to team-checkout alone"
-waits_for_f() { has_pointer test "$WINNER" && held test "$OPF"; }
+waits_for_f() { runs test payments "$WINNER" && held test "$OPF"; }
 always 5 waits_for_f || fail "F moved without a person"
 # No agent can approve: RBAC refuses the create, and the CLI refuses first,
 # asking for a fresh login of a person's own before anything else.
@@ -1004,7 +972,7 @@ OUT="$(kubectl -n test patch approval "$APF" --type merge -p '{"spec":{"decision
 grep -q "an approval is immutable" <<<"$OUT" || fail "an Approval's decision was edited after it was given: $OUT"
 pass "F's Approvals are owned by F and cannot be edited"
 pass "item 4: F held for team-checkout only, answered only by a team-checkout member, verified in test"
-OPFP="$(wait_op prod "$F")"
+OPFP="$(wait_op prod payments "$F")"
 eventually 30 held prod "$OPFP" || fail "F was not held in prod"
 approve_as carol team-checkout prod "$OPFP" approve
 wait_concluded prod "$OPFP" Succeeded/Verified
@@ -1012,9 +980,9 @@ wait_concluded prod "$OPFP" Succeeded/Verified
 section "item 7: a person's rollback in prod is not undone by automation"
 as_person alice humans propose -n prod --stage payments --type rollback --undoes "$OPFP" --name human-undo --reason "checkout errors" >/dev/null
 wait_concluded prod human-undo Succeeded/Verified
-has_pointer prod "$WINNER" || fail "prod is not back on $WINNER"
+runs prod payments "$WINNER" || fail "prod is not back on $WINNER"
 [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.autoHold}')" = true ] || fail "no auto-hold after a person's rollback"
-held_back() { has_pointer prod "$WINNER" && [ "$(op_to prod "$F" | wc -l | tr -d ' ')" = 1 ]; }
+held_back() { runs prod payments "$WINNER" && [ "$(op_to prod payments "$F" | wc -l | tr -d ' ')" = 1 ]; }
 always 6 held_back || fail "automation promoted F again after a person rolled it back"
 pass "item 7: prod stays on the version alice chose; auto-promotion is on hold"
 
@@ -1091,10 +1059,10 @@ else
 fi
 KUBECONFIG="$(person_kubeconfig ops pacto:break-glass)" kubectl -n prod patch ocirepository payments --type merge \
   -p "{\"spec\":{\"ref\":{\"digest\":\"$B\"}}}" >/dev/null
-OPW2="$(wait_op prod "$B" delivery.pacto.trianalab.io/override)"
+OPW2="$(wait_op prod payments "$B" delivery.pacto.trianalab.io/override)"
 wait_concluded prod "$OPW2" Witnessed/Unverified
 [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}')" = true ] || fail "a witnessed edit must freeze the Stage"
-has_pointer prod "$B" || fail "the witnessed edit was not adopted"
+runs prod payments "$B" || fail "the witnessed edit was not adopted"
 [ "$ORIG" = "$WINNER" ] || fail "the pointer before the edit was $ORIG"
 pass "break-glass edit witnessed, adopted and frozen"
 
@@ -1318,7 +1286,7 @@ eventually 60 reconciled "$H" payments || fail "health/payments was never reconc
 # person proposes. Prints the operation name.
 ship() {
   oras tag --plain-http "127.0.0.1:${LOCAL_REG_PORT}/${H_REPO}:$1" candidate >/dev/null
-  eventually 60 published_in "$H" "$2" || fail "$1 was never verified as published"
+  eventually 60 published_in "$H" payments "$2" || fail "$1 was never verified as published"
   as_person carol team-payments propose -n "$H" --stage payments --to "$2" --name "promote-$1" --reason "phase 2: $1" >/dev/null
   echo "promote-$1"
 }
@@ -1361,7 +1329,7 @@ RERUN_ERRORS="$(count "$(jq -r .errorQuery <<<"$CITE")")"
 { [ "$RERUN" -ge "$SPANS" ] && [ $((RERUN_ERRORS * 5)) -gt "$RERUN" ]; } \
   || fail "re-running the cited queries counted $RERUN_ERRORS of $RERUN spans failed; the verdict counted $SPANS spans"
 wait_concluded "$H" "$RB2" Succeeded/Verified
-has_pointer "$H" "$H1" || fail "health is not back on H1"
+runs "$H" payments "$H1" || fail "health is not back on H1"
 pass "H2 rolled back to H1; the rollback cites the Mira query, and re-running it finds $RERUN_ERRORS of $RERUN spans failed"
 
 section "Q: too little telemetry holds as Unknown, never Pass and never a rollback"
@@ -1373,7 +1341,7 @@ eventually 60 verifying_unknown || fail "Q did not wait as Unknown: $(field "$H"
 verdict "$OPQ" health .message | grep -q "spans in the window; at least 20" || fail "Q's Unknown does not say there were too few spans"
 eventually 60 held "$H" "$OPQ" || fail "Q was not held for a person at the window's end: $(field "$H" "$OPQ" phase)"
 [ "$(field "$H" "$OPQ" reason)" = VerifyUnknown ] || fail "Q held for the wrong reason: $(field "$H" "$OPQ" reason)"
-{ [ "$(rollbacks_of "$OPQ")" = 0 ] && has_pointer "$H" "$Q"; } || fail "Unknown rolled Q back"
+{ [ "$(rollbacks_of "$OPQ")" = 0 ] && runs "$H" payments "$Q"; } || fail "Unknown rolled Q back"
 approve_as alice team-payments "$H" "$OPQ" reject "no telemetry, no trust"
 wait_concluded "$H" "$OPQ" Failed/
 wait_concluded "$H" "${OPQ}-rollback" Succeeded/Verified
@@ -1389,7 +1357,7 @@ RB5="${OP5}-rollback"
 kubectl -n "$H" get operation "$RB5" -o json | jq -e '.spec.reason | test("RecheckFailed: health")' >/dev/null \
   || fail "the rollback does not say a re-check failed"
 wait_concluded "$H" "$RB5" Succeeded/Verified
-one_rollback() { [ "$(rollbacks_of "$OP5")" = 1 ] && has_pointer "$H" "$H1"; }
+one_rollback() { [ "$(rollbacks_of "$OP5")" = 1 ] && runs "$H" payments "$H1"; }
 always 7 one_rollback || fail "a regression after release raised $(rollbacks_of "$OP5") rollbacks"
 pass "H5 regressed after release and was rolled back exactly once"
 
@@ -1615,13 +1583,13 @@ billing_contract 1.0.0 service
 pass "BREAKING since 1.0.0 is refused as 1.1.0; only its signed refusal was written"
 
 section "the published version is what a person ships first; then the Stage climbs to autonomous"
-eventually 60 published_in "$P" "$D1" billing || fail "$D1 was never verified as published"
+eventually 60 published_in "$P" billing "$D1" || fail "$D1 was never verified as published"
 first "$P" billing team-billing "$D1"
 OPP=billing-first-version
 [ "$(kubectl -n "$P" get stage billing -o jsonpath='{.status.pointer}')" = "$D1" ] || fail "the Stage does not run the published version"
 [ "$(kubectl -n "$P" get deploy billing -o jsonpath='{.spec.template.metadata.annotations.version}')" = 1.0.0 ] \
   || fail "the cluster does not run billing 1.0.0"
-published_in "$P" "$D1" billing || fail "the Stage does not remember $D1 as published"
+published_in "$P" billing "$D1" || fail "the Stage does not remember $D1 as published"
 [ "$(field "$P" "$OPP" actorClass)" = human ] || fail "the first promote was not alice's"
 climb "$P" billing team-billing
 pass "alice promoted $D1, the contract check verified it, and carol confirmed the climb to autonomous"
@@ -1673,12 +1641,12 @@ OUT="$(KUBECONFIG="$(person_kubeconfig alice team-billing)" pub --propose "$M/bi
 D2="$(grep -oE "^Deploy: ${REG_HOST}/apps/billing@sha256:[0-9a-f]{64}" <<<"$OUT" | sed 's/.*@//')"
 OPM="$(grep -oE "on $M/billing as Operation [a-z0-9.-]+" <<<"$OUT" | awk '{print $NF}')"
 { [ -n "$D2" ] && [ -n "$OPM" ]; } || fail "publish --propose named no deploy artifact or Operation: $OUT"
-published_in "$M" "$D2" billing || fail "--propose did not wait for the Stage to record $D2 as published"
+published_in "$M" billing "$D2" || fail "--propose did not wait for the Stage to record $D2 as published"
 wait_concluded "$M" "$OPM" Succeeded/Verified
 [ "$(kubectl -n "$M" get deploy billing -o jsonpath='{.spec.template.metadata.annotations.version}')" = 1.0.1 ] \
   || fail "the manual Stage does not run billing 1.0.1"
 pass "publish --propose waited for Flux to verify $D2, and the promote it raised shipped billing 1.0.1"
-OPP2="$(wait_op "$P" "$D2")"
+OPP2="$(wait_op "$P" billing "$D2")"
 wait_concluded "$P" "$OPP2" Succeeded/Verified
 
 section "an artifact pushed another way is never a candidate"
@@ -1693,7 +1661,7 @@ unverified() {
 }
 eventually 40 unverified || fail "Flux never refused the unsigned 9.9.9: $(kubectl -n "$P" get ocirepository billing-candidates -o jsonpath='{.status.conditions}')"
 never_candidate() {
-  [ -z "$(op_to "$P" "$FOREIGN")" ] && ! published_in "$P" "$FOREIGN" billing \
+  [ -z "$(op_to "$P" billing "$FOREIGN")" ] && ! published_in "$P" billing "$FOREIGN" \
     && [ "$(kubectl -n "$P" get stage billing -o jsonpath='{.status.pointer}')" = "$D2" ]
 }
 always 7 never_candidate || fail "the unsigned artifact became a candidate"
@@ -1832,14 +1800,14 @@ stage_yaml orders live "{upstreamStage: {name: orders, namespace: staging}}" | k
 apply_env staging orders "$O18"
 apply_env live orders "$O18"
 for n in staging live; do eventually 60 reconciled "$n" orders || fail "$n/orders was never reconciled"; done
-eventually 60 published_in staging "$O18" orders || fail "orders 1.8.0 was never verified as published in staging"
+eventually 60 published_in staging orders "$O18" || fail "orders 1.8.0 was never verified as published in staging"
 first staging orders team-orders "$O18"
 climb staging orders team-orders
 first live orders team-orders "$O18"
 apply_env live pricing "$P1"
 eventually 60 reconciled live pricing || fail "live/pricing was never reconciled"
 { candidates_yaml pricing; echo ---; stage_yaml pricing live "{ociRepositoryRef: {name: pricing-candidates}}"; } | kubectl -n live apply -f - >/dev/null
-eventually 60 published_in live "$P1" pricing || fail "pricing 1.0.0 was never verified as published in live"
+eventually 60 published_in live pricing "$P1" || fail "pricing 1.0.0 was never verified as published in live"
 first live pricing team-pricing "$P1"
 # staging is autonomous; live stays on advise: people move it, and an agent's
 # promote waits for a person.
@@ -1847,14 +1815,14 @@ pass "orders 1.8.0 runs in staging and live, pricing 1.0.0 in live, all verified
 
 section "orders 1.9.0 (accepts pricing >=1.0.0 <3.0.0) passes staging, and live does not take it by itself"
 O19="$(publish O19 "$OR19" orders)"; candidate O19 orders
-OP="$(wait_op staging "$O19")"; wait_concluded staging "$OP" Succeeded/Verified
+OP="$(wait_op staging orders "$O19")"; wait_concluded staging "$OP" Succeeded/Verified
 offered() { kubectl -n staging get stage orders -o json | jq -e --arg d "$O19" '.status.offered // [] | index($d)' >/dev/null; }
 eventually 30 offered || fail "staging never offered orders 1.9.0 downstream"
 always 5 stage_runs live orders "$O18" || fail "live took orders 1.9.0 on advise"
 
 section "pricing 2.0.0 is held in live, and the plan says orders must move first"
 P2="$(publish P2 "$PR200" pricing)"; candidate P2 pricing
-eventually 60 published_in live "$P2" pricing || fail "pricing 2.0.0 was never verified as published in live"
+eventually 60 published_in live pricing "$P2" || fail "pricing 2.0.0 was never verified as published in live"
 as_agent "$AGENT_A" propose -n live --stage pricing --to "$P2" --name pricing-first --reason "phase 5" >/dev/null
 eventually 30 held live pricing-first || fail "pricing 2.0.0 was not held: $(field live pricing-first phase) $(field live pricing-first message)"
 PLAN="$(kubectl -n live get operation pricing-first -o jsonpath='{.status.plan}')"
@@ -1899,7 +1867,7 @@ spec:
   target: {workloadRef: {name: shipping, kind: Deployment}}
 YAML
 P3="$(publish P3 "$PR210" pricing)"; candidate P3 pricing
-eventually 60 published_in live "$P3" pricing || fail "pricing 2.1.0 was never verified as published in live"
+eventually 60 published_in live pricing "$P3" || fail "pricing 2.1.0 was never verified as published in live"
 as_agent "$AGENT_A" propose -n live --stage pricing --to "$P3" --name pricing-partial --reason "phase 5" >/dev/null
 eventually 30 held live pricing-partial || fail "pricing 2.1.0 was not held: $(field live pricing-partial phase) $(field live pricing-partial message)"
 PLAN="$(kubectl -n live get operation pricing-partial -o jsonpath='{.status.plan}')"

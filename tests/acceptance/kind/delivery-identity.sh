@@ -339,6 +339,15 @@ YAML
   pass "a pasted ServiceAccount token signs in, sees only what its RBAC reads and never decides"
 }
 
+# servers_up — wait for the dashboard and the MCP server in_node started; the
+# delivery demo starts the same two and waits the same way.
+dash_up() { curl -sf "$DASH_URL/health" >/dev/null; }
+mcp_up() { [ "$(curl -s -o /dev/null -w '%{http_code}' "$MCP_URL/mcp")" = 401 ]; }
+servers_up() {
+  eventually 40 dash_up || { docker logs pacto-e2e-dashboard 2>&1 | tail; fail "the dashboard did not start"; }
+  eventually 40 mcp_up || { docker logs pacto-e2e-mcp 2>&1 | tail; fail "the MCP server did not start"; }
+}
+
 identity_scenario() {
   section "phase 4: the dashboard and identity"
   # --- structured authentication ---
@@ -429,10 +438,7 @@ identity_scenario() {
     -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -v "$mcpkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
     "$DASH_IMG" mcp --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
     --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp
-  dash_up() { curl -sf "$DASH_URL/health" >/dev/null; }
-  eventually 40 dash_up || { docker logs pacto-e2e-dashboard 2>&1 | tail; fail "the dashboard did not start"; }
-  mcp_up() { [ "$(curl -s -o /dev/null -w '%{http_code}' "$MCP_URL/mcp")" = 401 ]; }
-  eventually 40 mcp_up || { docker logs pacto-e2e-mcp 2>&1 | tail; fail "the MCP server did not start"; }
+  servers_up
 
   # Signed out, the page, its sign-in check and the probes answer; the API does not.
   local out; out="$(dash "" GET /api/session)"
@@ -624,7 +630,7 @@ YAML
   [ "$(kubectl -n prod get operation idp-undo -o jsonpath='{.spec.actor.user} {.spec.params.undoes}')" = "$CAROL $uid" ] \
     || fail "the rollback is not carol's undoing of F: $(kubectl -n prod get operation idp-undo -o jsonpath='{.spec}')"
   wait_concluded prod idp-undo Succeeded/Verified
-  has_pointer prod "$from" || fail "prod is not back on the version before F"
+  runs prod payments "$from" || fail "prod is not back on the version before F"
   out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f2\",\"reason\":\"phase 4 again\"}}")"
   eventually 30 held prod idp-f2 || fail "F was not held again: $out $(field prod idp-f2 phase) $(field prod idp-f2 message)"
   local again; again="$(login carol -fresh -session "$fresh")" || fail "carol's second fresh login failed"
@@ -637,7 +643,7 @@ YAML
   # The promoter splits "RejectedByHuman: <by>: <note>" into the reason code and the message.
   { [ "$(field prod idp-f2 reason)" = RejectedByHuman ] && [[ "$(field prod idp-f2 message)" == "$CAROL: "* ]]; } \
     || fail "F2 was not rejected by carol: $(field prod idp-f2 reason): $(field prod idp-f2 message)"
-  has_pointer prod "$from" || fail "a rejected F moved prod"
+  runs prod payments "$from" || fail "a rejected F moved prod"
   pass "carol rolled F back and rejected it again from the dashboard, each as herself"
 
   # --- approve from the CLI, as carol, with the command's own fresh login ---
