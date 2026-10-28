@@ -460,7 +460,7 @@ identity_scenario() {
   # Automation stays out of the way: prod is frozen from phase 1, and nothing
   # may move it while phase 4 runs.
   kubectl -n prod patch stage payments --type merge -p '{"spec":{"auto":false}}' >/dev/null
-  local carol; carol="$(login carol)" || fail "carol could not sign in to the dashboard"
+  local carol carol_at; carol_at="$(date +%s)"; carol="$(login carol)" || fail "carol could not sign in to the dashboard"
   out="$(dash "$carol" GET /api/delivery/caller)"
   jq -e --arg iss "$DEX_ISSUER" '.user | startswith($iss + "#")' <<<"${out#* }" >/dev/null || fail "caller: $out"
   local CAROL; CAROL="$(jq -r .user <<<"${out#* }")"
@@ -604,16 +604,22 @@ YAML
   fi
   approval_as "$STALE_TOKEN" idp-stale >/dev/null || fail "carol's stale Approval was refused by admission (its auth-time matches)"
   always 5 still_held || fail "the promoter took an approval whose login is older than its login freshness"
-  # Single sign-on gives carol a new session but keeps that old login: still no decision.
-  local sso; sso="$(login carol -session "$carol")"
-  out="$(dash "$sso" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$(csrf_of "$sso")")"
+  # The dashboard decides only on a login younger than two thirds of the
+  # login freshness, so the promoter still counts it. Once carol's dashboard
+  # login is older than that, her session is refused a decision.
+  wait=$((carol_at + AUTH_FRESHNESS * 2 / 3 + 15 - $(date +%s)))
+  if [ "$wait" -gt 0 ]; then
+    echo "  waiting ${wait}s for carol's dashboard login to pass the dashboard's decision window"
+    local slept=$SECONDS; sleep "$wait"; _timed_wait sleep "$slept" "carol's dashboard login goes stale"
+  fi
+  out="$(dash "$carol" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$(csrf_of "$carol")")"
   [ "${out%% *}" = 401 ] && grep -q FreshLoginRequired <<<"$out" || fail "a session from an old login decided: $out"
-  pass "an approval on a stale login is ignored, and a single-sign-on session cannot decide"
+  pass "an approval on a stale login is ignored, and a session from an old login cannot decide"
 
   # A fresh login rotates the session and decides; the apiserver sees carol.
-  local fresh; fresh="$(login carol -fresh -session "$sso")" || fail "carol's fresh login failed"
-  [ "$fresh" != "$sso" ] || fail "a fresh login did not rotate the session id"
-  [ "$(dash "$sso" GET /api/session | cut -d' ' -f2- | jq -r .signedIn)" = false ] || fail "the rotated session still works"
+  local fresh; fresh="$(login carol -fresh -session "$carol")" || fail "carol's fresh login failed"
+  [ "$fresh" != "$carol" ] || fail "a fresh login did not rotate the session id"
+  [ "$(dash "$carol" GET /api/session | cut -d' ' -f2- | jq -r .signedIn)" = false ] || fail "the rotated session still works"
   out="$(dash "$fresh" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve","note":"checkout is ready"}' "$(csrf_of "$fresh")")"
   [ "${out%% *}" = 201 ] || fail "carol's fresh decision: $out"
   local approval; approval="$(jq -r .approval <<<"${out#* }")"
