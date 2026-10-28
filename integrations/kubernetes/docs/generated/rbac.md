@@ -65,7 +65,9 @@ When a managed component is on, the operator creates and reconciles that compone
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
+| `"" (core)` | `namespaces` | `list` | *not name-restricted* |
 | `authorization.k8s.io` | `subjectaccessreviews` | `create` | *not name-restricted* |
+| `delivery.pacto.trianalab.io` | `stages`, `operations` | `get`, `list`, `watch` | *not name-restricted* |
 | `rbac.authorization.k8s.io` | `clusterroles`, `clusterrolebindings` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` | *not name-restricted* |
 
 Their namespaced half is granted by the release namespace's `pacto-operator-manager` Role, so the operator can create these kinds there and nowhere else:

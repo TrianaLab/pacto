@@ -3,9 +3,11 @@ package dashboard
 import (
 	"context"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"golang.org/x/sync/errgroup"
 )
 
 // ── one change: its view and the actions offered on it ─────────────────
@@ -48,14 +50,17 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	}
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
-	out.Body.Actions = s.actions(ctx, op, e.Stage, caller, allowed(ctx, api))
-	if st, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
-		out.Body.Level = ladderOf(*st).Level
+	out.Body.Actions = s.actions(ctx, api, op, e.Stage, caller)
+	stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage)
+	if err == nil {
+		out.Body.Level = ladderOf(*stage).Level
+	} else {
+		stage = nil
 	}
 	if st := op.Status; st.Phase == delivery.PhaseConcluded && st.Pointer.After != "" {
 		// ponytail: one history read per concluded change shown; the live
 		// host's record stream read is what it costs.
-		if h, err := api.History(ctx, in.Namespace, op.Spec.Stage); err == nil {
+		if h, err := api.History(ctx, in.Namespace, op.Spec.Stage, stage); err == nil {
 			out.Body.UndoneBy = undoneBy(h.Entries, in.Name, st.Pointer.After, st.Times.Finished)
 		}
 	}
@@ -95,18 +100,19 @@ func undoneBy(entries []delivery.HistoryEntry, name, after, finished string) *de
 }
 
 // actions are what the UI offers on an operation. They only hide what the
-// caller cannot do, by class, team and RBAC; the apiserver and the promoter
-// still decide.
-func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller, may can) []string {
+// caller cannot do, as the promoter's rules and the caller's own RBAC say;
+// the apiserver and the promoter still decide.
+func (s *Server) actions(ctx context.Context, api DeliveryAPI, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller) []string {
 	acts := []string{}
-	st, ns := op.Status, op.Metadata.Namespace
-	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) && may("create", "approvals", ns) {
+	st := op.Status
+	may := func(verb, resource string) bool { return mayIn(ctx, api, verb, resource)(op.Metadata.Namespace) }
+	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) && may("create", "approvals") {
 		acts = append(acts, string(d), string(delivery.Reject))
 	}
-	if cancellable(op, caller) && may("delete", "operations", ns) {
+	if cancellable(op, caller) && may("delete", "operations") {
 		acts = append(acts, "cancel")
 	}
-	if rollbackable(op, stage, caller) && may("create", "operations", ns) {
+	if rollbackable(op, stage, caller) && may("create", "operations") {
 		acts = append(acts, "rollback")
 	}
 	return acts
@@ -127,26 +133,51 @@ func rollbackable(op *delivery.OperationObject, stage delivery.StageNow, caller 
 		delivery.MayRaise(delivery.TypeRollback, caller.Class, false)
 }
 
-// can says whether the caller's RBAC lets them verb a delivery resource in a
-// namespace.
-type can func(verb, resource, namespace string) bool
-
-// allowed asks api once per verb, resource and namespace for one request. A
-// review that fails answers yes: the action stays offered and the apiserver
-// decides when it is taken.
-func allowed(ctx context.Context, api DeliveryAPI) can {
-	seen := map[string]bool{}
-	return func(verb, resource, ns string) bool {
-		k := verb + " " + resource + " " + ns
-		ok, done := seen[k]
-		if !done {
-			var err error
-			if ok, err = api.Can(ctx, verb, resource, ns); err != nil {
-				ok = true
-			}
-			seen[k] = ok
+// mayIn asks the apiserver, once per namespace, whether the caller may verb
+// resource there. A review that fails says no: nothing is offered that the
+// caller may not do. Not safe for concurrent use.
+func mayIn(ctx context.Context, api DeliveryAPI, verb, resource string) func(ns string) bool {
+	answers := map[string]bool{}
+	return func(ns string) bool {
+		ok, asked := answers[ns]
+		if !asked {
+			can, err := api.Can(ctx, verb, resource, ns)
+			ok = err == nil && can
+			answers[ns] = ok
 		}
 		return ok
+	}
+}
+
+// mayRaise drops the actions of each row whose namespace the caller's RBAC
+// refuses an Operation in. Only namespaces with something to offer are
+// asked, describeParallel at once, so a reader's board costs no review; a
+// review that fails says no.
+func mayRaise(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow) {
+	var asked []string
+	for _, r := range rows {
+		if len(r.Actions) > 0 && !slices.Contains(asked, r.Namespace) {
+			asked = append(asked, r.Namespace)
+		}
+	}
+	allowed := map[string]bool{}
+	var mu sync.Mutex
+	var g errgroup.Group
+	g.SetLimit(describeParallel)
+	for _, ns := range asked {
+		g.Go(func() error {
+			ok, err := api.Can(ctx, "create", "operations", ns)
+			mu.Lock()
+			allowed[ns] = err == nil && ok
+			mu.Unlock()
+			return nil
+		})
+	}
+	_ = g.Wait()
+	for i := range rows {
+		if len(rows[i].Actions) > 0 && !allowed[rows[i].Namespace] {
+			rows[i].Actions = []string{}
+		}
 	}
 }
 

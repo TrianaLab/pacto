@@ -25,6 +25,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"gopkg.in/yaml.v3"
@@ -120,11 +122,12 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	prevReadiness := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
 	readinessWasUnmet := prevReadiness != nil && prevReadiness.Status == metav1.ConditionFalse
 
-	// Same for the contract status, which resetDerivedStatus clears below: the
-	// value read from the API server is the one the previous reconciliation
-	// persisted, and every terminal path threads it back to
-	// emitContractStatusEvent. Empty means never reconciled.
-	prevContractStatus := pacto.Status.ContractStatus
+	// Same for the whole status, which resetDerivedStatus clears below: the value
+	// read from the API server is the one the previous reconciliation persisted.
+	// Every terminal path threads it back, so the contract status event fires and
+	// the status is written only on a change. An empty contract status means
+	// never reconciled.
+	prev := pacto.Status.DeepCopy()
 
 	// 2. Reset all derived status fields so no stale data survives.
 	//    Fields will be repopulated by each step below.
@@ -133,7 +136,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// 3-5. Load the contract, apply overrides and validate the effective contract.
 	ec, failure := r.loadEffectiveContract(ctx, pacto)
 	if failure != nil {
-		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prevContractStatus, failure.status)
+		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status)
 	}
 	effectiveContract := ec.effective.Contract
 
@@ -174,12 +177,12 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			fmt.Sprintf("Reference contract %s v%s is valid", effectiveContract.Service.Name, effectiveContract.Service.Version))
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusReference
 		pacto.Status.Summary = &pactov1alpha1.Summary{}
-		return r.finishReconciliation(ctx, pacto, prevContractStatus)
+		return r.finishReconciliation(ctx, pacto, prev)
 	}
 
 	// 9-15. Observe the target and judge the contract against what was observed.
 	r.evaluateRuntime(ctx, pacto, ec)
-	return r.finishReconciliation(ctx, pacto, prevContractStatus)
+	return r.finishReconciliation(ctx, pacto, prev)
 }
 
 // effectiveContract is the loaded contract with the CR's overrides applied and validated.
@@ -448,9 +451,9 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 
 // failReconciliation handles the common pattern for contract-level failures with phase-classified status
 // (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary.
-// prevContractStatus is the contract status persisted by the previous reconciliation; it gates the
-// transition event (see emitContractStatusEvent).
-func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prevContractStatus, status string) (ctrl.Result, error) {
+// prev is the status persisted by the previous reconciliation; its contract status gates the
+// transition event (see emitContractStatusEvent) and the whole of it gates the write (see writeStatus).
+func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	switch status {
@@ -477,11 +480,7 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 
 	pacto.Status.ContractStatus = status
 
-	now := metav1.Now()
-	pacto.Status.LastReconciledAt = &now
-	pacto.Status.ObservedGeneration = pacto.Generation
-
-	if statusErr := r.Status().Update(ctx, pacto); statusErr != nil {
+	if statusErr := r.writeStatus(ctx, pacto, prev); statusErr != nil {
 		log.Error(statusErr, "Failed to update status")
 		return ctrl.Result{}, statusErr
 	}
@@ -490,7 +489,7 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 	if status == pactov1alpha1.ContractStatusUnknown {
 		eventReason = pactov1alpha1.EventContractUnavailable
 	}
-	r.emitContractStatusEvent(pacto, prevContractStatus, eventReason, msg)
+	r.emitContractStatusEvent(pacto, prev.ContractStatus, eventReason, msg)
 
 	// Emit metrics
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
@@ -628,21 +627,18 @@ func (r *PactoReconciler) emitContractStatusEvent(pacto *pactov1alpha1.Pacto, pr
 }
 
 // finishReconciliation sets final metadata, persists status, and emits metrics.
-// prevContractStatus is the contract status persisted by the previous
-// reconciliation; it gates the transition event (see emitContractStatusEvent).
-func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, prevContractStatus string) (ctrl.Result, error) {
+// prev is the status persisted by the previous reconciliation; its contract
+// status gates the transition event (see emitContractStatusEvent) and the whole
+// of it gates the write (see writeStatus).
+func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, prev *pactov1alpha1.PactoStatus) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	now := metav1.Now()
-	pacto.Status.LastReconciledAt = &now
-	pacto.Status.ObservedGeneration = pacto.Generation
-
-	if statusErr := r.Status().Update(ctx, pacto); statusErr != nil {
+	if statusErr := r.writeStatus(ctx, pacto, prev); statusErr != nil {
 		log.Error(statusErr, "Failed to update status")
 		return ctrl.Result{}, statusErr
 	}
 
-	r.emitContractStatusEvent(pacto, prevContractStatus,
+	r.emitContractStatusEvent(pacto, prev.ContractStatus,
 		pactov1alpha1.EventValidationFailed, contractStatusMessage(pacto))
 
 	// Emit Prometheus metrics
@@ -806,6 +802,25 @@ func (r *PactoReconciler) setCondition(pacto *pactov1alpha1.Pacto, condType stri
 		Reason:             reason,
 		Message:            message,
 	})
+}
+
+// writeStatus persists the status only when it differs from prev, the status the
+// previous reconciliation persisted, or when lastReconciledAt is older than half
+// the check interval. Reconcile is re-entered on every write to every watched
+// workload, so stamping lastReconciledAt unconditionally wrote the status on each
+// of those events. The heartbeat keeps lastReconciledAt within one check interval
+// of now, which is what delivery and the fleet read as a live operator.
+func (r *PactoReconciler) writeStatus(ctx context.Context, pacto *pactov1alpha1.Pacto, prev *pactov1alpha1.PactoStatus) error {
+	pacto.Status.ObservedGeneration = pacto.Generation
+	now := metav1.Now()
+	if prev != nil && prev.LastReconciledAt != nil && now.Sub(prev.LastReconciledAt.Time) < r.requeueInterval(pacto)/2 {
+		pacto.Status.LastReconciledAt = prev.LastReconciledAt
+		if equality.Semantic.DeepEqual(&pacto.Status, prev) {
+			return nil
+		}
+	}
+	pacto.Status.LastReconciledAt = &now
+	return r.Status().Update(ctx, pacto)
 }
 
 func (r *PactoReconciler) requeueInterval(pacto *pactov1alpha1.Pacto) time.Duration {
@@ -1365,7 +1380,10 @@ func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretN
 func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&pactov1alpha1.Pacto{}).
+		// Generation only: a status write, the operator's own included, is not a
+		// reason to reconcile again. Without the filter every write re-entered
+		// Reconcile at once, which is why statuses were written in pairs.
+		For(&pactov1alpha1.Pacto{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&pactov1alpha1.PactoRevision{}).
 		Watches(&corev1.Service{}, enqueueForTarget(mgr.GetClient())).
 		// Metadata-only: the mapper reads name/namespace, and a typed watch would park

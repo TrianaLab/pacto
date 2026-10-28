@@ -956,7 +956,7 @@ func (d *demoDelivery) history(ns, name string) (*delivery.History, []delivery.S
 	return h, r.Fold.Records, ops, nil
 }
 
-func (d *demoDelivery) History(_ context.Context, ns, name string) (*delivery.History, error) {
+func (d *demoDelivery) History(_ context.Context, ns, name string, _ *delivery.StageObject) (*delivery.History, error) {
 	h, _, _, err := d.history(ns, name)
 	return h, err
 }
@@ -1081,9 +1081,6 @@ func (d *demoDelivery) Describe(_ context.Context, st *delivery.StageObject, dig
 // 2.4.3 removes a field, so the version rule asks for a major. The
 // classification is pkg/diff over the two story contracts; the refusal
 // itself is fixed data, and nothing here signed or checked it.
-// Can: the demo's people may do whatever their class allows.
-func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error) { return true, nil }
-
 func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.PublishRefusals, error) {
 	base, _ := story.Bundle("payments", "2.4.2")
 	tried, _ := story.Bundle("payments", "2.4.3")
@@ -1112,3 +1109,11 @@ func (d *demoDelivery) wire(opts *dashboard.Options) {
 //
 //go:embed pactify-fraud.json
 var pactifyPlan string
+
+// Can: the demo has no RBAC, so every persona may ask for anything; the
+// promoter's own rules still shape what is offered.
+func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error) { return true, nil }
+
+// StageNamespaces: everyone reads every Stage cluster-wide here, so the
+// dashboard never asks.
+func (d *demoDelivery) StageNamespaces(context.Context) ([]string, error) { return nil, nil }

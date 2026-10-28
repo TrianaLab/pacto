@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,10 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
@@ -78,6 +82,25 @@ type dashboardIdentity struct {
 	revisions map[string]delivery.Revision
 	// streams keeps verified record streams across requests (see app.StreamCache).
 	streams app.StreamCache
+	// reads keeps each caller's apiserver reads for a moment (see readCache).
+	reads *readCache
+	// shared is the one cache of the delivery objects signed-in people read
+	// from (see sharedReads), started by the first signed-in request.
+	sharedOnce sync.Once
+	shared     *sharedReads
+
+	// nsMu guards the namespace names and, by caller, the namespaces each
+	// may list Stages in (see StageNamespaces).
+	nsMu    sync.Mutex
+	nsAt    time.Time
+	nsAll   []string
+	stageNS map[string]stageNamespaces
+}
+
+// stageNamespaces is one caller's answer and when it goes stale.
+type stageNamespaces struct {
+	names []string
+	until time.Time
 }
 
 // Discovery: an answer is kept a minute, a failure a few seconds, and no call
@@ -98,7 +121,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	}
 	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
 		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
-		revisions: map[string]delivery.Revision{}, policyNS: v.GetString("dashboard.delivery-namespace")}
+		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache()}
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
 	var o *authn.OIDC
 	if issuer := v.GetString("dashboard.oidc-issuer-url"); issuer != "" {
@@ -173,7 +196,10 @@ func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.I
 	var dyn dynamic.Interface
 	err := errNoClusterToAsk
 	if cluster != nil {
-		dyn, err = newClient(cluster)
+		// client-go's default 5 a second made fifty people signing in at once wait ten seconds (see sarQPS).
+		cfg := rest.CopyConfig(cluster)
+		cfg.QPS, cfg.Burst = sarQPS, sarBurst
+		dyn, err = newClient(cfg)
 	}
 	if err != nil {
 		return func(context.Context, authn.Person, string) (bool, error) { return false, err }
@@ -222,10 +248,12 @@ func (id *dashboardIdentity) deliveryInstalled(context.Context) (bool, error) {
 }
 
 // delivery is the caller's delivery API: the kubeconfig user in local mode,
-// the signed-in person's own token in shared mode, nothing in open mode. The
-// dashboard's own credentials are never used for delivery.
+// the signed-in person's own token in shared mode, nothing in open mode. In
+// shared mode, Stages and Operations are read from the shared cache, filtered
+// by the person's own RBAC (see sharedReads); every action, and every read an
+// action is built on, goes with the person's token.
 func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, error) {
-	cfg := id.cluster
+	cfg, token, who := id.cluster, "", ""
 	switch {
 	case id.auth.Local():
 	case !id.auth.SignsIn():
@@ -236,15 +264,52 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		if !st.SignedIn {
 			return nil, dashboard.Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to see and act on delivery")
 		}
-		cfg = authn.RESTConfig(id.cluster, st.Token)
+		cfg, token = authn.RESTConfig(id.cluster, st.Token), st.Token
+		// The token, not the claim mapping's Person: tokens without the
+		// username claim all map to the one anonymous Person.
+		sum := sha256.Sum256([]byte(st.Token))
+		who = string(sum[:])
 	}
+	cfg = rest.CopyConfig(cfg)
+	cfg.QPS, cfg.Burst = callerQPS, callerQPS
+	cfg.Wrap(id.reads.wrap)
 	dyn, err := id.newClient(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return dashDelivery{d: &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}, id: id}, nil
+	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}
+	read, out := act, dashDelivery{act: act, id: id, who: who}
+	if s := id.sharedReads(); s != nil && token != "" {
+		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}
+		c.Dynamic, read, out.shared = sc, &c, &sc
+	}
+	out.d = read
+	return out, nil
 }
+
+// sharedReads starts the shared cache with the dashboard's own credentials
+// the first time a signed-in person reads delivery; nil outside shared mode.
+// ponytail: it watches for the life of the process, as the dashboard serves.
+func (id *dashboardIdentity) sharedReads() *sharedReads {
+	if !id.auth.SignsIn() {
+		return nil
+	}
+	id.sharedOnce.Do(func() {
+		cfg := rest.CopyConfig(id.cluster)
+		cfg.QPS, cfg.Burst = sarQPS, sarBurst
+		if sa, err := id.newClient(cfg); err == nil { // a config that fails here fails every person's client too
+			id.shared = newSharedReads(context.Background(), sa, id.reads.wrote)
+		}
+	})
+	return id.shared
+}
+
+// callerQPS bounds one dashboard request's apiserver reads per second. The
+// client lives for one request, so client-go's default (5, bursting to 10)
+// only made a history page, a read per Stage on it, wait eight seconds on
+// itself; the apiserver's priority and fairness protects the cluster.
+const callerQPS = 100
 
 // describe caches what a digest carries: a digest never changes.
 // ponytail: a bounded map reset when full; an LRU if dashboards ever cycle
@@ -273,10 +338,16 @@ func (id *dashboardIdentity) describe(ctx context.Context, d *app.Delivery, stag
 
 // dashDelivery adapts app.Delivery to the dashboard: apiserver refusals keep
 // their status and message, a stale plan carries the fresh one, and every
-// other error keeps its reason as a refusal.
+// other error keeps its reason as a refusal. d reads, act acts: they differ
+// only in shared mode, where d reads from the shared cache.
 type dashDelivery struct {
-	d  *app.Delivery
-	id *dashboardIdentity
+	d, act *app.Delivery
+	id     *dashboardIdentity
+	// who keys the caller's cached answers: their token's hash, "" in local mode.
+	who string
+	// shared lists Stages and Operations in delivery's types; nil outside
+	// shared mode.
+	shared *sharedClient
 }
 
 func refusal(err error) error {
@@ -305,13 +376,25 @@ func (a dashDelivery) WhoAmI(ctx context.Context) (delivery.Caller, error) {
 	return c, refusal(err)
 }
 
+// Stages and Operations are read from the shared cache's typed lists when it
+// can answer, which every request shares: the views only read them.
 func (a dashDelivery) Stages(ctx context.Context, ns string) ([]delivery.StageObject, error) {
+	if a.shared != nil {
+		if s, ok, err := typedIn(ctx, *a.shared, sharedStages, a.shared.s.stages, ns); ok {
+			return s, refusal(err)
+		}
+	}
 	s, err := a.d.Stages(ctx, ns)
 	return s, refusal(err)
 }
 
 func (a dashDelivery) Operations(ctx context.Context, ns string) ([]delivery.OperationObject, error) {
-	o, err := a.d.Operations(ctx, ns)
+	if a.shared != nil {
+		if o, ok, err := typedIn(ctx, *a.shared, sharedOps, a.shared.s.ops, ns); ok {
+			return o, refusal(err)
+		}
+	}
+	o, err := a.d.OperationsNotSucceeded(ctx, ns)
 	return o, refusal(err)
 }
 
@@ -325,32 +408,32 @@ func (a dashDelivery) Explain(ctx context.Context, ns, name string) (*delivery.E
 	return e, refusal(err)
 }
 
-func (a dashDelivery) History(ctx context.Context, ns, stage string) (*delivery.History, error) {
+func (a dashDelivery) History(ctx context.Context, ns, stage string, listed *delivery.StageObject) (*delivery.History, error) {
+	if listed != nil {
+		h, err := a.d.HistoryOf(ctx, *listed)
+		return h, refusal(err)
+	}
 	h, err := a.d.History(ctx, ns, stage)
 	return h, refusal(err)
 }
 
 func (a dashDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error) {
-	p, _, err := a.d.Plan(ctx, req)
+	p, _, err := a.act.Plan(ctx, req)
 	return p, refusal(err)
 }
 
 func (a dashDelivery) Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error) {
-	o, p, err := a.d.Propose(ctx, req)
+	o, p, err := a.act.Propose(ctx, req)
 	return o, p, refusal(err)
 }
 
 func (a dashDelivery) Approve(ctx context.Context, ns, name string, decision delivery.Decision, note string) (string, error) {
-	n, err := a.d.Approve(ctx, ns, name, decision, note)
+	n, err := a.act.Approve(ctx, ns, name, decision, note)
 	return n, refusal(err)
 }
 
 func (a dashDelivery) Cancel(ctx context.Context, ns, name string) error {
-	return refusal(a.d.Cancel(ctx, ns, name))
-}
-
-func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool, error) {
-	return a.d.Can(ctx, verb, resource, ns)
+	return refusal(a.act.Cancel(ctx, ns, name))
 }
 
 func (a dashDelivery) Stage(ctx context.Context, ns, name string) (*delivery.StageObject, error) {
@@ -364,7 +447,7 @@ func (a dashDelivery) Blame(ctx context.Context, ns, stage, digest string) (*del
 }
 
 func (a dashDelivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.Undo, error) {
-	u, err := a.d.Undo(ctx, ns, name, stage)
+	u, err := a.act.Undo(ctx, ns, name, stage)
 	return u, refusal(err)
 }
 
@@ -447,3 +530,91 @@ func (a dashDelivery) refusalsOf(ctx context.Context, svc, repo string, out *das
 func (a dashDelivery) Describe(ctx context.Context, stage *delivery.StageObject, digest string) delivery.Revision {
 	return a.id.describe(ctx, a.d, stage, digest)
 }
+
+func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool, error) {
+	ok, err := a.d.Can(ctx, verb, resource, ns)
+	return ok, refusal(err)
+}
+
+// Bounds of the namespace answers: kept a minute, reviews asked eight at
+// once. ponytail: past maxCallers the answers start over; an LRU when one
+// dashboard serves more people than that.
+const (
+	namespacesTTL   = time.Minute
+	maxCallers      = 1024
+	reviewsInFlight = 8
+)
+
+// StageNamespaces are the namespaces the caller may list Stages in: each
+// namespace the dashboard's own credentials list (they learn only the names)
+// where the caller's own SelfSubjectAccessReview allows it. Nil when the
+// dashboard may not list namespaces.
+func (a dashDelivery) StageNamespaces(ctx context.Context) ([]string, error) {
+	all, err := a.id.namespaceNames(ctx)
+	switch {
+	case apierrors.IsForbidden(err):
+		return nil, nil
+	case err != nil:
+		return nil, refusal(err)
+	}
+	now := a.id.now()
+	a.id.nsMu.Lock()
+	cached, ok := a.id.stageNS[a.who]
+	a.id.nsMu.Unlock()
+	if ok && now.Before(cached.until) {
+		return cached.names, nil
+	}
+	allowed := make([]bool, len(all))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(reviewsInFlight)
+	for i, ns := range all {
+		g.Go(func() (err error) { allowed[i], err = a.d.Can(gctx, "list", "stages", ns); return err })
+	}
+	if err := g.Wait(); err != nil {
+		return nil, refusal(err)
+	}
+	names := []string{}
+	for i, ns := range all {
+		if allowed[i] {
+			names = append(names, ns)
+		}
+	}
+	a.id.nsMu.Lock()
+	if len(a.id.stageNS) >= maxCallers {
+		a.id.stageNS = map[string]stageNamespaces{}
+	}
+	a.id.stageNS[a.who] = stageNamespaces{names: names, until: now.Add(namespacesTTL)}
+	a.id.nsMu.Unlock()
+	return names, nil
+}
+
+// namespaceNames lists the cluster's namespaces with the dashboard's own
+// credentials, kept a minute; a failure is not kept.
+func (id *dashboardIdentity) namespaceNames(ctx context.Context) ([]string, error) {
+	now := id.now()
+	id.nsMu.Lock()
+	all, at := id.nsAll, id.nsAt
+	id.nsMu.Unlock()
+	if all != nil && now.Sub(at) < namespacesTTL {
+		return all, nil
+	}
+	dyn, err := id.newClient(id.cluster)
+	if err != nil {
+		return nil, err
+	}
+	list, err := dyn.Resource(gvrNamespaces).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	all = make([]string, 0, len(list.Items))
+	for _, n := range list.Items {
+		all = append(all, n.GetName())
+	}
+	slices.Sort(all)
+	id.nsMu.Lock()
+	id.nsAll, id.nsAt = all, now
+	id.nsMu.Unlock()
+	return all, nil
+}
+
+var gvrNamespaces = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}

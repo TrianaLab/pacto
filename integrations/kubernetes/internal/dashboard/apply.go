@@ -43,12 +43,24 @@ func clusterRoleAC() runtime.ApplyConfiguration {
 				WithAPIGroups("").
 				WithResources("services").
 				WithVerbs("get", "list", "watch"),
-			// With sign-in, the dashboard shows each person only the namespaces
-			// their own RBAC lets them read, asking the apiserver per person.
+			// With sign-in, the dashboard keeps one copy of the delivery objects
+			// people read and shows each person only what their own RBAC lets
+			// them read; every action goes with the person's own token.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("delivery.pacto.trianalab.io").
+				WithResources("stages", "operations").
+				WithVerbs("get", "list", "watch"),
+			// It asks the apiserver what a signed-in person may read.
 			rbacv1ac.PolicyRule().
 				WithAPIGroups("authorization.k8s.io").
 				WithResources("subjectaccessreviews").
 				WithVerbs("create"),
+			// Delivery asks, per namespace, where a signed-in person may list
+			// Stages, so it lists the namespaces' names to ask about.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("").
+				WithResources("namespaces").
+				WithVerbs("list"),
 		)
 }
 

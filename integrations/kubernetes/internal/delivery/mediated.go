@@ -62,7 +62,7 @@ func (c Cluster) mediated(ctx context.Context, ns string, a *applyRef) (delivery
 	}
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(gvkKustomization)
-	if err := c.Client.List(ctx, list); err != nil {
+	if err := c.cached(false).List(ctx, list); err != nil {
 		return delivery.Condition{}, err
 	}
 	var appliers []unstructured.Unstructured

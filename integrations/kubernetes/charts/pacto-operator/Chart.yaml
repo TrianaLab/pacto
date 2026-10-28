@@ -10,6 +10,18 @@ keywords:
   - contracts
   - kubernetes
   - validation
+# Optional, off by default: a registry and an identity provider for an
+# evaluation install (values-quickstart.yaml). The archives are vendored in
+# charts/ and pinned by Chart.lock, so the chart packages offline.
+dependencies:
+  - name: zot
+    version: 0.1.128
+    repository: https://zotregistry.dev/helm-charts
+    condition: zot.enabled
+  - name: dex
+    version: 0.26.0
+    repository: https://charts.dexidp.io
+    condition: dex.enabled
 icon: https://raw.githubusercontent.com/TrianaLab/pacto/refs/heads/main/docs/assets/images/logo.png
 maintainers:
   - name: edu-diaz

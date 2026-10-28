@@ -1139,7 +1139,9 @@ spec:
                   type: object
                 type: array
               lastReconciledAt:
-                description: LastReconciledAt is when the last reconciliation completed.
+                description: |-
+                  LastReconciledAt is when the status was last written: on a change, and at
+                  least every half check interval while nothing changes.
                 format: date-time
                 type: string
               metadata:
@@ -1725,6 +1727,18 @@ rules:
   - apiGroups: [authorization.k8s.io]
     resources: [subjectaccessreviews]
     verbs: [create]
+  # The dashboard keeps one read-only copy of the delivery objects people
+  # read, filtered per person by the reviews above; it is granted in the
+  # dashboard's ClusterRole, so the operator holds it too.
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages, operations]
+    verbs: [get, list, watch]
+  # The dashboard lists the namespaces to ask in which ones a signed-in person
+  # may list Stages, so a namespace with Stages and no Pacto yet is shown. It
+  # learns only their names; the person's own RBAC decides what they read.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [list]
 ---
 # Source: pacto-operator/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1993,6 +2007,8 @@ spec:
               port: health
             initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           readinessProbe:
             httpGet:
               path: /readyz
@@ -2009,8 +2025,7 @@ spec:
             runAsUser: 65532
           resources:
             limits:
-              cpu: 500m
-              memory: 128Mi
+              memory: 256Mi
             requests:
-              cpu: 10m
-              memory: 64Mi
+              cpu: 100m
+              memory: 128Mi

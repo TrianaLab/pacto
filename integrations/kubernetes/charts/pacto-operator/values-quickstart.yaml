@@ -1,0 +1,117 @@
+# Quickstart profile: an evaluation install with a bundled registry (zot) and
+# a bundled identity provider (Dex), wired to the operator, the dashboard and
+# delivery. It ships inside the chart; install it into the namespace
+# pacto-operator-system:
+#
+#   helm pull oci://ghcr.io/trianalab/pacto/charts/pacto-operator --untar
+#   helm install pacto-operator ./pacto-operator \
+#     --namespace pacto-operator-system --create-namespace \
+#     -f pacto-operator/values-quickstart.yaml
+#
+# This profile is for evaluation. The registry speaks plain HTTP without
+# authentication. Dex speaks plain HTTP and keeps sessions in memory. The
+# recorder's signing key sits in a Secret the operator can read. For
+# production, use your own registry, identity provider and KMS or keyless
+# signing:
+# https://pacto.run/latest/integrations/kubernetes/installation/#quickstart-with-a-bundled-registry-and-sign-in
+
+# The registry host every component reaches zot at. It names the release
+# namespace, so a different namespace changes it in all three places below.
+insecureRegistries:
+  - pacto-zot.pacto-operator-system.svc:5000
+
+zot:
+  enabled: true
+  fullnameOverride: pacto-zot
+  service:
+    type: ClusterIP
+  # A StatefulSet with an 8Gi PersistentVolumeClaim from the default StorageClass.
+  persistence: true
+  pvc:
+    create: true
+    storage: 8Gi
+  mountConfig: true
+  # zot serves the OCI Referrers API natively, which the delivery recorder needs.
+  configFiles:
+    config.json: |-
+      {
+        "storage": { "rootDirectory": "/var/lib/registry" },
+        "http": { "address": "0.0.0.0", "port": "5000" },
+        "log": { "level": "info" }
+      }
+
+dex:
+  enabled: true
+  fullnameOverride: pacto-dex
+  # Memory storage needs no access to the Kubernetes API.
+  rbac:
+    create: false
+  # The chart generates this Secret (dashboard.auth.oidc.clientSecretRef below)
+  # at install and keeps it across upgrades. Read the password of the first
+  # user, admin@example.com, with:
+  #   kubectl -n pacto-operator-system get secret pacto-dashboard-oidc \
+  #     -o jsonpath='{.data.admin-password}' | base64 -d
+  envVars:
+    - name: PACTO_DASHBOARD_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef: {name: pacto-dashboard-oidc, key: client-secret}
+    - name: PACTO_ADMIN_PASSWORD_HASH
+      valueFrom:
+        secretKeyRef: {name: pacto-dashboard-oidc, key: admin-password-hash}
+  config:
+    # The dashboard and the browser both reach Dex at this URL: the dashboard
+    # through the Service, the browser through a port-forward and a hosts entry.
+    issuer: http://pacto-dex:5556/dex
+    storage:
+      type: memory
+    web:
+      http: 0.0.0.0:5556
+    oauth2:
+      skipApprovalScreen: true
+      responseTypes: [code]
+    enablePasswordDB: true
+    staticPasswords:
+      - email: admin@example.com
+        username: admin
+        userID: admin
+        hashFromEnv: PACTO_ADMIN_PASSWORD_HASH
+        groups: [pacto:people]
+    staticClients:
+      - id: pacto-dashboard
+        name: Pacto dashboard
+        secretEnv: PACTO_DASHBOARD_CLIENT_SECRET
+        redirectURIs: [http://localhost:3000/auth/callback]
+
+dashboard:
+  auth:
+    oidc:
+      issuerURL: http://pacto-dex:5556/dex
+      clientID: pacto-dashboard
+      clientSecretRef:
+        name: pacto-dashboard-oidc
+        key: client-secret
+      # The dashboard through `kubectl port-forward svc/pacto-dashboard 3000:3000`.
+      redirectURL: http://localhost:3000/auth/callback
+      extraScopes: [offline_access]
+      # The claim mapping an API server that trusts this Dex must use too.
+      usernameClaim: email
+      groupsClaim: groups
+    # Kubernetes trusts only an https issuer it is configured for, which no
+    # chart can set. Until it trusts one, sign in with a bearer token.
+    tokenLogin:
+      enabled: true
+
+delivery:
+  enabled: true
+  insecureRegistries:
+    - pacto-zot.pacto-operator-system.svc:5000
+  identities:
+    humanGroups: [pacto:people]
+  recorder:
+    enabled: true
+    streamsRepository: pacto-zot.pacto-operator-system.svc:5000/pacto/streams
+    signing:
+      ed25519:
+        secretName: pacto-recorder-key
+        generate: true
+      allowOperatorReadableKey: true

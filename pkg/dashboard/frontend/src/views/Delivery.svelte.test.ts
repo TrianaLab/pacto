@@ -79,16 +79,16 @@ beforeEach(() => {
 });
 
 describe('inbox', () => {
-  it("names the reader's teams, never the apiserver's system: groups", async () => {
-    fns.session.mockResolvedValue(shared({ caller: human(['team-checkout', 'system:authenticated']) }));
+  it('never names a system: group as one of the reader\'s teams', async () => {
+    fns.session.mockResolvedValue(shared({ caller: human(['team-orders', 'system:authenticated']) }));
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
-      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve', owners: ['team-checkout'] }] });
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve', owners: ['team-orders'], consumers: [] }] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
-    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 change waits for team-checkout to decide.');
+    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 change waits for team-orders to decide.');
+    expect(text(target)).not.toContain('system:');
     destroy();
   });
-
   it('shows each held change as one line, what breaks and for whom, and a Decide link', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [{ namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', frozenReason: 'Errored', verified: false, failed: false, frozen: true, autoHold: false, held: 0, actions: [] }],
       errored: [{ namespace: 'prod', name: 'e1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Concluded', outcome: 'Errored' }],
@@ -1162,7 +1162,7 @@ describe('history and published', () => {
     await settle();
     expect([...target.querySelectorAll('th')].map((t) => t.textContent)).toContain('Decided by');
     const decided = [...target.querySelectorAll('[data-testid="history-decided"]')].map((e) => text(e as HTMLElement));
-    expect(decided).toEqual(['No person', 'Carol https://idp#carol ⧉ Approve', '–', 'Waiting for a person', 'dave Reject']);
+    expect(decided).toEqual(['No person', 'Carol ⧉ Approve', '–', 'Waiting for a person', 'dave Reject']);
     // Each decider on a line of their own, never glued to the next one.
     expect(target.querySelectorAll('[data-testid="history-decided"] li').length).toBe(2);
     // Whether the signatures verified is said once per history, not on every row.
@@ -1522,7 +1522,7 @@ describe('history blame and undo', () => {
     await settle();
     const prod = target.querySelector('section[aria-label="History of prod/pay"]') as HTMLElement;
     const rows = [...prod.querySelectorAll('tbody tr')].map((r) => [...r.querySelectorAll('td')].map((td) => text(td as HTMLElement).trim()));
-    expect(rows[0].slice(1, 6)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz https://idp#carol ⧉ Person', 'The person who asked', 'Succeeded', '2026-10-21 11:00 UTC']);
+    expect(rows[0].slice(1, 6)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz ⧉ Person', 'The person who asked', 'Succeeded', '2026-10-21 11:00 UTC']);
     expect(rows[1].slice(1, 6)).toEqual(['– → 2.4.0', 'agents/pay-agent Agent', 'No person', 'Failed', 'soon']);
     expect(text(prod)).toContain('Runs 3.0.0 222222222222');
     // A service account reads as namespace/name; its username is on hover.
@@ -1537,8 +1537,8 @@ describe('history blame and undo', () => {
     expect(fns.blame).toHaveBeenCalledWith('prod', 'pay');
     const panel = target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
     expect(text(panel)).toContain('Who put 3.0.0 here');
-    expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by agents/pay-agent Agent, for erin https://idp#erin ⧉, from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
-    expect(text(panel)).toContain('Approve by Carol Diaz https://idp#carol ⧉');
+    expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by agents/pay-agent Agent, for erin ⧉, from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
+    expect(text(panel)).toContain('Approve by Carol Diaz ⧉');
     expect(text(panel.querySelector('[data-testid="blame-verdicts"]') as HTMLElement)).toContain('pacto.diff');
     expect(text(panel.querySelector('[data-testid="blame-source"]') as HTMLElement).trim()).toBe('Read from its signed record. The newest change that moved the Stage to sha256:222222222222.');
     panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

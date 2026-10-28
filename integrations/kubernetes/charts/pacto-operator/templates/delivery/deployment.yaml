@@ -40,10 +40,14 @@ spec:
             - promoter
             - --leader-elect={{ .Values.delivery.promoter.leaderElect }}
             - --poll={{ .Values.delivery.promoter.poll }}
+            - --resync={{ .Values.delivery.promoter.resync }}
             - --workers={{ .Values.delivery.promoter.workers }}
             - --auth-freshness={{ .Values.delivery.promoter.authFreshness }}
             - --controller-user={{ include "pacto-operator.delivery.controllerUser" . }}
             - --identities=/etc/pacto/identities/policy.json
+            {{- if .Values.delivery.argocd.enabled }}
+            - --argocd
+            {{- end }}
             {{- if .Values.delivery.admissionPolicies.enabled }}
             {{- $fullname := include "pacto-operator.delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}

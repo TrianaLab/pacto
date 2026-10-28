@@ -538,11 +538,11 @@ func TestDeliveryLists(t *testing.T) {
 	if len(prod) != 1 || prod[0].Spec.Service.Name != "payments" {
 		t.Fatalf("one namespace: %+v", prod)
 	}
-	if ops, err := d.Operations(ctx, "prod"); err != nil || len(ops) != 1 {
+	if ops, err := d.OperationsNotSucceeded(ctx, "prod"); err != nil || len(ops) != 1 {
 		t.Fatalf("operations: %+v %v", ops, err)
 	}
 	c.PrependReactor("list", "operations", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("forbidden") })
-	wantErrContaining(t, func() error { _, err := d.Operations(ctx, ""); return err }(), "every namespace")
+	wantErrContaining(t, func() error { _, err := d.OperationsNotSucceeded(ctx, ""); return err }(), "every namespace")
 }
 
 func TestDeliveryDescribe(t *testing.T) {
@@ -559,7 +559,7 @@ func TestDeliveryDescribe(t *testing.T) {
 	}
 }
 
-func TestDeliveryCan(t *testing.T) {
+func TestDeliveryCanByNamespace(t *testing.T) {
 	d, c, _ := deliveryFixture(t, "carol", []string{"team-orders"}, nil)
 	var asked map[string]any
 	c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
@@ -582,5 +582,33 @@ func TestDeliveryCan(t *testing.T) {
 	})
 	if _, err := d.Can(context.Background(), "create", "operations", "x"); err == nil {
 		t.Fatal("want the review's error")
+	}
+}
+
+// TestDeliveryCan: the caller's own SelfSubjectAccessReview, asked about the
+// delivery group, answers; a failed review is an error, never a yes.
+func TestDeliveryCan(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "alice", nil, nil)
+	ctx := context.Background()
+	var asked map[string]any
+	c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		obj := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
+		asked, _, _ = unstructured.NestedMap(obj.Object, "spec", "resourceAttributes")
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": asked["verb"] == "delete"}}}, nil
+	})
+	if ok, err := d.Can(ctx, "delete", "operations", "prod"); err != nil || !ok {
+		t.Fatalf("delete: %v %v", ok, err)
+	}
+	if asked["group"] != "delivery.pacto.trianalab.io" || asked["resource"] != "operations" || asked["namespace"] != "prod" {
+		t.Fatalf("asked %v", asked)
+	}
+	if ok, _ := d.Can(ctx, "create", "operations", "prod"); ok {
+		t.Fatal("create was refused")
+	}
+	c.PrependReactor("create", "selfsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("unauthorized")
+	})
+	if ok, err := d.Can(ctx, "delete", "operations", "prod"); err == nil || ok {
+		t.Fatal("a failed review is an error")
 	}
 }

@@ -37,6 +37,7 @@ jobs:
       release: ${{ steps.filter.outputs.release }}
       e2e: ${{ steps.filter.outputs.e2e }}
       delivery: ${{ steps.filter.outputs.delivery }}
+      perf: ${{ steps.filter.outputs.perf }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -206,6 +207,26 @@ jobs:
               - 'scripts/ci/kind-run.sh'
               - 'tests/acceptance/kind/fixtures/delivery-demo/**'
               - '.github/workflows/delivery-demo.yml'
+            # perf-envtest measures the dashboard's delivery and fleet views and
+            # the promoter against a real apiserver, so it runs for changes to
+            # them, to the operator and to the harness (tests/perf/README.md).
+            perf:
+              - 'pkg/dashboard/**'
+              - 'pkg/delivery/**'
+              - 'pkg/fleet/**'
+              - 'internal/app/**'
+              - 'internal/authn/**'
+              - 'internal/cli/dashboard*.go'
+              - 'internal/cli/perf_*.go'
+              - 'integrations/kubernetes/api/**'
+              - 'integrations/kubernetes/cmd/**'
+              - 'integrations/kubernetes/internal/**'
+              - 'integrations/kubernetes/go.mod'
+              - 'tests/perf/**'
+              - 'go.work'
+              - 'go.mod'
+              - 'Makefile'
+              - 'ci.mk'
 
   ci-static:
     needs: changes
@@ -315,6 +336,21 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make ci-e2e-envtest
+
+  # The dashboard's delivery views and the promoter against a real apiserver,
+  # with the request and latency budgets of tests/perf/README.md. CI runs the
+  # 500-Stage pass and the promoter burst (PERF_QUICK, set by the target);
+  # the 2,000-Stage pass takes about 12 minutes more and stays local.
+  ci-perf-envtest:
+    needs: changes
+    if: needs.changes.outputs.perf == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/ci
+        with:
+          target: ci-perf-envtest
 
   ci-oci:
     needs: changes
@@ -702,6 +738,7 @@ jobs:
       - ci-dashboard
       - ci-integration-kubernetes
       - ci-e2e-envtest
+      - ci-perf-envtest
       - ci-oci
       - artifact-drift
       - operator-build

@@ -744,6 +744,10 @@
               "type": "string",
               "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"
             },
+            "resync": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"
+            },
             "workers": {
               "type": "integer",
               "minimum": 1
@@ -812,6 +816,9 @@
                     "key": {
                       "type": "string",
                       "minLength": 1
+                    },
+                    "generate": {
+                      "type": "boolean"
                     }
                   }
                 },
@@ -1157,6 +1164,24 @@
         },
         "podLabels": {
           "$ref": "#/$defs/stringMap"
+        }
+      }
+    },
+    "zot": {
+      "description": "The bundled zot registry. Every key besides enabled passes through to the upstream chart.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "dex": {
+      "description": "The bundled Dex identity provider. Every key besides enabled passes through to the upstream chart.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
         }
       }
     }

@@ -859,6 +859,9 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.stage
+    - jsonPath: .status.outcome
     served: true
     storage: true
     subresources:

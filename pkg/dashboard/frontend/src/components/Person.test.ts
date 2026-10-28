@@ -12,9 +12,11 @@ const text = (props: Record<string, unknown>) => {
 };
 
 describe('Person', () => {
-  it('prints the verifiable identity next to a self-asserted name, not in a tooltip', () => {
-    expect(text({ user: 'https://idp#u1', people: { 'https://idp#u1': 'Ann' } })).toBe('Ann https://idp#u1 ⧉');
-    expect(document.body.querySelector('[title]:not(.copyable)')).toBeNull();
+  it('names a person and keeps the opaque subject to the tooltip and the copy button', () => {
+    const user = 'https://dex.example/dex#Cgd1c2VyLTAxEgVsb2NhbA';
+    expect(text({ user, people: { [user]: 'Ann' } })?.replace(/\s+/g, ' ')).toBe('Ann ⧉');
+    expect(document.body.querySelector('.copyable')?.getAttribute('title')).toBe(user);
+    expect(document.body.querySelector('button')?.getAttribute('aria-label')).toBe('Copy username');
   });
   it('prints a plain username once', () => {
     expect(text({ user: 'kind-admin' })).toBe('kind-admin');

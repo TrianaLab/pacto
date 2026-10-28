@@ -19,7 +19,7 @@ ci-test: envtest setup-envtest
 	fi
 	@echo "    total coverage: 100.0%"
 
-ci-chart: crd-sync-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check
+ci-chart: crd-sync-check helm-deps-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check
 
 # The chart renders copies of the generated CRDs. helm-golden cannot see a
 # stale delivery copy, because delivery is off by default.
@@ -49,6 +49,16 @@ ci-lint: golangci-lint
 	@echo "==> Running linter..."
 	GOLANGCI_LINT_CACHE="$(LOCALBIN)/.golangci-lint-cache" "$(GOLANGCI_LINT)" run
 
+# zot and Dex are optional dependencies, vendored in charts/ and pinned by
+# Chart.lock so the chart lints, tests and packages offline. Refresh them with
+# `helm dependency update charts/pacto-operator` after a version bump.
+.PHONY: helm-deps-check
+helm-deps-check: ## Check the vendored dependency archives match Chart.yaml.
+	@echo "==> Checking the vendored chart dependencies..."
+	@out=$$(helm dependency list charts/pacto-operator); echo "$$out"; \
+	! echo "$$out" | awk 'NR>1 && NF && $$NF!="ok"' | grep -q . || \
+		{ echo "Error: a vendored dependency is missing or stale: run 'helm dependency update charts/pacto-operator' and commit." >&2; exit 1; }
+
 .PHONY: helm-template
 helm-template: ## Render chart templates and validate output.
 	@echo "==> Rendering chart templates..."
@@ -64,6 +74,9 @@ helm-template: ## Render chart templates and validate output.
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy --debug > /dev/null
 	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
 		--set delivery.admissionPolicies.enabled=false --set delivery.admissionPolicies.allowUnguarded=true > /dev/null
+	@echo "==> Rendering the quickstart profile (bundled zot and Dex)..."
+	helm template pacto-operator charts/pacto-operator -n pacto-operator-system -f charts/pacto-operator/values-quickstart.yaml \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null
 	@echo "==> Delivery refuses to render with no humanGroups by accident..."
 	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null 2>&1
@@ -110,7 +123,7 @@ helm-schema: ## Validate each chart's values.yaml against its values.schema.json
 	@for c in pacto-operator; do \
 		python3 -c "import json; json.load(open('charts/$$c/values.schema.json'))" || \
 			{ echo "Error: charts/$$c/values.schema.json is not valid JSON." >&2; exit 1; }; \
-		check-jsonschema --schemafile charts/$$c/values.schema.json charts/$$c/values.yaml || exit 1; \
+		check-jsonschema --schemafile charts/$$c/values.schema.json charts/$$c/values*.yaml || exit 1; \
 	done
 
 .PHONY: helm-docs-check

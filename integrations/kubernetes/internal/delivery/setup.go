@@ -8,12 +8,15 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"os"
 	"strings"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,13 +44,90 @@ const approvalOperationUID = "spec.operationUID"
 
 func approvalUID(obj client.Object) []string { return []string{obj.(*dv1.Approval).Spec.OperationUID} }
 
-// SetupWithManager registers the stage reconciler. An Operation wakes its Stage.
+// SetupWithManager registers the stage reconciler. A Stage reconciles when
+// something it reads changes: its operations, its upstream Stage, its apply
+// and candidate OCIRepositories, the Kustomizations that apply them and, when
+// Cluster.CacheApplications, its Application. A Flux kind whose CRD is not
+// installed when the promoter starts is not watched. Resync reconciles every
+// Stage anyway, for what no watch covers.
 func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.seen = &sync.Map{}
-	return ctrl.NewControllerManagedBy(mgr).Named("delivery-stage").For(&dv1.Stage{}).
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &dv1.Stage{}, stageRefs, stageRefKeys); err != nil {
+		return err
+	}
+	b := ctrl.NewControllerManagedBy(mgr).Named("delivery-stage").For(&dv1.Stage{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: r.Workers}).
 		Watches(&dv1.Operation{}, handler.EnqueueRequestsFromMapFunc(operationToStage)).
-		Complete(r)
+		Watches(&dv1.Stage{}, r.mapRefs(func(o client.Object) []string { return []string{refKey(o.GetNamespace(), "Stage", o.GetName())} }))
+	watch := func(gvk schema.GroupVersionKind, keys func(*unstructured.Unstructured) []string) {
+		if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+			// ponytail: a Flux installed later is read on Resync until the promoter restarts.
+			mgr.GetLogger().Info("not watching a kind the cluster does not serve", "kind", gvk.Kind, "reason", err.Error())
+			return
+		}
+		u := &unstructured.Unstructured{}
+		u.SetGroupVersionKind(gvk)
+		b.Watches(u, r.mapRefs(func(o client.Object) []string { return keys(o.(*unstructured.Unstructured)) }))
+	}
+	watch(gvkOCIRepository, func(u *unstructured.Unstructured) []string {
+		return []string{refKey(u.GetNamespace(), kindOCIRepository, u.GetName())}
+	})
+	watch(schema.GroupVersionKind{Group: gvkKustomization.Group, Version: gvkKustomization.Version, Kind: "Kustomization"},
+		func(u *unstructured.Unstructured) []string {
+			kind, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "kind")
+			name, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "name")
+			srcNS, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "namespace")
+			if kind != kindOCIRepository {
+				return nil
+			}
+			return []string{refKey(cmp.Or(srcNS, u.GetNamespace()), kindOCIRepository, name)}
+		})
+	if r.Cluster.CacheApplications {
+		watch(gvkApplication, func(u *unstructured.Unstructured) []string {
+			return []string{refKey(u.GetNamespace(), delivery.ApplierArgoCD, u.GetName())}
+		})
+	}
+	return b.Complete(r)
+}
+
+const kindOCIRepository = "OCIRepository"
+
+// stageRefs indexes Stages by the objects they read (refKey).
+const stageRefs = "delivery.refs"
+
+func refKey(ns, kind, name string) string { return ns + "/" + kind + "/" + name }
+
+func stageRefKeys(obj client.Object) []string {
+	s := obj.(*dv1.Stage)
+	kind := delivery.ApplierArgoCD
+	if s.Spec.ApplyRef.Kind != delivery.ApplierArgoCD {
+		kind = kindOCIRepository
+	}
+	keys := []string{refKey(s.Namespace, kind, s.Spec.ApplyRef.Name)}
+	if c := s.Spec.Candidates.OCIRepositoryRef; c != nil {
+		keys = append(keys, refKey(s.Namespace, kindOCIRepository, c.Name))
+	}
+	if up := s.Spec.Candidates.UpstreamStage; up != nil {
+		keys = append(keys, refKey(cmp.Or(up.Namespace, s.Namespace), "Stage", up.Name))
+	}
+	return keys
+}
+
+// mapRefs wakes every Stage that reads one of the objects keys names.
+func (r *StageReconciler) mapRefs(keys func(client.Object) []string) handler.EventHandler {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+		var out []reconcile.Request
+		for _, k := range keys(obj) {
+			list := &dv1.StageList{}
+			if err := r.List(ctx, list, client.MatchingFields{stageRefs: k}); err != nil {
+				continue // ponytail: a failed cache read waits for Resync
+			}
+			for _, s := range list.Items {
+				out = append(out, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: s.Namespace, Name: s.Name}})
+			}
+		}
+		return out
+	})
 }
 
 func approvalToOperation(_ context.Context, obj client.Object) []reconcile.Request {

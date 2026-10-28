@@ -93,6 +93,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.promoter.leaderElect` | `true` | Elect one active promoter |
 | `delivery.promoter.poll` | `3s` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
 | `delivery.promoter.registryCredentials.secretName` | `""` | A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy repositories, for a private registry. Without it the promoter reads only public ones. |
+| `delivery.promoter.resync` | `1m` | How often a Stage is looked at when nothing it watches changed (a Go duration). A change to its operations, upstream Stage, OCIRepositories, Kustomizations or Application wakes it at once |
 | `delivery.promoter.upstreamTrust` | `""` | The recorder keys of other clusters, as a trust config in YAML (keys per stream glob). A Stage with `candidates.upstreamRecords` promotes only on records one of these keys signed for that stream; without it such a Stage is not Ready. Public keys only. |
 | `delivery.promoter.workers` | `4` | How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest |
 | `delivery.recorder.cdeventsSink` | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |
@@ -103,14 +104,14 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.recorder.operationTTL` | `168h` | Keep a recorded operation this long after it concluded, then delete it: its record holds what happened. The operation a Stage runs is never deleted. `0s` keeps them all (a Go duration). |
 | `delivery.recorder.poll` | `30s` | How long a registry or signer failure backs off (a Go duration) |
 | `delivery.recorder.registryCredentials.secretName` | `""` | A `kubernetes.io/dockerconfigjson` Secret with push access to the streams, apply and contract repositories. Only the recorder mounts it. |
-| `delivery.recorder.resources.limits.cpu` | `500m` | CPU limit |
-| `delivery.recorder.resources.limits.memory` | `256Mi` | Memory limit |
-| `delivery.recorder.resources.requests.cpu` | `10m` | CPU request |
-| `delivery.recorder.resources.requests.memory` | `64Mi` | Memory request |
+| `delivery.recorder.resources.limits.memory` | `256Mi` | Memory limit of the recorder |
+| `delivery.recorder.resources.requests.cpu` | `50m` | CPU request of the recorder. Signing and pushing a record is the costly part. |
+| `delivery.recorder.resources.requests.memory` | `64Mi` | Memory request of the recorder |
 | `delivery.recorder.serviceAccount.annotations` | `{}` | Annotations to add to the recorder's ServiceAccount (workload identity for KMS or keyless) |
 | `delivery.recorder.serviceAccount.create` | `true` | Create a ServiceAccount for the recorder |
 | `delivery.recorder.serviceAccount.name` | `""` | Name override (defaults to `<fullname>-delivery-recorder`) |
 | `delivery.recorder.signing.allowOperatorReadableKey` | `false` | Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so it can read this key too and the recorder is not its only holder. The chart refuses `ed25519.secretName` unless this is true. Prefer KMS or keyless signing |
+| `delivery.recorder.signing.ed25519.generate` | `false` | Generate that Secret at install, with a new Ed25519 key kept across upgrades (for evaluation) |
 | `delivery.recorder.signing.ed25519.key` | `key.pem` | The key in that Secret |
 | `delivery.recorder.signing.ed25519.secretName` | `""` | A Secret holding a PKCS#8 PEM Ed25519 private key (for kind and tests) |
 | `delivery.recorder.signing.keyless.enabled` | `false` | Sign keyless with a Fulcio certificate for the recorder's workload identity, presented as a projected service account token for the `sigstore` audience. Rekor upload is off; a timestamp authority dates each signature. |
@@ -123,15 +124,15 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.recorder.streamsRepository` | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
 | `delivery.recorder.trust` | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one, and set `untilSeq` and `untilRecord` on a leaked key to revoke it after the last record it signed. The recorder's own key is always trusted. A record no listed key signed is skipped as untrusted. |
 | `delivery.replicaCount` | `1` | Number of promoter replicas. Only the elected leader acts. |
-| `delivery.resources.limits.cpu` | `500m` | CPU limit |
-| `delivery.resources.limits.memory` | `256Mi` | Memory limit |
-| `delivery.resources.requests.cpu` | `10m` | CPU request |
-| `delivery.resources.requests.memory` | `64Mi` | Memory request |
+| `delivery.resources.limits.memory` | `256Mi` | Memory limit of the promoter |
+| `delivery.resources.requests.cpu` | `100m` | CPU request of the promoter. It looks at every waiting operation once per `promoter.poll`, so raise it with the number of Stages. |
+| `delivery.resources.requests.memory` | `128Mi` | Memory request of the promoter |
 | `delivery.securityContext` | `{}` | Container securityContext of the promoter and the recorder (defaults to `global.securityContext`) |
 | `delivery.serviceAccount.annotations` | `{}` | Annotations to add to the ServiceAccount |
 | `delivery.serviceAccount.create` | `true` | Create a ServiceAccount for the promoter |
 | `delivery.serviceAccount.name` | `""` | Name override (defaults to `<fullname>-delivery`) |
 | `delivery.tolerations` | `[]` | Tolerations for the promoter pod |
+| `dex.enabled` | `false` | Install [Dex](https://dexidp.io) from its official chart as the dashboard's OpenID Connect issuer. The chart then generates the dashboard's client secret into the Secret `dashboard.auth.oidc.clientSecretRef.name` names, with the keys `client-secret`, `admin-password` and `admin-password-hash`, and keeps it across upgrades. Its values are the upstream chart's |
 | `evidence.enabled` | `false` | Enable the operator-managed Evidence Server deployment. Disabled by default. When enabled the operator reconciles a SEPARATE Evidence Server Deployment and an internal Service; the image is the same runtime image as the dashboard and is not user-configurable. The Evidence Server is single- writer, so its replica count is fixed at one. |
 | `evidence.httpRoute.enabled` | `false` | Enable Gateway API HTTPRoute for the Evidence Server. |
 | `evidence.httpRoute.hostnames` | `[]` | Hostnames for the HTTPRoute. |
@@ -189,13 +190,13 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `podLabels` | `{}` | Labels to add to the controller pod |
 | `podSecurityContext` | `{}` | Pod securityContext of the controller (defaults to `global.podSecurityContext`) |
 | `replicaCount` | `1` | Number of controller replicas |
-| `resources.limits.cpu` | `500m` | CPU limit |
-| `resources.limits.memory` | `128Mi` | Memory limit |
-| `resources.requests.cpu` | `10m` | CPU request |
-| `resources.requests.memory` | `64Mi` | Memory request |
+| `resources.limits.memory` | `256Mi` | Memory limit of the controller. It caches every Deployment, StatefulSet, ReplicaSet, Job, CronJob and Service it targets. |
+| `resources.requests.cpu` | `100m` | CPU request of the controller |
+| `resources.requests.memory` | `128Mi` | Memory request of the controller |
 | `securityContext` | `{}` | Container securityContext of the controller (defaults to `global.securityContext`) |
 | `serviceAccount.annotations` | `{}` | Annotations to add to the ServiceAccount |
 | `serviceAccount.automount` | `true` | Automount API credentials |
 | `serviceAccount.create` | `true` | Create a ServiceAccount for the controller |
 | `serviceAccount.name` | `""` | Name override (defaults to fullname) |
 | `tolerations` | `[]` | Tolerations for the controller pod |
+| `zot.enabled` | `false` | Install [zot](https://zotregistry.dev) from its official chart as an in-cluster OCI registry with native referrers. Its values are the upstream chart's |

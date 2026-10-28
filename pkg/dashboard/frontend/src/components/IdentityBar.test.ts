@@ -36,15 +36,15 @@ function show(session: unknown, C: any = IdentityBar) {
   return c.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 }
 const bar = () => document.body.querySelector('[data-testid="identity"]');
-const human = { user: 'https://idp#carol', class: 'human', groups: ['team-checkout', 'team-orders'] };
+const human = { user: 'https://idp#carol', class: 'human', groups: ['team-checkout', 'system:authenticated', 'team-orders'] };
 
 describe('IdentityBar', () => {
   it('names the signed-in person by the cluster username, with their groups and Sign out', () => {
     const t = show({ mode: 'shared', login: true, signedIn: true, name: 'Carol Diaz', caller: human });
-    expect(t).toContain('Signed in as Carol Diaz https://idp#carol ⧉, in team-checkout, team-orders.');
+    expect(t).toContain('Signed in as Carol Diaz ⧉, in team-checkout, team-orders.');
     expect(bar()?.querySelector('[data-testid="sign-out"]')?.textContent).toBe('Sign out');
-    // The verifiable username is printed, never only in a tooltip.
-    expect(bar()?.querySelector('[title]:not(.copyable)')).toBeNull();
+    // The username is in the copy button's tooltip, not printed next to the name.
+    expect(bar()?.querySelector('.copyable')?.getAttribute('title')).toBe('https://idp#carol');
   });
 
   it('says a person signed in with a token', () => {
@@ -58,7 +58,7 @@ describe('IdentityBar', () => {
 
   it('falls back to the ID token as the cluster maps it when delivery has not asked the apiserver', () => {
     const t = show({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#dave', groups: ['team-shop'] });
-    expect(t).toContain('Signed in as dave https://idp#dave ⧉, in team-shop.');
+    expect(t).toContain('Signed in as dave ⧉, in team-shop.');
   });
 
   it('does not name a person from the ID token name alone', () => {
@@ -71,7 +71,7 @@ describe('IdentityBar', () => {
   });
 
   it('says a local dashboard acts as the kubeconfig user', () => {
-    expect(show({ mode: 'local', login: false, signedIn: true, caller: human })).toContain('Acting as carol https://idp#carol ⧉ from this machine.');
+    expect(show({ mode: 'local', login: false, signedIn: true, caller: human })).toContain('Acting as carol ⧉ from this machine.');
     unmount(app!); app = null; document.body.innerHTML = '';
     expect(show({ mode: 'local', login: false, signedIn: false })).toContain('Acting as your kubeconfig user from this machine.');
   });

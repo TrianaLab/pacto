@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -97,13 +98,17 @@ func (d *Delivery) verifier() delivery.Verifier {
 }
 
 // history reads a Stage's history and returns, with it, the records and the
-// live operations it was built from.
-func (d *Delivery) history(ctx context.Context, ns, stage string) (*delivery.History, *streamRead, []delivery.OperationObject, error) {
-	st, err := d.Stage(ctx, ns, stage)
-	if err != nil {
-		return nil, nil, nil, err
+// live operations it was built from. st is the Stage when the caller already
+// read it; nil reads it.
+func (d *Delivery) history(ctx context.Context, ns, stage string, st *delivery.StageObject) (*delivery.History, *streamRead, []delivery.OperationObject, error) {
+	if st == nil {
+		var err error
+		if st, err = d.Stage(ctx, ns, stage); err != nil {
+			return nil, nil, nil, err
+		}
 	}
-	ops, err := d.Operations(ctx, ns)
+	ops, err := d.operationsWhere(ctx, ns, fields.OneTermEqualSelector("spec.stage", stage),
+		func(o delivery.OperationObject) bool { return o.Spec.Stage == stage })
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -119,7 +124,7 @@ func (d *Delivery) history(ctx context.Context, ns, stage string) (*delivery.His
 // Blame says who put digest in place on a Stage, by default the version it
 // runs now: the newest change that moved the Stage to it.
 func (d *Delivery) Blame(ctx context.Context, ns, stage, digest string) (*delivery.Blame, error) {
-	h, r, ops, err := d.history(ctx, ns, stage)
+	h, r, ops, err := d.history(ctx, ns, stage, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +177,7 @@ func (d *Delivery) undoTarget(ctx context.Context, ns, name, stage string) (*del
 
 // recordedOperation rebuilds what undo needs of an operation from its record.
 func (d *Delivery) recordedOperation(ctx context.Context, ns, stage, name string) (*delivery.OperationObject, error) {
-	_, r, _, err := d.history(ctx, ns, stage)
+	_, r, _, err := d.history(ctx, ns, stage, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +429,7 @@ func (d *Delivery) namespaceStages(ctx context.Context, ns string, read *atomic.
 // Histories reads the history of each of stages.
 func (d *Delivery) Histories(ctx context.Context, stages []delivery.StageObject) *delivery.Histories {
 	hs, unreadable := audit(ctx, stages, func(ctx context.Context, s delivery.StageObject) (*delivery.History, error) {
-		return d.History(ctx, s.Metadata.Namespace, s.Metadata.Name)
+		return d.HistoryOf(ctx, s)
 	})
 	out := &delivery.Histories{AsOf: d.Now().UTC().Format(time.RFC3339), Completeness: "complete", Unreadable: unreadable,
 		Histories: []delivery.StageHistory{}}

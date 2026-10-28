@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -168,6 +170,8 @@ func TestDashboardIdentityFactory(t *testing.T) {
 	_, err = shared.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
 	expect(t, err != nil, "a client error is passed on")
 	expect(t, got.BearerToken == "id-token" && got.Host == "https://k", "shared mode builds the client from the person's token: %+v", got)
+	expect(t, got.QPS == callerQPS && got.Burst == callerQPS && got.WrapTransport != nil,
+		"one request's reads are not throttled to client-go's default and go through the read cache: %+v", got)
 }
 
 func isRefusal(err error, status int) bool {
@@ -218,8 +222,10 @@ func TestDashDeliveryAdapterReads(t *testing.T) {
 	expect(t, err == nil && op.Status.Phase == delivery.PhaseHeld, "get %v %v", op, err)
 	e, err := api.Explain(ctx, "prod", "held")
 	expect(t, err == nil && e.Operation == "prod/held", "explain %v %v", e, err)
-	_, err = api.History(ctx, "prod", "payments-prod")
+	_, err = api.History(ctx, "prod", "payments-prod", nil)
 	expect(t, err == nil, "history %v", err)
+	h, err := api.History(ctx, "prod", "payments-prod", &stages[0])
+	expect(t, err == nil && h.Stage.Name == "payments-prod", "history of the listed Stage %v %v", h, err)
 	st, err := api.Stage(ctx, "prod", "payments-prod")
 	expect(t, err == nil && st.Metadata.Name == "payments-prod", "stage %v %v", st, err)
 	b, err := api.Blame(ctx, "prod", "payments-prod", "")
@@ -409,4 +415,69 @@ func TestClusterReview(t *testing.T) {
 	if err != nil || !ok {
 		t.Errorf("review through the cluster: %v %v", ok, err)
 	}
+}
+
+// StageNamespaces: the namespaces the dashboard lists where the caller's own
+// access review allows listing Stages, kept a minute; a dashboard that may not
+// list namespaces says it cannot tell.
+func TestDashDeliveryStageNamespaces(t *testing.T) {
+	id, _ := localAPI(t)
+	var reviews atomic.Int32
+	var nsErr error
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) {
+		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+			map[schema.GroupVersionResource]string{gvrNamespaces: "NamespaceList"})
+		c.PrependReactor("list", "namespaces", func(k8stesting.Action) (bool, runtime.Object, error) {
+			l := &unstructured.UnstructuredList{}
+			for _, n := range []string{"team-orders", "kube-system", "prod"} {
+				l.Items = append(l.Items, unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"name": n}}})
+			}
+			if nsErr != nil {
+				return true, nil, nsErr
+			}
+			return true, l, nil
+		})
+		c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			reviews.Add(1)
+			attrs, _, _ := unstructured.NestedMap(a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object, "spec", "resourceAttributes")
+			ok := attrs["verb"] == "list" && attrs["resource"] == "stages" && attrs["namespace"] != "kube-system"
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": ok}}}, nil
+		})
+		return c, nil
+	}
+	api, err := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, err == nil, "delivery: %v", err)
+	ctx := context.Background()
+	got, err := api.StageNamespaces(ctx)
+	expect(t, err == nil && strings.Join(got, ",") == "prod,team-orders", "stage namespaces %v %v", got, err)
+	ok, err := api.Can(ctx, "list", "stages", "kube-system")
+	expect(t, err == nil && !ok, "can %v %v", ok, err)
+	n := reviews.Load()
+	got, _ = api.StageNamespaces(ctx)
+	expect(t, reviews.Load() == n && len(got) == 2, "kept a minute: %d reviews, %v", reviews.Load()-n, got)
+	id.nsAt, id.stageNS = time.Time{}, map[string]stageNamespaces{}
+	nsErr = apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "", errors.New("no"))
+	got, err = api.StageNamespaces(ctx)
+	expect(t, err == nil && got == nil, "may not list namespaces: %v %v", got, err)
+	nsErr = errors.New("down")
+	_, err = api.StageNamespaces(ctx)
+	expect(t, err != nil, "a failed namespace list is an error")
+
+	// A full table starts over; a failed review is an error, never "none".
+	nsErr, id.stageNS = nil, map[string]stageNamespaces{}
+	for i := range maxCallers {
+		id.stageNS[strconv.Itoa(i)] = stageNamespaces{}
+	}
+	_, err = api.StageNamespaces(ctx)
+	expect(t, err == nil && len(id.stageNS) == 1, "a full table starts over: %d %v", len(id.stageNS), err)
+	id.stageNS = map[string]stageNamespaces{}
+	api.(dashDelivery).d.Dynamic.(*dynamicfake.FakeDynamicClient).PrependReactor("create", "selfsubjectaccessreviews",
+		func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("review down") })
+	_, err = api.StageNamespaces(ctx)
+	expect(t, err != nil, "a failed review is an error")
+
+	id.nsAt = time.Time{}
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("no config") }
+	_, err = api.StageNamespaces(ctx)
+	expect(t, err != nil, "a client that cannot be built is an error")
 }

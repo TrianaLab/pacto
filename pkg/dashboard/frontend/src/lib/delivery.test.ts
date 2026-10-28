@@ -3,7 +3,7 @@ import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel, personLabel, signIn, hostSignsIn,
-  verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
+  verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS, teamGroups,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -308,5 +308,12 @@ describe('blockerReason', () => {
     expect(blockerReason('simulated: incident for aml-media.', 'aml-media')).toBe('simulated: incident.');
     expect(blockerReason('a release failed here', 'orders')).toBe('a release failed here');
     expect(blockerReason('incident for orders-api', 'orders')).toBe('incident for orders-api');
+  });
+});
+
+describe('teamGroups', () => {
+  it('leaves out Kubernetes system: groups, which name no team', () => {
+    expect(teamGroups(['team-orders', 'system:authenticated', 'system:masters'])).toEqual(['team-orders']);
+    expect(teamGroups(undefined)).toEqual([]);
   });
 });

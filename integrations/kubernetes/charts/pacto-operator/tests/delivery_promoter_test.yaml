@@ -22,6 +22,7 @@ tests:
             - promoter
             - --leader-elect=true
             - --poll=3s
+            - --resync=1m
             - --workers=4
             - --auth-freshness=15m
             - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-operator-delivery
@@ -37,6 +38,15 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --admission-policies=RELEASE-NAME-pacto-operator-delivery-operation,RELEASE-NAME-pacto-operator-delivery-cancel,RELEASE-NAME-pacto-operator-delivery-approval,RELEASE-NAME-pacto-operator-delivery-pointer,RELEASE-NAME-pacto-operator-delivery-applier,RELEASE-NAME-pacto-operator-delivery-promoter-writes,RELEASE-NAME-pacto-operator-delivery-status,RELEASE-NAME-pacto-operator-delivery-pointer-argocd,RELEASE-NAME-pacto-operator-delivery-promoter-writes-argocd,RELEASE-NAME-pacto-operator-delivery-records
+
+  - it: watches Argo CD Applications only when Stages may apply through them
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.argocd.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --argocd
 
   - it: names no admission policies when they are off on purpose
     template: templates/delivery/deployment.yaml

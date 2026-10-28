@@ -18,20 +18,22 @@ import (
 type DeliveryAPI interface {
 	WhoAmI(ctx context.Context) (delivery.Caller, error)
 	// Stages and Operations list one namespace, or all of them for "".
+	// Operations may leave out those that concluded Succeeded: no view reads
+	// them, and on a cluster that has run delivery a while they are nearly
+	// all of them. A host may share what they return with other requests,
+	// so a view reads it and never changes it.
 	Stages(ctx context.Context, namespace string) ([]delivery.StageObject, error)
 	Operations(ctx context.Context, namespace string) ([]delivery.OperationObject, error)
 	Get(ctx context.Context, namespace, name string) (*delivery.OperationObject, error)
 	Stage(ctx context.Context, namespace, name string) (*delivery.StageObject, error)
 	Explain(ctx context.Context, namespace, name string) (*delivery.Explanation, error)
-	History(ctx context.Context, namespace, stage string) (*delivery.History, error)
+	// History reads a Stage's history. listed, when not nil, is the Stage as
+	// the caller just read it, so the host need not read it again.
+	History(ctx context.Context, namespace, stage string, listed *delivery.StageObject) (*delivery.History, error)
 	Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error)
 	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error)
 	Approve(ctx context.Context, namespace, name string, decision delivery.Decision, note string) (string, error)
 	Cancel(ctx context.Context, namespace, name string) error
-	// Can says whether the caller's RBAC lets them verb a delivery resource
-	// (operations, approvals) in namespace, so the UI offers only what
-	// the apiserver would allow.
-	Can(ctx context.Context, verb, resource, namespace string) (bool, error)
 	// Describe reads what a Stage's artifact digest carries: its contract and
 	// version. A digest never changes, so a host may cache the answer.
 	Describe(ctx context.Context, stage *delivery.StageObject, digest string) delivery.Revision
@@ -44,6 +46,13 @@ type DeliveryAPI interface {
 	// in namespace ("" for all). Nil with no error means this host keeps no
 	// record of refused publishes.
 	PublishRefusals(ctx context.Context, namespace string) (*PublishRefusals, error)
+	// Can asks the apiserver whether the caller may verb resource of the
+	// delivery API group in namespace.
+	Can(ctx context.Context, verb, resource, namespace string) (bool, error)
+	// StageNamespaces are the namespaces the caller may list Stages in,
+	// whether or not anything else runs there. Nil with no error means this
+	// host cannot enumerate namespaces.
+	StageNamespaces(ctx context.Context) ([]string, error)
 }
 
 // Auth is a live host's identity layer. Nil means no sign-in and no delivery

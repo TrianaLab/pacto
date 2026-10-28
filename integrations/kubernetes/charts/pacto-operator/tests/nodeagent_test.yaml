@@ -260,8 +260,11 @@ tests:
       - notExists:
           path: $.rules[?(@.resources[0]=="leases" && @.verbs[0]=="create")]
 
+  # The dashboard lists namespaces on its own account, so it is off here.
   - it: grants no node agent cluster reads when nothing needs them
     template: templates/clusterrole.yaml
+    set:
+      dashboard.enabled: false
     asserts:
       - notExists:
           path: $.rules[?(@.resources[0]=="nodes")]

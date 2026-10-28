@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -59,14 +60,14 @@ type fakeDelivery struct {
 	undoErr     error
 	refusals    *PublishRefusals
 	refusalsErr error
-	// cannot holds "verb resource namespace" the caller's RBAC refuses;
-	// canErr fails every access review.
-	cannot map[string]bool
+	// deny refuses the caller's access reviews "verb resource namespace"
+	// ("verb resource" for every namespace); canErr fails every review.
+	deny   map[string]bool
 	canErr error
-}
-
-func (f *fakeDelivery) Can(_ context.Context, verb, resource, ns string) (bool, error) {
-	return !f.cannot[verb+" "+resource+" "+ns], f.canErr
+	cans   atomic.Int32
+	// stageNS answers StageNamespaces; nsErr fails it.
+	stageNS []string
+	nsErr   error
 }
 
 func (f *fakeDelivery) Stage(_ context.Context, ns, name string) (*delivery.StageObject, error) {
@@ -152,7 +153,7 @@ func (f *fakeDelivery) Explain(_ context.Context, ns, name string) (*delivery.Ex
 	return &delivery.Explanation{Operation: ns + "/" + name, Stage: delivery.StageNow{Name: "payments", Pointer: dNext}}, nil
 }
 
-func (f *fakeDelivery) History(_ context.Context, ns, stage string) (*delivery.History, error) {
+func (f *fakeDelivery) History(_ context.Context, ns, stage string, _ *delivery.StageObject) (*delivery.History, error) {
 	if f.history != nil {
 		return f.history, f.historyErr
 	}
@@ -176,6 +177,14 @@ func (f *fakeDelivery) Approve(_ context.Context, ns, name string, d delivery.De
 	f.approved = append(f.approved, ns+"/"+name+"="+string(d))
 	return name + "-x", f.actErr
 }
+
+func (f *fakeDelivery) Can(_ context.Context, verb, resource, ns string) (bool, error) {
+	f.cans.Add(1)
+	what := verb + " " + resource
+	return !f.deny[what] && !f.deny[what+" "+ns], f.canErr
+}
+
+func (f *fakeDelivery) StageNamespaces(context.Context) ([]string, error) { return f.stageNS, f.nsErr }
 
 func (f *fakeDelivery) Cancel(_ context.Context, ns, name string) error {
 	f.cancelled = append(f.cancelled, ns+"/"+name)
@@ -515,11 +524,11 @@ func TestEnvironments(t *testing.T) {
 	got := strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
 	expect(t, got == "promote", "agent actions %v", got)
 	// Promote creates an Operation: RBAC that refuses that offers nothing.
-	f.cannot = map[string]bool{"create operations " + pay["namespace"].(string): true}
+	f.deny = map[string]bool{"create operations " + pay["namespace"].(string): true}
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
 	expect(t, got == "", "read-only actions %v", got)
-	f.cannot = nil
+	f.deny = nil
 	// A person outside the team the running contract names is never offered
 	// an unfreeze the promoter would refuse (NotYourTeam); the team is, and
 	// so is break-glass. With no team named, RequireOwnerTeam offers nobody.
@@ -540,6 +549,11 @@ func TestEnvironments(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
 	expect(t, got == "promote", "ownerless under requireOwnerTeam %v", got)
+	// A caller whose RBAC refuses creating Operations there is offered nothing.
+	f.deny = map[string]bool{"create operations": true}
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	got = strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
+	expect(t, got == "", "no RBAC to create Operations %v", got)
 }
 
 func TestPublished(t *testing.T) {
@@ -588,6 +602,20 @@ func TestListsDropNamespacesTheCallerCannotRead(t *testing.T) {
 	if code, _ := call(t, http.MethodGet, base+"/api/delivery/inbox", nil); code != http.StatusInternalServerError {
 		t.Fatalf("a cluster-wide list error fails: %d", code)
 	}
+	// A host that says where the caller may list Stages is asked instead of
+	// the snapshot, so a namespace with Stages and no Pacto yet is read, and
+	// the answer is complete.
+	f.forbidAll, f.listErr, f.stageNS = true, nil, []string{"books"}
+	f.forbid = nil
+	if _, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil); envs["completeness"] != "complete" ||
+		len(envs["environments"].([]any)) != 1 || envs["environments"].([]any)[0].(map[string]any)["namespace"] != "books" {
+		t.Fatalf("the namespaces the caller may list Stages in: %v", envs)
+	}
+	f.nsErr = errors.New("down")
+	if code, _ := call(t, http.MethodGet, base+"/api/delivery/environments", nil); code != http.StatusInternalServerError {
+		t.Fatalf("a failed namespace read fails: %d", code)
+	}
+	f.stageNS, f.nsErr, f.forbidAll = nil, nil, false
 	// Without a snapshot the namespaces cannot be known.
 	f.listErr, f.forbidAll = nil, true
 	srv := startServer(t, NewServer(Options{UI: testUI(), Auth: a.auth(false, true),
@@ -665,6 +693,22 @@ func TestHistoryAndOperation(t *testing.T) {
 	if got := actions("unknown"); got != "accept-unknown,reject" {
 		t.Fatalf("held after it shipped: %s", got)
 	}
+	// What the caller's own RBAC refuses is never offered: deciding creates
+	// an Approval, cancelling deletes the Operation, a rollback creates one.
+	// A review that fails offers nothing.
+	f.deny = map[string]bool{"create approvals prod": true, "delete operations": true}
+	if got := actions("held"); got != "" {
+		t.Fatalf("may neither decide nor cancel: %s", got)
+	}
+	f.deny = map[string]bool{"create operations prod": true}
+	if got := actions("done"); got != "" {
+		t.Fatalf("may not create the rollback: %s", got)
+	}
+	f.deny, f.canErr = nil, errors.New("down")
+	if got := actions("held"); got != "" {
+		t.Fatalf("a failed review offers nothing: %s", got)
+	}
+	f.canErr = nil
 	// Whoever asked for a change, or is the one it acts for, is not offered
 	// its decision: the promoter would ignore it.
 	f.ops[0].Spec.Actor.User = f.caller.User
@@ -687,17 +731,17 @@ func TestHistoryAndOperation(t *testing.T) {
 		t.Fatalf("not my team: %s", got)
 	}
 	// RBAC narrows the offer: a read-only caller is offered nothing, and an
-	// access review that fails leaves the action to the apiserver.
+	// access review that fails offers nothing either.
 	f.caller = person("acme:team-checkout")
-	f.cannot = map[string]bool{"create approvals prod": true, "delete operations prod": true, "create operations prod": true}
+	f.deny = map[string]bool{"create approvals prod": true, "delete operations prod": true, "create operations prod": true}
 	if got := actions("held") + "|" + actions("done"); got != "|" {
 		t.Fatalf("read-only caller: %s", got)
 	}
 	f.canErr = errors.New("review down")
-	if got := actions("held"); got != "approve,reject,cancel" {
+	if got := actions("held"); got != "" {
 		t.Fatalf("a failed access review: %s", got)
 	}
-	f.cannot, f.canErr = nil, nil
+	f.deny, f.canErr = nil, nil
 	// An agent cancels only what it proposed itself.
 	f.caller = delivery.Caller{Identity: delivery.Identity{User: "system:serviceaccount:a:bot"}, Class: delivery.ClassAgent}
 	if got := actions("held"); got != "" {

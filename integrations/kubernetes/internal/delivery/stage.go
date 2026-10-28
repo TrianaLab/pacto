@@ -49,7 +49,10 @@ type StageReconciler struct {
 	// Gates are the gates a Stage may name (NewGates).
 	Gates map[string]delivery.Gate
 	Now   func() time.Time
-	Poll  time.Duration
+	// Resync is how often a Stage reconciles when nothing it watches changed
+	// (SetupWithManager); a Stage re-checks or reads remote upstream records
+	// at least as often as those ask.
+	Resync time.Duration
 	// AdmissionPolicies are the policies the operation reconciler waits on
 	// (OperationReconciler.AdmissionPolicies); while they do not guard, the
 	// Stage is not Ready.
@@ -136,7 +139,7 @@ type upstreamRead struct {
 
 // UpstreamPoll is how long the stage reconciler reuses a read of an upstream
 // in another cluster before it reads the registry again. The Stage itself is
-// polled every few seconds; a registry is not, so a follower lags its
+// reconciled on every change it watches; a registry is not, so a follower lags its
 // upstream by up to this long. A promote reads the records afresh when it is
 // planned, so it never relies on a read this old.
 const UpstreamPoll = 30 * time.Second
@@ -195,7 +198,20 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	if err := r.autoPromote(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
-	return reconcile.Result{RequeueAfter: r.Poll}, nil
+	return reconcile.Result{RequeueAfter: r.resync(stage)}, nil
+}
+
+// DefaultResync is the stage reconciler's Resync when it sets none.
+const DefaultResync = time.Minute
+
+// resync is when stage reconciles again with nothing changed: Resync, or
+// sooner when its re-check or its remote upstream read is due.
+func (r *StageReconciler) resync(stage *dv1.Stage) time.Duration {
+	after := min(cmp.Or(r.Resync, DefaultResync), delivery.RecheckInterval(stage.Spec))
+	if stage.Spec.Candidates.UpstreamRecords != nil {
+		after = min(after, UpstreamPoll)
+	}
+	return after
 }
 
 func (r *StageReconciler) updateStatus(ctx context.Context, stage *dv1.Stage, fn func(*dv1.Stage)) error {
@@ -246,6 +262,20 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == stage.Status.Pointer {
 		return nil
 	}
+	// The cache can lag a write the promoter itself made. Only the apiserver's
+	// digest raises an override, and only against the stored pointer and lock.
+	if a, err = r.Cluster.freshApplier(ctx, stage.Namespace, stage.Spec.ApplyRef); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	fresh := &dv1.Stage{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), fresh); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == fresh.Status.Pointer ||
+		fresh.Status.Locks[delivery.FacetPointer] != "" || fresh.Status.Pointer == "" {
+		return nil
+	}
+	stage = fresh
 	spec := delivery.OperationSpec{
 		Type: delivery.TypeOverride, Stage: stage.Name, Facet: delivery.FacetPointer,
 		Params:    delivery.Params{From: stage.Status.Pointer, To: a.digest},
@@ -370,7 +400,7 @@ func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) 
 	c := stage.Spec.Candidates
 	switch {
 	case c.OCIRepositoryRef != nil:
-		a, err := r.Cluster.ociRepository(ctx, stage.Namespace, c.OCIRepositoryRef.Name)
+		a, err := ociRepository(ctx, r.Cluster.cached(false), stage.Namespace, c.OCIRepositoryRef.Name)
 		switch {
 		case apierrors.IsNotFound(err):
 			want = notReady("CandidateNotFound", "the candidate OCIRepository "+c.OCIRepositoryRef.Name+" does not exist")
@@ -522,7 +552,7 @@ func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage, remot
 	c := stage.Spec.Candidates
 	switch {
 	case c.OCIRepositoryRef != nil:
-		a, err := r.Cluster.ociRepository(ctx, stage.Namespace, c.OCIRepositoryRef.Name)
+		a, err := ociRepository(ctx, r.Cluster.cached(false), stage.Namespace, c.OCIRepositoryRef.Name)
 		if err != nil {
 			return "", client.IgnoreNotFound(err)
 		}

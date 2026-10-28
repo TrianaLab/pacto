@@ -17,7 +17,7 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
-.PHONY: build test test-integration test-acceptance-local test-acceptance-compose \
+.PHONY: build test test-integration test-acceptance-local test-acceptance-compose perf-envtest \
         test-acceptance-compose-selftest \
         test-browser test-browser-live test-browser-compose \
         e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
@@ -74,6 +74,16 @@ test-integration:
 	# silently outside CI, which is exactly how the fixture's own tests came to
 	# never run.
 	go test -race ./tests/acceptance/... -count=1 -timeout 180s
+
+# Performance — the dashboard's delivery and fleet views, and the promoter,
+# against a real kube-apiserver and etcd (envtest's binaries, fetched by the
+# operator's setup-envtest). Latency, allocations and apiserver requests per
+# request at 1, 10 and 50 callers, with budget assertions; see
+# tests/perf/README.md. PERF_REPORT=<file> also writes the dashboard table.
+perf-envtest:
+	@assets="$$($(MAKE) -s -C integrations/kubernetes setup-envtest | tail -n 1)"; \
+	KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run "TestPerfEnvtest|TestSharedReadsRBACIsolation" -count=1 -timeout 120m -v ./internal/cli/ && \
+	cd integrations/kubernetes && KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run TestPerfPromoter -count=1 -timeout 30m -v ./internal/delivery/
 
 # Level 4 — local acceptance, cluster-free: builds pacto and drives the whole
 # fleet story end to end against local fixtures (graph, signed evidence

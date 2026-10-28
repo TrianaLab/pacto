@@ -74,6 +74,12 @@ func runPromoter(args []string) error {
 		"How many operations and Stages the promoter reconciles at once, "+
 			"so one slow health provider does not hold up the rest.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
+	resync := fs.Duration("resync", delivery.DefaultResync,
+		"How often a Stage is looked at when nothing it watches (its operations, upstream Stage, OCIRepositories, "+
+			"Kustomizations and Application) changed.")
+	argocd := fs.Bool("argocd", false, "Stages may apply through Argo CD Applications: watch and cache them.")
+	qps := fs.Float64("kube-api-qps", 50, "The apiserver requests per second the promoter's client may make.")
+	burst := fs.Int("kube-api-burst", 100, "The apiserver requests the promoter's client may burst above kube-api-qps.")
 	authFreshness := fs.Duration("auth-freshness", core.AuthFreshness,
 		"How old a person's login may be when their approval is given; an older one is ignored.")
 	records := fs.Bool("records", false,
@@ -97,7 +103,7 @@ func runPromoter(args []string) error {
 	_ = fs.Parse(args)
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zopts)))
 
-	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-promoter")
+	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-promoter", float32(*qps), *burst)
 	if err != nil {
 		return err
 	}
@@ -124,9 +130,10 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	cluster := delivery.Cluster{Client: mgr.GetClient(), Registry: func(hosts ...string) core.Registry {
-		return oci.NewClient(keychain, slices.Concat(insecure, []oci.ClientOption{oci.WithInsecureRegistries(hosts...)})...)
-	}}
+	cluster := delivery.Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), CacheApplications: *argocd,
+		Registry: func(hosts ...string) core.Registry {
+			return oci.NewClient(keychain, slices.Concat(insecure, []oci.ClientOption{oci.WithInsecureRegistries(hosts...)})...)
+		}}
 	if *upstreamTrust != "" {
 		if cluster.Upstream, err = upstreamReader(*upstreamTrust, keychain); err != nil {
 			return err
@@ -144,7 +151,7 @@ func runPromoter(args []string) error {
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, ClusterID: clusterID, Gates: gates, Now: time.Now,
-		Poll: *poll, AdmissionPolicies: delivery.SplitList(*admissionPolicies), Freshness: *authFreshness,
+		Resync: *resync, AdmissionPolicies: delivery.SplitList(*admissionPolicies), Freshness: *authFreshness,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
 		return err
@@ -205,7 +212,7 @@ func runRecorder(args []string) error {
 		return err
 	}
 	verify, _ := signing.TrustVerifier(trust) // RecorderTrust checked it
-	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-recorder")
+	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-recorder", 0, 0)
 	if err != nil {
 		return err
 	}
@@ -242,11 +249,19 @@ func runRecorder(args []string) error {
 	return mgr.Start(ctrl.SetupSignalHandler())
 }
 
-func newManager(metricsAddr, probeAddr string, leaderElect bool, id string) (ctrl.Manager, error) {
+// newManager builds a manager whose client makes qps requests a second,
+// bursting to burst; zero keeps client-go's 20 and 30. Its client reads
+// unstructured objects live (Cluster.Client).
+func newManager(metricsAddr, probeAddr string, leaderElect bool, id string,
+	qps float32, burst int) (ctrl.Manager, error) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(dv1.AddToScheme(scheme))
-	return ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	cfg := ctrl.GetConfigOrDie()
+	if qps > 0 {
+		cfg.QPS, cfg.Burst = qps, burst
+	}
+	return ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,

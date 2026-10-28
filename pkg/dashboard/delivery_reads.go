@@ -34,23 +34,38 @@ func forbidden(err error) bool {
 
 // lists reads every Stage the caller can see, and with ops every Operation:
 // in the dashboard's namespace when it has one; else cluster-wide when
-// allowed, else, partially, per namespace of the fleet snapshot. A namespace
-// that refuses is dropped and named.
+// allowed; else in each namespace the caller may list Stages in; else, when
+// the host cannot tell those, partially, per namespace of the fleet snapshot.
+// A namespace that refuses is dropped and named.
 // ponytail: a list per request with the caller's token, polled by the UI;
 // add a per-session informer if list load shows on the apiserver.
 func (s *Server) lists(ctx context.Context, api DeliveryAPI, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
 	l := Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}
 	namespaces := []string{s.opts.DeliveryNamespace}
 	if namespaces[0] == "" {
-		stages, err := api.Stages(ctx, "")
+		// Both at once: for a new person each waits on a permission check.
+		var stages []delivery.StageObject
 		var ops []delivery.OperationObject
+		var serr, oerr error
+		var g errgroup.Group
+		g.Go(func() error { stages, serr = api.Stages(ctx, ""); return nil })
+		g.Go(func() error { ops, oerr = operations(ctx, api, "", withOps); return nil })
+		_ = g.Wait()
+		err := serr
 		if err == nil {
-			if ops, err = operations(ctx, api, "", withOps); err == nil {
-				return stages, ops, l, nil
-			}
+			err = oerr
+		}
+		if err == nil {
+			return stages, ops, l, nil
 		}
 		if !forbidden(err) {
 			return nil, nil, l, err
+		}
+		switch nss, err := api.StageNamespaces(ctx); {
+		case err != nil:
+			return nil, nil, l, err
+		case nss != nil:
+			return listEach(ctx, api, nss, l, withOps)
 		}
 		// The namespaces asked are a guess (where the fleet's workloads run,
 		// not necessarily where Stages live), so the answer is never
@@ -69,23 +84,32 @@ func operations(ctx context.Context, api DeliveryAPI, ns string, want bool) ([]d
 	return api.Operations(ctx, ns)
 }
 
-// listEach lists each namespace, dropping (and naming) one that refuses.
+// listEach lists each namespace, describeParallel at once (one after
+// another, a person who reads forty namespaces waited on eighty round trips
+// in a row), dropping (and naming) one that refuses.
 func listEach(ctx context.Context, api DeliveryAPI, namespaces []string, l Listing, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
+	sts, oss, errs := make([][]delivery.StageObject, len(namespaces)), make([][]delivery.OperationObject, len(namespaces)), make([]error, len(namespaces))
+	var g errgroup.Group
+	g.SetLimit(describeParallel)
+	for i, ns := range namespaces {
+		g.Go(func() error {
+			if sts[i], errs[i] = api.Stages(ctx, ns); errs[i] == nil {
+				oss[i], errs[i] = operations(ctx, api, ns, withOps)
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
 	var stages []delivery.StageObject
 	var ops []delivery.OperationObject
-	for _, ns := range namespaces {
-		st, err := api.Stages(ctx, ns)
-		var os []delivery.OperationObject
-		if err == nil {
-			os, err = operations(ctx, api, ns, withOps)
-		}
-		switch {
+	for i, ns := range namespaces {
+		switch err := errs[i]; {
 		case forbidden(err):
 			l.Completeness, l.Unreadable = "partial", append(l.Unreadable, ns)
 		case err != nil:
 			return nil, nil, l, err
 		default:
-			stages, ops = append(stages, st...), append(ops, os...)
+			stages, ops = append(stages, sts[i]...), append(ops, oss[i]...)
 		}
 	}
 	return stages, ops, l, nil
@@ -250,10 +274,10 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 		}
 	}
 	b.Frozen = []EnvironmentRow{}
-	may := allowed(ctx, api)
 	for _, st := range page {
-		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers, teams, may))
+		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers, teams))
 	}
+	mayRaise(ctx, api, b.Frozen)
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
 }
@@ -336,9 +360,8 @@ type EnvironmentRow struct {
 
 // environmentRow is one Stage as the board shows it; held counts the held
 // operations by namespace/Stage, vers names the versions of digests and teams
-// the owner their contracts declare. Promote and unfreeze each create an
-// Operation, so neither is offered to a caller whose RBAC refuses that.
-func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string, may can) EnvironmentRow {
+// the owner their contracts declare.
+func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string) EnvironmentRow {
 	ss := st.Status
 	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Environment: st.Spec.Environment,
 		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
@@ -364,9 +387,6 @@ func environmentRow(st delivery.StageObject, held map[string]int, caller deliver
 	}
 	if (ss.Frozen || ss.AutoHold) && delivery.MayRaise(delivery.TypeUnfreeze, caller.Class, false) && mayUnfreeze(caller, teams[ss.Pointer]) {
 		row.Actions = append(row.Actions, "unfreeze")
-	}
-	if len(row.Actions) > 0 && !may("create", "operations", row.Namespace) {
-		row.Actions = []string{}
 	}
 	return row
 }
@@ -520,10 +540,10 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	}
 	teams := map[string]string{}
 	vers := versionsAll(ctx, api, nil, teams, on...)
-	may := allowed(ctx, api)
 	for _, st := range shown {
-		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers, teams, may))
+		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers, teams))
 	}
+	mayRaise(ctx, api, out.Body.Environments)
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
 	})
@@ -782,7 +802,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	out.Body.Versions = map[string]string{}
 	var actors []string
 	var on []digestsOn
-	hs, errs := historiesOf(ctx, api, targets)
+	hs, errs := historiesOf(ctx, api, targets, describe)
 	for i, t := range targets {
 		if errs[i] != nil {
 			return nil, errs[i]
@@ -835,16 +855,21 @@ func historyCounts(stages []delivery.StageObject, ops []delivery.OperationObject
 }
 
 // historiesOf reads the history of each target, describeParallel at once: on
-// a cluster each one gets the Stage, lists the namespace's changes and reads
-// a record stream, so a page of 25 read one after another was 50 round trips
-// in a row.
-func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageObject) ([]*delivery.History, []error) {
+// a cluster each one lists the Stage's changes and reads a record stream, so a
+// page of 25 read one after another was 50 round trips in a row. read says the
+// targets came from the apiserver, so the host is handed them instead of
+// getting each Stage again.
+func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageObject, read bool) ([]*delivery.History, []error) {
 	hs, errs := make([]*delivery.History, len(targets)), make([]error, len(targets))
 	var g errgroup.Group
 	g.SetLimit(describeParallel)
 	for i, t := range targets {
 		g.Go(func() error {
-			hs[i], errs[i] = api.History(ctx, t.Metadata.Namespace, t.Metadata.Name)
+			var listed *delivery.StageObject
+			if read {
+				listed = &t
+			}
+			hs[i], errs[i] = api.History(ctx, t.Metadata.Namespace, t.Metadata.Name, listed)
 			return nil
 		})
 	}

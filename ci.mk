@@ -8,7 +8,7 @@ BUNDLE_DIR := pactos/pacto-dashboard
 REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile \
+       ci-e2e-envtest ci-perf-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile \
        ci-e2e-compose test-acceptance-compose test-browser-compose \
        test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
@@ -97,6 +97,11 @@ ci-integration-kubernetes:
 # convention of the module that owns it; the level is stated here.
 ci-e2e-envtest:
 	$(MAKE) -C integrations/kubernetes test-e2e
+
+# The perf-envtest budgets at the size CI has time for: the 500-Stage pass of
+# the dashboard and the promoter burst, about 5 minutes. See tests/perf/README.md.
+ci-perf-envtest:
+	PERF_QUICK=1 $(MAKE) perf-envtest
 
 # Kind-backed acceptance — Pacto's formal verification against a real cluster:
 # build the operator image via the monorepo Dockerfile, install the packaged

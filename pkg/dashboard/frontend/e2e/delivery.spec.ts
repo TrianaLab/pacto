@@ -34,7 +34,7 @@ function installDelivery(persona: Persona): void {
   const D1 = 'sha256:' + '1'.repeat(64);
   const D2 = 'sha256:' + '2'.repeat(64);
   const callers: Record<string, unknown> = {
-    carol: { user: 'https://idp#carol', class: 'human', groups: ['team-checkout'], authTime: '1792560000' },
+    carol: { user: 'https://idp#carol', class: 'human', groups: ['team-checkout', 'system:authenticated'], authTime: '1792560000' },
     alice: { user: 'https://idp#alice', class: 'human', groups: ['team-payments'], authTime: '1792560000' },
     robot: { user: 'https://idp#robot', class: 'agent', groups: ['pacto:agents'] },
     local: { user: 'kind-admin', class: 'human', groups: ['system:masters'] },
@@ -234,7 +234,13 @@ test.describe('Delivery views', () => {
     await expect(held).toContainText('Breaks checkout');
     await expect(held).toContainText('team-checkout');
     await expect(held.getByRole('link', { name: 'checkout', exact: true })).toBeVisible();
-    await expect(page.getByTestId('identity')).toContainText('Signed in as carol https://idp#carol');
+    // A system: group is never one of my teams.
+    await expect(page.getByTestId('inbox-answer')).toContainText('for team-checkout to decide');
+    await expect(page.getByTestId('inbox-answer')).not.toContainText('system:');
+    // The person by name; the opaque subject only in the copy button's tooltip.
+    await expect(page.getByTestId('identity')).toContainText('Signed in as carol');
+    await expect(page.getByTestId('identity')).not.toContainText('https://idp#carol');
+    await expect(page.getByTestId('identity').locator('.copyable')).toHaveAttribute('title', 'https://idp#carol');
     await audit(page, 'inbox');
 
     const link = held.getByRole('link', { name: /^Promote on prod\/payments-prod/ });

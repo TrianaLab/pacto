@@ -1,15 +1,27 @@
 # Dashboard authentication
 
-A shared dashboard signs people in before it shows anything. Every request then
-runs as that person: delivery reads and actions go to the API server with their
-own token, and the fleet views show only the namespaces their Kubernetes RBAC
-lets them read ([who sees what](dashboard-access.md)). A service known only
-from a registry belongs to no namespace, so only people who may list Pactos
-in every namespace see it, and counts and totals leave it out for everyone
-else. The dashboard's
-ServiceAccount stays read-only, with one extra right: asking the API server
-what a person may read (SubjectAccessReview). There is no impersonation, so
-the API server's audit log names the person.
+A shared dashboard signs people in before it shows anything. Every view then
+follows that person's Kubernetes RBAC and every action runs as them:
+
+- **Reads come from a shared cache, filtered by your RBAC.** The dashboard
+  keeps one copy of the delivery Stages and Operations, read and watched with
+  its own ServiceAccount. Before it answers you from that copy, it asks the API
+  server (SubjectAccessReview) whether you may make the same list or get there,
+  so a namespace your RBAC denies stays out of every view, and a list across
+  every namespace needs your cluster-wide permission.
+- **Actions use your token.** Propose, approve, cancel, roll back and unfreeze
+  go to the API server with your own token, so RBAC and admission decide and
+  the audit log names you. The reads an action is built on use your token too.
+  The dashboard offers an action only where your RBAC allows it, with the same
+  10-second review as the reads.
+- **The fleet views** show only the namespaces you may read
+  ([who sees what](dashboard-access.md)). A service known only from a registry
+  belongs to no namespace, so only people who may list Pactos in every
+  namespace see it, and counts and totals leave it out for everyone else.
+
+The dashboard's ServiceAccount stays read-only: it may get, list and watch
+Stages and Operations and ask the API server what a person may read. There is
+no impersonation.
 
 ## How it works
 
@@ -20,8 +32,12 @@ the API server's audit log names the person.
    with PKCE) or, where you allow it, paste a Kubernetes bearer token.
 3. The dashboard keeps the tokens in a server-side session behind an
    `HttpOnly`, `Secure` cookie. Browser JavaScript never sees a token.
-4. Each request uses the session's token. The API server authenticates it and
-   RBAC decides, exactly as for `kubectl`.
+4. Each request uses the session's token. The API server says who it belongs
+   to and RBAC decides, exactly as for `kubectl`. The dashboard keeps each
+   answer about what you may read for 10 seconds, so a removed RoleBinding
+   hides its namespace within that time. Until the shared cache has loaded,
+   and for a moment after you change something, the dashboard reads with your
+   token instead.
 
 On every page, the person button in the header opens who you are, your groups
 and **Sign out**.
@@ -53,6 +69,9 @@ dashboard:
     tokenLogin:
       enabled: false
 ```
+
+For an evaluation cluster, the chart can bundle Dex and wire it for you
+([quickstart](installation.md#quickstart-with-a-bundled-registry-and-sign-in)).
 
 Register `https://<dashboard>/auth/callback` as the client's redirect URL and
 terminate TLS in front of the dashboard. `pacto dashboard` takes the same

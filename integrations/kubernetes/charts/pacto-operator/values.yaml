@@ -92,17 +92,18 @@ podSecurityContext: {}
 # -- Container securityContext of the controller (defaults to `global.securityContext`)
 securityContext: {}
 
+# No CPU limit: the CPU request reserves the controller's share, and a limit
+# throttles it on a busy node until its liveness probe times out.
 resources:
   limits:
-    # -- CPU limit
-    cpu: 500m
-    # -- Memory limit
-    memory: 128Mi
+    # -- Memory limit of the controller. It caches every Deployment, StatefulSet,
+    # ReplicaSet, Job, CronJob and Service it targets.
+    memory: 256Mi
   requests:
-    # -- CPU request
-    cpu: 10m
-    # -- Memory request
-    memory: 64Mi
+    # -- CPU request of the controller
+    cpu: 100m
+    # -- Memory request of the controller
+    memory: 128Mi
 
 controller:
   # -- Restrict the controller's observation scope to a single namespace.
@@ -473,6 +474,9 @@ delivery:
   promoter:
     # -- How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration)
     poll: 3s
+    # -- How often a Stage is looked at when nothing it watches changed (a Go duration). A change to
+    # its operations, upstream Stage, OCIRepositories, Kustomizations or Application wakes it at once
+    resync: 1m
     # -- How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest
     workers: 4
     # -- How old a person's login may be when their approval is given; an older one is ignored (a Go duration). Every Stage publishes it in `status.authFreshness`
@@ -572,6 +576,8 @@ delivery:
         secretName: ""
         # -- The key in that Secret
         key: key.pem
+        # -- Generate that Secret at install, with a new Ed25519 key kept across upgrades (for evaluation)
+        generate: false
       # -- Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so
       # it can read this key too and the recorder is not its only holder. The chart refuses
       # `ed25519.secretName` unless this is true. Prefer KMS or keyless signing
@@ -614,16 +620,15 @@ delivery:
       enabled: false
     # -- Extra environment for the recorder (for example the credentials a KMS client reads)
     extraEnv: []
+    # No CPU limit, as for the controller: a throttled recorder fails its liveness probe.
     resources:
       limits:
-        # -- CPU limit
-        cpu: 500m
-        # -- Memory limit
+        # -- Memory limit of the recorder
         memory: 256Mi
       requests:
-        # -- CPU request
-        cpu: 10m
-        # -- Memory request
+        # -- CPU request of the recorder. Signing and pushing a record is the costly part.
+        cpu: 50m
+        # -- Memory request of the recorder
         memory: 64Mi
 
   argocd:
@@ -668,17 +673,17 @@ delivery:
   # -- Container securityContext of the promoter and the recorder (defaults to `global.securityContext`)
   securityContext: {}
 
+  # No CPU limit, as for the controller: a throttled promoter fails its liveness probe.
   resources:
     limits:
-      # -- CPU limit
-      cpu: 500m
-      # -- Memory limit
+      # -- Memory limit of the promoter
       memory: 256Mi
     requests:
-      # -- CPU request
-      cpu: 10m
-      # -- Memory request
-      memory: 64Mi
+      # -- CPU request of the promoter. It looks at every waiting operation once per
+      # `promoter.poll`, so raise it with the number of Stages.
+      cpu: 100m
+      # -- Memory request of the promoter
+      memory: 128Mi
 
   # -- Node selector for the promoter pod
   nodeSelector: {}
@@ -686,3 +691,13 @@ delivery:
   tolerations: []
   # -- Affinity for the promoter pod
   affinity: {}
+
+# Optional bundled dependencies for an evaluation install, both off by default.
+# values-quickstart.yaml turns them on and wires them. Every other key under
+# `zot` and `dex` passes through to the upstream chart.
+zot:
+  # -- Install [zot](https://zotregistry.dev) from its official chart as an in-cluster OCI registry with native referrers. Its values are the upstream chart's
+  enabled: false
+dex:
+  # -- Install [Dex](https://dexidp.io) from its official chart as the dashboard's OpenID Connect issuer. The chart then generates the dashboard's client secret into the Secret `dashboard.auth.oidc.clientSecretRef.name` names, with the keys `client-secret`, `admin-password` and `admin-password-hash`, and keeps it across upgrades. Its values are the upstream chart's
+  enabled: false

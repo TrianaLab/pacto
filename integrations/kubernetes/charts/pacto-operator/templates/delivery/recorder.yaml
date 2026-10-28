@@ -30,6 +30,25 @@
 {{- include "pacto-operator.serviceAccount" (dict "name" (include "pacto-operator.delivery.recorderServiceAccountName" .) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" $labels "sa" $r.serviceAccount) }}
 ---
 {{- end }}
+{{- with $r.signing.ed25519 }}
+{{- if and .secretName .generate }}
+{{- $ns := include "pacto-operator.delivery.namespace" $ }}
+{{- $old := (lookup "v1" "Secret" $ns .secretName).data | default dict }}
+# The recorder's Ed25519 key, generated at install and read back on every
+# upgrade so the stream keeps one signer.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .secretName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+type: Opaque
+data:
+  {{ .key }}: {{ get $old .key | default (genPrivateKey "ed25519" | b64enc) }}
+---
+{{- end }}
+{{- end }}
 # The recorder: it reads concluded operations, their Stages and approvals,
 # and writes only status.record, status.stream.{recordedSeq,head}, its own
 # RecordStoreReady condition and the record finalizer. It is the only holder

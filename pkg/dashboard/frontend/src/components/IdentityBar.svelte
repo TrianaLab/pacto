@@ -2,7 +2,7 @@
   import { api } from '../lib/api.ts';
   import { deliverySession, loadSession } from '../lib/deliverySession.svelte.ts';
   import { fleetOverviewUrl } from '../lib/router.ts';
-  import { loginUrl, signIn, hostSignsIn, personLabel } from '../lib/delivery.ts';
+  import { loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/delivery.ts';
   import Person from './Person.svelte';
   import CappedList from './CappedList.svelte';
   import HelpTip from './HelpTip.svelte';
@@ -19,9 +19,10 @@
   // The apiserver's answer when delivery could ask it, else what the session
   // says the cluster calls the person.
   const user = $derived(s?.caller?.user || s?.user || '');
-  const groups = $derived(s?.caller?.groups?.length ? s.caller.groups : (s?.groups ?? []));
-  // The name the identity provider gave is a claim the person may have set
-  // themselves, so Person prints the cluster's username next to it.
+  // A system: group (system:authenticated) names no team, so it is left out.
+  const groups = $derived(teamGroups(s?.caller?.groups?.length ? s.caller.groups : s?.groups));
+  // Person names them by the name the identity provider gave and keeps the
+  // cluster's username in its copy button.
   const me = $derived({ user, name: s?.name });
   const label = $derived(s?.mode === 'local' ? (personLabel(user, null, me) || 'This machine')
     : s?.signedIn ? (personLabel(user, null, me) || 'Signed in') : 'Signed out');
