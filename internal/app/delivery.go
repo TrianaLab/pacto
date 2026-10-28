@@ -527,10 +527,13 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 	if caller.Class == delivery.ClassAgent {
 		return "", errors.New("agents may not approve: Pacto delivery asks a person, and there is no approve tool for agents")
 	}
-	var freshness time.Duration
-	if st, err := d.Stage(ctx, ns, op.Spec.Stage); err == nil {
-		freshness = delivery.PublishedFreshness(st.Status.AuthFreshness)
+	// A Stage it cannot read leaves the login freshness unknown: refuse rather
+	// than record a decision the promoter may not count.
+	st, err := d.Stage(ctx, ns, op.Spec.Stage)
+	if err != nil {
+		return "", err
 	}
+	freshness := delivery.PublishedFreshness(st.Status.AuthFreshness)
 	if freshness > 0 && caller.AuthTime == "" {
 		return "", errors.New("approving needs a fresh interactive login, and the apiserver reports no login time " +
 			"(userInfo.extra[" + authn.AuthTimeExtra + "]); log in again through your identity provider")

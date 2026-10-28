@@ -128,10 +128,14 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	if err != nil {
 		return nil, err
 	}
-	published := "" // the promoter's login freshness, as the Stage publishes it
-	if stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
-		published = stage.Status.AuthFreshness
+	// The promoter's login freshness, as the Stage publishes it. A Stage the
+	// caller cannot read leaves it unknown, so the decision is refused rather
+	// than recorded and then not counted.
+	stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage)
+	if err != nil {
+		return nil, err
 	}
+	published := stage.Status.AuthFreshness
 	if err := s.mayDecide(caller, published); err != nil {
 		return nil, err
 	}

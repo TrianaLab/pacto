@@ -431,6 +431,9 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 	if _, err := d.Freshness(ctx, "prod", "p1"); err == nil {
 		t.Fatal("freshness of an unreadable Stage")
 	}
+	if _, err := d.Approve(ctx, "prod", "p1", delivery.Approve, ""); err == nil || !strings.Contains(err.Error(), "forbidden") {
+		t.Fatalf("an unreadable Stage leaves the login freshness unknown, so nothing is recorded: %v", err)
+	}
 }
 
 // TestDeliveryReadsThePublishedPolicy: the caller is classified with the

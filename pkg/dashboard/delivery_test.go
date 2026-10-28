@@ -787,16 +787,24 @@ func checkDecideFollowsThePromoter(t *testing.T, base string, f *fakeDelivery, d
 	if code, out := decide(base); code != http.StatusCreated {
 		t.Fatalf("a login inside the published freshness decides: %d %v", code, out)
 	}
-	f.stages, f.caller = nil, person("acme:team-checkout")
+	f.stages[0].Status.AuthFreshness, f.caller = "", person("acme:team-checkout")
 }
 
 func TestDecide(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
-	f := &fakeDelivery{caller: person("acme:team-checkout"), ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout"))}}
+	f := &fakeDelivery{caller: person("acme:team-checkout"), ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout"))},
+		stages: []delivery.StageObject{{Metadata: delivery.ObjectMeta{Namespace: "prod", Name: "payments"}}}}
 	decide := func(base string) (int, map[string]any) {
 		return call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "approve", "note": "ok"})
 	}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	// A Stage the caller cannot read leaves its login freshness unknown: no
+	// decision is recorded that the promoter might not count.
+	f.stageErr = Refuse(http.StatusForbidden, "Forbidden", "stages is forbidden")
+	if code, out := decide(base); code != http.StatusForbidden || out["detail"] != "stages is forbidden" || len(f.approved) != 0 {
+		t.Fatalf("an unreadable Stage refuses the decision: %d %v", code, out)
+	}
+	f.stageErr = nil
 	if code, out := decide(base); code != http.StatusCreated || out["approval"] != "held-x" || f.approved[0] != "prod/held=approve" {
 		t.Fatalf("a fresh member of the named team decides: %d %v", code, out)
 	}
