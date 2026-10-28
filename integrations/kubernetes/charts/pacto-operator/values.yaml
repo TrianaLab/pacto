@@ -500,7 +500,7 @@ delivery:
     # -- How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest
     workers: 4
     # -- How old a person's login may be when their approval is given, as a Go duration such as `15m`; an older one is ignored,
-    # so deciding needs a fresh sign-in. Empty or `0`: any signed-in person decides with the session they have. Every Stage publishes it in `status.authFreshness`
+    # so deciding needs a fresh sign-in. Empty or a zero duration (`0`, `0s`): any signed-in person decides with the session they have. Every Stage publishes it in `status.authFreshness`
     authFreshness: ""
     # -- Elect one active promoter
     leaderElect: true

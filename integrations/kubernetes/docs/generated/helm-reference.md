@@ -96,7 +96,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.podAnnotations` | `{}` | Annotations to add to the promoter and recorder pods |
 | `delivery.podLabels` | `{}` | Labels to add to the promoter and recorder pods |
 | `delivery.podSecurityContext` | `{}` | Pod securityContext of the promoter and the recorder (defaults to `global.podSecurityContext`) |
-| `delivery.promoter.authFreshness` | `""` | How old a person's login may be when their approval is given, as a Go duration such as `15m`; an older one is ignored, so deciding needs a fresh sign-in. Empty or `0`: any signed-in person decides with the session they have. Every Stage publishes it in `status.authFreshness` |
+| `delivery.promoter.authFreshness` | `""` | How old a person's login may be when their approval is given, as a Go duration such as `15m`; an older one is ignored, so deciding needs a fresh sign-in. Empty or a zero duration (`0`, `0s`): any signed-in person decides with the session they have. Every Stage publishes it in `status.authFreshness` |
 | `delivery.promoter.leaderElect` | `true` | Elect one active promoter |
 | `delivery.promoter.poll` | `3s` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
 | `delivery.promoter.registryCredentials.secretName` | `""` | A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy repositories, for a private registry. Without it the promoter reads only public ones. |
