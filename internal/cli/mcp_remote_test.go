@@ -217,7 +217,7 @@ func TestRemoteMCPFailuresSayWhy(t *testing.T) {
 	expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), "token rejected"), "whoami refused: %d %s", rec.Code, rec.Body)
 	// Every refusal is logged with the caller and the reason, never the token.
 	for _, want := range []string{"could not exchange a caller's token", "could not build a caller's client", "did not say who a caller is",
-		"user=agent@example.com", "refused the exchange", "bad config", "token rejected", "path=/mcp"} {
+		"claimed=agent@example.com", "refused the exchange", "bad config", "token rejected", "path=/mcp"} {
 		expect(t, strings.Contains(logs.String(), want), "the log lacks %q:\n%s", want, logs)
 	}
 	expect(t, !strings.Contains(logs.String(), "good"), "the log carries the token:\n%s", logs)
@@ -225,7 +225,8 @@ func TestRemoteMCPFailuresSayWhy(t *testing.T) {
 	w.whoAmIFails = false
 	logs.Reset()
 	postLogged(t, w.h, "good", listTools, logs)
-	expect(t, strings.Contains(logs.String(), "remote MCP delivery request") && strings.Contains(logs.String(), "class=agent") &&
+	expect(t, strings.Contains(logs.String(), "remote MCP delivery request") && strings.Contains(logs.String(), "user=system:serviceaccount:agents:bot") &&
+		!strings.Contains(logs.String(), "agent@example.com") && strings.Contains(logs.String(), "class=agent") &&
 		strings.Contains(logs.String(), "writeTools=true"), "the grant is not logged:\n%s", logs)
 }
 

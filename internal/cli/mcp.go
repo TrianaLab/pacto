@@ -55,7 +55,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"(issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback " +
 			"needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts " +
 			"(RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent " +
-			"proposes as itself and a person gets the read-only tools.\n\n" +
+			"proposes as itself and a person gets the read-only tools. With --fleet the server names each caller with the claim mapping " +
+			"(--oidc-username-claim, --oidc-username-prefix, --oidc-groups-claim and --oidc-groups-prefix) and asks Kubernetes RBAC about that user; " +
+			"the API server does not confirm it, so the mapping must match its claimMappings.\n\n" +
 			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
 			"A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.",
@@ -333,7 +335,10 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service) func(ctx context.Co
 
 // mcpFleetView narrows the fleet tools of a server whose callers sign in
 // (HTTP with --auth-issuer) to what each caller's Kubernetes RBAC lets them
-// read, asked with this process's own credentials. Other servers answer from
+// read, asked with this process's own credentials.
+// ponytail: the caller is named by the claim mapping, not confirmed by the
+// API server; exchange and authn.ReviewSelf per caller (as remote delivery
+// does) when a fleet server must name people exactly as the cluster does. Other servers answer from
 // the whole snapshot, as their single local user would read it.
 func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 	transport, _ := cmd.Flags().GetString("transport")

@@ -104,7 +104,8 @@ type remoteDelivery struct {
 	records   app.RecordRepo
 	trust     *delivery.TrustConfig
 	policyNS  string
-	// claims names a caller in the logs as the cluster does (see claimsFlags).
+	// claims names a caller in a refusal logged before the cluster could
+	// (see claimsFlags).
 	claims authn.Claims
 	build  func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server
 }
@@ -112,9 +113,11 @@ type remoteDelivery struct {
 func (rd remoteDelivery) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		info := auth.TokenInfoFromContext(r.Context())
-		user := rd.claims.PersonFromTokenInfo(info).User
+		// Before the cluster names the caller, a refusal can only say who the
+		// claim mapping says they are.
+		claimed := rd.claims.PersonFromTokenInfo(info).User
 		refuse := func(code int, what string, err error) {
-			authn.Refused(r.Context(), r, what, "user", user, "reason", err.Error())
+			authn.Refused(r.Context(), r, what, "claimed", claimed, "reason", err.Error())
 			http.Error(w, err.Error(), code)
 		}
 		tok, err := rd.auth.Exchange(r.Context(), info)
@@ -135,7 +138,7 @@ func (rd remoteDelivery) middleware(next http.Handler) http.Handler {
 			return
 		}
 		writes := caller.Class == delivery.ClassAgent
-		logging.LoggerFromContext(r.Context()).Info("remote MCP delivery request", "user", user, "as", caller.User,
+		logging.LoggerFromContext(r.Context()).Info("remote MCP delivery request", "user", caller.User,
 			"class", caller.Class, "writeTools", writes)
 		srv := rd.build(mcpDelivery{c}, writes)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), mcpServerKey{}, srv)))
