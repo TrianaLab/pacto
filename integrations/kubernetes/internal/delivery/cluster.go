@@ -268,6 +268,12 @@ func (c Cluster) applied(ctx context.Context, ns string, a *applyRef, digest str
 		attempted, _, _ := unstructured.NestedString(k.Object, "status", "lastAttemptedRevision")
 		switch {
 		case ready == statusTrue && delivery.RevisionDigest(applied) == digest:
+		// Flux marks Ready Unknown (Progressing) at the start of every
+		// reconcile, the periodic re-apply of a revision it already applied
+		// included. That revision is still applied. Reading it as "not yet"
+		// made a Stage, which that very status patch wakes, see "not yet" on
+		// every Flux interval and never verify.
+		case ready == statusUnknown && delivery.RevisionDigest(applied) == digest && delivery.RevisionDigest(attempted) == digest:
 		case ready == statusFalse && delivery.RevisionDigest(attempted) == digest && reason != "Progressing" && reason != "DependencyNotReady":
 			return false, true, fmt.Sprintf("Kustomization %s failed to apply %s: %s: %s", k.GetName(), digest, reason, message), nil
 		default:

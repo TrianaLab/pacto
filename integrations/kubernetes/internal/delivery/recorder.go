@@ -39,6 +39,7 @@ const ConditionRecordStoreReady = delivery.ConditionRecordStoreReady
 const (
 	statusTrue     = "True"
 	statusFalse    = "False"
+	statusUnknown  = "Unknown"
 	conditionReady = "Ready"
 )
 
