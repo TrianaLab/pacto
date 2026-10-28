@@ -498,8 +498,8 @@ as_agent() { local kc="$1"; shift; KUBECONFIG="$kc" "$PACTO" delivery "$@"; }
 # as_person USER TEAM ... — only members of the team a held question names may answer it.
 as_person() { local u="$1" g="$2"; shift 2; KUBECONFIG="$(person_kubeconfig "$u" "$g")" "$PACTO" delivery "$@"; }
 # approve_as USER TEAM NS OP DECISION [NOTE] — the Approval a person with a
-# fresh login creates. `pacto delivery approve` never sends the kubeconfig's
-# credentials: it logs the person in again in a browser (the identity phase
+# fresh login creates. This run turns the login freshness on, so `pacto
+# delivery approve` never sends the kubeconfig's credentials: it logs the person in again in a browser (the identity phase
 # drives that against Dex). Here the person is impersonated, so the Approval
 # is created as they would send it: by, groups and authTime as the apiserver
 # reports them (admission holds the Approval to exactly that), owned by OP.
@@ -929,7 +929,7 @@ always 5 waits_for_f || fail "F moved without a person"
 # No agent can approve: RBAC refuses the create, and the CLI refuses first,
 # asking for a fresh login of a person's own before anything else.
 OUT="$(as_agent "$AGENT_A" approve -n test "$OPF" 2>&1 || true)"
-if grep -q "approving needs a fresh login of your own" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
+if grep -q "this Stage asks for a fresh login to approve" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
 if KUBECONFIG="$AGENT_A" kubectl -n test create -f - 2>/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Approval
