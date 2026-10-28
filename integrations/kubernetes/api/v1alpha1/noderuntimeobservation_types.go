@@ -26,15 +26,6 @@ const (
 	CollectionFailed CollectionState = "Failed"
 )
 
-// Bounds on what one node publishes. They keep the object well inside the
-// apiserver request limit; the agent marks a pod truncated instead of exceeding
-// them.
-const (
-	MaxRuntimePodsPerNode       = 256
-	MaxRuntimeListenersPerPod   = 64
-	MaxRuntimeConnectionsPerPod = 128
-)
-
 // RuntimeCollection reports the health of the kernel collection on one node.
 type RuntimeCollection struct {
 	// State is Running, Degraded or Failed.

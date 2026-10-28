@@ -89,20 +89,32 @@ func (o *Observer) observeSecretConfiguration(
 	err := o.client.Get(ctx, client.ObjectKey{Namespace: input.Namespace, Name: binding.Name}, partial)
 
 	if err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			// Non-NotFound API error (RBAC-denied / other) -> Failed.
-			o.fail("configurations", err)
-			obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Failed, prov)
-			return obs, nil
-		}
-		// Secret NotFound -> windowed negative.
-		// Beyond the window -> confirmed absent (Present=false, Conformant=false -> CONFIGURATION_ABSENT).
-		return windowed(input, kindConfiguration, cfg.Name, evidence.NewConfigurationPresent(subj, false, false, prov), now)
+		return o.missingOrFailed(err, input, cfg, subj, prov, now)
 	}
 
 	// Secret present (metadata-only) -> Insufficient (existence established, conformance unverified).
 	obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
 	return obs, resetWindow(kindConfiguration, cfg.Name)
+}
+
+// missingOrFailed classifies a failed GET of a configuration's backing object:
+// NotFound is a windowed negative (beyond the window, confirmed absent:
+// Present=false, Conformant=false -> CONFIGURATION_ABSENT); any other API error
+// (RBAC-denied / other) is Failed.
+func (o *Observer) missingOrFailed(
+	err error,
+	input CollectInput,
+	cfg contract.Configuration,
+	subj evidence.SubjectRef,
+	prov evidence.Provenance,
+	now time.Time,
+) (evidence.Observation, []ObservationWindowUpdate) {
+	if client.IgnoreNotFound(err) != nil {
+		o.fail("configurations", err)
+		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Failed, prov)
+		return obs, nil
+	}
+	return windowed(input, kindConfiguration, cfg.Name, evidence.NewConfigurationPresent(subj, false, false, prov), now)
 }
 
 // observeConfigMapConfiguration observes a ConfigMap-backed configuration (B7 decode+validate). Spec section 7.7.
@@ -121,15 +133,7 @@ func (o *Observer) observeConfigMapConfiguration(
 	err := o.client.Get(ctx, client.ObjectKey{Namespace: input.Namespace, Name: binding.Name}, cm)
 
 	if err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			// Non-NotFound API error -> Failed.
-			o.fail("configurations", err)
-			obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Failed, prov)
-			return obs, nil
-		}
-		// ConfigMap NotFound -> windowed negative (required scope).
-		// Beyond the window -> confirmed absent (Present=false, Conformant=false -> CONFIGURATION_ABSENT).
-		return windowed(input, kindConfiguration, cfg.Name, evidence.NewConfigurationPresent(subj, false, false, prov), now)
+		return o.missingOrFailed(err, input, cfg, subj, prov, now)
 	}
 
 	// ConfigMap exists. Without Key+Format -> Insufficient (existence-only, never full-conformance).

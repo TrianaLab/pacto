@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 )
 
 func newReconciler(cfg Config, funcs interceptor.Funcs, objs ...client.Object) *Reconciler {
@@ -128,7 +129,7 @@ func TestSync_Enabled_AppliesEverything(t *testing.T) {
 			t.Errorf("%s not applied: %v", kind, err)
 			continue
 		}
-		if obj.GetLabels()[LabelComponent] != ComponentValue {
+		if obj.GetLabels()[component.LabelComponent] != ComponentValue {
 			t.Errorf("%s missing component label", kind)
 		}
 	}

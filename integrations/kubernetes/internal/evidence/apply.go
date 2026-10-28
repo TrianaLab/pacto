@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package evidence
 
 import (
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -100,12 +101,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 				WithInitialDelaySeconds(10).
 				WithPeriodSeconds(20),
 		).
-		WithSecurityContext(
-			corev1ac.SecurityContext().
-				WithReadOnlyRootFilesystem(true).
-				WithAllowPrivilegeEscalation(false).
-				WithCapabilities(corev1ac.Capabilities().WithDrop("ALL")),
-		).
+		WithSecurityContext(component.RestrictedContainerSecurityContext()).
 		WithResources(corev1ac.ResourceRequirements().WithRequests(res.Requests).WithLimits(res.Limits))
 
 	deploy := appsv1ac.Deployment(Name, cfg.Namespace).

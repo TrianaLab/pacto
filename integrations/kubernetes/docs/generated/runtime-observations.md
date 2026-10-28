@@ -84,7 +84,7 @@ Details an observation can carry beyond "it is there", such as the protocol a po
 | `Invalid` | Structural validation failed, or a malformed artifact could not be parsed (fail-closed). |
 | `NotEvaluated` | Reserved enum value the operator does not currently emit; used by the engine dashboard for offline sources never runtime-evaluated. |
 
-Precedence when summarizing findings (see `summarizeFindings` in `internal/controller/pacto_controller.go`): `Invalid` (structural) outranks all; then any error -> `NonCompliant`; else any unknown -> `Unknown`; else any warning -> `Warning`; else `Compliant`. Reference-only contracts short-circuit to `Reference`.
+Precedence when summarizing findings (see `summarizeFindings` in `internal/controller/status.go`): `Invalid` (structural) outranks all; then any error -> `NonCompliant`; else any unknown -> `Unknown`; else any warning -> `Warning`; else `Compliant`. Reference-only contracts short-circuit to `Reference`.
 
 ## Findings
 

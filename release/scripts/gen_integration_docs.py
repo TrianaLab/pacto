@@ -914,7 +914,7 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     out.append("")
     out.append(
         "Precedence when summarizing findings (see `summarizeFindings` in "
-        "`internal/controller/pacto_controller.go`): `Invalid` (structural) outranks all; "
+        "`internal/controller/status.go`): `Invalid` (structural) outranks all; "
         "then any error -> `NonCompliant`; else any unknown -> `Unknown`; else any warning -> "
         "`Warning`; else `Compliant`. Reference-only contracts short-circuit to `Reference`.\n"
     )
