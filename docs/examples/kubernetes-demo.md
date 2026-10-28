@@ -102,7 +102,7 @@ cluster, and checks it against `examples/story`:
   version never verified in test, so alice accepts that unknown too. 1.1.0
   passes 1 of its 2 evals and rolls back in test to 1.0.0, where alice accepts
   the unknown again. The runner signs each count with its own key, the rollback
-  cites that signed count, and `pacto delivery record verify` checks the
+  cites that signed count and `pacto delivery record verify` checks the
   runner's signature beside the recorder's.
 
 `story` also prints the commands for `pacto delivery blame` and `undo` and for
