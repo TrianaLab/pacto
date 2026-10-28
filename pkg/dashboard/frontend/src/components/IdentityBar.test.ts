@@ -173,6 +173,20 @@ describe('IdentityBar', () => {
     expect(hook).toHaveBeenCalledWith('#/fleet/services', false);
     expect(signOutFn).not.toHaveBeenCalled();
   });
+
+  it('sends every Sign in link through the host that signs people in itself, and leaves a plain link alone', () => {
+    show({ mode: 'shared', login: true, signedIn: false });
+    const link = bar()?.querySelector('a') as HTMLAnchorElement;
+    const plain = new MouseEvent('click', { bubbles: true, cancelable: true });
+    link.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(false);
+    const hook = vi.fn();
+    (window as unknown as { __pactoSignIn: unknown }).__pactoSignIn = hook;
+    const hosted = new MouseEvent('click', { bubbles: true, cancelable: true });
+    link.dispatchEvent(hosted);
+    expect(hosted.defaultPrevented).toBe(true);
+    expect(hook).toHaveBeenCalledWith('#/fleet/services', false);
+  });
 });
 
 describe('SignInScreen', () => {

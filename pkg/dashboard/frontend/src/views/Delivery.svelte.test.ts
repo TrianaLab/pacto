@@ -240,12 +240,12 @@ describe('inbox', () => {
     destroy();
   });
 
-  it('asks to sign in on a 401, and tells a failure apart from an empty inbox', async () => {
+  it('leaves a 401 to the sign-in gate, and tells a failure apart from an empty inbox', async () => {
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false });
-    fns.inbox.mockRejectedValue(new ApiError(401, 'sign in to see delivery', 'LoginRequired'));
+    fns.inbox.mockRejectedValue(new ApiError(401, 'sign in to use this dashboard', 'LoginRequired'));
     let r = render(DeliveryInboxView);
     await settle();
-    expect(r.target.querySelector('[data-testid="delivery-signin"] a')?.getAttribute('href')).toContain('/auth/login?return=');
+    expect(r.target.querySelector('a[href*="/auth/login"]')).toBeNull();
     r.destroy();
 
     fns.inbox.mockRejectedValue(new ApiError(500, 'boom'));

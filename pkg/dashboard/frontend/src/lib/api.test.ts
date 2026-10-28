@@ -460,6 +460,20 @@ describe('delivery endpoints', () => {
     expect([plain.status, plain.code, plain.message]).toEqual([403, '', 'missing or wrong X-Pacto-CSRF header']);
   });
 
+  it('sends every 401 but the session read to the sign-in gate', async () => {
+    const seen = vi.fn();
+    window.addEventListener('pacto:unauthorized', seen);
+    try {
+      mockFetch.mockImplementation(() => Promise.resolve(jsonResponse({ status: 401, code: 'LoginRequired', detail: 'sign in to use this dashboard' }, 401)));
+      await expect(api.deliveryInbox()).rejects.toMatchObject({ status: 401, code: 'LoginRequired' });
+      expect(seen).toHaveBeenCalledTimes(1);
+      await expect(api.session()).rejects.toMatchObject({ status: 401 });
+      expect(seen).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('pacto:unauthorized', seen);
+    }
+  });
+
   it('reads the session and who delivery says the caller is, each from its own endpoint', async () => {
     mockFetch.mockImplementation((req: Request) => Promise.resolve(new URL(req.url).pathname === '/api/session'
       ? jsonResponse({ mode: 'shared', login: true, signedIn: true, user: 'u' })

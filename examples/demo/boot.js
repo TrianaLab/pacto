@@ -549,7 +549,7 @@
     }
 
     // The dashboard calls this instead of leaving for /auth/login (see signIn in
-    // the frontend's delivery.ts): leaving would reload the page and lose the tab's
+    // the frontend's lib/session.svelte.ts): leaving would reload the page and lose the tab's
     // whole simulation. fresh is a decision asking for a new login: the same person
     // signs in again. Otherwise it is a switch to another person's existing session.
     window.__pactoSignIn = function (hash, fresh) {

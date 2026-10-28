@@ -1,6 +1,4 @@
 <script>
-  import { loginUrl } from '../lib/session.svelte.ts';
-
   // A refused action, said plainly: the dashboard's own words for the refusals
   // it knows, then the reason exactly as the server or the apiserver gave it.
   // A refusal the dashboard can name keeps the server's words one click away;
@@ -39,7 +37,6 @@
   {:else}
     <p class="rn-detail t-body-2">{detail}</p>
   {/if}
-  {#if code === 'LoginRequired'}<a class="btn btn-sm" href={loginUrl(location.hash)}>Sign in</a>{/if}
 </div>
 
 <style>

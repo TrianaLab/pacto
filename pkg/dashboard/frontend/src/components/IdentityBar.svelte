@@ -1,8 +1,9 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { session, me, loadSession, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
+  import { session, me, loadSession, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
   import { fleetOverviewUrl } from '../lib/router.ts';
   import Person from './Person.svelte';
+  import SignInLink from './SignInLink.svelte';
   import CappedList from './CappedList.svelte';
   import HelpTip from './HelpTip.svelte';
 
@@ -56,7 +57,7 @@
     <button type="button" class="btn btn-sm" data-testid="sign-out" onclick={signOut}>{hostSignsIn() ? 'Switch person' : 'Sign out'}</button>
   {:else}
     <p>You are not signed in.</p>
-    {#if s.login}<a class="btn btn-sm btn-primary" href={loginUrl(here())}>Sign in</a>{/if}
+    {#if s.login}<SignInLink hash={here()} class="btn btn-sm btn-primary">Sign in</SignInLink>{/if}
   {/if}
   {#if signOutError}<p class="who-err" role="alert">{signOutError}</p>{/if}
 {/snippet}

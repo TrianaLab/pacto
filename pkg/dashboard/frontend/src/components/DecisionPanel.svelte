@@ -1,13 +1,14 @@
 <script>
   import { untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { session, me, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
+  import { session, me, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
   import { decisionAsked, decisionLabel, cliDecision, keepPending, pendingFor, dropPending,
     versionLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import { formatCount } from '../lib/format.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
+  import SignInLink from './SignInLink.svelte';
   import MoveFirstList from './MoveFirstList.svelte';
 
   // The decision on a held change. The dashboard offers it only to a person
@@ -244,14 +245,14 @@
       <!-- A pasted token proves no recent sign-in, so it never decides. -->
       {#if s.login}
         <p class="t-body-2" data-testid="decide-token">You signed in with a token, and a token never decides. Sign in with your identity provider to decide.</p>
-        <a class="btn btn-sm btn-primary" href={loginUrl(location.hash, true)}>Sign in</a>
+        <SignInLink hash={location.hash} fresh class="btn btn-sm btn-primary">Sign in</SignInLink>
       {:else}
         <p class="t-body-2" data-testid="decide-token">You signed in with a token, and a token never decides. Decide from the command line:</p>
         <CopyableIdentifier value={cliDecision(ns, name, asked)} label="command" />
       {/if}
     {:else if s && !s.signedIn}
       <p class="t-body-2">Sign in to decide.</p>
-      <a class="btn btn-sm btn-primary" href={loginUrl(location.hash)}>Sign in</a>
+      <SignInLink hash={location.hash} class="btn btn-sm btn-primary">Sign in</SignInLink>
     {:else if me().user && (me().user === op.spec?.actor?.user || me().user === op.spec?.onBehalfOf?.user)}
       <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
     {:else if caller?.class === 'agent' || caller?.class === 'controller'}

@@ -1,6 +1,7 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { session, loginUrl, TOKEN_DOCS } from '../lib/session.svelte.ts';
+  import { session, TOKEN_DOCS } from '../lib/session.svelte.ts';
+  import SignInLink from './SignInLink.svelte';
   import { fleetOverviewUrl } from '../lib/router.ts';
 
   // The one screen a dashboard people sign in to shows before they do: the
@@ -8,7 +9,6 @@
   // unless the dashboard is told its name). Signing in comes back to the page asked for.
   // Where token sign-in is on, a field takes a Kubernetes bearer token too.
   let hash = $state(location.hash);
-  const href = $derived(loginUrl(hash || fleetOverviewUrl()));
   const s = $derived(session.data);
   let token = $state('');
   let busy = $state(false);
@@ -35,7 +35,7 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="32" height="32" aria-hidden="true"><path d="M10 6 5 12 10 18"/><path d="M14 6 19 12 14 18"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
     Pacto
   </h1>
-  {#if s?.login !== false}<a class="btn btn-primary" {href}>Sign in with {s?.loginName || 'OIDC'}</a>{/if}
+  {#if s?.login !== false}<SignInLink hash={hash || fleetOverviewUrl()}>Sign in with {s?.loginName || 'OIDC'}</SignInLink>{/if}
   {#if s?.tokenLogin}
     <form class="signin-token" onsubmit={signInWithToken} data-testid="token-sign-in">
       <label for="signin-token">Kubernetes token</label>
