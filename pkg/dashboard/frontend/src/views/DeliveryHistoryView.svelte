@@ -246,7 +246,7 @@
                 <td data-label="When">{@render when(en)}</td>
                 <td data-label="Changes">
                   <div class="cell-stack">
-                    <a href={url} data-testid="history-all-changes" aria-label={`All ${formatCount(total)} changes on ${h.namespace}/${h.stage.name}`}>{formatCount(total)} change{total === 1 ? '' : 's'}</a>
+                    <a href={url} data-testid="history-all-changes" aria-label={`${formatCount(total)} change${total === 1 ? '' : 's'} on ${h.namespace}/${h.stage.name}`}>{formatCount(total)} change{total === 1 ? '' : 's'}</a>
                     {#if issues}<a class="badge badge-warn" href={url} data-testid="history-issues">{formatCount(issues)} problem{issues === 1 ? '' : 's'}</a>{/if}
                   </div>
                 </td>

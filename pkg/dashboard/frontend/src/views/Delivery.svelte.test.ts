@@ -1306,7 +1306,7 @@ describe('history and published', () => {
     expect(target.querySelector('section.hv-stage')).toBeNull();
     const all = target.querySelector('[data-testid="history-all-changes"]')!;
     expect(all.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
-    expect(all.getAttribute('aria-label')).toBe('All 40 changes on prod/pay');
+    expect(all.getAttribute('aria-label')).toBe('40 changes on prod/pay');
     expect(target.querySelector('[data-testid="history-issues"]')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
     // One record could not be read or verified, so the source never claims every signature verified.
     expect(target.querySelector('[data-testid="history-source"]')?.getAttribute('title')).toBe('From signed records, complete');

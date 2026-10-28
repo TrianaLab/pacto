@@ -392,7 +392,7 @@ test.describe('Delivery views', () => {
     await page.goto('/#/delivery/history');
     const summary = page.getByTestId('history-summary');
     await expect(summary.getByRole('row', { name: /^payments-prod in prod/ })).toContainText('2 problems', { timeout: T });
-    await expect(summary.getByRole('link', { name: 'All 4 changes on prod/payments-prod' })).toHaveAttribute('href', '#/delivery/history?namespace=prod&stage=payments-prod');
+    await expect(summary.getByRole('link', { name: '4 changes on prod/payments-prod' })).toHaveAttribute('href', '#/delivery/history?namespace=prod&stage=payments-prod');
     await audit(page, 'history summary');
     await page.goto('/#/delivery/history?namespace=prod&stage=payments-prod');
     const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
