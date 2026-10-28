@@ -128,7 +128,9 @@ says() { # SUBSTRING — the run's notices
   if [[ "$ERR" == *"$1"* ]]; then echo "  PASS: says \"$1\""; else miss "stderr lacks \"$1\":"$'\n'"$ERR"; fi
 }
 
-SERVE='agnhost netexec --http-port=8080 >/dev/null 2>&1 & echo served; sleep 6'
+# It serves for 10s: the unprivileged poll needs the listener up for the whole
+# 3s stabilization window after agnhost starts, which a loaded runner delays.
+SERVE='agnhost netexec --http-port=8080 >/dev/null 2>&1 & echo served; sleep 10'
 # A dependency on 8081 served inside the command itself, dialled every half second.
 DIAL_OK='agnhost netexec --http-port=8081 >/dev/null 2>&1 & sleep 1; for i in 1 2 3 4 5 6 7 8 9 10; do agnhost connect 127.0.0.1:8081 --timeout=1s >/dev/null 2>&1; sleep 0.5; done'
 DIAL_REFUSED='for i in 1 2 3 4 5 6 7 8 9 10 11 12; do agnhost connect 127.0.0.1:9 --timeout=1s >/dev/null 2>&1; sleep 0.5; done'
