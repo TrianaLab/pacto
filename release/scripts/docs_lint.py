@@ -16,11 +16,16 @@ This file owns the SCOPE. Both external tools are handed an explicit file list
 rather than a glob, so "which files are gated" is answered in one place
 (`scope()`) instead of drifting across two config formats.
 
-Neither tool is vendored. markdownlint runs through npx and Vale through
-`go run`, both pinned by version, because `make docs-check` already requires
-Node (mermaid-check) and Go (it builds ./cmd/pacto). A missing tool is a hard
-failure, never a silent skip -- a gate that quietly passes when it could not run
-is worse than no gate.
+Neither tool is vendored. markdownlint runs through npx, pinned by version.
+Vale is the `vale` on PATH: CI installs the checksummed release binary of the
+pinned version (see docs-check.yml), and a laptop may use any Vale, such as a
+Homebrew one -- CI's pinned verdict is the one that counts, and the gate prints
+a note when the local version differs. With no `vale` on PATH it falls back to
+`go run` of the pinned version, because `make docs-check` already requires Go;
+that builds Vale from source and verifies its modules against sum.golang.org on
+every cold run, the network flake CI no longer depends on. A missing tool is a
+hard failure, never a silent skip -- a gate that quietly passes when it could
+not run is worse than no gate.
 
 Exit code is non-zero if any check fails.
 """
@@ -41,7 +46,10 @@ from docs_check import REPO_ROOT, generated_paths, integration_docs_dirs  # noqa
 
 # Pinned. An unpinned linter turns a green PR red on someone else's release.
 MARKDOWNLINT = "markdownlint-cli2@0.18.1"
-VALE = "github.com/errata-ai/vale/v3/cmd/vale@v3.9.1"
+# Bumping VALE_VERSION means bumping the version AND the sha256 in docs-check.yml;
+# the workflow refuses to run when the two disagree.
+VALE_VERSION = "3.9.1"
+VALE_MODULE = f"github.com/errata-ai/vale/v3/cmd/vale@v{VALE_VERSION}"
 
 # Structural budgets, in PARAGRAPH words. Front matter, fenced code, tables and
 # lists do not count. That exemption is the rule, not a loophole: what makes a
@@ -271,6 +279,18 @@ def check_budgets(files: list[str]) -> None:
 
 # --- external linters -------------------------------------------------------
 
+def vale_cmd() -> list[str]:
+    """The `vale` on PATH, else `go run` of the pinned version."""
+    try:
+        out = subprocess.run(["vale", "--version"], capture_output=True, text=True).stdout
+    except FileNotFoundError:
+        return ["go", "run", VALE_MODULE]
+    if out.split()[-1:] != [VALE_VERSION]:
+        print(f"docs-lint: note: {out.strip() or 'vale'} is not the pinned {VALE_VERSION}; "
+              "CI runs the pinned version\n")
+    return ["vale"]
+
+
 def gate(label: str, cmd: list[str], files: list[str]) -> None:
     try:
         proc = subprocess.run(cmd + files, cwd=REPO_ROOT, capture_output=True, text=True)
@@ -302,7 +322,7 @@ def main() -> int:
     # would turn this leg into a gate that cannot fail. MinAlertLevel is set in
     # .vale.ini, so the threshold lives with the rules.
     gate("(b) Vale (prose: marketing, filler, claims, terminology)",
-         ["go", "run", VALE, "--output=line"], files)
+         vale_cmd() + ["--output=line"], files)
     check_budgets(files)
     check_links(files)
 
