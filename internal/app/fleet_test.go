@@ -314,7 +314,7 @@ type fakeFleetK8sClient struct {
 func (f *fakeFleetK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return f.disc, nil
 }
-func (f *fakeFleetK8sClient) ListJSON(context.Context, string, string) ([]byte, error) {
+func (f *fakeFleetK8sClient) ListJSON(context.Context, k8sclient.CRDDiscovery, string) ([]byte, error) {
 	return f.listData, nil
 }
 

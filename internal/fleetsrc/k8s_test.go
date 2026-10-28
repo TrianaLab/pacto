@@ -28,8 +28,8 @@ type fakeK8sClient struct {
 func (f *fakeK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return f.disc, f.discErr
 }
-func (f *fakeK8sClient) ListJSON(_ context.Context, resource, namespace string) ([]byte, error) {
-	f.gotResource, f.gotNS = resource, namespace
+func (f *fakeK8sClient) ListJSON(_ context.Context, crd k8sclient.CRDDiscovery, namespace string) ([]byte, error) {
+	f.gotResource, f.gotNS = crd.ResourceName, namespace
 	return f.listData, f.listErr
 }
 

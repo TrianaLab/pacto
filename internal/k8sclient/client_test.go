@@ -453,26 +453,6 @@ func (m *mockDiscoveryForCRD) ServerResourcesForGroupVersion(gv string) (*metav1
 }
 
 // ---------------------------------------------------------------------------
-// k8sGoClient.gvr
-// ---------------------------------------------------------------------------
-
-func TestK8sGoClient_GVR_WithVersion(t *testing.T) {
-	client := &k8sGoClient{group: "pacto.trianalab.io", version: "v1alpha1"}
-	gvr := client.gvr("pactos")
-	if gvr.Group != "pacto.trianalab.io" || gvr.Version != "v1alpha1" || gvr.Resource != "pactos" {
-		t.Errorf("unexpected GVR: %v", gvr)
-	}
-}
-
-func TestK8sGoClient_GVR_DefaultVersion(t *testing.T) {
-	client := &k8sGoClient{group: "pacto.trianalab.io"}
-	gvr := client.gvr("pactos")
-	if gvr.Version != "v1alpha1" {
-		t.Errorf("expected default version 'v1alpha1', got %q", gvr.Version)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // k8sGoClient.ListJSON
 // ---------------------------------------------------------------------------
 
@@ -500,12 +480,15 @@ func newTestPactoObject(name, namespace string) *unstructured.Unstructured {
 	}
 }
 
+// pactos is what DiscoverCRD finds for the operator's CRD.
+var pactos = CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"}
+
 func TestK8sGoClient_ListJSON_WithNamespace(t *testing.T) {
 	obj := newTestPactoObject("svc-a", "default")
 	dyn := newFakeDynamicClient(obj)
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
+	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io"}
 
-	data, err := client.ListJSON(context.Background(), "pactos", "default")
+	data, err := client.ListJSON(context.Background(), pactos, "default")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -517,9 +500,9 @@ func TestK8sGoClient_ListJSON_WithNamespace(t *testing.T) {
 func TestK8sGoClient_ListJSON_AllNamespaces(t *testing.T) {
 	obj := newTestPactoObject("svc-a", "default")
 	dyn := newFakeDynamicClient(obj)
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
+	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io"}
 
-	data, err := client.ListJSON(context.Background(), "pactos", "")
+	data, err := client.ListJSON(context.Background(), pactos, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -533,9 +516,9 @@ func TestK8sGoClient_ListJSON_Error(t *testing.T) {
 	dyn.PrependReactor("list", "*", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, fmt.Errorf("list failed")
 	})
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
+	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io"}
 
-	_, err := client.ListJSON(context.Background(), "pactos", "default")
+	_, err := client.ListJSON(context.Background(), pactos, "default")
 	if err == nil {
 		t.Error("expected error")
 	}

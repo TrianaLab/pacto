@@ -408,7 +408,7 @@ type fakeClusterClient struct {
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, nil
 }
-func (c *fakeClusterClient) ListJSON(context.Context, string, string) ([]byte, error) {
+func (c *fakeClusterClient) ListJSON(context.Context, k8sclient.CRDDiscovery, string) ([]byte, error) {
 	if c.listErr != nil {
 		return nil, c.listErr
 	}

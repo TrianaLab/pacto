@@ -26,8 +26,8 @@ import (
 type K8sClient interface {
 	// DiscoverCRD discovers the Pacto CRD group, version, and resource name.
 	DiscoverCRD(ctx context.Context) (*CRDDiscovery, error)
-	// ListJSON returns the raw JSON of all Pacto CRD resources.
-	ListJSON(ctx context.Context, resource, namespace string) ([]byte, error)
+	// ListJSON returns the raw JSON of all resources of the CRD DiscoverCRD found.
+	ListJSON(ctx context.Context, crd CRDDiscovery, namespace string) ([]byte, error)
 }
 
 // CRDDiscovery holds the result of discovering the Pacto CRD on the cluster.
@@ -74,7 +74,6 @@ type k8sGoClient struct {
 	discovery discovery.DiscoveryInterface
 	dynamic   dynamic.Interface
 	group     string
-	version   string // set after DiscoverCRD
 }
 
 // NewGoClient constructs a cluster-backed K8sClient from in-cluster config or
@@ -169,24 +168,11 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 		result.ResourceName = "pactos" // fallback
 	}
 
-	c.version = result.Version
 	return result, nil
 }
 
-func (c *k8sGoClient) gvr(resource string) schema.GroupVersionResource {
-	version := c.version
-	if version == "" {
-		version = "v1alpha1"
-	}
-	return schema.GroupVersionResource{
-		Group:    c.group,
-		Version:  version,
-		Resource: resource,
-	}
-}
-
-func (c *k8sGoClient) ListJSON(ctx context.Context, resource, namespace string) ([]byte, error) {
-	gvr := c.gvr(resource)
+func (c *k8sGoClient) ListJSON(ctx context.Context, crd CRDDiscovery, namespace string) ([]byte, error) {
+	gvr := schema.GroupVersionResource{Group: c.group, Version: crd.Version, Resource: crd.ResourceName}
 	var list any
 	var err error
 	if namespace != "" {
