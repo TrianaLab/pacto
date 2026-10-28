@@ -1,7 +1,8 @@
 <script>
   import { getFilters, setFilter, clearFilters } from '../lib/filters.svelte.ts';
   import { filtersActive } from '../lib/filters.ts';
-  import { ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY, readinessBucket } from '../lib/format.ts';
+  import { ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY } from '../lib/owners.ts';
+  import { readinessBucket } from '../lib/readiness.ts';
   import Select from './Select.svelte';
 
   // The UNFILTERED list for computing facet counts

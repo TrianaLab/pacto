@@ -23,7 +23,8 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
-  import { complianceClass, classificationClass, ownerIsStructured, referencedDocPaths, formatCount } from '../lib/format.ts';
+  import { complianceClass, classificationClass, referencedDocPaths, formatCount } from '../lib/format.ts';
+  import { ownerIsStructured } from '../lib/owners.ts';
   import Pager from '../components/Pager.svelte';
   import ShowAll from '../components/ShowAll.svelte';
   import { cap } from '../lib/cap.svelte.ts';

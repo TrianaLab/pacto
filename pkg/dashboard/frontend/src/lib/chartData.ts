@@ -1,4 +1,4 @@
-import { ownerKey, UNOWNED_KEY } from './format';
+import { ownerKey, UNOWNED_KEY } from './owners';
 
 /**
  * Quadrant data: distance from a service's own readiness threshold (x) vs blast

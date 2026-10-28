@@ -16,6 +16,18 @@ import {
   reasonTooltip,
   reasonBadgeClass,
   isReasonActionable,
+  aggregateByOwner,
+  compareScoresUnassessedLast,
+  countHighImpact,
+  summarize,
+  shortDigest,
+  abbreviateDigests,
+  driftBadgeClass,
+  driftBadgeLabel,
+  completenessLabel,
+  completenessClass,
+} from './format.ts';
+import {
   ownerDisplay,
   ownerKey,
   parseOwnerKey,
@@ -24,13 +36,9 @@ import {
   UNOWNED_KEY,
   ownerMatchesFilter,
   ownerIsStructured,
-  aggregateByOwner,
-  aggregateGraphByOwner,
-  relatedSubgraph,
-  worstStatus,
-  compareScoresUnassessedLast,
   extractOwnerDetail,
-  countHighImpact,
+} from './owners.ts';
+import {
   readinessBucket,
   readinessBucketLabel,
   readinessBucketClass,
@@ -40,14 +48,8 @@ import {
   checkStatusLabel,
   checkStatusClass,
   assessmentCountdownLabel,
-  summarize,
-  shortDigest,
-  abbreviateDigests,
-  driftBadgeClass,
-  driftBadgeLabel,
-  completenessLabel,
-  completenessClass,
-} from './format.ts';
+} from './readiness.ts';
+import { aggregateGraphByOwner, relatedSubgraph, worstStatus } from './graph-aggregate.ts';
 
 describe('statusClass', () => {
   it('maps Compliant to ok', () => expect(statusClass('Compliant')).toBe('ok'));

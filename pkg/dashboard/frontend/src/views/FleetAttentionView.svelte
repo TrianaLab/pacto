@@ -6,7 +6,8 @@
   import {
     attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel,
   } from '../lib/entityLabels.ts';
-  import { statusLabel, STATUS_FILTER_OPTIONS, ownerKeyLabel, ownerKeyKind } from '../lib/format.ts';
+  import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
+  import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
   import { fleetOverviewUrl, fleetAttentionUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityCombobox from '../components/EntityCombobox.svelte';

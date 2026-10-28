@@ -5,7 +5,7 @@ import {
   fleetAttentionUrl, fleetChangesUrl, fleetEntityListUrl,
   deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl,
 } from './router';
-import { ownerKey, ownerKeyLabel, ownerKeyKind, ownerMatchesFilter } from './format';
+import { ownerKey, ownerKeyLabel, ownerKeyKind, ownerMatchesFilter } from './owners';
 
 export type CommandKind = 'view' | 'service' | 'owner' | 'action';
 

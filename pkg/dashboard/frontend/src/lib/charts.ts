@@ -3,7 +3,9 @@
  * Each render fn takes a container element, data and options, draws an SVG.
  */
 import * as d3 from 'd3';
-import { readinessBucketLabel, ownerKeyLabel, ownerKeyKind, statusLabel, statusTone, formatCount } from './format';
+import { statusLabel, statusTone, formatCount } from './format';
+import { ownerKeyLabel, ownerKeyKind } from './owners';
+import { readinessBucketLabel } from './readiness';
 import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState } from './chartkit';
 import { categoryIconInner } from './categoryIcons';
 import { prefersReducedMotion } from './motion';

@@ -4,7 +4,8 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { statusLabel, STATUS_FILTER_OPTIONS, ownerKeyLabel, ownerKeyKind } from '../lib/format.ts';
+  import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
+  import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
   import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityCombobox from '../components/EntityCombobox.svelte';
