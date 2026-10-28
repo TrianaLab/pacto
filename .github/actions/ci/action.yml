@@ -72,7 +72,7 @@ runs:
 
     - name: Install golangci-lint
       if: inputs.golangci-lint == 'true'
-      uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+      uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
       with:
         # Pin the BINARY, not just the action: without this the installer follows
         # `latest`, and an upstream release turns a required gate red on a tree
