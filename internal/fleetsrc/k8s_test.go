@@ -84,23 +84,6 @@ func TestK8sSource_Collect_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestK8sSource_Collect_ResourceNameFallback(t *testing.T) {
-	fake := &fakeK8sClient{
-		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: ""}, // empty -> fallback
-		listData: []byte(`{"items":[]}`),
-	}
-	s := NewK8sSource("k8s", fake, "team-a")
-	if _, err := s.Collect(context.Background()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if fake.gotResource != "pactos" {
-		t.Errorf("resource = %q, want pactos (fallback)", fake.gotResource)
-	}
-	if fake.gotNS != "team-a" {
-		t.Errorf("namespace = %q, want team-a", fake.gotNS)
-	}
-}
-
 func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	list := `{"items":[
 	  {

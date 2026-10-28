@@ -33,10 +33,8 @@ type K8sClient interface {
 // CRDDiscovery holds the result of discovering the Pacto CRD on the cluster.
 type CRDDiscovery struct {
 	Found        bool
-	Group        string
-	Versions     []string
 	Version      string // preferred or first version
-	ResourceName string
+	ResourceName string // never empty when Found
 }
 
 // builders are the client-go constructors a client is assembled from. The
@@ -130,7 +128,7 @@ func (b builders) config() (*rest.Config, error) {
 }
 
 func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
-	result := &CRDDiscovery{Group: c.group}
+	result := &CRDDiscovery{}
 
 	groups, _, err := c.discovery.ServerGroupsAndResources()
 	if err != nil {
@@ -142,13 +140,10 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 			continue
 		}
 		result.Found = true
-		for _, v := range g.Versions {
-			result.Versions = append(result.Versions, v.Version)
-		}
 		if g.PreferredVersion.Version != "" {
 			result.Version = g.PreferredVersion.Version
-		} else if len(result.Versions) > 0 {
-			result.Version = result.Versions[0]
+		} else if len(g.Versions) > 0 {
+			result.Version = g.Versions[0].Version
 		}
 		break
 	}
