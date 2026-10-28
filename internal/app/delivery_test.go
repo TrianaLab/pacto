@@ -407,9 +407,18 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 	if _, err := d.Approve(ctx, "prod", "gone", delivery.Approve, ""); err == nil {
 		t.Fatal("approving a missing operation")
 	}
-	// With no login freshness published, a login the cluster cannot date
-	// decides too, and the Approval carries no authTime.
-	d, c, _ = deliveryFixture(t, "alice", []string{"devs"}, nil, op)
+}
+
+// TestDeliveryApproveReadsTheStage: with no login freshness published, a
+// login the cluster cannot date decides and the Approval carries no
+// authTime; a Stage it cannot read refuses the decision.
+func TestDeliveryApproveReadsTheStage(t *testing.T) {
+	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
+		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bot"}},
+		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
+	})
+	ctx := context.Background()
+	d, c, _ := deliveryFixture(t, "alice", []string{"devs"}, nil, op)
 	c.PrependReactor("create", "approvals", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		u := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
 		if _, dated := u.Object["spec"].(map[string]any)["authTime"]; dated {

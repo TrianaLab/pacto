@@ -613,6 +613,30 @@ func checkHistory(t *testing.T, base string, f *fakeDelivery) {
 	}
 }
 
+// checkOfferFollowsFreshness: the decisions offered, and the decisionFreshness
+// a change carries, follow the login freshness its Stage publishes.
+func checkOfferFollowsFreshness(t *testing.T, base string, f *fakeDelivery, actions func(string) string) {
+	t.Helper()
+	// With no login freshness published, a login the cluster cannot date
+	// decides, and the change says no login is too old.
+	f.caller.AuthTime = ""
+	if got := actions("held"); got != "approve,reject,cancel" {
+		t.Fatalf("no login time, no freshness: %s", got)
+	}
+	_, out := call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil)
+	expect(t, out["decisionFreshness"] == nil, "no freshness published: %v", out["decisionFreshness"])
+	// Where the Stage asks for a fresh login, a cluster that reports no login
+	// time counts nobody's decision, so it offers none (the UI says approving
+	// is not possible here), and the change says how old a login may be.
+	f.stages[0].Status.AuthFreshness = "15m0s"
+	if got := actions("held"); got != "cancel" {
+		t.Fatalf("no login time on this cluster: %s", got)
+	}
+	_, out = call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil)
+	expect(t, out["decisionFreshness"] == float64(600), "two thirds of 15 minutes, in seconds: %v", out["decisionFreshness"])
+	f.stages[0].Status.AuthFreshness = ""
+}
+
 func TestHistoryAndOperation(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
 	succeeded := delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Succeeded, Applied: true,
@@ -669,24 +693,7 @@ func TestHistoryAndOperation(t *testing.T) {
 		t.Fatalf("a token session: %s", got)
 	}
 	a.state = AuthState{SignedIn: true}
-	// With no login freshness published, a login the cluster cannot date
-	// decides, and the change says no login is too old.
-	f.caller.AuthTime = ""
-	if got := actions("held"); got != "approve,reject,cancel" {
-		t.Fatalf("no login time, no freshness: %s", got)
-	}
-	_, out := call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil)
-	expect(t, out["decisionFreshness"] == nil, "no freshness published: %v", out["decisionFreshness"])
-	// Where the Stage asks for a fresh login, a cluster that reports no login
-	// time counts nobody's decision, so it offers none (the UI says approving
-	// is not possible here), and the change says how old a login may be.
-	f.stages[0].Status.AuthFreshness = "15m0s"
-	if got := actions("held"); got != "cancel" {
-		t.Fatalf("no login time on this cluster: %s", got)
-	}
-	_, out = call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil)
-	expect(t, out["decisionFreshness"] == float64(600), "two thirds of 15 minutes, in seconds: %v", out["decisionFreshness"])
-	f.stages[0].Status.AuthFreshness = ""
+	checkOfferFollowsFreshness(t, base, f, actions)
 	f.caller = person("acme:team-ledger")
 	if got := actions("held"); got != "cancel" {
 		t.Fatalf("not my team: %s", got)
@@ -763,10 +770,18 @@ func TestPlanProposeCancel(t *testing.T) {
 }
 
 // checkDecideFollowsThePromoter: a decision the promoter would not count is
-// refused with its reason, and the sign-in margin follows the login freshness
-// the Stage publishes.
+// refused with its reason, a Stage the caller cannot read refuses it, and the
+// sign-in margin follows the login freshness the Stage publishes.
 func checkDecideFollowsThePromoter(t *testing.T, base string, f *fakeDelivery, decide func(string) (int, map[string]any)) {
 	t.Helper()
+	// A Stage the caller cannot read leaves its login freshness unknown: no
+	// decision is recorded that the promoter might not count.
+	recorded := len(f.approved)
+	f.stageErr = Refuse(http.StatusForbidden, "Forbidden", "stages is forbidden")
+	if code, out := decide(base); code != http.StatusForbidden || out["detail"] != "stages is forbidden" || len(f.approved) != recorded {
+		t.Fatalf("an unreadable Stage refuses the decision: %d %v", code, out)
+	}
+	f.stageErr = nil
 	// accept-unknown on a change that needs an approval is refused with the
 	// promoter's own reason: it would never count.
 	if code, out := call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "accept-unknown"}); code != http.StatusForbidden ||
@@ -798,13 +813,6 @@ func TestDecide(t *testing.T) {
 		return call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "approve", "note": "ok"})
 	}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
-	// A Stage the caller cannot read leaves its login freshness unknown: no
-	// decision is recorded that the promoter might not count.
-	f.stageErr = Refuse(http.StatusForbidden, "Forbidden", "stages is forbidden")
-	if code, out := decide(base); code != http.StatusForbidden || out["detail"] != "stages is forbidden" || len(f.approved) != 0 {
-		t.Fatalf("an unreadable Stage refuses the decision: %d %v", code, out)
-	}
-	f.stageErr = nil
 	if code, out := decide(base); code != http.StatusCreated || out["approval"] != "held-x" || f.approved[0] != "prod/held=approve" {
 		t.Fatalf("a fresh member of the named team decides: %d %v", code, out)
 	}
