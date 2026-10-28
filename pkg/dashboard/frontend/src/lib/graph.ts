@@ -429,7 +429,7 @@ export const LEGEND_SELECTORS: Record<string, string> = {
  */
 // Past this many nodes the layout settles at once: animating it held the main thread
 // for seconds on Reset layout and showed nothing worth watching.
-export const ANIMATE_LAYOUT_MAX_NODES = 150;
+const ANIMATE_LAYOUT_MAX_NODES = 150;
 
 /** spread is how much further apart a graph of n nodes is laid out than a small one:
  *  1 up to 40 nodes, then with the square root of the count. */

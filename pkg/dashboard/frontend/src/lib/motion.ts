@@ -31,8 +31,8 @@ export function dur(ms: number): number {
 }
 
 /** --stagger-step / --stagger-max, mirrored. See the RATION note in styles/tokens.css. */
-export const STAGGER_STEP = 28;
-export const STAGGER_MAX = 8;
+const STAGGER_STEP = 28;
+const STAGGER_MAX = 8;
 
 /**
  * The delay for row `i` of a rationed entrance, clamped BEFORE multiplying: row 30 waits
