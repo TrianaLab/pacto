@@ -26,8 +26,9 @@ no impersonation.
 ## How it works
 
 1. A person opens the dashboard and sees only its sign-in screen. Every API
-   endpoint and `/metrics` answer `401` until they sign in; the page itself,
-   `/health`, `/api/session` and `/auth/*` stay open.
+   endpoint and `/metrics` answer `401` with the code `LoginRequired` until
+   they sign in; the page itself, `/health`, `/api/session` and `/auth/*`
+   stay open.
 2. They sign in with your identity provider (OpenID Connect, authorization code
    with PKCE) or, where you allow it, paste a Kubernetes bearer token.
 3. The dashboard keeps the tokens in a server-side session behind an

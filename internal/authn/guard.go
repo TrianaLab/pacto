@@ -264,11 +264,20 @@ func (d *Dashboard) sessionState(r *http.Request) State {
 	return State{}
 }
 
+// loginRequired answers 401 in the dashboard's refusal shape (status, code,
+// detail), so every view reads the same LoginRequired.
+func loginRequired(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = w.Write([]byte(`{"status":401,"code":"LoginRequired","detail":"sign in to use this dashboard"}` + "\n"))
+}
+
 func (d *Dashboard) shared(w http.ResponseWriter, r *http.Request) (State, bool) {
 	_, hasCookie := r.Cookie(SessionCookie)
 	st := d.sessionState(r)
 	if !st.SignedIn && needsSession(r.URL.Path) {
-		http.Error(w, "sign in to use this dashboard", http.StatusUnauthorized)
+		loginRequired(w)
 		return State{}, false
 	}
 	if why := refuseShared(r, st, hasCookie == nil); why != "" {
