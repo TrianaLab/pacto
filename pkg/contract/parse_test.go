@@ -447,3 +447,25 @@ publish:
 		t.Fatalf("publish: %+v", p)
 	}
 }
+
+// TestParse_ValidStructuredOwner: an owner given as team, DRI and contacts
+// parses into every field, contact purpose included.
+func TestParse_ValidStructuredOwner(t *testing.T) {
+	f, err := os.Open("testdata/valid_structured_owner.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	c, err := contract.Parse(f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := contract.Owner{Team: "foundations", DRI: "eduardo.diaz", Contacts: []contract.OwnerContact{
+		{Type: "email", Value: "foundations@acme.com", Purpose: "ownership"},
+		{Type: "chat", Value: "#foundations"},
+	}}
+	if !reflect.DeepEqual(c.Service.Owner, want) {
+		t.Errorf("owner = %+v, want %+v", c.Service.Owner, want)
+	}
+}
