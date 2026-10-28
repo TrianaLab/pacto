@@ -169,7 +169,7 @@ func writeCache(path, latestVersion string) {
 
 // fetchLatestVersion fetches the latest release tag for pacto from GitHub.
 func (u *Updater) fetchLatestVersion() (string, error) {
-	return u.fetchLatestRepoVersion("TrianaLab/pacto")
+	return u.fetchLatestRepoVersion(pactoRepo)
 }
 
 // fetchLatestRepoVersion fetches the latest release tag for the given repo from GitHub.

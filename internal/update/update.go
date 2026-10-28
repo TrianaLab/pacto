@@ -64,13 +64,14 @@ func (u *Updater) Update(currentVersion, targetVersion string) (*UpdateResult, e
 
 	// Fetch the published checksums so the downloaded binary can be verified
 	// before it replaces the running executable (supply-chain integrity).
-	expected, err := u.expectedChecksum(u.checksumsURL("TrianaLab/pacto", targetVersion), u.binaryAssetName())
+	asset := u.assetName("pacto")
+	expected, err := u.expectedChecksum(u.releaseAssetURL(pactoRepo, targetVersion, "checksums.txt"), asset)
 	if err != nil {
 		return nil, err
 	}
 
 	// Download, verify, and replace the binary.
-	if err := u.downloadAndReplace(u.buildDownloadURL(targetVersion), expected); err != nil {
+	if err := u.downloadAndReplace(u.releaseAssetURL(pactoRepo, targetVersion, asset), expected); err != nil {
 		return nil, err
 	}
 
@@ -169,20 +170,24 @@ func verifyChecksum(path, expectedHex string) error {
 	return nil
 }
 
-// binaryAssetName returns the release asset filename for the current platform,
-// matching the names produced by the release workflow (pacto_<os>_<arch>[.exe]).
-func (u *Updater) binaryAssetName() string {
+// pactoRepo is the GitHub repository pacto itself is released from.
+const pactoRepo = "TrianaLab/pacto"
+
+// assetName returns the release asset filename of the binary named prefix for
+// the current platform, matching the names the release workflows produce
+// (<prefix>_<os>_<arch>[.exe]).
+func (u *Updater) assetName(prefix string) string {
 	goos, goarch := u.platform()
 	ext := ""
 	if goos == "windows" {
 		ext = ".exe"
 	}
-	return fmt.Sprintf("pacto_%s_%s%s", goos, goarch, ext)
+	return fmt.Sprintf("%s_%s_%s%s", prefix, goos, goarch, ext)
 }
 
-// checksumsURL returns the URL of the checksums.txt asset for a release.
-func (u *Updater) checksumsURL(repo, tag string) string {
-	return fmt.Sprintf("%s/%s/releases/download/%s/checksums.txt", u.DownloadBaseURL, repo, tag)
+// releaseAssetURL returns the download URL of asset in repo's release tag.
+func (u *Updater) releaseAssetURL(repo, tag, asset string) string {
+	return fmt.Sprintf("%s/%s/releases/download/%s/%s", u.DownloadBaseURL, repo, tag, asset)
 }
 
 // expectedChecksum fetches the release checksums and returns the expected
@@ -238,7 +243,7 @@ func parseChecksums(s string) map[string]string {
 
 // validateRelease checks that a release with the given tag exists on GitHub.
 func (u *Updater) validateRelease(tag string) error {
-	url := fmt.Sprintf("%s/repos/TrianaLab/pacto/releases/tags/%s", u.APIBaseURL, tag)
+	url := fmt.Sprintf("%s/repos/%s/releases/tags/%s", u.APIBaseURL, pactoRepo, tag)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
@@ -259,14 +264,6 @@ func (u *Updater) validateRelease(tag string) error {
 		return fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
 	return nil
-}
-
-// buildDownloadURL constructs the download URL for the platform binary.
-func (u *Updater) buildDownloadURL(tag string) string {
-	return fmt.Sprintf(
-		"%s/TrianaLab/pacto/releases/download/%s/%s",
-		u.DownloadBaseURL, tag, u.binaryAssetName(),
-	)
 }
 
 // downloadBinary downloads the binary from the given URL into the writer using
