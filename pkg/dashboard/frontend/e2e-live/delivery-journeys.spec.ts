@@ -131,6 +131,6 @@ test('History: the payments prod steps read back from signed records that verify
   await signIn(page, 'carol', '/#/delivery/history?namespace=prod&stage=payments');
   const prod = page.getByRole('region', { name: 'History of prod/payments' });
   await expect(prod.getByTestId('history-source')).toContainText('From signed records', { timeout: T });
-  await expect(prod.getByRole('row').filter({ has: page.locator('td code') }).first()).toBeVisible();
+  await expect(prod.getByRole('row').filter({ has: page.locator('td[data-label="Record"] button') }).first()).toBeVisible();
   await axe(page, 'history');
 });
