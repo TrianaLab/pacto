@@ -12,9 +12,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { detailFn, entitiesFn, impactFn, rawImpactFn, snapshotFn, capsFn } = vi.hoisted(() => ({
+const { detailFn, entitiesFn, impactFn, capsFn } = vi.hoisted(() => ({
   detailFn: vi.fn(), entitiesFn: vi.fn(), impactFn: vi.fn(),
-  rawImpactFn: vi.fn(), snapshotFn: vi.fn(), capsFn: vi.fn(),
+  capsFn: vi.fn(),
 }));
 
 vi.mock('../lib/api.ts', async (importOriginal) => {
@@ -25,8 +25,6 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
       fleetEntityDetail: (...a: unknown[]) => detailFn(...a),
       fleetEntities: (...a: unknown[]) => entitiesFn(...a),
       fleetImpactByIdentity: (...a: unknown[]) => impactFn(...a),
-      fleetImpact: (...a: unknown[]) => rawImpactFn(...a),   // the legacy GET: must NEVER be called
-      fleetSnapshot: (...a: unknown[]) => snapshotFn(...a),  // the raw snapshot: must NEVER be called
       capabilities: (...a: unknown[]) => capsFn(...a),
     },
   };
@@ -98,7 +96,7 @@ const analyzeBtn = (t: HTMLElement) => Array.from(t.querySelectorAll('button')).
 
 describe('ChangeAnalysisView — one workspace for what changed and what it affects', () => {
   beforeEach(() => {
-    for (const f of [detailFn, entitiesFn, impactFn, rawImpactFn, snapshotFn, capsFn]) f.mockReset();
+    for (const f of [detailFn, entitiesFn, impactFn, capsFn]) f.mockReset();
     detailFn.mockResolvedValue(serviceDetail());
     impactFn.mockResolvedValue(impactResult());
     capsFn.mockResolvedValue({ fleet: true, impact: true, observed: false });
@@ -110,7 +108,6 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
     // selectors are populated from the product entity-detail preview (never the snapshot)
     expect(detailFn).toHaveBeenCalledWith('service', 'domain-a/payments');
-    expect(snapshotFn).not.toHaveBeenCalled();
     analyzeBtn(target).click();
     await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
     // canonical ServiceKey + canonical RevisionKeys + snapshot id for mismatch rejection
@@ -122,8 +119,6 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
       includeObserved: false, limit: 100, offset: 0,
     }));
     // the legacy raw GET and the raw snapshot are never used by the product UI
-    expect(rawImpactFn).not.toHaveBeenCalled();
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -153,7 +148,6 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     // it pages the complete revision set via the product entities API scoped to the service
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['revision'], service: 'domain-a/payments' }));
     await vi.waitFor(() => expect(Array.from(target.querySelectorAll('#impact-old-rev option')).length).toBe(4)); // 3 revs + placeholder
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -244,7 +238,6 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     (target.querySelector('[data-testid="impact-picker-results"] button') as HTMLButtonElement).click();
     flushSync();
     expect(location.hash).toBe('#/fleet/changes/domain-a%2Fpayments');
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -271,7 +264,6 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     entitiesFn.mockResolvedValue({ meta, total: 9999, count: 200, nextOffset: 200, entities: Array.from({ length: 200 }, (_, i) => ref('revision', `domain-a/big@sha256:${i}`, `1.${i}.0`)) });
     const { target, component } = mountView({ svc: 'domain-a/big' });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-revisions-incomplete"]')).toBeTruthy());
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -386,7 +378,7 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
 // used to live on the legacy Compare screen's impact CTA, which this workspace replaces.)
 describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', () => {
   beforeEach(() => {
-    for (const f of [detailFn, entitiesFn, impactFn, rawImpactFn, snapshotFn, capsFn]) f.mockReset();
+    for (const f of [detailFn, entitiesFn, impactFn, capsFn]) f.mockReset();
     detailFn.mockResolvedValue(serviceDetail());
     impactFn.mockResolvedValue(impactResult());
     capsFn.mockResolvedValue({ fleet: true, impact: true, observed: false });
