@@ -1,1 +1,0 @@
-import{E as e,Jn as t,Kn as n,On as r,T as i,Vn as a,ir as o,jn as s,kn as c,mn as l,nr as u,tr as d}from"./format-DjeQooXM.js";var f=s(`<span><span class="badge-dot"></span> </span>`);function p(s,p){u(p,!0);var m=f(),h=t(n(m),1,!0);o(m),a((e,t)=>{l(m,1,`badge status-badge badge-${e??``}`),r(h,t)},[()=>i(p.status),()=>e(p.status)]),c(s,m),d()}export{p as t};
