@@ -20,7 +20,7 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
 .PHONY: build test test-integration test-acceptance-local test-acceptance-compose perf-envtest \
         test-acceptance-compose-selftest \
         test-browser test-browser-live test-browser-compose \
-        e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
+        e2e coverage lint check-section clean docs docs-build docs-demo demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
         e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind \
@@ -335,7 +335,17 @@ DEMO_SOURCES := $(shell find pkg/dashboard/frontend/src examples/demo/bundles ex
 	$(wildcard examples/demo/*.go) examples/demo/boot.js examples/demo/Makefile \
 	pkg/dashboard/frontend/package.json pkg/dashboard/frontend/package-lock.json
 $(DOCS_DEMO)/app.wasm: $(DEMO_SOURCES)
-	$(MAKE) -C examples/demo build DIST=$(CURDIR)/$(DOCS_DEMO)
+	$(MAKE) docs-demo
+
+# docs-demo is the one place the demo is mounted into the docs tree: build it,
+# smoke the wasm engine (smoke.mjs reads examples/demo/dist), then copy dist into
+# docs/demo so mkdocs (and mike's internal build) ships it at /demo/. docs.yml
+# and release.yml call it; the local docs targets reach it through app.wasm.
+docs-demo:
+	$(MAKE) -C examples/demo build
+	$(MAKE) -C examples/demo smoke
+	mkdir -p $(DOCS_DEMO)
+	cp -r examples/demo/dist/. $(DOCS_DEMO)/
 
 demo-preview-clean:
 	rm -rf $(DOCS_DEMO)
