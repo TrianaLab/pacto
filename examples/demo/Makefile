@@ -88,10 +88,11 @@ wasmexec:
 
 ## Inject the wasm loader before the app's module script, add the no-JavaScript
 ## fallback and the SPA 404 fallback, and stamp the build. The engine assets
-## (app.wasm, boot.js, engine.js, wasm_exec.js) have stable names, so without a cache-bust
+## (app.wasm, tour.js, tours.js, boot.js, engine.js, wasm_exec.js) have stable names, so without a cache-bust
 ## query a browser would serve a stale cached engine against a freshly-hashed UI
 ## after a redeploy (new UI calling an old wasm). A content token derived from the
-## built wasm busts them together: boot.js gets it in its URL, hands its own query
+## built wasm busts them together: the three page scripts (tour.js, tours.js and
+## boot.js, in that order) get it in their URL, boot.js hands its own query
 ## to the engine worker (engine.js), and the worker hands it to wasm_exec.js and
 ## app.wasm, so a new engine is picked up immediately.
 ##
@@ -102,13 +103,15 @@ wasmexec:
 ## the docs for the same version. Idempotent.
 inject:
 	@bust=$$(git hash-object $(DIST)/app.wasm | cut -c1-12); \
-	  cp boot.js engine.js $(DIST)/; \
+	  cp tour.js tours.js boot.js engine.js $(DIST)/; \
 	  grep -q 'boot.js' $(DIST)/index.html || { awk -v base="$(BASE)" -v bust="$$bust" -v csp="$(DEMO_CSP)" '\
 	    /<meta name="viewport"/ && !csp_done { \
 	      print "  <meta http-equiv=\"Content-Security-Policy\" content=\"" csp "\" />"; \
 	      csp_done=1 \
 	    } \
 	    /<script type="module"/ && !done { \
+	      print "  <script src=\"" base "tour.js?v=" bust "\"></script>"; \
+	      print "  <script src=\"" base "tours.js?v=" bust "\"></script>"; \
 	      print "  <script src=\"" base "boot.js?v=" bust "\"></script>"; \
 	      done=1 \
 	    } \

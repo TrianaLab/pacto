@@ -10,7 +10,7 @@ import (
 // TestTourStepsAreOneSentence keeps every tour step to one plain sentence. The
 // fleet tour's first step is the data label itself and is left out.
 func TestTourStepsAreOneSentence(t *testing.T) {
-	js, err := os.ReadFile("boot.js")
+	js, err := os.ReadFile("tours.js")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestTourStepsAreOneSentence(t *testing.T) {
 	}
 }
 
-// tourStep is one step of a tour in boot.js: its text, its spotlight target with
+// tourStep is one step of a tour in tours.js: its text, its spotlight target with
 // the selector constants expanded, and whether it waits for the reader to act.
 type tourStep struct {
 	text, target string
@@ -34,7 +34,7 @@ type tourStep struct {
 
 func tourSteps(t *testing.T, name string) []tourStep {
 	t.Helper()
-	js, err := os.ReadFile("boot.js")
+	js, err := os.ReadFile("tours.js")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,14 +45,14 @@ func tourSteps(t *testing.T, name string) []tourStep {
 	}
 	start := strings.Index(src, "var "+name+" = [{")
 	if start < 0 {
-		t.Fatalf("no %s in boot.js", name)
+		t.Fatalf("no %s in tours.js", name)
 	}
 	body := src[start:]
-	body = body[:strings.Index(body, "\n    }];")]
+	body = body[:strings.Index(body, "\n  }];")]
 	textRe := regexp.MustCompile(`text: (?:NOTICE \+ )?"([^"]+)"`)
 	targetRe := regexp.MustCompile(`(?m)^\s+target: (.+),$`)
 	var out []tourStep
-	for _, chunk := range strings.Split(body, "\n    }, {\n") {
+	for _, chunk := range strings.Split(body, "\n  }, {\n") {
 		// A step that waits on the system (observe) asks the reader for nothing.
 		s := tourStep{gated: strings.Contains(chunk, "gate: function") && !strings.Contains(chunk, "observe: true")}
 		if m := textRe.FindStringSubmatch(chunk); m != nil {

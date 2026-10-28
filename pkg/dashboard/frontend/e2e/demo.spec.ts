@@ -493,7 +493,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   // own. The steps with nothing to observe are the mirror image -- they keep a real button
   // and must be proved NOT to move without it.
   //
-  // Demo-only by construction: this lives in examples/demo/boot.js, which ships with the
+  // Demo-only by construction: this lives in examples/demo/tour.js, which ships with the
   // demo and nothing else, so there is no deployment flag that could turn it on in front
   // of a real fleet.
   test('demo tour: it never starts itself — the strip invites, and nothing more', async ({ page }) => {

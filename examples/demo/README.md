@@ -29,6 +29,7 @@ Compliant transition:
 
 ```
 index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base=./
+   ├─ tour.js, tours.js         the guided-tour runner and the two tours it runs
    └─ boot.js                   starts the engine worker; routes /api,/health,/metrics to it
                                      │
    app fetch('/api/services') ──────┘  (a fetch shim intercepts only those paths)
@@ -57,7 +58,12 @@ index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base
   answers never stall the page: the loading counter and the skeletons keep moving.
 - `boot.js` — starts the worker and shims `fetch` for `/api`, `/health`, `/metrics`,
   passing those calls to the worker. `__pactoServe` and `__pactoPersona` keep their
-  names on `window` and return promises.
+  names on `window` and return promises. It also draws the demo strip that offers
+  the guided tours.
+- `tour.js` — the guided-tour runner: the spotlight overlay, the bubble and the gates
+  that move a tour from step to step.
+- `tours.js` — the fleet tour and the delivery story as data, plus the simulated
+  sign-in and person switch their gates read.
 
 The graph, dependents and cross-reference views derive from each contract's
 declared dependencies (every referenced service is embedded), so no OCI resolver
