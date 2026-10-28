@@ -449,9 +449,10 @@ identity_scenario() {
   out="$(dash "" GET /api/delivery/inbox)"
   [ "${out%% *}" = 401 ] || fail "delivery without sign-in: $out"
   local signed; signed="$(login alice)" || fail "alice could not sign in to the dashboard"
+  out="$(dash "$signed" GET /api/session)"
+  jq -e '.mode == "shared" and .login == true and .signedIn == true' <<<"${out#* }" >/dev/null || fail "session signed in: $out"
   out="$(dash "$signed" GET /api/capabilities)"
-  jq -e '.delivery == true and .auth.mode == "shared" and .auth.login == true and .auth.signedIn == true' <<<"${out#* }" >/dev/null \
-    || fail "capabilities: $out"
+  jq -e '.delivery == true' <<<"${out#* }" >/dev/null || fail "capabilities: $out"
   pass "the dashboard answers nothing before sign-in, and offers delivery to people who signed in"
   identity_rbac_views
 
@@ -460,9 +461,9 @@ identity_scenario() {
   # may move it while phase 4 runs.
   kubectl -n prod patch stage payments --type merge -p '{"spec":{"auto":false}}' >/dev/null
   local carol; carol="$(login carol)" || fail "carol could not sign in to the dashboard"
-  out="$(dash "$carol" GET /api/session)"
-  jq -e --arg iss "$DEX_ISSUER" '.caller.user | startswith($iss + "#")' <<<"${out#* }" >/dev/null || fail "session: $out"
-  local CAROL; CAROL="$(jq -r .caller.user <<<"${out#* }")"
+  out="$(dash "$carol" GET /api/delivery/caller)"
+  jq -e --arg iss "$DEX_ISSUER" '.user | startswith($iss + "#")' <<<"${out#* }" >/dev/null || fail "caller: $out"
+  local CAROL; CAROL="$(jq -r .user <<<"${out#* }")"
   local cs; cs="$(csrf_of "$carol")"
   out="$(dash "$carol" POST /api/delivery/operations "{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"name\":\"idp-carol\",\"reason\":\"phase 4\"}" "$cs")"
   [ "${out%% *}" = 201 ] || fail "carol's proposal: $out"
@@ -481,8 +482,8 @@ identity_scenario() {
     || fail "carol's unfreeze was refused for the wrong reason: $(field prod idp-unfreeze reason) $(field prod idp-unfreeze message)"
   [ "$(kubectl -n prod get operation idp-unfreeze -o jsonpath='{.spec.actor.user}')" = "$CAROL" ] || fail "the unfreeze is not carol's"
   local alice_u; alice_u="$(login alice)" || fail "alice could not sign in to the dashboard"
-  out="$(dash "$alice_u" GET /api/session)"
-  local ALICE; ALICE="$(jq -r .caller.user <<<"${out#* }")"
+  out="$(dash "$alice_u" GET /api/delivery/caller)"
+  local ALICE; ALICE="$(jq -r .user <<<"${out#* }")"
   out="$(dash "$alice_u" POST /api/delivery/operations '{"namespace":"prod","stage":"payments","type":"delivery.pacto.trianalab.io/unfreeze","name":"idp-unfreeze-alice","reason":"phase 4"}' "$(csrf_of "$alice_u")")"
   [ "${out%% *}" = 201 ] || fail "alice's unfreeze: $out"
   eventually 40 concluded prod idp-unfreeze-alice || fail "alice's unfreeze never concluded: $(field prod idp-unfreeze-alice message)"
