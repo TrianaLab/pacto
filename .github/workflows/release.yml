@@ -1007,7 +1007,14 @@ jobs:
       # `mkdocs build` copies it into the version slot. Without the fold the demo
       # is built but never lands there, so /latest/demo/ 404s.
       - name: Build, smoke and fold the WASM demo into the docs site
-        run: make docs-demo
+        # Recovery runs this file against an older source_sha whose Makefile may
+        # predate the docs-demo target; fall back to the inline steps it wraps.
+        run: |
+          if make -n docs-demo >/dev/null 2>&1; then
+            make docs-demo
+          else
+            make -C examples/demo build && make -C examples/demo smoke && mkdir -p docs/demo && cp -r examples/demo/dist/. docs/demo/
+          fi
       - name: Deploy versioned docs with mike (exact release versions)
         env:
           PACTO_DOCS_CORE_VERSION: ${{ needs.detect.outputs.core_version }}
