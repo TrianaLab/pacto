@@ -423,7 +423,7 @@ func perfDashboard(t testing.TB, cp *controlPlane, cnt *counter, q *atomic.Point
 		state: func(ctx context.Context) authn.State {
 			tok, _ := ctx.Value(perfTokenKey{}).(string)
 			// The identity layer names the person from the ID token's claims.
-			return authn.State{SignedIn: tok != "", Token: tok, Person: authn.PersonFromToken(tok)}
+			return authn.State{SignedIn: tok != "", Token: tok, Person: authn.Claims{}.Person(tok)}
 		},
 		revisions: map[string]delivery.Revision{}, reads: newReadCache()}
 	id.viewer = authn.NewViewer(clusterReview(cp.config(perfDashboardSA.token, 0), newClient))

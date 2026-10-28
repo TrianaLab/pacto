@@ -615,12 +615,19 @@ func TestListsDropNamespacesTheCallerCannotRead(t *testing.T) {
 	if code, _ := call(t, http.MethodGet, base+"/api/delivery/environments", nil); code != http.StatusInternalServerError {
 		t.Fatalf("a failed namespace read fails: %d", code)
 	}
-	f.stageNS, f.nsErr, f.forbidAll = nil, nil, false
-	// Without a snapshot the namespaces cannot be known.
-	f.listErr, f.forbidAll = nil, true
+	f.stageNS, f.nsErr = nil, nil
+	f.listErr = nil
+	checkListsWithoutSnapshot(t, a, f)
+}
+
+// checkListsWithoutSnapshot reads with no fleet snapshot, where the namespaces
+// cannot be known, and with one whose per-namespace reads fail.
+func checkListsWithoutSnapshot(t *testing.T, a *authed, f *fakeDelivery) {
+	t.Helper()
+	f.forbidAll = true
 	srv := startServer(t, NewServer(Options{UI: testUI(), Auth: a.auth(false, true),
 		Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }}))
-	_, envs = call(t, http.MethodGet, srv+"/api/delivery/environments", nil)
+	_, envs := call(t, http.MethodGet, srv+"/api/delivery/environments", nil)
 	if envs["completeness"] != "partial" || strings.Join(toStrings(envs["unreadable"]), ",") != "*" {
 		t.Fatalf("no snapshot: %v", envs)
 	}
@@ -751,6 +758,13 @@ func TestHistoryAndOperation(t *testing.T) {
 	if got := actions("held"); got != "cancel" {
 		t.Fatalf("an agent on its own change: %s", got)
 	}
+	checkOperationErrors(t, base, f)
+}
+
+// checkOperationErrors fails an operation read when who the caller is, the
+// explanation or the Operation itself cannot be read.
+func checkOperationErrors(t *testing.T, base string, f *fakeDelivery) {
+	t.Helper()
 	f.callerErr = errors.New("who")
 	if code, _ := call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil); code != http.StatusInternalServerError {
 		t.Fatal("whoami error")

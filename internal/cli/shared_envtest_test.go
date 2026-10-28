@@ -37,27 +37,7 @@ func TestSharedReadsRBACIsolation(t *testing.T) {
 	adm, err := dynamic.NewForConfig(cp.config(cp.admin, -1))
 	must(t, err)
 	installCRDs(t, ctx, adm)
-	for _, ns := range []string{"iso-a", "iso-b"} {
-		must(t, create(ctx, adm.Resource(gvrNS), &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": ns}}}, false))
-		must(t, create(ctx, adm.Resource(gvrPerfStage).Namespace(ns), toU(delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: ns, Name: "s"},
-			Spec: delivery.StageSpec{Service: delivery.ServiceRef{Name: "svc"}, Environment: "prod", ApplyRef: delivery.ApplyRef{Name: "s"}}},
-			"delivery.pacto.trianalab.io/v1alpha1", "Stage"), false))
-		must(t, create(ctx, adm.Resource(gvrPerfOp).Namespace(ns), toU(delivery.OperationObject{Metadata: delivery.ObjectMeta{Namespace: ns, Name: "op"},
-			Spec: delivery.OperationSpec{Type: delivery.TypePromote, Stage: "s", Facet: delivery.FacetPointer, Params: delivery.Params{From: "sha256:a", To: "sha256:b"}}},
-			"delivery.pacto.trianalab.io/v1alpha1", "Operation"), false))
-	}
-	// installRBAC binds alice and bob in the perf namespaces too.
-	for _, ns := range append(readable("bob"), perfPolicyNS) {
-		must(t, create(ctx, adm.Resource(gvrNS), &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": ns}}}, false))
-	}
-	installRBAC(t, ctx, adm) // auditors read everything, the dashboard its cache
-	binding := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
-		"metadata": map[string]any{"name": "team-a", "namespace": "iso-a"},
-		"subjects": []any{map[string]any{"kind": "Group", "name": "team-a", "apiGroup": "rbac.authorization.k8s.io"}},
-		"roleRef":  map[string]any{"kind": "ClusterRole", "name": "pacto-delivery-reader", "apiGroup": "rbac.authorization.k8s.io"}}}
-	must(t, create(ctx, adm.Resource(gvrRB).Namespace("iso-a"), binding, false))
+	seedIsolation(t, ctx, adm)
 
 	// Lists that reach the apiserver with a person's token, not the dashboard's.
 	var personLists atomic.Int64
@@ -80,7 +60,7 @@ func TestSharedReadsRBACIsolation(t *testing.T) {
 		served: func(*rest.Config, string) (bool, error) { return true, nil },
 		state: func(ctx context.Context) authn.State {
 			tok, _ := ctx.Value(tokenKey{}).(string)
-			return authn.State{SignedIn: true, Token: tok, Person: authn.PersonFromToken(tok)}
+			return authn.State{SignedIn: true, Token: tok, Person: authn.Claims{}.Person(tok)}
 		},
 		revisions: map[string]delivery.Revision{}, reads: newReadCache()}
 	as := func(p perfPerson) dashboard.DeliveryAPI {
@@ -89,15 +69,7 @@ func TestSharedReadsRBACIsolation(t *testing.T) {
 		return api
 	}
 	as(alice)
-	deadline := time.Now().Add(time.Minute)
-	for _, inf := range id.shared.informers {
-		for !inf.HasSynced() {
-			if time.Now().After(deadline) {
-				t.Fatal("the shared cache never synced: does the dashboard's ServiceAccount read Stages and Operations?")
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
+	waitShared(t, id)
 
 	forbidden := func(err error) bool {
 		var de *dashboard.DeliveryError
@@ -140,7 +112,7 @@ func TestSharedReadsRBACIsolation(t *testing.T) {
 
 	// A removed RoleBinding hides the namespace once the answer expires.
 	must(t, adm.Resource(gvrRB).Namespace("iso-a").Delete(ctx, "team-a", metav1.DeleteOptions{}))
-	deadline = time.Now().Add(sharedTTL + 20*time.Second)
+	deadline := time.Now().Add(sharedTTL + 20*time.Second)
 	for {
 		if _, err = as(alice).Stages(ctx, "iso-a"); forbidden(err) {
 			break
@@ -149,5 +121,47 @@ func TestSharedReadsRBACIsolation(t *testing.T) {
 			t.Fatalf("alice still reads iso-a after her RoleBinding went: %v", err)
 		}
 		time.Sleep(time.Second)
+	}
+}
+
+// seedIsolation creates iso-a and iso-b with one Stage and one Operation each,
+// the perf namespaces installRBAC binds, the RBAC and alice's team-a binding in
+// iso-a.
+func seedIsolation(t *testing.T, ctx context.Context, adm dynamic.Interface) {
+	t.Helper()
+	for _, ns := range []string{"iso-a", "iso-b"} {
+		must(t, create(ctx, adm.Resource(gvrNS), &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": ns}}}, false))
+		must(t, create(ctx, adm.Resource(gvrPerfStage).Namespace(ns), toU(delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: ns, Name: "s"},
+			Spec: delivery.StageSpec{Service: delivery.ServiceRef{Name: "svc"}, Environment: "prod", ApplyRef: delivery.ApplyRef{Name: "s"}}},
+			"delivery.pacto.trianalab.io/v1alpha1", "Stage"), false))
+		must(t, create(ctx, adm.Resource(gvrPerfOp).Namespace(ns), toU(delivery.OperationObject{Metadata: delivery.ObjectMeta{Namespace: ns, Name: "op"},
+			Spec: delivery.OperationSpec{Type: delivery.TypePromote, Stage: "s", Facet: delivery.FacetPointer, Params: delivery.Params{From: "sha256:a", To: "sha256:b"}}},
+			"delivery.pacto.trianalab.io/v1alpha1", "Operation"), false))
+	}
+	// installRBAC binds alice and bob in the perf namespaces too.
+	for _, ns := range append(readable("bob"), perfPolicyNS) {
+		must(t, create(ctx, adm.Resource(gvrNS), &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": ns}}}, false))
+	}
+	installRBAC(t, ctx, adm) // auditors read everything, the dashboard its cache
+	binding := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
+		"metadata": map[string]any{"name": "team-a", "namespace": "iso-a"},
+		"subjects": []any{map[string]any{"kind": "Group", "name": "team-a", "apiGroup": "rbac.authorization.k8s.io"}},
+		"roleRef":  map[string]any{"kind": "ClusterRole", "name": "pacto-delivery-reader", "apiGroup": "rbac.authorization.k8s.io"}}}
+	must(t, create(ctx, adm.Resource(gvrRB).Namespace("iso-a"), binding, false))
+}
+
+// waitShared waits for the dashboard's shared cache to sync.
+func waitShared(t *testing.T, id *dashboardIdentity) {
+	t.Helper()
+	deadline := time.Now().Add(time.Minute)
+	for _, inf := range id.shared.informers {
+		for !inf.HasSynced() {
+			if time.Now().After(deadline) {
+				t.Fatal("the shared cache never synced: does the dashboard's ServiceAccount read Stages and Operations?")
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 }
