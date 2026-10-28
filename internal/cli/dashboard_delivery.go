@@ -125,7 +125,11 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
 	var o *authn.OIDC
 	if issuer := v.GetString("dashboard.oidc-issuer-url"); issuer != "" {
-		if o, err = authn.NewOIDC(authn.Config{IssuerURL: issuer, ClientID: v.GetString("dashboard.oidc-client-id"),
+		client, cerr := authn.IssuerClient(issuer, v.GetString("dashboard.oidc-internal-issuer-url"), v.GetString("dashboard.oidc-ca-file"))
+		if cerr != nil {
+			return nil, cerr
+		}
+		if o, err = authn.NewOIDC(authn.Config{IssuerURL: issuer, HTTPClient: client, ClientID: v.GetString("dashboard.oidc-client-id"),
 			ClientSecret: v.GetString("dashboard.oidc-client-secret"), RedirectURL: v.GetString("dashboard.oidc-redirect-url"),
 			ExtraScopes: splitList(v.GetStringSlice("dashboard.oidc-extra-scopes")), Lifetime: life,
 			Claims: authn.Claims{UsernameClaim: v.GetString("dashboard.oidc-username-claim"), UsernamePrefix: v.GetString("dashboard.oidc-username-prefix"),

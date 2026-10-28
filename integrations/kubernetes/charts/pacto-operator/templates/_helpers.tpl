@@ -201,6 +201,23 @@ Controller arguments derived from values
 - --dashboard-oidc-issuer-url={{ .issuerURL }}
 - --dashboard-oidc-client-id={{ required "dashboard.auth.oidc.clientID is required with an issuerURL" .clientID }}
 - --dashboard-oidc-redirect-url={{ required "dashboard.auth.oidc.redirectURL is required with an issuerURL" .redirectURL }}
+{{- with .internalIssuerURL }}
+- --dashboard-oidc-internal-issuer-url={{ . }}
+{{- end }}
+{{- with .caBundle }}
+{{- if and .configMap .secret }}
+{{- fail "dashboard.auth.oidc.caBundle takes a configMap or a secret, not both" }}
+{{- end }}
+{{- if or .configMap .secret }}
+{{- with .configMap }}
+- --dashboard-oidc-ca-configmap={{ . }}
+{{- end }}
+{{- with .secret }}
+- --dashboard-oidc-ca-secret={{ . }}
+{{- end }}
+- --dashboard-oidc-ca-key={{ .key | default "ca.crt" }}
+{{- end }}
+{{- end }}
 {{- with .extraScopes }}
 - --dashboard-oidc-extra-scopes={{ join "," . }}
 {{- end }}
@@ -237,6 +254,12 @@ Controller arguments derived from values
 {{- end }}
 {{- with (.deliveryNamespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled)) }}
 - --dashboard-delivery-namespace={{ . }}
+{{- end }}
+{{- end }}
+{{- with .Values.dashboard.deliveryTrust }}
+{{- if .configMap }}
+- --dashboard-delivery-trust-configmap={{ .configMap }}
+- --dashboard-delivery-trust-key={{ .key | default "trust.yaml" }}
 {{- end }}
 {{- end }}
 {{- with .Values.dashboard.miraURL }}

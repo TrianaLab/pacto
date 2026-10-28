@@ -82,13 +82,14 @@ type options struct {
 	showVersion                                      bool
 	watchNamespace                                   string
 
-	enableDashboard      bool
-	dashboardOCISecrets  string
-	dashboardResources   component.Resources
-	dashboardObservation []dashboard.ObservationSource
-	dashboardAuth        dashboard.AuthConfig
-	dashboardExtraScopes string
-	dashboardMiraURL     string
+	enableDashboard        bool
+	dashboardOCISecrets    string
+	dashboardResources     component.Resources
+	dashboardObservation   []dashboard.ObservationSource
+	dashboardAuth          dashboard.AuthConfig
+	dashboardExtraScopes   string
+	dashboardMiraURL       string
+	dashboardDeliveryTrust dashboard.KeyRef
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -156,6 +157,20 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardAuth.IssuerURL, "dashboard-oidc-issuer-url", "",
 		"OpenID Connect issuer people sign in to the dashboard with. Delivery actions then run with each person's own "+
 			"token; without it the dashboard serves no delivery data and no actions.")
+	fs.StringVar(&o.dashboardAuth.InternalIssuerURL, "dashboard-oidc-internal-issuer-url", "",
+		"Where the dashboard reaches the issuer when it differs from the public issuer URL browsers use, such as an "+
+			"in-cluster Service; ID tokens must still name the public issuer.")
+	fs.StringVar(&o.dashboardAuth.CAConfigMap, "dashboard-oidc-ca-configmap", "",
+		"ConfigMap in the operator namespace holding the PEM bundle of the CAs that sign the issuer's certificate.")
+	fs.StringVar(&o.dashboardAuth.CASecret, "dashboard-oidc-ca-secret", "",
+		"Secret in the operator namespace holding that PEM bundle, instead of a ConfigMap.")
+	fs.StringVar(&o.dashboardAuth.CAKey, "dashboard-oidc-ca-key", "ca.crt",
+		"Key of the PEM bundle in that ConfigMap or Secret.")
+	fs.StringVar(&o.dashboardDeliveryTrust.Name, "dashboard-delivery-trust-configmap", "",
+		"ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with, "+
+			"so History reads signed records.")
+	fs.StringVar(&o.dashboardDeliveryTrust.Key, "dashboard-delivery-trust-key", "trust.yaml",
+		"Key of the trust config in that ConfigMap.")
 	fs.StringVar(&o.dashboardAuth.ClientID, "dashboard-oidc-client-id", "", "The dashboard's OpenID Connect client id.")
 	fs.StringVar(&o.dashboardAuth.RedirectURL, "dashboard-oidc-redirect-url", "",
 		"The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it.")
@@ -507,6 +522,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Resources:          o.dashboardResources,
 		Auth:               o.dashboardAuth,
 		MiraURL:            o.dashboardMiraURL,
+		DeliveryTrust:      o.dashboardDeliveryTrust,
 	}
 	if o.dashboardExtraScopes != "" {
 		dashCfg.Auth.ExtraScopes = strings.Split(o.dashboardExtraScopes, ",")

@@ -191,6 +191,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
 	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
 	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
+	cmd.Flags().String("oidc-ca-file", "", "PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)")
+	cmd.Flags().String("oidc-internal-issuer-url", "", "address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)")
 	addClaimFlags(cmd)
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
@@ -207,7 +209,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
-	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-extra-scopes",
+	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
 		"session-idle-timeout", "session-max-age", "token-login", "mira-url", "delivery-namespace", "delivery-trust"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))

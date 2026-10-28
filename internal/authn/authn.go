@@ -18,11 +18,15 @@ package authn
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -79,6 +83,72 @@ func discover(client *http.Client, issuer string) (*oidc.Provider, endpoints, er
 	var e endpoints
 	_ = p.Claims(&e) // the metadata already decoded once
 	return p, e, nil
+}
+
+// systemRoots is the system's CA pool; a test replaces it.
+var systemRoots = x509.SystemCertPool
+
+// IssuerClient is the HTTP client that reaches the identity provider at
+// issuer. With caFile set it trusts the PEM certificates in that file on top
+// of the system roots, for an issuer whose certificate a corporate or
+// self-signed CA signs. With internalURL set, every request for the issuer's
+// scheme and host goes to internalURL instead (the issuer's path replaced by
+// internalURL's), so a server inside the cluster reads discovery, keys and
+// tokens at an internal address while browsers use the public one. go-oidc
+// still asks for the public issuer URL, so the discovery document and every ID
+// token must name the public issuer.
+func IssuerClient(issuer, internalURL, caFile string) (*http.Client, error) {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if caFile != "" {
+		pem, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading the identity provider's CA bundle: %w", err)
+		}
+		pool, err := systemRoots()
+		if err != nil {
+			return nil, fmt.Errorf("reading the system CA roots: %w", err)
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("%s holds no PEM certificate", caFile)
+		}
+		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	}
+	client := &http.Client{Timeout: 30 * time.Second, Transport: tr}
+	if internalURL == "" {
+		return client, nil
+	}
+	from, err := url.Parse(issuer)
+	if err != nil {
+		return nil, fmt.Errorf("the issuer URL: %w", err)
+	}
+	to, err := url.Parse(internalURL)
+	if err != nil {
+		return nil, fmt.Errorf("the internal issuer URL: %w", err)
+	}
+	if (to.Scheme != "https" && to.Scheme != "http") || to.Host == "" || to.RawQuery != "" || to.Fragment != "" {
+		return nil, errors.New("the internal issuer URL must be an http or https URL with a host and no query")
+	}
+	client.Transport = &issuerRewrite{from: from, to: to, next: tr}
+	return client, nil
+}
+
+// issuerRewrite sends requests for the public issuer to its internal address.
+// Requests for any other host pass through unchanged.
+type issuerRewrite struct {
+	from, to *url.URL
+	next     http.RoundTripper
+}
+
+func (t *issuerRewrite) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Scheme == t.from.Scheme && r.URL.Host == t.from.Host {
+		r = r.Clone(r.Context())
+		r.URL.Scheme, r.URL.Host, r.Host, r.URL.RawPath = t.to.Scheme, t.to.Host, "", ""
+		prefix := strings.TrimSuffix(t.from.Path, "/")
+		if rest, ok := strings.CutPrefix(r.URL.Path, prefix); ok && (rest == "" || rest[0] == '/') {
+			r.URL.Path = strings.TrimSuffix(t.to.Path, "/") + rest
+		}
+	}
+	return t.next.RoundTrip(r)
 }
 
 // postForm sends an OAuth form request authenticated as the client and

@@ -459,6 +459,16 @@
                 "issuerURL": {
                   "type": "string"
                 },
+                "internalIssuerURL": { "type": "string", "pattern": "^$|^https?://[^/?#]+" },
+                "caBundle": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "configMap": { "type": "string" },
+                    "secret": { "type": "string" },
+                    "key": { "type": "string", "minLength": 1 }
+                  }
+                },
                 "clientID": {
                   "type": "string"
                 },
@@ -499,6 +509,15 @@
             },
             "required": { "type": "boolean" },
             "deliveryNamespace": { "type": "string" }
+          }
+        },
+        "deliveryTrust": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The trust config the dashboard verifies delivery records with, so History reads signed records.",
+          "properties": {
+            "configMap": { "type": "string" },
+            "key": { "type": "string", "minLength": 1 }
           }
         },
         "miraURL": {

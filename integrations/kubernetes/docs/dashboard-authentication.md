@@ -81,6 +81,50 @@ settings as `--oidc-*`, `--session-*` and `--token-login` flags
 `--auth-issuer` takes the same claim mapping flags
 ([who sees what](dashboard-access.md)).
 
+## Reach the issuer
+
+The dashboard reads the issuer's discovery document, keys and tokens itself.
+Two settings cover an issuer it cannot reach the way browsers do:
+
+```yaml
+dashboard:
+  auth:
+    oidc:
+      issuerURL: https://idp.example.com
+      # Discovery, tokens and keys are read here; browsers still go to issuerURL.
+      internalIssuerURL: http://dex.dex.svc:5556
+      # PEM certificates of the CAs that sign the issuer's certificate.
+      caBundle: {configMap: corporate-ca, key: ca.crt}   # or {secret: corporate-ca}
+```
+
+- `caBundle` names a ConfigMap or a Secret in the operator namespace whose key
+  holds a PEM bundle. The dashboard trusts those CAs on top of the image's
+  public roots, for an issuer whose certificate a corporate or self-signed CA
+  signs.
+- `internalIssuerURL` sends every request for the issuer's scheme and host to
+  that address, with the issuer's path replaced by the internal URL's. The
+  discovery document and every ID token must still name `issuerURL`, so the
+  issuer must be configured with its public URL.
+
+`pacto dashboard` takes them as `--oidc-ca-file` and
+`--oidc-internal-issuer-url`.
+
+## Verify History
+
+The dashboard verifies delivery records against a trust config before History
+shows them. Put the trust config (or the recorder's PEM public key) in a
+ConfigMap in the operator namespace and name it:
+
+```yaml
+dashboard:
+  deliveryTrust: {configMap: delivery-trust, key: trust.yaml}
+```
+
+The trust config is the one the CLI reads
+([trust and key rotation](delivery-record-keys.md#trust-and-key-rotation)).
+`pacto dashboard` takes it as `--delivery-trust`. Without it, History shows
+records unverified and every answer says it is partial.
+
 ## Match the API server's claim mapping
 
 The API server decides who a token is. The dashboard asks RBAC about the same

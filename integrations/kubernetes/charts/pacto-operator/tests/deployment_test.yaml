@@ -268,6 +268,77 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --dashboard-mira-url=http://mira.observability:4318
 
+  - it: should pass the internal issuer address and the issuer CA bundle from a ConfigMap
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        internalIssuerURL: http://dex.dex:5556
+        caBundle: {configMap: corp-ca}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-internal-issuer-url=http://dex.dex:5556
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-configmap=corp-ca
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-key=ca.crt
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-secret=
+          any: true
+
+  - it: should pass the issuer CA bundle from a Secret key
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        caBundle: {secret: corp-ca, key: bundle.pem}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-secret=corp-ca
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-key=bundle.pem
+
+  - it: should refuse an issuer CA bundle from both a ConfigMap and a Secret
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        caBundle: {configMap: corp-ca, secret: corp-ca}
+    asserts:
+      - failedTemplate:
+          errorMessage: dashboard.auth.oidc.caBundle takes a configMap or a secret, not both
+
+  - it: should refuse an internal issuer URL that is not http or https
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc.internalIssuerURL: dex.dex:5556
+    asserts:
+      - failedTemplate: {}
+
+  - it: should pass the delivery trust config the dashboard verifies History with
+    set:
+      dashboard.enabled: true
+      dashboard.deliveryTrust: {configMap: delivery-trust}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-delivery-trust-configmap=delivery-trust
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-delivery-trust-key=trust.yaml
+
   - it: should pass the claim mapping the API server uses, the session lifetime and token sign-in
     set:
       dashboard.enabled: true

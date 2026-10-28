@@ -24,7 +24,9 @@ and the required `trustedRoot`. The recorder's own key is always trusted. List
 the old key before the recorder signs with a new one, also when a KMS alias
 moves. Otherwise the old records stop verifying and the Stage freezes. Pass the same file (or the recorder's PEM
 public key) to the CLI with `--trust` or `PACTO_DELIVERY_TRUST`, and to
-`pacto mcp --delivery` and `pacto dashboard` with `--delivery-trust`. Without
+`pacto mcp --delivery` and `pacto dashboard` with `--delivery-trust`. A
+dashboard the operator deploys reads it from a ConfigMap
+([verify History](dashboard-authentication.md#verify-history)). Without
 it, records are read unchecked and every answer says it is partial.
 
 ## Revoke a key

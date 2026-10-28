@@ -25,12 +25,16 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `controller.watchNamespace` | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
 | `crds.install` | `true` | Install and upgrade the CRDs with the chart, the delivery CRDs too when `delivery.enabled`. They are kept on helm uninstall. Only one release in a cluster can own them: every other release, for example one per watched namespace, sets false. Set false to manage them yourself, for example from a separate GitOps source; the operator and delivery need them before they start |
 | `dashboard.auth.deliveryNamespace` | `""` | Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`) |
+| `dashboard.auth.oidc.caBundle.configMap` | `""` | A ConfigMap in the operator namespace holding the PEM certificates of the CAs that sign the issuer's certificate (corporate or self-signed), trusted on top of the image's public roots |
+| `dashboard.auth.oidc.caBundle.key` | `ca.crt` | The key of the bundle in that ConfigMap or Secret |
+| `dashboard.auth.oidc.caBundle.secret` | `""` | A Secret in the operator namespace holding that bundle, instead of a ConfigMap |
 | `dashboard.auth.oidc.clientID` | `""` | The dashboard's client id at the issuer |
 | `dashboard.auth.oidc.clientSecretRef.key` | `client-secret` | Key of the client secret in that Secret |
 | `dashboard.auth.oidc.clientSecretRef.name` | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |
 | `dashboard.auth.oidc.extraScopes` | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
 | `dashboard.auth.oidc.groupsClaim` | `""` | ID token claim the API server takes the groups from; must match its `claimMappings.groups` (empty: `groups`) |
 | `dashboard.auth.oidc.groupsPrefix` | `""` | Prefix the API server puts before every group; must match its `claimMappings.groups.prefix` |
+| `dashboard.auth.oidc.internalIssuerURL` | `""` | Where the dashboard reaches the issuer when it differs from `issuerURL`, the address browsers use (for example an in-cluster Service). Discovery, tokens and keys are read there; ID tokens must still name `issuerURL` |
 | `dashboard.auth.oidc.issuerURL` | `""` | OpenID Connect issuer URL people sign in with (empty: no sign-in) |
 | `dashboard.auth.oidc.redirectURL` | `""` | The dashboard's `/auth/callback` URL as browsers reach it |
 | `dashboard.auth.oidc.usernameClaim` | `""` | ID token claim the API server takes the username from; must match its `claimMappings.username` (empty: `sub`) |
@@ -38,6 +42,8 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.auth.session.idleTimeout` | `""` | A session without a request for this long ends, as a Go duration such as `30m` (empty: `1h`). The ID token renews with the refresh token in between |
 | `dashboard.auth.session.maxAge` | `""` | A session ends this long after sign-in, renewed or not, as a Go duration such as `8h` (empty: `12h`) |
 | `dashboard.auth.tokenLogin.enabled` | `false` | Let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider. The token stays in the server-side session and every request runs with it; a token session never decides on a held change |
+| `dashboard.deliveryTrust.configMap` | `""` | A ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with (the recorder's PEM public key or a YAML trust config), so History verifies signed records. Empty: History shows records unverified |
+| `dashboard.deliveryTrust.key` | `trust.yaml` | The key of the trust config in that ConfigMap |
 | `dashboard.enabled` | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | `dashboard.httpRoute.enabled` | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | `dashboard.httpRoute.hostnames` | `[]` | Hostnames for the HTTPRoute |

@@ -93,6 +93,13 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	}
 	a := cfg.Auth
 	add("PACTO_DASHBOARD_OIDC_ISSUER_URL", a.IssuerURL)
+	add("PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL", a.InternalIssuerURL)
+	if a.CAConfigMap != "" || a.CASecret != "" {
+		add("PACTO_DASHBOARD_OIDC_CA_FILE", oidcCADir+"/"+keyOr(a.CAKey, "ca.crt"))
+	}
+	if cfg.DeliveryTrust.Name != "" {
+		add("PACTO_DASHBOARD_DELIVERY_TRUST", deliveryTrustDir+"/"+keyOr(cfg.DeliveryTrust.Key, "trust.yaml"))
+	}
 	add("PACTO_DASHBOARD_OIDC_CLIENT_ID", a.ClientID)
 	add("PACTO_DASHBOARD_OIDC_REDIRECT_URL", a.RedirectURL)
 	add("PACTO_DASHBOARD_OIDC_EXTRA_SCOPES", strings.Join(a.ExtraScopes, " "))
@@ -112,14 +119,49 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	add("PACTO_DASHBOARD_DELIVERY_NAMESPACE", a.DeliveryNamespace)
 	add("PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL)
 	if a.ClientSecretName != "" {
-		key := a.ClientSecretKey
-		if key == "" {
-			key = "client-secret"
-		}
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_OIDC_CLIENT_SECRET").WithValueFrom(
-			corev1ac.EnvVarSource().WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.ClientSecretName).WithKey(key))))
+			corev1ac.EnvVarSource().WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.ClientSecretName).
+				WithKey(keyOr(a.ClientSecretKey, "client-secret")))))
 	}
 	return env
+}
+
+// Where the issuer CA bundle and the delivery trust config mount.
+const (
+	oidcCADir        = "/etc/pacto/oidc-ca"
+	deliveryTrustDir = "/etc/pacto/delivery-trust"
+)
+
+func keyOr(key, def string) string {
+	if key == "" {
+		return def
+	}
+	return key
+}
+
+// authVolumes mounts the issuer CA bundle and the delivery trust config, each
+// read-only and only the key the dashboard reads.
+func authVolumes(cfg Config) ([]*corev1ac.VolumeMountApplyConfiguration, []*corev1ac.VolumeApplyConfiguration) {
+	var mounts []*corev1ac.VolumeMountApplyConfiguration
+	var vols []*corev1ac.VolumeApplyConfiguration
+	add := func(name, dir string, v *corev1ac.VolumeApplyConfiguration) {
+		mounts = append(mounts, corev1ac.VolumeMount().WithName(name).WithMountPath(dir).WithReadOnly(true))
+		vols = append(vols, v.WithName(name))
+	}
+	a := cfg.Auth
+	if key := keyOr(a.CAKey, "ca.crt"); a.CAConfigMap != "" {
+		add("oidc-ca", oidcCADir, corev1ac.Volume().WithConfigMap(corev1ac.ConfigMapVolumeSource().WithName(a.CAConfigMap).
+			WithItems(corev1ac.KeyToPath().WithKey(key).WithPath(key))))
+	} else if a.CASecret != "" {
+		add("oidc-ca", oidcCADir, corev1ac.Volume().WithSecret(corev1ac.SecretVolumeSource().WithSecretName(a.CASecret).
+			WithItems(corev1ac.KeyToPath().WithKey(key).WithPath(key))))
+	}
+	if t := cfg.DeliveryTrust; t.Name != "" {
+		key := keyOr(t.Key, "trust.yaml")
+		add("delivery-trust", deliveryTrustDir, corev1ac.Volume().WithConfigMap(corev1ac.ConfigMapVolumeSource().WithName(t.Name).
+			WithItems(corev1ac.KeyToPath().WithKey(key).WithPath(key))))
+	}
+	return mounts, vols
 }
 
 // deploymentAC returns a server-side apply configuration for the dashboard Deployment.
@@ -168,6 +210,9 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		}
 		volumes = append(volumes, vol)
 	}
+
+	authMounts, authVols := authVolumes(cfg)
+	volumeMounts, volumes = append(volumeMounts, authMounts...), append(volumes, authVols...)
 
 	if len(cfg.OCISecrets) > 0 {
 		volumeMounts = append(volumeMounts,

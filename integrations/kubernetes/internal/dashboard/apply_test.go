@@ -139,6 +139,62 @@ func TestDeploymentAC_Auth(t *testing.T) {
 	}
 }
 
+// TestDeploymentAC_AuthVolumes: the issuer CA bundle and the delivery trust
+// config mount read-only, only the key the dashboard reads, and the dashboard
+// is told the file.
+func TestDeploymentAC_AuthVolumes(t *testing.T) {
+	spec := func(cfg Config) (map[string]string, map[string]corev1ac.VolumeApplyConfiguration) {
+		pod := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec
+		env := map[string]string{}
+		for _, e := range pod.Containers[0].Env {
+			if e.Value != nil {
+				env[*e.Name] = *e.Value
+			}
+		}
+		vols := map[string]corev1ac.VolumeApplyConfiguration{}
+		for _, v := range pod.Volumes {
+			vols[*v.Name] = v
+		}
+		for _, m := range pod.Containers[0].VolumeMounts {
+			if _, ok := vols[*m.Name]; !ok || (*m.Name != "cache" && !*m.ReadOnly) {
+				t.Errorf("mount %s: no volume or writable", *m.Name)
+			}
+		}
+		return env, vols
+	}
+	cfg := Config{Image: "i", Namespace: "n", Auth: AuthConfig{IssuerURL: "https://idp", InternalIssuerURL: "http://idp.idp:5556",
+		CAConfigMap: "corp-ca"}, DeliveryTrust: KeyRef{Name: "trust"}}
+	env, vols := spec(cfg)
+	for name, want := range map[string]string{"PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL": "http://idp.idp:5556",
+		"PACTO_DASHBOARD_OIDC_CA_FILE": "/etc/pacto/oidc-ca/ca.crt", "PACTO_DASHBOARD_DELIVERY_TRUST": "/etc/pacto/delivery-trust/trust.yaml"} {
+		if env[name] != want {
+			t.Errorf("%s: want %q, got %q", name, want, env[name])
+		}
+	}
+	if ca := vols["oidc-ca"].ConfigMap; ca == nil || *ca.Name != "corp-ca" || *ca.Items[0].Key != "ca.crt" {
+		t.Errorf("the CA bundle comes from the ConfigMap: %+v", vols["oidc-ca"])
+	}
+	if tr := vols["delivery-trust"].ConfigMap; tr == nil || *tr.Name != "trust" || *tr.Items[0].Key != "trust.yaml" {
+		t.Errorf("the trust config comes from its ConfigMap: %+v", vols["delivery-trust"])
+	}
+
+	cfg.Auth = AuthConfig{IssuerURL: "https://idp", CASecret: "corp-ca", CAKey: "bundle.pem"}
+	cfg.DeliveryTrust.Key = "recorder.pem"
+	env, vols = spec(cfg)
+	if ca := vols["oidc-ca"].Secret; ca == nil || *ca.SecretName != "corp-ca" || *ca.Items[0].Key != "bundle.pem" ||
+		env["PACTO_DASHBOARD_OIDC_CA_FILE"] != "/etc/pacto/oidc-ca/bundle.pem" {
+		t.Errorf("the CA bundle comes from the Secret's key: %+v %v", vols["oidc-ca"], env)
+	}
+	if env["PACTO_DASHBOARD_DELIVERY_TRUST"] != "/etc/pacto/delivery-trust/recorder.pem" {
+		t.Errorf("a custom trust key: %v", env)
+	}
+
+	env, vols = spec(Config{Image: "i", Namespace: "n"})
+	if _, ok := vols["oidc-ca"]; ok || env["PACTO_DASHBOARD_DELIVERY_TRUST"] != "" || vols["delivery-trust"].Name != nil {
+		t.Errorf("nothing configured, nothing mounted: %v %v", env, vols)
+	}
+}
+
 // TestDashboardRoleReadsDeliveryOnly: every delivery action passes the
 // person's token through, so the dashboard's own role only reads Stages and
 // Operations, into its shared cache, and never impersonates. Its one write is
