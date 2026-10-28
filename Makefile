@@ -288,13 +288,12 @@ test-browser-compose:
 e2e-all-operational-graph: e2e-operational-graph-core test-browser test-browser-live
 
 coverage:
-	go test -race $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf) -coverprofile=coverage.out
+	go test -race $(COVER_PKGS) -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 	@go tool cover -func=coverage.out | tail -1
 
-lint: check-section
-	gofmt -s -l $(shell find . -name '*.go')
-	go vet ./...
+# lint runs the same format and vet gates CI does, so it fails where CI fails.
+lint: ci-fmt ci-vet check-section
 
 # check-section is the reusable U+00A7 gate: zero section-sign glyphs in authored
 # files (generated UI bundles excluded by path). See scripts/check-section-sign.sh.
