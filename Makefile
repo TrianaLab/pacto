@@ -81,7 +81,7 @@ test-integration:
 # request at 1, 10 and 50 callers, with budget assertions; see
 # tests/perf/README.md. PERF_REPORT=<file> also writes the dashboard table.
 perf-envtest:
-	@assets="$$($(MAKE) -s -C integrations/kubernetes setup-envtest | tail -n 1)"; \
+	@assets="$$($(MAKE) -s --no-print-directory -C integrations/kubernetes setup-envtest | tail -n 1)"; \
 	KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run "TestPerfEnvtest|TestSharedReadsRBACIsolation" -count=1 -timeout 120m -v ./internal/cli/ && \
 	cd integrations/kubernetes && KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run TestPerfPromoter -count=1 -timeout 30m -v ./internal/delivery/
 

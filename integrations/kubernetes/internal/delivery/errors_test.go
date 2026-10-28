@@ -282,8 +282,9 @@ func TestStagesReading(t *testing.T) {
 		WithObjects(stageObj(dA), argo).Build()
 	r := &StageReconciler{Client: c}
 	wake := func(keys func(client.Object) []string, obj client.Object) string {
-		var names []string
-		for _, req := range r.stagesReading(keys)(t.Context(), obj) {
+		reqs := r.stagesReading(keys)(t.Context(), obj)
+		names := make([]string, 0, len(reqs))
+		for _, req := range reqs {
 			names = append(names, req.Name)
 		}
 		return strings.Join(names, ",")

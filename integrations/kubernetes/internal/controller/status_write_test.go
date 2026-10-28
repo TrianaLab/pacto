@@ -66,7 +66,7 @@ func TestReconcile_WritesStatusOnlyOnChangeOrHeartbeat(t *testing.T) {
 		}},
 	}
 	ctx := context.Background()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		res, err := r.Reconcile(ctx, reconcileReq("steady", "default"))
 		if err != nil {
 			t.Fatalf("reconcile %d: %v", i, err)
