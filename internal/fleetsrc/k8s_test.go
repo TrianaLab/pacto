@@ -25,19 +25,12 @@ type fakeK8sClient struct {
 	gotNS       string
 }
 
-func (f *fakeK8sClient) Probe(context.Context) error { return nil }
 func (f *fakeK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return f.disc, f.discErr
 }
 func (f *fakeK8sClient) ListJSON(_ context.Context, resource, namespace string) ([]byte, error) {
 	f.gotResource, f.gotNS = resource, namespace
 	return f.listData, f.listErr
-}
-func (f *fakeK8sClient) GetJSON(context.Context, string, string, string) ([]byte, error) {
-	return nil, nil
-}
-func (f *fakeK8sClient) CountResources(context.Context, string, string) (int, error) {
-	return 0, nil
 }
 
 func TestK8sSource_IDKind_Default(t *testing.T) {

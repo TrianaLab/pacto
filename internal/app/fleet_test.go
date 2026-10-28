@@ -311,18 +311,11 @@ type fakeFleetK8sClient struct {
 	listData []byte
 }
 
-func (f *fakeFleetK8sClient) Probe(context.Context) error { return nil }
 func (f *fakeFleetK8sClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return f.disc, nil
 }
 func (f *fakeFleetK8sClient) ListJSON(context.Context, string, string) ([]byte, error) {
 	return f.listData, nil
-}
-func (f *fakeFleetK8sClient) GetJSON(context.Context, string, string, string) ([]byte, error) {
-	return nil, nil
-}
-func (f *fakeFleetK8sClient) CountResources(context.Context, string, string) (int, error) {
-	return 0, nil
 }
 
 func TestService_Fleet_IncludeK8s(t *testing.T) {

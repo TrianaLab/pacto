@@ -24,14 +24,10 @@ import (
 // K8sClient abstracts the Kubernetes API operations Pacto needs to read Pacto
 // CRD status.
 type K8sClient interface {
-	// Probe checks if the Kubernetes cluster is reachable.
-	Probe(ctx context.Context) error
 	// DiscoverCRD discovers the Pacto CRD group, version, and resource name.
 	DiscoverCRD(ctx context.Context) (*CRDDiscovery, error)
 	// ListJSON returns the raw JSON of all Pacto CRD resources.
 	ListJSON(ctx context.Context, resource, namespace string) ([]byte, error)
-	// CountResources returns the number of Pacto CRD resources.
-	CountResources(ctx context.Context, resource, namespace string) (int, error)
 }
 
 // CRDDiscovery holds the result of discovering the Pacto CRD on the cluster.
@@ -133,11 +129,6 @@ func (b builders) config() (*rest.Config, error) {
 	return config, nil
 }
 
-func (c *k8sGoClient) Probe(ctx context.Context) error {
-	_, err := c.discovery.ServerVersion()
-	return err
-}
-
 func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 	result := &CRDDiscovery{Group: c.group}
 
@@ -212,25 +203,6 @@ func (c *k8sGoClient) ListJSON(ctx context.Context, resource, namespace string) 
 		return nil, err
 	}
 	return json.Marshal(list)
-}
-
-func (c *k8sGoClient) CountResources(ctx context.Context, resource, namespace string) (int, error) {
-	gvr := c.gvr(resource)
-	var err error
-	if namespace != "" {
-		list, e := c.dynamic.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
-		err = e
-		if err == nil {
-			return len(list.Items), nil
-		}
-	} else {
-		list, e := c.dynamic.Resource(gvr).List(ctx, metav1.ListOptions{})
-		err = e
-		if err == nil {
-			return len(list.Items), nil
-		}
-	}
-	return 0, err
 }
 
 // NewDynamic returns a dynamic client from in-cluster config or the ambient

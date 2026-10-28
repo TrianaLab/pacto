@@ -405,7 +405,6 @@ type fakeClusterClient struct {
 	listErr  error
 }
 
-func (c *fakeClusterClient) Probe(context.Context) error { return nil }
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, nil
 }
@@ -414,9 +413,6 @@ func (c *fakeClusterClient) ListJSON(context.Context, string, string) ([]byte, e
 		return nil, c.listErr
 	}
 	return []byte(c.listJSON), nil
-}
-func (c *fakeClusterClient) CountResources(context.Context, string, string) (int, error) {
-	return 0, nil
 }
 
 // TestClusterContractRefs proves the callback exists only when a cluster client

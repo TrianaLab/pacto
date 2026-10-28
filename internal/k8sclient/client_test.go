@@ -272,32 +272,13 @@ users:
 }
 
 // ---------------------------------------------------------------------------
-// k8sGoClient.Probe
+// fake discovery
 // ---------------------------------------------------------------------------
 
 func newFakeDiscovery() *fakediscovery.FakeDiscovery {
 	return &fakediscovery.FakeDiscovery{
 		Fake:               &k8stesting.Fake{},
 		FakedServerVersion: &version.Info{Major: "1", Minor: "28"},
-	}
-}
-
-func TestK8sGoClient_Probe_Success(t *testing.T) {
-	client := &k8sGoClient{discovery: newFakeDiscovery()}
-	if err := client.Probe(context.Background()); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestK8sGoClient_Probe_Error(t *testing.T) {
-	disc := newFakeDiscovery()
-	disc.FakedServerVersion = nil
-	disc.PrependReactor("*", "*", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		return true, nil, fmt.Errorf("connection refused")
-	})
-	client := &k8sGoClient{discovery: disc}
-	if err := client.Probe(context.Background()); err == nil {
-		t.Error("expected error from Probe")
 	}
 }
 
@@ -492,7 +473,7 @@ func TestK8sGoClient_GVR_DefaultVersion(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// k8sGoClient.ListJSON / CountResources
+// k8sGoClient.ListJSON
 // ---------------------------------------------------------------------------
 
 func newFakeDynamicClient(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
@@ -555,61 +536,6 @@ func TestK8sGoClient_ListJSON_Error(t *testing.T) {
 	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
 
 	_, err := client.ListJSON(context.Background(), "pactos", "default")
-	if err == nil {
-		t.Error("expected error")
-	}
-}
-
-func TestK8sGoClient_CountResources_WithNamespace(t *testing.T) {
-	obj1 := newTestPactoObject("svc-a", "default")
-	obj2 := newTestPactoObject("svc-b", "default")
-	dyn := newFakeDynamicClient(obj1, obj2)
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	count, err := client.CountResources(context.Background(), "pactos", "default")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 2 {
-		t.Errorf("expected 2, got %d", count)
-	}
-}
-
-func TestK8sGoClient_CountResources_AllNamespaces(t *testing.T) {
-	obj := newTestPactoObject("svc-a", "default")
-	dyn := newFakeDynamicClient(obj)
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	count, err := client.CountResources(context.Background(), "pactos", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("expected 1, got %d", count)
-	}
-}
-
-func TestK8sGoClient_CountResources_Error_WithNamespace(t *testing.T) {
-	dyn := newFakeDynamicClient()
-	dyn.PrependReactor("list", "*", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		return true, nil, fmt.Errorf("list failed")
-	})
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	_, err := client.CountResources(context.Background(), "pactos", "default")
-	if err == nil {
-		t.Error("expected error")
-	}
-}
-
-func TestK8sGoClient_CountResources_Error_AllNamespaces(t *testing.T) {
-	dyn := newFakeDynamicClient()
-	dyn.PrependReactor("list", "*", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		return true, nil, fmt.Errorf("list failed")
-	})
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	_, err := client.CountResources(context.Background(), "pactos", "")
 	if err == nil {
 		t.Error("expected error")
 	}
