@@ -210,7 +210,8 @@ tests:
       dashboard.ociSecret: my-secret
     asserts:
       - failedTemplate:
-          errorPattern: "Additional property ociSecret is not allowed"
+          # Helm 3 and Helm 4 word the schema refusal differently.
+          errorPattern: "(?i)additional propert(y|ies) '?ociSecret'? (is )?not allowed"
 
   - it: should include dashboard OCI secrets arg when list is set
     set:
