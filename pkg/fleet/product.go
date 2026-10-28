@@ -2,7 +2,6 @@ package fleet
 
 import (
 	"cmp"
-	"fmt"
 	"slices"
 	"sort"
 	"time"
@@ -150,7 +149,7 @@ func (q *Query) productMeta() ProductMeta {
 	// reaching back into the snapshot or a later answer, and the meta never grows
 	// unbounded with the fleet's source or limitation count.
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
-	lims, limTrunc := boundLimitations(cloneLimitations(q.snap.Limitations))
+	lims, limTrunc := BoundLimitations(cloneLimitations(q.snap.Limitations))
 	return ProductMeta{
 		SchemaVersion:        ProductSchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,
@@ -637,19 +636,13 @@ type AttentionList struct {
 // or offset, or an unknown kind/status) rather than silently defaulting it, so a
 // bad input is a typed error and never a misleading empty or full result.
 func validateAttentionFilter(f AttentionFilter) error {
-	if f.Limit < 0 {
-		return &InvalidQueryError{Field: "limit", Value: fmt.Sprint(f.Limit), Reason: "must be >= 0"}
+	if err := validatePaging(f.Limit, f.Offset); err != nil {
+		return err
 	}
-	if f.Offset < 0 {
-		return &InvalidQueryError{Field: "offset", Value: fmt.Sprint(f.Offset), Reason: "must be >= 0"}
-	}
-	if f.Kind != "" && !validEntityKind(EntityKind(f.Kind)) {
-		return &InvalidQueryError{Field: "kind", Value: f.Kind, Reason: "not a known entity kind"}
-	}
-	if f.Status != "" && !ValidStatus(f.Status) {
-		return &InvalidQueryError{Field: "status", Value: f.Status, Reason: "not a canonical status"}
-	}
-	return nil
+	return validateFields([]fieldCheck{
+		{"kind", f.Kind, "not a known entity kind", func(k string) bool { return validEntityKind(EntityKind(k)) }},
+		{"status", f.Status, "not a canonical status", ValidStatus},
+	})
 }
 
 // Attention reports attention items across every category, filtered, sorted and

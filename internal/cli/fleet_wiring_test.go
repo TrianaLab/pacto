@@ -371,7 +371,7 @@ func TestManagerFleetProvider(t *testing.T) {
 	dir := t.TempDir()
 	mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
-	}, fleet.ManagerOptions{})
+	})
 	provider := managerFleetProvider(mgr)
 
 	// First call: no snapshot yet -> coalesced build then query.
@@ -389,7 +389,7 @@ func TestManagerFleetProvider(t *testing.T) {
 	// returns the refresh error.
 	mgr2 := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
-	}, fleet.ManagerOptions{})
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := managerFleetProvider(mgr2)(ctx); err == nil {
@@ -724,7 +724,7 @@ func TestManagerPublishedNeverBuilds(t *testing.T) {
 	mgr := fleet.NewManager(func(context.Context) (*fleet.FleetSnapshot, error) {
 		<-release
 		return &fleet.FleetSnapshot{}, nil
-	}, fleet.ManagerOptions{})
+	})
 	go func() { _ = mgr.Refresh(context.Background()) }()
 	published := managerPublished(mgr)
 	done := make(chan *fleet.Query, 1)

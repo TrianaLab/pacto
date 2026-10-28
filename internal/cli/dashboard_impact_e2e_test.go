@@ -108,7 +108,7 @@ func ociManager(t *testing.T, store *e2eStore, refs []string) *fleet.Manager {
 	build := func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return fleet.Build(ctx, fleet.BuildOptions{}, fleetsrc.NewOCISource("oci", store, refs))
 	}
-	mgr := fleet.NewManager(build, fleet.ManagerOptions{})
+	mgr := fleet.NewManager(build)
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager refresh: %v", err)
 	}
@@ -310,7 +310,7 @@ func memManager(t *testing.T, rev fleet.RawRevision) *fleet.Manager {
 		return fleet.Build(ctx, fleet.BuildOptions{},
 			fleet.NewMemorySource("m", "local", &fleet.Collection{Revisions: []fleet.RawRevision{rev}}))
 	}
-	mgr := fleet.NewManager(build, fleet.ManagerOptions{})
+	mgr := fleet.NewManager(build)
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager refresh: %v", err)
 	}

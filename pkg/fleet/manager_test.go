@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -25,21 +26,17 @@ func okBuilder(id string) Builder {
 }
 
 func TestManager_NoSnapshotBeforeRefresh(t *testing.T) {
-	m := NewManager(okBuilder("a"), ManagerOptions{Now: fixedNow})
+	m := NewManager(okBuilder("a"))
 	if _, err := m.Current(); !errors.Is(err, ErrNoSnapshot) {
 		t.Errorf("Current before refresh should be ErrNoSnapshot, got %v", err)
 	}
 	if _, err := m.Query(); !errors.Is(err, ErrNoSnapshot) {
 		t.Errorf("Query before refresh should be ErrNoSnapshot, got %v", err)
 	}
-	st := m.Status()
-	if st.HasSnapshot || st.Degraded || st.Refreshes != 0 {
-		t.Errorf("initial status wrong: %+v", st)
-	}
 }
 
 func TestManager_RefreshPublishesAtomically(t *testing.T) {
-	m := NewManager(okBuilder("a"), ManagerOptions{Now: fixedNow})
+	m := NewManager(okBuilder("a"))
 	if err := m.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -51,10 +48,6 @@ func TestManager_RefreshPublishesAtomically(t *testing.T) {
 	if err != nil || q.SnapshotID() != snap.SnapshotID {
 		t.Fatalf("query snapshot id mismatch: %v", err)
 	}
-	st := m.Status()
-	if !st.HasSnapshot || st.Degraded || st.Refreshes != 1 || st.Failures != 0 || st.SnapshotID != snap.SnapshotID {
-		t.Errorf("status after success wrong: %+v", st)
-	}
 }
 
 func TestManager_FailedRefreshRetainsLastGood(t *testing.T) {
@@ -65,27 +58,20 @@ func TestManager_FailedRefreshRetainsLastGood(t *testing.T) {
 		}
 		return okBuilder("a")(ctx)
 	}
-	m := NewManager(build, ManagerOptions{Now: fixedNow})
+	m := NewManager(build)
 	if err := m.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	good, _ := m.Current()
 
 	fail.Store(true)
-	if err := m.Refresh(context.Background()); err == nil {
-		t.Fatal("expected refresh error")
+	if err := m.Refresh(context.Background()); err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("expected the build error back, got %v", err)
 	}
 	// Last good snapshot is still served.
 	cur, err := m.Current()
 	if err != nil || cur.SnapshotID != good.SnapshotID {
 		t.Errorf("failed refresh should retain last good snapshot")
-	}
-	st := m.Status()
-	if !st.Degraded || st.Failures != 1 || st.Error == nil {
-		t.Errorf("status should be degraded with a sanitized error: %+v", st)
-	}
-	if st.Error.Message == "" || contains(st.Error.Message, "SECRET") {
-		t.Errorf("refresh error must be sanitized, got %q", st.Error.Message)
 	}
 }
 
@@ -97,7 +83,7 @@ func TestManager_RefreshCoalesces(t *testing.T) {
 		<-release // block until released so concurrent callers pile up
 		return okBuilder("a")(ctx)
 	}
-	m := NewManager(build, ManagerOptions{Now: fixedNow})
+	m := NewManager(build)
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -118,7 +104,7 @@ func TestManager_WaiterHonorsContextCancellation(t *testing.T) {
 		<-release
 		return okBuilder("a")(ctx)
 	}
-	m := NewManager(build, ManagerOptions{Now: fixedNow})
+	m := NewManager(build)
 	go func() { _ = m.Refresh(context.Background()) }() // holds the in-flight build
 	time.Sleep(20 * time.Millisecond)
 
@@ -130,21 +116,31 @@ func TestManager_WaiterHonorsContextCancellation(t *testing.T) {
 	close(release)
 }
 
+// countingBuilder wraps okBuilder(id) and counts its calls.
+func countingBuilder(id string, n *atomic.Int64) Builder {
+	return func(ctx context.Context) (*FleetSnapshot, error) {
+		n.Add(1)
+		return okBuilder(id)(ctx)
+	}
+}
+
 func TestManager_StartPeriodicAndSingle(t *testing.T) {
-	m := NewManager(okBuilder("a"), ManagerOptions{})
+	var once atomic.Int64
+	m := NewManager(countingBuilder("a", &once))
 	// interval <= 0 → single initial refresh then return.
 	m.Start(context.Background(), 0)
-	if m.Status().Refreshes != 1 {
-		t.Errorf("Start(0) should refresh once, got %d", m.Status().Refreshes)
+	if once.Load() != 1 {
+		t.Errorf("Start(0) should refresh once, got %d", once.Load())
 	}
 
-	m2 := NewManager(okBuilder("b"), ManagerOptions{})
+	var periodic atomic.Int64
+	m2 := NewManager(countingBuilder("b", &periodic))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { m2.Start(ctx, time.Millisecond); close(done) }()
 	// Wait for more than one refresh, then stop.
 	deadline := time.After(2 * time.Second)
-	for m2.Status().Refreshes < 2 {
+	for periodic.Load() < 2 {
 		select {
 		case <-deadline:
 			cancel()
@@ -155,17 +151,4 @@ func TestManager_StartPeriodicAndSingle(t *testing.T) {
 	}
 	cancel()
 	<-done
-}
-
-func contains(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

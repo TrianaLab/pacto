@@ -119,7 +119,7 @@ type Meta struct {
 // where that is a context bomb rather than merely bytes.
 func (q *Query) meta() Meta {
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
-	lims, limTrunc := boundLimitations(cloneLimitations(q.snap.Limitations))
+	lims, limTrunc := BoundLimitations(cloneLimitations(q.snap.Limitations))
 	return Meta{
 		SchemaVersion:        q.snap.SchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,
@@ -214,44 +214,54 @@ func (q *Query) Search(f SearchFilter) (*SearchResult, error) {
 	if err := validateSearchFilter(f); err != nil {
 		return nil, err
 	}
-	limit := f.Limit
-	if limit <= 0 {
-		limit = DefaultSearchLimit
-	}
-	if limit > MaxSearchLimit {
-		limit = MaxSearchLimit
-	}
-	keys := q.sortedServiceKeys()
-
-	res := &SearchResult{Meta: q.meta(), Services: []ServiceHit{}}
-	for _, key := range keys {
-		s := q.snap.Services[key]
-		if !q.serviceMatches(s, f) {
-			continue
+	var matched []*ServiceRecord
+	for _, key := range q.sortedServiceKeys() {
+		if s := q.snap.Services[key]; q.serviceMatches(s, f) {
+			matched = append(matched, s)
 		}
-		res.Total++
-		if res.Total <= f.Offset || len(res.Services) >= limit {
-			continue
-		}
+	}
+	pg := Paginate(matched, f.Limit, f.Offset, DefaultSearchLimit, MaxSearchLimit)
+	res := &SearchResult{Meta: q.meta(), Total: len(matched), Count: len(pg.Items), Services: make([]ServiceHit, 0, len(pg.Items))}
+	for _, s := range pg.Items {
 		res.Services = append(res.Services, hitFromService(s))
 	}
-	res.Count = len(res.Services)
 	return res, nil
 }
 
 // validateSearchFilter rejects malformed filter values with a typed error.
 func validateSearchFilter(f SearchFilter) error {
-	if f.Offset < 0 {
-		return &InvalidQueryError{Field: "offset", Value: fmt.Sprint(f.Offset), Reason: "must be >= 0"}
+	if err := validatePaging(f.Limit, f.Offset); err != nil {
+		return err
 	}
-	if f.Limit < 0 {
-		return &InvalidQueryError{Field: "limit", Value: fmt.Sprint(f.Limit), Reason: "must be >= 0"}
+	return validateFields([]fieldCheck{
+		{"status", f.Status, "not a canonical status", ValidStatus},
+		{"compliance", f.Compliance, "not a canonical status", ValidStatus},
+	})
+}
+
+// validatePaging rejects a negative offset or limit; zero limit means default.
+func validatePaging(limit, offset int) error {
+	if offset < 0 {
+		return &InvalidQueryError{Field: "offset", Value: fmt.Sprint(offset), Reason: "must be >= 0"}
 	}
-	if f.Status != "" && !ValidStatus(f.Status) {
-		return &InvalidQueryError{Field: "status", Value: f.Status, Reason: "not a canonical status"}
+	if limit < 0 {
+		return &InvalidQueryError{Field: "limit", Value: fmt.Sprint(limit), Reason: "must be >= 0"}
 	}
-	if f.Compliance != "" && !ValidStatus(f.Compliance) {
-		return &InvalidQueryError{Field: "compliance", Value: f.Compliance, Reason: "not a canonical status"}
+	return nil
+}
+
+// fieldCheck is one optional filter field: empty passes, otherwise ok decides.
+type fieldCheck struct {
+	field, value, reason string
+	ok                   func(string) bool
+}
+
+// validateFields returns the first set field that ok rejects.
+func validateFields(checks []fieldCheck) error {
+	for _, c := range checks {
+		if c.value != "" && !c.ok(c.value) {
+			return &InvalidQueryError{Field: c.field, Value: c.value, Reason: c.reason}
+		}
 	}
 	return nil
 }

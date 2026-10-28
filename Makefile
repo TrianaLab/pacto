@@ -353,7 +353,7 @@ docs-build: $(DOCS_DEMO)/app.wasm $(MERMAID_RUNTIME)
 # demo Go/boot glue) so `make docs` always reflects the current source. Force a
 # full refresh with `make demo-preview-clean`.
 DEMO_SOURCES := $(shell find pkg/dashboard/frontend/src examples/demo/bundles examples/demo/partners -type f 2>/dev/null) \
-	$(wildcard examples/demo/*.go) examples/demo/boot.js examples/demo/Makefile \
+	$(wildcard examples/demo/*.go) $(wildcard examples/demo/*.js) examples/demo/Makefile \
 	pkg/dashboard/frontend/package.json pkg/dashboard/frontend/package-lock.json
 $(DOCS_DEMO)/app.wasm: $(DEMO_SOURCES)
 	$(MAKE) -C examples/demo build DIST=$(CURDIR)/$(DOCS_DEMO)

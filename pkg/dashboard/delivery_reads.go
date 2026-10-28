@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
@@ -440,36 +441,8 @@ func sortEnvironments(envs []string) {
 	slices.SortFunc(envs, func(a, b string) int {
 		ra, _ := envRank(a)
 		rb, _ := envRank(b)
-		return cmp.Or(cmp.Compare(ra, rb), naturalCompare(a, b), cmp.Compare(a, b))
+		return cmp.Or(cmp.Compare(ra, rb), fleet.NaturalCompare(a, b), cmp.Compare(a, b))
 	})
-}
-
-// naturalCompare compares runs of digits as numbers and the rest as text.
-func naturalCompare(a, b string) int {
-	for a != "" && b != "" {
-		da, db := digitRun(a), digitRun(b)
-		if da > 0 && db > 0 {
-			na, nb := strings.TrimLeft(a[:da], "0"), strings.TrimLeft(b[:db], "0")
-			if c := cmp.Or(cmp.Compare(len(na), len(nb)), cmp.Compare(na, nb)); c != 0 {
-				return c
-			}
-			a, b = a[da:], b[db:]
-			continue
-		}
-		if c := cmp.Compare(a[0], b[0]); c != 0 {
-			return c
-		}
-		a, b = a[1:], b[1:]
-	}
-	return cmp.Compare(len(a), len(b))
-}
-
-func digitRun(s string) int {
-	n := 0
-	for n < len(s) && s[n] >= '0' && s[n] <= '9' {
-		n++
-	}
-	return n
 }
 
 type environmentsOutput struct {
