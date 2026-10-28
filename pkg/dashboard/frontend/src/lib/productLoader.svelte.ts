@@ -21,6 +21,8 @@
  * The fetcher is a closure over the caller's reactive params; it is invoked at request
  * time, so it always reads the CURRENT param values.
  */
+import { decideViewState, snapshotKnowledge, type SnapshotKnowledge, type ViewState } from './knowledgeState.ts';
+
 export interface ProductLoader<T> {
   readonly data: T | null;
   readonly loading: boolean;
@@ -91,5 +93,56 @@ export function createProductLoader<T>(fetcher: () => Promise<T>): ProductLoader
     },
     refresh(): void { run(lastTag, lastFamily); },
     destroy(): void { generation++; },
+  };
+}
+
+/** What a product list view renders, derived once from its loader. */
+export interface ProductListState<T> {
+  /** The answer to the current question, or the page on screen while only the page changed. */
+  readonly data: T | null;
+  /** Only the page changed and the next one is loading over the rows on screen. */
+  readonly paging: boolean;
+  readonly knowledge: SnapshotKnowledge;
+  /** Rows in the current answer. */
+  readonly count: number;
+  readonly state: ViewState;
+  /** A poll that failed over rows we can still show. decideViewState keeps the rows;
+   *  this is the half that keeps it honest, so a frozen list never reads as a live one. */
+  readonly refreshError: unknown;
+  /** A poll in flight over data already on screen, for the header to say in words. */
+  readonly revalidating: boolean;
+  /** How many skeleton rows to draw: the shape of the rows last on screen, else a page. */
+  readonly skeletonRows: number;
+}
+
+/**
+ * productListState is the list-view half every product list shared word for word:
+ * which answer to draw, its knowledge, and the view state decided from it.
+ * `rows` picks the list's rows out of an answer; `query` reads the caller's reactive
+ * question (`tag` and `family` as passed to `sync`), whether a filter is on and the page
+ * size. Call it during component initialisation, like a rune.
+ */
+export function productListState<T extends { meta?: Parameters<typeof snapshotKnowledge>[0] }>(
+  loader: ProductLoader<T>,
+  rows: (data: T) => readonly unknown[] | null | undefined,
+  query: () => { tag: unknown; family: unknown; filtered: boolean; pageLimit: number },
+): ProductListState<T> {
+  const q = $derived(query());
+  const answer = $derived(loader.answer(q.tag, q.family));
+  const knowledge = $derived(snapshotKnowledge(answer.data?.meta));
+  const count = $derived((answer.data && rows(answer.data)?.length) || 0);
+  const state = $derived(decideViewState({ loading: loader.loading, error: loader.error, itemCount: count, filtered: q.filtered, knowledge }));
+  // `loader.data`, not the answer: the answer is nulled the instant the query changes,
+  // which is exactly when the skeleton renders, and 0 rows is no shape at all.
+  const skeletonRows = $derived((loader.data && rows(loader.data)?.length) || q.pageLimit);
+  return {
+    get data() { return answer.data; },
+    get paging() { return answer.paging; },
+    get knowledge() { return knowledge; },
+    get count() { return count; },
+    get state() { return state; },
+    get refreshError() { return state.kind === 'ready' ? state.refreshError : null; },
+    get revalidating() { return state.kind === 'ready' && !!state.revalidating; },
+    get skeletonRows() { return skeletonRows; },
   };
 }
