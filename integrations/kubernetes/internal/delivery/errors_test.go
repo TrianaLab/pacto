@@ -17,9 +17,11 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/rest"
 	ctrlrt "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -246,6 +248,90 @@ func TestSetupWithManager(t *testing.T) {
 		if err := (&StageReconciler{Cluster: Cluster{CacheApplications: true}}).SetupWithManager(mgr); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestSetupWithManagerIndexConflict: a second Stage index of the same name is
+// refused, and the reconciler does not register.
+func TestSetupWithManagerIndexConflict(t *testing.T) {
+	skip := true
+	mapper := meta.NewDefaultRESTMapper(nil)
+	mapper.Add(dv1.GroupVersion.WithKind("Stage"), meta.RESTScopeNamespace)
+	mgr, err := ctrlrt.NewManager(&rest.Config{Host: "https://127.0.0.1:1"}, ctrlrt.Options{Scheme: newScheme(),
+		Metrics: metricsserver.Options{BindAddress: "0"}, Controller: config.Controller{SkipNameValidation: &skip},
+		MapperProvider: func(*rest.Config, *http.Client) (meta.RESTMapper, error) { return mapper, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.GetFieldIndexer().IndexField(t.Context(), &dv1.Stage{}, stageRefs, stageRefKeys); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&StageReconciler{}).SetupWithManager(mgr); err == nil {
+		t.Fatal("a conflicting index must fail the setup")
+	}
+}
+
+// TestStagesReading: an event on an object wakes every Stage that reads it,
+// through the index of what each Stage reads, and a failed cache read wakes
+// nothing.
+func TestStagesReading(t *testing.T) {
+	argo := stageObj(dA)
+	argo.Name, argo.Spec.ApplyRef = "argo", delivery.ApplyRef{Kind: delivery.ApplierArgoCD, Name: "app"}
+	argo.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test"}}
+	c := fake.NewClientBuilder().WithScheme(newScheme()).WithIndex(&dv1.Stage{}, stageRefs, stageRefKeys).
+		WithObjects(stageObj(dA), argo).Build()
+	r := &StageReconciler{Client: c}
+	wake := func(keys func(client.Object) []string, obj client.Object) string {
+		var names []string
+		for _, req := range r.stagesReading(keys)(t.Context(), obj) {
+			names = append(names, req.Name)
+		}
+		return strings.Join(names, ",")
+	}
+	u := func(name string, obj map[string]any) *unstructured.Unstructured {
+		o := &unstructured.Unstructured{Object: obj}
+		o.SetNamespace(ns)
+		o.SetName(name)
+		return o
+	}
+	for _, tc := range []struct {
+		keys func(client.Object) []string
+		obj  client.Object
+		want string
+	}{
+		{ociRepositoryKeys, u("payments", map[string]any{}), "payments-prod"},
+		{ociRepositoryKeys, u("payments-candidates", map[string]any{}), "payments-prod"},
+		{kustomizationKeys, u("ks", map[string]any{"spec": map[string]any{"sourceRef": map[string]any{"kind": "OCIRepository", "name": "payments"}}}), "payments-prod"},
+		{kustomizationKeys, u("ks", map[string]any{"spec": map[string]any{"sourceRef": map[string]any{"kind": "OCIRepository", "name": "payments", "namespace": "other"}}}), ""},
+		{kustomizationKeys, u("ks", map[string]any{"spec": map[string]any{"sourceRef": map[string]any{"kind": "GitRepository", "name": "payments"}}}), ""},
+		{applicationKeys, u("app", map[string]any{}), "argo"},
+		{stageKeys, &dv1.Stage{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "payments-test"}}, "argo"},
+	} {
+		if got := wake(tc.keys, tc.obj); got != tc.want {
+			t.Errorf("%s %v woke %q, want %q", tc.obj.GetName(), tc.keys(tc.obj), got, tc.want)
+		}
+	}
+	r.Client = fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(stageObj(dA)).Build() // no index: the list fails
+	if got := wake(stageKeys, argo); got != "" {
+		t.Errorf("a failed cache read woke %q", got)
+	}
+}
+
+// TestWitnessLiveReadFailures: a witnessed override is raised only on the
+// apiserver's word, so a failed live read of the applier or the Stage
+// surfaces instead.
+func TestWitnessLiveReadFailures(t *testing.T) {
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, false))
+	e.staleCache(ociRepo("payments", dC, "latest@"+dC, false))
+	e.fails["get/OCIRepository"] = true
+	if err := e.st.witness(t.Context(), e.getStage()); err == nil {
+		t.Fatal("a failed live read of the applier must surface")
+	}
+	e.fails["get/OCIRepository"] = false
+	stage := e.getStage()
+	e.st.APIReader = failingReader{}
+	if err := e.st.witness(t.Context(), stage); err == nil {
+		t.Fatal("a failed live read of the Stage must surface")
 	}
 }
 

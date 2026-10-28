@@ -58,8 +58,8 @@ func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).Named("delivery-stage").For(&dv1.Stage{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: r.Workers}).
 		Watches(&dv1.Operation{}, handler.EnqueueRequestsFromMapFunc(operationToStage)).
-		Watches(&dv1.Stage{}, r.mapRefs(func(o client.Object) []string { return []string{refKey(o.GetNamespace(), "Stage", o.GetName())} }))
-	watch := func(gvk schema.GroupVersionKind, keys func(*unstructured.Unstructured) []string) {
+		Watches(&dv1.Stage{}, handler.EnqueueRequestsFromMapFunc(r.stagesReading(stageKeys)))
+	watch := func(gvk schema.GroupVersionKind, keys func(client.Object) []string) {
 		if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
 			// ponytail: a Flux installed later is read on Resync until the promoter restarts.
 			mgr.GetLogger().Info("not watching a kind the cluster does not serve", "kind", gvk.Kind, "reason", err.Error())
@@ -67,25 +67,12 @@ func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 		u := &unstructured.Unstructured{}
 		u.SetGroupVersionKind(gvk)
-		b.Watches(u, r.mapRefs(func(o client.Object) []string { return keys(o.(*unstructured.Unstructured)) }))
+		b.Watches(u, handler.EnqueueRequestsFromMapFunc(r.stagesReading(keys)))
 	}
-	watch(gvkOCIRepository, func(u *unstructured.Unstructured) []string {
-		return []string{refKey(u.GetNamespace(), kindOCIRepository, u.GetName())}
-	})
-	watch(schema.GroupVersionKind{Group: gvkKustomization.Group, Version: gvkKustomization.Version, Kind: "Kustomization"},
-		func(u *unstructured.Unstructured) []string {
-			kind, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "kind")
-			name, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "name")
-			srcNS, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "namespace")
-			if kind != kindOCIRepository {
-				return nil
-			}
-			return []string{refKey(cmp.Or(srcNS, u.GetNamespace()), kindOCIRepository, name)}
-		})
+	watch(gvkOCIRepository, ociRepositoryKeys)
+	watch(schema.GroupVersionKind{Group: gvkKustomization.Group, Version: gvkKustomization.Version, Kind: "Kustomization"}, kustomizationKeys)
 	if r.Cluster.CacheApplications {
-		watch(gvkApplication, func(u *unstructured.Unstructured) []string {
-			return []string{refKey(u.GetNamespace(), delivery.ApplierArgoCD, u.GetName())}
-		})
+		watch(gvkApplication, applicationKeys)
 	}
 	return b.Complete(r)
 }
@@ -113,9 +100,33 @@ func stageRefKeys(obj client.Object) []string {
 	return keys
 }
 
-// mapRefs wakes every Stage that reads one of the objects keys names.
-func (r *StageReconciler) mapRefs(keys func(client.Object) []string) handler.EventHandler {
-	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+func stageKeys(o client.Object) []string {
+	return []string{refKey(o.GetNamespace(), "Stage", o.GetName())}
+}
+
+func ociRepositoryKeys(o client.Object) []string {
+	return []string{refKey(o.GetNamespace(), kindOCIRepository, o.GetName())}
+}
+
+// kustomizationKeys names the OCIRepository a Kustomization applies.
+func kustomizationKeys(o client.Object) []string {
+	u := o.(*unstructured.Unstructured)
+	kind, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "kind")
+	name, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "name")
+	srcNS, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "namespace")
+	if kind != kindOCIRepository {
+		return nil
+	}
+	return []string{refKey(cmp.Or(srcNS, u.GetNamespace()), kindOCIRepository, name)}
+}
+
+func applicationKeys(o client.Object) []string {
+	return []string{refKey(o.GetNamespace(), delivery.ApplierArgoCD, o.GetName())}
+}
+
+// stagesReading wakes every Stage that reads one of the objects keys names.
+func (r *StageReconciler) stagesReading(keys func(client.Object) []string) handler.MapFunc {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
 		var out []reconcile.Request
 		for _, k := range keys(obj) {
 			list := &dv1.StageList{}
@@ -127,7 +138,7 @@ func (r *StageReconciler) mapRefs(keys func(client.Object) []string) handler.Eve
 			}
 		}
 		return out
-	})
+	}
 }
 
 func approvalToOperation(_ context.Context, obj client.Object) []reconcile.Request {
