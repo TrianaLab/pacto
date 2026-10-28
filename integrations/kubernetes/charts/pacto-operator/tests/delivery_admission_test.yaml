@@ -403,6 +403,22 @@ tests:
       - notExists:
           path: 'spec.validations[?(@.message == "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")]'
 
+  - it: dates an approval's login only when it gives one, with authFreshness 0s
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      delivery.promoter.authFreshness: 0s
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].message'
+      value: "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
+    asserts:
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].expression'
+          pattern: "^!has\\(object\\.spec\\.authTime\\) \\|\\|"
+      - notExists:
+          path: 'spec.validations[?(@.message == "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")]'
+
   - it: requires a dated login on every approval with authFreshness set
     capabilities:
       apiVersions:

@@ -209,7 +209,8 @@ spec:
         request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }})
       message: "agents and service accounts may not approve"
       reason: Forbidden
-    {{- if .Values.delivery.promoter.authFreshness | default "0" | ne "0" }}
+    {{- /* Any zero duration ("0", "0s", "0m") turns freshness off, as the promoter reads it. */}}
+    {{- if not (regexMatch "^(0+(\\.0+)?(ns|us|µs|ms|s|m|h)?)+$" (.Values.delivery.promoter.authFreshness | default "0" | toString)) }}
     - expression: >-
         'delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
         has(object.spec.authTime) && object.spec.authTime == request.userInfo.extra['delivery.pacto.trianalab.io/auth-time'][0]
