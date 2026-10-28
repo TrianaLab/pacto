@@ -99,55 +99,6 @@ describe('legacy endpoint serialization (generated client owns the URL)', () => 
   });
 });
 
-describe('fleet legacy endpoint serialization', () => {
-  it('omits the query string when no params are given', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ services: [] }));
-    await api.fleetServices();
-    expect(urlFor().search).toBe('');
-    expect(urlFor().pathname).toBe('/api/fleet/services');
-  });
-
-  it('serializes fleetServices params, including limit/offset of 0', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ services: [] }));
-    await api.fleetServices({ text: 'pay', owner: 'core', scope: 'prod', status: 'Compliant', source: 'k8s', limit: 0, offset: 0 });
-    const q = urlFor().searchParams;
-    expect(q.get('text')).toBe('pay');
-    expect(q.get('status')).toBe('Compliant');
-    expect(q.get('limit')).toBe('0');
-    expect(q.get('offset')).toBe('0');
-  });
-
-  it('serializes fleetServiceGraph path + options', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ nodes: [] }));
-    await api.fleetServiceGraph('my service', { direction: 'dependents', transitive: true, maxDepth: 3 });
-    expect(urlFor().pathname).toBe('/api/fleet/services/my%20service/graph');
-    const q = urlFor().searchParams;
-    expect(q.get('direction')).toBe('dependents');
-    expect(q.get('transitive')).toBe('true');
-    expect(q.get('maxDepth')).toBe('3');
-  });
-
-  it('serializes fleetImpact refs and includeObserved', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ classification: 'NON_BREAKING' }));
-    await api.fleetImpact('oci://ghcr.io/org/svc:1.0.0', 'oci://ghcr.io/org/svc:2.0.0', true);
-    const q = urlFor().searchParams;
-    expect(q.get('old')).toBe('oci://ghcr.io/org/svc:1.0.0');
-    expect(q.get('new')).toBe('oci://ghcr.io/org/svc:2.0.0');
-    expect(q.get('includeObserved')).toBe('true');
-    mockFetch.mockReset();
-    mockFetch.mockResolvedValue(jsonResponse({}));
-    await api.fleetImpact('a', 'b');
-    expect(urlFor().searchParams.get('includeObserved')).toBe('false');
-  });
-
-  it('passes a slash-bearing key as a query param', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({}));
-    await api.fleetService('eu/pay');
-    expect(urlFor().pathname).toBe('/api/fleet/service');
-    expect(urlFor().searchParams.get('key')).toBe('eu/pay');
-  });
-});
-
 describe('product endpoint serialization + schema validation', () => {
   const meta = { schemaVersion: PRODUCT_SCHEMA_VERSION };
   const productResponse = (data: Record<string, unknown>) => jsonResponse({ meta, ...data });

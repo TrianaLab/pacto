@@ -10,6 +10,7 @@ package dashboard
 import (
 	"strings"
 
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -250,12 +251,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 				WithInitialDelaySeconds(5).
 				WithPeriodSeconds(10),
 		).
-		WithSecurityContext(
-			corev1ac.SecurityContext().
-				WithReadOnlyRootFilesystem(true).
-				WithAllowPrivilegeEscalation(false).
-				WithCapabilities(corev1ac.Capabilities().WithDrop("ALL")),
-		).
+		WithSecurityContext(component.RestrictedContainerSecurityContext()).
 		WithResources(corev1ac.ResourceRequirements().WithRequests(res.Requests).WithLimits(res.Limits))
 
 	deploy := appsv1ac.Deployment(Name, cfg.Namespace).

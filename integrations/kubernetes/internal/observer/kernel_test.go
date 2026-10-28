@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
@@ -965,7 +966,7 @@ func TestKernelMerge_NodeObjectIdentity(t *testing.T) {
 		"no agent labels":        func(n *pactoapi.NodeRuntimeObservation) { n.Labels = nil },
 		"status claims the node": func(n *pactoapi.NodeRuntimeObservation) { n.Name = "impostor" },
 		"partial agent label set": func(n *pactoapi.NodeRuntimeObservation) {
-			n.Labels = map[string]string{nodeagent.LabelName: nodeagent.Name}
+			n.Labels = map[string]string{component.LabelName: nodeagent.Name}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

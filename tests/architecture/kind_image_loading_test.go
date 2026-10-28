@@ -3,7 +3,6 @@ package architecture
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -18,11 +17,7 @@ import (
 
 func kindDir(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate this test file")
-	}
-	return filepath.Join(filepath.Dir(thisFile), "..", "acceptance", "kind")
+	return filepath.Join(repoRoot(t), "tests", "acceptance", "kind")
 }
 
 // code returns a script with its full-line comments removed, so a rule about
@@ -77,7 +72,7 @@ func sourced(t *testing.T, path string) bool {
 // kindMatrixScenarios returns the scenario list the ci-e2e-kind job shards over.
 func kindMatrixScenarios(t *testing.T) []string {
 	t.Helper()
-	wf := readFile(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	wf := readRepoFile(t, ".github", "workflows", "ci.yml")
 	_, after, ok := strings.Cut(wf, "scenario: [")
 	if !ok {
 		t.Fatal("no `scenario: [...]` matrix in .github/workflows/ci.yml; the shards are wired some other way now")
@@ -100,11 +95,11 @@ func kindMatrixScenarios(t *testing.T) []string {
 // as the sharded delivery job does). Miss either half and the pipeline stays green with one fewer thing
 // proved — and nothing in the repository looks wrong, which is the whole problem.
 func TestEveryKindScenarioRuns(t *testing.T) {
-	mk := readFile(t, filepath.Join(repoDir(t), "ci.mk"))
+	mk := readRepoFile(t, "ci.mk")
 	// Comment lines dropped: a commented-out `make` line runs nothing.
-	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	wf := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "ci.yml"))
 	// The heavy Kubernetes demo runs nightly, in its own workflow, as e2e-<target>.
-	nightly := code(t, filepath.Join(repoDir(t), ".github", "workflows", "delivery-demo.yml"))
+	nightly := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "delivery-demo.yml"))
 	matrix := kindMatrixScenarios(t)
 	const prefix = "test-acceptance-kind-"
 	for _, path := range scenarios(t) {
@@ -149,7 +144,7 @@ func TestEveryDeliveryPhaseHasAShard(t *testing.T) {
 	list, _, _ := strings.Cut(after, "\"")
 	phases := strings.Fields(list)
 
-	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	wf := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "ci.yml"))
 	_, job, ok := strings.Cut(wf, "\n  ci-e2e-kind-delivery:\n")
 	if !ok {
 		t.Fatal("no ci-e2e-kind-delivery job in .github/workflows/ci.yml")

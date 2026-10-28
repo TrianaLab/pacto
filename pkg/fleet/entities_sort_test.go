@@ -32,6 +32,16 @@ func TestNaturalLess(t *testing.T) {
 	}
 }
 
+func TestNaturalCompare_IsCaseSensitive(t *testing.T) {
+	if NaturalCompare("env-2", "env-10") >= 0 || NaturalCompare("env-10", "env-2") <= 0 || NaturalCompare("x7", "x007") != 0 {
+		t.Error("digit runs must compare as numbers")
+	}
+	// Byte order: upper case before lower case, unlike naturalLess.
+	if NaturalCompare("B", "a") >= 0 || !naturalLess("a", "B") {
+		t.Error("NaturalCompare must keep case; naturalLess must fold it")
+	}
+}
+
 func TestHealthRank(t *testing.T) {
 	if healthRank(StatusInvalid) >= healthRank(StatusCompliant) {
 		t.Error("Invalid must rank before Compliant")

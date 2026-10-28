@@ -163,6 +163,18 @@ func (c *Client) parseRef(ref string) (name.Reference, error) {
 	return r, nil
 }
 
+// Do parses ref with the client's plain-HTTP hosts and runs op against it under
+// each of the client's credentials in turn, exactly as Push and Pull do, so a
+// caller that needs a registry operation this client has no method for still
+// gets the same credential fall-through and typed errors.
+func (c *Client) Do(ctx context.Context, ref string, op func(r name.Reference, opts []remote.Option) error) error {
+	r, err := c.parseRef(ref)
+	if err != nil {
+		return err
+	}
+	return c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error { return op(r, opts) })
+}
+
 // Push converts a Bundle to an OCI image and pushes it to the given reference.
 // Returns the digest of the pushed image.
 func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) (string, error) {

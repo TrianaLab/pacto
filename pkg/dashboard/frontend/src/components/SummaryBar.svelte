@@ -1,6 +1,7 @@
 <script>
   import { setFilter, toggleFilter } from '../lib/filters.svelte.ts';
-  import { summarize, complianceClass, readinessBucketClass, formatCount } from '../lib/format.ts';
+  import { summarize, complianceClass, formatCount } from '../lib/format.ts';
+  import { readinessBucketClass } from '../lib/readiness.ts';
 
   let { services = [] } = $props();
 

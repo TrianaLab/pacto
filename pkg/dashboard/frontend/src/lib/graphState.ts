@@ -10,7 +10,7 @@
  */
 import type { KnowledgeView, Direction, ProductNeighborhood } from './api.ts';
 
-export const GRAPH_PERSPECTIVES = ['service', 'revision', 'target'] as const;
+const GRAPH_PERSPECTIVES = ['service', 'revision', 'target'] as const;
 export type GraphPerspective = (typeof GRAPH_PERSPECTIVES)[number];
 
 // The default focused neighborhood: depth 1, both directions, and the

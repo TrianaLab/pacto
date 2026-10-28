@@ -14,6 +14,8 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 )
 
 // echoSigner returns the payload as the "bundle", so the verifier can read
@@ -21,7 +23,7 @@ import (
 type echoSigner struct{ err error }
 
 func (e echoSigner) Sign(_ context.Context, payloadType string, payload []byte) ([]byte, error) {
-	if payloadType != inTotoPayload {
+	if payloadType != delivery.PayloadType {
 		return nil, errors.New("payload type " + payloadType)
 	}
 	return payload, e.err
@@ -42,9 +44,9 @@ func TestSignAndVerifyDigest(t *testing.T) {
 	if err := VerifyDigest(ctx, reg, names, repo, digest); err != nil {
 		t.Fatal(err)
 	}
-	refs, _ := reg.Referrers(ctx, repo, digest, BundleType)
+	refs, _ := reg.Referrers(ctx, repo, digest, delivery.BundleMediaType)
 	_, ann, err := reg.Layer(ctx, repo, refs[0])
-	if err != nil || ann[AnnBundleContent] != "dsse-envelope" || ann[AnnBundlePredicate] != SignPredicate {
+	if err != nil || ann[deliveryrecord.AnnBundleContent] != "dsse-envelope" || ann[deliveryrecord.AnnPredicateType] != SignPredicate {
 		t.Fatalf("referrer annotations %v %v", ann, err)
 	}
 	if err := VerifyDigest(ctx, reg, func([]byte, []byte) (string, error) { return "", errors.New("wrong key") }, repo, digest); err == nil ||
@@ -87,8 +89,8 @@ func statementOver(d, pt string) []byte {
 // with predicate.
 func writeBundle(t *testing.T, reg *Client, repo, d, predicate string, bundle []byte) string {
 	t.Helper()
-	ref, err := reg.Write(t.Context(), repo, newArtifact(BundleType, BundleType, []byte("{}"), BundleType, bundle,
-		map[string]string{AnnBundlePredicate: predicate}, subjectOf(t, reg, repo, d)))
+	ref, err := reg.Write(t.Context(), repo, newArtifact(delivery.BundleMediaType, delivery.BundleMediaType, []byte("{}"), delivery.BundleMediaType, bundle,
+		map[string]string{deliveryrecord.AnnPredicateType: predicate}, subjectOf(t, reg, repo, d)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +140,7 @@ func (m memReferrers) Layer(_ context.Context, _, digest string) ([]byte, map[st
 	if m.refs[i].bundle == nil {
 		return nil, nil, errTest
 	}
-	return m.refs[i].bundle, map[string]string{AnnBundlePredicate: m.refs[i].predicate}, nil
+	return m.refs[i].bundle, map[string]string{deliveryrecord.AnnPredicateType: m.refs[i].predicate}, nil
 }
 
 // TestVerifyDigestReadsPastBadReferrers: an unreadable referrer and more
@@ -190,8 +192,8 @@ func TestVerifyDigestSkipsAttestations(t *testing.T) {
 	repo, _ := signedImage(t, reg, host)
 	other, _ := random.Image(16, 1)
 	od, _ := reg.Write(ctx, repo, other)
-	att := newArtifact(BundleType, BundleType, []byte("{}"), BundleType, []byte("{}"),
-		map[string]string{AnnBundlePredicate: "https://slsa.dev/provenance/v1"}, subjectOf(t, reg, repo, od))
+	att := newArtifact(delivery.BundleMediaType, delivery.BundleMediaType, []byte("{}"), delivery.BundleMediaType, []byte("{}"),
+		map[string]string{deliveryrecord.AnnPredicateType: "https://slsa.dev/provenance/v1"}, subjectOf(t, reg, repo, od))
 	if _, err := reg.Write(ctx, repo, att); err != nil {
 		t.Fatal(err)
 	}

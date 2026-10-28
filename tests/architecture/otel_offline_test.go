@@ -14,7 +14,7 @@ import (
 // /v1/traces path, or the OTLP ports — without updating those claims, this test
 // fails, forcing the narrative and the code back into agreement.
 func TestOTelObserverStaysOffline(t *testing.T) {
-	root := docsRoot(t) // repo root, defined in collector_docs_test.go
+	root := repoRoot(t)
 	files, err := filepath.Glob(filepath.Join(root, "pkg", "otelobserver", "*.go"))
 	if err != nil {
 		t.Fatalf("glob otelobserver: %v", err)
@@ -55,7 +55,7 @@ func TestOTelObserverStaysOffline(t *testing.T) {
 // wiring or in the chart would make the "no live OTLP receiver" claim false
 // without a single line of pkg/otelobserver changing.
 func TestOperatorObservationPackagingStaysOffline(t *testing.T) {
-	root := docsRoot(t)
+	root := repoRoot(t)
 	var files []string
 	for _, pattern := range []string{
 		filepath.Join(root, "integrations", "kubernetes", "internal", "dashboard", "*.go"),

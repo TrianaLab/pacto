@@ -1001,21 +1001,20 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
-      - name: Build the WASM dashboard demo
-        run: make -C examples/demo build
-      # The publisher checks what the validator checks. docs.yml smokes the engine
-      # before it builds the site; this job is the only thing that actually ships
-      # the demo, so without this it could publish a demo whose engine docs.yml
-      # would have rejected.
-      - name: Smoke test the wasm engine
-        run: make -C examples/demo smoke
-      # Fold the demo into the docs tree so mike's internal `mkdocs build` copies it
-      # into the released version deploy at /demo/ (mirrors docs.yml). Without this
-      # the demo is built but never lands in the version slot, so /latest/demo/ 404s.
-      - name: Fold the demo into the docs site
+      # The same target docs.yml runs: build the demo, smoke its engine (this job
+      # is the only thing that actually ships the demo, so it must check what the
+      # validator checks) and fold it into the docs tree so mike's internal
+      # `mkdocs build` copies it into the version slot. Without the fold the demo
+      # is built but never lands there, so /latest/demo/ 404s.
+      - name: Build, smoke and fold the WASM demo into the docs site
+        # Recovery runs this file against an older source_sha whose Makefile may
+        # predate the docs-demo target; fall back to the inline steps it wraps.
         run: |
-          mkdir -p docs/demo
-          cp -r examples/demo/dist/. docs/demo/
+          if make -n docs-demo >/dev/null 2>&1; then
+            make docs-demo
+          else
+            make -C examples/demo build && make -C examples/demo smoke && mkdir -p docs/demo && cp -r examples/demo/dist/. docs/demo/
+          fi
       - name: Deploy versioned docs with mike (exact release versions)
         env:
           PACTO_DOCS_CORE_VERSION: ${{ needs.detect.outputs.core_version }}

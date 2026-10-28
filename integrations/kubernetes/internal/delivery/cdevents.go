@@ -97,7 +97,7 @@ func cdEvents(source string, stage *dv1.Stage, st delivery.Statement, id string,
 		"content": map[string]any{"record": id, "operation": p.Intent.Name, "operationType": typ, "seq": p.Chain.Seq,
 			"outcome": p.Outcome.Result, "verification": p.Outcome.Verification, "stage": stage.Namespace + "/" + stage.Name},
 	})
-	out := []map[string]any{concluded}
+	out := append(make([]map[string]any, 0, 2), concluded)
 	ptr := p.Outcome.Pointer
 	if !applied || ptr.After == "" {
 		return out

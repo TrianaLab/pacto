@@ -18,6 +18,8 @@ See LICENSE file in the project root for full license text.
 // not a trace pipeline and opens no port.
 package nodeagent
 
+import "github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+
 const (
 	// Name is the resource name for every managed node agent resource.
 	Name = "pacto-node-agent"
@@ -30,10 +32,6 @@ const (
 	// Leases it publishes carry the same set (the core module's kubesink writes
 	// them), so disabling the component prunes them with the workload that wrote
 	// them.
-	LabelManagedBy = "app.kubernetes.io/managed-by"
-	LabelComponent = "app.kubernetes.io/component"
-	LabelName      = "app.kubernetes.io/name"
-	ManagedByValue = "pacto-operator"
 	ComponentValue = "node-agent"
 
 	// FieldManager is the server-side apply field manager for node agent
@@ -57,18 +55,7 @@ const (
 )
 
 // Labels returns the standard labels applied to all node agent resources.
-func Labels() map[string]string {
-	return map[string]string{
-		LabelManagedBy: ManagedByValue,
-		LabelComponent: ComponentValue,
-		LabelName:      Name,
-	}
-}
+func Labels() map[string]string { return component.Labels(ComponentValue, Name) }
 
 // SelectorLabels returns the labels used for pod selection.
-func SelectorLabels() map[string]string {
-	return map[string]string{
-		LabelComponent: ComponentValue,
-		LabelName:      Name,
-	}
-}
+func SelectorLabels() map[string]string { return component.SelectorLabels(ComponentValue, Name) }

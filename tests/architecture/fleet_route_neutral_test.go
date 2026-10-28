@@ -22,7 +22,7 @@ import (
 // navigation field, the net/url escaper) and never trips on innocent words like
 // "routing" in a comment or the "pacto.dev/fleet/v1" schema URN.
 func TestFleetStaysRouteNeutral(t *testing.T) {
-	root := docsRoot(t)
+	root := repoRoot(t)
 	files, err := filepath.Glob(filepath.Join(root, "pkg", "fleet", "*.go"))
 	if err != nil {
 		t.Fatalf("glob pkg/fleet: %v", err)

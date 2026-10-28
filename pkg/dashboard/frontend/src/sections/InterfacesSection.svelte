@@ -74,52 +74,10 @@
 {/if}
 
 <style>
-  .detail-card {
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    margin-bottom: var(--sp-2);
-  }
-  .detail-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    padding: var(--sp-3);
-    background: none;
-    border: none;
-    font: inherit;
-    color: var(--c-text);
-    text-align: left;
-    gap: var(--sp-3);
-  }
-  .detail-card-header.expandable { cursor: pointer; }
-  .detail-card-header.expandable:hover { background: var(--c-surface-hover, var(--c-surface-inset)); border-radius: var(--radius-sm); }
-  .detail-card-header-left {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--sp-2);
-    min-width: 0;
-    flex: 1 1 16rem;
-  }
+  .detail-card-header-left { flex-wrap: wrap; flex: 1 1 16rem; }
   .pill-type { background: var(--c-info-bg, var(--c-accent-bg)); color: var(--c-info, var(--c-accent)); font-size: var(--text-xs); flex-shrink: 0; }
-  .expand-icon {
-    display: inline-flex;
-    color: var(--c-text-3);
-    transform: rotate(-90deg);
-    flex-shrink: 0;
-  }
-  .expand-icon.open { transform: rotate(0deg); }
-  .expand-icon svg { width: 12px; height: 12px; }
-  .detail-card-title { font-weight: 600; }
   /* The contract file ellipsizes rather than pushing the interface name to one word per line. */
-  .detail-card-sub { font-size: var(--text-sm); color: var(--c-text-2); max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .detail-card-body {
-    padding: 0 var(--sp-3) var(--sp-3);
-  }
-  .detail-card-table { font-size: var(--text-sm); }
-  .detail-card-table th { font-size: var(--text-xs); }
+  .detail-card-sub { max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .text-2 { color: var(--c-text-2); }
   .contract-content { margin-top: var(--sp-2); }
   .contract-content summary { cursor: pointer; color: var(--c-text-3); font-size: var(--text-sm); }

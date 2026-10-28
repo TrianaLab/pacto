@@ -136,7 +136,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			}
 			mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 				return svc.Fleet(ctx, withClusterContractRefs(ctx, fopts, discover, cacheUse))
-			}, fleet.ManagerOptions{})
+			})
 			go mgr.Start(cmd.Context(), fleetRefreshInterval)
 
 			// The cluster config the callers' own clients are built from: its

@@ -1,5 +1,6 @@
 <script>
-  import { ownerMatchesFilter, countHighImpact, formatCount } from './lib/format.ts';
+  import { countHighImpact, formatCount } from './lib/format.ts';
+  import { ownerMatchesFilter } from './lib/owners.ts';
 
   let { services = [], statusFilter = $bindable('all'), sourceFilter = $bindable('all'), nameFilter = $bindable('') } = $props();
 

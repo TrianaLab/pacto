@@ -3,7 +3,6 @@ package update
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -169,36 +168,18 @@ func writeCache(path, latestVersion string) {
 
 // fetchLatestVersion fetches the latest release tag for pacto from GitHub.
 func (u *Updater) fetchLatestVersion() (string, error) {
-	return u.fetchLatestRepoVersion("TrianaLab/pacto")
+	return u.fetchLatestRepoVersion(pactoRepo)
 }
 
 // fetchLatestRepoVersion fetches the latest release tag for the given repo from GitHub.
 func (u *Updater) fetchLatestRepoVersion(repo string) (string, error) {
-	url := u.APIBaseURL + "/repos/" + repo + "/releases/latest"
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := u.Client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
 	var release githubRelease
-	if err := json.Unmarshal(body, &release); err != nil {
+	status, err := u.getGitHubJSON(u.APIBaseURL+"/repos/"+repo+"/releases/latest", &release)
+	if err != nil {
 		return "", err
+	}
+	if status != http.StatusOK {
+		return "", fmt.Errorf("GitHub API returned status %d", status)
 	}
 
 	if release.TagName == "" {

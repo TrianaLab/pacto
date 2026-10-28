@@ -19,13 +19,13 @@ Controller flags and their exact defaults are captured from the operator's real 
 | Flag | Type | Default | Via chart | Description |
 | --- | --- | --- | --- | --- |
 | `-caller-coverage-ignore-namespace` | `value` |  | chart value | Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's are always ignored. |
-| `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container (e.g. 200m). Empty uses the built-in default. |
-| `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container (e.g. 50m). Empty uses the built-in default. |
+| `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container. Empty uses the built-in default. |
+| `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; empty means pacto-delivery. |
 | `-dashboard-delivery-trust-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with, so History reads signed records. |
 | `-dashboard-delivery-trust-key` | `string` | `trust.yaml` | chart value | Key of the trust config in that ConfigMap. |
-| `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container (e.g. 512Mi). Empty uses the built-in default. |
-| `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default. |
+| `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container. Empty uses the built-in default. |
+| `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |
 | `-dashboard-oci-secrets` | `string` |  | chart value | Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets; later Secrets override earlier ones for the same registry. |
 | `-dashboard-oidc-ca-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the PEM bundle of the CAs that sign the issuer's certificate. |

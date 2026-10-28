@@ -141,7 +141,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. "+
 			"Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson "+
 			"secrets; later Secrets override earlier ones for the same registry.")
-	bindResourceFlags(fs, &o.dashboardResources, "dashboard", "dashboard", "50m", "200m", "128Mi", "512Mi")
+	bindResourceFlags(fs, &o.dashboardResources, "dashboard", "dashboard")
 	fs.Func("dashboard-trace-source",
 		"Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as "+
 			"name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source "+
@@ -267,10 +267,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	o.zap.BindFlags(fs)
 }
 
-// bindResourceFlags registers --<prefix>-{cpu,memory}-{request,limit} for one component's container. examples,
-// when given, are the cpu-request, cpu-limit, memory-request and memory-limit values the help shows.
-func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, container string, examples ...string) {
-	for i, f := range []struct {
+// bindResourceFlags registers --<prefix>-{cpu,memory}-{request,limit} for one component's container.
+func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, container string) {
+	for _, f := range []struct {
 		name, resource, kind string
 		into                 *string
 	}{
@@ -279,11 +278,7 @@ func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, contai
 		{"memory-request", "Memory", "request", &rc.MemoryRequest},
 		{"memory-limit", "Memory", "limit", &rc.MemoryLimit},
 	} {
-		example := ""
-		if i < len(examples) {
-			example = " (e.g. " + examples[i] + ")"
-		}
-		help := fmt.Sprintf("%s %s for the %s container%s.", f.resource, f.kind, container, example)
+		help := fmt.Sprintf("%s %s for the %s container.", f.resource, f.kind, container)
 		fs.StringVar(f.into, prefix+"-"+f.name, "", help+" Empty uses the built-in default.")
 	}
 }
@@ -394,7 +389,7 @@ func newManager(o *options) (ctrl.Manager, error) {
 		})
 	}
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+	// The Metrics options configure the metrics server.
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
@@ -407,16 +402,15 @@ func newManager(o *options) (ctrl.Manager, error) {
 	if o.secureMetrics {
 		// FilterProvider is used to protect the metrics endpoint with authn/authz.
 		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// can access the metrics endpoint. The chart grants the RBAC they need. More info:
 		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
 	// If the certificate is not specified, controller-runtime will automatically
 	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production: with cert-manager, the [METRICS-WITH-CERTS] section of
-	// config/default/kustomization.yaml and [PROMETHEUS-WITH-CERTS] of config/prometheus/kustomization.yaml
-	// provide managed certificates.
+	// this setup is not recommended for production: mount managed certificates (cert-manager, for one)
+	// and point --metrics-cert-path at them.
 	if len(o.metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", o.metricsCertPath, "metrics-cert-name", o.metricsCertName, "metrics-cert-key", o.metricsCertKey)

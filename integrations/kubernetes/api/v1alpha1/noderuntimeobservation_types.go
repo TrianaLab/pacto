@@ -26,9 +26,10 @@ const (
 	CollectionFailed CollectionState = "Failed"
 )
 
-// Bounds on what one node publishes. They keep the object well inside the
-// apiserver request limit; the agent marks a pod truncated instead of exceeding
-// them.
+// Bounds on what one node publishes.
+//
+// Deprecated: kept for source compatibility with v6.0; the CRD's
+// +kubebuilder MaxItems markers are the enforced bounds.
 const (
 	MaxRuntimePodsPerNode       = 256
 	MaxRuntimeListenersPerPod   = 64

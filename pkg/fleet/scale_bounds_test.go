@@ -94,22 +94,6 @@ func TestMeta_AppliesTheSameEnvelopeCapsAsProductMeta(t *testing.T) {
 	}
 }
 
-func TestBoundLimitations_ExportedWrapperMatchesTheInternalCap(t *testing.T) {
-	// Exported for pkg/impact, which carries the same snapshot-owned slice.
-	var many []Limitation
-	for i := 0; i < MaxMetaLimitations+3; i++ {
-		many = append(many, Limitation{Code: "L"})
-	}
-	got, trunc := BoundLimitations(many)
-	if len(got) != MaxMetaLimitations || !trunc {
-		t.Errorf("BoundLimitations must apply MaxMetaLimitations: len=%d trunc=%v", len(got), trunc)
-	}
-	few, trunc := BoundLimitations([]Limitation{{Code: "X"}})
-	if len(few) != 1 || trunc {
-		t.Errorf("under-cap limitations verbatim: len=%d trunc=%v", len(few), trunc)
-	}
-}
-
 func TestSnapshotForSerialization_IsTheLiveSnapshot(t *testing.T) {
 	q := productFleet(t)
 	// Deliberately NOT a copy: the one caller is the bulk-export handler, which

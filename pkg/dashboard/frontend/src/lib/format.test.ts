@@ -16,37 +16,9 @@ import {
   reasonTooltip,
   reasonBadgeClass,
   isReasonActionable,
-  ownerDisplay,
-  ownerKey,
-  parseOwnerKey,
-  ownerKeyLabel,
-  ownerKeyKind,
-  UNOWNED_KEY,
-  ownerTeam,
-  ownerMatchesFilter,
-  ownerIsStructured,
   aggregateByOwner,
-  aggregateGraphByOwner,
-  relatedSubgraph,
-  worstStatus,
   compareScoresUnassessedLast,
-  extractOwnerDetail,
-  computeTooltipPosition,
   countHighImpact,
-  filterServices,
-  paginate,
-  readinessBucket,
-  readinessBucketLabel,
-  readinessBucketClass,
-  readinessGateClass,
-  readinessGateTip,
-  summarizeReadiness,
-  isUrlEvidence,
-  readinessCheckTypes,
-  checkStatusLabel,
-  checkStatusClass,
-  assessmentCountdownLabel,
-  summarizeFleet,
   summarize,
   shortDigest,
   abbreviateDigests,
@@ -55,6 +27,29 @@ import {
   completenessLabel,
   completenessClass,
 } from './format.ts';
+import {
+  ownerDisplay,
+  ownerKey,
+  parseOwnerKey,
+  ownerKeyLabel,
+  ownerKeyKind,
+  UNOWNED_KEY,
+  ownerMatchesFilter,
+  ownerIsStructured,
+  extractOwnerDetail,
+} from './owners.ts';
+import {
+  readinessBucket,
+  readinessBucketLabel,
+  readinessBucketClass,
+  readinessGateClass,
+  readinessGateTip,
+  isUrlEvidence,
+  checkStatusLabel,
+  checkStatusClass,
+  assessmentCountdownLabel,
+} from './readiness.ts';
+import { aggregateGraphByOwner, relatedSubgraph, worstStatus } from './graph-aggregate.ts';
 
 describe('statusClass', () => {
   it('maps Compliant to ok', () => expect(statusClass('Compliant')).toBe('ok'));
@@ -334,12 +329,6 @@ describe('parseOwnerKey', () => {
     expect(ownerKeyLabel(UNOWNED_KEY)).toBe(UNOWNED_KEY);
     expect(ownerKeyLabel('alice')).toBe('alice');
   });
-});
-
-describe('ownerTeam', () => {
-  it('returns empty for string (object-only now)', () => expect(ownerTeam('team/x')).toBe(''));
-  it('returns team from structured', () => expect(ownerTeam({ team: 'a' })).toBe('a'));
-  it('returns empty for null', () => expect(ownerTeam(null)).toBe(''));
 });
 
 describe('ownerMatchesFilter', () => {
@@ -646,46 +635,6 @@ describe('extractOwnerDetail', () => {
   });
 });
 
-describe('computeTooltipPosition', () => {
-  // Mock window dimensions: tests use default 1200x800
-
-  it('positions above cursor by default', () => {
-    const pos = computeTooltipPosition(500, 400, 180, 100);
-    expect(pos.top).toBeLessThan(400);
-    // Centered horizontally
-    expect(pos.left).toBeCloseTo(500 - 90, 0);
-  });
-
-  it('falls back below cursor when near top edge', () => {
-    const pos = computeTooltipPosition(500, 30, 180, 100);
-    // Not enough room above (30 - 100 - 8 < 8), so below
-    expect(pos.top).toBeGreaterThan(30);
-  });
-
-  it('clamps to left edge', () => {
-    const pos = computeTooltipPosition(20, 400, 180, 100);
-    expect(pos.left).toBeGreaterThanOrEqual(8);
-  });
-
-  it('clamps to right edge', () => {
-    const pos = computeTooltipPosition(1180, 400, 180, 100);
-    // Should not overflow right edge (1200 - 8 = 1192)
-    expect(pos.left + 180).toBeLessThanOrEqual(1200 - 8);
-  });
-
-  it('clamps to bottom edge', () => {
-    // Cursor near bottom, not enough room above OR below normally
-    const pos = computeTooltipPosition(500, 790, 180, 100);
-    expect(pos.top + 100).toBeLessThanOrEqual(800 - 8);
-  });
-
-  it('handles large tooltip centered', () => {
-    const pos = computeTooltipPosition(600, 500, 400, 200);
-    expect(pos.left).toBeGreaterThanOrEqual(8);
-    expect(pos.left + 400).toBeLessThanOrEqual(1200 - 8);
-  });
-});
-
 describe('aggregateByOwner — sorting/filtering support', () => {
   const services = [
     { name: 'a', owner: { team: 'team-a' }, contractStatus: 'Compliant', blastRadius: 5, complianceScore: 100 },
@@ -866,127 +815,6 @@ describe('countHighImpact', () => {
   });
 });
 
-describe('filterServices', () => {
-  const services = [
-    { name: 'api-gateway', owner: { team: 'team-a' }, contractStatus: 'Compliant', sources: ['k8s'], blastRadius: 5 },
-    { name: 'auth-service', owner: { team: 'team-a' }, contractStatus: 'Warning', sources: ['k8s', 'oci'], blastRadius: 3 },
-    { name: 'payment-svc', owner: { team: 'team-b' }, contractStatus: 'NonCompliant', sources: ['oci'], blastRadius: 1 },
-    { name: 'user-db', owner: { team: 'team-b' }, contractStatus: 'Compliant', sources: ['local'], blastRadius: 0 },
-  ];
-
-  it('returns all services with no filters', () => {
-    expect(filterServices(services, {})).toHaveLength(4);
-  });
-
-  it('returns all with all-defaults', () => {
-    expect(filterServices(services, { nameFilter: '', sourceFilter: 'all', statusFilter: 'all' })).toHaveLength(4);
-  });
-
-  it('filters by name (case-insensitive)', () => {
-    const result = filterServices(services, { nameFilter: 'api' });
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('api-gateway');
-  });
-
-  it('filters by owner name match', () => {
-    const result = filterServices(services, { nameFilter: 'team-b' });
-    expect(result).toHaveLength(2); // payment-svc + user-db
-  });
-
-  it('filters by status', () => {
-    const result = filterServices(services, { statusFilter: 'Compliant' });
-    expect(result).toHaveLength(2);
-  });
-
-  it('filters by source', () => {
-    const result = filterServices(services, { sourceFilter: 'oci' });
-    expect(result).toHaveLength(2); // auth-service + payment-svc
-  });
-
-  it('combines name + status filters', () => {
-    const result = filterServices(services, { nameFilter: 'team-a', statusFilter: 'Warning' });
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('auth-service');
-  });
-
-  it('combines all three filters', () => {
-    const result = filterServices(services, { nameFilter: 'auth', sourceFilter: 'k8s', statusFilter: 'Warning' });
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('auth-service');
-  });
-
-  it('returns empty when no services match', () => {
-    expect(filterServices(services, { nameFilter: 'nonexistent' })).toHaveLength(0);
-  });
-
-  it('high impact count reflects status filter', () => {
-    // This is the core bug fix: high impact should change with status filter
-    const allFiltered = filterServices(services, {});
-    const compliantOnly = filterServices(services, { statusFilter: 'Compliant' });
-    expect(countHighImpact(allFiltered)).toBe(2); // api-gateway(5) + auth-service(3)
-    expect(countHighImpact(compliantOnly)).toBe(1); // only api-gateway(5) is Compliant
-  });
-});
-
-describe('paginate', () => {
-  const items = Array.from({ length: 23 }, (_, i) => i + 1); // 1..23
-
-  it('returns the first page with the requested size', () => {
-    const r = paginate(items, 1, 10);
-    expect(r.items).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    expect(r.page).toBe(1);
-    expect(r.totalPages).toBe(3);
-    expect(r.total).toBe(23);
-    expect(r.perPage).toBe(10);
-  });
-
-  it('returns a middle page', () => {
-    const r = paginate(items, 2, 10);
-    expect(r.items).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
-    expect(r.page).toBe(2);
-  });
-
-  it('returns a partial last page', () => {
-    const r = paginate(items, 3, 10);
-    expect(r.items).toEqual([21, 22, 23]);
-    expect(r.page).toBe(3);
-    expect(r.totalPages).toBe(3);
-  });
-
-  it('clamps a page below 1 to the first page', () => {
-    const r = paginate(items, 0, 10);
-    expect(r.page).toBe(1);
-    expect(r.items[0]).toBe(1);
-  });
-
-  it('clamps a page beyond the range to the last page', () => {
-    const r = paginate(items, 99, 10);
-    expect(r.page).toBe(3);
-    expect(r.items).toEqual([21, 22, 23]);
-  });
-
-  it('handles an empty list', () => {
-    const r = paginate([], 1, 10);
-    expect(r.items).toEqual([]);
-    expect(r.totalPages).toBe(1);
-    expect(r.page).toBe(1);
-    expect(r.total).toBe(0);
-  });
-
-  it('handles an exact multiple of perPage', () => {
-    const r = paginate(Array.from({ length: 20 }, (_, i) => i + 1), 2, 10);
-    expect(r.totalPages).toBe(2);
-    expect(r.items).toHaveLength(10);
-  });
-
-  it('returns everything in one page when perPage is non-positive', () => {
-    const r = paginate(items, 1, 0);
-    expect(r.items).toHaveLength(23);
-    expect(r.totalPages).toBe(1);
-    expect(r.perPage).toBe(23);
-  });
-});
-
 // ── Readiness ──
 
 const rdy = (over: Record<string, unknown> = {}) => ({
@@ -1080,51 +908,6 @@ describe('readinessGateTip', () => {
   });
 });
 
-describe('summarizeReadiness', () => {
-  it('handles an empty service list', () => {
-    const s = summarizeReadiness([]);
-    expect(s.total).toBe(0);
-    expect(s.configured).toBe(0);
-    expect(s.avgScore).toBe(-1);
-  });
-  it('counts services with no readiness as not configured and excludes them from avg', () => {
-    const s = summarizeReadiness([{}, { readiness: null }]);
-    expect(s.total).toBe(2);
-    expect(s.notConfigured).toBe(2);
-    expect(s.configured).toBe(0);
-    expect(s.avgScore).toBe(-1);
-  });
-  it('buckets, sums check counts, and averages score over configured only', () => {
-    const services = [
-      rdy({ passing: true, score: 100, doneCount: 2, partialCount: 0, notDoneCount: 0, deferredCount: 0, expired: false, checks: [{}, {}] }),
-      rdy({ passing: false, score: 60, doneCount: 1, partialCount: 1, notDoneCount: 0, deferredCount: 0, expired: true, checks: [{}, {}] }),
-      rdy({ passing: false, score: 20, doneCount: 0, partialCount: 0, notDoneCount: 1, deferredCount: 1, expired: true, checks: [{}, {}] }),
-      {}, // not configured
-    ];
-    const s = summarizeReadiness(services);
-    expect(s.total).toBe(4);
-    expect(s.ready).toBe(1);
-    expect(s.partial).toBe(1);
-    expect(s.notReady).toBe(1);
-    expect(s.notConfigured).toBe(1);
-    expect(s.configured).toBe(3);
-    expect(s.avgScore).toBe(60); // round((100+60+20)/3)
-    expect(s.expiredAssessments).toBe(2);
-    expect(s.totalDone).toBe(3);
-    expect(s.totalPartial).toBe(1);
-    expect(s.totalNotDone).toBe(1);
-    expect(s.totalDeferred).toBe(1);
-  });
-  it('tolerates missing optional count fields', () => {
-    const s = summarizeReadiness([{ readiness: { score: 100, passing: true, checks: [{}], expires: '2099-12-31', expired: false } } as never]);
-    expect(s.configured).toBe(1);
-    expect(s.totalDone).toBe(0);
-    expect(s.totalPartial).toBe(0);
-    expect(s.totalNotDone).toBe(0);
-    expect(s.totalDeferred).toBe(0);
-  });
-});
-
 describe('isUrlEvidence', () => {
   it('recognizes http(s) URLs', () => {
     expect(isUrlEvidence('https://grafana.example.com/d/x')).toBe(true);
@@ -1137,58 +920,6 @@ describe('isUrlEvidence', () => {
     expect(isUrlEvidence('')).toBe(false);
     expect(isUrlEvidence(null)).toBe(false);
     expect(isUrlEvidence(undefined)).toBe(false);
-  });
-});
-
-describe('readinessCheckTypes', () => {
-  it('returns sorted unique evidence types present across services', () => {
-    const services = [
-      rdy({ checks: [{ type: 'url' }, { type: 'document' }] }),
-      rdy({ checks: [{ type: 'url' }, { type: 'ticket' }] }),
-      {},
-    ];
-    expect(readinessCheckTypes(services)).toEqual(['document', 'ticket', 'url']);
-  });
-  it('returns [] when no service declares readiness', () => {
-    expect(readinessCheckTypes([{}, { readiness: null }])).toEqual([]);
-  });
-});
-
-describe('summarizeFleet', () => {
-  it('handles an empty list', () => {
-    const s = summarizeFleet([]);
-    expect(s.total).toBe(0);
-    expect(s.assessed).toBe(0);
-    expect(s.compliancePercent).toBe(-1);
-    expect(s.needsAttention).toBe(0);
-    expect(s.highImpact).toBe(0);
-  });
-  it('counts statuses, attention, compliance % over assessed, and high impact', () => {
-    const services = [
-      { contractStatus: 'Compliant', blastRadius: 5 },
-      { contractStatus: 'Compliant', blastRadius: 1 },
-      { contractStatus: 'Warning', blastRadius: 3 },
-      { contractStatus: 'NonCompliant', blastRadius: 0 },
-      { contractStatus: 'Reference' },
-      { contractStatus: 'Unknown' },
-    ];
-    const s = summarizeFleet(services);
-    expect(s.total).toBe(6);
-    expect(s.compliant).toBe(2);
-    expect(s.warning).toBe(1);
-    expect(s.nonCompliant).toBe(1);
-    expect(s.reference).toBe(1);
-    expect(s.unknown).toBe(1);
-    expect(s.assessed).toBe(5); // compliant + warning + nonCompliant + unknown (B-2 ruling)
-    expect(s.needsAttention).toBe(2); // warning + nonCompliant (Unknown NOT included)
-    expect(s.compliancePercent).toBe(40); // 2/5 (Unknown in denominator)
-    expect(s.highImpact).toBe(2); // blast >= 3
-  });
-  it('returns compliancePercent -1 when nothing is assessed (reference/notEvaluated only)', () => {
-    const s = summarizeFleet([{ contractStatus: 'Reference' }, { contractStatus: 'NotEvaluated' }]);
-    expect(s.assessed).toBe(0);
-    expect(s.compliancePercent).toBe(-1);
-    expect(s.needsAttention).toBe(0);
   });
 });
 

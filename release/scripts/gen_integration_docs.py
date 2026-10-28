@@ -516,10 +516,8 @@ def controller_help(repo_root: str) -> str:
 def parse_flags(help_text: str) -> list[dict]:
     """Parse `flag`-style --help output into {name, type, default, description}."""
     flags: list[dict] = []
-    lines = help_text.splitlines()
-    i = 0
     cur = None
-    for line in lines:
+    for line in help_text.splitlines():
         m = re.match(r"^  -(\S+)(?:\s+(\S.*))?$", line)
         if m:
             if cur:
@@ -914,7 +912,7 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     out.append("")
     out.append(
         "Precedence when summarizing findings (see `summarizeFindings` in "
-        "`internal/controller/pacto_controller.go`): `Invalid` (structural) outranks all; "
+        "`internal/controller/status.go`): `Invalid` (structural) outranks all; "
         "then any error -> `NonCompliant`; else any unknown -> `Unknown`; else any warning -> "
         "`Warning`; else `Compliant`. Reference-only contracts short-circuit to `Reference`.\n"
     )

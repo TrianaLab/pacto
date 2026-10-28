@@ -179,7 +179,7 @@ func (r *Reconciler) reconcileService(ctx context.Context) error {
 func (r *Reconciler) cleanup(ctx context.Context) error {
 	ns := r.Config.Namespace
 	return component.Prune(ctx, "dashboard", r.APIReader, r.Client,
-		map[string]string{LabelManagedBy: ManagedByValue, LabelComponent: ComponentValue},
+		component.Owned(ComponentValue),
 		[]component.Resource{
 			{Kind: "Service", Obj: &corev1.Service{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},
 			{Kind: "Deployment", Obj: &appsv1.Deployment{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},

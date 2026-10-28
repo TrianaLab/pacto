@@ -128,7 +128,7 @@ Controller arguments derived from values
 {{- end }}
 {{- /* Kernel evidence follows the managed node agent: either switch turns it on. */}}
 {{- with .Values.controller.kernelEvidence }}
-{{- if or .enabled $.Values.nodeAgent.enabled }}
+{{- if include "pacto-operator.kernelEvidence" $ }}
 - --enable-kernel-evidence
 {{- if .namespace }}
 - --kernel-evidence-namespace={{ .namespace }}
@@ -314,14 +314,6 @@ so it may never be the release namespace.
 {{- fail "nodeAgent.namespace must not be the release namespace: the node agent namespace is labelled privileged for Pod Security" }}
 {{- end }}
 {{- .Values.nodeAgent.namespace }}
-{{- end }}
-
-{{/*
-The namespace the operator reads kernel evidence (NodeRuntimeObservations and
-heartbeat Leases) from.
-*/}}
-{{- define "pacto-operator.kernelEvidenceNamespace" -}}
-{{- .Values.controller.kernelEvidence.namespace | default (include "pacto-operator.nodeAgentNamespace" .) }}
 {{- end }}
 
 {{/*

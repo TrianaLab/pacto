@@ -1,22 +1,16 @@
 <script>
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
+  import { summarize, compareScoresUnassessedLast, abbreviateDigests, formatCount } from '../lib/format.ts';
+  import { ownerKey, ownerDisplay, ownerKeyKind, UNOWNED_KEY } from '../lib/owners.ts';
   import {
-    ownerKey,
-    ownerDisplay,
-    ownerKeyKind,
-    UNOWNED_KEY,
     readinessBucket,
     readinessBucketLabel,
     readinessBucketClass,
-    summarize,
     isUrlEvidence,
     checkStatusClass,
     checkStatusLabel,
     assessmentCountdownLabel,
-    compareScoresUnassessedLast,
-    abbreviateDigests,
-    formatCount,
-  } from '../lib/format.ts';
+} from '../lib/readiness.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import { applyFilters, writeFiltersToHash } from '../lib/filters.ts';
   import FilterBar from '../components/FilterBar.svelte';

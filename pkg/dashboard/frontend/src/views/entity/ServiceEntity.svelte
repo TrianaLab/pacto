@@ -9,7 +9,7 @@
   import RelationshipList from '../../components/RelationshipList.svelte';
   import FindingList from '../../components/FindingList.svelte';
   import EvidenceList from '../../components/EvidenceList.svelte';
-  import LimitationsList from '../../components/LimitationsList.svelte';
+  import LimitationsSection from '../../components/LimitationsSection.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
   import { dropService, inService } from '../../lib/identityContext.ts';
 
@@ -203,14 +203,10 @@
     </PreviewSection>
   {/if}
 
-  {#if (d.limitations?.count ?? 0) > 0}
-    <!-- Limitations stay collapsible but NOT hidden: anything that makes this page's
-         answer uncertain is already stated by the knowledge banner above, which is never
-         collapsible. What is here is the per-entity detail behind that warning. -->
-    <PreviewSection title="Limitations" tone="warn" collapsible open={false} summary="What Pacto could not determine" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
-      <LimitationsList items={d.limitations?.items ?? []} />
-    </PreviewSection>
-  {/if}
+  <!-- Limitations stay collapsible but NOT hidden: anything that makes this page's
+       answer uncertain is already stated by the knowledge banner above, which is never
+       collapsible. What is here is the per-entity detail behind that warning. -->
+  <LimitationsSection page={d.limitations} />
 </div>
 
 <style>

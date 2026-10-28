@@ -18,7 +18,10 @@ const (
 	MaxProductPath          = 50
 	MaxProductOwners        = 200
 	MaxProductActiveTargets = 200
-	MaxProductLimitations   = 100
+	// MaxProductLimitations bounded the limitations preview.
+	//
+	// Deprecated: the analysis now caps limitations at [fleet.MaxMetaLimitations].
+	MaxProductLimitations = fleet.MaxMetaLimitations
 	// MaxProductChanges bounds the field-level change list. MaxChangeValueRunes
 	// bounds EACH rendered value, so one changed OpenAPI schema cannot make the
 	// answer unbounded; both truncations are reported rather than silent.
@@ -218,7 +221,7 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 		Consumers:      pageConsumers(consumers, limit, offset),
 		Owners:         boundRefs(owners, MaxProductOwners),
 		ActiveTargets:  boundRefs(targets, MaxProductActiveTargets),
-		Limitations:    boundLimitations(res.Limitations),
+		Limitations:    limitationsPreview(res),
 	}
 }
 
@@ -348,17 +351,13 @@ func boundRefs(refs []fleet.EntityRef, limit int) fleet.RefPreview {
 	return fleet.RefPreview{Total: total, Count: len(items), Truncated: truncated, Items: items}
 }
 
-// boundLimitations bounds the impact limitations into a preview. It copies the
-// slice so the answer never aliases the raw impact result.
-func boundLimitations(ls []fleet.Limitation) fleet.LimitationsPreview {
-	total := len(ls)
-	truncated := total > MaxProductLimitations
-	n := total
-	if truncated {
-		n = MaxProductLimitations
-	}
-	items := append([]fleet.Limitation{}, ls[:n]...)
-	return fleet.LimitationsPreview{Total: total, Count: len(items), Truncated: truncated, Items: items}
+// limitationsPreview copies the impact limitations into a preview so the answer
+// never aliases the raw impact result. The analysis already capped the list
+// (fleet.BoundLimitations), so the preview carries that truncation rather than
+// applying a second bound.
+func limitationsPreview(res *Result) fleet.LimitationsPreview {
+	items := append([]fleet.Limitation{}, res.Limitations...)
+	return fleet.LimitationsPreview{Total: len(items), Count: len(items), Truncated: res.LimitationsTruncated, Items: items}
 }
 
 // serviceRef builds a route-neutral service reference for an already-canonical

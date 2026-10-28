@@ -2,7 +2,9 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter, ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY, aggregateGraphByOwner, relatedSubgraph, formatCount } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, formatCount } from '../lib/format.ts';
+  import { ownerMatchesFilter, ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY } from '../lib/owners.ts';
+  import { aggregateGraphByOwner, relatedSubgraph } from '../lib/graph-aggregate.ts';
   import GraphPanel from '../GraphPanel.svelte';
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';

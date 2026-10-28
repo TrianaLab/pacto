@@ -28,6 +28,13 @@ linters:
       logcheck:
         type: "module"
         description: Checks Go logging calls for Kubernetes logging conventions.
+    goconst:
+      # goconst 1.11 (golangci-lint v2.13) also counts strings in composite
+      # literals: unstructured field paths, CloudEvent keys, metric labels.
+      # Naming those hurts reading, so keep the pre-1.11 scope.
+      exclude-types:
+        - call
+        - compositelit
     revive:
       rules:
         - name: comment-spacings

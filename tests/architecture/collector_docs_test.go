@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -14,21 +13,12 @@ import (
 // drift back into "the engine has a collector interface", "a plugin is a collector",
 // or "we ship an ECS/cloud collector".
 
-func docsRoot(t *testing.T) string {
-	t.Helper()
-	_, self, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("caller path")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(self), "..", ".."))
-}
-
 // TestPublicCollectorInterfaceIsAbsentOrImplemented: the speculative
 // pkg/collector.Collector interface must be ABSENT (Evidence is the boundary) — or,
 // if it is ever reintroduced, this gate must be updated to prove the first-party
 // collector implements it. Today: absent.
 func TestPublicCollectorInterfaceIsAbsentOrImplemented(t *testing.T) {
-	root := docsRoot(t)
+	root := repoRoot(t)
 	if _, err := os.Stat(filepath.Join(root, "pkg", "collector")); !os.IsNotExist(err) {
 		t.Errorf("pkg/collector exists again — a public collector interface must be genuinely implemented by the Kubernetes collector (different Collect signature today), not speculative. Remove it or prove conformance and update this gate.")
 	}
@@ -38,7 +28,7 @@ func TestPublicCollectorInterfaceIsAbsentOrImplemented(t *testing.T) {
 // diagrams + the collector-vs-plugin distinction, so collectors are first-class in
 // the public docs.
 func TestCollectorsDocIsCanonical(t *testing.T) {
-	root := docsRoot(t)
+	root := repoRoot(t)
 	b, err := os.ReadFile(filepath.Join(root, "docs", "model.md"))
 	if err != nil {
 		t.Fatalf("docs/model.md missing: %v", err)
@@ -71,7 +61,7 @@ func TestCollectorsDocIsCanonical(t *testing.T) {
 // calling the Kubernetes collector "the engine", and presenting an unimplemented
 // collector (ECS/Nomad/Terraform/cloud) as shipped/supported/implemented.
 func TestDocsDoNotConflateOrOverclaimCollectors(t *testing.T) {
-	root := docsRoot(t)
+	root := repoRoot(t)
 	// The list tracks wherever the collector narrative lives, which moves as the
 	// documentation is reorganised. A deleted entry must be REPLACED by the page its
 	// prose moved to, never just dropped: the read below skips a file it cannot find

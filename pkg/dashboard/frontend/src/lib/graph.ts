@@ -429,7 +429,7 @@ export const LEGEND_SELECTORS: Record<string, string> = {
  */
 // Past this many nodes the layout settles at once: animating it held the main thread
 // for seconds on Reset layout and showed nothing worth watching.
-export const ANIMATE_LAYOUT_MAX_NODES = 150;
+const ANIMATE_LAYOUT_MAX_NODES = 150;
 
 /** spread is how much further apart a graph of n nodes is laid out than a small one:
  *  1 up to 40 nodes, then with the square root of the count. */
@@ -797,6 +797,198 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
   ] as any;
 }
 
+// entityNodes are the graph's entities: a focused neighborhood's lane boxes (see
+// laneGraph) are scaffolding, never counted, saved, hovered or selected.
+function entityNodes(cy: Core): cytoscape.NodeCollection {
+  return cy.nodes('[lane = 0]');
+}
+
+// hasLanes reports whether the graph is laid out in lanes (it carries lane boxes).
+function hasLanes(cy: Core): boolean {
+  return cy.nodes('[lane = 1]').nonempty();
+}
+
+// snapshotSpatial is the graph's presentation geometry: where each entity sits and how
+// the viewport looks at them.
+function snapshotSpatial(cy: Core): SpatialState {
+  const positions: Record<string, { x: number; y: number }> = {};
+  entityNodes(cy).forEach((n) => { positions[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+  return { positions, pan: { ...cy.pan() }, zoom: cy.zoom() };
+}
+
+// restoreSavedPositions moves each entity to its saved position and returns the ids it
+// placed. Ids not in the saved state are ignored rather than defaulted, so a saved state
+// from a smaller graph pre-arranges what it knows and leaves the rest to be placed.
+function restoreSavedPositions(cy: Core, saved: Record<string, { x: number; y: number }> | undefined): Set<string> {
+  const restored = new Set<string>();
+  if (!saved) return restored;
+  cy.batch(() => {
+    entityNodes(cy).forEach((n) => {
+      const p = saved[n.id()];
+      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+      n.position({ x: p.x, y: p.y });
+      restored.add(n.id());
+    });
+  });
+  return restored;
+}
+
+// How far a brand-new node sits from the neighbor it attaches to.
+const NEW_NODE_OFFSET = 150;
+
+// placeNewNodes gives nodes that have no position yet a deterministic spot beside the
+// neighbors they connect to, WITHOUT touching anything already placed. Running a full
+// layout instead would be less code and would also move every surviving node -- which
+// is the exact regression this exists to prevent.
+function placeNewNodes(cy: Core, fresh: Set<string>): void {
+  if (!fresh.size) return;
+  if (hasLanes(cy)) { placeInLanes(cy, fresh); return; }
+  const settled = cy.nodes().filter((n) => !fresh.has(n.id()));
+  const bb = settled.nonempty() ? settled.boundingBox() : null;
+  const center = bb ? { x: bb.x1 + bb.w / 2, y: bb.y1 + bb.h / 2 } : { x: 0, y: 0 };
+  const radius = bb ? Math.max(200, bb.w / 2 + 140) : 200;
+  const ids = [...fresh].sort(); // stable: the same new set always lands the same way
+  cy.batch(() => {
+    ids.forEach((id, i) => {
+      const n = cy.getElementById(id);
+      if (n.empty()) return;
+      const angle = (i * 2 * Math.PI) / ids.length;
+      const anchors = n.neighborhood('node').filter((m) => !fresh.has(m.id()));
+      if (anchors.nonempty()) {
+        let sx = 0;
+        let sy = 0;
+        anchors.forEach((m) => { sx += m.position('x'); sy += m.position('y'); });
+        const ax = sx / anchors.size();
+        const ay = sy / anchors.size();
+        n.position({ x: ax + Math.cos(angle) * NEW_NODE_OFFSET, y: ay + Math.sin(angle) * NEW_NODE_OFFSET });
+      } else {
+        // Nothing to attach to: park it on a ring outside the settled graph, where it
+        // is visible as an arrival rather than buried under the existing arrangement.
+        n.position({ x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius });
+      }
+    });
+  });
+}
+
+// alignLaneEdges makes the one edge a group draws to its lane run straight across: it
+// leaves the lane's outer side at the group's height (clamped to the lane), instead of
+// every group's line converging on the lane's centre where their labels would pile up.
+function alignLaneEdges(cy: Core): void {
+  cy.edges('[elabel]').forEach((e) => {
+    const laneIsSource = !!e.source().data('lane');
+    const lane = laneIsSource ? e.source() : e.target();
+    if (!lane.data('lane')) return;
+    const other = laneIsSource ? e.target() : e.source();
+    // An endpoint is measured from the lane's own centre, which is not the middle of its
+    // bounding box: that one also wraps the lane's name.
+    const half = Math.max(0, lane.height() / 2 - 12);
+    const dy = Math.round(Math.max(-half, Math.min(half, other.position('y') - lane.position('y'))));
+    // Both ends: left alone, the group's end aims at the lane's centre and the line slants.
+    const out = lane.data('side') < 0 ? '-50%' : '50%';
+    const into = lane.data('side') < 0 ? '50%' : '-50%';
+    e.style(laneIsSource ? 'source-endpoint' : 'target-endpoint', `${out} ${dy}px`);
+    e.style(laneIsSource ? 'target-endpoint' : 'source-endpoint', `${into} ${Math.round(Math.max(-14, Math.min(14, lane.position('y') + dy - other.position('y'))))}px`);
+  });
+}
+
+// placeInLanes puts each arrival in its own lane column, under the lowest node already
+// there; an arrival with no column yet opens one outside that side's outermost column.
+function placeInLanes(cy: Core, fresh: Set<string>): void {
+  const settled = entityNodes(cy).filter((n) => !fresh.has(n.id()));
+  cy.batch(() => {
+    for (const id of [...fresh].sort()) {
+      const n = cy.getElementById(id);
+      const side = n.data('side') || 1;
+      const peers = settled.filter((m) => m.data('side') === n.data('side') && m.data('depth') === n.data('depth'));
+      if (peers.nonempty()) {
+        const low = peers.max((m) => (m as NodeSingular).position('y')).ele as NodeSingular;
+        n.position({ x: low.position('x'), y: low.position('y') + LANE_ROW });
+      } else {
+        const outer = Math.max(0, ...settled.filter((m) => (m.data('side') || 0) === side).map((m) => Math.abs((m as NodeSingular).position('x'))));
+        n.position({ x: side * (outer + LANE_GAP + LANE_COL), y: 0 });
+      }
+      settled.merge(n);
+    }
+  });
+}
+
+// Dimming is what fades a node: a pinned spotlight, an owner emphasis, a status/name
+// filter and a legend filter. They are independent; applyDimming composes them.
+interface Dimming {
+  pinned: string | null;
+  owners: Set<string> | null;
+  filterHidden: Set<string> | null;
+  legendHidden: Set<string> | null;
+}
+
+const HL = 'pacto-faded pacto-dep pacto-dependent pacto-hot';
+
+// ownerVisible is an owner's services plus their direct neighbors.
+function ownerVisible(cy: Core, owners: Set<string>): Set<string> {
+  const vis = new Set<string>();
+  cy.nodes().forEach((n) => { if (owners.has(n.data('serviceName'))) vis.add(n.id()); });
+  for (const id of [...vis]) {
+    cy.getElementById(id).neighborhood('node').forEach((n) => { vis.add(n.id()); });
+  }
+  return vis;
+}
+
+// Directional spotlight — the one interaction used EVERYWHERE (fleet, owner,
+// service detail) so the graph behaves identically wherever it appears. A
+// service's DEPENDENCIES light up in accent (arrows out), its DEPENDENTS / blast
+// radius in warm (arrows in), everything else fades. Only this node's edges show,
+// so nothing overlaps.
+function spotlight(cy: Core, n: cytoscape.NodeSingular): void {
+  const succ = n.successors();
+  const pred = n.predecessors();
+  const keep = n.union(succ).union(pred);
+  // batch → Cytoscape recomputes style once for the whole change, not per class op
+  cy.batch(() => {
+    cy.elements().not(keep).addClass('pacto-faded');
+    succ.edges().addClass('pacto-dep');
+    pred.edges().addClass('pacto-dependent');
+    n.addClass('pacto-hot');
+  });
+}
+
+// Additive only, and always last: a legend filter narrows whatever is already on
+// screen, so it can never resurrect something a pin or an owner view has faded, and
+// never overrides them. Hiding a node kind hides its edges too — an edge to nowhere is
+// a line the reader cannot resolve.
+function fadeLegendHidden(cy: Core, legendHidden: Set<string> | null): void {
+  if (!legendHidden?.size) return;
+  for (const key of legendHidden) {
+    const sel = LEGEND_SELECTORS[key];
+    if (!sel) continue;
+    const els = cy.$(sel);
+    els.addClass('pacto-faded');
+    if (key.startsWith('kind:')) els.connectedEdges().addClass('pacto-faded');
+  }
+}
+
+// Resting emphasis (no hover/pin): owner view dims to the owner's services; the
+// status/name filter dims non-matches; otherwise the calm full map. The legend filter
+// composes on top of all of them.
+function applyDimming(cy: Core, d: Dimming): void {
+  cy.batch(() => {
+    cy.elements().removeClass(HL);
+    if (!d.pinned) {
+      if (d.owners) {
+        const ids = ownerVisible(cy, d.owners);
+        const kn = cy.nodes().filter((n) => ids.has(n.id()));
+        const keep = kn.union(kn.connectedEdges());
+        cy.elements().not(keep).addClass('pacto-faded');
+      } else if (d.filterHidden) {
+        const faded = cy.nodes().filter((n) => d.filterHidden!.has(n.id()));
+        faded.addClass('pacto-faded');
+        faded.connectedEdges().addClass('pacto-faded');
+      }
+    }
+  });
+  if (d.pinned) spotlight(cy, cy.getElementById(d.pinned));
+  cy.batch(() => fadeLegendHidden(cy, d.legendHidden));
+}
+
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
@@ -841,8 +1033,8 @@ export function renderGraph(
 
   // A focused neighborhood arrives with lane boxes (see laneGraph) and is laid out in
   // lanes. The boxes are scaffolding: never counted, saved, hovered or selected.
-  const lanes = (): boolean => cy.nodes('[lane = 1]').nonempty();
-  const entities = () => cy.nodes('[lane = 0]');
+  const lanes = (): boolean => hasLanes(cy);
+  const entities = () => entityNodes(cy);
 
   // ── Dimming state ────────────────────────────────────────────────────────
   // A node can be dimmed by four independent things; recompute the union so they
@@ -853,72 +1045,8 @@ export function renderGraph(
   let filterHidden: Set<string> | null = null;
   let legendHidden: Set<string> | null = null;
 
-  function ownerVisible(): Set<string> {
-    // Owner's services + their direct neighbors.
-    const vis = new Set<string>();
-    cy.nodes().forEach((n) => { if (ownerSet!.has(n.data('serviceName'))) vis.add(n.id()); });
-    for (const id of [...vis]) {
-      cy.getElementById(id).neighborhood('node').forEach((n) => { vis.add(n.id()); });
-    }
-    return vis;
-  }
-
-  const HL = 'pacto-faded pacto-dep pacto-dependent pacto-hot';
-
-  // Directional spotlight — the one interaction used EVERYWHERE (fleet, owner,
-  // service detail) so the graph behaves identically wherever it appears. A
-  // service's DEPENDENCIES light up in accent (arrows out), its DEPENDENTS / blast
-  // radius in warm (arrows in), everything else fades. Only this node's edges show,
-  // so nothing overlaps.
-  function spotlight(n: cytoscape.NodeSingular): void {
-    const succ = n.successors();
-    const pred = n.predecessors();
-    const keep = n.union(succ).union(pred);
-    // batch → Cytoscape recomputes style once for the whole change, not per class op
-    cy.batch(() => {
-      cy.elements().not(keep).addClass('pacto-faded');
-      succ.edges().addClass('pacto-dep');
-      pred.edges().addClass('pacto-dependent');
-      n.addClass('pacto-hot');
-    });
-  }
-
-  // Additive only, and always last: a legend filter narrows whatever is already on
-  // screen, so it can never resurrect something a pin or an owner view has faded, and
-  // never overrides them. Hiding a node kind hides its edges too — an edge to nowhere is
-  // a line the reader cannot resolve.
-  function fadeLegendHidden(): void {
-    if (!legendHidden?.size) return;
-    for (const key of legendHidden) {
-      const sel = LEGEND_SELECTORS[key];
-      if (!sel) continue;
-      const els = cy.$(sel);
-      els.addClass('pacto-faded');
-      if (key.startsWith('kind:')) els.connectedEdges().addClass('pacto-faded');
-    }
-  }
-
-  // Resting emphasis (no hover/pin): owner view dims to the owner's services; the
-  // status/name filter dims non-matches; otherwise the calm full map. The legend filter
-  // composes on top of all of them.
-  function applyDimming(): void {
-    cy.batch(() => {
-      cy.elements().removeClass(HL);
-      if (!clickFocusId) {
-        if (ownerSet) {
-          const ids = ownerVisible();
-          const kn = cy.nodes().filter((n) => ids.has(n.id()));
-          const keep = kn.union(kn.connectedEdges());
-          cy.elements().not(keep).addClass('pacto-faded');
-        } else if (filterHidden) {
-          const faded = cy.nodes().filter((n) => filterHidden!.has(n.id()));
-          faded.addClass('pacto-faded');
-          faded.connectedEdges().addClass('pacto-faded');
-        }
-      }
-    });
-    if (clickFocusId) spotlight(cy.getElementById(clickFocusId));
-    cy.batch(fadeLegendHidden);
+  function dim(): void {
+    applyDimming(cy, { pinned: clickFocusId, owners: ownerSet, filterHidden, legendHidden });
   }
 
   // ── Interactions ─────────────────────────────────────────────────────────
@@ -928,7 +1056,7 @@ export function renderGraph(
   // ask for the pin without the canvas answering back into the call that made it.
   function pinFocus(id: string | null): void {
     clickFocusId = id;
-    applyDimming();
+    dim();
     if (!id) return;
     const n = cy.getElementById(id);
     if (n.empty()) return;
@@ -945,7 +1073,7 @@ export function renderGraph(
   cy.on('tap', 'node', (evt) => {
     const n = evt.target as NodeSingular;
     // A lane box is background: a tap on it clears like a tap on the canvas.
-    if (n.data('lane')) { onSelectEdge?.(null); if (clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); onSelectNode?.(null); } return; }
+    if (n.data('lane')) { onSelectEdge?.(null); if (clickFocusId) { clickFocusId = null; dim(); onSelect?.(null); onSelectNode?.(null); } return; }
     const id = n.id();
     // A group opens in place, on the first tap: the caller redraws it as its entities, so
     // there is nothing to pin or open, and centring on a node about to vanish would leave
@@ -987,7 +1115,7 @@ export function renderGraph(
   cy.on('tap', (evt) => {
     if (evt.target !== cy) return;
     onSelectEdge?.(null);
-    if (clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); onSelectNode?.(null); }
+    if (clickFocusId) { clickFocusId = null; dim(); onSelect?.(null); onSelectNode?.(null); }
   });
 
   // Hover previews the spotlight (click pins it). A pinned focus takes precedence.
@@ -1000,16 +1128,16 @@ export function renderGraph(
     container.title = n.data('fullName') || '';
     if (clickFocusId) return;
     cy.batch(() => cy.elements().removeClass(HL));
-    spotlight(n);
+    spotlight(cy, n);
     // The wipe above clears every fade, including the legend's. Re-apply it, or a hover
     // would silently un-hide the categories the reader just turned off.
-    cy.batch(fadeLegendHidden);
+    cy.batch(() => fadeLegendHidden(cy, legendHidden));
   });
   cy.on('mouseout', 'node', () => {
     container.style.cursor = 'default';
     container.removeAttribute('title');
     if (clickFocusId) return;
-    applyDimming(); // restore the resting owner/filter emphasis (batched, clears HL)
+    dim(); // restore the resting owner/filter emphasis (batched, clears HL)
   });
 
   // Pin the initial focus (service-detail page) before the first layout, unless the
@@ -1051,7 +1179,7 @@ export function renderGraph(
 
   // Ids we restored a position for. Non-empty means the user has already arranged this
   // exact graph query, so the initial layout is skipped entirely.
-  const restored = new Set<string>();
+  const restored = restoreSavedPositions(cy, savedPositions);
   // True once the arrangement or the viewport belongs to the user (a drag, a pan, a
   // zoom, or a restored state). While it is false the container-resize handler is free
   // to re-fit; once true, re-fitting would throw away a deliberate choice.
@@ -1063,114 +1191,17 @@ export function renderGraph(
 
   function suppressViewport(ms: number): void { suppressViewportUntil = Date.now() + ms; }
 
-  function snapshotSpatial(): SpatialState {
-    const positions: Record<string, { x: number; y: number }> = {};
-    entities().forEach((n) => { positions[n.id()] = { x: n.position('x'), y: n.position('y') }; });
-    return { positions, pan: { ...cy.pan() }, zoom: cy.zoom() };
-  }
 
   // Debounced: a drag or a pinch-zoom emits a continuous stream of events, and the
   // caller writes this to storage.
   function emitSpatial(): void {
     if (!onSpatialChange) return;
     clearTimeout(spatialTimer);
-    spatialTimer = setTimeout(() => onSpatialChange(snapshotSpatial()), 250);
+    spatialTimer = setTimeout(() => onSpatialChange(snapshotSpatial(cy)), 250);
   }
 
-  function restoreSavedPositions(): void {
-    if (!savedPositions) return;
-    cy.batch(() => {
-      entities().forEach((n) => {
-        const p = savedPositions[n.id()];
-        // Ids not in the saved state are ignored rather than defaulted, so a saved
-        // state from a smaller graph pre-arranges what it knows and leaves the rest
-        // to be placed.
-        if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
-        n.position({ x: p.x, y: p.y });
-        restored.add(n.id());
-      });
-    });
-  }
-  restoreSavedPositions();
 
-  // How far a brand-new node sits from the neighbor it attaches to.
-  const NEW_NODE_OFFSET = 150;
 
-  // placeNewNodes gives nodes that have no position yet a deterministic spot beside the
-  // neighbors they connect to, WITHOUT touching anything already placed. Running a full
-  // layout instead would be less code and would also move every surviving node -- which
-  // is the exact regression this exists to prevent.
-  function placeNewNodes(fresh: Set<string>): void {
-    if (!fresh.size) return;
-    if (lanes()) { placeInLanes(fresh); return; }
-    const settled = cy.nodes().filter((n) => !fresh.has(n.id()));
-    const bb = settled.nonempty() ? settled.boundingBox() : null;
-    const center = bb ? { x: bb.x1 + bb.w / 2, y: bb.y1 + bb.h / 2 } : { x: 0, y: 0 };
-    const radius = bb ? Math.max(200, bb.w / 2 + 140) : 200;
-    const ids = [...fresh].sort(); // stable: the same new set always lands the same way
-    cy.batch(() => {
-      ids.forEach((id, i) => {
-        const n = cy.getElementById(id);
-        if (n.empty()) return;
-        const angle = (i * 2 * Math.PI) / ids.length;
-        const anchors = n.neighborhood('node').filter((m) => !fresh.has(m.id()));
-        if (anchors.nonempty()) {
-          let sx = 0;
-          let sy = 0;
-          anchors.forEach((m) => { sx += m.position('x'); sy += m.position('y'); });
-          const ax = sx / anchors.size();
-          const ay = sy / anchors.size();
-          n.position({ x: ax + Math.cos(angle) * NEW_NODE_OFFSET, y: ay + Math.sin(angle) * NEW_NODE_OFFSET });
-        } else {
-          // Nothing to attach to: park it on a ring outside the settled graph, where it
-          // is visible as an arrival rather than buried under the existing arrangement.
-          n.position({ x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius });
-        }
-      });
-    });
-  }
-
-  // alignLaneEdges makes the one edge a group draws to its lane run straight across: it
-  // leaves the lane's outer side at the group's height (clamped to the lane), instead of
-  // every group's line converging on the lane's centre where their labels would pile up.
-  function alignLaneEdges(): void {
-    cy.edges('[elabel]').forEach((e) => {
-      const laneIsSource = !!e.source().data('lane');
-      const lane = laneIsSource ? e.source() : e.target();
-      if (!lane.data('lane')) return;
-      const other = laneIsSource ? e.target() : e.source();
-      // An endpoint is measured from the lane's own centre, which is not the middle of its
-      // bounding box: that one also wraps the lane's name.
-      const half = Math.max(0, lane.height() / 2 - 12);
-      const dy = Math.round(Math.max(-half, Math.min(half, other.position('y') - lane.position('y'))));
-      // Both ends: left alone, the group's end aims at the lane's centre and the line slants.
-      const out = lane.data('side') < 0 ? '-50%' : '50%';
-      const into = lane.data('side') < 0 ? '50%' : '-50%';
-      e.style(laneIsSource ? 'source-endpoint' : 'target-endpoint', `${out} ${dy}px`);
-      e.style(laneIsSource ? 'target-endpoint' : 'source-endpoint', `${into} ${Math.round(Math.max(-14, Math.min(14, lane.position('y') + dy - other.position('y'))))}px`);
-    });
-  }
-
-  // placeInLanes puts each arrival in its own lane column, under the lowest node already
-  // there; an arrival with no column yet opens one outside that side's outermost column.
-  function placeInLanes(fresh: Set<string>): void {
-    const settled = entities().filter((n) => !fresh.has(n.id()));
-    cy.batch(() => {
-      for (const id of [...fresh].sort()) {
-        const n = cy.getElementById(id);
-        const side = n.data('side') || 1;
-        const peers = settled.filter((m) => m.data('side') === n.data('side') && m.data('depth') === n.data('depth'));
-        if (peers.nonempty()) {
-          const low = peers.max((m) => (m as NodeSingular).position('y')).ele as NodeSingular;
-          n.position({ x: low.position('x'), y: low.position('y') + LANE_ROW });
-        } else {
-          const outer = Math.max(0, ...settled.filter((m) => (m.data('side') || 0) === side).map((m) => Math.abs((m as NodeSingular).position('x'))));
-          n.position({ x: side * (outer + LANE_GAP + LANE_COL), y: 0 });
-        }
-        settled.merge(n);
-      }
-    });
-  }
 
   // A fit is allowed to zoom OUT until the whole graph is in frame, and on a wide fleet
   // or a phone that lands somewhere around 0.15 -- node labels stop being text and the
@@ -1201,7 +1232,7 @@ export function renderGraph(
 
   function settle(): void {
     if (filterFn) applyFilter(filterFn);
-    else applyDimming();
+    else dim();
     // The graph has laid out and painted: publish the readiness snapshot for the
     // visual-graph browser acceptance (a real non-headless canvas with rendered nodes
     // and edges), and never before positions exist.
@@ -1218,7 +1249,7 @@ export function renderGraph(
         cy.nodes().forEach((n) => { const p = rows.get(n.id()); if (p) n.position(p); });
         if (cy.edges().length > 80) cy.edges().addClass('pacto-dense');
       });
-      alignLaneEdges(); // after the batch: a lane's box is only measured once its nodes moved
+      alignLaneEdges(cy); // after the batch: a lane's box is only measured once its nodes moved
       fitView(0);
       settle();
       emitSpatial();
@@ -1262,8 +1293,8 @@ export function renderGraph(
     // and the saved viewport (if any) is restored rather than re-fitted.
     const fresh = new Set<string>();
     entities().forEach((n) => { if (!restored.has(n.id())) fresh.add(n.id()); });
-    placeNewNodes(fresh);
-    alignLaneEdges();
+    placeNewNodes(cy, fresh);
+    alignLaneEdges(cy);
     if (savedViewport && Number.isFinite(savedViewport.zoom) && savedViewport.zoom > 0) {
       suppressViewport(150);
       cy.zoom(savedViewport.zoom);
@@ -1310,9 +1341,9 @@ export function renderGraph(
   }
 
   function applyFilter(fn: ((n: GraphNode) => boolean) | null): void {
-    if (!fn) { filterHidden = null; applyDimming(); return; }
+    if (!fn) { filterHidden = null; dim(); return; }
     filterHidden = new Set(nodes.filter((n) => fn(n)).map((n) => n.id));
-    applyDimming();
+    dim();
   }
 
   function zoomBy(factor: number): void {
@@ -1400,10 +1431,10 @@ export function renderGraph(
       runLayout();
       return;
     }
-    placeNewNodes(fresh);
+    placeNewNodes(cy, fresh);
     fresh.forEach((id) => restored.add(id)); // now arranged; a later refresh must keep it
     if (filterFn) applyFilter(filterFn);
-    else applyDimming();
+    else dim();
     emitSpatial();
   }
 
@@ -1424,15 +1455,15 @@ export function renderGraph(
     destroy: () => { ro?.disconnect(); clearTimeout(resizeTimer); clearTimeout(spatialTimer); cy.destroy(); },
     zoomIn: () => zoomBy(1.4),
     zoomOut: () => zoomBy(0.7),
-    resetView: () => { clickFocusId = null; applyDimming(); fitView(300); },
+    resetView: () => { clickFocusId = null; dim(); fitView(300); },
     fit: () => fitView(250),
     patchData,
     applyTopology,
     restyle: () => { cy.style(cyStylesheet(resolvePalette(container), layout, edgeStyle)); },
     resetLayout,
-    spatialState: snapshotSpatial,
+    spatialState: () => snapshotSpatial(cy),
     applyFilter,
-    applyLegendFilter: (hidden) => { legendHidden = hidden?.size ? hidden : null; applyDimming(); },
+    applyLegendFilter: (hidden) => { legendHidden = hidden?.size ? hidden : null; dim(); },
     focusNode: pinFocus,
     diagnostics: computeDiagnostics,
   };

@@ -1,6 +1,7 @@
 /** Minimal hash router — returns a reactive route object. */
 
 import { pagedHash } from './paging.ts';
+import { DEFAULT_MAX_NODES, DEFAULT_VIEWS, type GraphState } from './graphState.ts';
 
 export interface Route {
   view:
@@ -519,41 +520,25 @@ export function fleetGraphDiscoveryUrl(): string {
   return '#/fleet/graph';
 }
 
-// GraphState is the shareable state of the search-first Operational Graph (Q). The
-// focus (kind + key) is a path segment; the projection/perspective, knowledge views,
-// direction and depth are query params, so back/forward restores a meaningful graph and
-// never ephemeral canvas coordinates. There are no advanced-filter params: the graph
-// only carries state the Product Neighborhood actually consumes.
-export interface GraphState {
-  kind?: string;
-  key?: string;
-  perspective?: string;
-  views?: string[];
-  direction?: string;
-  depth?: number;
-  maxNodes?: number;
+// sameViews reports whether two view sets hold the same views, in any order.
+function sameViews(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && b.every((v) => a.includes(v));
 }
 
 // fleetGraphFocusUrl builds a focused graph URL from (kind, key) plus optional graph
-// state. With no key it returns the discovery landing.
-// isDefaultGraphViews reports whether views are exactly the focused default
-// (expected + differences), so a canonical URL omits them (kept in sync with
-// graphState.DEFAULT_VIEWS; a small deliberate duplication that keeps this low-level
-// route builder free of a graph-state import).
-function isDefaultGraphViews(v?: string[]): boolean {
-  return !!v && v.length === 2 && v.includes('expected') && v.includes('differences');
-}
-
-export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphState, 'kind' | 'key'> = {}): string {
+// state (graphState.ts's GraphState). With no key it returns the discovery landing. The
+// focus is a path segment; the perspective, knowledge views, direction, depth and node
+// budget are query params, each omitted at its graphState default so a canonical URL
+// stays short.
+export function fleetGraphFocusUrl(kind: string, key: string, state: Partial<Omit<GraphState, 'kind' | 'key'>> = {}): string {
   if (!key) return fleetGraphDiscoveryUrl();
   const qs = new URLSearchParams();
   if (state.perspective && state.perspective !== 'service') qs.set('perspective', state.perspective);
-  if (state.views && state.views.length && !isDefaultGraphViews(state.views)) qs.set('views', state.views.join(','));
+  if (state.views && state.views.length && !sameViews(state.views, DEFAULT_VIEWS)) qs.set('views', state.views.join(','));
   if (state.direction && state.direction !== 'both') qs.set('direction', state.direction);
   if (state.depth && state.depth !== 1) qs.set('depth', String(state.depth));
-  // 60 is the backend default, so it is the URL's default too: only a raised node
-  // budget is worth carrying, and a canonical URL stays short.
-  if (state.maxNodes && state.maxNodes !== 40) qs.set('maxNodes', String(state.maxNodes)); // 40: graphState's DEFAULT_MAX_NODES
+  // Only a budget other than the default is worth carrying.
+  if (state.maxNodes && state.maxNodes !== DEFAULT_MAX_NODES) qs.set('maxNodes', String(state.maxNodes));
   const base = `#/fleet/graph/${encodeURIComponent(kind)}/${encodeURIComponent(key)}`;
   const str = qs.toString();
   return str ? `${base}?${str}` : base;

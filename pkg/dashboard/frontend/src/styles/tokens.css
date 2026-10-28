@@ -74,7 +74,6 @@
   --text-base: 0.9375rem; /* 14.06px */
   --text-md: 1.125rem;    /* 16.88px — the step between base and lg that section titles need */
   --text-lg: 1.25rem;     /* 18.75px */
-  --text-xl: 1.625rem;    /* 24.38px */
   --text-2xl: 2rem;       /* 30px */
   --text-3xl: 2.25rem;    /* 33.75px — the page title, set in the serif */
   --line-height: 1.65;
@@ -157,7 +156,6 @@
   --radius-pill: 999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
 
   /* ── Motion: the DURATION RAMP ──
@@ -173,28 +171,19 @@
   --dur-2: 160ms;  /* a state that flipped: tone, chip, active tab, toc marker */
   --dur-3: 240ms;  /* a box that changed size, or a surface that arrived */
 
-  /* Easings — three, matched to the three things motion can be doing. Arriving
-     decelerates; leaving accelerates and always gets the SHORTER duration, because an
-     exit as long as its entrance reads as reluctance; moving-while-staying is
-     symmetric. No overshoot and no spring: a bounce claims the software is playful,
-     and the screen this product exists for is the 3am one. */
+  /* Easings — two, matched to the two things motion here does. Arriving decelerates;
+     moving-while-staying is symmetric. No overshoot and no spring: a bounce claims the
+     software is playful, and the screen this product exists for is the 3am one. */
   --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-leave: cubic-bezier(0.4, 0, 1, 1);
   --ease-in-place: cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* Travel. Something appearing in place rises; only a panel with a genuine offscreen
-     edge slides. Nothing here travels further than 12px under its own power. */
-  --motion-rise: 6px;
-  --motion-slide: 12px;
 
   /* ── Motion: the ROLES ──
      What the motion IS, and the only thing a component chooses — exactly like a type
-     role. Four, and the list is closed. If an interaction fits none of them, the
+     role. Three, and the list is closed. If an interaction fits none of them, the
      honest answer is almost always that it should not move. */
   --motion-feedback: var(--dur-1) var(--ease-in-place);
   --motion-flip:     var(--dur-2) var(--ease-in-place);
   --motion-reveal:   var(--dur-3) var(--ease-arrive);
-  --motion-dismiss:  var(--dur-2) var(--ease-leave);
 
   /* What a control is allowed to transition. Eight of the most-clicked controls in the
      product said `transition: all`, which animates every property a rule declares now AND
@@ -295,7 +284,6 @@
   /* On the darker light-mode accent, white now clears AA (6.29:1). */
   --c-on-accent: #ffffff;
   --seg-ink: #ffffff;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
@@ -323,8 +311,6 @@
     --dur-2: 0ms;
     --dur-3: 0ms;
     --stagger-step: 0ms;
-    --motion-rise: 0px;
-    --motion-slide: 0px;
     --motion-alarm-period: 0s;
     --motion-alarm-count: 0;
   }

@@ -2,10 +2,8 @@ package architecture
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -44,16 +42,8 @@ type compositeStep struct {
 // directory.
 func ciActionSteps(t *testing.T) (string, []compositeStep) {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate this test file")
-	}
-	root := filepath.Dir(filepath.Dir(filepath.Dir(thisFile))) // tests/architecture -> repo root
-	path := filepath.Join(root, ".github", "actions", "ci", "action.yml")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	path := filepath.Join(repoRoot(t), ".github", "actions", "ci", "action.yml")
+	b := []byte(readRepoFile(t, ".github", "actions", "ci", "action.yml"))
 	var doc struct {
 		Runs struct {
 			Steps []compositeStep `yaml:"steps"`
@@ -142,5 +132,46 @@ func TestTheCIActionInstallsOnePinnedGolangciLintBinary(t *testing.T) {
 	// `make ci-lint` runs it, so local and CI share one invocation.
 	if fmt.Sprint(step.With["install-only"]) != "true" {
 		t.Errorf("%s no longer sets `install-only: true`; the action would run the linter with its own flags instead of the ones `make ci-lint` uses", path)
+	}
+}
+
+// operatorLintVersion matches the operator Makefile's pin, and customGclVersion
+// the custom-binary config the Makefile builds from: `golangci-lint custom`
+// rebuilds the linter at the config's version, so both halves are the binary.
+var (
+	operatorLintVersion = regexp.MustCompile(`(?m)^GOLANGCI_LINT_VERSION \?= (\S+)$`)
+	customGclVersion    = regexp.MustCompile(`(?m)^version: (\S+)$`)
+)
+
+// TestTheOperatorLintsWithTheEngineGolangciLintVersion: the required ci-static
+// job lints the engine and the operator, so one golangci-lint version covers
+// both. Two versions in one gate is the drift the action pin exists to stop.
+func TestTheOperatorLintsWithTheEngineGolangciLintVersion(t *testing.T) {
+	_, steps := ciActionSteps(t)
+	var want string
+	for _, s := range steps {
+		if strings.HasPrefix(s.Uses, lintAction+"@") {
+			want = fmt.Sprint(s.With["version"])
+		}
+	}
+	if want == "" {
+		t.Fatal("the CI action installs no golangci-lint version; the engine pin test covers why")
+	}
+	for _, src := range []struct {
+		parts []string
+		re    *regexp.Regexp
+	}{
+		{[]string{"integrations", "kubernetes", "Makefile"}, operatorLintVersion},
+		{[]string{"integrations", "kubernetes", ".custom-gcl.yml"}, customGclVersion},
+	} {
+		m := src.re.FindStringSubmatch(readRepoFile(t, src.parts...))
+		if m == nil {
+			t.Errorf("%s no longer pins a golangci-lint version this gate can read", filepath.Join(src.parts...))
+			continue
+		}
+		if m[1] != want {
+			t.Errorf("%s pins golangci-lint %s, but the engine lints with %s; the required ci-static job must use one version",
+				filepath.Join(src.parts...), m[1], want)
+		}
 	}
 }

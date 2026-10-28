@@ -97,9 +97,10 @@ export function emptyState(container: HTMLElement, message: string): void {
  * Shared tooltip helper for D3 charts.
  * Creates/updates a positioned tooltip div that matches the app's [data-tip] style.
  */
-class ChartTooltip {
+export class ChartTooltip {
   private el: HTMLDivElement;
   private container: HTMLElement | null = null;
+  private visible = false;
 
   constructor() {
     this.el = document.createElement('div');
@@ -127,6 +128,7 @@ class ChartTooltip {
 
   show(content: string, x: number, y: number) {
     this.el.textContent = content;
+    this.visible = true;
     this.el.style.opacity = '1';
     // Clamp within the container (coords are container-relative) so the tooltip
     // never overflows the chart edge and gets clipped by the page.
@@ -136,7 +138,13 @@ class ChartTooltip {
     this.el.style.top = `${Math.max(0, y)}px`;
   }
 
+  /** move follows the pointer with what is already shown; a hidden tooltip stays hidden. */
+  move(x: number, y: number) {
+    if (this.visible) this.show(this.el.textContent || '', x, y);
+  }
+
   hide() {
+    this.visible = false;
     this.el.style.opacity = '0';
   }
 
@@ -152,4 +160,58 @@ class ChartTooltip {
  */
 export function sharedTooltip(): ChartTooltip {
   return new ChartTooltip();
+}
+
+/**
+ * How long a chart's hover response lasts. A d3 transition is a JS clock, so it is the one
+ * kind of motion the stylesheet's reduced-motion policy cannot reach: fourteen call sites
+ * had `.duration(150)` written into them and not one asked whether the reader wanted it.
+ *
+ * 90ms mirrors --dur-1, the feedback step -- a hover is under the finger. It is a literal
+ * because JS cannot read a CSS token without a layout read per frame, and the preference
+ * is queried per call rather than once at module load, because it can change while the
+ * page is open.
+ */
+const hoverMs = () => (prefersReducedMotion() ? 0 : 90);
+
+/**
+ * bindHover wires a chart mark's hover: it dims the mark, shows `content(d)` beside the
+ * pointer and follows it, and restores both on leave. A mark whose content is null has
+ * nothing to say and shows nothing.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function bindHover<E extends d3.BaseType, D>(sel: d3.Selection<E, D, any, any>, tooltip: ChartTooltip, content: (d: D) => string | null): void {
+  sel
+    .on('mouseenter', function (event: MouseEvent, d: D) {
+      const text = content(d);
+      if (text == null) return;
+      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
+      tooltip.show(text, event.offsetX + 10, event.offsetY - 10);
+    })
+    .on('mousemove', (event: MouseEvent) => tooltip.move(event.offsetX + 10, event.offsetY - 10))
+    .on('mouseleave', function () {
+      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
+      tooltip.hide();
+    });
+}
+
+const LEGEND_SWATCH = 8;
+const LEGEND_SWATCH_GAP = 6;
+
+/** legendItem draws one legend entry -- a coloured dot and its label -- at (x, y) in `parent`. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function legendItem(parent: d3.Selection<SVGGElement, any, any, any>, x: number, y: number, label: string, color: string): void {
+  const item = parent.append('g').attr('transform', `translate(${x}, ${y})`);
+  item.append('circle')
+    .attr('cx', LEGEND_SWATCH / 2)
+    .attr('cy', -LEGEND_SWATCH / 2)
+    .attr('r', LEGEND_SWATCH / 2)
+    .attr('fill', color);
+  item.append('text')
+    .attr('x', LEGEND_SWATCH + LEGEND_SWATCH_GAP)
+    .attr('dominant-baseline', 'middle')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text(label);
 }

@@ -20,6 +20,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch/kubesink"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -65,7 +66,7 @@ func controlled(o *unstructured.Unstructured, kind, name, uid string) *unstructu
 var clusterLists = map[schema.GroupVersionResource]string{
 	workloadGVRs["Deployment"]: "DeploymentList", workloadGVRs["StatefulSet"]: "StatefulSetList", workloadGVRs["DaemonSet"]: "DaemonSetList",
 	workloadGVRs["CronJob"]: "CronJobList", gvrServices: "ServiceList", gvrPods: "PodList", gvrReplicaSets: "ReplicaSetList", gvrJobs: "JobList",
-	gvrEndpointSlices: "EndpointSliceList", gvrPactos: "PactoList", kubesink.GVR: "NodeRuntimeObservationList",
+	gvrEndpointSlices: "EndpointSliceList", k8sclient.PactosGVR: "PactoList", kubesink.GVR: "NodeRuntimeObservationList",
 }
 
 // shopCluster is a namespace with checkout calling payments, which a Pacto

@@ -110,14 +110,27 @@ func ociRepositoryKeys(o client.Object) []string {
 
 // kustomizationKeys names the OCIRepository a Kustomization applies.
 func kustomizationKeys(o client.Object) []string {
-	u := o.(*unstructured.Unstructured)
-	kind, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "kind")
-	name, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "name")
-	srcNS, _, _ := unstructured.NestedString(u.Object, "spec", "sourceRef", "namespace")
-	if kind != kindOCIRepository {
+	srcNS, name, ok := appliedRepo(o.(*unstructured.Unstructured))
+	if !ok {
 		return nil
 	}
-	return []string{refKey(cmp.Or(srcNS, u.GetNamespace()), kindOCIRepository, name)}
+	return []string{refKey(srcNS, kindOCIRepository, name)}
+}
+
+// appliedRepo is the namespace and name of the OCIRepository the Kustomization
+// k applies: its sourceRef, in k's own namespace unless the sourceRef names
+// another. ok is false when k applies no OCIRepository.
+func appliedRepo(k *unstructured.Unstructured) (srcNS, name string, ok bool) {
+	kind, _, _ := unstructured.NestedString(k.Object, "spec", "sourceRef", "kind")
+	name, _, _ = unstructured.NestedString(k.Object, "spec", "sourceRef", "name")
+	srcNS, _, _ = unstructured.NestedString(k.Object, "spec", "sourceRef", "namespace")
+	return cmp.Or(srcNS, k.GetNamespace()), name, kind == kindOCIRepository
+}
+
+// appliesRepo reports whether the Kustomization k applies OCIRepository ns/name.
+func appliesRepo(k *unstructured.Unstructured, ns, name string) bool {
+	srcNS, n, ok := appliedRepo(k)
+	return ok && srcNS == ns && n == name
 }
 
 func applicationKeys(o client.Object) []string {

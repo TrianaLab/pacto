@@ -543,63 +543,94 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 	if !input.KernelEvidence || input.ServiceName == "" {
 		return nil, nil
 	}
-	unavailable := func(reason string) ([]unversioned.ObservedCaller, *unversioned.CallerCoverage) {
+	in, reason := o.loadCallerInputs(ctx, input)
+	if reason != "" {
 		return nil, &unversioned.CallerCoverage{State: unversioned.CallerCoverageUnavailable, Reason: reason}
 	}
+	cov := &unversioned.CallerCoverage{State: unversioned.CallerCoverageComplete}
+	byUID := podsByUID(in.pods)
+	snaps, freshness := nodeCoverage(cov, input, in, byUID, now)
+	callers := o.resolveCallers(ctx, cov, in, byUID, runtimefacts.Callers(snaps, servicePeers(in.svc, in.epSlices), now.Add(-freshness)))
+	if len(callers) > maxObservedCallers {
+		callers = callers[:maxObservedCallers]
+		cov.State, cov.Reason = unversioned.CallerCoveragePartial, "truncated"
+	}
+	return callers, cov
+}
+
+// callerInputs is what observeCallers reads from the cluster.
+type callerInputs struct {
+	nodes    map[string]*runtimefacts.Snapshot
+	svc      *corev1.Service
+	epSlices []discoveryv1.EndpointSlice
+	pods     []corev1.Pod
+	pactos   []unversioned.Pacto
+}
+
+// loadCallerInputs reads the node agents' snapshots, the target's Service and its EndpointSlices, every Pod
+// and every Pacto. A read it cannot make returns the reason caller coverage is unavailable instead.
+func (o *Observer) loadCallerInputs(ctx context.Context, input CollectInput) (callerInputs, string) {
 	nodes, err := o.loadNodes(ctx, input)
 	if err != nil {
-		return unavailable("agent-data-unreadable")
+		return callerInputs{}, "agent-data-unreadable"
 	}
 	if len(nodes) == 0 {
-		return unavailable("no-agent-data")
+		return callerInputs{}, "no-agent-data"
 	}
 	svc := &corev1.Service{}
 	if err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc); err != nil {
-		return unavailable("service-unreadable")
+		return callerInputs{}, "service-unreadable"
 	}
 	var epSlices discoveryv1.EndpointSliceList
 	if err := o.client.List(ctx, &epSlices, client.InNamespace(input.Namespace),
 		client.MatchingLabels{discoveryv1.LabelServiceName: svc.Name}); err != nil {
-		return unavailable("service-unreadable")
+		return callerInputs{}, "service-unreadable"
 	}
 	var pods corev1.PodList
 	if err := o.client.List(ctx, &pods); err != nil {
 		o.fail("kernel", fmt.Errorf("failed to list Pods: %w", err))
-		return unavailable("pods-unreadable")
+		return callerInputs{}, "pods-unreadable"
 	}
 	var pactos unversioned.PactoList
 	if err := o.client.List(ctx, &pactos); err != nil {
 		o.fail("kernel", fmt.Errorf("failed to list Pacto CRs: %w", err))
-		return unavailable("pactos-unreadable")
+		return callerInputs{}, "pactos-unreadable"
 	}
+	return callerInputs{nodes: nodes, svc: svc, epSlices: epSlices.Items, pods: pods.Items, pactos: pactos.Items}, ""
+}
 
-	cov := &unversioned.CallerCoverage{State: unversioned.CallerCoverageComplete}
-	partial := func(reason string) {
-		if cov.State == unversioned.CallerCoverageComplete {
-			cov.State, cov.Reason = unversioned.CallerCoveragePartial, reason
-		}
+// partialCoverage marks cov partial for reason, unless an earlier reason already did.
+func partialCoverage(cov *unversioned.CallerCoverage, reason string) {
+	if cov.State == unversioned.CallerCoverageComplete {
+		cov.State, cov.Reason = unversioned.CallerCoveragePartial, reason
 	}
+}
+
+// nodeCoverage grades how far the node agents' snapshots can be trusted, lowering cov for every stale,
+// failed or degraded node, running pod on a node without an agent, unexempt shared network namespace and
+// truncated workload. It returns the snapshots in node order and the freshness window to read callers in.
+func nodeCoverage(cov *unversioned.CallerCoverage, input CollectInput, in callerInputs, byUID map[string]*corev1.Pod,
+	now time.Time) ([]runtimefacts.Snapshot, time.Duration) {
 	freshness := input.CallerWindow
-	snaps := make([]runtimefacts.Snapshot, 0, len(nodes))
-	for _, name := range slices.Sorted(maps.Keys(nodes)) {
-		s := nodes[name]
+	snaps := make([]runtimefacts.Snapshot, 0, len(in.nodes))
+	for _, name := range slices.Sorted(maps.Keys(in.nodes)) {
+		s := in.nodes[name]
 		bound := s.StalenessBound(input.KernelEvidenceStaleness)
 		freshness = max(freshness, bound)
 		switch {
 		case s.LastPublished.IsZero() || now.Sub(s.LastPublished) > bound:
-			partial("stale-node")
+			partialCoverage(cov, "stale-node")
 		case s.Collection.State == runtimefacts.StateFailed:
-			partial("collection-failed")
+			partialCoverage(cov, "collection-failed")
 		case s.Collection.State != runtimefacts.StateRunning:
-			partial("degraded-node")
+			partialCoverage(cov, "degraded-node")
 		}
 		snaps = append(snaps, *s)
 	}
-	byUID := podsByUID(pods.Items)
-	for i := range pods.Items {
-		p := &pods.Items[i]
-		if p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" && nodes[p.Spec.NodeName] == nil {
-			partial("node-without-agent")
+	for i := range in.pods {
+		p := &in.pods[i]
+		if p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" && in.nodes[p.Spec.NodeName] == nil {
+			partialCoverage(cov, "node-without-agent")
 		}
 	}
 	for _, s := range snaps {
@@ -608,40 +639,41 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 			// namespace whose pods are taken not to call workloads: the cluster's own (CNI, kube-proxy), the
 			// node agent's, or one the operator was told to ignore.
 			if pod := byUID[w.ID]; w.Shared && (pod == nil || !callerIgnored(input, pod.Namespace)) {
-				partial("shared-netns")
+				partialCoverage(cov, "shared-netns")
 			}
 			if w.Truncated {
-				partial("truncated")
+				partialCoverage(cov, "truncated")
 			}
 		}
 	}
+	return snaps, freshness
+}
 
+// resolveCallers names each caller ID by the controller at the top of its pod's owner chain, dropping
+// those a Pacto describes, sorted. A caller it cannot name lowers cov.
+func (o *Observer) resolveCallers(ctx context.Context, cov *unversioned.CallerCoverage, in callerInputs,
+	byUID map[string]*corev1.Pod, ids []runtimefacts.Identity) []unversioned.ObservedCaller {
 	seen := map[unversioned.ObservedCaller]bool{}
-	for _, id := range runtimefacts.Callers(snaps, servicePeers(svc, epSlices.Items), now.Add(-freshness)) {
+	for _, id := range ids {
 		pod := byUID[id.ID]
 		if pod == nil {
-			partial("unresolved-caller")
+			partialCoverage(cov, "unresolved-caller")
 			continue
 		}
 		chain, err := o.podOwners(ctx, pod)
 		if err != nil {
-			partial("unresolved-caller")
+			partialCoverage(cov, "unresolved-caller")
 			continue
 		}
-		if slices.ContainsFunc(chain, func(w ownerRef) bool { return pactoTarget(pactos.Items, pod.Namespace, w.kind, w.name) }) {
+		if slices.ContainsFunc(chain, func(w ownerRef) bool { return pactoTarget(in.pactos, pod.Namespace, w.kind, w.name) }) {
 			continue
 		}
 		top := chain[len(chain)-1]
 		seen[unversioned.ObservedCaller{Namespace: pod.Namespace, Kind: top.kind, Name: top.name, Source: collectorKernel}] = true
 	}
-	callers := slices.SortedFunc(maps.Keys(seen), func(a, b unversioned.ObservedCaller) int {
+	return slices.SortedFunc(maps.Keys(seen), func(a, b unversioned.ObservedCaller) int {
 		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Name, b.Name))
 	})
-	if len(callers) > maxObservedCallers {
-		callers = callers[:maxObservedCallers]
-		cov.State, cov.Reason = unversioned.CallerCoveragePartial, "truncated"
-	}
-	return callers, cov
 }
 
 // systemNamespaces hold the cluster's own pods (kube-proxy) that run on the host network and do not call

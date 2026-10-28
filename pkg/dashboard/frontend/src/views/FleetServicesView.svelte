@@ -2,9 +2,9 @@
   import { joinAnd } from '../lib/answers.ts';
   import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { statusLabel, STATUS_FILTER_OPTIONS, ownerKeyLabel, ownerKeyKind } from '../lib/format.ts';
+  import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
+  import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
+  import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
   import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityCombobox from '../components/EntityCombobox.svelte';
@@ -83,24 +83,14 @@
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const answer = $derived(loader.answer(queryIdentity, listIdentity));
-  const list = $derived(answer.data);
-  const loading = $derived(loader.loading);
-  const error = $derived(loader.error);
-  const knowledge = $derived(snapshotKnowledge(list?.meta));
-  const count = $derived(list?.entities?.length ?? 0);
-  const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
-  // Read off `loader.data`, not `list`: `list` is nulled the instant the query changes,
-  // which is exactly when the skeleton renders, and 0 rows is no shape at all. The stale
-  // page's row count is the best guess at the next page's, and a page is the fallback.
-  const skeletonRows = $derived(loader.data?.entities?.length || pageLimit);
-  // A poll that failed over rows we can still show. decideViewState keeps the rows;
-  // this is the half that keeps it honest, so a frozen list never reads as a live one.
-  const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
-  // A poll in flight over data already on screen. decideViewState has decided this on
-  // every page since stale-while-revalidate landed; the header is the first thing to
-  // actually say it, in words rather than by spinning something.
-  const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
+  const view = productListState(loader, (d) => d.entities, () => ({ tag: queryIdentity, family: listIdentity, filtered: anyFilter, pageLimit }));
+  const list = $derived(view.data);
+  const knowledge = $derived(view.knowledge);
+  const count = $derived(view.count);
+  const state = $derived(view.state);
+  const skeletonRows = $derived(view.skeletonRows);
+  const refreshError = $derived(view.refreshError);
+  const revalidating = $derived(view.revalidating);
 
   const total = $derived(list?.total ?? 0);
 
@@ -217,7 +207,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
-  <PageHeader title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={answer.paging} />
+  <PageHeader title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
 
   {#if state.kind === 'ready' && matched > 0}
     <p class="page-answer t-body" data-testid="services-answer">

@@ -371,7 +371,7 @@ func TestManagerFleetProvider(t *testing.T) {
 	dir := t.TempDir()
 	mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
-	}, fleet.ManagerOptions{})
+	})
 	provider := managerFleetProvider(mgr)
 
 	// First call: no snapshot yet -> coalesced build then query.
@@ -389,7 +389,7 @@ func TestManagerFleetProvider(t *testing.T) {
 	// returns the refresh error.
 	mgr2 := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
-	}, fleet.ManagerOptions{})
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := managerFleetProvider(mgr2)(ctx); err == nil {
@@ -405,18 +405,14 @@ type fakeClusterClient struct {
 	listErr  error
 }
 
-func (c *fakeClusterClient) Probe(context.Context) error { return nil }
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, nil
 }
-func (c *fakeClusterClient) ListJSON(context.Context, string, string) ([]byte, error) {
+func (c *fakeClusterClient) ListJSON(context.Context, k8sclient.CRDDiscovery, string) ([]byte, error) {
 	if c.listErr != nil {
 		return nil, c.listErr
 	}
 	return []byte(c.listJSON), nil
-}
-func (c *fakeClusterClient) CountResources(context.Context, string, string) (int, error) {
-	return 0, nil
 }
 
 // TestClusterContractRefs proves the callback exists only when a cluster client
@@ -728,7 +724,7 @@ func TestManagerPublishedNeverBuilds(t *testing.T) {
 	mgr := fleet.NewManager(func(context.Context) (*fleet.FleetSnapshot, error) {
 		<-release
 		return &fleet.FleetSnapshot{}, nil
-	}, fleet.ManagerOptions{})
+	})
 	go func() { _ = mgr.Refresh(context.Background()) }()
 	published := managerPublished(mgr)
 	done := make(chan *fleet.Query, 1)

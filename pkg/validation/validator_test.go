@@ -82,6 +82,25 @@ func TestValidate_ValidStateful(t *testing.T) {
 	}
 }
 
+// TestValidate_InvalidFixtures: each invalid_* fixture fails for the reason
+// its name gives.
+func TestValidate_InvalidFixtures(t *testing.T) {
+	for fixture, want := range map[string]struct{ code, path string }{
+		"invalid_bad_interface.yaml":       {"SCHEMA_VIOLATION", "interfaces.0.type"},
+		"invalid_state_conflict.yaml":      {"SCHEMA_VIOLATION", "state.persistence.durability"},
+		"invalid_unsupported_version.yaml": {"UNSUPPORTED_PACTO_VERSION", "pactoVersion"},
+	} {
+		data, err := os.ReadFile("testdata/" + fixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := validation.ValidateStructuralRaw(data)
+		if len(r.Errors) != 1 || r.Errors[0].Code != want.code || r.Errors[0].Path != want.path {
+			t.Errorf("%s: errors = %+v, want one %s at %s", fixture, r.Errors, want.code, want.path)
+		}
+	}
+}
+
 func TestValidate_UnsupportedVersion(t *testing.T) {
 	data := []byte(`pactoVersion: "1.0"
 service:

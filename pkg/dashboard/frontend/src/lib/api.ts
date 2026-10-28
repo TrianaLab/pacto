@@ -367,26 +367,6 @@ export const api = {
     })),
   refresh: (): Promise<PostResponse<'/api/refresh'>> => unwrap(client.POST('/api/refresh', {})),
 
-  // ── Operational graph (fleet) legacy ──
-  fleetSnapshot: (): Promise<GetResponse<'/api/fleet/snapshot'>> => unwrap(client.GET('/api/fleet/snapshot')),
-  fleetServices: (
-    params: NonNullable<operations['fleet-search']['parameters']['query']> = {},
-  ): Promise<GetResponse<'/api/fleet/services'>> => unwrap(client.GET('/api/fleet/services', { params: { query: params } })),
-  fleetServiceGraph: (
-    name: string,
-    opts: { direction?: string; transitive?: boolean; maxDepth?: number } = {},
-  ): Promise<GetResponse<'/api/fleet/services/{name}/graph'>> =>
-    unwrap(client.GET('/api/fleet/services/{name}/graph', { params: { path: { name }, query: opts } })),
-  fleetStatus: (): Promise<GetResponse<'/api/fleet/status'>> => unwrap(client.GET('/api/fleet/status')),
-  fleetService: (key: string): Promise<GetResponse<'/api/fleet/service'>> =>
-    unwrap(client.GET('/api/fleet/service', { params: { query: { key } } })),
-  fleetTarget: (key: string): Promise<GetResponse<'/api/fleet/target'>> =>
-    unwrap(client.GET('/api/fleet/target', { params: { query: { key } } })),
-  fleetImpact: (oldRef: string, newRef: string, includeObserved?: boolean): Promise<GetResponse<'/api/fleet/impact'>> =>
-    unwrap(client.GET('/api/fleet/impact', {
-      params: { query: { old: oldRef, new: newRef, includeObserved: includeObserved ?? false } },
-    })),
-
   // ── Product-oriented operational-graph APIs ──
   fleetOverview: (): Promise<ProductOverview> =>
     productGet(client.GET('/api/fleet/overview')),

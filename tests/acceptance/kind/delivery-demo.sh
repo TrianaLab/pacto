@@ -57,6 +57,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/lib.sh"
 # shellcheck source=tests/acceptance/kind/delivery-identity.sh
 source "$HERE/delivery-identity.sh"
+# shellcheck source=tests/acceptance/kind/delivery-lib.sh
+source "$HERE/delivery-lib.sh"
+# The demo's cluster carries the whole story, so its Operations take longer.
+# shellcheck disable=SC2034  # read by delivery-lib.sh
+DELIVERY_OP_WAIT=120 DELIVERY_CONCLUDE_WAIT=150
 ROOT="$_PACTO_ROOT"
 STORY="$ROOT/examples/story"
 DEMO="$ROOT/tmp/delivery-demo"
@@ -85,16 +90,6 @@ stop_pf() { local p; for p in $PF_PIDS; do kill "$p" 2>/dev/null || true; done; 
 
 # --- up ----------------------------------------------------------------------
 
-build_images() {
-  local logs; logs="$(mktemp -d)"
-  build_operator_images "$OP_IMG" "$DASH_IMG" "$VER" > "$logs/operator.log" 2>&1 &
-  local op=$!
-  docker build --load -f "$ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$VER" \
-    --target delivery --build-arg CMD=cmd/delivery -t "$DL_IMG" "$ROOT" > "$logs/delivery.log" 2>&1 &
-  local dl=$!
-  wait "$op" || { cat "$logs/operator.log" >&2; fail "the dashboard or operator image did not build"; }
-  wait "$dl" || { cat "$logs/delivery.log" >&2; fail "the pacto-delivery image did not build"; }
-}
 
 # kind_config — delivery-identity.sh's cluster (sign-in through Dex and
 # Keycloak, ports on the host), plus a containerd that reads per-registry
@@ -154,10 +149,7 @@ servers() {
     -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
     "$DASH_IMG" mcp --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
     --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp --delivery-namespace "$DNS" --delivery-trust /trust/recorder.pub
-  dash_up() { curl -sf "$DASH_URL/health" >/dev/null; }
-  eventually 40 dash_up || { docker logs pacto-e2e-dashboard 2>&1 | tail; fail "the dashboard did not start"; }
-  mcp_up() { [ "$(curl -s -o /dev/null -w '%{http_code}' "$MCP_URL/mcp")" = 401 ]; }
-  eventually 40 mcp_up || { docker logs pacto-e2e-mcp 2>&1 | tail; fail "the MCP server did not start"; }
+  servers_up
 }
 
 # span_generator — payments spans for Mira, in the cluster so the demo
@@ -598,28 +590,10 @@ YAML
 }
 
 # --- reading the cluster -----------------------------------------------------
-ops() { kubectl -n "$1" get operations -o json; }
-op_to() { # NS STAGE DIGEST [TYPE] — the operations moving STAGE to DIGEST
-  ops "$1" | jq -r --arg s "$2" --arg d "$3" --arg t "${4:-delivery.pacto.trianalab.io/promote}" \
-    '.items[] | select(.spec.stage == $s and .spec.params.to == $d and .spec.type == $t) | .metadata.name'
-}
-op_exists() { [ -n "$(op_to "$@")" ]; }
-wait_op() { eventually 120 op_exists "$@" || fail "no ${4:-promote} of $2 to $3 appeared in $1"; op_to "$@" | head -1; }
-field() { kubectl -n "$1" get operation "$2" -o jsonpath="{.status.$3}"; }
 op_json() { kubectl -n "$1" get operation "$2" -o json; }
-concluded() { [ "$(field "$1" "$2" phase)" = Concluded ]; }
-outcome() { echo "$(field "$1" "$2" outcome)/$(field "$1" "$2" verification)"; }
-held() { [ "$(field "$1" "$2" phase)" = Held ]; }
-wait_concluded() { # NS OP WANT
-  eventually 150 concluded "$1" "$2" || fail "$1/$2 never concluded: $(field "$1" "$2" phase) $(field "$1" "$2" reason): $(field "$1" "$2" message)"
-  [ "$(outcome "$1" "$2")" = "$3" ] || fail "$1/$2 concluded $(outcome "$1" "$2"), want $3 ($(field "$1" "$2" reason): $(field "$1" "$2" message))"
-}
-pointer() { kubectl -n "$1" get stage "$2" -o jsonpath='{.status.pointer}'; }
-runs() { [ "$(pointer "$1" "$2")" = "$3" ]; }
 failed_on() { kubectl -n "$1" get stage "$2" -o json | jq -e --arg d "$3" '.status.failedDigests // [] | index($d)' >/dev/null; }
 # offered SERVICE DIGEST — test verified it and offers it to prod.
 offered() { kubectl -n test get stage "$1" -o json | jq -e --arg d "$2" '.status.offered // [] | index($d)' >/dev/null; }
-published_in() { kubectl -n "$1" get stage "$2" -o json | jq -e --arg d "$3" '.status.published // [] | index($d)' >/dev/null; }
 digest_of() { cat "$DEMO/digests/$1-$2"; } # SERVICE VERSION
 # prod_op VERSION — the promote moving payments in prod to VERSION. payments
 # advances on its own there (autonomous), so the promoter names it.

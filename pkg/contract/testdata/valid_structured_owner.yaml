@@ -1,4 +1,4 @@
-pactoVersion: "1.0"
+pactoVersion: "2.0"
 
 service:
   name: my-service
@@ -15,19 +15,14 @@ service:
 
 interfaces:
   - name: api
-    type: http
-    port: 8080
+    type: openapi
+    ref: interfaces/openapi.yaml
 
-runtime:
-  workload: service
+workload: service
 
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
-
-  health:
-    interface: api
-    path: /health
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low

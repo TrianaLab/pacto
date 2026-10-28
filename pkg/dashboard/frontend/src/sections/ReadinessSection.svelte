@@ -4,7 +4,7 @@
   import MarkdownView from '../MarkdownView.svelte';
   import DocModal from '../DocModal.svelte';
   import RevisionHistory from './RevisionHistory.svelte';
-  import { readinessGateClass, readinessGateTip, checkStatusClass, checkStatusLabel, assessmentCountdownLabel } from '../lib/format.ts';
+  import { readinessGateClass, readinessGateTip, checkStatusClass, checkStatusLabel, assessmentCountdownLabel } from '../lib/readiness.ts';
   import { formatDate } from '../lib/dateFormat.ts';
 
   let { readiness = null, docs = [], open = $bindable(false), id = '' } = $props();
