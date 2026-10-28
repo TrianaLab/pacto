@@ -297,7 +297,7 @@ Docker-dependent legs — `ci-e2e-compose` and the `test-acceptance-kind-*` scen
 
 - Update docs if your change affects user-facing behavior, CLI flags or the contract specification.
 - Documentation lives in `docs/` and is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) (`mkdocs.yml`), versioned with [mike](https://github.com/jimporter/mike).
-- Run `make docs` to build the site, then `make docs-serve` to preview it locally.
+- Run `make docs` to preview the site locally with the in-browser dashboard demo, `make docs-serve` to preview it without the demo, or `make docs-build` to build it.
 - CLI reference docs are auto-generated. Run `make gen-cli-docs` if you add or change CLI commands.
 - Run `make docs-lint` before pushing. It is the gate CI runs over Markdown syntax, prose and page structure, and it is deterministic — no model judges your writing. Rules live in `.markdownlint-cli2.jsonc`, `.vale/styles/Pacto/` and `release/scripts/docs_lint.py`.
 
@@ -316,7 +316,6 @@ make lint           # golangci-lint
 Deploy to a local cluster:
 
 ```bash
-make install        # install CRDs via kustomize
 make run            # run the controller against your current kube context
 make helm-install   # build image + helm install (CRDs included)
 make helm-upgrade   # rebuild + upgrade the existing release

@@ -11,7 +11,7 @@ import (
 // whose change runs the kind and Compose shards.
 func pathsFilter(t *testing.T, name string) []string {
 	t.Helper()
-	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	wf := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "ci.yml"))
 	_, after, ok := strings.Cut(wf, "\n            "+name+":\n")
 	if !ok {
 		t.Fatalf("no `%s:` paths filter in .github/workflows/ci.yml", name)

@@ -1,10 +1,8 @@
 package architecture
 
 import (
-	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -32,27 +30,9 @@ const (
 	pactoAPIVersion = "pacto.trianalab.io/v1alpha1"
 )
 
-func repoDir(t *testing.T) string {
-	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate this test file")
-	}
-	return filepath.Join(filepath.Dir(thisFile), "..", "..")
-}
-
-func gitopsFixturePath(t *testing.T, name string) string {
-	t.Helper()
-	return filepath.Join(repoDir(t), "tests", "acceptance", "kind", "fixtures", "gitops", name)
-}
-
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	raw, err := os.ReadFile(path) //nolint:gosec // a path this test computed
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(raw)
+// gitopsFixture is a fixture's path relative to the repository root.
+func gitopsFixture(name string) string {
+	return filepath.Join("tests", "acceptance", "kind", "fixtures", "gitops", name)
 }
 
 // pactoCRD is the slice of the generated CRD the snippets depend on. Parsing the
@@ -84,10 +64,10 @@ type pactoCRD struct {
 
 func loadPactoCRD(t *testing.T) pactoCRD {
 	t.Helper()
-	path := filepath.Join(repoDir(t), "integrations", "kubernetes", "config", "crd",
+	raw := readRepoFile(t, "integrations", "kubernetes", "config", "crd",
 		"bases", "pacto.trianalab.io_pactos.yaml")
 	var crd pactoCRD
-	if err := yaml.Unmarshal([]byte(readFile(t, path)), &crd); err != nil {
+	if err := yaml.Unmarshal([]byte(raw), &crd); err != nil {
 		t.Fatalf("cannot parse the Pacto CRD: %v", err)
 	}
 	if crd.Spec.Group == "" || crd.Spec.Names.Kind == "" || len(crd.Spec.Versions) == 0 {
@@ -112,7 +92,7 @@ func luaBlock(t *testing.T, key string) string {
 	var cm struct {
 		Data map[string]string `yaml:"data"`
 	}
-	if err := yaml.Unmarshal([]byte(readFile(t, gitopsFixturePath(t, argocdFixture))), &cm); err != nil {
+	if err := yaml.Unmarshal([]byte(readRepoFile(t, gitopsFixture(argocdFixture))), &cm); err != nil {
 		t.Fatalf("cannot parse %s: %v", argocdFixture, err)
 	}
 	script, ok := cm.Data[key]
@@ -215,7 +195,7 @@ type fluxKustomization struct {
 
 func pactoHealthCheckExprs(t *testing.T) []healthCheckExpr {
 	t.Helper()
-	dec := yaml.NewDecoder(strings.NewReader(readFile(t, gitopsFixturePath(t, fluxFixture))))
+	dec := yaml.NewDecoder(strings.NewReader(readRepoFile(t, gitopsFixture(fluxFixture))))
 	var found []healthCheckExpr
 	for {
 		var doc fluxKustomization
@@ -302,7 +282,7 @@ func celLiterals(expr string) []string {
 // TestGitOpsPageIncludesTheTestedFixtures is what makes every check above mean
 // something: the page must publish these exact files, not a copy of them.
 func TestGitOpsPageIncludesTheTestedFixtures(t *testing.T) {
-	page := readFile(t, filepath.Join(repoDir(t), "integrations", "kubernetes", "docs", gitopsPage))
+	page := readRepoFile(t, "integrations", "kubernetes", "docs", gitopsPage)
 	for _, fixture := range []string{fluxFixture, argocdFixture} {
 		include := `--8<-- "tests/acceptance/kind/fixtures/gitops/` + fixture + `"`
 		if !strings.Contains(page, include) {
@@ -317,9 +297,9 @@ func TestGitOpsPageIncludesTheTestedFixtures(t *testing.T) {
 // silently does not cover it.
 func TestGitOpsPageNamesEveryVerdict(t *testing.T) {
 	crd := loadPactoCRD(t)
-	page := readFile(t, filepath.Join(repoDir(t), "integrations", "kubernetes", "docs", gitopsPage))
-	fixtures := readFile(t, gitopsFixturePath(t, fluxFixture)) +
-		readFile(t, gitopsFixturePath(t, argocdFixture))
+	page := readRepoFile(t, "integrations", "kubernetes", "docs", gitopsPage)
+	fixtures := readRepoFile(t, gitopsFixture(fluxFixture)) +
+		readRepoFile(t, gitopsFixture(argocdFixture))
 	for _, verdict := range contractStatusEnum(t, crd) {
 		if !strings.Contains(page, verdict) && !strings.Contains(fixtures, verdict) {
 			t.Errorf("contractStatus %q appears nowhere on the GitOps page or in its snippets; "+
