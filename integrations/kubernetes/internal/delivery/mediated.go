@@ -8,7 +8,6 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
-	"cmp"
 	"context"
 	"strings"
 
@@ -67,10 +66,7 @@ func (c Cluster) mediated(ctx context.Context, ns string, a *applyRef) (delivery
 	}
 	var appliers []unstructured.Unstructured
 	for _, k := range list.Items {
-		kind, _, _ := unstructured.NestedString(k.Object, "spec", "sourceRef", "kind")
-		name, _, _ := unstructured.NestedString(k.Object, "spec", "sourceRef", "name")
-		srcNS, _, _ := unstructured.NestedString(k.Object, "spec", "sourceRef", "namespace")
-		if kind == "OCIRepository" && name == a.obj.GetName() && cmp.Or(srcNS, k.GetNamespace()) == ns {
+		if appliesRepo(&k, ns, a.obj.GetName()) {
 			appliers = append(appliers, k)
 		}
 	}

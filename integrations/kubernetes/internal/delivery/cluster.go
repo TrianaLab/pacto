@@ -254,14 +254,12 @@ func (c Cluster) applied(ctx context.Context, ns string, a *applyRef, digest str
 	}
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(gvkKustomization)
-	if err := c.Client.List(ctx, list, client.InNamespace(ns)); err != nil {
+	if err := c.Client.List(ctx, list); err != nil {
 		return false, false, "", err
 	}
 	found := 0
 	for _, k := range list.Items {
-		kind, _, _ := unstructured.NestedString(k.Object, "spec", "sourceRef", "kind")
-		name, _, _ := unstructured.NestedString(k.Object, "spec", "sourceRef", "name")
-		if kind != "OCIRepository" || name != a.obj.GetName() {
+		if !appliesRepo(&k, ns, a.obj.GetName()) {
 			continue
 		}
 		found++
