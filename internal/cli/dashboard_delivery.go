@@ -130,7 +130,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 			"this dashboard is shared without sign-in, so it serves no delivery data and no actions")
 	default:
 		st := id.state(r.Context())
-		if !st.SignedIn {
+		if !st.SignedIn { // defence in depth: the sign-in gate turns a signed-out request away first
 			return nil, dashboard.Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to see and act on delivery")
 		}
 		cfg, token = authn.RESTConfig(id.cluster, st.Token), st.Token

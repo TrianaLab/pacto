@@ -90,7 +90,7 @@ func (s *Server) decisionSession(ctx context.Context, cli string) error {
 	}
 	st := a.State
 	switch {
-	case !st.SignedIn:
+	case !st.SignedIn: // defence in depth: the sign-in gate turns a signed-out request away first
 		return Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to decide")
 	case st.Method == "token" && a.Login:
 		return Refuse(http.StatusForbidden, "TokenCannotDecide",
