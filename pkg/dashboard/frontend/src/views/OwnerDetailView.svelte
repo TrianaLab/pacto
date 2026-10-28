@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownersUrl } from '../lib/router.ts';
-  import { ownerKey, UNOWNED_KEY, ownerKeyLabel, ownerKeyKind, extractOwnerDetail, relatedSubgraph, formatCount } from '../lib/format.ts';
+  import { formatCount } from '../lib/format.ts';
+  import { ownerKey, UNOWNED_KEY, ownerKeyLabel, ownerKeyKind, extractOwnerDetail } from '../lib/owners.ts';
+  import { relatedSubgraph } from '../lib/graph-aggregate.ts';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
   import GraphPanel from '../GraphPanel.svelte';

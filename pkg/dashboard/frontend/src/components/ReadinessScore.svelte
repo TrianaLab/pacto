@@ -1,5 +1,5 @@
 <script>
-  import { readinessGateClass, readinessGateTip } from '../lib/format.ts';
+  import { readinessGateClass, readinessGateTip } from '../lib/readiness.ts';
 
   // `readiness` is the dashboard ReadinessInfo (has score, minScore, passing, expired).
   let { readiness = null } = $props();

@@ -57,12 +57,6 @@
 {/if}
 
 <style>
-  .detail-card {
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    margin-bottom: var(--sp-2);
-  }
   .detail-card-header {
     display: flex;
     align-items: center;
@@ -98,12 +92,5 @@
   }
   .fullscreen-btn:hover { background: var(--c-surface-hover, var(--c-surface-inset)); color: var(--c-text); }
   .fullscreen-btn svg { width: 14px; height: 14px; }
-  .detail-card-header-left { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
-  .expand-icon { display: inline-flex; color: var(--c-text-3); transform: rotate(-90deg); flex-shrink: 0; }
-  .expand-icon.open { transform: rotate(0deg); }
-  .expand-icon svg { width: 12px; height: 12px; }
-  .detail-card-title { font-weight: 600; }
-  .detail-card-sub { font-size: var(--text-sm); color: var(--c-text-2); }
   .pill-ref { background: var(--c-accent-bg); color: var(--c-accent); font-size: var(--text-xs); flex-shrink: 0; }
-  .detail-card-body { padding: 0 var(--sp-3) var(--sp-3); }
 </style>

@@ -1,4 +1,4 @@
-import { ownerKey, UNOWNED_KEY } from './format';
+import { ownerKey, UNOWNED_KEY } from './owners';
 
 /**
  * Quadrant data: distance from a service's own readiness threshold (x) vs blast
@@ -134,7 +134,7 @@ export interface VersionTimelineItem {
 }
 
 /** Past this many versions the timeline draws one marker per week (see binTimeline). */
-export const TIMELINE_MAX_MARKERS = 60;
+const TIMELINE_MAX_MARKERS = 60;
 const WEEK = 7 * 86400000;
 const CLASS_RANK: Record<string, number> = { BREAKING: 3, POTENTIAL_BREAKING: 2, NON_BREAKING: 1 };
 

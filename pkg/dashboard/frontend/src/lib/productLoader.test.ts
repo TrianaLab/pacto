@@ -8,7 +8,7 @@
  *  - a refresh cannot overwrite a subsequent navigation.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { createProductLoader } from './productLoader.svelte.ts';
+import { createProductLoader, productListState } from './productLoader.svelte.ts';
 
 interface Deferred<T> { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void; }
 function deferred<T>(): Deferred<T> {
@@ -142,5 +142,65 @@ describe('createProductLoader', () => {
     d3.resolve('page2'); await flush();
     expect(loader.dataTag).toBe('f@25');
     expect(loader.answer('f@25', 'f')).toEqual({ data: 'page2', paging: false });
+  });
+});
+
+describe('productListState', () => {
+  type Page = { rows: string[]; meta?: { completeness: string } };
+  const complete = { completeness: 'complete' };
+
+  it('draws a skeleton a page tall while nothing is on hand', () => {
+    const loader = createProductLoader<Page>(() => deferred<Page>().promise);
+    const view = productListState(loader, (d) => d.rows, () => ({ tag: 'q', family: 'l', filtered: false, pageLimit: 25 }));
+    loader.sync('q', 'q', 'l');
+    expect(view.state.kind).toBe('loading');
+    expect(view.data).toBeNull();
+    expect(view.count).toBe(0);
+    expect(view.skeletonRows).toBe(25);
+    expect(view.refreshError).toBeNull();
+    expect(view.revalidating).toBe(false);
+  });
+
+  it('keeps the rows and says so when a refresh is in flight and when it fails', async () => {
+    const first = deferred<Page>();
+    const second = deferred<Page>();
+    const fetcher = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const loader = createProductLoader<Page>(fetcher);
+    const view = productListState(loader, (d) => d.rows, () => ({ tag: 'q', family: 'l', filtered: false, pageLimit: 25 }));
+    loader.sync('q@@0', 'q', 'l');
+    first.resolve({ rows: ['a', 'b'], meta: complete });
+    await flush();
+    expect(view.state.kind).toBe('ready');
+    expect(view.count).toBe(2);
+    expect(view.skeletonRows).toBe(2);
+    expect(view.knowledge.incomplete).toBe(false);
+
+    loader.sync('q@@1', 'q', 'l'); // the poll re-asks the same question
+    expect(view.revalidating).toBe(true);
+    const boom = new Error('boom');
+    second.reject(boom);
+    await flush();
+    expect(view.revalidating).toBe(false);
+    expect(view.refreshError).toBe(boom);
+    expect(view.data?.rows).toEqual(['a', 'b']);
+  });
+
+  it('turns a page over the rows on screen and reports a filtered-empty answer', async () => {
+    const first = deferred<Page>();
+    const second = deferred<Page>();
+    const fetcher = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const loader = createProductLoader<Page>(fetcher);
+    let tag = 'p1';
+    const view = productListState(loader, (d) => d.rows, () => ({ tag, family: 'l', filtered: true, pageLimit: 25 }));
+    loader.sync(tag, tag, 'l');
+    first.resolve({ rows: ['a'], meta: complete });
+    await flush();
+    tag = 'p2';
+    loader.sync(tag, tag, 'l');
+    expect(view.paging).toBe(true);
+    second.resolve({ rows: [], meta: complete });
+    await flush();
+    expect(view.paging).toBe(false);
+    expect(view.state.kind).toBe('filtered-empty');
   });
 });

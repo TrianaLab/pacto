@@ -1,6 +1,7 @@
 <script>
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
-  import { aggregateByOwner, complianceClass, statusClass, ownerKey, UNOWNED_KEY, sourceTooltip, complianceStatusClass, compareScoresUnassessedLast, formatCount } from '../lib/format.ts';
+  import { aggregateByOwner, complianceClass, statusClass, sourceTooltip, complianceStatusClass, compareScoresUnassessedLast, formatCount } from '../lib/format.ts';
+  import { ownerKey, UNOWNED_KEY } from '../lib/owners.ts';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import EmptyState from '../components/EmptyState.svelte';

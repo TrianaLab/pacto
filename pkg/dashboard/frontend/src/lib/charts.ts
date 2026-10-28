@@ -3,22 +3,11 @@
  * Each render fn takes a container element, data and options, draws an SVG.
  */
 import * as d3 from 'd3';
-import { readinessBucketLabel, ownerKeyLabel, ownerKeyKind, statusLabel, statusTone, formatCount } from './format';
-import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState } from './chartkit';
+import { statusLabel, statusTone, formatCount } from './format';
+import { ownerKeyLabel, ownerKeyKind } from './owners';
+import { readinessBucketLabel } from './readiness';
+import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState, bindHover, legendItem } from './chartkit';
 import { categoryIconInner } from './categoryIcons';
-import { prefersReducedMotion } from './motion';
-
-/**
- * How long a chart's hover response lasts. A d3 transition is a JS clock, so it is the one
- * kind of motion the stylesheet's reduced-motion policy cannot reach: fourteen call sites
- * had `.duration(150)` written into them and not one asked whether the reader wanted it.
- *
- * 90ms mirrors --dur-1, the feedback step -- a hover is under the finger. It is a literal
- * because JS cannot read a CSS token without a layout read per frame, and the preference
- * is queried per call rather than once at module load, because it can change while the
- * page is open.
- */
-const hoverMs = () => (prefersReducedMotion() ? 0 : 90);
 
 /** Horizontal stacked bar chart for readiness category breakdown. */
 export interface CategoryBarData {
@@ -113,20 +102,11 @@ export function renderCategoryStackedBars(
     .attr('height', y.bandwidth())
     .attr('rx', radius)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
+    .call((sel) => bindHover(sel, tooltip, (d) => {
       const cat = d.data as CategoryBarData;
       const total = cat.done + cat.partial + cat.notDone + cat.deferred;
-      const content = `${cat.category} — done ${formatCount(cat.done)} · partial ${formatCount(cat.partial)} · not-done ${formatCount(cat.notDone)} · deferred ${formatCount(cat.deferred)} · total: ${formatCount(total)} checks`;
-      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mousemove', function (event) {
-      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
-      tooltip.hide();
-    })
+      return `${cat.category} — done ${formatCount(cat.done)} · partial ${formatCount(cat.partial)} · not-done ${formatCount(cat.notDone)} · deferred ${formatCount(cat.deferred)} · total: ${formatCount(total)} checks`;
+    }))
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect((d.data as CategoryBarData).category);
     });
@@ -322,19 +302,10 @@ export function renderPriorityQuadrant(
     .attr('stroke', (d) => (capped(d) ? 'var(--c-text)' : 'var(--c-surface)'))
     .attr('stroke-width', (d) => (capped(d) ? 1.5 : DOT_R > 4 ? 2 : 0.5))
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
+    .call((sel) => bindHover(sel, tooltip, (d) => {
       const gap = d.x > 0 ? `${d.x} above its threshold` : d.x < 0 ? `${-d.x} below its threshold` : 'exactly at its threshold';
-      const content = `${d.name} · ${gap} · impact ${formatCount(d.y)} · ${statusLabel(d.status)}`;
-      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mousemove', function (event) {
-      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
-      tooltip.hide();
-    })
+      return `${d.name} · ${gap} · impact ${formatCount(d.y)} · ${statusLabel(d.status)}`;
+    }))
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect(d.name);
     });
@@ -427,23 +398,9 @@ export function renderPriorityQuadrant(
 
   if (statusLegendData.length > 0) {
     const legend = svg.append('g').attr('transform', `translate(${margin.left}, ${12 + 0})`);
-    const swatch = 8;
-    const swatchGap = 6;
     statusLegendData.forEach((d, i) => {
       const at = legendRows.at[i] ?? { x: 0, row: 0 };
-      const item = legend.append('g').attr('transform', `translate(${at.x}, ${at.row * 14 + 6})`);
-      item.append('circle')
-        .attr('cx', swatch / 2)
-        .attr('cy', -swatch / 2)
-        .attr('r', swatch / 2)
-        .attr('fill', d.color);
-      item.append('text')
-        .attr('x', swatch + swatchGap)
-        .attr('dominant-baseline', 'middle')
-        .style('font-size', 'var(--text-xs)')
-        .style('font-weight', '500')
-        .style('fill', 'var(--c-text-3)')
-        .text(d.label);
+      legendItem(legend, at.x, at.row * 14 + 6, d.label, d.color);
     });
   }
 }
@@ -559,22 +516,7 @@ export function renderHeatmap(
     .attr('stroke', 'var(--c-border)')
     .attr('stroke-width', 1)
     .attr('cursor', opts.onSelectCell ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      if (d.score != null) {
-        d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
-        const content = `${ownerKeyLabel(d.owner)} · ${d.category} · ${d.score}% · ${d.n} checks`;
-        tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-      }
-    })
-    .on('mousemove', function (event) {
-      if (tooltip['el'].textContent) {
-        tooltip.show(tooltip['el'].textContent, event.offsetX + 10, event.offsetY - 10);
-      }
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
-      tooltip.hide();
-    })
+    .call((sel) => bindHover(sel, tooltip, (d) => (d.score != null ? `${ownerKeyLabel(d.owner)} · ${d.category} · ${d.score}% · ${d.n} checks` : null)))
     .on('click', (_, d) => {
       if (opts.onSelectCell) opts.onSelectCell(d.owner, d.category);
     });
@@ -780,22 +722,13 @@ export function renderVersionTimeline(
     .attr('stroke', (d) => d.isCurrent ? 'var(--c-surface)' : 'none')
     .attr('stroke-width', 2)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
+    .call((sel) => bindHover(sel, tooltip, (d) => {
       const dateStr = (!d.at || isNaN(d.at)) ? '—' : new Date(d.at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
       const classStr = d.classification ? d.classification.replace(/_/g, ' ').toLowerCase() : '—';
-      const content = (d.count ?? 1) > 1
+      return (d.count ?? 1) > 1
         ? `${formatCount(d.count ?? 1)} versions in the week of ${dateStr}, up to ${d.version} · worst: ${classStr}`
         : `${d.version} · ${dateStr} · ${classStr}`;
-      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mousemove', function (event) {
-      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
-      tooltip.hide();
-    })
+    }))
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect(d.version);
     });
@@ -819,19 +752,7 @@ export function renderVersionTimeline(
   const charW = 6;
 
   legendData.forEach((d) => {
-    const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
-    item.append('circle')
-      .attr('cx', swatch / 2)
-      .attr('cy', -swatch / 2)
-      .attr('r', swatch / 2)
-      .attr('fill', d.color);
-    item.append('text')
-      .attr('x', swatch + swatchGap)
-      .attr('dominant-baseline', 'middle')
-      .style('font-size', 'var(--text-xs)')
-      .style('font-weight', '500')
-      .style('fill', 'var(--c-text-3)')
-      .text(d.label);
+    legendItem(legend, legendX, 0, d.label, d.color);
     legendX += swatch + swatchGap + d.label.length * charW + itemGap;
   });
 }

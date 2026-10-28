@@ -17,8 +17,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { neighborhoodFn, entitiesFn, snapshotFn } = vi.hoisted(() => ({
-  neighborhoodFn: vi.fn(), entitiesFn: vi.fn(), snapshotFn: vi.fn(),
+const { neighborhoodFn, entitiesFn } = vi.hoisted(() => ({
+  neighborhoodFn: vi.fn(), entitiesFn: vi.fn(),
 }));
 const { renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy, applyTopologySpy, legendFilterSpy, focusNodeSpy } = vi.hoisted(() => ({
   renderSpy: vi.fn(), fitSpy: vi.fn(), zoomInSpy: vi.fn(), zoomOutSpy: vi.fn(), patchDataSpy: vi.fn(),
@@ -31,7 +31,6 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
     api: {
       fleetNeighborhood: (...a: unknown[]) => neighborhoodFn(...a),
       fleetEntities: (...a: unknown[]) => entitiesFn(...a),
-      fleetSnapshot: (...a: unknown[]) => snapshotFn(...a), // must NEVER be called
     },
   };
 });
@@ -120,7 +119,7 @@ const qa = (t: HTMLElement, sel: string) => Array.from(t.querySelectorAll(sel)) 
 
 describe('GraphView — product Operational Graph', () => {
   beforeEach(() => {
-    for (const f of [neighborhoodFn, entitiesFn, snapshotFn, renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy]) f.mockReset();
+    for (const f of [neighborhoodFn, entitiesFn, renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy]) f.mockReset();
     neighborhoodFn.mockResolvedValue(neighborhood());
     entitiesFn.mockResolvedValue({ meta: {}, total: 1, count: 1, entities: [ref('service', 'domain-a/web', 'web', { domain: 'domain-a' })] });
     location.hash = '';
@@ -135,7 +134,6 @@ describe('GraphView — product Operational Graph', () => {
     // affordance, not an empty page and never the whole fleet.
     expect(q(target, '[data-testid="graph-discovery-placeholder"]')).toBeTruthy();
     expect(neighborhoodFn).not.toHaveBeenCalled();
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -174,7 +172,6 @@ describe('GraphView — product Operational Graph', () => {
     expect(neighborhoodFn).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'service', key: 'domain-a/web', perspective: 'service', direction: 'both', depth: 1, views: ['expected', 'differences'],
     }));
-    expect(snapshotFn).not.toHaveBeenCalled();
     // The engine received a graph node for every returned neighborhood node (3), plus the
     // two lanes they sit in: api on the depends-on side, obs on the used-by side.
     await vi.waitFor(() => expect(renderSpy).toHaveBeenCalled());

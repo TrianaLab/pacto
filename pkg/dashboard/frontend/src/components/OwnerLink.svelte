@@ -1,5 +1,5 @@
 <script>
-  import { ownerDisplay, ownerKey } from '../lib/format.ts';
+  import { ownerDisplay, ownerKey } from '../lib/owners.ts';
   import { ownerUrl } from '../lib/router.ts';
   import { setFilter } from '../lib/filters.svelte.ts';
 

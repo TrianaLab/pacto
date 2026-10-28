@@ -28,7 +28,7 @@ export interface EntityRefLike {
  * a separator) so a target whose own name genuinely differs from its service still
  * says which service it belongs to.
  */
-export function spelledOut(label: string, bit: string): boolean {
+function spelledOut(label: string, bit: string): boolean {
   const i = label.indexOf(bit);
   if (i < 0) return false;
   const sep = (c: string | undefined) => c === undefined || '/ @:·,'.includes(c);

@@ -29,8 +29,3 @@ const ICONS: Record<string, string> = {
 export function categoryIconInner(category: string): string {
   return ICONS[category] || ICONS.other;
 }
-
-/** True if the category has a dedicated (non-fallback) icon. */
-export function isKnownCategory(category: string): boolean {
-  return Object.prototype.hasOwnProperty.call(ICONS, category);
-}

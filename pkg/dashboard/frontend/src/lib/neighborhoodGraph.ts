@@ -138,7 +138,7 @@ export const GROUP_THRESHOLD = 40;
 export const GROUP_PREFIX = 'group:';
 
 /** The id prefix of a lane: the box holding the direct neighbors on one side. */
-export const LANE_PREFIX = 'lane:';
+const LANE_PREFIX = 'lane:';
 
 /** At most this many teams per side get a group of their own; the rest, and every team
  *  with a single entity out there, share one "Other teams" group. */
@@ -150,12 +150,12 @@ export const MAX_GROUPS_PER_SIDE = 7;
 export const LANE_CAP = 8;
 
 /** The id suffix of a lane's held-back neighbors (after GROUP_PREFIX and the side). */
-export const MORE_SUFFIX = ':+';
+const MORE_SUFFIX = ':+';
 
 /** The name of the group the small teams share, as drawn on the canvas. */
 export const OTHER_TEAMS = 'Other teams';
 /** Its full name, by side: the two groups are told apart wherever they are listed. */
-export const OTHER_TEAMS_BY_SIDE: Record<string, string> = {
+const OTHER_TEAMS_BY_SIDE: Record<string, string> = {
   'depends-on': 'Other teams that it depends on',
   'used-by': 'Other teams that depend on it',
 };
