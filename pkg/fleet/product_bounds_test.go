@@ -40,7 +40,7 @@ func TestBoundSources_CapsAndPrioritizesUnhealthy(t *testing.T) {
 
 func TestBoundLimitations_Caps(t *testing.T) {
 	few := []Limitation{{Code: "X"}}
-	got, trunc := boundLimitations(few)
+	got, trunc := BoundLimitations(few)
 	if trunc || len(got) != 1 {
 		t.Errorf("under-cap limitations verbatim: %v trunc=%v", got, trunc)
 	}
@@ -48,7 +48,7 @@ func TestBoundLimitations_Caps(t *testing.T) {
 	for i := 0; i < MaxMetaLimitations+5; i++ {
 		many = append(many, Limitation{Code: "L"})
 	}
-	capped, trunc := boundLimitations(many)
+	capped, trunc := BoundLimitations(many)
 	if !trunc || len(capped) != MaxMetaLimitations {
 		t.Errorf("limitations not capped: len=%d trunc=%v", len(capped), trunc)
 	}

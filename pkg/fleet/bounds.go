@@ -60,11 +60,7 @@ func boundSources(ss []SourceState) ([]SourceState, bool) {
 // the impact answer carries the same snapshot-owned slice and must apply the same
 // cap; a second, differently-sized bound in another package is how two answers
 // from one snapshot start disagreeing about how much they left out.
-func BoundLimitations(ls []Limitation) ([]Limitation, bool) { return boundLimitations(ls) }
-
-// boundLimitations caps a (already-cloned) limitation slice at
-// MaxMetaLimitations, preserving order, and reports truncation.
-func boundLimitations(ls []Limitation) ([]Limitation, bool) {
+func BoundLimitations(ls []Limitation) ([]Limitation, bool) {
 	if len(ls) <= MaxMetaLimitations {
 		return ls, false
 	}

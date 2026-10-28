@@ -150,7 +150,7 @@ func (q *Query) productMeta() ProductMeta {
 	// reaching back into the snapshot or a later answer, and the meta never grows
 	// unbounded with the fleet's source or limitation count.
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
-	lims, limTrunc := boundLimitations(cloneLimitations(q.snap.Limitations))
+	lims, limTrunc := BoundLimitations(cloneLimitations(q.snap.Limitations))
 	return ProductMeta{
 		SchemaVersion:        ProductSchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,

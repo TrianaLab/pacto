@@ -119,7 +119,7 @@ type Meta struct {
 // where that is a context bomb rather than merely bytes.
 func (q *Query) meta() Meta {
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
-	lims, limTrunc := boundLimitations(cloneLimitations(q.snap.Limitations))
+	lims, limTrunc := BoundLimitations(cloneLimitations(q.snap.Limitations))
 	return Meta{
 		SchemaVersion:        q.snap.SchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,
