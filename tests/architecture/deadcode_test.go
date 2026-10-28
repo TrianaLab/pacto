@@ -41,6 +41,11 @@ import (
 // sigstore-go calls it through that interface while it signs.
 const sigstoreKeypair = "a sign.Keypair method sigstore-go calls through that interface, never by name"
 
+// runtimeBoundsV6 explains the deprecated MaxRuntime* constants: public API of
+// the released k8s module v6.0, outside pkg/ so the Deprecated: pass does not
+// cover them, kept so a minor upgrade does not break importers.
+const runtimeBoundsV6 = "deprecated public API of the released k8s module v6.0, kept for source compatibility"
+
 var deadCodeAllowlist = map[string]string{
 	// Every entry is "<pkg>.<Symbol>": reason.
 
@@ -50,6 +55,10 @@ var deadCodeAllowlist = map[string]string{
 		"assertion about two packages, so it cannot be written inside either one's production " +
 		"code, and deleting the table to satisfy this gate would delete the coverage proof " +
 		"with it",
+
+	"integrations/kubernetes/api/v1alpha1.MaxRuntimePodsPerNode":       runtimeBoundsV6,
+	"integrations/kubernetes/api/v1alpha1.MaxRuntimeListenersPerPod":   runtimeBoundsV6,
+	"integrations/kubernetes/api/v1alpha1.MaxRuntimeConnectionsPerPod": runtimeBoundsV6,
 
 	"pkg/signing.GetHashAlgorithm":    sigstoreKeypair,
 	"pkg/signing.GetKeyAlgorithm":     sigstoreKeypair,

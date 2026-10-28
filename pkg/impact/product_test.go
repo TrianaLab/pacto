@@ -232,3 +232,10 @@ func TestBuildProduct_LimitationsCarryTheAnalysisTruncation(t *testing.T) {
 		t.Errorf("a complete list must not read as truncated: %+v", p.Limitations)
 	}
 }
+
+// MaxProductLimitations shipped in v4.0; it stays as an alias in a minor release.
+func TestMaxProductLimitationsDeprecatedAlias(t *testing.T) {
+	if MaxProductLimitations != fleet.MaxMetaLimitations {
+		t.Fatalf("MaxProductLimitations = %d, want %d", MaxProductLimitations, fleet.MaxMetaLimitations)
+	}
+}

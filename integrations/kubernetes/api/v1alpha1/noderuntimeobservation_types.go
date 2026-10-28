@@ -26,6 +26,16 @@ const (
 	CollectionFailed CollectionState = "Failed"
 )
 
+// Bounds on what one node publishes.
+//
+// Deprecated: kept for source compatibility with v6.0; the CRD's
+// +kubebuilder MaxItems markers are the enforced bounds.
+const (
+	MaxRuntimePodsPerNode       = 256
+	MaxRuntimeListenersPerPod   = 64
+	MaxRuntimeConnectionsPerPod = 128
+)
+
 // RuntimeCollection reports the health of the kernel collection on one node.
 type RuntimeCollection struct {
 	// State is Running, Degraded or Failed.

@@ -41,9 +41,18 @@ type refreshCall struct {
 	err  error
 }
 
+// ManagerOptions tunes a [Manager].
+//
+// Deprecated: ignored. Kept so callers of the v4.0 two-argument [NewManager]
+// still compile.
+type ManagerOptions struct {
+	Now func() time.Time
+}
+
 // NewManager returns a manager that builds snapshots with build. No snapshot is
-// published until the first successful Refresh.
-func NewManager(build Builder) *Manager {
+// published until the first successful Refresh. The variadic options are
+// deprecated and ignored.
+func NewManager(build Builder, _ ...ManagerOptions) *Manager {
 	return &Manager{build: build}
 }
 
@@ -127,4 +136,30 @@ func (m *Manager) Start(ctx context.Context, interval time.Duration) {
 			_ = m.Refresh(ctx)
 		}
 	}
+}
+
+// ManagerStatus reports the manager's lifecycle state.
+//
+// Deprecated: only HasSnapshot and SnapshotID are populated; the other fields
+// are always zero.
+type ManagerStatus struct {
+	HasSnapshot bool         `json:"hasSnapshot"`
+	SnapshotID  string       `json:"snapshotId,omitempty"`
+	LastRefresh time.Time    `json:"lastRefresh"`
+	Degraded    bool         `json:"degraded"`
+	Error       *SourceError `json:"error,omitempty"`
+	Refreshes   int64        `json:"refreshes"`
+	Failures    int64        `json:"failures"`
+}
+
+// Status reports whether a snapshot is published and its ID.
+//
+// Deprecated: use [Manager.Current].
+func (m *Manager) Status() ManagerStatus {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil {
+		return ManagerStatus{}
+	}
+	return ManagerStatus{HasSnapshot: true, SnapshotID: m.current.SnapshotID}
 }

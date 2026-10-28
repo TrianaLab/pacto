@@ -152,3 +152,20 @@ func TestManager_StartPeriodicAndSingle(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// The v4.0 two-argument constructor and Status stay source compatible in a
+// minor release.
+func TestManager_DeprecatedV40API(t *testing.T) {
+	m := NewManager(func(context.Context) (*FleetSnapshot, error) {
+		return &FleetSnapshot{SnapshotID: "s1"}, nil
+	}, ManagerOptions{Now: time.Now})
+	if st := m.Status(); st != (ManagerStatus{}) {
+		t.Fatalf("status before refresh = %+v", st)
+	}
+	if err := m.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if st := m.Status(); !st.HasSnapshot || st.SnapshotID != "s1" {
+		t.Fatalf("status after refresh = %+v", st)
+	}
+}

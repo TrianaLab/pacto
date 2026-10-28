@@ -18,6 +18,10 @@ const (
 	MaxProductPath          = 50
 	MaxProductOwners        = 200
 	MaxProductActiveTargets = 200
+	// MaxProductLimitations bounded the limitations preview.
+	//
+	// Deprecated: the analysis now caps limitations at [fleet.MaxMetaLimitations].
+	MaxProductLimitations = fleet.MaxMetaLimitations
 	// MaxProductChanges bounds the field-level change list. MaxChangeValueRunes
 	// bounds EACH rendered value, so one changed OpenAPI schema cannot make the
 	// answer unbounded; both truncations are reported rather than silent.
