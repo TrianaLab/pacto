@@ -1,0 +1,430 @@
+suite: promoter tests
+templates:
+  - templates/delivery/deployment.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/identities.yaml
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: runs the promoter subcommand with the derived controller identity
+    template: templates/delivery/deployment.yaml
+    release:
+      name: d
+      namespace: pacto-system
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - promoter
+            - --leader-elect=true
+            - --poll=3s
+            - --resync=1m
+            - --workers=4
+            - --auth-freshness=0
+            - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-operator-delivery
+            - --identities=/etc/pacto/identities/policy.json
+            - --admission-policies=d-pacto-operator-delivery-operation,d-pacto-operator-delivery-cancel,d-pacto-operator-delivery-approval,d-pacto-operator-delivery-pointer,d-pacto-operator-delivery-applier,d-pacto-operator-delivery-promoter-writes,d-pacto-operator-delivery-status
+
+  - it: passes a login freshness to the promoter when one is set
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.promoter.authFreshness: 15m
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --auth-freshness=15m
+
+  - it: names every rendered admission policy, so the self-check covers them all
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.argocd.enabled: true
+      delivery.recorder.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --admission-policies=RELEASE-NAME-pacto-operator-delivery-operation,RELEASE-NAME-pacto-operator-delivery-cancel,RELEASE-NAME-pacto-operator-delivery-approval,RELEASE-NAME-pacto-operator-delivery-pointer,RELEASE-NAME-pacto-operator-delivery-applier,RELEASE-NAME-pacto-operator-delivery-promoter-writes,RELEASE-NAME-pacto-operator-delivery-status,RELEASE-NAME-pacto-operator-delivery-pointer-argocd,RELEASE-NAME-pacto-operator-delivery-promoter-writes-argocd,RELEASE-NAME-pacto-operator-delivery-records
+
+  - it: watches Argo CD Applications only when Stages may apply through them
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.argocd.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --argocd
+
+  - it: names no admission policies when they are off on purpose
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.admissionPolicies.enabled: false
+      delivery.admissionPolicies.allowUnguarded: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --admission-policies=RELEASE-NAME-pacto-operator-delivery-operation,RELEASE-NAME-pacto-operator-delivery-cancel,RELEASE-NAME-pacto-operator-delivery-approval,RELEASE-NAME-pacto-operator-delivery-pointer,RELEASE-NAME-pacto-operator-delivery-applier,RELEASE-NAME-pacto-operator-delivery-promoter-writes
+
+  - it: publishes the identity policy the promoter mounts, readable by every signed-in user
+    template: templates/delivery/identities.yaml
+    set:
+      delivery.identities.teamGroupPrefix: "acme:"
+      delivery.identities.agentGroups: [acme:bots]
+      delivery.identities.humanGroups: [acme:staff]
+    asserts:
+      - equal:
+          path: data["policy.json"]
+          value: '{"agentGroups":["acme:bots"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":["acme:staff"],"requireOwnerTeam":true,"teamGroupPrefix":"acme:"}'
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: pacto-delivery-identities
+        documentIndex: 0
+      - equal:
+          path: rules[0]
+          value: {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-identities], verbs: [get]}
+        documentIndex: 1
+      - equal:
+          path: subjects[0].name
+          value: system:authenticated
+        documentIndex: 2
+
+  - it: lets an ownerless question go to any person only when asked
+    template: templates/delivery/identities.yaml
+    set:
+      delivery.identities.requireOwnerTeam: false
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"requireOwnerTeam":false'
+        documentIndex: 0
+
+  - it: publishes each gate provider's type, never its URL or signers, so a client plans like the promoter
+    template: templates/delivery/identities.yaml
+    set:
+      delivery.gates.providers:
+        - {name: mira, type: mira, url: "https://mira.observability:4318"}
+        - {name: evals, type: eval, url: "https://evals.example", signers: [{name: evals-ci, publicKey: "-----BEGIN PUBLIC KEY-----"}]}
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"gateProviders":\{"evals":"eval","mira":"mira"\}'
+        documentIndex: 0
+      - notMatchRegex:
+          path: data["policy.json"]
+          pattern: 'evals\.example|PUBLIC KEY'
+        documentIndex: 0
+
+  - it: mounts the published policy and restarts when it changes
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: identities, configMap: {name: pacto-delivery-identities}}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: identities, mountPath: /etc/pacto/identities, readOnly: true}
+      - exists:
+          path: spec.template.metadata.annotations["checksum/identities"]
+
+  - it: passes the gate providers as one JSON flag
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: mira, type: mira, url: "https://mira.observability:4318"}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: '--gate-providers=[{"name":"mira","type":"mira","url":"https://mira.observability:4318"}]'
+
+  - it: refuses a plain http provider off loopback unless allowPlainHTTP is set
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: mira, type: mira, url: "http://mira.observability:4318"}
+    asserts:
+      - failedTemplate: {}
+
+  - it: takes plain http on loopback or with allowPlainHTTP
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: mira, type: mira, url: "http://mira.observability:4318", allowPlainHTTP: true}
+        - {name: evals, type: eval, url: "http://localhost:8080", signers: [{name: evals-ci, publicKey: "-----BEGIN PUBLIC KEY-----"}]}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: '--gate-providers=[{"allowPlainHTTP":true,"name":"mira","type":"mira","url":"http://mira.observability:4318"},{"name":"evals","signers":[{"name":"evals-ci","publicKey":"-----BEGIN PUBLIC KEY-----"}],"type":"eval","url":"http://localhost:8080"}]'
+
+  - it: refuses an eval provider that trusts no runner signer
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: evals, type: eval, url: "https://evals.example"}
+    asserts:
+      - failedTemplate: {}
+
+  - it: refuses signers on a provider that is not eval
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: mira, type: mira, url: "https://mira.example", signers: [{name: x, publicKey: k}]}
+    asserts:
+      - failedTemplate: {}
+
+  - it: refuses a runner signer that is both a key and a keyless identity
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: evals, type: eval, url: "https://evals.example", signers: [{name: x, publicKey: k, identity: i, issuer: s, trustedRoot: r}]}
+    asserts:
+      - failedTemplate: {}
+
+  - it: refuses a provider that takes a built-in gate's name
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: pacto.runtime, type: mira, url: "https://m"}
+    asserts:
+      - failedTemplate: {}
+
+  - it: passes insecure registries through
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.insecureRegistries: [reg:5000, other:5000]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PACTO_INSECURE_REGISTRIES
+            value: reg:5000,other:5000
+
+  - it: grants the promoter only the digest write on Flux sources, nothing on workloads
+    template: templates/delivery/rbac.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [ocirepositories]
+            verbs: [get, list, watch, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [approvals]
+            verbs: [get, list, watch, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [events]
+            verbs: [create, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [deployments, statefulsets, replicasets, daemonsets]
+            verbs: [get]
+        documentIndex: 1
+
+  - it: mounts the upstream trust config and passes it only when set
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.promoter.upstreamTrust: "keys: []"
+    asserts:
+      - equal:
+          path: data["trust.yaml"]
+          value: "keys: []"
+        documentIndex: 0
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --upstream-trust-config=/etc/pacto/upstream-trust/trust.yaml
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: RELEASE-NAME-pacto-operator-delivery-upstream-trust
+        documentIndex: 1
+
+  - it: mounts the registry credentials only when set, beside the upstream trust config
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.promoter.upstreamTrust: "keys: []"
+      delivery.promoter.registryCredentials.secretName: promoter-pull
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: upstream-trust, mountPath: /etc/pacto/upstream-trust, readOnly: true}
+            - {name: registry, mountPath: /etc/pacto/registry, readOnly: true}
+            - {name: identities, mountPath: /etc/pacto/identities, readOnly: true}
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.volumes[1]
+          value:
+            name: registry
+            secret:
+              secretName: promoter-pull
+              items: [{key: .dockerconfigjson, path: config.json}]
+        documentIndex: 1
+
+  - it: mounts the registry credentials alone
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.promoter.registryCredentials.secretName: promoter-pull
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].secret.secretName
+          value: promoter-pull
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 2
+
+  - it: passes no upstream trust config by default
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - {name: identities, configMap: {name: pacto-delivery-identities}}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
+
+  - it: grants nothing on Argo CD unless it is enabled
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+
+  - it: grants the targetRevision write on Argo CD Applications, and reads to agents, when enabled
+    template: templates/delivery/rbac.yaml
+    set:
+      delivery.argocd.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get]
+        documentIndex: 5
+
+  - it: never lets an agent create approvals
+    template: templates/delivery/rbac.yaml
+    documentIndex: 5
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-operator-delivery-agent
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [approvals]
+            verbs: [get, list, watch, create]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [operations]
+            verbs: [get, list, watch, create, delete]
+
+  - it: skips the ServiceAccount when told to
+    template: templates/delivery/rbac.yaml
+    set:
+      delivery.serviceAccount.create: false
+      delivery.serviceAccount.name: existing
+    asserts:
+      - notContains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: RELEASE-NAME-pacto-operator-delivery
+            namespace: NAMESPACE
+        documentIndex: 1
+
+  - it: lets the promoter delete operations only when the recorder keeps their records
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [operations]
+            verbs: [get, list, watch, create, update, patch]
+
+  - it: grants the delete with the recorder on
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    set:
+      delivery.recorder.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [operations]
+            verbs: [get, list, watch, create, update, patch, delete]
+
+  - it: refuses delivery with no humanGroups unless that is accepted on purpose
+    template: templates/delivery/identities.yaml
+    set:
+      delivery.identities.allowEmptyHumanGroups: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "delivery.identities.humanGroups is empty"
+
+  - it: renders with humanGroups set
+    template: templates/delivery/identities.yaml
+    set:
+      delivery.identities.allowEmptyHumanGroups: false
+      delivery.identities.humanGroups: [staff]
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: trusts an internal CA for gate providers when one is named
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.caBundle.configMap: internal-ca
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SSL_CERT_FILE, value: /etc/pacto/ca/ca.crt}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: gate-ca, mountPath: /etc/pacto/ca, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: gate-ca, configMap: {name: internal-ca, items: [{key: ca.crt, path: ca.crt}]}}
+
+  - it: mounts no CA bundle by default
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SSL_CERT_FILE, value: /etc/pacto/ca/ca.crt}

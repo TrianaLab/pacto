@@ -415,6 +415,20 @@ describe('parseHash — fleet product IA', () => {
     expect(fleetSourcesUrl({ sourceHealth: 'stale' })).toBe('#/fleet/sources?sourceHealth=stale');
   });
 
+  it('keeps the graph node budget the Show more button writes', () => {
+    expect(parseHash('#/fleet/graph/service/orders?maxNodes=150').params).toMatchObject({ kind: 'service', sel: 'orders', maxNodes: '150' });
+  });
+
+  it('every Fleet list keeps its page size and order in the URL', () => {
+    expect(fleetSourcesUrl({ offset: 50, limit: 50, sort: 'name' })).toBe('#/fleet/sources?offset=50&limit=50&sort=name');
+    expect(fleetServicesUrl({ limit: 100 })).toBe('#/fleet/services?limit=100');
+    expect(fleetAttentionUrl({ limit: 0, offset: 0 })).toBe('#/fleet/attention');
+    expect(parseHash('#/fleet/sources?limit=50&sort=name').params).toEqual({ limit: '50', sort: 'name' });
+    expect(parseHash('#/fleet/services?sort=health').params).toEqual({ sort: 'health' });
+    expect(parseHash('#/fleet/revisions?limit=100').params).toEqual({ kind: 'revision', limit: '100' });
+    expect(parseHash('#/fleet/attention?limit=100').params).toEqual({ limit: '100' });
+  });
+
   it('parses the service-scoped change-analysis route, old spelling included', () => {
     expect(parseHash('#/fleet/changes/domain-a%2Fpayments')).toEqual({ view: 'changes', params: { svc: 'domain-a/payments' } });
     expect(parseHash('#/fleet/impact/domain-a%2Fpayments')).toEqual({ view: 'changes', params: { svc: 'domain-a/payments' } });
@@ -448,7 +462,7 @@ describe('centralized fleet navigation builders', () => {
   // that dropped it would reopen a smaller graph than the one being talked about.
   it('carries a raised node budget and omits the backend default', () => {
     expect(fleetGraphFocusUrl('service', 'a/b', { maxNodes: 150 })).toBe('#/fleet/graph/service/a%2Fb?maxNodes=150');
-    expect(fleetGraphFocusUrl('service', 'a/b', { maxNodes: 60 })).toBe('#/fleet/graph/service/a%2Fb');
+    expect(fleetGraphFocusUrl('service', 'a/b', { maxNodes: 40 })).toBe('#/fleet/graph/service/a%2Fb');
     expect(fleetGraphFocusUrl('service', 'a/b', { depth: 2, maxNodes: 500 }))
       .toBe('#/fleet/graph/service/a%2Fb?depth=2&maxNodes=500');
   });

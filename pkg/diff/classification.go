@@ -99,6 +99,10 @@ var rules = map[classificationKey]Classification{
 	{"dependencies.ref", Modified}:           PotentialBreaking,
 	{"dependencies.compatibility", Modified}: PotentialBreaking,
 	{"dependencies.required", Modified}:      PotentialBreaking,
+	// external only changes what Pacto expects to see running, not what the
+	// service needs. A new free-text version of an external dependency is
+	// something nobody can check: PotentialBreaking (the default).
+	{"dependencies.external", Modified}: NonBreaking,
 
 	// OpenAPI paths
 	{"openapi.paths", Added}:   NonBreaking,
@@ -149,6 +153,17 @@ var rules = map[classificationKey]Classification{
 	{"grpc.messages.fields", Added}:    NonBreaking,
 	{"grpc.messages.fields", Removed}:  Breaking,
 	{"grpc.messages.fields", Modified}: Breaking,
+
+	// MCP tools a service exposes. A tool on both sides is deep-diffed by
+	// diffJSON (input as a request, output as a response), so there is no
+	// Modified rule.
+	{"mcp.tools", Added}:   NonBreaking,
+	{"mcp.tools", Removed}: Breaking,
+
+	// Checks: a suite added only adds a check; one removed or changed can
+	// loosen the check the release ships behind, so it is PotentialBreaking
+	// (the default).
+	{"checks", Added}: NonBreaking,
 }
 
 // classify returns the classification for a given path and change type.

@@ -9,8 +9,9 @@
   import RelationshipList from '../../components/RelationshipList.svelte';
   import FindingList from '../../components/FindingList.svelte';
   import EvidenceList from '../../components/EvidenceList.svelte';
-  import LimitationsList from '../../components/LimitationsList.svelte';
+  import LimitationsSection from '../../components/LimitationsSection.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
+  import { dropService, inService } from '../../lib/identityContext.ts';
 
   // The principal operational service page. It renders ONLY the
   // product entity-detail payload (never the snapshot): owner + ownership conflicts,
@@ -38,13 +39,19 @@
   // case it is the ONLY place its revisions appear and collapsing it leaves the page
   // saying nothing (the default has to be sensible, not uniform).
   const noneInUse = $derived((d.activeRevisions?.count ?? 0) === 0);
+  // Neighbours Kubernetes permissions hide from this person: counted, never named.
+  const hidden = (n, plus) => (n ? `${plus ? 'Plus ' : ''}${n === 1 ? '1 service' : `${n} services`} hidden by your Kubernetes permissions.` : '');
   const allTargetsHref = $derived(fleetEntityListUrl('target', { service: key }));
+  // This page is about one service, so its own name is dropped from the targets,
+  // revisions and findings listed on it: a long name repeated on every row hides the
+  // part that differs (the environment, the version).
+  const self = $derived(detail.entity?.label ?? '');
+  const own = (items) => (items ?? []).map((r) => inService(r, self));
+  const findings = $derived((d.findings?.items ?? []).map((it) => (it.entity ? { ...it, entity: inService(it.entity, self) } : it)));
 
   const sum = $derived(d.summary ?? {});
   const targets = $derived(sum.targets ?? 0);
-  // Closed-state gist for the evidence disclosure: a reader deciding
-  // whether to open "Recent evidence" wants to know how recently we looked, which is the
-  // one fact the count cannot carry.
+  // How recently we looked: the one fact about "Recent evidence" the count cannot carry.
   const lastSeen = $derived(d.evidence?.items?.find((e) => e.at)?.at ?? '');
   // Drill-downs from the posture bars stay scoped to THIS service, by canonical key.
   // Sending a service page's "3 non-compliant" to the fleet-wide backlog would answer
@@ -86,7 +93,7 @@
         <span>These revisions declare an owner other than {d.ownership.owner || 'the service owner'}:</span>
       </div>
       <ul class="se-conflict-list">
-        {#each d.ownership.conflicts.items as c}<li title={c}>{abbreviateDigests(c)}</li>{/each}
+        {#each d.ownership.conflicts.items as c}<li title={c}>{abbreviateDigests(dropService(c, self))}</li>{/each}
         {#if d.ownership.conflicts.truncated}<li class="se-conflict-more">+{d.ownership.conflicts.total - d.ownership.conflicts.count} more</li>{/if}
       </ul>
     </div>
@@ -103,13 +110,13 @@
     <h2 id="se-summary-h" class="t-section-title">Operational summary</h2>
     <p class="se-lead t-body-2">
       {targets} operational {targets === 1 ? 'target' : 'targets'} ·
-      {sum.revisionsInUse ?? 0} of {sum.revisions ?? 0} known {(sum.revisions ?? 0) === 1 ? 'revision' : 'revisions'} in use{(sum.invalidRevisions ?? 0) > 0 ? ` · ${sum.invalidRevisions} invalid` : ''}
+      {#if targets > 0 && (sum.revisionsInUse ?? 0) === 0 && (sum.revisions ?? 0) > 0}{sum.revisions} known {sum.revisions === 1 ? 'revision' : 'revisions'}, none matched to a running target{:else}{sum.revisionsInUse ?? 0} of {sum.revisions ?? 0} known {(sum.revisions ?? 0) === 1 ? 'revision' : 'revisions'} in use{/if}{(sum.invalidRevisions ?? 0) > 0 ? ` · ${sum.invalidRevisions} invalid` : ''}
     </p>
 
     <PostureBars
       summary={sum}
       {attentionUrl}
-      empty="Nothing running has been observed for this service, so there is no compliance, identity or freshness picture yet."
+      empty="Nothing running has been seen for this service yet."
     />
 
     {#if drift.length > 0}
@@ -129,7 +136,7 @@
        inventory. -->
   {#if (d.findings?.count ?? 0) > 0}
     <PreviewSection title="Findings" tone="err" total={d.findings?.total ?? 0} count={d.findings?.count ?? 0} truncated={d.findings?.truncated}>
-      <FindingList items={d.findings?.items ?? []} />
+      <FindingList items={findings} />
     </PreviewSection>
   {/if}
 
@@ -144,64 +151,70 @@
        The two lists a reader almost always wants -- what is running, and which revisions
        it is running -- stay open; the exhaustive variants of the same lists open on
        request. -->
-  <div class="se-grid">
-    <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No revision is currently matched to a running target." help="The revisions at least one running target is matched to. Newest first.">
-      <EntityRefList items={d.activeRevisions?.items ?? []} showStatus={false} />
-    </PreviewSection>
+  <!-- Targets get the full width: their names are environment, kind and service
+       together, and a third of the page cut them into four lines. -->
+  <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} viewAllHref={allTargetsHref} viewAllLabel="View all targets" empty="No running target observed.">
+    <EntityRefList items={own(d.deployments?.items)} showKind={false} clip />
+  </PreviewSection>
 
-    <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} viewAllHref={allTargetsHref} viewAllLabel="View all targets" empty="No running target observed.">
-      <EntityRefList items={d.deployments?.items ?? []} />
+  <div class="se-grid se-grid--two">
+    <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No running target matches a revision yet." help="The revisions at least one running target is matched to. Newest first.">
+      <EntityRefList items={own(d.activeRevisions?.items)} showStatus={false} />
     </PreviewSection>
 
     <!-- A configuration or policy reference is NOT a dependency: it does not enter the
          dependency graph, so nothing above and nothing in the graph would ever mention
          it, and the referenced service had no way to learn who reaches into it. This is
          the reverse side of the reference the revision page links forward. -->
-    <PreviewSection title="Referenced by" total={d.referencedBy?.total ?? 0} count={d.referencedBy?.count ?? 0} truncated={d.referencedBy?.truncated} empty="No service references this service's configuration or policy." help="These services reference this one's configuration or policy contract. That is not a runtime dependency, so it never appears in the graph.">
+    <PreviewSection title="Referenced by" collapsible={(d.referencedBy?.count ?? 0) > 0} open={false} total={d.referencedBy?.total ?? 0} count={d.referencedBy?.count ?? 0} truncated={d.referencedBy?.truncated} empty="No service references this service's configuration or policy." help="These services reference this one's configuration or policy contract. The graph shows runtime dependencies only, so these references stay off it.">
       <EntityRefList items={d.referencedBy?.items ?? []} showStatus={false} />
-    </PreviewSection>
-
-    <PreviewSection title="All revisions" collapsible open={noneInUse} summary="Every revision Pacto knows, in use or not" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No known revisions."
-      help="Newest first, whether or not anything is running them. Readiness is declared per revision — open one to see its gate.">
-      <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
-           declared per revision and gated per revision. Rolling it up here would invent
-           a third definition of readiness, so the service page points at the one that
-           already exists instead. -->
-      <EntityRefList items={d.revisions?.items ?? []} showStatus={false} />
-    </PreviewSection>
-
-    <PreviewSection title="Expected dependencies" collapsible open={false} summary="Declared in the contract" total={d.dependencies?.total ?? 0} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty="No declared dependencies.">
-      <EntityRefList items={d.dependencies?.items ?? []} showStatus={false} />
-    </PreviewSection>
-
-    <PreviewSection title="Dependents" collapsible open={false} summary="Services that declare this one" total={d.dependents?.total ?? 0} count={d.dependents?.count ?? 0} truncated={d.dependents?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty="Nothing depends on this service.">
-      <EntityRefList items={d.dependents?.items ?? []} showStatus={false} />
     </PreviewSection>
   </div>
 
-  <!-- Diagnostic layer: provenance and the honest list of what could
-       not be determined. Both are kept in full and both are one click away. -->
+  <!-- Full width, like targets: a revision's name is the service's name and its version,
+       and a third of the page cut a long service name into four lines. -->
+  <PreviewSection title="All revisions" collapsible open={noneInUse} summary="Every revision Pacto knows, in use or not" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No known revisions."
+    help="Newest first, whether or not anything is running them. Readiness is declared per revision. Open one to see its gate.">
+    <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
+         declared per revision and gated per revision. Rolling it up here would invent
+         a third definition of readiness, so the service page points at the one that
+         already exists instead. -->
+    <EntityRefList items={own(d.revisions?.items)} showStatus={false} />
+  </PreviewSection>
+
+  <div class="se-grid se-grid--two">
+    <PreviewSection title="Expected dependencies" help="Declared in the contract." total={d.dependencies?.total ?? 0} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependencies, false) || 'No declared dependencies.'}>
+      <EntityRefList items={d.dependencies?.items ?? []} showStatus={false} />
+      {#if d.hiddenDependencies}<p class="se-hidden t-body-2" data-testid="hidden-dependencies">{hidden(d.hiddenDependencies, true)}</p>{/if}
+    </PreviewSection>
+
+    <PreviewSection title="Dependents" help="Services that declare this one." total={d.dependents?.total ?? 0} count={d.dependents?.count ?? 0} truncated={d.dependents?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependents, false) || 'Nothing depends on this service.'}>
+      <EntityRefList items={d.dependents?.items ?? []} showStatus={false} />
+      {#if d.hiddenDependents}<p class="se-hidden t-body-2" data-testid="hidden-dependents">{hidden(d.hiddenDependents, true)}</p>{/if}
+    </PreviewSection>
+  </div>
+
+  <!-- This is an overview page, so its sections stay open: traffic, dependencies,
+       dependents and evidence are read here, not opened one by one. Limitations stay
+       folded: the knowledge banner above already states that the page is uncertain. -->
   {#if (d.evidence?.count ?? 0) > 0}
-    <PreviewSection title="Recent evidence" collapsible open={false} summary={lastSeen ? `Last observed ${formatDate(lastSeen)}` : 'Where the runtime picture came from'} total={d.evidence?.total ?? 0} count={d.evidence?.count ?? 0} truncated={d.evidence?.truncated}>
-      <EvidenceList items={d.evidence?.items ?? []} />
+    <PreviewSection title="Recent evidence" summary={lastSeen ? `Last observed ${formatDate(lastSeen)}` : ''} total={d.evidence?.total ?? 0} count={d.evidence?.count ?? 0} truncated={d.evidence?.truncated}>
+      <EvidenceList items={(d.evidence?.items ?? []).map((ev) => ({ ...ev, target: inService(ev.target ?? {}, self) }))} />
     </PreviewSection>
   {/if}
 
-  {#if (d.limitations?.count ?? 0) > 0}
-    <!-- Limitations stay collapsible but NOT hidden: anything that makes this page's
-         answer uncertain is already stated by the knowledge banner above, which is never
-         collapsible. What is here is the per-entity detail behind that warning. -->
-    <PreviewSection title="Limitations" tone="warn" collapsible open={false} summary="What Pacto could not determine" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
-      <LimitationsList items={d.limitations?.items ?? []} />
-    </PreviewSection>
-  {/if}
+  <!-- Limitations stay collapsible but NOT hidden: anything that makes this page's
+       answer uncertain is already stated by the knowledge banner above, which is never
+       collapsible. What is here is the per-entity detail behind that warning. -->
+  <LimitationsSection page={d.limitations} />
 </div>
 
 <style>
   .svc-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
+  .se-hidden { margin: var(--sp-2) 0 0; color: var(--c-text-3); }
   .se-facts { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .se-fact { display: flex; align-items: center; gap: var(--sp-2); }
-  .se-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .se-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .se-conflicts {
     display: flex; flex-direction: column; gap: var(--sp-2);
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
@@ -212,6 +225,7 @@
   .se-conflict-list li { overflow-wrap: anywhere; }
   .se-conflict-more { color: var(--c-text-3); }
   .se-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-3); align-items: start; }
+  .se-grid--two { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
   /* Same frame as a PreviewSection -- this block is a section like any other, it just
      renders bars instead of a list. Its padding matches so the page has one rhythm. */
   .se-summary { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }

@@ -82,10 +82,15 @@ type options struct {
 	showVersion                                      bool
 	watchNamespace                                   string
 
-	enableDashboard      bool
-	dashboardOCISecrets  string
-	dashboardResources   component.Resources
-	dashboardObservation []dashboard.ObservationSource
+	enableDashboard        bool
+	dashboardOCISecrets    string
+	dashboardResources     component.Resources
+	dashboardObservation   []dashboard.ObservationSource
+	dashboardAuth          dashboard.AuthConfig
+	dashboardExtraScopes   string
+	dashboardMiraURL       string
+	dashboardDeliveryNS    string
+	dashboardDeliveryTrust dashboard.KeyRef
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -100,6 +105,7 @@ type options struct {
 	enableKernelEvidence              bool
 	kernelEvidenceNamespace           string
 	kernelEvidenceStaleness           time.Duration
+	callerIgnoreNamespaces            []string
 
 	enableNodeAgent          bool
 	nodeAgentNamespace       string
@@ -136,7 +142,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. "+
 			"Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson "+
 			"secrets; later Secrets override earlier ones for the same registry.")
-	bindResourceFlags(fs, &o.dashboardResources, "dashboard", "dashboard", "50m", "200m", "128Mi", "512Mi")
+	bindResourceFlags(fs, &o.dashboardResources, "dashboard", "dashboard")
 	fs.Func("dashboard-trace-source",
 		"Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as "+
 			"name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source "+
@@ -149,11 +155,59 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			o.dashboardObservation = append(o.dashboardObservation, src)
 			return nil
 		})
+	fs.StringVar(&o.dashboardAuth.IssuerURL, "dashboard-oidc-issuer-url", "",
+		"OpenID Connect issuer people sign in to the dashboard with. Every view and action then runs with each "+
+			"person's own token and RBAC; the delivery views need sign-in.")
+	fs.StringVar(&o.dashboardAuth.InternalIssuerURL, "dashboard-oidc-internal-issuer-url", "",
+		"Where the dashboard reaches the issuer when it differs from the public issuer URL browsers use, such as an "+
+			"in-cluster Service; ID tokens must still name the public issuer.")
+	fs.StringVar(&o.dashboardAuth.DisplayName, "dashboard-oidc-display-name", "",
+		"The identity provider's name on the dashboard's sign-in button, as in Sign in with Keycloak (empty: OIDC).")
+	fs.StringVar(&o.dashboardAuth.CAConfigMap, "dashboard-oidc-ca-configmap", "",
+		"ConfigMap in the operator namespace holding the PEM bundle of the CAs that sign the issuer's certificate.")
+	fs.StringVar(&o.dashboardAuth.CASecret, "dashboard-oidc-ca-secret", "",
+		"Secret in the operator namespace holding that PEM bundle, instead of a ConfigMap.")
+	fs.StringVar(&o.dashboardAuth.CAKey, "dashboard-oidc-ca-key", "ca.crt",
+		"Key of the PEM bundle in that ConfigMap or Secret.")
+	fs.StringVar(&o.dashboardDeliveryTrust.Name, "dashboard-delivery-trust-configmap", "",
+		"ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with, "+
+			"so History reads signed records.")
+	fs.StringVar(&o.dashboardDeliveryTrust.Key, "dashboard-delivery-trust-key", "trust.yaml",
+		"Key of the trust config in that ConfigMap.")
+	fs.StringVar(&o.dashboardAuth.ClientID, "dashboard-oidc-client-id", "", "The dashboard's OpenID Connect client id.")
+	fs.StringVar(&o.dashboardAuth.RedirectURL, "dashboard-oidc-redirect-url", "",
+		"The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it.")
+	fs.StringVar(&o.dashboardExtraScopes, "dashboard-oidc-extra-scopes", "",
+		"Comma-separated scopes beyond openid, profile and groups.")
+	fs.StringVar(&o.dashboardAuth.ClientSecretName, "dashboard-oidc-client-secret-name", "",
+		"Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef.")
+	fs.StringVar(&o.dashboardAuth.ClientSecretKey, "dashboard-oidc-client-secret-key", "client-secret",
+		"Key of the client secret in that Secret.")
+	fs.StringVar(&o.dashboardAuth.UsernameClaim, "dashboard-oidc-username-claim", "",
+		"ID token claim the API server takes the username from; must match its claim mapping (empty: sub).")
+	fs.StringVar(&o.dashboardAuth.UsernamePrefix, "dashboard-oidc-username-prefix", "",
+		"Prefix the API server puts before the username; must match its claim mapping "+
+			"(empty: the issuer URL and #; - for none).")
+	fs.StringVar(&o.dashboardAuth.GroupsClaim, "dashboard-oidc-groups-claim", "",
+		"ID token claim the API server takes the groups from; must match its claim mapping (empty: groups).")
+	fs.StringVar(&o.dashboardAuth.GroupsPrefix, "dashboard-oidc-groups-prefix", "",
+		"Prefix the API server puts before every group; must match its claim mapping.")
+	fs.DurationVar(&o.dashboardAuth.SessionIdleTimeout, "dashboard-session-idle-timeout", 0,
+		"A dashboard session without a request for this long ends (0: 1h).")
+	fs.DurationVar(&o.dashboardAuth.SessionMaxAge, "dashboard-session-max-age", 0,
+		"A dashboard session ends this long after sign-in, renewed or not (0: 12h).")
+	fs.BoolVar(&o.dashboardAuth.TokenLogin, "dashboard-token-login", false,
+		"Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides.")
+	fs.StringVar(&o.dashboardDeliveryNS, "dashboard-delivery-namespace", "",
+		"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; "+
+			"empty means pacto-delivery.")
+	fs.StringVar(&o.dashboardMiraURL, "dashboard-mira-url", "",
+		"Mira's address, to link the dashboard's health-check citations.")
 	fs.BoolVar(&o.enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
 	fs.Func("evidence-subject",
 		"Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. "+
-			"The registry holding it IS the durable evidence store — accepted records are published as OCI 1.1 "+
+			"The registry holding it is the durable evidence store: accepted records are published as OCI 1.1 "+
 			"referrers of that manifest. At least one is required when the Evidence Server is enabled.",
 		func(subject string) error {
 			o.evidenceSubjects = append(o.evidenceSubjects, subject)
@@ -187,6 +241,14 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.kernelEvidenceStaleness, "kernel-evidence-staleness", 0,
 		"How old a node's heartbeat (its Lease renewal, or the observation's lastPublished without a Lease) may be "+
 			"before its evidence reads stale. 0 uses three times the publish interval the node agent reports.")
+	fs.Func("caller-coverage-ignore-namespace",
+		"Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller "+
+			"coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's "+
+			"are always ignored.",
+		func(v string) error {
+			o.callerIgnoreNamespaces = append(o.callerIgnoreNamespaces, v)
+			return nil
+		})
 	fs.BoolVar(&o.enableNodeAgent, "enable-node-agent", false,
 		"Enable the managed node agent DaemonSet, which observes TCP socket state with eBPF on every node and "+
 			"publishes it as NodeRuntimeObservation objects. Disabled by default.")
@@ -208,10 +270,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	o.zap.BindFlags(fs)
 }
 
-// bindResourceFlags registers --<prefix>-{cpu,memory}-{request,limit} for one component's container. examples,
-// when given, are the cpu-request, cpu-limit, memory-request and memory-limit values the help shows.
-func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, container string, examples ...string) {
-	for i, f := range []struct {
+// bindResourceFlags registers --<prefix>-{cpu,memory}-{request,limit} for one component's container.
+func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, container string) {
+	for _, f := range []struct {
 		name, resource, kind string
 		into                 *string
 	}{
@@ -220,11 +281,7 @@ func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, contai
 		{"memory-request", "Memory", "request", &rc.MemoryRequest},
 		{"memory-limit", "Memory", "limit", &rc.MemoryLimit},
 	} {
-		example := ""
-		if i < len(examples) {
-			example = " (e.g. " + examples[i] + ")"
-		}
-		help := fmt.Sprintf("%s %s for the %s container%s.", f.resource, f.kind, container, example)
+		help := fmt.Sprintf("%s %s for the %s container.", f.resource, f.kind, container)
 		fs.StringVar(f.into, prefix+"-"+f.name, "", help+" Empty uses the built-in default.")
 	}
 }
@@ -280,6 +337,7 @@ func main() {
 		KernelEvidence:                    o.enableKernelEvidence,
 		KernelEvidenceNamespace:           o.kernelEvidenceNamespace,
 		KernelEvidenceStaleness:           o.kernelEvidenceStaleness,
+		CallerIgnoreNamespaces:            o.callerIgnoreNamespaces,
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
@@ -334,7 +392,7 @@ func newManager(o *options) (ctrl.Manager, error) {
 		})
 	}
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+	// The Metrics options configure the metrics server.
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
@@ -347,16 +405,15 @@ func newManager(o *options) (ctrl.Manager, error) {
 	if o.secureMetrics {
 		// FilterProvider is used to protect the metrics endpoint with authn/authz.
 		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// can access the metrics endpoint. The chart grants the RBAC they need. More info:
 		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
 	// If the certificate is not specified, controller-runtime will automatically
 	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production: with cert-manager, the [METRICS-WITH-CERTS] section of
-	// config/default/kustomization.yaml and [PROMETHEUS-WITH-CERTS] of config/prometheus/kustomization.yaml
-	// provide managed certificates.
+	// this setup is not recommended for production: mount managed certificates (cert-manager, for one)
+	// and point --metrics-cert-path at them.
 	if len(o.metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", o.metricsCertPath, "metrics-cert-name", o.metricsCertName, "metrics-cert-key", o.metricsCertKey)
@@ -460,6 +517,13 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		InsecureRegistries: insecureRegistries,
 		Observation:        o.dashboardObservation,
 		Resources:          o.dashboardResources,
+		Auth:               o.dashboardAuth,
+		DeliveryNamespace:  o.dashboardDeliveryNS,
+		MiraURL:            o.dashboardMiraURL,
+		DeliveryTrust:      o.dashboardDeliveryTrust,
+	}
+	if o.dashboardExtraScopes != "" {
+		dashCfg.Auth.ExtraScopes = strings.Split(o.dashboardExtraScopes, ",")
 	}
 	if err := dashCfg.Validate(); err != nil {
 		return fmt.Errorf("invalid dashboard configuration: %w", err)

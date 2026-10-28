@@ -1,15 +1,15 @@
 # Upgrade the Kubernetes operator
 
-Most upgrades are one `helm upgrade`. A release that changes or adds a CRD
-needs one extra step first, and this page shows it.
+An upgrade is one `helm upgrade`, which updates the CRDs along with the
+operator. A cluster whose CRDs came from an older chart's `crds/` directory
+needs one extra step the first time, and this page shows it.
 
 The Kubernetes integration has its own version, separate from Pacto core: the
 operator image, Helm chart, Go module and these docs move together.
 
 ## Upgrade with Helm
 
-For an upgrade that does not change the CRD schema, a plain `helm upgrade` is
-enough. The currently published chart:
+The currently published chart:
 
 --8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
@@ -20,57 +20,81 @@ enough. The currently published chart:
     `controller.enableMetricsObservation` and `nodeAgent.enabled`, which
     survive an upgrade. A flag with no chart value, such as name-match
     discovery, has to be patched again after every upgrade; see
-    [Limitations — opt-in features](limitations.md#opt-in-features).
+    [Limitations: opt-in features](limitations.md#opt-in-features).
+
+## Hand older CRDs to Helm
+
+A CRD (CustomResourceDefinition) tells Kubernetes what a `Pacto` object looks
+like. The chart renders its CRDs as part of the release, so `helm upgrade`
+updates a changed CRD and adds a new one, and `helm uninstall` keeps them
+(`helm.sh/resource-policy: keep`). Older charts installed the operator CRDs
+from a `crds/` directory that Helm never upgrades and never records as part
+of the release.
+
+If your CRDs came from such a chart, `helm upgrade` stops with `invalid
+ownership metadata`. Label and annotate them for your release once, then run
+the upgrade. Change the release name and namespace if yours differ:
+
+```bash
+for crd in $(kubectl get crd -o name | grep -E '/[a-z]+\.pacto\.trianalab\.io$'); do
+  kubectl label "$crd" app.kubernetes.io/managed-by=Helm --overwrite
+  kubectl annotate "$crd" --overwrite \
+    meta.helm.sh/release-name=pacto-operator \
+    meta.helm.sh/release-namespace=pacto-operator-system
+done
+```
+
+The loop runs the same in bash and zsh. The `grep` matches only the operator CRDs. The delivery CRDs, group
+`delivery.pacto.trianalab.io`, were already part of the release.
+
+## Image values
+
+The chart builds each image from `global.imageRegistry` (default `ghcr.io`)
+and a `repository` without a registry, such as `trianalab/pacto/operator`.
+An image's own `registry` value replaces the global one for that image.
+
+Values from older charts set the whole reference in `image.repository` or
+`delivery.image.repository`, such as
+`ghcr.io/trianalab/pacto-operator/pacto-controller`. The chart keeps such a
+repository as the whole reference and adds no registry, so these values
+upgrade unchanged. The chart treats a repository as already carrying a
+registry host when its first path segment holds a `.` or `:` or is
+`localhost`. The [Helm reference](helm-reference.md) lists every
+image value.
 
 ## Upgrading across a major version (CRD migration)
 
-A CRD (CustomResourceDefinition) tells Kubernetes what a `Pacto` object looks
-like. Helm installs the CRDs in a chart's `crds/` directory on the first
-`helm install` and never touches them again: `helm upgrade` neither updates a
-changed CRD nor adds a new one. A release that changes the schema or ships a
-new CRD therefore has one extra, ordered step: **apply the new CRDs before you
-run `helm upgrade`**.
-
-**Step 1 — apply the new CRDs yourself.** Use server-side apply
-(`--server-side`): these CRDs are too large for the annotation a client-side
-apply writes, and `--force-conflicts` takes over the fields the previous
-install set.
-The URLs are pinned to the release tag these docs describe, so the schema you
-apply is the one the chart in step 2 expects:
-
---8<-- "integrations/kubernetes/docs/generated/_crd-apply.md"
-
-**Step 2 — upgrade the release to the new chart version**, exactly the command
-from [Upgrade with Helm](#upgrade-with-helm) above:
+Helm applies the new CRDs ahead of the new operator, so a major upgrade is
+the same command as any other:
 
 --8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
 The API version stays `v1alpha1` across the major bump and the stored version is
 unchanged. Every existing `Pacto` resource therefore remains stored and readable
-under the new CRD — no conversion webhook, no decode error — and the upgraded
+under the new CRD, with no conversion webhook and no decode error, and the upgraded
 operator reconciles it in place. That holds because **`spec` is additive**: v5 adds
 `spec.target.configBindings` and `spec.target.interfaceBindings` and removes
 nothing, so a contract resource written for v4 still validates unchanged.
 
-### Status is redesigned, not extended
+### Status is redesigned
 
 !!! warning "The upgrade drops v4 status observations on sight"
-    `status` was redesigned, not extended: v5 removes 51 status paths and adds 35.
+    v5 redesigns `status`: it removes 51 status paths and adds 35.
     `status.runtime`, `status.endpoints`, `status.ports`, `status.scaling`,
     `status.readiness.checks`, `status.contract.imageRef` and
     `status.summary.{passed,failed,total}` are gone, replaced by
     `status.findings`, `status.evaluationCoverage` and
-    `status.summary.{errorCount,warningCount,infoCount,unknownCount}` — which is
+    `status.summary.{errorCount,warningCount,infoCount,unknownCount}`. That is
     why the printer columns change from `PASSED`/`FAILED` to
     `ERRORS`/`WARNINGS`.
 
     The apiserver stops serving the removed fields the moment the new CRD
-    lands. A `kubectl get pacto -o yaml` taken between step 1 and step 2
-    therefore shows a resource whose `spec` is intact and whose `status` looks
-    half-empty.
-    That is the CRD, not data loss: the old values are still in etcd and are
-    lost for good only once something writes `status` again. Do not read that
-    window as a failed migration.
+    lands. A `kubectl get pacto -o yaml` taken before the new operator writes
+    `status` therefore shows a resource whose `spec` is intact and whose
+    `status` looks half-empty.
+    The CRD causes this. The old values are still in etcd and are lost for
+    good only once something writes `status` again, so that window is a normal
+    part of the migration.
 
 ### Confirming the migration
 
@@ -82,21 +106,22 @@ kubectl get crd pactos.pacto.trianalab.io \
 kubectl get pacto -A                                                    # existing resources still list + reconcile
 ```
 
-If a future release ever ships an incompatible schema change, the server-side
-apply or the resource read fails loudly rather than silently dropping resources.
+If a future release ever ships an incompatible schema change, the upgrade or
+the resource read fails with an error, so no resource disappears silently.
 See the [CRD reference](crd-reference.md) for the current field set.
 
 This exact flow is exercised against a real cluster by
 `tests/acceptance/kind/upgrade-v4-v5.sh`, the `upgrade` leg of CI's
-`ci-e2e-kind` job. It installs the real v4 chart with its v4 CRDs, server-side
-applies the new CRDs, then `helm upgrade`s to the current chart and asserts the
-pre-existing resource survives and reconciles.
+`ci-e2e-kind` job. It installs the real v4 chart with its v4 CRDs, hands them to
+Helm as [above](#hand-older-crds-to-helm), then `helm upgrade`s to the current
+chart and asserts the CRDs migrate and the pre-existing resource survives and
+reconciles.
 
 ## Upgrading to v6
 
-v6 adds the `NodeRuntimeObservation` CRD, so apply the CRDs first as
-[above](#upgrading-across-a-major-version-crd-migration). Then check these
-before `helm upgrade`:
+v6 adds the `NodeRuntimeObservation` CRD, which `helm upgrade` creates. Hand
+the older CRDs to Helm first as [above](#hand-older-crds-to-helm), then check
+these before `helm upgrade`:
 
 - **Removed flags and values.** `--webhook-cert-path`, `--webhook-cert-name`,
   `--webhook-cert-key` and `--dashboard-oci-secret` are gone; the operator
@@ -121,17 +146,18 @@ before `helm upgrade`:
 **Within** a major, `helm rollback pacto-operator` reverts what the chart owns
 and leaves your `Pacto` resources untouched; re-apply any
 [hand-patched controller flags](#upgrade-with-helm) afterwards. **Across** a
-major it is not that clean. Helm does not manage `crds/` in either direction, so
-a rollback leaves the new CRD in place. The old controller then writes v4-only
-status fields that the API server drops while still reporting success. A real return to the
-previous major means rolling the chart back *and* server-side applying the
-previous release's CRDs, the mirror image of step 1.
+major it takes more work. A chart from before the CRDs moved into the release
+does not carry them, so rolling back to it leaves the new CRDs in place. The old
+controller then writes status fields the new schema lacks, which the API server
+drops while still reporting success. A real return to that major means rolling
+the chart back *and* server-side applying the previous release's CRDs from its
+`config/crd/bases`.
 
 ## Turning on the Evidence Server during an upgrade
 
 The Evidence Server arrived in chart 5.2.0 and is off by default, so an upgrade
-changes nothing until you set `evidence.enabled`. Its requirements — a subject
-list and a registry serving the native Referrers API — are on
+changes nothing until you set `evidence.enabled`. Its requirements, a subject
+list and a registry serving the native Referrers API, are on
 [The Evidence Server](evidence-server.md). Turning it back off later removes the
 whole footprint and loses nothing: every accepted record already lives in your
 contract registry.

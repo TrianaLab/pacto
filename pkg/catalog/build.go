@@ -426,6 +426,9 @@ func (b *builder) expand(a arrival, p projection) []arrival {
 	// million dependencies allocates the budget, not the declaration list.
 	out := make([]arrival, 0, min(len(p.deps), b.bounds.MaxEdges))
 	for i, d := range p.deps {
+		if d.Ref == "" && d.External {
+			continue // an external dependency with no contract: nothing to resolve, nothing missing
+		}
 		decl := DeclarationID{From: p.id(), Index: i}
 		if !b.admitEdgeWork(edgeWork{decl: decl, base: p.base, ref: d.Ref, constraint: d.Compatibility}) {
 			// Declaration indexes are unique within one expansion, so the work

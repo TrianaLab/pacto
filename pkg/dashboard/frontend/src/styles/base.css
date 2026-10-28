@@ -99,27 +99,36 @@ pre {
    which is how a deeply nested section title ended up smaller than its own body
    text. Every level now lands on the ramp. */
 h1 {
+  font-family: var(--role-page-title-family);
   font-size: var(--role-page-title-size); font-weight: var(--role-page-title-weight);
-  letter-spacing: -0.02em; line-height: var(--role-page-title-lh);
+  letter-spacing: -0.01em; line-height: var(--role-page-title-lh);
 }
+/* The double rule belongs to the page-title ROLE, not to the class: the legacy host and
+   the redirect pages write a bare <h1>, and option A puts the rule under every one. */
+main h1 { padding-bottom: 10px; border-bottom: var(--role-page-title-rule); }
 h2 {
+  font-family: var(--role-section-title-family);
   font-size: var(--role-section-title-size); font-weight: var(--role-section-title-weight);
   letter-spacing: -0.01em; line-height: var(--role-section-title-lh);
 }
 h3, h4, h5, h6 {
+  font-family: var(--role-subsection-title-family); font-style: var(--role-subsection-title-style);
   font-size: var(--role-subsection-title-size); font-weight: var(--role-subsection-title-weight);
   line-height: var(--role-subsection-title-lh);
 }
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); table-layout: auto; }
-td code { word-break: break-all; }
+/* Break a long code value at a word boundary, or inside a word only when one word
+   is wider than its column. break-all let auto layout squeeze config keys to three
+   characters and push the value and Type columns off screen. */
+td code { overflow-wrap: break-word; word-break: normal; }
 thead { border-bottom: 1px solid var(--c-border); }
 th {
   text-align: left; padding: var(--sp-3) var(--sp-3);
-  color: var(--c-text-3); font-weight: 500;
-  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--c-text-3);
   position: relative; z-index: 1;
+  font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
 }
 td {
   padding: var(--sp-3) var(--sp-3);
@@ -165,17 +174,31 @@ tbody tr:hover { background: var(--c-surface-hover); }
 .fade-in { animation: fadeIn 0.2s ease-out both; }
 .fade-in-up { animation: fadeInUp 0.3s ease-out both; }
 
-/* Skeleton loader */
+/* Skeleton loader. The sweep is a pseudo-element moved by transform, so the
+   compositor runs it without the main thread: it keeps moving while the page is
+   busy. Animating background-position repaints on the main thread and stops with it. */
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
 }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--c-surface-inset) 25%, var(--c-surface-hover) 50%, var(--c-surface-inset) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: var(--c-surface-inset);
   border-radius: var(--radius-xs);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--c-surface-hover), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+/* No sweep at all for a reader who asked for less motion: the bar stays still. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { display: none; }
 }
 .skeleton-line { height: 16px; margin-bottom: var(--sp-2); }
 .skeleton-line:last-child { width: 60%; }

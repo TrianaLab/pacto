@@ -1,4 +1,6 @@
 <script>
+  import { formatCount } from '../../lib/format.ts';
+  import HelpTip from '../HelpTip.svelte';
   // A proportional distribution across a FINITE, exhaustive set of buckets.
   //
   // The accessibility contract this component exists to enforce, once, for every
@@ -106,34 +108,26 @@
     const p = pct(v);
     return p === 0 && v > 0 ? `<${denom >= 100 ? '0.1' : '1'}` : `${p}`;
   };
-  const pctLabel = (v) => (denom > 0 ? `(${pctText(v)}% of ${denom})` : '(share unavailable)');
+  // A population of one has no proportion to draw: a full bar and "(100% of 1)" only
+  // restate the count. The legend line says it alone.
+  const one = $derived(denom === 1 && over === 0);
+  const pctLabel = (v) => (one ? '' : denom > 0 ? `(${pctText(v)}% of ${formatCount(denom)})` : '(share unavailable)');
 
-  // A countable population is drawn as individuals rather than as proportions. Nine
-  // targets on a proportional bar is a shape the reader has to convert back into nine
-  // things; drawn as nine marks they can see that two of them are red without reading a
-  // number. Above the ceiling the marks stop being countable and the proportion is the
-  // honest reading again, so the bar comes back.
-  //
-  // Gated on `over === 0` because an over-count has no individuals to draw: the buckets
-  // account for more things than exist, and a mark per counted thing would render that
-  // contradiction as a larger, complete-looking population.
-  const UNIT_MAX = 120;
-  const unit = $derived(
-    denom > 0 && denom <= UNIT_MAX && over === 0 && rows.every((r) => Number.isInteger(r.value)),
-  );
-  // `rows` sums to exactly `denom` whenever there is no over-count -- the shortfall is
-  // already carried as the Unclassified row -- so the marks partition the population by
-  // construction and no cell is invented or dropped.
-  const cells = $derived(unit ? rows.flatMap((r) => Array.from({ length: r.value }, () => r)) : []);
-  // The mark is sized from the population so a small one is BIG. Nine targets drawn as
-  // nine 16px squares is a 150px smudge in a 400px column -- technically countable and
-  // visually nothing, which is the state this component was in when the marks first
-  // landed. Nine at 26px is a block the eye lands on from across the room, and the
-  // ladder steps down only as fast as it has to for the row to still fit beside its
-  // siblings. It is a ladder rather than a container query because the sizes are chosen
-  // against the two column widths this product actually uses, and a fluid mark would
-  // make the same population a different size on every page that draws it.
-  const unitPx = $derived(denom <= 12 ? 26 : denom <= 20 ? 18 : denom <= 60 ? 12 : 8);
+  // ONE stacked bar for every population, labelled on the bar itself. The bar used to
+  // switch to a field of squares (one per member) under 120 members; reviewers read the
+  // squares as a waffle chart they had to decode against the legend. A stacked bar with
+  // each slice's name and count printed inside it reads on its own, a native tooltip
+  // carries the exact share, and the legend below stays the accessible statement.
+  const tip = (r) => `${r.label}: ${formatCount(r.value)} ${pctLabel(r.value)}`;
+
+  // What a slice can say depends on how wide it is drawn: its count and name, its
+  // count alone, or nothing (the tooltip and the legend still say it). A count is
+  // never cut short: "2…" for 231 read as two.
+  let barWidth = $state(0);
+  const segWidth = (v) => (sum > 0 ? Math.max(0, barWidth - 2 * (rows.length - 1)) * (v / sum) : 0);
+  // Before the bar is measured (or where nothing is laid out) every label is offered and
+  // the slice clips it.
+  const fits = (v, text) => barWidth === 0 || segWidth(v) >= text.length * 7 + 16;
 </script>
 
 <figure class="dist">
@@ -144,6 +138,9 @@
        printed after it. -->
   <figcaption class="dist-cap">
     <svelte:element this={`h${level}`} class="dist-title t-subsection-title">{title}</svelte:element>
+    <!-- The description is a definition, so it sits behind the help button rather than
+         under the bars: a page of five figures read as ten lines of caveat. -->
+    {#if description}<HelpTip label={title} text={description} textClass="dist-desc" />{/if}
   </figcaption>
 
   {#if rows.length === 0}
@@ -156,8 +153,8 @@
            not depend on being read next to the legend. -->
       <p class="dist-warn" role="status" data-testid="dist-inconsistent">
         <strong>These numbers do not add up.</strong>
-        The buckets below account for {sum} across a population of {denom}
-        — {over} more than {denom === 1 ? 'there is' : 'there are'}. Something is
+        The buckets below account for {formatCount(sum)} across a population of {formatCount(denom)}:
+        {formatCount(over)} more than {denom === 1 ? 'there is' : 'there are'}. Something is
         being counted twice or against the wrong population,
         {#if emptyPopulation}
           and there is no population to take a share of, so the counts below are shown
@@ -168,47 +165,30 @@
         {/if}
       </p>
     {/if}
-    <!-- One element either way, so the graphic is hidden from assistive technology in
-         exactly one place and neither drawing can be added to the accessible tree by
-         forgetting to. No role on the marks, deliberately: they live inside
+    <!-- Hidden from assistive technology in exactly one place: the on-bar labels and
+         tooltips repeat the legend for sighted readers. No role on the slices,
+         deliberately: they live inside
          aria-hidden="true" and are not in the accessible tree at all, so giving them one
          would put a decorative shape back into it. The pointer gesture they carry is
          presentational, and its keyboard equivalent is the legend entry below, which IS
          focusable. -->
-    <div
-      class="dist-bar"
-      class:dist-bar-warn={over > 0}
-      class:dist-units={unit}
-      style={unit ? `--unit: ${unitPx}px` : undefined}
-      aria-hidden="true"
-    >
-      {#if unit}
-        {#each cells as c, i (i)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            class="dist-unit tone-{c.tone || 'neutral'}"
-            class:dim={dimmed(c.label)}
-            class:sel={selected === c.label}
-            data-motion
-            onmouseenter={() => (active = c.label)}
-            onmouseleave={() => (active = '')}
-          ></span>
-        {/each}
-      {:else}
-        {#each rows as r (r.label)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            class="dist-seg tone-{r.tone || 'neutral'}"
-            class:dim={dimmed(r.label)}
-            class:sel={selected === r.label}
-            data-motion
-            style="flex-grow: {r.value}"
-            onmouseenter={() => (active = r.label)}
-            onmouseleave={() => (active = '')}
-          ></span>
-        {/each}
-      {/if}
+    {#if !one}
+    <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true" bind:clientWidth={barWidth}>
+      {#each rows as r (r.label)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span
+          class="dist-seg tone-{r.tone || 'neutral'}"
+          class:dim={dimmed(r.label)}
+          class:sel={selected === r.label}
+          data-motion
+          title={tip(r)}
+          style="flex-grow: {r.value}"
+          onmouseenter={() => (active = r.label)}
+          onmouseleave={() => (active = '')}
+        >{#if fits(r.value, formatCount(r.value))}<span class="dist-seg-text"><span class="dist-seg-value">{formatCount(r.value)}</span>{#if fits(r.value, `${formatCount(r.value)} ${r.label}`)}{' '}<span class="dist-seg-name">{r.label}</span>{/if}</span>{/if}</span>
+      {/each}
     </div>
+    {/if}
     <ul class="dist-legend">
       {#each rows as r (r.label)}
         <li
@@ -223,30 +203,29 @@
             <a href={r.href} aria-current={selected === r.label ? 'true' : undefined}>
               <span class="dist-swatch" aria-hidden="true"></span>
               <span class="dist-label">{r.label}</span>
-              <span class="dist-value">{r.value}</span>
-              <span class="dist-pct">{pctLabel(r.value)}</span>
+              <span class="dist-value">{formatCount(r.value)}</span>
+              {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
             </a>
           {:else}
             <span class="dist-swatch" aria-hidden="true"></span>
             <span class="dist-label">{r.label}</span>
-            <span class="dist-value">{r.value}</span>
-            <span class="dist-pct">{pctLabel(r.value)}</span>
+            <span class="dist-value">{formatCount(r.value)}</span>
+            {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
           {/if}
         </li>
       {/each}
     </ul>
   {/if}
-  {#if description || scopeNote}
+  {#if scopeNote}
     <div class="dist-note">
-      {#if description}<p class="dist-desc">{description}</p>{/if}
-      {#if scopeNote}<p class="dist-scope">{scopeNote}</p>{/if}
+      <p class="dist-scope">{scopeNote}</p>
     </div>
   {/if}
 </figure>
 
 <style>
   .dist { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .dist-cap { display: flex; flex-direction: column; gap: 2px; }
+  .dist-cap { display: flex; align-items: center; gap: var(--sp-2); }
   /* Subsection role, not a private size -- see HorizontalBars. */
   .dist-title { margin: 0; }
   /* Pushed to the bottom of the figure and off the reading path to the numbers: the
@@ -254,7 +233,7 @@
      where it keeps the footnote on the floor of the cell instead of floating under a
      short legend. */
   .dist-note { margin-top: auto; padding-top: var(--sp-1); display: flex; flex-direction: column; gap: 2px; }
-  .dist-desc, .dist-scope { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .dist-scope { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .dist-scope { font-style: italic; }
   .dist-empty { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   /* The notice carries the whole message on its own; the border and the hatching
@@ -269,35 +248,30 @@
      (Unknown beside Warning, both amber) read as one wide slice without it, and the
      reader counts three buckets on a four-bucket bar. */
   .dist-bar {
-    display: flex; gap: 2px; width: 100%; height: 12px; border-radius: var(--radius-xs);
+    display: flex; gap: 2px; width: 100%; height: 24px; border-radius: var(--radius-xs);
     overflow: hidden; background: var(--c-surface-inset); border: 1px solid var(--c-border);
   }
   /* A bar that fills edge to edge reads as a complete distribution. When the buckets
      over-count it is not one, so it is drawn hatched — the notice above already says
      so in words; this only stops the shape from contradicting it. */
   .dist-bar-warn { border-color: var(--c-warn); border-style: dashed; }
-  /* Marks, not a bar: the frame and the fixed height belong to a single continuous shape
-     and would read as a container the marks sit inside. They size themselves and wrap. */
-  .dist-units {
-    height: auto; flex-wrap: wrap; overflow: visible;
-    background: none; border: 0; border-radius: 0;
-    /* One rule instead of a second size ladder: the gutter is a fixed fraction of the
-       mark, so the marks read as a field of individuals at every step and never as a
-       row of bars with a hairline between them. */
-    gap: max(2px, calc(var(--unit) / 6));
-  }
-  .dist-unit {
-    display: block; width: var(--unit); height: var(--unit); flex: none;
-    border-radius: max(2px, calc(var(--unit) / 8));
-    background: var(--tone-c, var(--c-neutral));
-    transition: opacity var(--motion-feedback);
-  }
-  .dist-unit.dim { opacity: 0.25; }
-  .dist-unit.sel { box-shadow: inset 0 0 0 2px var(--c-text); }
+  /* Each slice is its own size container, so its label decides from the slice's own
+     width what fits: name and count, the count alone, or nothing (the tooltip and the
+     legend still say it). flex-basis 0 keeps the width proportional to the value alone. */
   .dist-seg {
-    display: block; min-width: 2px; background: var(--tone-c, var(--c-neutral));
+    display: flex; align-items: center; min-width: 2px; flex-basis: 0;
+    overflow: hidden;
+    background: var(--tone-c, var(--c-neutral)); color: var(--seg-ink);
     transition: flex-grow var(--motion-reveal), opacity var(--motion-feedback);
   }
+  .dist-seg-text {
+    padding: 0 var(--sp-2); min-width: 0; white-space: nowrap; overflow: hidden;
+    font-size: var(--text-xs); font-weight: 600; line-height: 1;
+  }
+  .dist-seg-value { font-variant-numeric: tabular-nums; }
+  /* A dimmed slice keeps its colour at a third; its label would drop below AA, so it
+     goes rather than being shown unreadable. */
+  .dist-seg.dim .dist-seg-text { visibility: hidden; }
   /* The reader caused this, so it is the feedback role and not an entrance. Dimming the
      OTHERS rather than brightening the one keeps every slice its own tone: brightening
      would mean two renderings of the same colour on one bar. */
@@ -310,6 +284,8 @@
   .dist-item.dim { opacity: 0.45; }
   .dist-bar-warn .dist-seg { opacity: 0.55; }
   .dist-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
+  /* Rows of one height, whether an item is a link (a touch target) or plain text. */
+  .dist-item { min-height: var(--touch-min); align-items: center; }
   .dist-item, .dist-item a {
     display: flex; align-items: baseline; gap: var(--sp-2);
     font-size: var(--text-sm); color: var(--c-text-2); text-decoration: none;

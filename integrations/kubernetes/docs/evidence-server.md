@@ -13,18 +13,17 @@ decides which registry the contract itself has to live in.
 
 Each report is stored next to the contract version it is about, in the same
 registry repository, as an OCI 1.1 *referrer* (an artifact that points at
-another artifact). Pacto does not fall back to the older tag-based scheme, so
-the registry holding the contract must support Referrers lookup. **GHCR does not qualify** — which matters here more than anywhere
-else on this site, because every other page publishes to `ghcr.io` — and neither
-does CNCF distribution (`registry:2`, `registry:3`); see
-[Evidence in OCI](../../evidence.md#registry-conformance). Publishing the
-contract to a conformant registry is a decision to make before `pacto push`, not
-after `helm install`.
+another artifact). Pacto has no fallback to the older tag-based scheme, so the registry holding
+the contract must support Referrers lookup. **GHCR does not qualify**, and
+neither does CNCF distribution (`registry:2`, `registry:3`); see
+[Evidence in OCI](../../evidence.md#registry-conformance). This matters because
+every other page on this site publishes to `ghcr.io`. Choose a conformant
+registry for the contract before you run `pacto push`.
 
 ## Create the trust store
 
 `pacto evidence keygen` mints an Ed25519 pair and
-names the public key after the trust binding the server reads —
+names the public key after the trust binding the server reads:
 `<producerId>__<keyId>.pub`, or a bare `<keyId>.pub` when there is a single
 producer:
 
@@ -39,7 +38,7 @@ public key:  keys/acme-ci__release-2026.pub
 ```
 
 The Secret is mounted whole and read-only at `/etc/pacto/trust`, so **each
-Secret key has to be the public-key filename** — which is exactly what
+Secret key has to be the public-key filename**, which is what
 `--from-file` gives you. One `--from-file` per trusted producer:
 
 ```bash
@@ -48,8 +47,8 @@ kubectl create secret generic pacto-evidence-trust \
   --from-file=keys/acme-ci__release-2026.pub
 ```
 
-The private `.key` stays with the producer that signs; the cluster never needs
-it. [Evidence security](../../evidence.md#trust-store-and-trust-config) covers rotation and
+The private `.key` stays with the producer that signs; the cluster needs only
+the public key. [Evidence security](../../evidence.md#trust-store-and-trust-config) covers rotation and
 multi-producer trust.
 
 ## Get the subject digest
@@ -78,13 +77,13 @@ helm install pacto-operator \
   `oci://<repo>@sha256:<digest>` reference. The chart's schema rejects an empty
   list, so `helm install` fails before anything reaches the cluster:
   `at '/evidence/registry/subjects': minItems: got 0, want 1`. It rejects a
-  short or tag-shaped reference the same way — the digest has to be all 64 hex
+  short or tag-shaped reference the same way: the digest has to be all 64 hex
   characters.
 - **A trust store.** `evidence.trust.existingSecret` names the Secret you
   created above. The chart does **not** check this one, so an install without
   it succeeds and the operator then exits at startup with `evidence enabled but
   no trust secret set: signature verification is mandatory`. Verification is
-  never optional.
+  mandatory.
 - **A registry that serves the native Referrers API**, as above. Nothing checks
   it at install time: the chart installs, the operator starts and the failure
   surfaces later as an Evidence Server that never becomes ready.
@@ -115,8 +114,7 @@ pacto-operator    1/1     1            1           21s
 `GET /api/evidence/v1/ready`, which answers `503` until **every** subject
 resolves in the registry *and* answers native Referrers discovery. A
 `pacto-evidence` stuck at `0/1` is nearly always a subject the cluster cannot
-pull or a registry without the Referrers API — read its own log, not the
-controller's:
+pull or a registry without the Referrers API. Read the server's own log:
 
 ```bash
 kubectl -n pacto-operator-system logs deploy/pacto-evidence
@@ -130,8 +128,8 @@ http://pacto-evidence.pacto-operator-system.svc:8686/api/evidence/v1/envelopes
 ```
 
 A `pacto fleet` outside the cluster consumes the same server's read-only
-contribution by **base** URL — `--evidence-url` appends
-`/api/evidence/v1/targets` itself, so do not include it:
+contribution by **base** URL. `--evidence-url` appends
+`/api/evidence/v1/targets` itself, so leave it out:
 
 ```bash
 kubectl port-forward -n pacto-operator-system svc/pacto-evidence 8686:8686 &

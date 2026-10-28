@@ -161,7 +161,11 @@ func renderExplain(r *app.ExplainResult) string {
 			if dep.Required {
 				req = " [required]"
 			}
-			fmt.Fprintf(&b, "  %s: %s%s\n", safeText(dep.Name), safeText(dep.Ref), req)
+			ref := dep.Ref
+			if ref == "" {
+				ref = "external, version " + dep.Version
+			}
+			fmt.Fprintf(&b, "  %s: %s%s\n", safeText(dep.Name), safeText(ref), req)
 		}
 	}
 	if r.Readiness != nil {

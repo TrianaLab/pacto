@@ -67,7 +67,7 @@ jobs:
       # release.yml rather than carrying an exception nobody would maintain.
       - name: Warm the module cache (retried)
         run: bash release/scripts/retry.sh go mod download
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
       - run: pip install pyyaml
@@ -134,14 +134,15 @@ jobs:
       # the hash of the core tree about to be tagged, tagging it ships an operator
       # whose standalone build fails with a checksum mismatch. 4.0.0/6.0.0 did, after
       # main moved under the Version PR; the tags were already out when the operator
-      # image build noticed. Only the operator units read that go.sum, so a recovery
+      # image build noticed. Only the operator units (and the delivery image, built
+      # from the same module) read that go.sum, so a recovery
       # narrowed to core-line units (e.g. units=cli) is not held hostage by it.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        if: steps.d.outputs.release == 'true' && (contains(fromJSON(steps.d.outputs.units_json), 'k8s-module') || contains(fromJSON(steps.d.outputs.units_json), 'operator-image'))
+        if: steps.d.outputs.release == 'true' && (contains(fromJSON(steps.d.outputs.units_json), 'k8s-module') || contains(fromJSON(steps.d.outputs.units_json), 'operator-image') || contains(fromJSON(steps.d.outputs.units_json), 'delivery-image'))
         with:
           go-version-file: go.mod
       - name: Guard — operator go.sum matches the core tree about to be tagged
-        if: steps.d.outputs.release == 'true' && (contains(fromJSON(steps.d.outputs.units_json), 'k8s-module') || contains(fromJSON(steps.d.outputs.units_json), 'operator-image'))
+        if: steps.d.outputs.release == 'true' && (contains(fromJSON(steps.d.outputs.units_json), 'k8s-module') || contains(fromJSON(steps.d.outputs.units_json), 'operator-image') || contains(fromJSON(steps.d.outputs.units_json), 'delivery-image'))
         run: bash release/orchestrator/verify-core-gosum.sh
       - name: Guard — recovery is bound to the exact source commit
         if: github.event_name == 'workflow_dispatch'
@@ -534,7 +535,7 @@ jobs:
   # this unit hands the adapter (PACTO_EXPECT_CONTENT): asserted after the push, and
   # the crash-window adoption rule.
   demo-compose:
-    needs: [detect, ledger-init, dashboard-image]
+    needs: [detect, core-tag, core-ready, ledger-init, dashboard-image-build, dashboard-image]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'demo-compose') &&
@@ -642,6 +643,16 @@ jobs:
           SRC: ${{ needs.detect.outputs.source_sha }}
         run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$SRC"
 
+  # The operator and pacto-delivery images publish through ONE set of steps each,
+  # shared with YAML anchors: the operator jobs define the steps
+  # (&k8s-image-build-steps, &k8s-image-merge-steps) and the delivery jobs reuse
+  # them (*...). Only the job-level env differs (UNIT, IMAGE_REPO, IMAGE_TITLE,
+  # BUILD_ARGS), so a release-incident fix lands once. The jobs stay separate
+  # because each is its own transaction unit with its own gate and needs. GitHub
+  # Actions resolves anchors and aliases but not merge keys (<<:), so only whole
+  # values are shared. One chart, pacto-operator, installs both images (delivery
+  # behind delivery.enabled).
+
   # Per-arch NATIVE build of the operator image, pushed by digest; the operator-image
   # job below merges these children into the published multi-arch index.
   # Each arch builds on its own native runner (no QEMU) with the root context so the
@@ -654,7 +665,7 @@ jobs:
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-image')
     permissions:
       packages: write
-    strategy:
+    strategy: &k8s-image-arches
       fail-fast: false
       matrix:
         include:
@@ -665,7 +676,13 @@ jobs:
             runner: ubuntu-24.04-arm
             arch: arm64
     runs-on: ${{ matrix.runner }}
-    steps:
+    timeout-minutes: 60
+    env:
+      UNIT: operator-image
+      IMAGE_REPO: ghcr.io/trianalab/pacto/operator
+      IMAGE_TITLE: pacto-controller
+      BUILD_ARGS: --build-arg DASHBOARD_IMAGE=ghcr.io/trianalab/pacto/dashboard:${{ needs.detect.outputs.core_version }}
+    steps: &k8s-image-build-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
@@ -683,7 +700,7 @@ jobs:
           # cache save can never fail the build; ignore-error keeps export non-fatal too.
           avail="$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}')"
           if [ -n "$avail" ] && [ "$avail" -ge 14336 ]; then
-            echo "flags=--cache-from type=gha,scope=operator-${{ matrix.arch }} --cache-to type=gha,mode=max,ignore-error=true,scope=operator-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
+            echo "flags=--cache-from type=gha,scope=$UNIT-${{ matrix.arch }} --cache-to type=gha,mode=max,ignore-error=true,scope=$UNIT-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::buildx layer cache skipped — only ${avail:-unknown} MB free on /."
             echo "flags=" >> "$GITHUB_OUTPUT"
@@ -692,25 +709,28 @@ jobs:
         env:
           VER: ${{ needs.detect.outputs.k8s_version }}
           SRC: ${{ needs.detect.outputs.source_sha }}
-          DASH: ghcr.io/trianalab/pacto/dashboard:${{ needs.detect.outputs.core_version }}
         run: |
+          # BUILD_ARGS is word-split on purpose: it holds whole flags with no spaces
+          # inside a value (the delivery target and CMD, the operator's dashboard image).
+          # shellcheck disable=SC2086
           docker buildx build --platform ${{ matrix.platform }} \
             --file integrations/kubernetes/Dockerfile \
+            $BUILD_ARGS \
             --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
-            --build-arg "DASHBOARD_IMAGE=$DASH" --build-arg RELEASE_BUILD=1 \
-            --label org.opencontainers.image.title=pacto-controller \
+            --build-arg RELEASE_BUILD=1 \
+            --label "org.opencontainers.image.title=$IMAGE_TITLE" \
             --label "org.opencontainers.image.version=$VER" \
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=$SRC" \
             ${{ steps.cache.outputs.flags }} \
-            --output type=image,name=ghcr.io/trianalab/pacto/operator,push-by-digest=true,push=true \
+            --output "type=image,name=$IMAGE_REPO,push-by-digest=true,push=true" \
             --metadata-file /tmp/meta.json .
           mkdir -p /tmp/digests
           d="$(jq -r '."containerimage.digest"' /tmp/meta.json)"
           touch "/tmp/digests/${d#sha256:}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: operator-digests-${{ matrix.arch }}
+          name: ${{ env.UNIT }}-digests-${{ matrix.arch }}
           path: /tmp/digests/*
           retention-days: 1
           if-no-files-found: error
@@ -723,6 +743,7 @@ jobs:
     needs: [detect, core-ready, ledger-init, operator-image-build]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-image')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       packages: write
       id-token: write
@@ -730,7 +751,10 @@ jobs:
       PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
       PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
       PACTO_ALLOW_PROD: '1'
-    steps:
+      UNIT: operator-image
+      IMAGE_REPO: ghcr.io/trianalab/pacto/operator
+      IMAGE_TITLE: pacto-controller
+    steps: &k8s-image-merge-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
@@ -749,12 +773,12 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          pattern: operator-digests-*
+          pattern: ${{ env.UNIT }}-digests-*
           merge-multiple: true
           path: /tmp/digests
       - name: Merge the per-arch children + sign (shared adapter)
         env:
-          REF: ghcr.io/trianalab/pacto/operator:${{ needs.detect.outputs.k8s_version }}
+          REF: ${{ env.IMAGE_REPO }}:${{ needs.detect.outputs.k8s_version }}
           VER: ${{ needs.detect.outputs.k8s_version }}
           SRC: ${{ needs.detect.outputs.source_sha }}
           PACTO_EXPECT_REVISION: ${{ needs.detect.outputs.source_sha }}
@@ -764,13 +788,13 @@ jobs:
           # -> record). `imagetools create` assembles the index from the pushed-by-digest
           # children; the adapter records the INDEX digest. index: annotations carry the
           # provenance verify-oci.sh adopt reads on a crash-window resume (each child also
-          # carries the same --label provenance). Operator + chart use cosign's legacy
+          # carries the same --label provenance). Images + charts use cosign's legacy
           # bundle format (Artifact Hub indexes the .sig tag). Sign only on publish/adopt.
           refs=""
-          for d in /tmp/digests/*; do refs="$refs ghcr.io/trianalab/pacto/operator@sha256:$(basename "$d")"; done
-          out="$(bash release/orchestrator/publish-oci-unit.sh operator-image "$REF" "$VER" -- \
+          for d in /tmp/digests/*; do refs="$refs $IMAGE_REPO@sha256:$(basename "$d")"; done
+          out="$(bash release/orchestrator/publish-oci-unit.sh "$UNIT" "$REF" "$VER" -- \
             docker buildx imagetools create \
-              --annotation index:org.opencontainers.image.title=pacto-controller \
+              --annotation "index:org.opencontainers.image.title=$IMAGE_TITLE" \
               --annotation "index:org.opencontainers.image.version=$VER" \
               --annotation "index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
               --annotation "index:org.opencontainers.image.revision=$SRC" \
@@ -781,21 +805,60 @@ jobs:
               cosign sign --yes --new-bundle-format=false --use-signing-config=false "${REF}@$(crane digest "$REF")" ;;
           esac
 
+  # Per-arch NATIVE build of the opt-in delivery promoter image: the operator-image-build
+  # steps, with the delivery target, CMD and coordinate in env.
+  delivery-image-build:
+    needs: [detect, core-ready, ledger-init]
+    if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'delivery-image')
+    permissions:
+      packages: write
+    strategy: *k8s-image-arches
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      UNIT: delivery-image
+      IMAGE_REPO: ghcr.io/trianalab/pacto/delivery
+      IMAGE_TITLE: pacto-delivery
+      BUILD_ARGS: --target delivery --build-arg CMD=cmd/delivery
+    steps: *k8s-image-build-steps
+
+  # pacto-publishes: delivery-image (MERGE the per-arch children into the index)
+  delivery-image:
+    needs: [detect, core-ready, ledger-init, delivery-image-build]
+    if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'delivery-image')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      packages: write
+      id-token: write
+    env:
+      PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
+      PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
+      PACTO_ALLOW_PROD: '1'
+      UNIT: delivery-image
+      IMAGE_REPO: ghcr.io/trianalab/pacto/delivery
+      IMAGE_TITLE: pacto-delivery
+    steps: *k8s-image-merge-steps
+
   # pacto-publishes: operator-chart
-  # operator-image is a sequencing dependency, not a required one: the chart is
-  # published after the image it points at, but a recovery that republishes only the
-  # chart against an already-published image is legitimate. Without always() that
+  # operator-image and delivery-image are sequencing dependencies, not required
+  # ones: the chart is published after the images it points at, but a recovery
+  # that republishes only the chart against already-published images is legitimate. Without always() that
   # recovery skips instead — operator-image is gated on its own unit, so narrowing
   # the dispatch to `operator-chart` skips the image and the skip lands here. The
   # failure/cancelled guards keep the sequencing: a chart never publishes ahead of an
   # image that tried to publish and could not.
+  # Every ancestor is listed directly, not only operator-image: GitHub shows a job
+  # only its direct needs, so a failed operator-image-build would arrive here as a
+  # skip and pass the guards (TestFailureGuardedJobsNeedEveryAncestor).
   operator-chart:
-    needs: [detect, operator-image, ledger-init]
+    needs: [detect, core-tag, core-ready, ledger-init, operator-image-build, operator-image, delivery-image-build, delivery-image]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'operator-chart') &&
       !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       packages: write
       id-token: write
@@ -806,6 +869,10 @@ jobs:
       PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
       PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
       PACTO_ALLOW_PROD: '1'
+      UNIT: operator-chart
+      CHART: pacto-operator
+      CHART_REPO: ghcr.io/trianalab/pacto/charts/pacto-operator
+      ARTIFACTHUB: artifacthub-repo.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -830,13 +897,13 @@ jobs:
         id: v
         working-directory: .
         run: |
-          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" operator-chart)"
+          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" "$UNIT")"
           # Pass the source revision + version so a push-before-record crash is
           # recoverable: on resume verify-oci.sh returns `adopt` when the already-pushed
           # chart's manifest provenance (org.opencontainers.image.revision/version)
           # matches this transaction, instead of failing closed on the un-recorded tag.
           state="$(bash release/orchestrator/verify-oci.sh \
-            "ghcr.io/trianalab/pacto/charts/pacto-operator:${{ needs.detect.outputs.k8s_version }}" \
+            "$CHART_REPO:${{ needs.detect.outputs.k8s_version }}" \
             "$want" "${{ needs.detect.outputs.source_sha }}" "${{ needs.detect.outputs.k8s_version }}")"
           echo "state=$state" >> "$GITHUB_OUTPUT"
       # Item 8: the IMMUTABLE chart and the MUTABLE Artifact Hub alias are separate
@@ -852,19 +919,19 @@ jobs:
           # Chart.yaml annotations) so a resumed run can adopt it by provenance after a
           # push-before-record crash. Inject into a copy to keep the working tree clean;
           # helm already stamps org.opencontainers.image.version from the chart version.
-          cp -r charts/pacto-operator /tmp/pacto-operator-chart
-          SHA="$SOURCE_SHA" yq -i '.annotations."org.opencontainers.image.revision" = strenv(SHA)' /tmp/pacto-operator-chart/Chart.yaml
-          helm package /tmp/pacto-operator-chart
-          out=$(helm push "pacto-operator-${VERSION}.tgz" oci://ghcr.io/trianalab/pacto/charts 2>&1)
+          cp -r "charts/$CHART" "/tmp/$CHART-chart"
+          SHA="$SOURCE_SHA" yq -i '.annotations."org.opencontainers.image.revision" = strenv(SHA)' "/tmp/$CHART-chart/Chart.yaml"
+          helm package "/tmp/$CHART-chart"
+          out=$(helm push "$CHART-${VERSION}.tgz" oci://ghcr.io/trianalab/pacto/charts 2>&1)
           echo "$out"
           digest=$(echo "$out" | grep -oE 'sha256:[a-f0-9]+')
           [ -n "$digest" ] || { echo "::error::no chart digest from helm push"; exit 1; }
           # Record the immutable chart digest NOW, before the mutable metadata step,
           # so an Artifact Hub failure can never leave a published-but-unrecorded chart.
           bash "$GITHUB_WORKSPACE/release/orchestrator/ledger.sh" record "$PACTO_RELEASE_TXN" \
-            operator-chart "ghcr.io/trianalab/pacto/charts/pacto-operator" "$VERSION" "$digest" complete
+            "$UNIT" "$CHART_REPO" "$VERSION" "$digest" complete
           cosign sign --yes --new-bundle-format=false --use-signing-config=false \
-            "ghcr.io/trianalab/pacto/charts/pacto-operator:${VERSION}@${digest}"
+            "$CHART_REPO:${VERSION}@${digest}"
       # Crash recovery: a prior run pushed this exact chart (provenance verified by
       # verify-oci.sh) but died before recording. Record its digest and sign — never
       # re-push the immutable tag.
@@ -873,12 +940,12 @@ jobs:
         env:
           VERSION: ${{ needs.detect.outputs.k8s_version }}
         run: |
-          digest=$(crane digest "ghcr.io/trianalab/pacto/charts/pacto-operator:${VERSION}")
+          digest=$(crane digest "$CHART_REPO:${VERSION}")
           [ -n "$digest" ] || { echo "::error::no chart digest to adopt"; exit 1; }
           bash "$GITHUB_WORKSPACE/release/orchestrator/ledger.sh" record "$PACTO_RELEASE_TXN" \
-            operator-chart "ghcr.io/trianalab/pacto/charts/pacto-operator" "$VERSION" "$digest" complete
+            "$UNIT" "$CHART_REPO" "$VERSION" "$digest" complete
           cosign sign --yes --new-bundle-format=false --use-signing-config=false \
-            "ghcr.io/trianalab/pacto/charts/pacto-operator:${VERSION}@${digest}"
+            "$CHART_REPO:${VERSION}@${digest}"
       # The artifacthub.io tag is an intentional MUTABLE repo-level alias (NOT an
       # immutable SemVer chart version): Artifact Hub reads repository ownership from
       # this one well-known tag, so re-pushing + round-tripping the SAME metadata is
@@ -888,12 +955,12 @@ jobs:
       - name: Publish + verify Artifact Hub metadata (mutable alias)
         if: steps.v.outputs.state == 'absent' || steps.v.outputs.state == 'identical' || steps.v.outputs.state == 'adopt'
         run: |
-          oras push ghcr.io/trianalab/pacto/charts/pacto-operator:artifacthub.io \
+          oras push "$CHART_REPO:artifacthub.io" \
             --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
-            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+            "$ARTIFACTHUB:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
           bash "$GITHUB_WORKSPACE/release/orchestrator/verify-artifacthub.sh" \
-            ghcr.io/trianalab/pacto/charts/pacto-operator:artifacthub.io \
-            artifacthub-repo.yml
+            "$CHART_REPO:artifacthub.io" \
+            "$ARTIFACTHUB"
 
   # pacto-publishes: k8s-docs
   # The versioned docs site. A transaction unit (not an independent trigger): it
@@ -902,7 +969,7 @@ jobs:
   # integration docs change). The "Deploy docs" workflow no longer self-triggers on
   # release/workflow_run; this is the single docs publisher.
   docs:
-    needs: [detect, core-ready, k8s-module]
+    needs: [detect, core-tag, core-ready, k8s-module]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       (contains(fromJSON(needs.detect.outputs.units_json), 'k8s-docs') || contains(fromJSON(needs.detect.outputs.units_json), 'core')) &&
@@ -917,7 +984,7 @@ jobs:
           # HEAD at dispatch time (on push these are the same commit).
           ref: ${{ needs.detect.outputs.source_sha }}
           fetch-depth: 0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
           cache: pip
@@ -934,21 +1001,20 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
-      - name: Build the WASM dashboard demo
-        run: make -C examples/demo build
-      # The publisher checks what the validator checks. docs.yml smokes the engine
-      # before it builds the site; this job is the only thing that actually ships
-      # the demo, so without this it could publish a demo whose engine docs.yml
-      # would have rejected.
-      - name: Smoke test the wasm engine
-        run: make -C examples/demo smoke
-      # Fold the demo into the docs tree so mike's internal `mkdocs build` copies it
-      # into the released version deploy at /demo/ (mirrors docs.yml). Without this
-      # the demo is built but never lands in the version slot, so /latest/demo/ 404s.
-      - name: Fold the demo into the docs site
+      # The same target docs.yml runs: build the demo, smoke its engine (this job
+      # is the only thing that actually ships the demo, so it must check what the
+      # validator checks) and fold it into the docs tree so mike's internal
+      # `mkdocs build` copies it into the version slot. Without the fold the demo
+      # is built but never lands there, so /latest/demo/ 404s.
+      - name: Build, smoke and fold the WASM demo into the docs site
+        # Recovery runs this file against an older source_sha whose Makefile may
+        # predate the docs-demo target; fall back to the inline steps it wraps.
         run: |
-          mkdir -p docs/demo
-          cp -r examples/demo/dist/. docs/demo/
+          if make -n docs-demo >/dev/null 2>&1; then
+            make docs-demo
+          else
+            make -C examples/demo build && make -C examples/demo smoke && mkdir -p docs/demo && cp -r examples/demo/dist/. docs/demo/
+          fi
       - name: Deploy versioned docs with mike (exact release versions)
         env:
           PACTO_DOCS_CORE_VERSION: ${{ needs.detect.outputs.core_version }}
@@ -965,7 +1031,7 @@ jobs:
   # advertises missing assets. Binaries are reproducible: the build date is derived
   # from the source commit, so a re-run produces byte-identical artifacts.
   release:
-    needs: [detect, core-tag, dashboard-image, dashboard-contract-bundle, demo-bundles, demo-compose, k8s-module, operator-image, operator-chart, docs]
+    needs: [detect, core-tag, core-ready, ledger-init, dashboard-image-build, dashboard-image, dashboard-contract-bundle, demo-bundles, demo-compose, k8s-module, operator-image-build, operator-image, operator-chart, delivery-image-build, delivery-image, docs]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'cli') &&
@@ -1036,10 +1102,12 @@ jobs:
       - k8s-module
       - operator-image
       - operator-chart
+      - delivery-image
       - docs
       - release
     if: always() && needs.detect.outputs.release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # Deliberately NOT `ref: source_sha`. This job reads the unit -> job mapping
       # out of the workflow, and the workflow that ran is the one at the dispatched
@@ -1051,3 +1119,7 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
           UNITS: ${{ needs.detect.outputs.units_json }}
         run: bash release/orchestrator/verify-transaction.sh .github/workflows/release.yml
+      - name: Every published package must be public
+        env:
+          UNITS: ${{ needs.detect.outputs.units_json }}
+        run: bash release/orchestrator/verify-public.sh release/units

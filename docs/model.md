@@ -10,18 +10,16 @@ carry the whole page:
 
 The engine compares the two and reports **findings**: one line per problem, each
 with a code such as `INTERFACE_ABSENT`. One rule governs it: **a confirmed
-contradiction is an error; not being able to look is `Unknown`, never a
-contradiction**. Most of what follows keeps those two apart.
+contradiction is an error, and a check Pacto could not make is `Unknown`**.
+Most of what follows keeps those two apart.
 
 ## Declaration versus observation
 
 The contract records *intent*: what a service is, whatever platform runs it.
-What it looks like at runtime is an *observation*, and it lives entirely outside
-the contract. The `Contract` type
-(`pkg/contract`) carries only intent — no `runtime` block, no port, no scaling
-and no image field, because those are delivery concerns owned by integrations.
-Runtime facts travel in a separate `EvidenceSet` (`pkg/evidence`), produced by a
-collector, and the engine reasons over the two together.
+What it looks like at runtime is an *observation*, and it lives outside the
+contract. A contract carries only intent. Ports, scaling, images and other
+runtime settings belong to delivery and the integrations own them. Runtime facts travel separately, as an `EvidenceSet` produced by
+a collector, and the engine reasons over the two together.
 
 ```mermaid
 flowchart TB
@@ -35,7 +33,7 @@ flowchart TB
 
 ## The engine: `Evaluate(contract, evidence)` { #the-engine }
 
-The heart of the system is a pure function (`pkg/validation/evaluate.go`):
+The heart of the system is a pure function, `Evaluate`:
 
 ```text
 Evaluate(contract.Contract, evidence.EvidenceSet) -> ([]finding.Finding, Coverage)
@@ -45,54 +43,53 @@ It keeps no state. Each observation carries an `Outcome` the collector set
 (`Observed`, `Failed`, `Stale` and so on), and the engine applies no timing,
 network or Kubernetes logic of its own. An *assertion* is one thing the contract
 claims, such as "the interface `public-api` is served". For each required
-assertion — an interface's availability, a capability, a dependency, a
-configuration, the workload, persistence — the engine looks for a matching
+assertion (an interface's availability, a capability, a dependency, a
+configuration, the workload or persistence), the engine looks for a matching
 observation and produces exactly one of three results:
 
 | Result | When | Finding |
 |---|---|---|
-| **Confirmed violation** | A matching observation has `Outcome=Observed` and its payload contradicts the contract. | `error`, category `RuntimeDrift` — e.g. `CONFIGURATION_ABSENT`, `CONFIGURATION_MISMATCH`, `INTERFACE_ABSENT`, `DEPENDENCY_UNREACHABLE`. |
-| **Uncertainty** | No usable observation exists — missing, `Unsupported`, `Failed`, `Stale` or `Insufficient`. | `unknown`, category `Inconclusive` — e.g. `EVIDENCE_MISSING`, `COLLECTION_FAILED`. |
+| **Confirmed violation** | A matching observation has `Outcome=Observed` and its payload contradicts the contract. | `error`, category `RuntimeDrift`, for example `CONFIGURATION_ABSENT`, `CONFIGURATION_MISMATCH`, `INTERFACE_ABSENT`, `DEPENDENCY_UNREACHABLE`. |
+| **Uncertainty** | No usable observation exists: missing, `Unsupported`, `Failed`, `Stale` or `Insufficient`. | `unknown`, category `Inconclusive`, for example `EVIDENCE_MISSING`, `COLLECTION_FAILED`. |
 | **Satisfied** | A matching `Observed` observation is consistent with the contract. | None. |
 
-A required assertion Pacto cannot observe is never silently treated as a pass.
+A required assertion Pacto cannot observe never counts as a pass.
 `Coverage` is the count of what the engine could check: it reports how many required assertions were evaluated versus declared.
-It never changes the aggregate compliance state, because an inability to observe
-is not a violation.
+`Coverage` leaves the aggregate compliance state unchanged, because a check
+Pacto could not make is uncertainty.
 
 ## Compliance model { #compliance-model }
 
 The compliance model consumers derive from these findings has four substantive
-states — **Compliant**, **NonCompliant**, **Unknown** and **Invalid** — plus three
+states, **Compliant**, **NonCompliant**, **Unknown** and **Invalid**, plus three
 informational ones:
 
 | State | Meaning |
 |---|---|
 | **Warning** | A non-blocking finding. |
 | **Reference** | The contract declares no workload, so there is nothing to run and nothing to observe. |
-| **NotEvaluated** | The contract declares a workload but was never runtime-evaluated *at all* — what an offline OCI, cache or local source looks like. This is what `pacto doc`, `pacto fleet` and the dashboard report for a bundle read off disk or out of a registry. |
+| **NotEvaluated** | The contract declares a workload but was never runtime-evaluated *at all*. This is what an offline OCI, cache or local source looks like, and what `pacto doc`, `pacto fleet` and the dashboard report for a bundle read off disk or out of a registry. |
 
 A workload that *is* being evaluated but has no usable evidence yet resolves to
-`Unknown`, not `NotEvaluated`. The two answer different questions: "we looked and
-could not tell" versus "nothing has looked". The Kubernetes operator only ever
-reports the former — it never emits `NotEvaluated`, though the value is in the
-CRD enum for parity with the engine (see [Kubernetes
+`Unknown`. The two answer different questions: `Unknown` means "we looked and
+could not tell" and `NotEvaluated` means "nothing has looked". The Kubernetes
+operator reports only `Unknown`. `NotEvaluated` is in the CRD enum for parity with the engine (see [Kubernetes
 limitations](integrations/kubernetes/limitations.md#notevaluated-is-reserved)).
 
 ## Collectors and the evidence boundary
 
 A *collector* is any component that observes a real system and produces a valid
-`EvidenceSet`. That `EvidenceSet` is the stable extension boundary, not a
-collector interface: a collector is not a plugin and cannot be installed as one.
-The two extend Pacto in opposite directions — a plugin consumes a contract to
-generate an artifact, a collector observes a system to produce evidence.
+`EvidenceSet`. That `EvidenceSet` is the stable extension boundary. A collector
+and a plugin extend Pacto in opposite directions: a plugin consumes a contract to
+generate an artifact, and a collector observes a system to produce evidence.
+You integrate a collector by producing an `EvidenceSet`.
+A collector is never installed as a plugin.
 
 Pacto ships one general runtime collector and plugs it into each platform. The
-watcher (`internal/runtimewatch`) observes TCP listeners and connection
-outcomes with eBPF and names the workload behind each socket: a pod, a
-container, a systemd unit, a `pacto run` session or a plain process. Its facts
-are platform neutral (`pkg/runtimefacts`), and so are its health, metrics and
-protocol probes (`pkg/probe`). Three front ends put it to work (see [runtime
+watcher observes TCP listeners and connection outcomes with eBPF and names the
+workload behind each socket: a pod, a container, a systemd unit, a `pacto run`
+session or a plain process. Its facts are platform neutral, and so are its
+health, metrics and protocol probes. Three front ends put it to work (see [runtime
 conformance](runtime-conformance.md)):
 
 - `pacto run` wraps one command and evaluates it locally.
@@ -108,7 +105,7 @@ design extension point.
 ```mermaid
 flowchart LR
     C["Pacto contract<br/>declared intent"]
-    subgraph Collectors["Collectors — environment-specific"]
+    subgraph Collectors["Collectors: environment-specific"]
         W["Runtime watcher: eBPF + probes<br/><i>first-party, any Linux host</i>"]
         K["Kubernetes collector<br/><i>first-party, operator</i>"]
         X["Custom collector<br/><i>external integration</i>"]
@@ -152,54 +149,58 @@ findings, coverage := validation.Evaluate(c, ev)
 Across a trust boundary a remote environment reports a signed `EvidenceSet` over
 the [evidence protocol](evidence.md) instead.
 
-## Distinctions the model never collapses
+## Distinctions the model keeps
 
-Collapsing any of these produces an answer that is confidently wrong rather than
-honestly uncertain.
+The model keeps each of these pairs apart. Merging a pair turns an uncertain
+answer into a wrong one.
 
-- **A requested reference is not a resolved identity.** `payments-api:latest` is
+- **A requested reference and a resolved identity.** `payments-api:latest` is
   a question; `payments-api@sha256:…` is an answer. A tag is mutable, so resolve
-  the reference before treating it as exact content.
-- **The same name in two domains is two services.** Identity is
-  domain-qualified, so two organizations that both run a `payments-api` do not
-  merge. A repository basename or a path leaf is a label, never an identity.
-- **An exact revision match is not retrievable content.** A target can pin a
+  the reference before you treat it as exact content.
+- **The same name in two domains.** Identity is domain-qualified, so two
+  organizations that both run a `payments-api` stay two services. A repository
+  basename or a path leaf is a label.
+- **An exact revision match and retrievable content.** A target can pin a
   digest that names a revision unambiguously while that content sits in a
-  registry Pacto cannot read. Anything needing the content says so when it is
-  missing; anything needing only the identity does not.
-- **Declared ownership is not a canonical owner identity.** An owner identity
+  registry Pacto cannot read. A feature that needs the content reports it as
+  missing; a feature that needs only the identity works as usual.
+- **Declared ownership and a canonical owner identity.** An owner identity
   carries both its kind and its value, so a team and a person who share a string
-  never merge. An email address is how you reach an owner, not who they are.
-- **Readiness is not compliance.** Readiness is a team's own scored
-  self-assessment of a revision. Compliance is evidence-derived. A revision that
+  stay separate. An email address is a contact for an owner.
+- **Readiness and compliance.** Readiness is a team's own scored
+  self-assessment of a revision. Compliance comes from evidence. A revision that
   passes every readiness check can run on a target that is non-compliant.
-- **Absence of evidence is not evidence of absence.** An observation is recorded
-  as observed, unsupported, failed, stale or insufficient. "We could not look"
-  has no way to be stored as "we looked and it was missing".
+- **No evidence and evidence of absence.** Pacto records each observation as
+  observed, unsupported, failed, stale or insufficient. "We could not look"
+  and "we looked and it was missing" are different records.
 
-## What Pacto is not
+## Scope
 
-- **Not a developer portal or an internal developer platform (IDP).** There is
-  nothing to onboard into, no scaffolding templates and no golden paths. A portal
-  decides what people see; Pacto records what a revision guarantees.
-- **Not a service catalog, and no replacement for one.** A catalog lists
-  services for people to browse. Pacto records what a revision guarantees so
-  tools can compute against it.
-- **Not a registry.** It publishes to the OCI registries you already run.
-- **Not a universal model of every infrastructure resource.** It models one
-  service's operational intent, not your databases, queues and networks.
-- **It grants no permission.** Pacto validates a contract against policy
-  schemas. Whether an action is *permitted* stays with the runtime controls you
-  already run — OPA, Kyverno, admission, IAM.
-- **It does not observe or act.** The engine only reasons over `Contract` and
-  `EvidenceSet`. Observing is a collector's job; acting is an external actor's.
-- **Discovery is not authorization.** Being able to find and read a contract
-  grants no permission to change anything and performs no action.
+Pacto records what a service revision guarantees, so that people and tools can
+compute against it. These limits hold for the contract engine and the operator.
+The opt-in [delivery component](integrations/kubernetes/delivery.md) changes two
+of them, as noted.
+
+- **Pacto complements your developer portal and service catalog.** A portal
+  decides what people see and a catalog lists services to browse. Pacto has no
+  onboarding, scaffolding templates or golden paths.
+- **Pacto publishes to the OCI registries you already run.**
+- **Pacto models one service's operational intent.** Your databases, queues and
+  networks stay in the tools that manage them.
+- **Permissions stay with your runtime controls.** Pacto validates a contract
+  against policy schemas. OPA, Kyverno, admission and IAM decide whether an
+  action is *permitted*. Delivery adds its own admission policies, which decide
+  who may move or approve a change to a Stage.
+- **The engine reasons; collectors observe; actors act.** The engine reads only
+  `Contract` and `EvidenceSet`. Delivery is one such actor: it picks the version
+  a Stage runs, rolls back and freezes, and Flux or Argo CD applies it.
+- **Reading a contract grants no permission.** Finding and reading a contract
+  changes nothing and performs no action.
 
 ## The operational control loop
 
 These roles compose into a loop a platform or an agent can drive. Steps 1, 2, 5
-and 6 are implemented here — the CLI, the dashboard, the collector and
+and 6 are implemented here: the CLI, the dashboard, the collector and
 `Evaluate`. Steps 3 and 4 belong to systems you already run.
 
 1. **Declare.** A contract states the service's identity, interfaces, capabilities, configuration, dependencies and policies.
@@ -209,10 +210,10 @@ and 6 are implemented here — the CLI, the dashboard, the collector and
 5. **Observe.** Collectors obtain runtime evidence from the real system and produce an `EvidenceSet`.
 6. **Evaluate.** `Evaluate(contract, evidence)` reports whether observed reality is consistent with the declared contract.
 
-## See also
+## What's next
 
-- [The Pacto Operational Graph](operational-graph.md) — the read model over many
+- [The Pacto Operational Graph](operational-graph.md): the read model over many
   such evaluations, and the vocabulary for how much of the world an answer saw
-- [Validation layers](contract-reference/validation.md) — whether a contract is *valid*, a separate question from whether it *matches reality*
-- [Evidence protocol](evidence.md) — reporting a signed `EvidenceSet` across a trust boundary
-- [Impact analysis](impact.md) — the confidence model over a change
+- [Validation layers](contract-reference/validation.md): whether a contract is *valid*, a separate question from whether it *matches reality*
+- [Evidence protocol](evidence.md): reporting a signed `EvidenceSet` across a trust boundary
+- [Impact analysis](impact.md): the confidence model over a change

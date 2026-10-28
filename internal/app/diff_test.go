@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"github.com/trianalab/pacto/v4/pkg/diff"
 	"os"
 	"path/filepath"
 	"strings"
@@ -622,5 +623,31 @@ func TestCollectNodes_CycleHandling(t *testing.T) {
 	nodes := collectNodes(root)
 	if len(nodes) != 2 {
 		t.Errorf("expected 2 nodes (cycle should be handled), got %d", len(nodes))
+	}
+}
+
+// TestDiff_RequiredBump: the root contract's classification names the bump
+// `pacto publish` needs over the old version, with the pre-1.0 rule.
+func TestDiff_RequiredBump(t *testing.T) {
+	write := func(version, workload string) string {
+		dir := t.TempDir()
+		y := "pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: " + version + "\nworkload: " + workload + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(y), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	svc := NewService(nil, nil)
+	for _, c := range []struct {
+		old, workload string
+		want          diff.Bump
+	}{{"1.0.0", "job", diff.BumpMajor}, {"0.3.0", "job", diff.BumpMinor}, {"1.0.0", "service", diff.BumpPatch}} {
+		r, err := svc.Diff(context.Background(), DiffOptions{OldPath: write(c.old, "service"), NewPath: write("9.0.0", c.workload)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.RequiredBump != c.want {
+			t.Errorf("%s -> workload %s: required %s, want %s", c.old, c.workload, r.RequiredBump, c.want)
+		}
 	}
 }

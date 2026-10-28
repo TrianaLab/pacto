@@ -16,7 +16,7 @@
   // every saved arrangement is stored under. It is NOT what decides a rebuild: the data
   // never does either, and neither does a change of depth or direction. See `instanceKey`.
   let {
-    neighborhood = null, focusKey = '', queryKey = '',
+    neighborhood = null, graph = null, focusKey = '', queryKey = '',
     onSelectNode, onSelectEdge, oncontrols,
   } = $props();
 
@@ -54,7 +54,9 @@
 
   function init() {
     if (!containerEl) return;
-    const gd = neighborhoodToGraph(neighborhood);
+    // graph: the caller's own projection of the neighborhood (GraphView folds a large one
+    // by team); otherwise every returned node and edge.
+    const gd = graph ?? neighborhoodToGraph(neighborhood);
     const topo = `${topoSignature(gd)}||${focusKey}`;
     const pres = presentationSignature(gd);
 
@@ -157,7 +159,7 @@
   onMount(() => () => { if (instance) instance.destroy(); });
 
   $effect(() => {
-    const _ = [neighborhood, focusKey, queryKey, instanceKey, containerEl]; // track re-render inputs
+    const _ = [neighborhood, graph, focusKey, queryKey, instanceKey, containerEl]; // track re-render inputs
     if (containerEl) init();
   });
 
@@ -189,7 +191,7 @@
   class="nb-graph"
   data-testid="neighborhood-canvas"
   role="img"
-  aria-label="Operational graph topology (visual). Use the Relationships list below to explore the same nodes and connections by keyboard."
+  aria-label="Operational graph topology (visual): what the focus depends on is on the left, what uses it is on the right. Use the Relationships list below to explore the same nodes and connections by keyboard."
   hidden={renderError}
 ></div>
 
@@ -202,7 +204,7 @@
        the canvas taller than the space above it and the graph unusable. The clamp keeps
        the graph proportional to the viewport, with a floor that still fits a focus node
        and its ring and a ceiling that stops it swallowing a 4K screen. */
-    height: clamp(360px, 60vh, 720px);
+    height: clamp(360px, 66vh, 760px);
     /* Cytoscape puts an in-flow wrapper inside this element and writes the current pixel
        width onto it, so without containment the graph's min-content width is whatever it
        was last laid out at. A flexible track holding the graph then cannot shrink -- open

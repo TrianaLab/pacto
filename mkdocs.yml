@@ -2,7 +2,7 @@ site_name: Pacto
 # With no social-cards plugin and no og:image, this string is the whole of the
 # shared-link preview. Not "standard": that promises governance, a conformance
 # suite and a second implementation, none of which exist.
-site_description: The operational contract system for services — declare what a service is, publish it to any OCI registry, and compare it against the last revision and against what is running.
+site_description: Continuous delivery for the GitlessOps era — describe your services once as contracts, and Pacto decides what ships, asking only the teams a change affects.
 site_url: https://pacto.run/
 repo_url: https://github.com/TrianaLab/pacto
 repo_name: TrianaLab/pacto
@@ -22,9 +22,11 @@ theme:
   custom_dir: overrides
   logo: assets/images/logo.svg
   favicon: favicon.svg
-  font:
-    text: Inter
-    code: JetBrains Mono
+  # No Google Fonts: the type matches the dashboard and is served from this site.
+  # Source Serif 4 is bundled in docs/assets/fonts/; Inter and JetBrains Mono are
+  # named in stylesheets/extra.css and fall back to the system stack, exactly as
+  # the dashboard does.
+  font: false
   icon:
     repo: fontawesome/brands/github
   palette:
@@ -34,16 +36,16 @@ theme:
         name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      # Neutral header + indigo accent; exact indigo hexes set in stylesheets/extra.css.
-      primary: white
-      accent: indigo
+      # custom: every colour comes from the dashboard tokens in stylesheets/extra.css.
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: black
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
@@ -73,6 +75,12 @@ theme:
 # the published site.
 exclude_docs: |
   superpowers/
+
+# The WASM demo folded into docs/demo/ ships its own licences as Markdown (the
+# dashboard's Source Serif 4 OFL). They must still be published with the font, but
+# they are not documentation pages, so --strict must not ask for them in the nav.
+not_in_nav: |
+  /demo/
 
 # Fail the build (under --strict) on orphan pages and broken cross-references,
 # so no page lingers outside the nav and every link/anchor resolves.
@@ -147,6 +155,8 @@ hooks:
   # Stage the pinned Mermaid runtime into the site, so no page fetches it from a
   # CDN at read time. See the hook; a missing runtime fails the build.
   - release/scripts/mkdocs_mermaid_hook.py
+  # `mkdocs serve` only: no live-reload inline script in a page with a CSP (the demo).
+  - release/scripts/mkdocs_livereload_csp_hook.py
 
 extra_css:
   - stylesheets/extra.css
@@ -170,39 +180,71 @@ extra_javascript:
 # -- a first-time visitor should be able to try Pacto before absorbing it. Every
 # label is a word a reader would search for, and no two entries share a label.
 nav:
+  # Six tabs at most, so the header fits at 1280px. "Get started" holds one
+  # group or page per reader, in the order a newcomer meets them: someone deciding
+  # whether Pacto fits, a platform engineer pactifying a service, an approver, an
+  # auditor and an agent operator. Reference pages sit at the end and are never
+  # required reading. README.md and docs/index.md "Where to start" use the same paths.
   - Home: index.md
-  - Try it:
-      - Live dashboard demo: examples/dashboard-demo.md
-      - Guided tour: examples/demo-tour.md
-      # Path stays under examples/ on purpose: there is no redirect plugin, so
-      # moving the file would permanently break every existing inbound URL.
-      - Run it locally: examples/compose-demo.md
   - Get started:
-      - Installation: installation.md
-      - Quickstart: quickstart.md
-      - Put it in your repo: ci.md
-      - Example contracts: examples/index.md
+      - What Pacto is:
+          - The autonomy ladder: autonomy.md
+          - Manifesto and GitlessOps: manifesto.md
+          - Glossary: glossary.md
+      - Try it:
+          - Live dashboard demo: examples/dashboard-demo.md
+          - Guided tour: examples/demo-tour.md
+          - Run it locally: examples/compose-demo.md
+          - Try it on Kubernetes: examples/kubernetes-demo.md
+      - Pactify your first service:
+          - Installation: installation.md
+          - Quickstart: quickstart.md
+          - Pactify a service: pactify.md
+          - Put it in your repository: ci.md
+      - Approve or unblock a change: pactify-decide.md
+      - Verify a record: verify-a-record.md
+      - Drive Pacto from an agent: mcp-integration.md
   - Guides:
       - For developers: developers.md
       - For platform engineers: platform-engineers.md
+      - Example contracts: examples/index.md
       - Composition patterns: patterns/index.md
-  - Runtime conformance:
-      - What it checks: runtime-conformance.md
+      - CI with GitHub Actions: github-actions.md
+  - How Pacto decides:
+      - How delivery works: integrations/kubernetes/delivery.md
+      - The model: model.md
+      - Operational graph: operational-graph.md
+      - Fleet views: fleet-tools.md
+      - Impact analysis: impact.md
+      - What runtime conformance checks: runtime-conformance.md
       - Run a command under Pacto: runtime-run.md
       - Watch a host with pacto agent: runtime-agent.md
-  - How Pacto decides:
-      - The model: model.md
-      - Manifesto: manifesto.md
-      - Operational graph: operational-graph.md
-      - Impact analysis: impact.md
-      - Fleet tools: fleet-tools.md
   - Reference:
+      - Ladder reference: autonomy-reference.md
+      - Operational graph reference: operational-graph-reference.md
+      - MCP reference: mcp-reference.md
+      - Publish reference: publishing.md
+      - Dashboard reference:
+          - Dashboard authentication: integrations/kubernetes/dashboard-authentication.md
+          - Who sees what in the dashboard: integrations/kubernetes/dashboard-access.md
+          - Dashboard container: dashboard-docker.md
+      - Delivery reference:
+          - Approvals and agents: integrations/kubernetes/delivery-identity.md
+          - Signed records and history: integrations/kubernetes/delivery-records.md
+          - Record keys: integrations/kubernetes/delivery-record-keys.md
+          - Setup and gates: integrations/kubernetes/delivery-setup.md
+          - Plan, propose and approve: integrations/kubernetes/delivery-operations.md
+          - Health checks: integrations/kubernetes/delivery-health.md
+          - Eval providers: integrations/kubernetes/delivery-evals.md
+          - Argo CD and several clusters: integrations/kubernetes/delivery-reach.md
       - Contract reference:
           - contract-reference/index.md
           - Contract sections: contract-reference/sections.md
           - Configuration and policy: contract-reference/configuration-and-policy.md
           - Dependencies and state: contract-reference/dependencies-and-state.md
           - Readiness: contract-reference/readiness.md
+          - Publish: contract-reference/publish.md
+          - Checks: contract-reference/checks.md
           - Validation layers: contract-reference/validation.md
           - Overrides: contract-reference/overrides.md
           - Change classification: contract-reference/diff.md
@@ -210,17 +252,15 @@ nav:
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md
       - Evidence: evidence.md
-  - Integrations:
-      - CI with GitHub Actions: github-actions.md
-      - AI assistants (MCP): mcp-integration.md
-      - Dashboard container: dashboard-docker.md
+      - Plugin development: plugins.md
       # Kubernetes pages are owned by integrations/kubernetes/docs and assembled
       # into this site by release/scripts/mkdocs_integration_hook.py. Reference
       # pages (crd/helm/rbac/operator-config/contract-bindings/runtime-observations/
       # field-coverage/artifact-hub) are GENERATED by release/scripts/gen_integration_docs.py.
       - Kubernetes:
-          - Kubernetes overview: integrations/kubernetes/overview.md
           - Install the operator: integrations/kubernetes/installation.md
+          - Quickstart profile: integrations/kubernetes/quickstart.md
+          - Kubernetes overview: integrations/kubernetes/overview.md
           - Limitations and opt-in features: integrations/kubernetes/limitations.md
           - Troubleshooting: integrations/kubernetes/troubleshooting.md
           - Runtime conformance: integrations/kubernetes/runtime-conformance.md
@@ -235,7 +275,6 @@ nav:
           - Runtime observations: integrations/kubernetes/runtime-observations.md
           - Field coverage: integrations/kubernetes/field-coverage.md
           - Published artifacts: integrations/kubernetes/artifact-hub.md
-      - Plugin development: plugins.md
   # changelog.md is assembled at build time from release/units/*/CHANGELOG.md
   # by release/scripts/mkdocs_integration_hook.py (Changesets-generated history).
   - Changelog:

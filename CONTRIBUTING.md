@@ -64,7 +64,7 @@ To build and test the Go engine:
    ```bash
    make test              # unit tests
    make test-integration  # in-process CLI integration suite (build tag `integration`)
-   make lint              # gofmt + go vet
+   make lint              # gofmt, go vet and the U+00A7 gate, failing as CI does
    make coverage          # coverage report with HTML output
    ```
 
@@ -94,6 +94,9 @@ To build and test the Go engine:
    down, set `KEEP_E2E_CLUSTER=1` (e.g. `KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind`).
    `make e2e-runtime-conformance-kind-up` leaves the eBPF node agent scenario
    running the same way, with `-status`, `-logs` and `-down` beside it.
+   `make e2e-delivery-demo` plays the
+   [Kubernetes delivery demo](docs/examples/kubernetes-demo.md) (about 45
+   minutes); `DELIVERY_DEMO_SHARD=browser` runs one of its CI shards.
 
    **Test the whole product locally.** One command installs the operator,
    dashboard, Evidence Server and a registry with sample contracts, and leaves
@@ -169,7 +172,7 @@ Have an idea? [Open a feature request](https://github.com/TrianaLab/pacto/issues
    feat!: rename the readiness gate field
    ```
 
-   Individual commit messages are not checked automatically, but your **pull request title** is: `.github/workflows/pr-title.yml` requires `<type>[(scope)][!]: <description>`, where type is one of `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build` or `style`. Put `!` before the colon for a breaking change.
+   CI checks your **pull request title** and leaves individual commit messages alone: `.github/workflows/pr-title.yml` requires `<type>[(scope)][!]: <description>`, where type is one of `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build` or `style`. Put `!` before the colon for a breaking change.
 
 6. **Open a pull request** against `main`. Fill in the PR template and link any related issues.
 
@@ -198,7 +201,7 @@ pacto/
     testutil/         #   Shared test utilities
   integrations/       # Delivery outside the CLI
     kubernetes/       #   The operator: a second Go module, its own go.mod
-  tests/              # Tests that are not about one package
+  tests/              # Tests that span packages
     integration/      #   CLI driven in process against a real registry
     architecture/     #   Structural rules about the repository itself
     acceptance/local/ #   Whole user stories, no cluster
@@ -297,7 +300,7 @@ Docker-dependent legs — `ci-e2e-compose` and the `test-acceptance-kind-*` scen
 
 - Update docs if your change affects user-facing behavior, CLI flags or the contract specification.
 - Documentation lives in `docs/` and is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) (`mkdocs.yml`), versioned with [mike](https://github.com/jimporter/mike).
-- Run `make docs` to build the site, then `make docs-serve` to preview it locally.
+- Run `make docs` to preview the site locally with the in-browser dashboard demo, `make docs-serve` to preview it without the demo, or `make docs-build` to build it.
 - CLI reference docs are auto-generated. Run `make gen-cli-docs` if you add or change CLI commands.
 - Run `make docs-lint` before pushing. It is the gate CI runs over Markdown syntax, prose and page structure, and it is deterministic — no model judges your writing. Rules live in `.markdownlint-cli2.jsonc`, `.vale/styles/Pacto/` and `release/scripts/docs_lint.py`.
 
@@ -316,7 +319,6 @@ make lint           # golangci-lint
 Deploy to a local cluster:
 
 ```bash
-make install        # install CRDs via kustomize
 make run            # run the controller against your current kube context
 make helm-install   # build image + helm install (CRDs included)
 make helm-upgrade   # rebuild + upgrade the existing release

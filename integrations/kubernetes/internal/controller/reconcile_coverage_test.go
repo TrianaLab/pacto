@@ -65,7 +65,8 @@ func TestPopulateContractStatus_FullContract(t *testing.T) {
 				},
 			},
 			Dependencies: []contract.Dependency{
-				{Name: "database", Ref: "ghcr.io/org/db-pacto:1.0.0", Required: true, Compatibility: "^1.0.0"},
+				{Name: "database", Ref: "ghcr.io/org/db-pacto:1.0.0", Required: true, Compatibility: "^1.0.0", External: true},
+				{Name: "model", Required: true, External: true, Version: "2025-01"},
 			},
 			Policies: []contract.Policy{
 				{Name: "security", Schema: "policy/security.json"},
@@ -148,11 +149,14 @@ func TestPopulateContractStatus_FullContract(t *testing.T) {
 	}
 
 	// Verify dependencies
-	if len(pacto.Status.Dependencies) != 1 {
-		t.Fatalf("expected 1 dependency, got %d", len(pacto.Status.Dependencies))
+	if len(pacto.Status.Dependencies) != 2 {
+		t.Fatalf("expected 2 dependencies, got %d", len(pacto.Status.Dependencies))
 	}
-	if pacto.Status.Dependencies[0].Name != "database" || !pacto.Status.Dependencies[0].Required {
-		t.Errorf("unexpected dependency: %+v", pacto.Status.Dependencies[0])
+	if d := pacto.Status.Dependencies[0]; d.Name != "database" || !d.Required || !d.External {
+		t.Errorf("unexpected dependency: %+v", d)
+	}
+	if d := pacto.Status.Dependencies[1]; d.Name != "model" || !d.External || d.Version != "2025-01" || d.Ref != "" {
+		t.Errorf("the external dependency keeps its version: %+v", d)
 	}
 
 	// Verify policies

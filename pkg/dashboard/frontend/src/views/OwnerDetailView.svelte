@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownersUrl } from '../lib/router.ts';
-  import { ownerKey, UNOWNED_KEY, ownerKeyLabel, ownerKeyKind, extractOwnerDetail, relatedSubgraph } from '../lib/format.ts';
+  import { formatCount } from '../lib/format.ts';
+  import { ownerKey, UNOWNED_KEY, ownerKeyLabel, ownerKeyKind, extractOwnerDetail } from '../lib/owners.ts';
+  import { relatedSubgraph } from '../lib/graph-aggregate.ts';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
   import GraphPanel from '../GraphPanel.svelte';
@@ -60,7 +62,7 @@
 <header class="detail-header fade-in-up">
   <h1>{ownerLabel}</h1>
   {#if ownerKind}<span class="owner-kind-badge">{ownerKind}</span>{/if}
-  <span class="text-2">{ownerServices.length} service{ownerServices.length !== 1 ? 's' : ''}</span>
+  <span class="text-2">{formatCount(ownerServices.length)} service{ownerServices.length !== 1 ? 's' : ''}</span>
 </header>
 
 <!-- Ownership metadata -->
@@ -109,7 +111,7 @@
 <!-- Services table for this owner -->
 {#if ownerServices.length > 0}
   <div class="section">
-    <div class="section-title">Services <span class="tab-count">{ownerServices.length}</span></div>
+    <div class="section-title">Services <span class="tab-count">{formatCount(ownerServices.length)}</span></div>
     <!-- ServicesTable provides its own .table-wrap; wrapping it in a second
          .table-wrap nested two overflow contexts and was the source of the
          spurious horizontal scrollbar on the owner-detail view. -->
@@ -182,9 +184,8 @@
     margin-bottom: var(--sp-1);
   }
   .meta-item { display: flex; flex-direction: column; gap: 2px; }
-  .meta-label {
-    font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3);
+  .meta-label { color: var(--c-text-3);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .meta-value { font-size: var(--text-sm); font-weight: 600; color: var(--c-text); }
   .meta-contacts { margin-top: var(--sp-3); }
@@ -196,8 +197,8 @@
     font-size: var(--text-xs);
   }
   .contact-type {
-    font-weight: 600; text-transform: uppercase;
-    color: var(--c-text-3); font-size: 10px; letter-spacing: 0.03em;
+    color: var(--c-text-3);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .contact-value { color: var(--c-text); }
   .contact-purpose {

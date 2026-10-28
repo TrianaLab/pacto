@@ -23,6 +23,12 @@ rules:
   - patch
 - apiGroups:
   - ""
+  resources:
+  - namespaces
+  verbs:
+  - list
+- apiGroups:
+  - ""
   resourceNames:
   - pacto-node-agent
   resources:
@@ -54,6 +60,12 @@ rules:
   - list
   - watch
 - apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - batch
   resources:
   - cronjobs
@@ -66,6 +78,15 @@ rules:
   - coordination.k8s.io
   resources:
   - leases
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - delivery.pacto.trianalab.io
+  resources:
+  - operations
+  - stages
   verbs:
   - get
   - list

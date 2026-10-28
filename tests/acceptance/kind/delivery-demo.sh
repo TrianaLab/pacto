@@ -1,0 +1,1600 @@
+#!/usr/bin/env bash
+# The Kubernetes delivery demo: "the payments story" (examples/story) played on
+# a real cluster, where the components are real (the workloads, their telemetry
+# and the B10 sign-ins are generated): the registry, Flux, the promoter,
+# the recorder, Mira, the node agent, Dex and Keycloak sign-in, the dashboard
+# and remote MCP.
+#
+#   up       create the cluster and install everything; payments 2.3.0,
+#            checkout 1.8.0 (1.9.0 waiting in test) and orders 1.4.0 run.
+#            fraud is a plain folder, not pactified yet.
+#   story    play the story: pactify fraud, then B1 to B5, checking every beat
+#            against examples/story; it stops with payments 3.0.0 held.
+#   browser  B6, then B7 to B9 in Chromium with the cluster checked between
+#            beats, then History, then B10 (a missing record freezes
+#            payments in prod, a break-glass edit is a witnessed record),
+#            then the agent beat (pay-agent ships behind its evals); it runs
+#            once per cluster.
+#   reach    phase 8: a second cluster, prod-us, follows prod through its
+#            signed records, and Argo CD applies what its promoter promotes;
+#            then prod-eu (first cluster) freezes on a failed re-check it
+#            cannot roll back, and prod-us refuses the frozen version.
+#   status   what runs where.
+#   logs     diagnostics of the cluster.
+#   down     delete the cluster and the containers beside it.
+#   all      up, story, browser, reach and down: the whole demo, in order.
+#   save-images FILE  pull the third-party images once and save them to FILE.
+#   play BEAT...  play the named beats on the running cluster (see SHARDS).
+#
+# DELIVERY_DEMO_SHARD=NAME makes `all` run one CI shard instead: up, seeded
+# only as far as the shard needs (DEMO_SEED: none, payments or all), then the
+# shard's beats, then down. Each shard runs on its own runner and cluster, and
+# no shard reads another's state; CI runs them all at once (delivery-demo.yml).
+# DELIVERY_LOAD_IMAGES=FILE loads the three Pacto images delivery.sh saved
+# (DELIVERY_SAVE_IMAGES) instead of building them, and DELIVERY_DEMO_IMAGES=FILE
+# loads the third-party images `save-images FILE` pulled once instead of
+# pulling them, so a CI shard pulls nothing from a public registry.
+#
+# Keys and kubeconfigs live in tmp/delivery-demo/ (ignored by git), so every
+# subcommand finds them. Host ports 3300, 8585, 5556, 8443 and 5602 must be
+# free, so the demo cannot run beside delivery.sh.
+#
+# What is generated rather than real: the payments workload is a stand-in
+# (podinfo), its telemetry comes from a span generator in the cluster, and the
+# call payments 2.4.2 makes to fraud comes from a sidecar in that version. The
+# sign-in providers are the demo's own Dex and Keycloak.
+set -euo pipefail
+
+# The harness creates the labelled pointers itself, as the GitOps controller
+# would from git, so kind's admin (kubernetes-admin in kubeadm:cluster-admins,
+# not system:masters) joins the chart's default delivery.admissionPolicies.gitopsUsers.
+GITOPS_USERS='["system:serviceaccount:flux-system:kustomize-controller","system:serviceaccount:argocd:argocd-application-controller","kubernetes-admin"]'
+CMD="${1:-help}"
+CLUSTER=pacto-delivery-demo
+NS=pacto-system
+# Delivery runs in its own namespace, where the operator holds no role.
+DNS=pacto-delivery
+REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
+LOCAL_REG_PORT=5602
+FLUX_VERSION=v2.9.5
+FLUX_INSTALL_SHA256=cc3dcd743af16215838b6937e1fce83745bf24c0dcc6c59737c59df15429caaf
+FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5@sha256:6f20d232d596a758c923d2861f23511718fc303b8a2e36a1434a7c736b9f4268
+  ghcr.io/fluxcd/kustomize-controller:v1.9.5@sha256:a3a955eb2bc432c2eaa94d2d3714e3beae7fdf17586fd23aadf71ab597ac3339)
+MIRA_IMG=ghcr.io/trianalab/mira:0.4.3@sha256:2fc95e0d4c8ffa38aa2de1a2389c98eb83e020ab7a1719ca27db90a62794fbcc
+PODINFO_IMG=ghcr.io/stefanprodan/podinfo:6.7.1@sha256:862ca45e61b32392f7941a1bdfdbe5ff8b6899070135f1bdca1c287d0057fc94
+PYTHON_IMG=python:3.13-alpine@sha256:bf12ecc0bea3f171d55145dd02c78b5eeb09f30ee2ac9cc2b4c9e4e8f5e30741
+ARGOCD_VERSION=v3.5.2
+# The images Argo CD's core install runs; us_argocd refuses a manifest that asks for others.
+ARGO_IMAGES=(quay.io/argoproj/argocd:v3.5.2@sha256:e2aadfae709d904e87f46ba4aa49601d827b3022db22cd4d03aae816a2e7097b
+  public.ecr.aws/docker/library/redis:8.2.3-alpine@sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba)
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=tests/acceptance/kind/lib.sh
+source "$HERE/lib.sh"
+# shellcheck source=tests/acceptance/kind/delivery-identity.sh
+source "$HERE/delivery-identity.sh"
+# shellcheck source=tests/acceptance/kind/delivery-lib.sh
+source "$HERE/delivery-lib.sh"
+# The demo's cluster carries the whole story, so its Operations take longer.
+# shellcheck disable=SC2034  # read by delivery-lib.sh
+DELIVERY_OP_WAIT=120 DELIVERY_CONCLUDE_WAIT=150
+ROOT="$_PACTO_ROOT"
+STORY="$ROOT/examples/story"
+DEMO="$ROOT/tmp/delivery-demo"
+KEYS="$DEMO/keys" WORK="$DEMO/work" BIN="$DEMO/bin"
+PACTO="$BIN/pacto" OIDC_BIN="$BIN/oidclogin"
+AGENT_KC="$DEMO/pay-agent.kubeconfig" ADMIN_KC="$DEMO/admin.kubeconfig"
+# The stable directory replaces delivery-identity.sh's temporary one, and the
+# demo's Dex (carol on team orders, pay-agent) replaces the delivery run's.
+IDP_DIR="$DEMO/idp" IDP_FIXTURES="$HERE/fixtures/delivery-demo"
+# shellcheck disable=SC2034  # read by lib.sh
+KIND_POLL=2
+curl() { command curl --connect-timeout 5 --max-time 30 "$@"; }
+
+mkdirs() {
+  mkdir -p "$KEYS" "$WORK" "$BIN" "$IDP_DIR"
+  # The whole directory ignores itself: nothing in it belongs in git.
+  echo '*' > "$DEMO/.gitignore"
+}
+admin() { [ -s "$ADMIN_KC" ] || { echo "no demo cluster: run 'make e2e-delivery-demo-up' first" >&2; exit 1; }; export KUBECONFIG="$ADMIN_KC"; }
+# reg CMD... — a host command that reaches the in-cluster registry by its
+# in-cluster name, through the port-forward (plain HTTP goes through HTTP_PROXY).
+reg() { HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" "$@"; }
+registry_pf() { [ -n "$PF_PIDS" ] || PF_PIDS=" $(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"; }
+PF_PIDS=""
+stop_pf() { local p; for p in $PF_PIDS; do kill "$p" 2>/dev/null || true; done; PF_PIDS=""; }
+
+# --- third-party images ------------------------------------------------------
+
+# third_party — every third-party image the demo runs, each pinned by digest.
+third_party() {
+  printf '%s\n' "$DEX_IMG" "$KC_IMG" "${FLUX_IMAGES[@]}" "$MIRA_IMG" "$PODINFO_IMG" "$PYTHON_IMG" \
+    "$PACTO_REGISTRY_IMAGE" "${ARGO_IMAGES[@]}"
+}
+
+# local_ref IMG — the name the demo runs a pinned image by: REPO:TAG, or
+# REPO:sha256-HEX for one pinned without a tag (docker save keeps tags, not digests).
+local_ref() {
+  local ref="${1%@*}" dig="${1#*@}"
+  case "${ref##*/}" in *:*) echo "$ref" ;; *) echo "$ref:${dig/:/-}" ;; esac
+}
+
+# fetch_pinned IMG — pull it by digest and tag it as local_ref names it. An image
+# from public.ecr.aws/docker/library, whose anonymous pulls from shared runners hit
+# "Data limit exceeded", falls back to the Docker Hub image it mirrors: same digest.
+fetch_pinned() {
+  local ref repo dig hub
+  ref="$(local_ref "$1")" dig="${1#*@}"; repo="${ref%:*}"
+  if docker pull -q "$repo@$dig" >/dev/null; then docker tag "$repo@$dig" "$ref"; return; fi
+  [[ "$repo" == public.ecr.aws/docker/library/* ]] || return 1
+  hub="docker.io/library/${repo#public.ecr.aws/docker/library/}"
+  echo "  $repo failed; trying $hub, which it mirrors under the same digest" >&2
+  docker pull -q "$hub@$dig" >/dev/null && docker tag "$hub@$dig" "$ref"
+}
+
+# cmd_save_images FILE — pull every third-party image once and save them to FILE,
+# narrowed to this host's platform (the runner's, which the shards' kind nodes
+# share) when the docker CLI can narrow an export.
+cmd_save_images() {
+  local f="${1:?usage: $0 save-images FILE}" img plat refs=()
+  for img in $(third_party); do infra "pull $img" fetch_pinned "$img"; refs+=("$(local_ref "$img")"); done
+  plat="linux/$(docker version -f '{{.Server.Arch}}')"
+  if docker save --help | grep -q -- --platform; then
+    docker save --platform "$plat" -o "$f" "${refs[@]}"
+  else
+    docker save -o "$f" "${refs[@]}"
+  fi
+  echo "saved ${#refs[@]} third-party images ($plat) to $f"
+}
+
+# demo_images — every third-party image on this host under its local_ref: loaded
+# from DELIVERY_DEMO_IMAGES when CI pulled them once, pulled here otherwise.
+demo_images() {
+  local img
+  if [ -n "${DELIVERY_DEMO_IMAGES:-}" ]; then
+    docker load -i "$DELIVERY_DEMO_IMAGES" >/dev/null || fail "could not load $DELIVERY_DEMO_IMAGES"
+    for img in $(third_party); do
+      docker image inspect "$(local_ref "$img")" >/dev/null 2>&1 || fail "$DELIVERY_DEMO_IMAGES has no $img: save-images ran on another tree"
+    done
+  else
+    for img in $(third_party); do infra "pull $img" fetch_pinned "$img"; done
+  fi
+  # shellcheck disable=SC2034  # read by lib.sh's install_registry
+  PACTO_REGISTRY_IMAGE_PRESENT=1
+}
+
+# --- up ----------------------------------------------------------------------
+
+
+# kind_config — delivery-identity.sh's cluster (sign-in through Dex and
+# Keycloak, ports on the host), plus a containerd that reads per-registry
+# config, so the nodes can pull the fraud image pacto publish pushes.
+kind_config() {
+  local cfg; cfg="$(identity_prepare)"
+  cat >> "$cfg" <<'YAML'
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
+YAML
+  echo "$cfg"
+}
+
+# node_pulls_from_registry — the nodes do not resolve cluster names, so the
+# in-cluster registry name is mapped to its ClusterIP for containerd.
+node_pulls_from_registry() {
+  local ip node dir="/etc/containerd/certs.d/$REG_HOST"
+  ip="$(kubectl -n "$NS" get svc pacto-registry -o jsonpath='{.spec.clusterIP}')"
+  for node in $(kind get nodes --name "$CLUSTER"); do
+    docker exec "$node" mkdir -p "$dir"
+    printf 'server = "http://%s:5000"\n[host."http://%s:5000"]\n  capabilities = ["pull", "resolve"]\n' "$ip" "$ip" \
+      | docker exec -i "$node" tee "$dir/hosts.toml" >/dev/null
+  done
+}
+
+idp_start() {
+  cp "$IDP_FIXTURES/dex.yaml" "$IDP_FIXTURES/pacto-realm.json" "$IDP_DIR/"
+  chmod 644 "$IDP_DIR/dex.yaml" "$IDP_DIR/pacto-realm.json"
+  in_node pacto-e2e-dex -e DEX_SESSIONS_ENABLED=true -v "$IDP_DIR:/etc/dex:ro" "$(local_ref "$DEX_IMG")" dex serve /etc/dex/dex.yaml
+  in_node pacto-e2e-keycloak -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+    -v "$IDP_DIR:/opt/keycloak/data/import:ro" -v "$IDP_DIR:/etc/x509:ro" "$(local_ref "$KC_IMG")" \
+    start-dev --import-realm --http-enabled=false --https-port=8443 --http-management-port=9100 \
+    --https-certificate-file=/etc/x509/tls.crt --https-certificate-key-file=/etc/x509/tls.key --hostname="https://127.0.0.1:8443"
+}
+
+# servers — the dashboard and the remote MCP server, in the node's network
+# namespace like the providers, so one address works for every party.
+servers() {
+  local dashkc mcpkc dns
+  # shellcheck disable=SC2034  # read by kubeconfig_for
+  CA="$(kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+  dashkc="$(kubeconfig_for "$(kubectl -n "$NS" create token pacto-dashboard --duration 24h)")"
+  mcpkc="$(kubeconfig_for "")"
+  dns="$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')"
+  printf 'search svc.cluster.local cluster.local\nnameserver %s\noptions ndots:5\n' "$dns" > "$IDP_DIR/resolv.conf"
+  cp "$KEYS/recorder.pub" "$IDP_DIR/recorder.pub"; chmod 644 "$IDP_DIR/recorder.pub"
+  in_node pacto-e2e-dashboard -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
+    -e PACTO_DASHBOARD_OIDC_CLIENT_SECRET="$DASH_SECRET" -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -v "$dashkc:/kube/config:ro" \
+    -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
+    "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
+    --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli \
+    --delivery-namespace "$DNS" --delivery-trust /trust/recorder.pub
+  in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
+    -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -v "$mcpkc:/kube/config:ro" \
+    -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
+    "$DASH_IMG" mcp --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
+    --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp --delivery-namespace "$DNS" --delivery-trust /trust/recorder.pub
+  servers_up
+}
+
+# span_generator — payments spans for Mira, in the cluster so the demo
+# survives the shell. Each environment's spans follow the mode the span-modes
+# ConfigMap sets for the payments version running there ("<env>.<version>":
+# ok, errors or silent; ok when unset).
+span_generator() {
+  kubectl -n "$NS" create configmap span-modes --from-literal=prod.3.0.0=silent --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n "$NS" create configmap span-generator --from-file=gen.py=/dev/stdin --dry-run=client -o yaml <<'PY' | kubectl apply -f - >/dev/null
+import json, os, ssl, time, urllib.request
+SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+API = "https://kubernetes.default.svc"
+ctx = ssl.create_default_context(cafile=SA + "/ca.crt")
+def get(path):
+    token = open(SA + "/token").read()
+    req = urllib.request.Request(API + path, headers={"Authorization": "Bearer " + token})
+    return json.load(urllib.request.urlopen(req, context=ctx, timeout=5))
+while True:
+    time.sleep(2)
+    try:
+        modes = get("/api/v1/namespaces/pacto-system/configmaps/span-modes").get("data") or {}
+    except Exception:
+        continue
+    for env in ("test", "prod", "prod-eu"):
+        try:
+            labels = get(f"/apis/apps/v1/namespaces/{env}/deployments/payments")["spec"]["template"]["metadata"]["labels"]
+        except Exception:
+            continue
+        mode = modes.get(env + "." + labels.get("app.kubernetes.io/version", ""), "ok")
+        n, errors, now = (0 if mode == "silent" else 10), (5 if mode == "errors" else 0), time.time_ns()
+        if n == 0:
+            continue
+        attrs = [{"key": "service.name", "value": {"stringValue": "payments"}},
+                 {"key": "deployment.environment", "value": {"stringValue": env}}]
+        spans = [{"traceId": os.urandom(16).hex(), "spanId": os.urandom(8).hex(), "name": "POST /payments", "kind": 2,
+                  "startTimeUnixNano": str(now - i * 1000), "endTimeUnixNano": str(now - i * 1000 + 2_000_000),
+                  "status": {"code": 2 if i < errors else 1}} for i in range(n)]
+        body = json.dumps({"resourceSpans": [{"resource": {"attributes": attrs}, "scopeSpans": [{"spans": spans}]}]}).encode()
+        try:
+            urllib.request.urlopen(urllib.request.Request("http://mira:4318/v1/traces", data=body,
+                                   headers={"content-type": "application/json"}), timeout=5)
+        except Exception:
+            pass
+PY
+  kubectl apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: span-generator, namespace: $NS}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: demo-span-generator}
+rules:
+- {apiGroups: [apps], resources: [deployments], verbs: [get]}
+- {apiGroups: [""], resources: [configmaps], verbs: [get]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: demo-span-generator}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: demo-span-generator}
+subjects: [{kind: ServiceAccount, name: span-generator, namespace: $NS}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: span-generator, namespace: $NS}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: span-generator}}
+  template:
+    metadata: {labels: {app: span-generator}}
+    spec:
+      serviceAccountName: span-generator
+      containers:
+      - {name: gen, image: ${PYTHON_IMG%@*}, imagePullPolicy: Never, command: [python, -u, /gen/gen.py], volumeMounts: [{name: gen, mountPath: /gen}]}
+      volumes: [{name: gen, configMap: {name: span-generator}}]
+YAML
+}
+# eval_runner — a stand-in eval runner for pay-agent's eval suite (phase 7):
+# it runs nothing and answers, for the pay-agent version running in test, the
+# count the eval-results ConfigMap sets ("<version>": "passed/total"; every
+# case passes when unset). It signs every answer with the runner key the evals
+# provider trusts (an ed25519 DSSE envelope in a Sigstore bundle, signed in
+# plain Python so the stock image needs no extra package). It reuses the span
+# generator's read-only account.
+eval_runner() {
+  kubectl -n "$NS" create configmap eval-results --from-literal=1.1.0=1/2 --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n "$NS" create secret generic eval-runner-key --from-file=key.pem="$KEYS/runner.pem" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n "$NS" create configmap eval-runner --from-file=run.py=/dev/stdin --dry-run=client -o yaml <<'PY' | kubectl apply -f - >/dev/null
+import base64, hashlib, json, ssl, urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
+SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+ctx = ssl.create_default_context(cafile=SA + "/ca.crt")
+def get(path):
+    req = urllib.request.Request("https://kubernetes.default.svc" + path, headers={"Authorization": "Bearer " + open(SA + "/token").read()})
+    return json.load(urllib.request.urlopen(req, context=ctx, timeout=5))
+# Ed25519 (RFC 8032) signing in plain Python: slow, fine for one answer a check.
+P, L = 2**255 - 19, 2**252 + 27742317777372353535851937790883648493
+D = -121665 * pow(121666, P - 2, P) % P
+GX = 15112221349535400772501151409588531511454012693041857206046113283949847762202
+GY = 46316835694926478169428394003475163141307993866256225615783033603165251855960
+def add(a, b):
+    x1, y1, z1, t1 = a; x2, y2, z2, t2 = b
+    A, B = (y1 - x1) * (y2 - x2) % P, (y1 + x1) * (y2 + x2) % P
+    C, E = 2 * t1 * t2 * D % P, 2 * z1 * z2 % P
+    e, f, g, h = B - A, E - C, E + C, B + A
+    return (e * f % P, g * h % P, f * g % P, e * h % P)
+def mul(s, pt):
+    q = (0, 1, 1, 0)
+    while s:
+        if s & 1: q = add(q, pt)
+        pt, s = add(pt, pt), s >> 1
+    return q
+def enc(pt):
+    x, y, z, _ = pt; zi = pow(z, P - 2, P)
+    return ((y * zi % P) | ((x * zi % P) & 1) << 255).to_bytes(32, "little")
+def sign(seed, msg):
+    h = hashlib.sha512(seed).digest()
+    a = int.from_bytes(h[:32], "little") & ((1 << 254) - 8) | (1 << 254)
+    G = (GX, GY, 1, GX * GY % P)
+    pub = enc(mul(a, G))
+    r = int.from_bytes(hashlib.sha512(h[32:] + msg).digest(), "little") % L
+    R = enc(mul(r, G))
+    k = int.from_bytes(hashlib.sha512(R + pub + msg).digest(), "little") % L
+    return R + ((r + k * a) % L).to_bytes(32, "little"), pub
+PEM = open("/key/key.pem").read()
+SEED = base64.b64decode("".join(l for l in PEM.splitlines() if "-----" not in l))[-32:]  # PKCS#8 ends with the seed
+TYPE = "application/vnd.in-toto+json"
+def signed(statement):
+    payload = json.dumps(statement).encode()
+    sig, pub = sign(SEED, b"DSSEv1 %d %s %d %s" % (len(TYPE), TYPE.encode(), len(payload), payload))
+    hint = hashlib.sha256(bytes.fromhex("302a300506032b6570032100") + pub).hexdigest()
+    b64 = lambda b: base64.b64encode(b).decode()
+    return {"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json", "verificationMaterial": {"publicKey": {"hint": hint}},
+            "dsseEnvelope": {"payload": b64(payload), "payloadType": TYPE, "signatures": [{"sig": b64(sig)}]}}
+class Runner(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+        version = get("/apis/apps/v1/namespaces/test/deployments/pay-agent")["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/version"]
+        counts = (get("/api/v1/namespaces/pacto-system/configmaps/eval-results").get("data") or {}).get(version, "2/2")
+        passed, total = (int(n) for n in counts.split("/"))
+        algo, digest = body["input"]["subjects"][0].split(":", 1)
+        out = json.dumps(signed({"_type": "https://in-toto.io/Statement/v1", "subject": [{"name": "pay-agent", "digest": {algo: digest}}],
+                                 "predicateType": "delivery.pacto.trianalab.io/eval/v1",
+                                 "predicate": {"operation": body["input"]["operationUID"], "challenge": body["input"]["challenge"], "suite": body["input"]["suite"]["digest"], "run": "demo-" + version, "passed": passed, "total": total,
+                                               "message": "generated by the demo's stand-in runner"}})).encode()
+        self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(out)
+HTTPServer(("", 8080), Runner).serve_forever()
+PY
+  kubectl -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: eval-runner}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: eval-runner}}
+  template:
+    metadata: {labels: {app: eval-runner}}
+    spec:
+      serviceAccountName: span-generator
+      containers:
+      - {name: run, image: ${PYTHON_IMG%@*}, imagePullPolicy: Never, command: [python, -u, /runner/run.py], volumeMounts: [{name: run, mountPath: /runner}, {name: key, mountPath: /key, readOnly: true}]}
+      volumes: [{name: run, configMap: {name: eval-runner}}, {name: key, secret: {secretName: eval-runner-key}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: eval-runner}
+spec: {selector: {app: eval-runner}, ports: [{name: http, port: 8080, targetPort: 8080}]}
+YAML
+}
+mode() { kubectl -n "$NS" patch configmap span-modes --type merge -p "{\"data\":{\"$1\":\"$2\"}}" >/dev/null; } # ENV.VERSION MODE
+
+mira() {
+  kubectl -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mira}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: mira}}
+  template:
+    metadata: {labels: {app: mira}}
+    spec:
+      containers:
+      - name: mira
+        image: ${MIRA_IMG%@*}
+        imagePullPolicy: Never
+        ports: [{containerPort: 4318}]
+        readinessProbe: {httpGet: {path: /readyz, port: 4318}, periodSeconds: 2}
+        volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mira}
+spec: {selector: {app: mira}, ports: [{name: http, port: 4318, targetPort: 4318}]}
+YAML
+}
+
+# agent_kubeconfig — pay-agent, a ServiceAccount, by token: how the agent's
+# own tools reach the cluster.
+agent_kubeconfig() {
+  local server ca tok
+  server="$(kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.server}')"
+  ca="$(kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+  tok="$(kubectl -n agents create token pay-agent --duration=24h)"
+  cat > "$AGENT_KC" <<YAML
+apiVersion: v1
+kind: Config
+clusters: [{name: demo, cluster: {server: "$server", certificate-authority-data: "$ca"}}]
+users: [{name: pay-agent, user: {token: "$tok"}}]
+contexts: [{name: pay-agent, context: {cluster: demo, user: pay-agent}}]
+current-context: pay-agent
+YAML
+}
+
+cmd_up() {
+  command -v oras >/dev/null 2>&1 || fail "oras is required"
+  command -v cosign >/dev/null 2>&1 || fail "cosign is required: it makes the publisher's key"
+  command -v jq >/dev/null 2>&1 || fail "jq is required"
+  command -v openssl >/dev/null 2>&1 || fail "openssl is required: it makes the recorder's key"
+  command -v timeout >/dev/null 2>&1 || fail "timeout is required (GNU coreutils; on macOS: brew install coreutils)"
+  if kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then fail "the demo cluster is already up; 'make e2e-delivery-demo-down' first"; fi
+  rm -rf "$DEMO"; mkdirs
+  VER="$(release_version kubernetes)"
+  OP_REPO="localhost:5001/pacto-operator/pacto-controller" OP_IMG="localhost:5001/pacto-operator/pacto-controller:${VER}"
+  DL_REPO="localhost:5001/pacto-delivery" DL_IMG="localhost:5001/pacto-delivery:${VER}"
+  DASH_IMG="localhost:5001/pacto-dashboard:$(release_version core)"
+  echo "DASH_IMG=$DASH_IMG" > "$DEMO/images.env"
+
+  section "create the cluster and build the images while the rest is pulled"
+  local cfg; cfg="$(kind_config)"
+  cluster_start_bg "$cfg"
+  local build="" img
+  if [ -n "${DELIVERY_LOAD_IMAGES:-}" ]; then
+    docker load -i "$DELIVERY_LOAD_IMAGES" >/dev/null || fail "could not load $DELIVERY_LOAD_IMAGES"
+    for img in "$OP_IMG" "$DL_IMG" "$DASH_IMG"; do
+      docker image inspect "$img" >/dev/null 2>&1 || fail "$DELIVERY_LOAD_IMAGES has no $img: it was built from another tree"
+    done
+  else
+    infra "build the Pacto images" build_images & build=$!
+  fi
+  ( go build -o "$PACTO" "$ROOT/cmd/pacto" && cd "$ROOT" && go build -o "$OIDC_BIN" ./tests/acceptance/kind/oidclogin ) > "$DEMO/go-build.log" 2>&1 &
+  local gobuild=$!
+  local flux; flux="$(mktemp)"
+  infra "download the Flux $FLUX_VERSION install manifest" \
+    curl -fsSL --retry 2 --max-time 60 -o "$flux" "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
+  [ "$(shasum -a 256 "$flux" | cut -d' ' -f1)" = "$FLUX_INSTALL_SHA256" ] || fail "the Flux install manifest changed upstream"
+  demo_images
+  wait "$gobuild" || { cat "$DEMO/go-build.log" >&2; fail "pacto or the login helper did not build"; }
+  local op_chart
+  op_chart="$(package_chart "$PACTO_CHART")"
+  [ -z "$build" ] || wait "$build" || exit 1
+
+  timed "wait for the cluster" ensure_cluster "$cfg"
+  cp "$KUBECONFIG" "$ADMIN_KC"; export KUBECONFIG="$ADMIN_KC"
+  infra "load the images into the cluster" load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG" "${FLUX_IMAGES[@]%@*}" \
+    "${MIRA_IMG%@*}" "${PODINFO_IMG%@*}" "${PYTHON_IMG%@*}"
+  local n
+  for n in "$NS" "$DNS" test prod agents; do kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
+  timed "Dex for people, Keycloak for agents" idp_start
+
+  section "zot, Flux, the Pacto operator chart with its node agent and delivery with the recorder, Mira"
+  install_registry
+  node_pulls_from_registry
+  openssl genpkey -algorithm ed25519 -out "$KEYS/recorder.pem" 2>/dev/null || fail "openssl could not make the recorder's key"
+  openssl pkey -in "$KEYS/recorder.pem" -pubout -out "$KEYS/recorder.pub"
+  openssl genpkey -algorithm ed25519 -out "$KEYS/runner.pem" 2>/dev/null || fail "openssl could not make the eval runner's key"
+  openssl pkey -in "$KEYS/runner.pem" -pubout -out "$KEYS/runner.pub"
+  local providers
+  providers=$(jq -cn --arg ns "$NS" --arg runner "$(cat "$KEYS/runner.pub")" '[
+    {name: "mira", type: "mira", url: "http://mira.\($ns).svc.cluster.local:4318", allowPlainHTTP: true},
+    {name: "evals", type: "eval", url: "http://eval-runner.\($ns).svc.cluster.local:8080", allowPlainHTTP: true,
+     signers: [{name: "demo-eval-runner", publicKey: $runner}]}]')
+  kubectl -n "$DNS" create secret generic recorder-key --from-file=key.pem="$KEYS/recorder.pem" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  (cd "$KEYS" && COSIGN_PASSWORD="" cosign generate-key-pair >/dev/null 2>&1) || fail "cosign could not make the publisher's key"
+  for n in test prod; do
+    kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYS/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  done
+  infra "install Flux" kubectl apply --server-side -f "$flux" >/dev/null
+  kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
+  helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s \
+    --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+    --set "insecureRegistries[0]=$REG_HOST" \
+    --set delivery.enabled=true --set delivery.createNamespace=false --set delivery.identities.allowEmptyHumanGroups=true --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
+    --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
+    --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.identities.teamGroupPrefix=team- \
+    --set-json "delivery.gates.providers=$providers" \
+    --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/pacto-delivery-streams" --set delivery.recorder.poll=5s \
+    --set delivery.recorder.signing.ed25519.secretName=recorder-key --set delivery.recorder.signing.allowOperatorReadableKey=true --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
+  local op_helm=$!
+  mira
+  infra "roll out Flux's source-controller" kubectl -n flux-system rollout status deploy/source-controller --timeout=240s
+  infra "roll out Flux's kustomize-controller" kubectl -n flux-system rollout status deploy/kustomize-controller --timeout=240s
+  infra "roll out Mira" kubectl -n "$NS" rollout status deploy/mira --timeout=120s >/dev/null
+  wait "$op_helm" || exit 1
+  span_generator
+  eval_runner
+  eventually 60 kubectl -n pacto-node-agent get ds pacto-node-agent >/dev/null 2>&1 || fail "the operator never created the node agent"
+  kubectl -n pacto-node-agent rollout status ds/pacto-node-agent --timeout=180s >/dev/null || fail "the node agent did not roll out"
+  kubectl -n "$NS" rollout status deploy/span-generator --timeout=120s >/dev/null || fail "the span generator did not roll out"
+  kubectl -n "$NS" rollout status deploy/eval-runner --timeout=120s >/dev/null || fail "the eval runner did not roll out"
+  pass "installed: registry, operator and node agent, Flux, promoter and recorder, Mira, span generator, eval runner"
+
+  section "who may do what: pay-agent proposes, team members approve"
+  kubectl -n agents create serviceaccount pay-agent --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create clusterrolebinding demo-agents --clusterrole=pacto-operator-delivery-agent \
+    --serviceaccount=agents:pay-agent --group=pacto:agents --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create clusterrolebinding demo-approvers --clusterrole=pacto-operator-delivery-approver \
+    --group=team-payments --group=team-orders --group=team-checkout --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  agent_kubeconfig
+  timed "wait for Dex and Keycloak" identity_up
+  timed "the dashboard and the remote MCP server" servers
+
+  section "the story's starting point"
+  registry_pf
+  bootstrap
+  stop_pf
+  pass "the demo is up"
+  next_steps up
+}
+
+# --- the story's services ----------------------------------------------------
+
+beats() { [ -s "$DEMO/beats.json" ] || ( cd "$ROOT" && go run ./tests/acceptance/kind/storybeats ) > "$DEMO/beats.json"; cat "$DEMO/beats.json"; }
+expect() { beats | jq -c ".\"$1\".Expect.$2"; } # BEAT FIELD — what examples/story says, as JSON
+says() { beats | jq -r ".\"$1\".Says"; }
+# drift BEAT WHAT GOT WANT — a beat the cluster does not play as the story says.
+drift() { fail "DRIFT in beat $1: $2: the cluster says $3, examples/story says $4"; }
+same() { [ "$3" = "$4" ] || drift "$1" "$2" "$3" "$4"; } # BEAT WHAT GOT WANT
+beat() { echo; echo "== $1: $(says "$1")"; echo "   because: $(beats | jq -r ".\"$1\".Why")"; }
+
+# checkout_version SERVICE VERSION — the story's files for that version in the
+# service's git working copy, with only the registry host rewritten to the
+# in-cluster one, plus the Pacto resource that checks the running version
+# (what pacto init --delivery writes beside a contract).
+checkout_version() {
+  local svc="$1" v="$2" dir="$WORK/$1"
+  mkdir -p "$dir"
+  [ -d "$dir/.git" ] || git -C "$dir" init -q
+  find "$dir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+  cp -R "$STORY/contracts/$svc/$v/." "$dir/"
+  cp "$KEYS/cosign.key" "$dir/cosign.key"
+  perl -pi -e "s#registry\\.example/story#${REG_HOST}/story#g" "$dir/pacto.yaml"
+  # The interface payments (http) or pay-agent (tools) declares is served by
+  # its Service's port 8080:
+  # Kubernetes knowledge that lives on the Pacto resource, not the contract.
+  local bind=""
+  [ "$svc" = payments ] && bind=", serviceName: payments, interfaceBindings: [{interface: http, servicePort: 8080}]"
+  [ "$svc" = pay-agent ] && bind=", serviceName: pay-agent, interfaceBindings: [{interface: tools, servicePort: 8080}]"
+  cat > "$dir/deploy/pacto-resource.yaml" <<YAML
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata: {name: $svc}
+spec:
+  # Re-checked every 30s, so the claim check sees the node agent's baseline
+  # inside the verify window (the default is 5 minutes).
+  checkIntervalSeconds: 30
+  contractRef: {oci: "oci://${REG_HOST}/story/$svc:$v"}
+  target: {workloadRef: {name: $svc, kind: Deployment}$bind}
+YAML
+  # payments 2.4.2 is "logging only" but calls fraud: a sidecar stands in for
+  # the code that makes the call.
+  if [ "$svc/$v" = payments/2.4.2 ]; then
+    perl -0pi -e 's#(            - containerPort: 8080\n)#$1        - name: logger\n          image: '"${PODINFO_IMG%@*}"'\n          command: [sh, -c, "while true; do wget -q -O /dev/null --post-data= http://fraud:8080/score; sleep 2; done"]\n#' \
+      "$dir/deploy/payments.yaml"
+  fi
+  git -C "$dir" add -A
+  git -C "$dir" -c user.email=demo@example.com -c user.name=demo commit -qm "$svc $v" --allow-empty
+}
+
+# publish SERVICE VERSION — pacto publish, as the agent's tools run it; prints
+# the deploy artifact's digest.
+publish() {
+  local out
+  checkout_version "$1" "$2"
+  out="$(cd "$WORK/$1" && reg "$PACTO" publish 2>&1)" || { echo "$out" >&2; fail "pacto publish $1 $2 failed"; }
+  grep -oE "^Deploy: .*@sha256:[0-9a-f]{64}" <<<"$out" | sed 's/.*@//' | grep . || { echo "$out" >&2; fail "pacto publish $1 $2 named no deploy artifact"; }
+}
+
+# environment SERVICE ENV CANDIDATES AUTO [GATES] — what applies SERVICE in
+# ENV, on autonomous when AUTO is true and on advise otherwise (an admin may
+# create a Stage on any level; the ladder itself is the browser demo's story),
+# and the Stage that decides which version runs there, in the shape
+# pacto init --delivery writes (the registry speaks plain HTTP, hence insecure),
+# plus a health check on the Deployment: Flux calls a version applied only once
+# its rollout is done, so the verify gates never judge the old pods (HANDOFF).
+environment() {
+  local svc="$1" env="$2" verify='verify: {provider: cosign, secretRef: {name: cosign-pub}}' level=advise
+  [ "$4" = true ] && level=autonomous
+  local url="oci://${REG_HOST}/story/deploy/$svc"
+  {
+    if [ "$3" = candidates ]; then
+      cat <<YAML
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: $svc-candidates, namespace: $env}
+spec: {interval: 5s, insecure: true, url: "$url", ref: {semver: ">=0.0.0"}, $verify}
+---
+YAML
+      CANDS="{ociRepositoryRef: {name: $svc-candidates}}"
+    else
+      CANDS="{upstreamStage: {name: $svc, namespace: test}}"
+    fi
+    cat <<YAML
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: $svc, namespace: $env, labels: {delivery.pacto.trianalab.io/apply-ref: $svc}}
+spec: {interval: 30s, insecure: true, url: "$url", $verify}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: $svc, namespace: $env}
+spec:
+  {interval: 10m, sourceRef: {kind: OCIRepository, name: $svc}, path: ./, prune: true, targetNamespace: $env, timeout: 3m,
+   healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: $svc, namespace: $env}]}
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: $svc, namespace: $env}
+spec:
+  service: {name: $svc}
+  environment: $env
+  applyRef: {name: $svc}
+  candidates: $CANDS
+  startLevel: $level
+  gates:
+    impact: {declaredConsumersOnly: true}
+    verify:
+      window: 3m
+${5:-}
+YAML
+  } | kubectl apply -f - >/dev/null
+}
+# payments_gates ENV [RECHECK] — the payments Stages verify with Mira (the
+# error ratio of ENV's spans) and the node agent's claim check.
+payments_gates() {
+  cat <<YAML
+      ${2:+recheck: $2}
+      checks:
+      - name: health
+        provider: mira
+        params: {minSpans: "20", maxErrorRatio: "0.2", soak: "15s", where: '[{"attr": "deployment.environment", "eq": "$1"}]'}
+      - {name: claims, provider: pacto.runtime, params: {soak: "15s"}}
+YAML
+}
+
+# --- reading the cluster -----------------------------------------------------
+op_json() { kubectl -n "$1" get operation "$2" -o json; }
+failed_on() { kubectl -n "$1" get stage "$2" -o json | jq -e --arg d "$3" '.status.failedDigests // [] | index($d)' >/dev/null; }
+# offered SERVICE DIGEST — test verified it and offers it to prod.
+offered() { kubectl -n test get stage "$1" -o json | jq -e --arg d "$2" '.status.offered // [] | index($d)' >/dev/null; }
+digest_of() { cat "$DEMO/digests/$1-$2"; } # SERVICE VERSION
+# prod_op VERSION — the promote moving payments in prod to VERSION. payments
+# advances on its own there (autonomous), so the promoter names it.
+prod_op() { op_to prod payments "$(digest_of payments "$1")" | head -1; }
+remember() { mkdir -p "$DEMO/digests"; echo "$3" > "$DEMO/digests/$1-$2"; }
+propose() { KUBECONFIG="$AGENT_KC" "$PACTO" delivery propose "$@" >/dev/null; } # as pay-agent
+# ship_test SERVICE VERSION — publish it and wait until test verified it.
+ship_test() {
+  local d op; d="$(publish "$1" "$2")"; remember "$1" "$2" "$d"
+  op="$(wait_op test "$1" "$d")"; wait_concluded test "$op" Succeeded/Verified
+}
+# owner_propose SERVICE ARGS... — alice, on SERVICE's team, proposes. The
+# starting point is set by people: prod advises, so a promote pay-agent raised
+# would wait for a person to approve it.
+owner_propose() { local svc="$1"; shift; KUBECONFIG="$(person alice@example.com "team-$svc")" "$PACTO" delivery propose "$@" >/dev/null; }
+# ship_prod SERVICE VERSION — a verified version reaches prod: on autonomous
+# the promoter promotes it, on advise its team proposes it.
+ship_prod() {
+  local d op="$1-${2//./-}"; d="$(digest_of "$1" "$2")"
+  eventually 60 offered "$1" "$d" || fail "test never offered $1 $2 to prod"
+  if [ "$(kubectl -n prod get stage "$1" -o jsonpath='{.spec.startLevel}')" = autonomous ]; then
+    op="$(wait_op prod "$1" "$d")"
+  else
+    owner_propose "$1" -n prod --stage "$1" --to "$d" --name "$op" --reason "the demo's starting point"
+  fi
+  wait_concluded prod "$op" Succeeded/Verified
+}
+
+# bootstrap — the story's starting point, as far as DEMO_SEED goes: none (no
+# service yet: the agent shard), payments (2.3.0 in test and prod) or all (the
+# default: checkout and orders too).
+bootstrap() {
+  [ "${DEMO_SEED:-all}" != none ] || return 0
+  environment payments test candidates true "$(payments_gates test)"
+  environment payments prod upstream true "$(payments_gates prod 10s)"
+  ship_test payments 2.3.0; ship_prod payments 2.3.0
+  pass "payments 2.3.0 runs in test and prod"
+  [ "${DEMO_SEED:-all}" != payments ] || return 0
+  # checkout and orders depend on payments, not on each other: they ship at once.
+  bootstrap_checkout & local checkout=$!
+  bootstrap_orders & local orders=$!
+  wait "$checkout" || exit 1
+  wait "$orders" || exit 1
+  pass "checkout 1.8.0 and orders 1.4.0 run in prod, both accepting payments ^2"
+  pass "checkout 1.9.0 (accepts payments ^2 || ^3) is verified in test; prod waits for someone to promote it"
+}
+bootstrap_checkout() {
+  environment checkout test candidates true
+  environment checkout prod upstream false
+  ship_test checkout 1.8.0; ship_prod checkout 1.8.0
+  ship_test checkout 1.9.0
+}
+bootstrap_orders() {
+  # orders ships to prod only: nothing in test depends on it.
+  environment orders prod candidates false
+  local d; d="$(publish orders 1.4.0)"; remember orders 1.4.0 "$d"
+  eventually 60 published_in prod orders "$d" || fail "prod never offered orders 1.4.0"
+  owner_propose orders -n prod --stage orders --to "$d" --name orders-1-4-0 --reason "the demo's starting point"
+  wait_concluded prod orders-1-4-0 Succeeded/Verified
+}
+
+# --- story -------------------------------------------------------------------
+
+# diffs BEAT OLD NEW [SERVICE] — pacto diff on the story's contracts gives the
+# beat's classification and required bump (SERVICE defaults to payments).
+diffs() {
+  local got c="$STORY/contracts/${4:-payments}"
+  got="$("$PACTO" diff --output-format json "$c/$2" "$c/$3" 2>/dev/null || true)"
+  same "$1" "classification" "$(jq -r .classification <<<"$got")" "$(expect "$1" Classification | jq -r .)"
+  same "$1" "required bump" "$(jq -r .requiredBump <<<"$got")" "$(expect "$1" RequiredBump | jq -r .)"
+}
+predicted() { # BEAT NS OP — the promoter's plan says what the story says
+  planned() { [ -n "$(field "$2" "$3" plan.predicted)" ]; }
+  eventually 30 planned "$@" || fail "$2/$3 has no plan: $(field "$2" "$3" phase) $(field "$2" "$3" message)"
+  same "$1" "predicted" "$(field "$2" "$3" plan.predicted)" "$(expect "$1" Predicted | jq -r .)"
+}
+
+story_pactify() {
+  beat pactify
+  local dir="$WORK/fraud"
+  rm -rf "$dir"; cp -R "$STORY/plain/fraud" "$dir"
+  perl -pi -e "s#registry\\.example/story#${REG_HOST}/story#g" "$dir/k8s/deployment.yaml"
+  # A throwaway key stays out of the public transparency log, and the demo's
+  # registry speaks plain HTTP: both are init flags.
+  echo "  \$ pacto init --delivery --owner risk --no-transparency-log --insecure-registry"
+  (cd "$dir" && "$PACTO" init --delivery --owner risk --no-transparency-log --insecure-registry) | sed 's/^/    /'
+  [ -s "$dir/delivery/test.yaml" ] || fail "pacto init --delivery wrote no Stage for test"
+  cp "$KEYS/cosign.key" "$dir/"
+  git -C "$dir" init -q && git -C "$dir" add -A && git -C "$dir" -c user.email=demo@example.com -c user.name=demo commit -qm "pactify fraud"
+  local out d
+  out="$(cd "$dir" && reg "$PACTO" publish 2>&1)" || { echo "$out" >&2; fail "pacto publish fraud failed"; }
+  d="$(grep -oE "^Deploy: .*@sha256:[0-9a-f]{64}" <<<"$out" | sed 's/.*@//')"
+  remember fraud 1.0.0 "$d"
+  kubectl apply -f "$dir/delivery/test.yaml" -f "$dir/delivery/prod.yaml" >/dev/null
+  # Both Stages start on observe: Flux applies the tag, and Pacto only notes
+  # what it would have done with each version it saw.
+  shadowed() { [ -n "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow // [] | map(select(.candidate == $d and .observedAt != null)) | .[0].predicted // empty')" ]; }
+  eventually 120 shadowed || fail "fraud's test Stage noted nothing about 1.0.0: $(kubectl -n test get stage fraud -o jsonpath='{.status.conditions}')"
+  same pactify "level" "$(kubectl -n test get stage fraud -o jsonpath='{.status.level}')" observe
+  same pactify "predicted" "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow | map(select(.candidate == $d)) | .[0].predicted')" "$(expect pactify Predicted | jq -r .)"
+  eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
+  local img; img="$(kubectl -n test get deploy fraud -o jsonpath='{.spec.template.spec.containers[0].image}')"
+  [[ "$img" == "${REG_HOST}/story/images/fraud@sha256:"* ]] || fail "fraud runs $img in test, not the image pacto publish built, pinned by digest"
+  no_fraud_ops() { [ "$(ops test | jq '[.items[] | select(.spec.stage == "fraud")] | length')" = 0 ] && [ "$(ops prod | jq '[.items[] | select(.spec.stage == "fraud")] | length')" = 0 ]; }
+  always 5 no_fraud_ops || fail "a Stage on observe raised an operation for fraud"
+  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init as it wrote them, both Stages observe, and Pacto noted it would have shipped 1.0.0 to test"
+}
+
+story_b1() {
+  beat B1
+  diffs B1 2.3.0 2.4.0
+  ship_test payments 2.4.0
+  local d; d="$(digest_of payments 2.4.0)"
+  eventually 60 offered payments "$d" || fail "test never offered payments 2.4.0 to prod"
+  local op; op="$(wait_op prod payments "$d")"
+  predicted B1 prod "$op"
+  same B1 "a person asked" "$(field prod "$op" plan.floor.decision)" "$(expect B1 Decision | jq -r .)"
+  wait_concluded prod "$op" Succeeded/Verified
+  pass "payments 2.4.0 shipped to prod with nobody involved"
+}
+
+story_b2() {
+  beat B2
+  mode prod.2.4.0 errors
+  echo "  the span generator now sends prod errors for payments 2.4.0 (generated traffic)"
+  local rb; rb="$(prod_op 2.4.0)-rollback"
+  eventually 90 kubectl -n prod get operation "$rb" >/dev/null 2>&1 || fail "the failed health check raised no rollback"
+  local cause; cause="$(op_json prod "$rb" | jq -c .spec.cause.verdict)"
+  same B2 "the check after release" "$(jq -r .result <<<"$cause")" "$(expect B2 Verify | jq -r .)"
+  [ "$(jq -r .gate <<<"$cause")" = health ] || fail "the rollback cites $(jq -r .gate <<<"$cause"), not the health check: $cause"
+  jq -e '.citation.query | length > 0' <<<"$cause" >/dev/null || fail "the rollback does not cite its Mira query: $cause"
+  predicted B2 prod "$rb"
+  wait_concluded prod "$rb" Succeeded/Verified
+  runs prod payments "$(digest_of payments 2.3.0)" || fail "prod is not back on payments 2.3.0"
+  pass "the health check failed, cited its query, and payments rolled back to 2.3.0 on its own"
+}
+
+story_b3() {
+  beat B3
+  diffs B3 2.4.0 2.4.2
+  local d op; d="$(publish payments 2.4.2)"; remember payments 2.4.2 "$d"
+  op="$(wait_op test payments "$d")"
+  eventually 120 failed_on test payments "$d" || fail "payments 2.4.2 never failed in test: $(field test "$op" phase) $(field test "$op" message)"
+  local cause; cause="$(op_json test "${op}-rollback" | jq -c .spec.cause.verdict)"
+  same B3 "the claim check" "$(jq -r .result <<<"$cause")" "$(expect B3 Verify | jq -r .)"
+  grep -q "DEPENDENCY_UNDECLARED dependency/fraud (ebpf" <<<"$(jq -r '.citation["payments.findings"]' <<<"$cause")" \
+    || fail "the rollback does not cite the call to fraud the node agent saw: $cause"
+  predicted B3 test "$op"
+  wait_concluded test "${op}-rollback" Succeeded/Verified
+  never_prod() { ! op_exists prod payments "$d"; }
+  always 5 never_prod || fail "payments 2.4.2 reached prod"
+  pass "the node agent saw payments 2.4.2 call fraud, which its contract never names: failed in test, never in prod"
+}
+
+# oras_copy VERSION — a copy of payments VERSION pushed with plain oras: the
+# same layer and contract, never signed by pacto publish; prints its digest.
+oras_copy() {
+  local r="127.0.0.1:${LOCAL_REG_PORT}/story/deploy/payments" tmp man
+  tmp="$(mktemp -d)"
+  man="$(oras manifest fetch --plain-http "$r:$1")" || fail "oras could not read payments $1"
+  oras blob fetch --plain-http "$r@$(jq -r '.layers[0].digest' <<<"$man")" --output "$tmp/layer" || fail "oras could not read its layer"
+  (cd "$tmp" && oras push --plain-http --disable-path-validation --format go-template='{{.digest}}' \
+    --annotation "delivery.pacto.trianalab.io/contract=$(jq -r '.annotations["delivery.pacto.trianalab.io/contract"]' <<<"$man")" \
+    "$r:oras-copy" "layer:$(jq -r '.layers[0].mediaType' <<<"$man")") || fail "oras could not push the copy"
+}
+
+story_b4() {
+  beat B4
+  local out
+  checkout_version payments 2.4.3
+  out="$(cd "$WORK/payments" && reg "$PACTO" publish 2>&1)" && fail "publishing payments 2.4.3 was not refused: $out"
+  local rule; rule="$(grep -m1 "FAIL version:" <<<"$out" || true)"
+  grep -q "$(expect B4 RequiredBump | jq -r .)" <<<"$rule" || drift B4 "the version rule" "${rule:-$out}" "a $(expect B4 RequiredBump | jq -r .) bump"
+  same B4 "the version refused" "2.4.3" "$(expect B4 Refused | jq -r .)"
+  echo "  pacto publish 2.4.3 is refused: ${rule#*FAIL }"
+  diffs B4 2.4.2 3.0.0
+  # 2.4.2 failing in test stepped payments there down to auto-nonbreaking, so
+  # the promoter's own promote of a breaking 3.0.0 waits for a person: payments'
+  # team ships it in test instead, and the held promote is cancelled.
+  local d3 auto; d3="$(publish payments 3.0.0)"; remember payments 3.0.0 "$d3"
+  auto="$(wait_op test payments "$d3")"
+  [ "$(kubectl -n test get stage payments -o jsonpath='{.status.level}')" = auto-nonbreaking ] \
+    || fail "2.4.2 failing in test did not step payments there down to auto-nonbreaking: $(kubectl -n test get stage payments -o jsonpath='{.status.level}')"
+  eventually 60 held test "$auto" || fail "the promoter's promote of breaking 3.0.0 did not wait for a person in test: $(field test "$auto" phase) $(field test "$auto" message)"
+  owner_propose payments -n test --stage payments --to "$d3" --name payments-3-0-0-test --reason "B4: a breaking change after the step-down"
+  wait_concluded test payments-3-0-0-test Succeeded/Verified
+  kubectl -n test delete operation "$auto" --wait=false >/dev/null || fail "could not cancel the held promote of 3.0.0 in test"
+  local copy; copy="$(oras_copy 3.0.0)"
+  remember payments oras-copy "$copy"
+  propose -n test --stage payments --to "$copy" --name payments-oras-copy --reason "B4: a copy pushed with plain oras"
+  wait_concluded test payments-oras-copy Rejected/
+  predicted B4 test payments-oras-copy
+  same B4 "the refusing gate" "$(field test payments-oras-copy plan | jq -r '[.verdicts[] | select(.result == "Fail") | .gate][0]')" "$(expect B4 Refusal | jq -r .)"
+  [ "$(field test payments-oras-copy reason)" = NotPublished ] \
+    || drift B4 "the refusal" "$(field test payments-oras-copy reason)" "$(expect B4 Refusal | jq -r .) (NotPublished)"
+  pass "2.4.3 refused (Required bump: major), 3.0.0 published signed and verified in test, the oras copy refused as not published"
+}
+
+story_b5() {
+  beat B5
+  diffs B5 2.3.0 3.0.0
+  local d; d="$(digest_of payments 3.0.0)"
+  eventually 60 offered payments "$d" || fail "test never offered payments 3.0.0 to prod"
+  local op; op="$(wait_op prod payments "$d")"
+  eventually 60 held prod "$op" || fail "payments 3.0.0 was not held: $(field prod "$op" phase) $(field prod "$op" message)"
+  predicted B5 prod "$op"
+  local plan; plan="$(field prod "$op" plan)"
+  same B5 "who is asked" "$(jq -c '.floor.owners | sort' <<<"$plan")" "$(expect B5 Asked)"
+  same B5 "the decision" "$(jq -r .floor.decision <<<"$plan")" "$(expect B5 Decision | jq -r .)"
+  same B5 "what moves first" "$(jq -c '[.order.moveFirst[] | select(.candidate) | "\(.service) \(.candidate.version)"]' <<<"$plan")" "$(expect B5 MoveFirst)"
+  echo "  question: $(jq -r '.question // empty' <<<"$plan")"
+  pass "payments 3.0.0 is held for prod: only checkout and orders are asked, and checkout 1.9.0 can ship first"
+}
+
+# story_records — moment 5: every concluded step is a signed record anyone with
+# the recorder's public key can check.
+story_records() {
+  echo; echo "== moment 5: every step is a signed record"
+  records_verified() { reg "$PACTO" delivery record verify -n prod --stage payments --trust "$KEYS/recorder.pub" >/dev/null 2>&1; }
+  eventually 60 records_verified || { reg "$PACTO" delivery record verify -n prod --stage payments --trust "$KEYS/recorder.pub" || true; fail "the payments prod records do not verify"; }
+  reg "$PACTO" delivery history -n prod --stage payments --trust "$KEYS/recorder.pub" | sed 's/^/    /'
+  pass "the payments prod history reads back from signed records, and they verify"
+}
+
+cmd_story() {
+  admin
+  [ -s "$DEMO/digests/payments-2.3.0" ] || fail "the demo's starting point is missing: run 'make e2e-delivery-demo-up'"
+  [ ! -e "$DEMO/digests/payments-3.0.0" ] || fail "the story already ran on this cluster: 'make e2e-delivery-demo-down' and up again to replay it"
+  registry_pf
+  story_pactify
+  story_b1
+  story_b2
+  story_b3
+  story_b4
+  story_b5
+  story_records
+  stop_pf
+  echo; echo "STORY PASS: every played beat matched examples/story"
+  next_steps story
+}
+
+# --- browser -----------------------------------------------------------------
+
+# b6 — checkout's team ships checkout 1.9 to prod (its prod Stage advises), and
+# the operation held in B5 now asks only orders: the same operation, not a new one.
+b6() {
+  local p3; p3="$(prod_op 3.0.0)"
+  beat B6
+  local d; d="$(digest_of checkout 1.9.0)"
+  if ! runs prod checkout "$d"; then
+    owner_propose checkout -n prod --stage checkout --to "$d" --name checkout-1-9-0 --reason "B6: move first"
+    wait_concluded prod checkout-1-9-0 Succeeded/Verified
+  fi
+  asks() { [ "$(field prod "$p3" plan.floor.owners)" = "$(expect B6 Asked | jq -c .)" ]; }
+  eventually 60 asks || drift B6 "who is asked" "$(field prod "$p3" plan.floor.owners)" "$(expect B6 Asked)"
+  held prod "$p3" || fail "payments 3.0.0 is no longer held: $(field prod "$p3" phase)"
+  pass "checkout 1.9.0 shipped first, and the same held operation now asks only orders"
+}
+
+# journeys BEAT — the dashboard journeys whose titles start with "BEAT: ", against
+# the live demo; the team they expect to be asked comes from examples/story.
+journeys() {
+  browser_ready
+  local change=""
+  [ ! -s "$DEMO/digests/payments-3.0.0" ] || change="$(prod_op 3.0.0)"
+  ( cd "$ROOT/pkg/dashboard/frontend" && PW_BASE_URL="$DASH_URL/" PW_DELIVERY_DEMO=1 PW_CHANGE="$change" PW_ASKED="$(expect B7 Asked | jq -r 'join(" or ")')" \
+    timeout 600 npx playwright test --config playwright.live.config.ts e2e-live/delivery-journeys.spec.ts --grep "$1: " ) \
+    || fail "the dashboard journeys failed: $1"
+}
+# browser_ready — Chromium for the journeys, installed once per run.
+browser_ready() {
+  [ -z "${BROWSER_READY:-}" ] || return 0
+  ( cd "$ROOT/pkg/dashboard/frontend" \
+    && { [ -d node_modules ] || npm ci --ignore-scripts >/dev/null 2>&1; } \
+    && timeout 300 npx playwright install ${CI:+--with-deps} chromium >/dev/null 2>&1 ) \
+    || fail "could not install the browser for the dashboard journeys"
+  BROWSER_READY=1
+}
+b7() { beat B7; journeys B7; }
+history_beat() { echo; echo "== moment 5 in Chromium: History reads the steps from signed records"; journeys History; }
+
+# seed_held — the state B5 leaves, for a shard that does not play B3 to B5:
+# publishing 2.4.3 refused (B7 shows the refusal), 3.0.0 verified in test (on
+# autonomous there, since B3 never stepped it down) and its promote held in
+# prod for checkout and orders. The beats that check this are the story shard's.
+seed_held() {
+  echo; echo "== seed: payments 2.4.3 refused, 3.0.0 verified in test and held for prod"
+  checkout_version payments 2.4.3
+  if (cd "$WORK/payments" && reg "$PACTO" publish >/dev/null 2>&1); then fail "publishing payments 2.4.3 was not refused"; fi
+  ship_test payments 3.0.0
+  local op; op="$(wait_op prod payments "$(digest_of payments 3.0.0)")"
+  eventually 60 held prod "$op" || fail "payments 3.0.0 was not held for prod: $(field prod "$op" phase) $(field prod "$op" message)"
+  pass "payments 3.0.0 is held for prod"
+}
+# seed_240 — payments 2.4.0 verified in test, for prod-eu to take (freeze shard).
+seed_240() { echo; echo "== seed: payments 2.4.0 verified in test"; ship_test payments 2.4.0; pass "payments 2.4.0 is verified in test"; }
+
+# b8 — carol approved, 3.0.0 shipped, and prod sends no telemetry for it
+# (span-modes prod.3.0.0=silent), so the check says Unknown and the operation
+# waits for carol to accept the unknown.
+b8() {
+  local p3; p3="$(prod_op 3.0.0)"
+  beat B8
+  left_held() { ! held prod "$p3"; }
+  eventually 60 left_held || fail "carol's approval did not move payments 3.0.0 on: $(field prod "$p3" phase) $(field prod "$p3" message)"
+  [ "$(field prod "$p3" phase)" != Concluded ] || fail "payments 3.0.0 concluded $(outcome prod "$p3") instead of verifying"
+  unknown_held() { held prod "$p3" && [ "$(field prod "$p3" applied)" = true ]; }
+  eventually 150 unknown_held || fail "payments 3.0.0 never waited on its check: $(field prod "$p3" phase) $(field prod "$p3" message)"
+  same B8 "the check after release" "$(op_json prod "$p3" | jq -r '[.status.verdicts[]? | select(.phase == "verify") | .result] | if index("Fail") then "Fail" elif index("Unknown") then "Unknown" else "Pass" end')" "$(expect B8 Verify | jq -r .)"
+  journeys B8
+  wait_concluded prod "$p3" Succeeded/AcceptedUnknown
+  pass "payments 3.0.0 shipped, its check said Unknown, and it stays recorded as an accepted unknown, never a pass"
+}
+
+# b9 — carol rolls 3.0.0 back from the dashboard; the rollback proceeds and
+# holds automation off, so nothing moves prod forward again on its own.
+b9() {
+  beat B9
+  journeys B9
+  # B2's rollback, when this run played B2, is not carol's.
+  local d op first=""; d="$(digest_of payments 2.3.0)"
+  [ ! -s "$DEMO/digests/payments-2.4.0" ] || first="$(prod_op 2.4.0)-rollback"
+  rolled() { op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vxF -e "$first" | grep -q .; }
+  eventually 60 rolled || fail "carol's rollback of payments 3.0.0 raised no operation"
+  op="$(op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vxF -e "$first" | head -1)"
+  predicted B9 prod "$op"
+  wait_concluded prod "$op" Succeeded/Verified
+  runs prod payments "$d" || fail "prod is not back on payments 2.3.0"
+  [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.autoHold}')" = true ] || fail "carol's rollback did not hold automation off"
+  always 5 runs prod payments "$d" || fail "automation moved payments off 2.3.0 after carol's rollback"
+  pass "carol rolled payments back to 2.3.0 and automation holds off"
+}
+
+# person USER GROUP — a kubeconfig that is USER, a person on GROUP, signed in
+# just now: the admin credentials impersonating them, with the sign-in time
+# structured authentication maps from Dex's auth_time.
+person() {
+  # One file per user and group: the bootstrap's checkout and orders, shipped
+  # at once, each sign alice in on their own team.
+  local f="$DEMO/$1-${2//[:\/]/_}.kubeconfig"
+  kubectl config view --raw --minify -o json | jq --arg u "$1" --arg g "$2" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '.users[0].user += {as: $u, "as-groups": [$g], "as-user-extra": {"delivery.pacto.trianalab.io/auth-time": [$t]}}' > "$f"
+  echo "$f"
+}
+# accept_unknown_as USER GROUP NS OP NOTE — USER, signed in just now, accepts
+# the unknown on OP: the Approval a fresh dashboard decision creates.
+accept_unknown_as() {
+  local kc at uid digest groups
+  kc="$(person "$1" "$2")"
+  at="$(jq -r '.users[0].user["as-user-extra"]["delivery.pacto.trianalab.io/auth-time"][0]' "$kc")"
+  uid="$(kubectl -n "$3" get operation "$4" -o jsonpath='{.metadata.uid}')"
+  digest="$(kubectl -n "$3" get operation "$4" -o jsonpath='{.spec.intentDigest}')"
+  groups="$(KUBECONFIG="$kc" kubectl auth whoami -o json | jq -c '.status.userInfo.groups')"
+  KUBECONFIG="$kc" kubectl -n "$3" create -f - >/dev/null <<YAML || fail "$1 could not accept the unknown on $3/$4"
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Approval
+metadata:
+  generateName: $4-
+  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1alpha1, kind: Operation, name: "$4", uid: "$uid"}]
+spec: {operation: "$4", operationUID: "$uid", intentDigest: "$digest", decision: accept-unknown, note: "$5", by: "$1", authTime: "$at", groups: $groups}
+YAML
+}
+rec() { reg "$PACTO" delivery "$@" --trust "$KEYS/recorder.pub"; }
+condition() { kubectl -n prod get stage payments -o jsonpath="{.status.conditions[?(@.type==\"RecordStoreReady\")].$1}"; }
+frozen() { [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}')" = true ]; }
+
+# b10 — the newest signed record of the payments prod stream goes missing
+# from the registry: the recorder refuses to write after a stream whose head
+# is gone and the promoter freezes the Stage. A changed copy of a record, which
+# anyone who can push may attach, is ignored instead. The agent cannot
+# unfreeze the Stage; once the record is restored alice does. Then ops edits
+# the pointer by hand under break-glass, which the promoter adopts as a
+# witnessed override record and freezes the Stage again.
+b10() {
+  beat B10
+  local tmp streams="127.0.0.1:${LOCAL_REG_PORT}/pacto-delivery-streams" m l anchor forged out
+  # A run that skipped B4 (the rollback shard) copies 2.4.0 instead of 3.0.0:
+  # any version the recorder must write a refusal for will do.
+  [ -s "$DEMO/digests/payments-oras-copy" ] || { out="$(oras_copy 2.4.0)"; remember payments oras-copy "$out"; }
+  tmp="$(mktemp -d)"
+  m="$(rec record verify -n prod --stage payments --output-format json | jq -r '.records[-1].manifest')"
+  l="$(oras manifest fetch --plain-http "$streams@$m" | jq -r '.layers[0].digest')"
+  oras blob fetch --plain-http --output "$tmp/head.json" "$streams@$l" >/dev/null || fail "oras could not read the newest payments prod record"
+  anchor="$streams@$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.anchor}' | sed 's/.*@//')"
+  # attach FILE — attach a bundle to the stream's anchor the way the recorder does; prints its manifest.
+  attach() {
+    (cd "$tmp" && oras attach --plain-http --artifact-type application/vnd.dev.sigstore.bundle.v0.3+json \
+      --annotation dev.sigstore.bundle.predicateType=delivery.pacto.trianalab.io/operation/v1 --annotation dev.sigstore.bundle.content=dsse-envelope \
+      --format go-template='{{.digest}}' "$anchor" "$1:application/vnd.dev.sigstore.bundle.v0.3+json")
+  }
+  # The newest record, with the time it finished changed and its signature kept.
+  jq --arg p "$(jq -r .dsseEnvelope.payload "$tmp/head.json" | base64 -d | jq -cj '.predicate.time.finished = "2000-01-01T00:00:00Z"' | base64 | tr -d '\n')" \
+    '.dsseEnvelope.payload = $p' "$tmp/head.json" > "$tmp/tampered.json"
+  forged="$(attach tampered.json)" || fail "oras could not attach the changed record"
+  echo "  a changed copy of the newest record is attached to the payments prod stream: $forged"
+  out="$(rec record verify -n prod --stage payments 2>&1 || true)"
+  grep -q "unreadable: $forged: signature" <<<"$out" || fail "record verify did not refuse the changed record: $out"
+  echo "  pacto delivery record verify: $(grep -m1 "$forged" <<<"$out" | sed 's/^ *//')"
+  echo "  anyone who can push could attach that, so the recorder ignores it; then the newest real record is deleted: $m"
+  oras manifest delete --plain-http --force "$streams@$m" >/dev/null || fail "oras could not delete the newest record"
+  # The next record the recorder writes reads the stream first, and stops there.
+  propose -n prod --stage payments --to "$(digest_of payments oras-copy)" --name payments-b10 --reason "B10: anything the recorder must write"
+  conflict() { [ "$(condition reason)" = StreamConflict ]; }
+  eventually 60 conflict || fail "the recorder did not stop on the missing record: $(condition message)"
+  eventually 30 frozen || fail "the payments prod Stage did not freeze on the missing record"
+  out="$(KUBECONFIG="$AGENT_KC" "$PACTO" delivery propose -n prod --stage payments --type unfreeze --name b10-agent-unfreeze --reason "B10" 2>&1 || true)"
+  grep -q "only a person or break-glass may unfreeze" <<<"$out" || fail "pay-agent's unfreeze was not refused: $out"
+  echo "  pay-agent tries to unfreeze it: refused, only a person or break-glass may unfreeze a Stage"
+  # The same signed bundle restores the record: its id is the digest of its
+  # payload, whatever manifest carries it.
+  attach head.json >/dev/null || fail "oras could not restore the deleted record"
+  oras manifest delete --plain-http --force "$streams@$forged" >/dev/null || fail "oras could not remove the changed record"
+  sound() { [ "$(condition status)" = True ]; }
+  eventually 60 sound || fail "the recorder did not resume once the record was restored: $(condition message)"
+  frozen || fail "the Stage unfroze on its own"
+  echo "  the record is restored and the recorder resumes; payments prod stays frozen until a person says so"
+  KUBECONFIG="$(person alice@example.com team-payments)" "$PACTO" delivery propose -n prod --stage payments --type unfreeze \
+    --name b10-unfreeze --reason "B10: the missing record is restored" >/dev/null || fail "alice could not propose the unfreeze"
+  echo "  alice unfreezes it (alice and, below, ops act through admin impersonation with a sign-in time the script makes up; B7 signs in through Dex)"
+  eventually 60 concluded prod b10-unfreeze || fail "alice's unfreeze never concluded: $(field prod b10-unfreeze message)"
+  # The promoter plans no unfreeze; the story says what it concludes instead.
+  same B10 "the unfreeze" "$(outcome prod b10-unfreeze)" "$(expect B10 Concluded | jq -r .)"
+  ! frozen || fail "payments prod stayed frozen after alice unfroze it"
+  pass "a missing record froze payments in prod and a changed copy was ignored; pay-agent could not unfreeze it, alice did once the record was back"
+
+  echo "  ops pins payments 2.4.0 in prod by hand, under break-glass, outside Pacto"
+  mode prod.2.4.0 ok
+  kubectl create clusterrole demo-break-glass --verb=get,patch --resource=ocirepositories.source.toolkit.fluxcd.io \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create clusterrolebinding demo-break-glass --clusterrole=demo-break-glass --group=pacto:break-glass \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  local d op; d="$(digest_of payments 2.4.0)"
+  KUBECONFIG="$(person ops@example.com pacto:break-glass)" kubectl -n prod patch ocirepository payments --type merge \
+    -p "{\"spec\":{\"ref\":{\"digest\":\"$d\"}}}" >/dev/null || fail "the break-glass edit was refused"
+  op="$(wait_op prod payments "$d" delivery.pacto.trianalab.io/override)"
+  wait_concluded prod "$op" Witnessed/Unverified
+  eventually 30 frozen || fail "the witnessed override did not freeze payments prod"
+  witnessed() { rec history -n prod --stage payments --output-format json | jq -e \
+    '[.entries[] | select(.outcome == "Witnessed" and .record != "")] | length >= 1' >/dev/null; }
+  eventually 60 witnessed || fail "the history shows no witnessed record of the break-glass edit"
+  rec record verify -n prod --stage payments >/dev/null 2>&1 || fail "the payments prod records do not verify after B10"
+  pass "the break-glass edit is a witnessed override record, payments prod is frozen again, and every record verifies"
+}
+
+# b_agent — phase 7: pay-agent is delivered as a service. Its test Stage
+# checks each version with its eval suite (through the stand-in runner):
+# the runner reports fixed counts (2 of 2 for 1.0.0, 1 of 2 for 1.1.0, the size of
+# its suite)
+# rather than running the suite's cases. 1.0.0 ships once alice accepts the
+# unknown its external model leaves; 1.1.0 swaps its model, fails in test and is
+# never offered to prod.
+b_agent() {
+  beat agent
+  environment pay-agent test candidates true "$(cat <<YAML
+      checks:
+      - {name: evals, provider: evals, suite: evals, params: {minPassRate: "0.95"}}
+YAML
+)"
+  environment pay-agent prod upstream false
+  # 1.0.0 passes its evals, but its model is an external dependency Pacto
+  # cannot see, so the contract check says Unknown and payments' team accepts
+  # the unknown from the dashboard. An accepted unknown is never offered on.
+  local d0 op0; d0="$(publish pay-agent 1.0.0)"; remember pay-agent 1.0.0 "$d0"
+  op0="$(wait_op test pay-agent "$d0")"
+  agent_unknown() { held test "$op0" && [ "$(field test "$op0" applied)" = true ]; }
+  eventually 600 agent_unknown || fail "pay-agent 1.0.0 never waited on its checks: $(field test "$op0" phase) $(field test "$op0" message)"
+  op_json test "$op0" | jq -e '[.status.verdicts[]? | select(.phase == "verify")] |
+    (map(select(.gate == "evals"))[-1].result == "Pass") and (map(select(.gate == "pacto.contract"))[-1].result == "Unknown")' >/dev/null \
+    || fail "pay-agent 1.0.0 should pass its evals and be Unknown on its contract: $(op_json test "$op0" | jq -c '[.status.verdicts[]? | select(.phase == "verify") | {gate, result}]')"
+  PW_AGENT_CHANGE="$op0" journeys agent
+  wait_concluded test "$op0" Succeeded/AcceptedUnknown
+  not_offered0() { ! offered pay-agent "$d0"; }
+  always 5 not_offered0 || fail "test offers pay-agent 1.0.0 to prod though only a person accepted its unknown"
+  echo "  the stand-in eval runner reports 2 of 2 for pay-agent 1.0.0; Pacto cannot see its external model, so alice accepted the unknown"
+  diffs agent 1.0.0 1.1.0 pay-agent
+  local d op cause; d="$(publish pay-agent 1.1.0)"; remember pay-agent 1.1.0 "$d"
+  op="$(wait_op test pay-agent "$d")"
+  predicted agent test "$op"
+  # 1.0.0 shipped on an accepted unknown, so a rollback would return to a
+  # version never verified here: payments' team accepts that unknown too.
+  same agent "the decision" "$(field test "$op" plan.floor.decision)" "$(expect agent Decision | jq -r .)"
+  accept_unknown_as alice@example.com team-payments test "$op" "1.0.0 runs here on an accepted unknown"
+  echo "  1.0.0 was never verified in test, so alice accepts the unknown a rollback to it leaves"
+  eventually 150 failed_on test pay-agent "$d" || fail "pay-agent 1.1.0 never failed in test: $(field test "$op" phase) $(field test "$op" message)"
+  cause="$(op_json test "${op}-rollback" | jq -c .spec.cause.verdict)"
+  same agent "the eval check" "$(jq -r .result <<<"$cause")" "$(expect agent Verify | jq -r .)"
+  [ "$(jq -r '.gate + " " + .citation.passed + "/" + .citation.total + " " + .citation.runner' <<<"$cause")" = "evals 1/2 demo-eval-runner" ] \
+    || fail "the rollback does not cite the eval run signed by the demo runner: $cause"
+  [ "$(jq -r '.citation.runnerBundle | fromjson | .dsseEnvelope.payloadType' <<<"$cause")" = "application/vnd.in-toto+json" ] \
+    || fail "the eval verdict does not keep the runner's signed answer: $cause"
+  # The rollback returns to 1.0.0, whose external model Pacto cannot see: its
+  # contract check after release says Unknown again, and alice accepts it.
+  rollback_unknown() { held test "${op}-rollback" && [ "$(field test "${op}-rollback" applied)" = true ]; }
+  eventually 150 rollback_unknown || fail "the pay-agent rollback never waited on its check: $(field test "${op}-rollback" phase) $(field test "${op}-rollback" message)"
+  accept_unknown_as alice@example.com team-payments test "${op}-rollback" "back on 1.0.0, whose model runs at its vendor"
+  wait_concluded test "${op}-rollback" Succeeded/AcceptedUnknown
+  # prod is a manual Stage, so the gate's effect is what test offers it.
+  not_offered() { ! offered pay-agent "$d"; }
+  always 5 not_offered || fail "test offers pay-agent 1.1.0 to prod though it failed its evals"
+  pass "pay-agent shipped like a service: 1.0.0 passed its evals and runs in test as an accepted unknown, 1.1.0 got 1 of 2 from the stand-in runner (signed by its own key), rolled back in test to 1.0.0 as an accepted unknown and is never offered"
+  # An auditor checks both signatures: the recorder's on each record and the
+  # runner's on each eval verdict, with a trust config that names both keys.
+  local both="$KEYS/trust-with-runner.yaml"
+  jq -n --arg r "$(cat "$KEYS/recorder.pub")" --arg e "$(cat "$KEYS/runner.pub")" \
+    '{keys: [{name: "recorder", publicKey: $r}, {name: "demo-eval-runner", publicKey: $e, role: "runner"}]}' > "$both"
+  runner_verified() {
+    reg "$PACTO" delivery record verify -n test --stage pay-agent --trust "$both" --output-format json 2>/dev/null |
+      jq -e '[.records[].runners[]? | select(.ok and .runner == "demo-eval-runner")] | length > 0' >/dev/null
+  }
+  eventually 60 runner_verified || { reg "$PACTO" delivery record verify -n test --stage pay-agent --trust "$both" || true; fail "the pay-agent test records do not verify with the runner's signature"; }
+  pass "the pay-agent records verify twice over: the recorder signed each record and demo-eval-runner signed each eval it ran"
+}
+
+cmd_browser() {
+  admin
+  [ -e "$DEMO/digests/payments-3.0.0" ] || fail "run the story first: make e2e-delivery-demo-story"
+  # Carol's approval (B7) moves 3.0.0 on and B9 rolls prod back for good, so
+  # once 3.0.0 has left its first hold the step cannot be played again.
+  local p3; p3="$(prod_op 3.0.0)"
+  { [ -n "$p3" ] && held prod "$p3" && [ "$(field prod "$p3" applied)" != true ]; } \
+    || fail "the browser step already ran on this cluster: 'make e2e-delivery-demo-down' and up again to replay it"
+  b6
+  b7
+  b8
+  b9
+  history_beat
+  registry_pf
+  b10
+  b_agent
+  stop_pf
+  pass "B6 to B10 and the agent beat matched examples/story, and the dashboard journeys passed against the live demo"
+}
+
+# --- reach (phase 8) ---------------------------------------------------------
+
+# A second cluster, prod-us, runs payments wherever prod (the first cluster)
+# verified it. The controllers never talk to each other: prod-us's promoter
+# reads prod's signed records from the registry (in the demo that registry runs
+# in the first cluster and prod-us reaches it through a NodePort), and Argo CD,
+# not Flux, applies what it promotes.
+US_CLUSTER=pacto-delivery-demo-us
+US_KC="$DEMO/us.kubeconfig"
+us() { KUBECONFIG="$US_KC" "$@"; }
+
+# us_registry — prod-us reaches the first cluster's registry under the same
+# name, so every reference in an artifact or a record resolves unchanged: a
+# NodePort on the first cluster, and in prod-us a Service of that name whose
+# endpoint is the first cluster's node.
+us_registry() {
+  local ip port
+  kubectl -n "$NS" expose deploy pacto-registry --name pacto-registry-np --type NodePort --port 5000 \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  port="$(kubectl -n "$NS" get svc pacto-registry-np -o jsonpath='{.spec.ports[0].nodePort}')"
+  ip="$(docker inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' "$CLUSTER-control-plane")"
+  us kubectl -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Service
+metadata: {name: pacto-registry}
+spec: {ports: [{port: 5000, targetPort: $port}]}
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata: {name: pacto-registry-first-cluster, labels: {kubernetes.io/service-name: pacto-registry}}
+addressType: IPv4
+ports: [{port: $port}]
+endpoints: [{addresses: ["$ip"]}]
+YAML
+}
+
+# us_argocd — Argo CD's core install (no API server, no UI), told to read
+# Applications in the prod namespace, to fetch the registry over plain HTTP
+# and to accept the layer type pacto publish writes (Flux's).
+us_argocd() {
+  local m; m="$(mktemp)"
+  infra "download Argo CD $ARGOCD_VERSION" curl -fsSL --max-time 60 -o "$m" \
+    "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/core-install.yaml"
+  sed -i.bak 's/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/' "$m"
+  [ "$(awk '$1 == "image:" { print $2 }' "$m" | sort -u)" = "$(printf '%s\n' "${ARGO_IMAGES[@]%@*}" | sort -u)" ] \
+    || fail "Argo CD $ARGOCD_VERSION's install runs other images than ARGO_IMAGES pins"
+  # up put them on this host (demo_images); the node never pulls them.
+  CLUSTER="$US_CLUSTER" infra "load Argo CD's images into prod-us" load_images "${ARGO_IMAGES[@]%@*}"
+  us kubectl create namespace argocd --dry-run=client -o yaml | us kubectl apply -f - >/dev/null
+  us kubectl apply -n argocd --server-side -f "$m" >/dev/null
+  crds() { us kubectl get applications.argoproj.io -A >/dev/null 2>&1 && us kubectl get appprojects.argoproj.io -A >/dev/null 2>&1; }
+  eventually 40 crds || fail "Argo CD's kinds never reached discovery"
+  us kubectl -n argocd scale deploy argocd-applicationset-controller --replicas=0 >/dev/null 2>&1 || true
+  us kubectl -n argocd patch configmap argocd-cmd-params-cm --type merge -p '{"data":{"application.namespaces":"prod",
+    "reposerver.oci.layer.media.types":"application/vnd.oci.image.layer.v1.tar,application/vnd.oci.image.layer.v1.tar+gzip,application/vnd.cncf.flux.content.v1.tar+gzip"}}' >/dev/null
+  us kubectl -n argocd rollout restart statefulset/argocd-application-controller deploy/argocd-repo-server >/dev/null
+  us kubectl apply -f - >/dev/null <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: default, namespace: argocd}
+spec:
+  sourceRepos: ['*']
+  sourceNamespaces: [prod]
+  destinations: [{server: '*', namespace: '*'}]
+  clusterResourceWhitelist: [{group: '*', kind: '*'}]
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: story-deploy-payments, namespace: argocd, labels: {argocd.argoproj.io/secret-type: repository}}
+stringData: {name: payments, type: oci, url: "oci://${REG_HOST}/story/deploy/payments", insecureOCIForceHttp: "true"}
+YAML
+  infra "roll out Argo CD's repo server" us kubectl -n argocd rollout status deploy/argocd-repo-server --timeout=300s
+  infra "roll out Argo CD's controller" us kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
+}
+
+cmd_reach() {
+  admin
+  [ -s "$DEMO/digests/payments-2.3.0" ] || fail "the demo's starting point is missing: run 'make e2e-delivery-demo-up'"
+  registry_pf
+  reach_cluster
+  reach_follow
+  reach_freeze
+  echo; echo "REACH PASS: prod-us followed prod through signed records, applied by Argo CD, and refused a version prod-eu froze on"
+}
+
+prod_stream() { kubectl -n prod get stage payments -o jsonpath='{.status.stream.id}'; }
+
+# reach_cluster — prod-us: a second cluster with Argo CD, the Pacto operator
+# and the promoter, trusting the first cluster's recorder for prod's stream and
+# prod-eu's.
+reach_cluster() {
+  local ver stream op_chart trust
+  ver="$(release_version kubernetes)"
+  has_stream() { [ -n "$(prod_stream)" ]; }
+  eventually 30 has_stream || fail "payments prod has no record stream yet"
+  stream="$(prod_stream)"
+
+  section "prod-us: a second cluster with Argo CD, the Pacto operator and the promoter"
+  kind get clusters 2>/dev/null | grep -qx "$US_CLUSTER" \
+    || infra "create prod-us" kind create cluster --name "$US_CLUSTER" --kubeconfig "$US_KC" --wait 90s >/dev/null
+  CLUSTER="$US_CLUSTER" infra "load the images into prod-us" load_images "localhost:5001/pacto-operator/pacto-controller:$ver" \
+    "localhost:5001/pacto-delivery:$ver" "${PODINFO_IMG%@*}"
+  local n
+  for n in "$NS" prod; do us kubectl create namespace "$n" --dry-run=client -o yaml | us kubectl apply -f - >/dev/null; done
+  us_registry
+  us_argocd
+  op_chart="$(package_chart "$PACTO_CHART")"
+  # The first cluster's recorder key, trusted for that one stream only.
+  trust="$DEMO/us-values.json"
+  jq -n --arg k "$(cat "$KEYS/recorder.pub")" --arg s "$stream" --arg eu "${stream%%/*}/prod-eu/payments" \
+    '{delivery: {promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s, $eu]}]} | tojson)}}}' > "$trust"
+  us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set global.imageRegistry= --set image.repository=localhost:5001/pacto-operator/pacto-controller \
+    --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" \
+    --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true --set delivery.image.repository=localhost:5001/pacto-delivery --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
+    --set delivery.image.tag="$ver" --set delivery.image.pullPolicy=Never --set "delivery.insecureRegistries[0]=$REG_HOST" \
+    --set delivery.promoter.poll=2s --set delivery.argocd.enabled=true -f "$trust" --wait --timeout 240s >/dev/null \
+    || fail "the pacto-operator chart did not roll out in prod-us"
+}
+
+# us_bg — reach_cluster in the background, while the first cluster plays the
+# shard's other beats; us_ready waits for it and prints what it said.
+US_PID=""
+us_bg() { reach_cluster > "$DEMO/prod-us.log" 2>&1 & US_PID=$!; }
+us_ready() {
+  [ -n "$US_PID" ] || return 0
+  local rc=0; wait "$US_PID" || rc=$?; US_PID=""
+  sed 's/^/  [prod-us] /' "$DEMO/prod-us.log"
+  [ "$rc" = 0 ] || exit "$rc"
+}
+
+# reach_follow — payments in prod-us takes what prod verified, applied by Argo
+# CD, and refuses what failed there (2.4.0, in B2).
+reach_follow() {
+  us_ready
+  local stream d; stream="$(prod_stream)"
+  section "payments in prod-us follows prod through its signed records, applied by Argo CD"
+  us kubectl apply -f - >/dev/null <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: payments, namespace: prod, labels: {delivery.pacto.trianalab.io/apply-ref: payments}}
+spec:
+  project: default
+  source: {repoURL: "oci://${REG_HOST}/story/deploy/payments", path: .}
+  destination: {server: https://kubernetes.default.svc, namespace: prod}
+  syncPolicy: {automated: {}}
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: payments, namespace: prod}
+spec:
+  service: {name: payments}
+  environment: prod-us
+  applyRef: {kind: Application, name: payments}
+  candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$stream"}}
+  startLevel: autonomous
+  gates: {impact: {declaredConsumersOnly: true}}
+YAML
+  d="$(digest_of payments 2.3.0)"
+  us_runs() { [ "$(us kubectl -n prod get stage payments -o jsonpath='{.status.pointer}')" = "$d" ]; }
+  eventually 150 us_runs || fail "prod-us never took payments 2.3.0: $(us kubectl -n prod get stage payments -o jsonpath='{.status.conditions}')"
+  synced() { us kubectl -n prod get application payments -o json | jq -e --arg d "$d" \
+    '.status.sync.status == "Synced" and .status.health.status == "Healthy" and (.status.sync.revision | endswith($d | ltrimstr("sha256:")))' >/dev/null; }
+  eventually 90 synced || fail "Argo CD never applied payments 2.3.0: $(us kubectl -n prod get application payments -o jsonpath='{.status.sync}')"
+  [ "$(us kubectl -n prod get deploy payments -o jsonpath='{.spec.template.metadata.labels.app\.kubernetes\.io/version}')" = 2.3.0 ] \
+    || fail "prod-us does not run payments 2.3.0"
+  pass "prod-us runs payments 2.3.0, the version prod verified, and Argo CD applied it"
+  [ -s "$DEMO/digests/payments-2.4.0" ] || fail "payments 2.4.0 never failed in prod: run 'make e2e-delivery-demo-story' first"
+  local bad msg; bad="$(digest_of payments 2.4.0)"
+  # reach reuses a running prod-us, and propose is a plain create: drop the last run's operation first.
+  us kubectl -n prod delete operation payments-2-4-0 --ignore-not-found --wait --timeout=60s >/dev/null \
+    || fail "could not remove the previous payments 2.4.0 operation in prod-us"
+  us "$PACTO" delivery propose -n prod --stage payments --to "$bad" --name payments-2-4-0 --reason "2.4.0 failed in prod" >/dev/null \
+    || fail "could not propose payments 2.4.0 in prod-us"
+  refused() { [ "$(us kubectl -n prod get operation payments-2-4-0 -o jsonpath='{.status.outcome}')" = Rejected ]; }
+  eventually 60 refused || fail "prod-us did not refuse payments 2.4.0: $(us kubectl -n prod get operation payments-2-4-0 -o jsonpath='{.status}')"
+  msg="$(us kubectl -n prod get operation payments-2-4-0 -o jsonpath='{.status.reason}: {.status.message}')"
+  grep -qF "failed after release on the upstream Stage $stream" <<<"$msg" \
+    || fail "prod-us refused payments 2.4.0 for another reason than its failure in prod: $msg"
+  pass "prod-us refuses payments 2.4.0 because it failed after release in prod: $msg"
+}
+
+# reach_freeze — the failure a re-check cannot roll back reaches the other
+# cluster. In the first cluster prod-eu runs payments 2.3.0, takes 2.4.0,
+# which fails after release and rolls back to 2.3.0 on its own; then 2.3.0
+# fails too. That rollback was the cause's one automatic rollback, so the
+# Stage freezes, and the freeze is a signed record naming 2.3.0 and the failed
+# check. A Stage in prod-us following prod-eu's records never takes 2.3.0; a
+# person unfreezes prod-eu. Only the health check runs in prod-eu: it is the
+# one the generated traffic fails.
+reach_freeze() {
+  local a x eu fz=eu-2-4-0-rollback-freeze
+  a="$(digest_of payments 2.3.0)" x="$(digest_of payments 2.4.0)"
+  eu="$(prod_stream)"; eu="${eu%%/*}/prod-eu/payments"
+  # reach reuses the first cluster too: prod-eu plays once per cluster.
+  if ! kubectl -n prod-eu get operation "$fz" >/dev/null 2>&1; then
+    section "prod-eu: a re-check fails on the promoter's own rollback, so the Stage freezes"
+    kubectl create namespace prod-eu --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl -n prod-eu create secret generic cosign-pub --from-file=cosign.pub="$KEYS/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    # prod-eu advises, so payments' team moves it.
+    environment payments prod-eu upstream false "$(payments_gates prod-eu 10s | grep -v pacto.runtime)"
+    owner_propose payments -n prod-eu --stage payments --to "$a" --name eu-2-3-0 --reason "prod-eu starts on 2.3.0"
+    wait_concluded prod-eu eu-2-3-0 Succeeded/Verified
+    owner_propose payments -n prod-eu --stage payments --to "$x" --name eu-2-4-0 --reason "prod-eu takes 2.4.0"
+    wait_concluded prod-eu eu-2-4-0 Succeeded/Verified
+    mode prod-eu.2.4.0 errors
+    eventually 90 kubectl -n prod-eu get operation eu-2-4-0-rollback >/dev/null 2>&1 || fail "the failed re-check of 2.4.0 raised no rollback in prod-eu"
+    wait_concluded prod-eu eu-2-4-0-rollback Succeeded/Verified
+    runs prod-eu payments "$a" || fail "prod-eu is not back on payments 2.3.0"
+    echo "  2.4.0 failed after release in prod-eu and rolled back to 2.3.0 on its own (generated errors)"
+    mode prod-eu.2.3.0 errors
+    eventually 90 kubectl -n prod-eu get operation "$fz" >/dev/null 2>&1 || fail "the failed re-check of the rollback raised no freeze in prod-eu"
+    wait_concluded prod-eu "$fz" Succeeded/Unverified
+    pe_frozen() { [ "$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozen}')" = true ]; }
+    pe_frozen || fail "prod-eu is not frozen after its rollback failed"
+    grep -qF "the promoter's own rollback, which is never undone automatically" <<<"$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozenReason}')" \
+      || fail "prod-eu froze for another reason: $(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozenReason}')"
+    op_json prod-eu "$fz" | jq -e --arg a "$a" '.spec.type == "delivery.pacto.trianalab.io/freeze" and .spec.params.from == $a and .spec.cause.verdict.result == "Fail"' >/dev/null \
+      || fail "the freeze does not name 2.3.0 and its failed check: $(op_json prod-eu "$fz" | jq -c .spec)"
+    signed() { rec record verify -n prod-eu --stage payments --output-format json 2>/dev/null | jq -e --arg o "$fz" '[.records[] | select(.operation == $o)] | length == 1' >/dev/null; }
+    eventually 60 signed || fail "the freeze is not a signed record of prod-eu: $(rec record verify -n prod-eu --stage payments 2>&1)"
+    mode prod-eu.2.3.0 ok
+    pass "2.3.0 failed its re-check after the rollback that was 2.4.0's one: prod-eu froze, and the freeze is a signed record naming 2.3.0 and the failed check"
+  fi
+
+  us_ready
+  section "prod-us follows prod-eu's records and never takes the version prod-eu froze on"
+  us kubectl apply -f - >/dev/null <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: payments-eu, namespace: prod, labels: {delivery.pacto.trianalab.io/apply-ref: payments-eu}}
+spec:
+  project: default
+  source: {repoURL: "oci://${REG_HOST}/story/deploy/payments", path: .}
+  destination: {server: https://kubernetes.default.svc, namespace: prod-eu}
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: payments-eu, namespace: prod}
+spec:
+  service: {name: payments}
+  environment: prod-us
+  applyRef: {kind: Application, name: payments-eu}
+  candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$eu"}}
+  startLevel: autonomous
+  gates: {impact: {declaredConsumersOnly: true}}
+YAML
+  us_empty() { [ -z "$(us kubectl -n prod get stage payments-eu -o jsonpath='{.status.pointer}')" ]; }
+  always 10 us_empty || fail "prod-us took a version prod-eu failed: $(us kubectl -n prod get stage payments-eu -o jsonpath='{.status.pointer}')"
+  us kubectl -n prod delete operation payments-eu-2-3-0 --ignore-not-found --wait --timeout=60s >/dev/null \
+    || fail "could not remove the previous payments-eu operation in prod-us"
+  us "$PACTO" delivery propose -n prod --stage payments-eu --to "$a" --name payments-eu-2-3-0 --reason "2.3.0 froze prod-eu" >/dev/null \
+    || fail "could not propose payments 2.3.0 to payments-eu in prod-us"
+  eu_refused() { [ "$(us kubectl -n prod get operation payments-eu-2-3-0 -o jsonpath='{.status.outcome}')" = Rejected ]; }
+  eventually 60 eu_refused || fail "prod-us did not refuse payments 2.3.0: $(us kubectl -n prod get operation payments-eu-2-3-0 -o jsonpath='{.status}')"
+  local msg; msg="$(us kubectl -n prod get operation payments-eu-2-3-0 -o jsonpath='{.status.reason}: {.status.message}')"
+  grep -qF "failed after release on the upstream Stage $eu" <<<"$msg" || fail "prod-us refused payments 2.3.0 for another reason than the freeze: $msg"
+  pass "prod-us reads the freeze from prod-eu's records: it takes nothing and refuses payments 2.3.0: $msg"
+
+  if [ "$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozen}')" = true ]; then
+    KUBECONFIG="$(person alice@example.com team-payments)" "$PACTO" delivery propose -n prod-eu --stage payments --type unfreeze \
+      --name eu-unfreeze --reason "the failed check is understood" >/dev/null || fail "alice could not propose the unfreeze of prod-eu"
+    wait_concluded prod-eu eu-unfreeze Succeeded/Unverified
+    [ "$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozen}')" != true ] || fail "prod-eu stayed frozen after alice unfroze it"
+    unfreeze_signed() { rec record verify -n prod-eu --stage payments --output-format json 2>/dev/null | jq -e '[.records[] | select(.operation == "eu-unfreeze")] | length == 1' >/dev/null; }
+    eventually 60 unfreeze_signed || fail "alice's unfreeze is not a signed record of prod-eu"
+    pass "alice unfroze prod-eu, a signed record too"
+  fi
+}
+
+# --- next steps --------------------------------------------------------------
+
+next_steps() {
+  # Paths from the repository root; the CLI reaches the registry in the
+  # cluster through a port-forward, as the story does.
+  local d=tmp/delivery-demo
+  local k="KUBECONFIG=$d/admin.kubeconfig" a="KUBECONFIG=$d/pay-agent.kubeconfig" t="--trust $d/keys/recorder.pub"
+  local r="HTTP_PROXY=http://127.0.0.1:$LOCAL_REG_PORT PACTO_INSECURE_REGISTRIES=$REG_HOST" p="$d/bin/pacto"
+  cat <<EOF
+
+== What to do next ==
+From the repository root. The commands that read signed records need the
+registry: $k kubectl -n $NS port-forward svc/pacto-registry $LOCAL_REG_PORT:5000 &
+The guided path (five moments):
+  1. pactify a service ............ $([ "$1" = up ] && echo "make e2e-delivery-demo-story" || echo "done: fraud")
+  2. a safe change ships alone .... $([ "$1" = up ] && echo "(story B1)" || echo "done: payments 2.4.0")
+  4. a bad release rolls back ..... $([ "$1" = up ] && echo "(story B2, B3)" || echo "done: 2.4.0 in prod, 2.4.2 in test")
+  3. a breaking change asks only the affected teams .... $([ "$1" = up ] && echo "(story B5)" || echo "now: payments 3.0.0 is held")
+  5. every step is a signed record:
+       $k $r $p delivery history -n prod --stage payments $t
+       $k $r $p delivery record verify --all $t
+(The story plays beats in order, so moment 4 comes before moment 3.)
+
+The dashboard: $DASH_URL  (sign in through Dex; every password is "password")
+  carol@example.com  team orders, the one asked about payments 3.0.0
+  alice@example.com  team payments, never asked
+  pay-agent@example.com  an agent: it may look and propose, never approve
+
+  make e2e-delivery-demo-status | make e2e-delivery-demo-logs | make e2e-delivery-demo-down
+What is generated, not real: the payments workload (podinfo), its telemetry (a span generator), the call 2.4.2 makes (a sidecar) and pay-agent's eval runner.
+EOF
+  # Explore more only after the story: B6 run before it ships checkout 1.9.0
+  # early and the story's B5 no longer plays as written.
+  [ "$1" = story ] || return 0
+  cat <<EOF
+Explore more:
+  B6, as the agent: ship checkout 1.9 first, and the held change asks only orders
+       $a $p delivery propose -n prod --stage checkout --to $(cat "$DEMO/digests/checkout-1.9.0" 2>/dev/null || echo '<checkout 1.9.0 digest>') --name checkout-1-9-0
+       or play and check B6 to B9 (B7 to B9 in Chromium): make e2e-delivery-demo-browser
+  B7, in the browser: pay-agent and alice cannot approve; carol signs in again and approves
+  B8: prod sends too little telemetry for 3.0.0 (generated), so the check says Unknown and waits for carol
+  B9: carol rolls 3.0.0 back from the dashboard; B10 and the agent beat follow it in make e2e-delivery-demo-browser; then
+       $k $r $p delivery blame -n prod --stage payments $t
+       $k $p delivery undo -n prod <operation>
+  The agent over remote MCP ($MCP_URL/mcp): get a Keycloak token for agent-bot
+       curl -sk https://127.0.0.1:8443/realms/pacto/protocol/openid-connect/token -u agent-bot:agent-secret -d grant_type=client_credentials
+       and call the pacto_delivery_* tools with it as a bearer token (there is no approve tool)
+  Check a record yourself with cosign, as integrations/kubernetes/docs/delivery-records.md#verify-records shows (key: $d/keys/recorder.pub)
+  $k kubectl get stages,operations,approvals -A
+  Two agents racing, a check result never reused for a new version and the admission
+  policies (no agent approvals, immutable intent) are proven by: make test-acceptance-kind-delivery
+EOF
+}
+
+cmd_status() {
+  admin
+  kubectl get stages -A -o custom-columns='NAMESPACE:.metadata.namespace,STAGE:.metadata.name,POINTER:.status.pointer,FROZEN:.status.frozen'
+  echo
+  kubectl get operations -A -o custom-columns='NAMESPACE:.metadata.namespace,OPERATION:.metadata.name,TYPE:.spec.type,PHASE:.status.phase,OUTCOME:.status.outcome,REASON:.status.reason'
+}
+
+# --- shards ------------------------------------------------------------------
+
+# shard NAME — one CI shard (delivery-demo.yml runs a job per name in SHARDS):
+# the seed `up` leaves (DEMO_SEED), then the beats `play` runs. Together they
+# play every beat of the full run. A beat a shard needs to reach its own (B1
+# and B2 in reach) is played and checked again; the seed_* steps stand in for
+# beats another shard checks.
+SHARDS="story browser rollback reach freeze agent"
+shard() {
+  case "$1" in
+    story) echo "all story_pactify story_b3 story_b4 story_b5 story_records" ;;
+    browser) echo "all seed_held b6 b7 b8 b9 history_beat" ;;
+    rollback) echo "payments story_b1 story_b2 story_records b10" ;;
+    reach) echo "payments us_bg story_b1 story_b2 reach_follow" ;;
+    freeze) echo "payments us_bg seed_240 reach_freeze" ;;
+    agent) echo "none b_agent" ;;
+    *) return 1 ;;
+  esac
+}
+
+cmd_play() {
+  admin
+  local b
+  for b in "$@"; do declare -F "$b" >/dev/null || fail "no beat called $b"; done
+  registry_pf
+  for b in "$@"; do "$b"; done
+  echo; echo "PLAY PASS: $*"
+}
+
+cmd_down() {
+  docker rm -f "${IDP_CONTAINERS[@]}" >/dev/null 2>&1 || true
+  CLUSTER="$US_CLUSTER" down_cluster
+  down_cluster
+  rm -rf "$DEMO"
+}
+
+case "$CMD" in
+  up) trap 'rc=$?; stop_pf; [ $rc -eq 0 ] || { dump_diag "$NS"; dump_identity; }; exit $rc' EXIT; cmd_up ;;
+  story) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_story ;;
+  browser) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_browser ;;
+  reach) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_reach ;;
+  play) shift; trap 'rc=$?; stop_pf; [ -z "$US_PID" ] || kill "$US_PID" 2>/dev/null; exit $rc' EXIT; cmd_play "$@" ;;
+  status) cmd_status ;;
+  logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$DNS" logs deploy/pacto-operator-delivery --tail=100 2>&1 || true ;;
+  down) cmd_down ;;
+  save-images) cmd_save_images "${2:-}" ;;
+  all)
+    rc=0
+    if [ -n "${DELIVERY_DEMO_SHARD:-}" ]; then
+      plan="$(shard "$DELIVERY_DEMO_SHARD")" || { echo "unknown shard '$DELIVERY_DEMO_SHARD' (shards: $SHARDS)" >&2; exit 2; }
+      # shellcheck disable=SC2086  # the beats are words
+      { DEMO_SEED="${plan%% *}" bash "$0" up && bash "$0" play ${plan#* }; } || rc=$?
+    else
+      { bash "$0" up && bash "$0" story && bash "$0" browser && bash "$0" reach; } || rc=$?
+    fi
+    # A failed run in CI keeps the cluster for scripts/ci/kind-diagnostics.sh.
+    { [ -n "${CI:-}" ] && [ $rc -ne 0 ]; } || bash "$0" down
+    exit $rc ;;
+  *) echo "usage: $0 up|story|status|logs|browser|reach|play BEAT...|down|all|save-images FILE"; exit 2 ;;
+esac

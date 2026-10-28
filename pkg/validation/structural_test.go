@@ -2,9 +2,22 @@ package validation
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
+
+// TestSchemaPerSupportedVersion: the versions Parse accepts are the versions
+// with a schema, so a new pactoVersion is one list in pkg/contract plus its
+// schema file, and neither can be forgotten.
+func TestSchemaPerSupportedVersion(t *testing.T) {
+	if got := slices.Sorted(maps.Keys(schemaBytes)); !slices.Equal(got, contract.SupportedVersions) {
+		t.Fatalf("schemas for %v, contract.SupportedVersions %v", got, contract.SupportedVersions)
+	}
+}
 
 func TestSchemaBytes(t *testing.T) {
 	data := SchemaBytes()
@@ -388,25 +401,6 @@ readiness:
 	}
 }
 
-func TestConvertYAMLToJSON_NonStringKey(t *testing.T) {
-	input := map[any]any{
-		42:     "int-key-value",
-		"name": "string-key-value",
-	}
-
-	result := convertYAMLToJSON(input)
-	m, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]interface{}, got %T", result)
-	}
-	if m["42"] != "int-key-value" {
-		t.Errorf("expected key '42' with value 'int-key-value', got %v", m["42"])
-	}
-	if m["name"] != "string-key-value" {
-		t.Errorf("expected key 'name' with value 'string-key-value', got %v", m["name"])
-	}
-}
-
 func TestStructural_V20ReadinessAccepted(t *testing.T) {
 	doc := minimalV20Contract()
 	doc["readiness"] = map[string]any{
@@ -500,5 +494,101 @@ func minimalV20Contract() map[string]any {
 			"version": "1.0.0",
 			"owner":   map[string]any{"team": "platform"},
 		},
+	}
+}
+
+// TestValidateStructural_V21Publish: publish is accepted at 2.1 only, and its
+// shape rules come from the 2.1 schema.
+func TestValidateStructural_V21Publish(t *testing.T) {
+	const head = "pactoVersion: \"%s\"\nservice: {name: orders, version: 1.0.0}\n"
+	full := `publish:
+  bundle: oci://registry.example.com:5000/acme/pacto/orders
+  deploy: manifests
+  artifacts:
+    - {name: api, type: image, ref: "oci://ghcr.io/acme/orders", sbom: sbom/api.spdx.json,
+       build: {dockerfile: {context: ., file: Dockerfile, platforms: [linux/amd64, linux/arm64/v8]}}}
+    - {name: manifests, type: manifests, ref: "oci://ghcr.io/acme/deploy/orders", build: {command: [./render.sh]}}
+  sign: {key: cosign.key, transparencyLog: false}
+`
+	if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.1") + full)); !r.IsValid() {
+		t.Fatalf("2.1 with publish: %+v", r.Errors)
+	}
+	keyless := "publish: {bundle: \"oci://r.io/a\", sign: {keyless: true, identity: ci@acme.com, issuer: \"https://i\"}}\n"
+	if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.1") + keyless)); !r.IsValid() {
+		t.Fatalf("keyless with its identity: %+v", r.Errors)
+	}
+	if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.0") + full)); r.IsValid() {
+		t.Fatal("publish under 2.0 must be refused")
+	}
+	bad := map[string]string{
+		"tagged bundle":       "publish: {bundle: \"oci://ghcr.io/acme/orders:1.0.0\"}\n",
+		"no oci scheme":       "publish: {bundle: ghcr.io/acme/orders}\n",
+		"two builders":        "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {command: [x], dockerfile: {context: .}}}]}\n",
+		"no builder":          "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {}}]}\n",
+		"bad type":            "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: binary, ref: \"oci://r.io/a\", build: {command: [x]}}]}\n",
+		"bad name":            "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: Api, type: image, ref: \"oci://r.io/a\", build: {command: [x]}}]}\n",
+		"bad platform":        "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {dockerfile: {context: ., platforms: [amd64]}}}]}\n",
+		"empty command":       "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {command: []}}]}\n",
+		"two sign ways":       "publish: {bundle: \"oci://r.io/a\", sign: {key: k, kms: \"awskms:///a\"}}\n",
+		"keyless false":       "publish: {bundle: \"oci://r.io/a\", sign: {keyless: false}}\n",
+		"keyless no identity": "publish: {bundle: \"oci://r.io/a\", sign: {keyless: true, issuer: \"https://i\"}}\n",
+		"empty sign":          "publish: {bundle: \"oci://r.io/a\", sign: {}}\n",
+		"sbom not json":       "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", sbom: sbom.txt, build: {command: [x]}}]}\n",
+		"sbom as a flag":      "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", sbom: true, build: {command: [x]}}]}\n",
+		"missing context":     "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {dockerfile: {file: D}}}]}\n",
+	}
+	for name, doc := range bad {
+		if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.1") + doc)); r.IsValid() {
+			t.Errorf("%s: must be refused", name)
+		}
+	}
+}
+
+// TestNeeds21: a 2.0 contract using what only 2.1 has is told to set
+// pactoVersion 2.1, not given the schema's generic "not allowed", and the rest
+// of the contract is still checked.
+func TestNeeds21(t *testing.T) {
+	data := map[string]any{
+		"pactoVersion": "2.0",
+		"service":      map[string]any{"name": "svc", "version": "1.0.0"},
+		"publish":      map[string]any{},
+		"checks":       []any{},
+		"interfaces":   []any{map[string]any{"name": "tools", "type": "mcp"}, map[string]any{"name": "api", "type": "bogus", "visibility": "nonsense"}},
+		"dependencies": []any{
+			map[string]any{"name": "db", "ref": "oci://r/db:1.0.0", "required": true, "compatibility": "^1.0.0", "external": true},
+			map[string]any{"name": "model", "required": true, "external": true, "version": "2025-01"},
+		},
+	}
+	res := ValidateStructural(data)
+	var got []string
+	for _, e := range res.Errors {
+		got = append(got, e.Code+" "+e.Path)
+		if strings.Contains(e.Message, "not allowed") {
+			t.Fatalf("a generic schema error: %+v", e)
+		}
+	}
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"NEEDS_PACTO_2_1 publish", "NEEDS_PACTO_2_1 checks", "NEEDS_PACTO_2_1 interfaces.0.type",
+		"NEEDS_PACTO_2_1 dependencies.0.external", "NEEDS_PACTO_2_1 dependencies.1.external", "NEEDS_PACTO_2_1 dependencies.1.version",
+		"SCHEMA_VIOLATION dependencies.1", "SCHEMA_VIOLATION interfaces.1.visibility"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "SCHEMA_VIOLATION interfaces.0") {
+		t.Fatalf("the api interface's errors are reported at the mcp interface's index:\n%s", joined)
+	}
+	if strings.Contains(joined, "SCHEMA_VIOLATION dependencies.0") {
+		t.Fatalf("a 2.0 dependency with a ref is wrong only in being external:\n%s", joined)
+	}
+	if _, ok := data["publish"]; !ok || data["dependencies"].([]any)[0].(map[string]any)["external"] != true {
+		t.Fatal("the caller's data was changed")
+	}
+	data["interfaces"] = []any{map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml"}}
+	delete(data, "publish")
+	delete(data, "checks")
+	delete(data, "dependencies")
+	if res := ValidateStructural(data); !res.IsValid() {
+		t.Fatalf("a plain 2.0 contract: %+v", res.Errors)
 	}
 }

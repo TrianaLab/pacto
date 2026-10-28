@@ -1,5 +1,8 @@
 /** Shared formatting/classification helpers used across views. */
 
+import { ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY, type OwnerAggregation } from './owners';
+import { readinessBucket, type ReadinessSummary, type WithReadiness } from './readiness';
+
 /** The badge class a status is drawn in. `reference` shares the info colours. */
 export type StatusClass = 'ok' | 'warn' | 'err' | 'info' | 'neutral' | 'reference';
 
@@ -139,7 +142,7 @@ export function formatDiffValue(val: unknown): string {
 
 /**
  * HTML for a long dotted identifier/path that wraps at NATURAL boundaries
- * (dots, brackets, colons, slashes, hyphens, underscores) instead of breaking
+ * (dots, brackets, colons, slashes, hyphens, underscores, @ and #) instead of breaking
  * mid-word. Escapes HTML, then inserts <wbr> break opportunities after each
  * separator — so a narrow table cell renders "service.owner.\ncontacts[...]"
  * rather than "service.owner.t\neam". <wbr> is not copied into the clipboard,
@@ -148,7 +151,7 @@ export function formatDiffValue(val: unknown): string {
  */
 export function breakableIdentifierHtml(s: string): string {
   const escaped = (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return escaped.replace(/([.[\]:/_-])/g, '$1<wbr>');
+  return escaped.replace(/([.[\]:/_@#-])/g, '$1<wbr>');
 }
 
 // ── Dependency resolution reason helpers ──
@@ -163,12 +166,12 @@ const REASON_LABELS: Record<string, string> = {
 };
 
 const REASON_TOOLTIPS: Record<string, string> = {
-  non_oci_ref: 'Non-OCI dependency — not a contract-backed service',
-  auth_failed: 'Registry authentication failed — run `pacto login` or check credentials',
+  non_oci_ref: 'A dependency outside OCI with no contract of its own',
+  auth_failed: 'Registry authentication failed. Run `pacto login` or check your credentials.',
   no_semver_tags: 'OCI repository found but contains no valid semver tags',
   not_found: 'OCI artifact not found in the registry',
-  pull_failed: 'Registry unreachable — check network connectivity or DNS',
-  discovering: 'Background OCI discovery is still running — this may resolve shortly',
+  pull_failed: 'Registry unreachable. Check network connectivity or DNS.',
+  discovering: 'Background OCI discovery is still running and may resolve this shortly.',
 };
 
 const REASON_BADGE_CLASSES: Record<string, string> = {
@@ -263,240 +266,6 @@ export function countHighImpact(services: Array<{ blastRadius?: number }>): numb
   return services.filter(s => (s.blastRadius || 0) >= HIGH_IMPACT_THRESHOLD).length;
 }
 
-/**
- * Apply all active filters (name, source, status) to a service list.
- * Used to derive the visible set that stats like "high impact" should reflect.
- */
-export function filterServices(
-  services: Array<Record<string, any>>,
-  filters: { nameFilter?: string; sourceFilter?: string; statusFilter?: string },
-): Array<Record<string, any>> {
-  let list = services;
-  if (filters.nameFilter) {
-    const q = filters.nameFilter.toLowerCase();
-    list = list.filter((s) => s.name.toLowerCase().includes(q) || ownerMatchesFilter(s.owner, q));
-  }
-  if (filters.sourceFilter && filters.sourceFilter !== 'all') {
-    list = list.filter((s) => (s.sources || [s.source]).includes(filters.sourceFilter));
-  }
-  if (filters.statusFilter && filters.statusFilter !== 'all') {
-    list = list.filter((s) => s.contractStatus === filters.statusFilter);
-  }
-  return list;
-}
-
-/** Result of paginating a list: the visible slice plus navigation metadata. */
-export interface Paginated<T> {
-  items: T[];
-  page: number; // clamped current page (1-based)
-  totalPages: number;
-  total: number;
-  perPage: number;
-}
-
-/**
- * Slice `items` into a single page. `page` is 1-based and clamped to the valid
- * range; a non-positive `perPage` disables pagination (everything on one page).
- */
-export function paginate<T>(items: T[], page: number, perPage: number): Paginated<T> {
-  const total = items.length;
-  if (perPage <= 0) {
-    return { items: items.slice(), page: 1, totalPages: 1, total, perPage: total };
-  }
-  const totalPages = Math.max(1, Math.ceil(total / perPage));
-  const clamped = Math.min(Math.max(1, Math.floor(page) || 1), totalPages);
-  const start = (clamped - 1) * perPage;
-  return { items: items.slice(start, start + perPage), page: clamped, totalPages, total, perPage };
-}
-
-// ── Owner helpers ──
-
-/** The owner's name as a reader sees it: the team if there is one, else the DRI. */
-export function ownerDisplay(owner: unknown): string {
-  if (!owner || typeof owner !== 'object') return '';
-  const o = owner as Record<string, unknown>;
-  if (o.team) return String(o.team);
-  if (o.dri) return String(o.dri);
-  return '';
-}
-
-/**
- * Canonical owner IDENTITY: `team:NAME` or `dri:NAME`, mirroring
- * `contract.OwnerKey` on the server so a link built here and a link built there
- * are the same link.
- *
- * The namespace is what makes it an identity rather than a label. A team called
- * `alice` and a person called `alice` render identically and are not the same
- * owner: merging them would put two estates on one page, two backlogs in one
- * count, and — worst — would make a service whose revisions name each of them
- * look consistently owned.
- *
- * Only the FIRST colon delimits, so an owner name may contain any punctuation
- * (`a:b:c`, `external/sendgrid`) and still round-trip. An owner declared with
- * contacts alone has no key: it is ownership that cannot be navigated to, not
- * ownership that is absent — see `unidentifiedOwnership` in the fleet aggregate.
- */
-export function ownerKey(owner: unknown): string {
-  if (!owner || typeof owner !== 'object') return '';
-  const o = owner as Record<string, unknown>;
-  if (o.team) return `team:${String(o.team)}`;
-  if (o.dri) return `dri:${String(o.dri)}`;
-  return '';
-}
-
-/**
- * The bucket for services with no canonical owner identity: no team and no DRI.
- * Not a canonical key — `parseOwnerKey` rejects it — so nothing routes to it by
- * accident.
- */
-export const UNOWNED_KEY = '(unowned)';
-
-/** One half of a parsed canonical owner key. */
-export interface ParsedOwnerKey { kind: 'team' | 'dri'; value: string }
-
-/**
- * Split a canonical owner key back into its namespace and name, or null if the
- * string is not one. Fail closed: a bare owner name is ambiguous — it could be
- * either namespace — and guessing would silently route a reader to one of two
- * different owners.
- */
-export function parseOwnerKey(key: string): ParsedOwnerKey | null {
-  const at = key.indexOf(':');
-  if (at <= 0 || at === key.length - 1) return null;
-  const kind = key.slice(0, at);
-  if (kind !== 'team' && kind !== 'dri') return null;
-  return { kind, value: key.slice(at + 1) };
-}
-
-/** The name inside a canonical owner key — what a reader reads. */
-export function ownerKeyLabel(key: string): string {
-  return parseOwnerKey(key)?.value ?? key;
-}
-
-/** How a canonical owner key's namespace is written for a reader: Team or DRI. */
-export function ownerKeyKind(key: string): string {
-  const p = parseOwnerKey(key);
-  if (!p) return '';
-  return p.kind === 'dri' ? 'DRI' : 'Team';
-}
-
-/** Extract the team from an owner object. */
-export function ownerTeam(owner: unknown): string {
-  if (!owner || typeof owner !== 'object') return '';
-  return String((owner as Record<string, unknown>).team || '');
-}
-
-/** Check whether an owner object matches a search query (case-insensitive). */
-export function ownerMatchesFilter(owner: unknown, query: string): boolean {
-  if (!owner || typeof owner !== 'object') return false;
-  const q = query.toLowerCase();
-  const o = owner as Record<string, unknown>;
-  if (String(o.team || '').toLowerCase().includes(q)) return true;
-  if (String(o.dri || '').toLowerCase().includes(q)) return true;
-  const contacts = o.contacts as Array<Record<string, unknown>> | undefined;
-  if (contacts) {
-    for (const c of contacts) {
-      if (String(c.value || '').toLowerCase().includes(q)) return true;
-    }
-  }
-  return false;
-}
-
-/** Check if owner is a structured object. Always returns true if owner is present. */
-export function ownerIsStructured(owner: unknown): boolean {
-  return owner != null && typeof owner === 'object';
-}
-
-// ── Owner detail extraction ──
-
-export interface OwnerContact {
-  type: string;
-  value: string;
-  purpose?: string;
-}
-
-export interface OwnerDetail {
-  key: string;
-  team: string;
-  dri: string;
-  contacts: OwnerContact[];
-  isStructured: boolean;
-  driConflict: boolean;
-  allDris: string[];
-}
-
-/**
- * Extract a consistent OwnerDetail from the services sharing an owner key.
- * Merges contacts from all services (deduped by type+value).
- * Flags DRI inconsistency when services disagree.
- */
-export function extractOwnerDetail(ownerKeyStr: string, services: Array<Record<string, unknown>>): OwnerDetail {
-  const detail: OwnerDetail = { key: ownerKeyStr, team: '', dri: '', contacts: [], isStructured: false, driConflict: false, allDris: [] };
-
-  const contactSet = new Set<string>();
-  const mergedContacts: OwnerContact[] = [];
-  const dris = new Set<string>();
-
-  for (const svc of services) {
-    const o = svc.owner;
-    if (!o || typeof o !== 'object') continue;
-    detail.isStructured = true;
-    const obj = o as Record<string, unknown>;
-    if (!detail.team && obj.team) detail.team = String(obj.team);
-    const dri = String(obj.dri || '');
-    if (dri) dris.add(dri);
-
-    const contacts = obj.contacts as OwnerContact[] | undefined;
-    if (contacts) {
-      for (const c of contacts) {
-        const key = `${c.type}\0${c.value}`;
-        if (!contactSet.has(key)) {
-          contactSet.add(key);
-          mergedContacts.push(c);
-        }
-      }
-    }
-  }
-
-  if (dris.size > 0) {
-    detail.allDris = Array.from(dris).sort();
-    detail.dri = detail.allDris[0];
-    detail.driConflict = dris.size > 1;
-  }
-  detail.contacts = mergedContacts;
-
-  return detail;
-}
-
-// ── Owner aggregation ──
-
-export interface OwnerAggregation {
-  /** Canonical identity — what groups, links and drill-downs use. */
-  key: string;
-  /** The owner's name as authored — what a reader reads. Never the key. */
-  label: string;
-  /** `Team` or `DRI`: the namespace that makes two same-named owners tellable apart. */
-  kind: string;
-  services: number;
-  compliant: number;
-  warning: number;
-  nonCompliant: number;
-  reference: number;
-  unknown: number;
-  invalid: number;
-  notEvaluated: number;
-  // Secondary conclusive/verification metrics (mirror the fleet tile).
-  runtimeEvaluated: number; // compliant + warning + nonCompliant + unknown
-  conclusive: number; // compliant + warning + nonCompliant
-  totalBlast: number;
-  compliancePercent: number;
-  // Per-owner readiness composition (buckets sum to `services`).
-  ready: number;
-  partial: number;
-  notReady: number;
-  notConfigured: number;
-}
-
 /** Aggregate services by canonical owner key. */
 export function aggregateByOwner(services: Array<Record<string, unknown>>): OwnerAggregation[] {
   return summarize(services).byOwner;
@@ -516,321 +285,7 @@ export function compareScoresUnassessedLast(a: number, b: number, dir: number): 
   return (a - b) * dir;
 }
 
-// ── Dependency graph aggregation ──
-
-const STATUS_SEVERITY: Record<string, number> = {
-  Invalid: 5, NonCompliant: 4, Unknown: 3, Warning: 2, external: 1, Reference: 0, NotEvaluated: 0, Compliant: 0,
-};
-/** The worst (most-severe) status in a set — used to color an aggregated node. */
-export function worstStatus(statuses: Iterable<string>): string {
-  let worst = 'Compliant', sev = -1;
-  for (const s of statuses) {
-    const v = STATUS_SEVERITY[s] ?? 0;
-    if (v > sev) { sev = v; worst = s; }
-  }
-  return worst;
-}
-
-interface GNode { id: string; serviceName: string; status: string; edges?: Array<{ targetId: string; type?: string }> }
-
-/**
- * A subgraph of the "core" nodes (e.g. one team's services) plus their related
- * nodes — always their direct dependencies, and (optionally) their direct
- * dependents. Unrelated services are dropped, so an owner view shows the team and
- * what it touches, not the whole fleet.
- *
- * `includeDependents` defaults to false: when a team owns something everyone
- * depends on (e.g. postgres), pulling in every dependent would drag in the whole
- * fleet and defeat the point of focusing the team. Deps are always bounded by
- * what the team's services actually consume.
- */
-export function relatedSubgraph<T extends GNode>(
-  graphData: { nodes?: T[] } | null,
-  isCore: (node: T) => boolean,
-  { includeDependents = false }: { includeDependents?: boolean } = {},
-): { nodes: T[] } {
-  const nodes = graphData?.nodes || [];
-  const core = new Set(nodes.filter(isCore).map((n) => n.id));
-  if (!core.size) return { nodes: [] };
-  const keep = new Set(core);
-  for (const n of nodes) {
-    if (core.has(n.id)) for (const e of n.edges || []) keep.add(e.targetId); // deps
-    if (includeDependents) for (const e of n.edges || []) if (core.has(e.targetId)) keep.add(n.id);
-  }
-  return { nodes: nodes.filter((n) => keep.has(n.id)) };
-}
-
-interface AggNode { id: string; serviceName: string; status: string; version?: string; edges?: Array<{ targetId: string; type?: string; required?: boolean }> }
-
-/**
- * Collapse a service dependency graph into a per-owner one: each owner becomes a
- * single node (status = its worst service, label = service count), and edges are
- * the DISTINCT cross-owner dependencies. Answers "which team depends on which".
- * `ownerLabelOf` maps a service node to its owner label.
- */
-export function aggregateGraphByOwner(
-  graphData: { nodes?: Array<{ id: string; serviceName: string; status: string; edges?: Array<{ targetId: string; type?: string }> }> } | null,
-  ownerLabelOf: (node: { id: string; serviceName: string; status: string }) => string,
-): { nodes: AggNode[] } {
-  const nodes = graphData?.nodes || [];
-  const ownerOf = new Map<string, string>();
-  for (const n of nodes) ownerOf.set(n.id, ownerLabelOf(n));
-
-  const stats = new Map<string, { count: number; statuses: string[] }>();
-  for (const n of nodes) {
-    const o = ownerOf.get(n.id);
-    if (!o) continue;
-    const a = stats.get(o) ?? stats.set(o, { count: 0, statuses: [] }).get(o)!;
-    a.count++; a.statuses.push(n.status);
-  }
-  const targets = new Map<string, Set<string>>();
-  for (const o of stats.keys()) targets.set(o, new Set());
-  for (const n of nodes) {
-    const so = ownerOf.get(n.id);
-    for (const e of n.edges || []) {
-      const to = ownerOf.get(e.targetId);
-      if (so && to && so !== to) targets.get(so)!.add(to);
-    }
-  }
-  return {
-    nodes: [...stats.entries()].map(([owner, a]) => ({
-      id: owner,
-      serviceName: owner,
-      status: worstStatus(a.statuses),
-      version: `${a.count} service${a.count !== 1 ? 's' : ''}`,
-      edges: [...(targets.get(owner) || [])].map((t) => ({ targetId: t, type: 'dependency', required: true })),
-    })),
-  };
-}
-
-// ── Readiness ──
-
-/** Readiness check revision history entry. */
-export interface ReadinessRevision {
-  date: string;
-  version: string;
-  author: string;
-  description: string;
-}
-
-/** A single derived readiness check, as carried by the API. */
-export interface ReadinessCheck {
-  id: string;
-  type: string;
-  category?: string;
-  status: string; // done | partial | not-done | deferred
-  evidence?: string;
-  description?: string;
-  weight: number;
-  earnedWeight: number;
-  excluded: boolean;
-  docPath?: string;
-}
-
-/** Derived readiness assessment for one service, as carried by the API. */
-export interface ReadinessInfo {
-  score: number;
-  minScore: number;
-  totalWeight: number;
-  earnedWeight: number;
-  partialCredit: number;
-  passing: boolean;
-  expires: string;
-  expired: boolean;
-  daysRemaining?: number | null;
-  doneCount: number;
-  partialCount: number;
-  notDoneCount: number;
-  deferredCount: number;
-  revisions?: ReadinessRevision[];
-  checks: ReadinessCheck[];
-}
-
-type WithReadiness = { readiness?: ReadinessInfo | null };
-
-export type ReadinessBucket = 'ready' | 'partial' | 'not-ready' | 'unknown';
-
-/**
- * Bucket a service's overall readiness. The contract's gate (`passing`,
- * i.e. score >= minScore) is the primary signal; score bands break the rest.
- * `unknown` means no readiness block is declared (not configured) — never an error.
- */
-export function readinessBucket(svc: WithReadiness): ReadinessBucket {
-  const r = svc?.readiness;
-  if (!r) return 'unknown';
-  if (r.passing) return 'ready';
-  if (r.score >= 50) return 'partial';
-  return 'not-ready';
-}
-
-/**
- * Score-cell class driven by the readiness GATE (passing), not the absolute
- * score. A service at 70% that clears its minScore should read green; one at 79%
- * that misses a higher gate should read red — so two similar scores no longer
- * look identical. Falls back to absolute bands when there is no readiness block.
- */
-export function readinessGateClass(r: ReadinessInfo | null | undefined): string {
-  if (!r) return '';
-  if (r.passing) return 'score-ok';
-  // Below the gate: amber when it is at least within striking distance,
-  // red when it is far off — but never green, because it does not pass.
-  if (r.score >= 50 && !r.expired) return 'score-warn';
-  return 'score-err';
-}
-
-/**
- * Explicit gate tooltip, e.g.
- *   "79% — passing (minScore 75)"
- *   "70% — below gate (minScore 75)"
- *   "82% — expired (minScore 75)"
- * so it is obvious which services clear minScore.
- */
-export function readinessGateTip(r: ReadinessInfo | null | undefined): string {
-  if (!r) return '';
-  if (r.expired) return `${r.score}% — expired (minScore ${r.minScore})`;
-  const verdict = r.passing ? 'passing' : 'below gate';
-  return `${r.score}% — ${verdict} (minScore ${r.minScore})`;
-}
-
-const READINESS_BUCKET_LABELS: Record<ReadinessBucket, string> = {
-  ready: 'Ready',
-  partial: 'Partial',
-  'not-ready': 'Not Ready',
-  unknown: 'Not configured',
-};
-
-export function readinessBucketLabel(b: ReadinessBucket): string {
-  return READINESS_BUCKET_LABELS[b] || 'Not configured';
-}
-
-/** Badge class for a readiness bucket — reuses the shared status palette. */
-export function readinessBucketClass(b: ReadinessBucket): string {
-  if (b === 'ready') return 'badge-ok';
-  if (b === 'partial') return 'badge-warn';
-  if (b === 'not-ready') return 'badge-err';
-  return 'badge-neutral';
-}
-
-/** Global rollup of readiness across all services for the overview summary. */
-export interface ReadinessSummary {
-  total: number; // all services
-  ready: number;
-  partial: number;
-  notReady: number;
-  notConfigured: number;
-  configured: number; // total - notConfigured
-  avgScore: number; // mean score over configured services; -1 if none configured
-  expiredAssessments: number; // count of services where expired=true
-  totalDone: number; // sum of doneCount across configured
-  totalPartial: number; // sum of partialCount across configured
-  totalNotDone: number; // sum of notDoneCount across configured
-  totalDeferred: number; // sum of deferredCount across configured
-}
-
-/** Aggregate readiness across services. Services without a readiness block are
- *  counted as "not configured" and excluded from the average score. */
-export function summarizeReadiness(services: WithReadiness[]): ReadinessSummary {
-  return summarize(services).readiness;
-}
-
-/** Whether a readiness check's evidence string is a clickable web URL. */
-export function isUrlEvidence(evidence: string | null | undefined): boolean {
-  if (!evidence) return false;
-  return /^https?:\/\//i.test(evidence);
-}
-
-// ── Per-check declared status (done | partial | not-done | deferred) ──
-
-const CHECK_STATUS_LABELS: Record<string, string> = {
-  done: 'Done',
-  partial: 'Partial',
-  'not-done': 'Not done',
-  deferred: 'Deferred',
-};
-
-/** Human label for a readiness check's declared status. */
-export function checkStatusLabel(status: string | undefined): string {
-  if (!status) return '—';
-  return CHECK_STATUS_LABELS[status] || status;
-}
-
-/** Badge class for a readiness check's declared status — reuses the shared palette. */
-export function checkStatusClass(status: string | undefined): string {
-  if (status === 'done') return 'badge-ok';
-  if (status === 'partial') return 'badge-warn';
-  if (status === 'not-done') return 'badge-err';
-  if (status === 'deferred') return 'badge-neutral';
-  return 'badge-neutral';
-}
-
-/**
- * Countdown copy for a readiness assessment's overall expiry.
- * `expired` wins; otherwise renders the whole-days-remaining value.
- * Returns '' when there is nothing to show (no expiry declared).
- */
-export function assessmentCountdownLabel(
-  expired: boolean | undefined,
-  days: number | null | undefined,
-): string {
-  if (expired) return 'Expired';
-  if (days == null) return '';
-  if (days < 0) return 'Expired';
-  if (days === 0) return 'expires today';
-  if (days === 1) return 'expires in 1 day';
-  return `expires in ${days} days`;
-}
-
-/** Sorted unique evidence-kind types present across all declared checks. */
-export function readinessCheckTypes(services: WithReadiness[]): string[] {
-  const types = new Set<string>();
-  for (const svc of services) {
-    for (const c of svc.readiness?.checks ?? []) {
-      if (c.type) types.add(c.type);
-    }
-  }
-  return Array.from(types).sort();
-}
-
 // ── Fleet overview ──
-
-/** Headline fleet metrics for the landing-page overview. */
-export interface FleetSummary {
-  total: number;
-  assessed: number; // compliant + warning + nonCompliant + unknown + invalid (excludes reference/notEvaluated)
-  compliant: number;
-  warning: number;
-  nonCompliant: number;
-  reference: number;
-  unknown: number;
-  invalid: number;
-  notEvaluated: number;
-  needsAttention: number; // warning + nonCompliant + invalid (unknown surfaced separately)
-  compliancePercent: number; // compliant / assessed * 100; -1 if nothing assessed
-  highImpact: number; // services with blast radius >= HIGH_IMPACT_THRESHOLD
-  runtimeEvaluated: number; // compliant + warning + nonCompliant + unknown (secondary metric)
-  conclusive: number; // compliant + warning + nonCompliant (secondary metric)
-}
-
-/** Roll up the whole service list into the few signals that matter at a glance. */
-export function summarizeFleet(services: Array<Record<string, unknown>>): FleetSummary {
-  const metrics = summarize(services);
-  return {
-    total: metrics.total,
-    assessed: metrics.assessed,
-    compliant: metrics.compliant,
-    warning: metrics.warning,
-    nonCompliant: metrics.nonCompliant,
-    reference: metrics.reference,
-    unknown: metrics.unknown,
-    invalid: metrics.invalid,
-    notEvaluated: metrics.notEvaluated,
-    needsAttention: metrics.needsAttention,
-    compliancePercent: metrics.compliancePercent,
-    highImpact: metrics.highImpact,
-    runtimeEvaluated: metrics.runtimeEvaluated,
-    conclusive: metrics.conclusive,
-  };
-}
 
 /** Category breakdown for readiness checks. */
 export interface CategoryBreakdown {
@@ -868,7 +323,7 @@ export interface Metrics {
 
 /**
  * Unified metrics computation — single-pass aggregation producing all KPIs + breakdowns.
- * This is the single source of truth; legacy summarizers delegate to this.
+ * This is the single source of truth.
  */
 export function summarize(services: Array<Record<string, unknown>>): Metrics {
   const m: Metrics = {
@@ -924,7 +379,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     const key = ownerKey(svc.owner) || UNOWNED_KEY;
     let agg = ownerMap.get(key);
     if (!agg) {
-      agg = { key, label: key === UNOWNED_KEY ? UNOWNED_KEY : ownerKeyLabel(key), kind: ownerKeyKind(key), services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, runtimeEvaluated: 0, conclusive: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
+      agg = { key, label: key === UNOWNED_KEY ? UNOWNED_KEY : ownerKeyLabel(key), kind: ownerKeyKind(key), services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, runtimeEvaluated: 0, conclusive: 0, totalBlast: 0, maxBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
     }
     agg.services++;
@@ -937,6 +392,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     else if (status === 'NotEvaluated') agg.notEvaluated++;
     else agg.unknown++;
     agg.totalBlast += (svc.blastRadius as number) || 0;
+    agg.maxBlast = Math.max(agg.maxBlast, (svc.blastRadius as number) || 0);
 
     // Readiness aggregation
     const r = (svc as WithReadiness).readiness;
@@ -1016,44 +472,19 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
   return m;
 }
 
-// ── Tooltip positioning ──
+// ── Counts ──
 
-export interface TooltipPosition {
-  left: number;
-  top: number;
+const COUNT = new Intl.NumberFormat('en-US');
+
+/** formatCount groups a count's thousands, so 12431 reads 12,431. */
+export function formatCount(n: number): string {
+  return COUNT.format(n);
 }
 
 /**
- * Compute tooltip position in fixed viewport coordinates, avoiding clipping.
- * Prefers placement above the cursor, centered horizontally.
- * Falls back to below if insufficient space above.
- * Clamps horizontally to stay within viewport.
+ * countOf is a count with its noun in the matching form: "1 consumer", "2 consumers",
+ * "1,500 Stages". The plural is the singular plus "s" unless one is given.
  */
-export function computeTooltipPosition(
-  cursorX: number,
-  cursorY: number,
-  tipWidth: number,
-  tipHeight: number,
-  margin: number = 8,
-): TooltipPosition {
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-
-  // Horizontal: center on cursor, clamp to viewport
-  let left = cursorX - tipWidth / 2;
-  if (left < margin) left = margin;
-  if (left + tipWidth > vw - margin) left = vw - margin - tipWidth;
-
-  // Vertical: prefer above cursor
-  let top = cursorY - tipHeight - margin;
-  if (top < margin) {
-    // Not enough room above — place below cursor
-    top = cursorY + margin;
-  }
-  // Clamp bottom
-  if (top + tipHeight > vh - margin) {
-    top = vh - margin - tipHeight;
-  }
-
-  return { left, top };
+export function countOf(n: number, one: string, many: string = `${one}s`): string {
+  return `${formatCount(n)} ${n === 1 ? one : many}`;
 }

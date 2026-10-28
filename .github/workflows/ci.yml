@@ -29,12 +29,15 @@ concurrency:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       engine: ${{ steps.filter.outputs.engine }}
       dashboard: ${{ steps.filter.outputs.dashboard }}
       kubernetes: ${{ steps.filter.outputs.kubernetes }}
       release: ${{ steps.filter.outputs.release }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      delivery: ${{ steps.filter.outputs.delivery }}
+      perf: ${{ steps.filter.outputs.perf }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -52,6 +55,8 @@ jobs:
               # the fixtures and the host that serve it are inputs to this leg. A
               # demo-only PR used to skip it entirely and land untested.
               - 'examples/demo/**'
+              # The payments story the demos play (examples/story).
+              - 'examples/story/**'
               # The leg also builds an offline `pacto doc --format html` export and
               # audits the retained non-Fleet views on it -- that export is their
               # only host. So the exporter and its CLI wiring are inputs too.
@@ -60,6 +65,36 @@ jobs:
             kubernetes:
               - 'integrations/kubernetes/**'
               - 'go.work'
+              # The core packages the operator module compiles in, as in the e2e
+              # filter: a change there alone must still run the operator's unit
+              # tests, coverage gate, chart checks and envtest.
+              # TestPathFiltersCoverTheOperatorImports keeps both lists whole.
+              - 'pkg/probe/**'
+              - 'pkg/runtimefacts/**'
+              - 'pkg/capability/**'
+              - 'pkg/catalog/**'
+              - 'pkg/contract/**'
+              - 'pkg/delivery/**'
+              - 'pkg/deliveryrecord/**'
+              - 'pkg/diff/**'
+              - 'pkg/evidence/**'
+              - 'pkg/finding/**'
+              - 'pkg/fleet/**'
+              - 'pkg/graph/**'
+              - 'pkg/impact/**'
+              - 'pkg/lock/**'
+              - 'pkg/logging/**'
+              - 'pkg/oci/**'
+              - 'pkg/ocireferrer/**'
+              - 'pkg/openapi/**'
+              - 'pkg/readiness/**'
+              - 'pkg/sbom/**'
+              - 'pkg/schemax/**'
+              - 'pkg/semver/**'
+              - 'pkg/signing/**'
+              - 'pkg/skills/**'
+              - 'pkg/strictjson/**'
+              - 'pkg/validation/**'
             release:
               - 'release/**'
               - '.github/workflows/**'
@@ -85,10 +120,15 @@ jobs:
               - 'go.mod'
               - '**/Dockerfile'
               - 'examples/demo/**'
+              # The payments story the demos play (examples/story).
+              - 'examples/story/**'
               # The acceptance tree holds the canonical scenario every vertical
               # projects — the kind fixture AND the distributed Compose artifact —
               # plus the shared harness. A change there changes what they prove.
               - 'tests/acceptance/**'
+              # Every kind step runs through these wrappers (exit handling,
+              # failure classification, diagnostics).
+              - 'scripts/ci/**'
               # The runtime collector, its evaluation and its two front-ends: the
               # runtime image the kind runtime-conformance shard and the local
               # runtime acceptances run is built from them.
@@ -97,10 +137,102 @@ jobs:
               - 'pkg/probe/**'
               - 'internal/cli/agent.go'
               - 'internal/cli/run.go'
+              # The CLI the delivery phases run: `pacto delivery`, `record verify`
+              # and `pacto publish`, plus the publish code behind the last one.
+              - 'internal/cli/delivery*.go'
+              - 'internal/cli/publish.go'
+              - 'pkg/publish/**'
+              # Every core package the operator and pacto-delivery images compile
+              # in (the transitive import closure of integrations/kubernetes).
+              # TestPathFiltersCoverTheOperatorImports derives this list from the
+              # imports and fails when a package is missing.
+              - 'pkg/capability/**'
+              - 'pkg/catalog/**'
+              - 'pkg/contract/**'
+              - 'pkg/delivery/**'
+              - 'pkg/deliveryrecord/**'
+              - 'pkg/diff/**'
+              - 'pkg/evidence/**'
+              - 'pkg/finding/**'
+              - 'pkg/fleet/**'
+              - 'pkg/graph/**'
+              - 'pkg/impact/**'
+              - 'pkg/lock/**'
+              - 'pkg/logging/**'
+              - 'pkg/oci/**'
+              - 'pkg/ocireferrer/**'
+              - 'pkg/openapi/**'
+              - 'pkg/readiness/**'
+              - 'pkg/sbom/**'
+              - 'pkg/schemax/**'
+              - 'pkg/semver/**'
+              - 'pkg/signing/**'
+              - 'pkg/skills/**'
+              - 'pkg/strictjson/**'
+              - 'pkg/validation/**'
+            # The delivery demo (delivery-demo below) proves what only a live run
+            # can: Argo CD applying a digest, a second cluster following the first
+            # through its signed records, and the dashboard's delivery journeys
+            # signed in through the real guard. It is heavy, so it runs only for
+            # changes to delivery itself, to the guard or to the demo.
+            delivery:
+              - 'integrations/kubernetes/api/delivery/**'
+              - 'integrations/kubernetes/cmd/delivery/**'
+              - 'integrations/kubernetes/internal/delivery/**'
+              - 'integrations/kubernetes/charts/pacto-operator/templates/delivery/**'
+              # The delivery templates render through the chart's shared helpers.
+              - 'integrations/kubernetes/charts/pacto-operator/templates/_*.tpl'
+              - 'integrations/kubernetes/charts/pacto-operator/templates/crds.yaml'
+              - 'integrations/kubernetes/charts/pacto-operator/files/crds/delivery.*'
+              - 'pkg/delivery/**'
+              - 'pkg/deliveryrecord/**'
+              - 'pkg/ocireferrer/**'
+              - 'pkg/signing/**'
+              - 'internal/authn/**'
+              - 'internal/app/delivery*.go'
+              - 'internal/cli/delivery*.go'
+              - 'pkg/dashboard/delivery*.go'
+              # The journeys drive the delivery views and the served bundle,
+              # and server.go wires the approval guard they run against.
+              - 'pkg/dashboard/server.go'
+              - 'pkg/dashboard/frontend/src/**/*[Dd]elivery*'
+              - 'pkg/dashboard/ui/**'
+              - 'pkg/dashboard/frontend/e2e-live/**'
+              - 'examples/story/**'
+              # delivery-demo.sh sources lib.sh, delivery-identity.sh and
+              # delivery-lib.sh, and delivery-demo.yml runs it through kind-run.sh.
+              - 'tests/acceptance/kind/lib.sh'
+              - 'tests/acceptance/kind/delivery-demo.sh'
+              - 'tests/acceptance/kind/delivery-identity.sh'
+              - 'tests/acceptance/kind/delivery-lib.sh'
+              - 'scripts/ci/kind-run.sh'
+              - 'tests/acceptance/kind/fixtures/delivery-demo/**'
+              - '.github/workflows/delivery-demo.yml'
+            # perf-envtest measures the dashboard's delivery and fleet views and
+            # the promoter against a real apiserver, so it runs for changes to
+            # them, to the operator and to the harness (tests/perf/README.md).
+            perf:
+              - 'pkg/dashboard/**'
+              - 'pkg/delivery/**'
+              - 'pkg/fleet/**'
+              - 'internal/app/**'
+              - 'internal/authn/**'
+              - 'internal/cli/dashboard*.go'
+              - 'internal/cli/perf_*.go'
+              - 'integrations/kubernetes/api/**'
+              - 'integrations/kubernetes/cmd/**'
+              - 'integrations/kubernetes/internal/**'
+              - 'integrations/kubernetes/go.mod'
+              - 'tests/perf/**'
+              - 'go.work'
+              - 'go.mod'
+              - 'Makefile'
+              - 'ci.mk'
 
   ci-static:
     needs: changes
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/ci
@@ -112,6 +244,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/ci
@@ -129,6 +262,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -145,6 +279,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -158,12 +293,25 @@ jobs:
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Deterministic browser acceptance over the built WASM demo
+        timeout-minutes: 30
         run: make test-browser
+      - name: Upload browser traces
+        if: failure()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: dashboard-e2e-traces
+          path: |
+            pkg/dashboard/frontend/test-results
+            pkg/dashboard/frontend/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
 
   ci-integration-kubernetes:
     needs: changes
     if: needs.changes.outputs.kubernetes == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -182,12 +330,28 @@ jobs:
     needs: changes
     if: needs.changes.outputs.kubernetes == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       - run: make ci-e2e-envtest
+
+  # The dashboard's delivery views and the promoter against a real apiserver,
+  # with the request and latency budgets of tests/perf/README.md. CI runs the
+  # 500-Stage pass and the promoter burst (PERF_QUICK, set by the target);
+  # the 2,000-Stage pass takes about 12 minutes more and stays local.
+  ci-perf-envtest:
+    needs: changes
+    if: needs.changes.outputs.perf == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/ci
+        with:
+          target: ci-perf-envtest
 
   ci-oci:
     needs: changes
@@ -196,9 +360,10 @@ jobs:
     # skip it there. Skipped != failure, so the `required` aggregate stays green.
     if: ${{ !startsWith(github.head_ref, 'changeset-release/') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       registry:
-        image: registry:2
+        image: registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
         ports:
           - 5001:5000
     steps:
@@ -223,6 +388,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -242,12 +408,14 @@ jobs:
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     # Shard the self-provisioning kind scenarios across parallel runners (each
     # spins up its own cluster) instead of running them serially in one job. The
     # `required` aggregate waits for all matrix legs, so coverage is unchanged.
     strategy:
       fail-fast: false
       matrix:
+        # delivery runs in its own sharded job below (ci-e2e-kind-delivery).
         scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -269,10 +437,131 @@ jobs:
       - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-')
         uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
       - name: Install kind (checksum-verified via GOSUMDB)
-        run: bash release/scripts/retry.sh go install sigs.k8s.io/kind@v0.30.0
+        timeout-minutes: 5
+        run: make kind-install
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-      - run: make test-acceptance-kind-${{ matrix.scenario }}
+      - name: Run the scenario
+        timeout-minutes: 35
+        run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-${{ matrix.scenario }}
+      - name: Collect cluster diagnostics
+        if: failure()
+        timeout-minutes: 10
+        run: bash scripts/ci/kind-diagnostics.sh "$RUNNER_TEMP/diagnostics"
+      - name: Upload logs, diagnostics and browser traces
+        if: failure()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: kind-${{ matrix.scenario }}-diagnostics
+          path: |
+            ${{ runner.temp }}/diagnostics
+            pkg/dashboard/frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Pacto delivery, sharded by phase. The three Pacto images are built once here
+  # and every shard loads the same archive; each shard then runs its phase (plus
+  # the phases it needs: identity needs core, records needs core and publish) on
+  # its own small cluster, created while the shard pulls and preloads the rest.
+  # The delivery-demo shards load the same archive.
+  delivery-images:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || needs.changes.outputs.delivery == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Only the build runs here, but delivery.sh is the one place the image names
+      # live, and the tooling gate (tests/release) cannot see that this mode stops
+      # before oras, cosign and helm: installing them costs seconds.
+      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - name: Build the operator, dashboard and delivery images
+        timeout-minutes: 25
+        run: |
+          mkdir -p "$RUNNER_TEMP/delivery-images"
+          DELIVERY_SAVE_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar" bash tests/acceptance/kind/delivery.sh
+      # The demo's third-party images (Argo CD, Dex, Keycloak, Flux, zot...), pulled
+      # once here with retries so no demo shard pulls from a public registry.
+      - name: Pull the delivery demo's third-party images
+        if: needs.changes.outputs.delivery == 'true' || github.event_name == 'workflow_dispatch'
+        timeout-minutes: 15
+        run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/save-images.log" bash tests/acceptance/kind/delivery-demo.sh save-images "$RUNNER_TEMP/delivery-images/demo-third-party.tar"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        timeout-minutes: 10
+        with:
+          name: delivery-images
+          path: ${{ runner.temp }}/delivery-images
+          compression-level: 1
+          retention-days: 1
+          overwrite: true
+
+  ci-e2e-kind-delivery:
+    needs: [changes, delivery-images]
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [core, health, publish, ordering, identity, records, ladder]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      # Every version a Stage promotes is published as a signed Flux artifact.
+      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Install kind (checksum-verified via GOSUMDB)
+        timeout-minutes: 5
+        run: make kind-install
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        timeout-minutes: 10
+        with:
+          name: delivery-images
+          path: ${{ runner.temp }}/delivery-images
+      - name: Run the ${{ matrix.phase }} phase
+        timeout-minutes: 45
+        env:
+          DELIVERY_PHASES: ${{ matrix.phase }}
+        run: |
+          export DELIVERY_LOAD_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar"
+          bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-delivery
+      - name: Collect cluster diagnostics
+        if: failure()
+        timeout-minutes: 10
+        run: bash scripts/ci/kind-diagnostics.sh "$RUNNER_TEMP/diagnostics"
+      - name: Upload logs and diagnostics
+        if: failure()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: kind-delivery-${{ matrix.phase }}-diagnostics
+          path: ${{ runner.temp }}/diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The whole delivery demo on a pull request that changes delivery: the reach
+  # phase (Argo CD applying by digest, a second cluster following the first
+  # through its signed records) and the browser journeys against the real
+  # sign-in guard run only here and in the nightly schedule of the same
+  # workflow. It runs as parallel shards over delivery-images' archive, and its
+  # result is every shard's. The called workflow's report job needs issues:
+  # write, which only its own schedule uses.
+  delivery-demo:
+    needs: [changes, delivery-images]
+    if: needs.changes.outputs.delivery == 'true' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/delivery-demo.yml
+    with:
+      images-artifact: delivery-images
 
   # The same product vertical on the OTHER surface, proved the way a stranger meets
   # it: the demo application is published to a local registry with `docker compose
@@ -285,6 +574,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -318,6 +608,7 @@ jobs:
     # dry-run's "pending bump" scenarios do not apply (feature-PR / main gate only).
     if: (needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !startsWith(github.head_ref, 'changeset-release/')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         # Full history + tags: verify-standalone.sh stages a local tag and resolves
@@ -360,6 +651,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
@@ -396,6 +688,7 @@ jobs:
   ci-gates:
     needs: changes
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -407,6 +700,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -431,6 +725,7 @@ jobs:
     # feature-PR "committed txn not ready" invariant this asserts does not apply.
     if: needs.changes.outputs.release == 'true' && !startsWith(github.head_ref, 'changeset-release/')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -456,10 +751,14 @@ jobs:
       - ci-dashboard
       - ci-integration-kubernetes
       - ci-e2e-envtest
+      - ci-perf-envtest
       - ci-oci
       - artifact-drift
       - operator-build
       - ci-e2e-kind
+      - delivery-images
+      - ci-e2e-kind-delivery
+      - delivery-demo
       - ci-e2e-compose
       - release-dry-run
       - release-version-test
@@ -470,6 +769,7 @@ jobs:
       # rename turn main red.
       - dashboard-e2e
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Verify no required leg failed
         run: |

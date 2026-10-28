@@ -7,7 +7,7 @@ it holds the verdict, the stage that produced it and one finding per problem.
 ```bash
 kubectl describe pacto <name>
 kubectl get pacto <name> -o yaml                   # the whole object
-kubectl get pacto <name> -o yaml | yq '.status'    # just the status, if you have yq
+kubectl get pacto <name> -o yaml | yq '.status'    # only the status, if you have yq
 ```
 
 [Runtime observations](runtime-observations.md) lists every finding code
@@ -33,9 +33,9 @@ each one's `reason` is a fixed identifier you can match on:
 
 Two absences are meaningful:
 
-- **`RuntimeObserved` is missing entirely** when the reconciliation never got as
-  far as observing — a reference-only contract, or one that failed at
-  `ContractValid`. That is not a failed observation.
+- **`RuntimeObserved` is missing entirely** when the reconciliation stopped before
+  observing: a reference-only contract, or one that failed at `ContractValid`.
+  No observation ran, so none failed.
 - **`ReadinessSatisfied` is missing entirely** when the contract declares no
   `readiness:` block.
 
@@ -48,7 +48,7 @@ on the latest spec.
 
 Conditions say what the state *is*; the `Events:` block that closes
 `kubectl describe pacto <name>` says what *changed*, including things no field
-records — a tag force-pushed underneath you, or a readiness gate flipping.
+records, such as a tag force-pushed underneath you or a readiness gate flipping.
 
 ```bash
 kubectl describe pacto <name>                       # events are the last block
@@ -71,24 +71,23 @@ The operator emits exactly eight, and no others:
 
 Three things about them are easy to misread:
 
-- **`ValidationFailed` overstates the `Unknown` case.** Nothing failed
-  validation there — an assertion could not be *evaluated* — and the event's own
-  counts say so: `ContractStatus: Unknown, 0 errors, 0 warnings`. Read the
-  counts, not the reason.
+- **`ValidationFailed` overstates the `Unknown` case.** In that case an
+  assertion could not be *evaluated*, and the event's own counts say so:
+  `ContractStatus: Unknown, 0 errors, 0 warnings`. Trust the counts over the
+  reason.
 - **Every event except `RevisionCreated` and `TagOverwritten` is transition-gated.**
-  A contract that stays broken emits one event, not one per reconcile, so a
+  A contract that stays broken emits one event for the whole streak, so a
   `Count` above 1 means the status flapped, or the same reason recurred after a
   recovery. Two exceptions still repeat without either: `TagOverwritten` (see
   [Choosing a reference form](contract-bindings.md#choosing-a-reference-form))
   and a revision-mirror failure, which is recorded once per reconcile pass.
 - **Events expire**, after the API server's `--event-ttl` of one hour by
-  default. An absent event is not evidence that it never fired: conditions and
-  `status` are the durable record.
+  default. A missing event may have expired, so rely on conditions and `status`
+  as the durable record.
 
 ## Chasing the evidence behind a finding
 
-Every finding carries `evidenceRefs`, and it is worth knowing what they are
-before you go looking for something that is not there:
+Every finding carries `evidenceRefs`, and this is what they contain:
 
 ```yaml
 evidenceRefs:
@@ -98,13 +97,13 @@ evidenceRefs:
     detectedAt: "2026-08-22T21:31:04Z"
 ```
 
-That is the whole record — which collector saw it and when. `collector` is
+That is the whole record: which collector saw it and when. `collector` is
 `k8s-observer` for the Kubernetes API alone, `k8s-observer+ebpf` when [node
 agent evidence](runtime-conformance.md) decided or qualified the result and
 `ebpf` when only the kernel saw it. A finding with no matched observation, such
-as `EVIDENCE_MISSING`, carries `source` and `observedAt` only. There is no body
-to fetch: the operator's observations are **recomputed every reconcile and never
-stored**, so the reference dates the reading rather than retrieving it. The node
+as `EVIDENCE_MISSING`, carries `source` and `observedAt` only. The operator's
+observations are **recomputed every reconcile and never stored**, so the
+reference dates the reading and has no body to fetch. The node
 agent's raw socket view is the one exception you can read back, in the
 `NodeRuntimeObservation` object named after the pod's node. What it
 is good for is age: an `observedAt` that stopped advancing while
@@ -118,26 +117,26 @@ annotation key is arbitrary:
 kubectl annotate pacto <name> reconcile-requested-at="$(date -u +%FT%TZ)" --overwrite
 ```
 
-Observations that must outlive the reconcile that made them — an audit trail, a
-signed record — are the [Evidence Server](../../evidence.md), which writes to
-your registry. Cluster status is a live reading, not a log.
+For observations that must outlive the reconcile that made them, such as an
+audit trail or a signed record, use the [Evidence Server](../../evidence.md),
+which writes to your registry. Cluster status is a live reading.
 
 ## Status is `Unknown`
 
-A required assertion could not be evaluated — not a violation. The finding code
-says why:
+A required assertion could not be evaluated. This is uncertainty, and the
+finding code says why:
 
-- **`EVIDENCE_MISSING`** — nothing was collected. The target may not exist yet,
+- **`EVIDENCE_MISSING`**: nothing was collected. The target may not exist yet,
   or `spec.target.serviceName` does not match a real Service.
-- **`OBSERVATION_UNSUPPORTED`** — the dimension cannot be observed here: an
+- **`OBSERVATION_UNSUPPORTED`**: the dimension cannot be observed here: an
   `ExternalName` dependency, or a metrics capability while
   `--enable-metrics-observation` is off.
-- **`COLLECTION_FAILED`** — the cluster query errored, or the node agent
+- **`COLLECTION_FAILED`**: the cluster query errored, or the node agent
   could not load its kernel program. Check the `RuntimeObserved` condition and
   the operator logs.
-- **`EVIDENCE_STALE`** — the node agent on the pod's node stopped reporting.
+- **`EVIDENCE_STALE`**: the node agent on the pod's node stopped reporting.
   See [Node agent evidence is missing](#node-agent-evidence-is-missing).
-- **`EVIDENCE_INSUFFICIENT`** — some evidence arrived but not enough to decide,
+- **`EVIDENCE_INSUFFICIENT`**: some evidence arrived but not enough to decide,
   for example the node agent saw only part of a pod.
 
 A contract that could not be obtained transiently also reads `Unknown` rather
@@ -163,7 +162,7 @@ reads `Unknown` until the negative streak spans the
 
 ## Status is `Reference`
 
-The contract declares no `spec.target`: parsed and validated, never observed.
+The contract declares no `spec.target`: Pacto parses and validates it and observes nothing.
 Add a `spec.target` to enable runtime observation.
 
 ## Contract not resolving
@@ -179,7 +178,7 @@ Add a `spec.target` to enable runtime observation.
 The metrics dimension returns `Unsupported` unless `--enable-metrics-observation`
 is set, and active health probing requires `--enable-probing`. The chart sets
 them through `controller.enableMetricsObservation` and
-`controller.enableProbing` — see
+`controller.enableProbing`; see
 [Opt-in features](limitations.md#opt-in-features).
 
 With probing off, health falls back to the workload, which needs an **`httpGet`
@@ -187,7 +186,7 @@ readiness probe** on the container behind the health capability's port plus a
 Ready endpoint for it. When the capability declares a path, the probe's path
 must equal it. A liveness-only pod, an `exec` or `tcpSocket` probe or
 no probe leaves nothing to read. Passive observation can confirm health but
-never contradict it, so `Unknown` is the honest answer here, not a broken one.
+never contradict it, so the answer here is `Unknown`.
 
 ## Operator RBAC errors
 

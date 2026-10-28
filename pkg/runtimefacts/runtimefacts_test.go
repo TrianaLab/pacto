@@ -288,3 +288,38 @@ func TestDependencyObservationBuilder(t *testing.T) {
 		}
 	}
 }
+
+func TestCoverageString(t *testing.T) {
+	for c, want := range map[Coverage]string{CoverageComplete: "Complete", CoveragePartial: "Partial", CoverageFailed: "Failed", CoverageStale: "Stale"} {
+		if c.String() != want {
+			t.Errorf("%d: %q", c, c.String())
+		}
+	}
+}
+
+func TestCallers(t *testing.T) {
+	peer := NewAddress("10.0.0.1", 80)
+	pod := func(id string, c ...Connection) Workload {
+		return Workload{Identity: Identity{Kind: KindPod, ID: id}, Connections: c}
+	}
+	snaps := []Snapshot{
+		{Workloads: []Workload{
+			pod("b", Connection{Address: "10.0.0.1", Port: 80, LastSuccessAt: ago(time.Minute)}),
+			pod("old", Connection{Address: "10.0.0.1", Port: 80, LastSuccessAt: ago(time.Hour)}),
+			pod("refused", Connection{Address: "10.0.0.1", Port: 80, LastFailureAt: ago(time.Second)}),
+			pod("elsewhere", Connection{Address: "10.0.0.2", Port: 80, LastSuccessAt: ago(time.Second)}),
+		}},
+		{Workloads: []Workload{
+			pod("a", Connection{Address: "10.0.0.9", Port: 80}, Connection{Address: "::ffff:10.0.0.1", Port: 80, LastSuccessAt: ago(time.Second)}),
+			pod("b", Connection{Address: "10.0.0.1", Port: 80, LastSuccessAt: ago(time.Second)}),
+		}},
+	}
+	got := Callers(snaps, []Address{peer}, ago(5*time.Minute))
+	want := []Identity{{Kind: KindPod, ID: "a"}, {Kind: KindPod, ID: "b"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("callers = %+v, want %+v", got, want)
+	}
+	if got := Callers(nil, []Address{peer}, now); len(got) != 0 {
+		t.Fatalf("no snapshots, callers = %+v", got)
+	}
+}

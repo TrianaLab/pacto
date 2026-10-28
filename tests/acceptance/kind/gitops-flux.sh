@@ -79,7 +79,7 @@ kubectl create namespace "$APP_NS" --dry-run=client -o yaml | kubectl apply -f -
 
 echo "== the operator, at its DEFAULT stabilization window =="
 helm install pacto-operator "$CHART" -n "$NS" \
-  --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+  --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=false --wait --timeout 240s
 if kubectl -n "$NS" get deploy pacto-operator -o jsonpath='{.spec.template.spec.containers[0].args}' \
   | grep -q 'stabilization-window'; then
@@ -130,7 +130,7 @@ spec:
     metadata: { labels: { app: orders } }
     spec:
       containers:
-        - { name: app, image: registry.k8s.io/pause:3.9 }
+        - { name: app, image: registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 }
 YAML
   # workloadRef carries BOTH name and kind, which is what makes the mismatch
   # assertable: without an explicit kind the operator reports EVIDENCE_INSUFFICIENT

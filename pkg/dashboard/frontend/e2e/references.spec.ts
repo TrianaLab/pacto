@@ -42,6 +42,15 @@ async function openLatestRevision(page: Page, key: string) {
   await expect(page.getByRole('heading', { level: 1, name: /^Revision: / })).toBeVisible({ timeout: T });
 }
 
+// openSection opens the revision page's folded section titled `title`; the page leads
+// with its answer and keeps the contract's detail one click away.
+async function openSection(page: Page, title: string) {
+  const sec = page.getByTestId('preview-section').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+  if (await sec.evaluate((el) => el.tagName === 'DETAILS' && !(el as HTMLDetailsElement).open)) {
+    await sec.getByRole('heading', { name: title, exact: true }).click();
+  }
+}
+
 // The one reference row whose authored ref contains `refFragment`.
 function reference(page: Page, refFragment: string) {
   return page.locator('.cr').filter({ hasText: refFragment }).first();
@@ -80,6 +89,7 @@ test.describe('contract references are navigable', () => {
     test(`${ref} carries no resolved identity, so it links nowhere: ${why}`, async ({ page }) => {
       await boot(page);
       await openLatestRevision(page, revision);
+      await openSection(page, ref.includes('policy') ? 'Policies' : 'Configuration');
 
       const row = reference(page, ref.replace('oci://', ''));
       await expect(row).toBeVisible({ timeout: T });
@@ -107,6 +117,7 @@ test.describe('contract references are navigable', () => {
   test('a declared dependency is navigable from the revision that declares it', async ({ page }) => {
     await boot(page);
     await openLatestRevision(page, 'payments-service');
+    await openSection(page, 'Declared dependencies');
 
     const dep = page.locator('a.entity-link[href$="/fleet/services/postgresql"]').first();
     await expect(dep).toBeVisible({ timeout: T });

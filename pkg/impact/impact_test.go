@@ -384,7 +384,7 @@ func TestEdgeEvidence(t *testing.T) {
 	// edgeEvidence only through observedEdges, which the caller gates on
 	// IncludeObserved. Skipping it must still not let it be mistaken for the
 	// declared edge, so the declared claim below is what comes back.
-	rel, declared, observed := edgeEvidence(snap, "a", "b", nil)
+	rel, declared, observed := edgeEvidence(snap, "a", "b", "1.2.0", nil)
 	if !declared || observed || !rel.Required || rel.Compatibility != "^1.0.0" {
 		t.Errorf("edgeEvidence = rel:%+v declared:%v observed:%v", rel, declared, observed)
 	}
@@ -394,9 +394,29 @@ func TestEdgeEvidence(t *testing.T) {
 		&fleet.FleetSnapshot{Relationships: []fleet.Relationship{
 			{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Required: true},
 		}},
-		"a", "b", []resolvedObservedEdge{{consumer: "a", provider: "b"}, {consumer: "other", provider: "b"}})
+		"a", "b", "1.2.0", []resolvedObservedEdge{{consumer: "a", provider: "b"}, {consumer: "other", provider: "b"}})
 	if !declaredT || !observedT || !relT.Required {
 		t.Errorf("telemetry edge not counted: rel:%+v declared:%v observed:%v", relT, declaredT, observedT)
+	}
+}
+
+// One edge per running revision: the revision that accepts the new version
+// least speaks for the consumer, in either order.
+func TestEdgeEvidenceWorstRevisionSpeaks(t *testing.T) {
+	dep := func(rng string) fleet.Relationship {
+		return fleet.Relationship{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Compatibility: rng}
+	}
+	for _, rels := range [][]fleet.Relationship{
+		{dep("^3.0.0"), dep("not a range"), dep("^2.0.0"), dep("^3.0.0")},
+		{dep("^2.0.0"), dep("^3.0.0"), dep("not a range")},
+	} {
+		if rel, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "^2.0.0" {
+			t.Errorf("edges %v: the consumer speaks through %q, want ^2.0.0", rels, rel.Compatibility)
+		}
+	}
+	rels := []fleet.Relationship{dep("^3.0.0"), dep("not a range")}
+	if rel, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "not a range" {
+		t.Errorf("an unreadable range outranks one that accepts, got %q", rel.Compatibility)
 	}
 }
 
@@ -627,5 +647,34 @@ func TestReleaseBlocking(t *testing.T) {
 				t.Errorf("ReleaseBlocking() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestAnalyze_UncontractedCallers surfaces a caller with no contract as a
+// direct observed consumer with no range, only when observed evidence is in.
+func TestAnalyze_UncontractedCallers(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	other := svcContract("other", "1.0.0", contract.Owner{})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("delivery", "kubernetes",
+		&fleet.Collection{
+			Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(other)}},
+			Observed: []fleet.ObservedEdge{
+				{From: "k8s:pay/Deployment/legacy", To: "auth-service", Count: 1},
+				{From: "k8s:pay/Deployment/elsewhere", To: "other", Count: 1},
+			},
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
+	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{IncludeObserved: true})
+	want := []AffectedConsumer{{Service: "k8s:pay/Deployment/legacy", Depth: 1, Direct: true,
+		Path: []string{"k8s:pay/Deployment/legacy", "auth-service"}, CompatibilityVerdict: CompatibilityUnknown,
+		Provenance: fleet.ProvenanceObserved, Confidence: ConfidenceObserved, Uncontracted: true}}
+	if !reflect.DeepEqual(res.Consumers, want) {
+		t.Fatalf("consumers = %+v\nwant %+v", res.Consumers, want)
+	}
+	if res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{}); len(res.Consumers) != 0 {
+		t.Fatalf("declared-only analysis surfaced %+v", res.Consumers)
 	}
 }

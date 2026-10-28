@@ -7,6 +7,8 @@ See LICENSE file in the project root for full license text.
 
 package dashboard
 
+import "github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+
 const (
 	// Resource naming
 	Name = "pacto-dashboard"
@@ -15,13 +17,7 @@ const (
 	// merged OCI credentials for the dashboard pod.
 	ManagedSecretName = "pacto-dashboard-oci-creds"
 
-	// Labels
-	LabelManagedBy = "app.kubernetes.io/managed-by"
-	LabelComponent = "app.kubernetes.io/component"
-	LabelName      = "app.kubernetes.io/name"
-
-	// Values
-	ManagedByValue = "pacto-operator"
+	// ComponentValue is the dashboard's app.kubernetes.io/component label.
 	ComponentValue = "dashboard"
 
 	// FieldManager is the server-side apply field manager name for dashboard resources.
@@ -33,18 +29,7 @@ const (
 )
 
 // Labels returns the standard labels applied to all dashboard resources.
-func Labels() map[string]string {
-	return map[string]string{
-		LabelManagedBy: ManagedByValue,
-		LabelComponent: ComponentValue,
-		LabelName:      Name,
-	}
-}
+func Labels() map[string]string { return component.Labels(ComponentValue, Name) }
 
 // SelectorLabels returns the labels used for pod selection.
-func SelectorLabels() map[string]string {
-	return map[string]string{
-		LabelComponent: ComponentValue,
-		LabelName:      Name,
-	}
-}
+func SelectorLabels() map[string]string { return component.SelectorLabels(ComponentValue, Name) }

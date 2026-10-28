@@ -10,26 +10,28 @@ pacto validate .
 It runs three checks in order, and so does anything else that has to trust a
 contract. `pack` and `push` both refuse before they
 write or transmit a byte, and the operator revalidates every bundle it loads.
-Each layer short-circuits — if it fails, the layers after it are skipped, which
-is why one broken field can hide the rest.
+Each layer short-circuits: if it fails, the layers after it are skipped, so one
+broken field can hide the rest.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded `pacto-v2.0.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json` or `pacto-v2.1.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
-- Enum values are valid (e.g. interface `type` is `openapi`/`asyncapi`/`grpc`, `capabilities[].type` is `health`/`metrics`/`extension`, `policies[].target` is `contract`)
-- Fields that must carry a value are non-empty (e.g. `interfaces[].ref`, `dependencies[].compatibility`)
-- Discriminated shapes hold — a `configurations[]` entry has exactly one of `schema`/`ref`; a `capabilities[]` `extension` requires a namespaced `ref` while `health`/`metrics` must not set `ref`
+- Enum values are valid (for example interface `type` is `openapi`/`asyncapi`/`grpc`/`mcp`, `capabilities[].type` is `health`/`metrics`/`extension`, `policies[].target` is `contract`)
+- Fields that must carry a value are non-empty (for example `interfaces[].ref` and `checks[].file`)
+- Discriminated shapes hold: a `configurations[]` entry has exactly one of `schema` or `ref`, a `capabilities[]` `extension` requires a namespaced `ref` and `health` or `metrics` sets no `ref`
 - State invariants hold (`stateless` requires `ephemeral` durability)
 
-Structural failures report `SCHEMA_VIOLATION`.
+Structural failures report `SCHEMA_VIOLATION`. A `"2.0"` contract that uses
+`publish`, `checks`, an external dependency or an `mcp` interface reports `NEEDS_PACTO_2_1` for each
+instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field.
 
-A contract that cannot be **loaded** at all — malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"` — fails before any layer runs and reports
-`PARSE_ERROR` instead. Loading is the parse step that turns `pacto.yaml` into a
-contract; validation only starts once it succeeds.
+A contract that fails to **load**, because of malformed YAML, an unknown field or a
+`pactoVersion` other than `"2.0"` or `"2.1"`, fails before any layer runs and reports
+`PARSE_ERROR`. Loading is the parse step that turns `pacto.yaml` into a
+contract. Validation starts once it succeeds.
 
 ## Layer 2: Cross-field
 
@@ -37,47 +39,53 @@ Validates semantic references and consistency:
 
 | Rule | Code |
 |---|---|
-| `service.version` [parses as semver](sections.md#service) — leniently: `1`, `0.1` and `v0.1` all pass | `INVALID_SEMVER` |
+| `service.version` [parses as semver](sections.md#service), leniently: `1`, `0.1` and `v0.1` all pass | `INVALID_SEMVER` |
 | Interface names are unique | `DUPLICATE_INTERFACE_NAME` |
 | Configuration names are unique | `DUPLICATE_CONFIGURATION_NAME` |
 | Policy names are unique | `DUPLICATE_POLICY_NAME` |
 | Dependency names are unique | `DUPLICATE_DEPENDENCY_NAME` |
 | Interface spec file exists in the bundle | `FILE_NOT_FOUND` |
-| Interface spec file parses, if the ref ends `.json`, `.yaml` or `.yml` (any other extension is existence-checked only) | `INVALID_INTERFACE_SPEC` |
+| Interface spec file parses, if the ref ends `.json`, `.yaml` or `.yml` (for any other extension, only existence is checked) | `INVALID_INTERFACE_SPEC` |
+| An `mcp` interface file lists tools, each with a name used once | `INVALID_MCP_TOOLS` |
+| Check names are unique | `DUPLICATE_CHECK_NAME` |
+| `checks[].file` exists in the bundle | `FILE_NOT_FOUND` |
 | `extension` capability `ref` is well-formed | `CAPABILITY_REF_INVALID` |
-| Standard capability type is not declared twice | `DUPLICATE_CAPABILITY` |
+| Each standard capability type is declared once | `DUPLICATE_CAPABILITY` |
 | `capabilities[].binding.interface` matches a declared interface | `CAPABILITY_INTERFACE_UNKNOWN` |
 | `capabilities[].binding.path` is a safe application path | `CAPABILITY_PATH_INVALID` |
 | OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
+| A dependency without `ref` is `external` | `DEPENDENCY_REF_REQUIRED` |
+| An external dependency without `ref` has a `version` | `EXTERNAL_VERSION_REQUIRED` |
+| `compatibility` appears only with `ref`, and `version` only without it | `COMPATIBILITY_WITHOUT_REF`, `VERSION_WITH_REF` |
+| A dependency with `ref` has a `compatibility` range | `EMPTY_COMPATIBILITY` |
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
-| OCI dependency uses tag instead of digest | `TAG_NOT_DIGEST` (warning) |
-| `configurations[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
-| `configurations[].schema` file does not exist in the bundle | `FILE_NOT_FOUND` |
-| `configurations[].schema` file is not valid JSON | `INVALID_CONFIG_JSON` |
-| `configurations[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
-| `configurations[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
-| `policies[].schema` file does not exist in the bundle | `FILE_NOT_FOUND` |
-| `policies[].schema` file is not valid JSON | `INVALID_POLICY_JSON` |
-| `policies[].schema` file is not valid JSON Schema | `INVALID_POLICY_SCHEMA` |
-| `policies[].ref` is not a valid OCI reference | `INVALID_POLICY_REF` |
+| OCI dependency pins a digest | `TAG_NOT_DIGEST` (warning) |
+| `configurations[].ref` is a valid OCI reference | `INVALID_CONFIG_REF` |
+| `configurations[].schema` file exists in the bundle | `FILE_NOT_FOUND` |
+| `configurations[].schema` file is valid JSON | `INVALID_CONFIG_JSON` |
+| `configurations[].schema` file is valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
+| `configurations[].values` match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
+| `policies[].schema` file exists in the bundle | `FILE_NOT_FOUND` |
+| `policies[].schema` file is valid JSON | `INVALID_POLICY_JSON` |
+| `policies[].schema` file is valid JSON Schema | `INVALID_POLICY_SCHEMA` |
+| `policies[].ref` is a valid OCI reference | `INVALID_POLICY_REF` |
 | `readiness.claims[].id` are unique within the contract | `DUPLICATE_READINESS_ID` |
-| `readiness.claims[].evidence` is not blank/whitespace | `EMPTY_READINESS_EVIDENCE` |
-| `readiness.claims[].description` (when present) is not blank | `EMPTY_READINESS_DESCRIPTION` |
+| `readiness.claims[].evidence` has non-whitespace content | `EMPTY_READINESS_EVIDENCE` |
+| `readiness.claims[].description` (when present) has non-whitespace content | `EMPTY_READINESS_DESCRIPTION` |
 | `readiness.expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
 | `readiness.history[].{date,version,author,description}` are valid/non-blank | `INVALID_READINESS_REVISION` |
 
-This table lists only what you can actually see. Layer 1 rejects the contract
-first and reports `SCHEMA_VIOLATION` wherever the JSON Schema already constrains
-a field. That covers the interface and capability `type` enums, a non-empty
+This table lists the codes you can see. Layer 1 rejects the contract first and
+reports `SCHEMA_VIOLATION` wherever the JSON Schema already constrains a field. That covers the interface and capability `type` enums, a non-empty
 `interfaces[].ref` or `dependencies[].compatibility`, the `configurations[]`
 `schema`/`ref` choice, `policies[].target` and the stateless/ephemeral
 invariant. Layer 2 has
-its own check for each of those, but no contract survives Layer 1 to reach it,
-so do not build a CI rule on a code that is not in this table.
+its own check for each of those, but a contract that breaks them never gets past
+Layer 1. Build CI rules only on codes in this table.
 
 ## Layer 3: Policy checks
 
-Resolves every declared policy and checks the contract against it. Policies apply with strict **AND semantics** — the contract must satisfy all of them. Contradictory policies simply fail; there is no precedence or override logic.
+Resolves every declared policy and checks the contract against it. Policies apply with strict **AND semantics**: the contract must satisfy all of them. Policies have no precedence or override logic, so contradictory policies fail.
 
 | Condition | Code |
 |---|---|
@@ -86,16 +94,15 @@ Resolves every declared policy and checks the contract against it. Policies appl
 | Contract violates a policy constraint | `POLICY_VIOLATION` |
 | `policies[].ref` was skipped because no resolver was configured | `POLICY_REF_NOT_ENFORCED` (warning) |
 
-`POLICY_REF_UNRESOLVED` is a **hard error** — validation fails closed when a referenced policy cannot be resolved, so a missing or unreachable policy is never silently skipped.
+`POLICY_REF_UNRESOLVED` is a **hard error**. Validation fails closed when a referenced policy cannot be resolved.
 
 **When ref-based policies are resolved.** Recursive resolution of
 `policies[].ref` happens only when a resolver is configured. `pacto validate` and
 `pacto push` both supply one, since they can reach OCI/file refs. A `ref` policy
 that cannot be fetched then fails closed with `POLICY_REF_UNRESOLVED`, which is
-how `pacto push` checks remote policies before publishing. Local-only paths that
-pass no resolver — `pacto pack` and the **operator** — check only the
-locally-compiled `schema`-based policies and skip `ref` policies by design (they
-never reach the unresolved error). Cycle detection is per chain: a `ref` is a
+how `pacto push` checks remote policies before publishing. `pacto pack` and the **operator** pass no resolver. They check only the
+locally compiled `schema`-based policies and skip `ref` policies, so they never
+report the unresolved error. Cycle detection is per chain: a `ref` is a
 cycle only when it reappears in its own resolution chain (`A → B → A`); two
 sibling policies pointing at the same `ref` resolve independently.
 

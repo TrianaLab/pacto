@@ -17,19 +17,21 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
-.PHONY: build test test-integration test-acceptance-local test-acceptance-compose \
+.PHONY: build test test-integration test-acceptance-local test-acceptance-compose perf-envtest \
         test-acceptance-compose-selftest \
         test-browser test-browser-live test-browser-compose \
-        e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
+        e2e coverage lint check-section clean docs docs-build docs-demo demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
-        e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind e2e-observed e2e-docs \
+        e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind \
         e2e-observation-kind e2e-observation-kind-up e2e-observation-kind-status \
         e2e-observation-kind-logs e2e-observation-kind-down \
         e2e-runtime-conformance-kind e2e-runtime-conformance-kind-up e2e-runtime-conformance-kind-status \
         e2e-runtime-conformance-kind-logs e2e-runtime-conformance-kind-down \
         e2e-runtime-docker e2e-runtime-run \
-        e2e-dashboard-kind-browser e2e-all-operational-graph test-browser-docs-site \
+        e2e-delivery-demo e2e-delivery-demo-up e2e-delivery-demo-story e2e-delivery-demo-status \
+        e2e-delivery-demo-logs e2e-delivery-demo-browser e2e-delivery-demo-reach e2e-delivery-demo-down \
+        test-browser-docs-site \
         generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift \
         bpf-generate test-ebpf
 
@@ -72,6 +74,16 @@ test-integration:
 	# silently outside CI, which is exactly how the fixture's own tests came to
 	# never run.
 	go test -race ./tests/acceptance/... -count=1 -timeout 180s
+
+# Performance — the dashboard's delivery and fleet views, and the promoter,
+# against a real kube-apiserver and etcd (envtest's binaries, fetched by the
+# operator's setup-envtest). Latency, allocations and apiserver requests per
+# request at 1, 10 and 50 callers, with budget assertions; see
+# tests/perf/README.md. PERF_REPORT=<file> also writes the dashboard table.
+perf-envtest:
+	@assets="$$($(MAKE) -s --no-print-directory -C integrations/kubernetes setup-envtest | tail -n 1)"; \
+	KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run "TestPerfEnvtest|TestSharedReadsRBACIsolation" -count=1 -timeout 120m -v ./internal/cli/ && \
+	cd integrations/kubernetes && KUBEBUILDER_ASSETS="$$assets" go test -tags perfenvtest -run TestPerfPromoter -count=1 -timeout 30m -v ./internal/delivery/
 
 # Level 4 — local acceptance, cluster-free: builds pacto and drives the whole
 # fleet story end to end against local fixtures (graph, signed evidence
@@ -206,18 +218,31 @@ e2e-runtime-conformance-kind-logs:
 e2e-runtime-conformance-kind-down:
 	bash tests/acceptance/kind/runtime-conformance.sh down
 
+# The Kubernetes delivery demo (docs/examples/kubernetes-demo.md): -up leaves it
+# running, -story plays the payments story, -browser runs B6 to B10, the agent
+# beat and the dashboard journeys, -reach adds prod-us (a second cluster, applied
+# by Argo CD, following prod through signed records
+# and refusing a version prod-eu froze on), -down removes it. e2e-delivery-demo runs them all; CI runs it in shards (DELIVERY_DEMO_SHARD).
+e2e-delivery-demo: test-acceptance-kind-delivery-demo
+e2e-delivery-demo-up:
+	bash tests/acceptance/kind/delivery-demo.sh up
+e2e-delivery-demo-story:
+	bash tests/acceptance/kind/delivery-demo.sh story
+e2e-delivery-demo-status:
+	bash tests/acceptance/kind/delivery-demo.sh status
+e2e-delivery-demo-logs:
+	bash tests/acceptance/kind/delivery-demo.sh logs
+e2e-delivery-demo-browser:
+	bash tests/acceptance/kind/delivery-demo.sh browser
+e2e-delivery-demo-reach:
+	bash tests/acceptance/kind/delivery-demo.sh reach
+e2e-delivery-demo-down:
+	bash tests/acceptance/kind/delivery-demo.sh down
+
 # Portable runtime evidence on the local Docker daemon: the host agent over
 # labelled containers, and `pacto run` in its privileged and unprivileged modes.
 e2e-runtime-docker: test-acceptance-local-runtime-docker
 e2e-runtime-run: test-acceptance-local-runtime-run
-
-# ── Operational-graph story acceptances (section M) ─────────────────────────
-# Observed relationships end to end in a real browser: the demo folds observed
-# edges into the snapshot, so the Operational Graph's Observed layer and the impact
-# shadow-consumer are real, not placebos.
-e2e-observed:
-	$(MAKE) -C examples/demo build
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --project=desktop --grep "observed"
 
 # Level 6 — deterministic browser acceptance for the DOCUMENTATION SITE, which is
 # a different product from the dashboard: `mkdocs build --strict` with the real
@@ -225,15 +250,8 @@ e2e-observed:
 # actually render — on a core page, on a page the integration hook injects, and
 # after Material's instant navigation, with every cross-origin request aborted so
 # the site cannot pass by borrowing someone else's runtime.
-# Named for the site, not for "docs", because e2e-docs below is the dashboard's
-# bundle-documentation tab.
 test-browser-docs-site: $(MERMAID_RUNTIME)
 	cd pkg/dashboard/frontend && npx playwright install chromium && npx playwright test -c playwright.docs-site.config.ts
-
-# Bundle-doc Mermaid diagrams actually render to SVG in a real browser.
-e2e-docs:
-	$(MAKE) -C examples/demo build
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --project=desktop e2e/mermaid.spec.ts
 
 # Level 7 — live-browser acceptance: the full vertical (operator + dashboard +
 # Evidence Server + registry + reconciled CRs + ingested evidence) plus a
@@ -241,7 +259,6 @@ e2e-docs:
 # DISCOVERED from the real Product API.
 test-browser-live:
 	bash tests/acceptance/kind/operational-graph.sh browser
-e2e-dashboard-kind-browser: test-browser-live
 
 # Level 7 on the OTHER surface: the same journeys, in the same browser, against
 # the demo a stranger pulled — so what ships as "try Pacto" is held to the product
@@ -250,18 +267,13 @@ e2e-dashboard-kind-browser: test-browser-live
 test-browser-compose:
 	bash tests/acceptance/local/compose-demo.sh browser
 
-# The whole operational-graph story: cluster-free core, the deterministic browser
-# suite, and the live-Kind vertical + live browser acceptance.
-e2e-all-operational-graph: e2e-operational-graph-core test-browser test-browser-live
-
 coverage:
-	go test -race $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf) -coverprofile=coverage.out
+	go test -race $(COVER_PKGS) -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 	@go tool cover -func=coverage.out | tail -1
 
-lint: check-section
-	gofmt -s -l $(shell find . -name '*.go')
-	go vet ./...
+# lint runs the same format and vet gates CI does, so it fails where CI fails.
+lint: ci-fmt ci-vet check-section
 
 # check-section is the reusable U+00A7 gate: zero section-sign glyphs in authored
 # files (generated UI bundles excluded by path). See scripts/check-section-sign.sh.
@@ -320,10 +332,20 @@ docs-build: $(DOCS_DEMO)/app.wasm $(MERMAID_RUNTIME)
 # demo Go/boot glue) so `make docs` always reflects the current source. Force a
 # full refresh with `make demo-preview-clean`.
 DEMO_SOURCES := $(shell find pkg/dashboard/frontend/src examples/demo/bundles examples/demo/partners -type f 2>/dev/null) \
-	$(wildcard examples/demo/*.go) examples/demo/boot.js examples/demo/Makefile \
+	$(wildcard examples/demo/*.go) $(wildcard examples/demo/*.js) examples/demo/Makefile \
 	pkg/dashboard/frontend/package.json pkg/dashboard/frontend/package-lock.json
 $(DOCS_DEMO)/app.wasm: $(DEMO_SOURCES)
-	$(MAKE) -C examples/demo build DIST=$(CURDIR)/$(DOCS_DEMO)
+	$(MAKE) docs-demo
+
+# docs-demo is the one place the demo is mounted into the docs tree: build it,
+# smoke the wasm engine (smoke.mjs reads examples/demo/dist), then copy dist into
+# docs/demo so mkdocs (and mike's internal build) ships it at /demo/. docs.yml
+# and release.yml call it; the local docs targets reach it through app.wasm.
+docs-demo:
+	$(MAKE) -C examples/demo build
+	$(MAKE) -C examples/demo smoke
+	mkdir -p $(DOCS_DEMO)
+	cp -r examples/demo/dist/. $(DOCS_DEMO)/
 
 demo-preview-clean:
 	rm -rf $(DOCS_DEMO)
@@ -344,18 +366,14 @@ docker-run: docker-build
 # compiled in a pinned Linux image; the output (internal/runtimewatch/ebpf/
 # sockstate_bpfel.*) is committed, so neither CI nor the image build needs clang.
 BPF2GO_VERSION ?= v0.22.0
-BPF_BUILDER_IMAGE ?= golang:1.26.9-trixie
+BPF_BUILDER_IMAGE ?= golang:1.26.9-trixie@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c
 RUNTIMEWATCH_EBPF_DIR := internal/runtimewatch/ebpf
 
 bpf-generate: ## Regenerate the agent's eBPF object and Go bindings (needs Docker).
 	docker run --rm -v "$(CURDIR):/src" -w /src/$(RUNTIMEWATCH_EBPF_DIR) \
 		$(BPF_BUILDER_IMAGE) bash -ec 'export DEBIAN_FRONTEND=noninteractive; \
 		apt-get update -qq && apt-get install -y -qq --no-install-recommends clang llvm libbpf-dev >/dev/null; \
-		for attempt in 1 2 3 4 5; do \
-		  if GOFLAGS= GOWORK=off go install github.com/cilium/ebpf/cmd/bpf2go@$(BPF2GO_VERSION); then break; fi; \
-		  if [ "$$attempt" = 5 ]; then echo "go install bpf2go failed after 5 attempts" >&2; exit 1; fi; \
-		  sleep $$((attempt * 5)); \
-		done; \
+		bash /src/release/scripts/retry.sh env GOFLAGS= GOWORK=off go install github.com/cilium/ebpf/cmd/bpf2go@$(BPF2GO_VERSION); \
 		bpf2go -target bpfel -go-package ebpf -tags linux sockstate bpf/sockstate.c -- -O2 -g -Wall -Werror -I/usr/include/$$(uname -m)-linux-gnu; \
 		chown $(shell id -u):$(shell id -g) sockstate_bpfel.go sockstate_bpfel.o'
 

@@ -72,7 +72,7 @@ Details an observation can carry beyond "it is there", such as the protocol a po
 
 ## Contract status
 
-`status.contractStatus` says whether the service matches its contract. It is not a health check. Values are generated from the `Pacto` API.
+`status.contractStatus` says whether the service matches its contract. It does not report pod health. Values are generated from the `Pacto` API.
 
 | Status | Meaning |
 | --- | --- |
@@ -84,7 +84,7 @@ Details an observation can carry beyond "it is there", such as the protocol a po
 | `Invalid` | Structural validation failed, or a malformed artifact could not be parsed (fail-closed). |
 | `NotEvaluated` | Reserved enum value the operator does not currently emit; used by the engine dashboard for offline sources never runtime-evaluated. |
 
-Precedence when summarizing findings (see `summarizeFindings` in `internal/controller/pacto_controller.go`): `Invalid` (structural) outranks all; then any error -> `NonCompliant`; else any unknown -> `Unknown`; else any warning -> `Warning`; else `Compliant`. Reference-only contracts short-circuit to `Reference`.
+Precedence when summarizing findings (see `summarizeFindings` in `internal/controller/status.go`): `Invalid` (structural) outranks all; then any error -> `NonCompliant`; else any unknown -> `Unknown`; else any warning -> `Warning`; else `Compliant`. Reference-only contracts short-circuit to `Reference`.
 
 ## Findings
 
@@ -128,6 +128,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `INVALID_READINESS_EXPIRES` | `InvalidReadiness` |
 | `INVALID_READINESS_REVISION` | `InvalidReadiness` |
 | `INVALID_SEMVER` | `InvalidVersion` |
+| `NEEDS_PACTO_2_1` | `InvalidVersion` |
 | `PERSISTENCE_MISMATCH` | `RuntimeDrift` |
 | `POLICY_ENFORCEMENT_ERROR` | `PolicyViolation` |
 | `POLICY_REF_CYCLE` | `ReferenceCycle` |

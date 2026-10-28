@@ -28,3 +28,29 @@ Pacto Operator has been installed.
 
    kubectl port-forward -n {{ .Release.Namespace }} svc/pacto-dashboard 3000:3000
 {{- end }}
+{{- if .Values.delivery.enabled }}
+
+The Pacto delivery promoter is installed in {{ include "pacto-operator.delivery.namespace" . }}.
+Keep that namespace writable by cluster admins only: anyone who can create a pod
+there can act as the promoter or the recorder, and anyone who can edit its
+ConfigMaps can change who counts as a person and which upstream keys are trusted.
+
+It moves a Stage's pointer only through Operations. Admission lets it write
+only spec.ref.digest, and only on an OCIRepository labelled
+delivery.pacto.trianalab.io/apply-ref=<stage>, the label that also protects the
+pointer from everyone else.
+
+Bind {{ include "pacto-operator.delivery.fullname" . }}-agent to your agents' own service
+accounts and {{ include "pacto-operator.delivery.fullname" . }}-approver to the people who may
+approve. Then:
+
+  pacto delivery plan --namespace <ns> --stage <stage> --to sha256:<digest>
+{{- if .Values.delivery.recorder.enabled }}
+
+The recorder writes a signed record of every concluded operation to
+{{ .Values.delivery.recorder.streamsRepository }} and to the versions it touched. Check that
+records are being written:
+
+  kubectl get stages.delivery.pacto.trianalab.io -A -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason
+{{- end }}
+{{- end }}

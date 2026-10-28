@@ -9,6 +9,7 @@ package dashboard
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 
@@ -71,6 +72,71 @@ type Config struct {
 	// produced and rotated by whoever owns their storage. This configures OFFLINE
 	// input only — Pacto ships no OTLP receiver and no collector.
 	Observation []ObservationSource
+
+	// Auth is how people sign in to the dashboard. With it, every view and
+	// action runs with the signed-in person's RBAC; the delivery views need it.
+	Auth AuthConfig
+
+	// DeliveryNamespace is the namespace Pacto delivery runs in, where it
+	// publishes the promoter's identity policy, which the dashboard reads;
+	// empty means pacto-delivery.
+	DeliveryNamespace string
+
+	// MiraURL, when set, turns the dashboard's Mira citations into links.
+	MiraURL string
+
+	// DeliveryTrust names the ConfigMap, in the operator namespace, holding the
+	// trust config the dashboard verifies delivery records with, so History
+	// reads signed records. Empty Name: the dashboard verifies none.
+	DeliveryTrust KeyRef
+}
+
+// KeyRef names one key of a ConfigMap or a Secret in the operator namespace.
+type KeyRef struct {
+	Name string
+	Key  string
+}
+
+// AuthConfig is how people sign in to the dashboard: its OpenID Connect
+// client, claim mapping, session lifetime and token sign-in. Reads and actions
+// then run with the signed-in person's own token; the dashboard's
+// ServiceAccount gains no right for them.
+type AuthConfig struct {
+	IssuerURL string
+	// InternalIssuerURL is where the dashboard reaches the issuer when it
+	// differs from IssuerURL, the address browsers use; ID tokens still name
+	// IssuerURL.
+	InternalIssuerURL string
+	// DisplayName is the identity provider's name on the sign-in button;
+	// empty says OIDC.
+	DisplayName string
+	// CAConfigMap or CASecret (never both) holds, under CAKey, the PEM bundle
+	// of the CAs that sign the issuer's certificate, trusted on top of the
+	// system roots.
+	CAConfigMap string
+	CASecret    string
+	CAKey       string
+	ClientID    string
+	RedirectURL string
+	ExtraScopes []string
+	// ClientSecretName and ClientSecretKey name the Secret, in the operator
+	// namespace, holding the client secret. It reaches the pod through
+	// secretKeyRef, never as a literal value.
+	ClientSecretName string
+	ClientSecretKey  string
+	// UsernameClaim, UsernamePrefix, GroupsClaim and GroupsPrefix name the
+	// person the way the API server's claim mapping does; empty keeps the
+	// dashboard's defaults (issuer#sub and the groups claim).
+	UsernameClaim  string
+	UsernamePrefix string
+	GroupsClaim    string
+	GroupsPrefix   string
+	// SessionIdleTimeout and SessionMaxAge bound a session; zero keeps the
+	// dashboard's defaults.
+	SessionIdleTimeout time.Duration
+	SessionMaxAge      time.Duration
+	// TokenLogin lets people sign in by pasting a Kubernetes bearer token.
+	TokenLogin bool
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.
@@ -106,6 +172,12 @@ func (c Config) Validate() error {
 	}
 	if err := c.Resources.Validate("dashboard"); err != nil {
 		return err
+	}
+	if a := c.Auth; a.IssuerURL != "" && (a.ClientID == "" || a.RedirectURL == "") {
+		return fmt.Errorf("dashboard sign-in needs a client id and a redirect URL beside the issuer %s", a.IssuerURL)
+	}
+	if a := c.Auth; a.CAConfigMap != "" && a.CASecret != "" {
+		return fmt.Errorf("the dashboard's issuer CA bundle comes from a ConfigMap or a Secret, not both")
 	}
 	return c.validateObservation()
 }

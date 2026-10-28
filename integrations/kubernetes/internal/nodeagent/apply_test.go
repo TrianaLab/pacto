@@ -12,6 +12,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -114,7 +115,7 @@ func TestNamespaceAC_PrivilegedLevels(t *testing.T) {
 		t.Fatalf("name = %s", *ns.Name)
 	}
 	want := map[string]string{
-		LabelComponent:                       ComponentValue,
+		component.LabelComponent:             ComponentValue,
 		"pod-security.kubernetes.io/enforce": "privileged",
 		"pod-security.kubernetes.io/audit":   "privileged",
 		"pod-security.kubernetes.io/warn":    "privileged",

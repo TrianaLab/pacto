@@ -63,7 +63,7 @@ func writeBundle(t *testing.T, dir, name string) {
 // returns immediately, and hands back what the user would have seen on stderr.
 func runDashboard(t *testing.T, svc *app.Service, v *viper.Viper, args ...string) (string, error) {
 	t.Helper()
-	cmd := newDashboardCommand(svc, v, "test")
+	cmd := newDashboardCommand(svc, v, "test", defaultDeps())
 	cmd.SetArgs(args)
 	var errBuf bytes.Buffer
 	cmd.SetErr(&errBuf)
@@ -211,7 +211,7 @@ func TestNewDashboardCommand_HostFlag(t *testing.T) {
 }
 
 func TestNewDashboardCommand_DefaultFlags(t *testing.T) {
-	cmd := newDashboardCommand(app.NewService(nil, nil), viper.New(), "test")
+	cmd := newDashboardCommand(app.NewService(nil, nil), viper.New(), "test", defaultDeps())
 
 	host, _ := cmd.Flags().GetString("host")
 	if host != "127.0.0.1" {
@@ -403,4 +403,20 @@ func TestCacheHasEntries(t *testing.T) {
 			t.Error("a host with no resolvable home has no default cache")
 		}
 	})
+}
+
+// TestNewDashboardCommand_IdentityModes: a local dashboard prints its
+// per-launch token in the URL; an incomplete OIDC configuration stops startup.
+func TestNewDashboardCommand_IdentityModes(t *testing.T) {
+	isolateHost(t)
+	dir := t.TempDir()
+	writeBundle(t, dir, "svc")
+	stderr, _ := runDashboard(t, app.NewService(nil, nil), viper.New(), dir, "--port", "0")
+	if !strings.Contains(stderr, "/?token=") {
+		t.Errorf("a local dashboard prints its launch token:\n%s", stderr)
+	}
+	if _, err := runDashboard(t, app.NewService(nil, nil), viper.New(), dir, "--port", "0", "--oidc-issuer-url", "https://idp.example"); err == nil ||
+		!strings.Contains(err.Error(), "client id") {
+		t.Errorf("an incomplete OIDC configuration must fail: %v", err)
+	}
 }

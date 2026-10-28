@@ -199,7 +199,7 @@ describe('the fleet-wide source health tally', () => {
     }
     expect(sourceHealthSentence('unavailable')).toContain('nothing it holds reached the snapshot');
     // Partial is the one that is easiest to misread as "the fleet has less in it".
-    expect(sourceHealthSentence('partial')).toContain('missing from the snapshot rather than absent from the fleet');
+    expect(sourceHealthSentence('partial')).toContain('missing from the snapshot and may still exist in the fleet');
     expect(sourceHealthSentence('nonsense')).toContain('does not recognize');
   });
 });

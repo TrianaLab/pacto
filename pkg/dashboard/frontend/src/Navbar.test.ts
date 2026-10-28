@@ -9,7 +9,7 @@ import { mount, unmount } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import Navbar from './Navbar.svelte';
 
-function navLabels(cap: { fleet: boolean; impact: boolean } | null): string[] {
+function navLabels(cap: { fleet: boolean; impact: boolean; delivery?: boolean } | null): string[] {
   const target = document.createElement('div');
   document.body.appendChild(target);
   const component = mount(Navbar, {
@@ -143,18 +143,18 @@ describe('Navbar — the Pacto brand is the HOME affordance', () => {
   });
 });
 
-describe('Navbar — four primary workflows (product IA)', () => {
-  // state -> inventory -> relationships -> change. Owners, data sources, needs-attention
-  // and readiness are DIMENSIONS of those workflows, reachable from the overview, the
-  // entity pages and the command palette, so they are deliberately not primary tabs.
-  it('a fleet host has exactly the four primary destinations, in order', () => {
+describe('Navbar — primary destinations (product IA)', () => {
+  // state -> inventory -> relationships -> change. Needs attention and Owners are pages a
+  // reader lands on, so each gets its own tab next to the workflow it belongs to; data
+  // sources has its own control and readiness is a cut of the revision inventory.
+  it('a fleet host has the primary destinations, in order', () => {
     expect(navLabels({ fleet: true, impact: true }))
-      .toEqual(['Overview', 'Services', 'Operational graph', 'Change analysis']);
+      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Operational graph', 'Change analysis']);
   });
 
-  it('does not promote a dimension to a primary destination', () => {
+  it('does not promote readiness, compare or data sources to a tab', () => {
     const labels = navLabels({ fleet: true, impact: true });
-    for (const dimension of ['Owners', 'Readiness', 'Compare', 'Needs attention', 'Data sources']) {
+    for (const dimension of ['Readiness', 'Compare', 'Data sources']) {
       expect(labels).not.toContain(dimension);
     }
   });
@@ -209,7 +209,7 @@ describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
     ['service', 'Services'],
     ['revision', 'Services'],
     ['target', 'Services'],
-    ['owner', 'Overview'],
+    ['owner', 'Owners'],
     ['source', 'Overview'],
   ])('lights %s entity pages under %s', (kind, label) => {
     expect(activeLabel('fleet-entity', kind)).toBe(label);
@@ -217,12 +217,63 @@ describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
 
   it.each([
     ['fleet-services', 'Services'],
-    ['fleet-owners', 'Overview'],
+    ['fleet-owners', 'Owners'],
     ['fleet-sources', 'Overview'],
-    ['fleet-attention', 'Overview'],
+    ['fleet-attention', 'Needs attention'],
     ['fleet', 'Operational graph'],
     ['changes', 'Change analysis'],
   ])('lights the %s list view under %s', (view, label) => {
     expect(activeLabel(view)).toBe(label);
+  });
+});
+
+describe('Navbar — delivery is opt-in', () => {
+  it('shows Delivery only once the host confirms it', () => {
+    expect(navLabels(null)).not.toContain('Delivery');
+    expect(navLabels({ fleet: true, impact: true })).not.toContain('Delivery');
+    expect(navLabels({ fleet: true, impact: true, delivery: false })).not.toContain('Delivery');
+    expect(navLabels({ fleet: true, impact: true, delivery: true })).toContain('Delivery');
+  });
+});
+
+describe('Navbar — data sources', () => {
+  function mountWith(props: Record<string, unknown>) {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(Navbar, { target, props: { services: [], capabilities: { fleet: true, impact: true }, view: 'list', version: 'x', ...props } });
+    return { target, done: () => { unmount(component); document.body.removeChild(target); } };
+  }
+
+  it('groups every source behind one Data sources control, so the search keeps its room', () => {
+    const { target, done } = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }, { type: 'oci', enabled: true }, { type: 'local', enabled: false }] });
+    const trigger = target.querySelector('[data-testid="navbar-sources"]') as HTMLButtonElement;
+    expect(trigger.textContent?.trim()).toBe('Data sources');
+    expect(trigger.getAttribute('popovertarget')).toBe('navbar-sources');
+    const panel = target.querySelector('#navbar-sources') as HTMLElement;
+    expect(panel.hasAttribute('popover')).toBe(true);
+    expect(Array.from(panel.querySelectorAll('li strong')).map((n) => n.textContent)).toEqual(['Kubernetes', 'OCI Registry']);
+    expect(panel.querySelector('li .sources-pop-desc')?.textContent).toBe('live cluster runtime data');
+    expect(panel.querySelector('a')?.getAttribute('href')).toBe('#/fleet/sources');
+    done();
+  });
+
+  it('closes the sources popover on any navigation, including its own link', () => {
+    const { target, done } = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }] });
+    const panel = target.querySelector('#navbar-sources') as HTMLElement & { hidePopover?: () => void };
+    let hidden = 0;
+    panel.hidePopover = () => { hidden++; };
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(hidden).toBe(1);
+    done();
+  });
+
+  it('says it is still discovering, and offers no control when there is nothing to list', () => {
+    let m = mountWith({ sourcesInfo: [], discovering: true });
+    expect(m.target.querySelector('[data-testid="navbar-sources"]')?.textContent).toContain('discovering');
+    expect(m.target.querySelector('#navbar-sources')?.textContent).toContain('Still discovering');
+    m.done();
+    m = mountWith({ sourcesInfo: [], capabilities: { fleet: false, impact: false } });
+    expect(m.target.querySelector('[data-testid="navbar-sources"]')).toBeNull();
+    m.done();
   });
 });

@@ -1,0 +1,733 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: stages.delivery.pacto.trianalab.io
+spec:
+  group: delivery.pacto.trianalab.io
+  names:
+    categories:
+    - pacto-delivery
+    kind: Stage
+    listKind: StageList
+    plural: stages
+    singular: stage
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.service.name
+      name: Service
+      type: string
+    - jsonPath: .spec.environment
+      name: Env
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.level
+      name: Level
+      type: string
+    - jsonPath: .status.pointer
+      name: Pointer
+      type: string
+    - jsonPath: .status.frozen
+      name: Frozen
+      type: boolean
+    - jsonPath: .status.autoHold
+      name: Hold
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Stage is one service in one environment: which version it runs and how new
+          versions reach it.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: StageSpec is one service in one environment.
+            properties:
+              applyRef:
+                description: |-
+                  ApplyRef is the object the promoter points at a version: a Flux
+                  OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it
+                  sets spec.source.targetRevision). Nothing else is ever written on it.
+                properties:
+                  kind:
+                    description: |-
+                      Kind is OCIRepository (Flux, the default) or Application (Argo CD, with
+                      an OCI source and automated sync).
+                    enum:
+                    - OCIRepository
+                    - Application
+                    type: string
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              approval:
+                description: ApprovalPolicy can only raise the approval floor, never
+                  lower it.
+                properties:
+                  always:
+                    description: Always holds every promote for a human, whatever
+                      the contracts say.
+                    type: boolean
+                type: object
+              autonomy:
+                description: AutonomyPolicy tunes when Pacto proposes the next level.
+                properties:
+                  proposeAfter:
+                    default: 10
+                    description: ProposeAfter is how many qualifying promotions earn
+                      a proposal.
+                    maximum: 20
+                    minimum: 1
+                    type: integer
+                type: object
+              candidates:
+                description: |-
+                  Candidates says where new versions come from. At most one is set, so the
+                  version offered and the version judged come from the same source; a Stage
+                  that sets none is not Ready and never promotes.
+                properties:
+                  ociRepositoryRef:
+                    description: |-
+                      OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the
+                      candidate is the @sha256: part of its status.artifact.revision.
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  upstreamRecords:
+                    description: |-
+                      UpstreamRecords offers what a Stage in another cluster verified, read
+                      from its signed records: the promoter must trust the key that signs
+                      that stream (promoter.upstreamTrust), or it offers nothing.
+                    properties:
+                      repository:
+                        description: Repository (host/path) is the upstream recorder's
+                          streams repository.
+                        type: string
+                      stream:
+                        description: |-
+                          Stream is the upstream Stage's stream id, <clusterID>/<namespace>/<name>:
+                          its status.stream.id.
+                        type: string
+                    required:
+                    - repository
+                    - stream
+                    type: object
+                  upstreamStage:
+                    description: UpstreamStage offers that Stage's verified digests
+                      minus its failed ones.
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: set at most one of candidates.ociRepositoryRef, candidates.upstreamStage
+                    and candidates.upstreamRecords
+                  rule: '(has(self.ociRepositoryRef) ? 1 : 0) + (has(self.upstreamStage)
+                    ? 1 : 0) + (has(self.upstreamRecords) ? 1 : 0) <= 1'
+              deadlines:
+                description: Deadlines override the operation type's defaults (Go
+                  durations).
+                properties:
+                  approval:
+                    type: string
+                  execution:
+                    type: string
+                type: object
+              environment:
+                type: string
+              gates:
+                description: |-
+                  Gates configures the Stage's gates. The pre-gates are fixed by the operation
+                  type; the Pacto contract check always verifies, beside the Stage's checks.
+                properties:
+                  impact:
+                    description: ImpactGate tunes pacto.impact.
+                    properties:
+                      declaredConsumersOnly:
+                        description: |-
+                          DeclaredConsumersOnly says every consumer of the service has a
+                          contract Pacto can see, so a breaking change no Pacto depends on ships
+                          without a person. Off by default: a service with no contract can still call it, so
+                          a breaking change with no consumer in sight waits for a person to accept
+                          the unknown.
+                        type: boolean
+                    type: object
+                  verify:
+                    description: VerifyGates configures what runs after a version
+                      is applied.
+                    properties:
+                      checks:
+                        description: |-
+                          Checks are this Stage's own verify gates, run beside the Pacto contract
+                          check: a health provider set in delivery.gates.providers, or the built-in
+                          pacto.runtime claim gate.
+                        items:
+                          description: GateCheck is one verify gate a Stage runs.
+                          properties:
+                            name:
+                              description: Name is the gate id its verdicts carry,
+                                unique on the Stage.
+                              minLength: 1
+                              type: string
+                            params:
+                              additionalProperties:
+                                type: string
+                              description: Params are the provider's settings (thresholds,
+                                filters).
+                              type: object
+                            provider:
+                              description: |-
+                                Provider is a gate provider set in delivery.gates.providers, or
+                                pacto.runtime. A Stage cannot name a URL: providers are operator
+                                configuration.
+                              minLength: 1
+                              type: string
+                            requireObservedModel:
+                              description: |-
+                                RequireObservedModel makes an eval check Unknown unless its runner
+                                says which model answered (observedModel) and the contract declares
+                                an external dependency with a version to compare it with. A model the
+                                runner names that no such version matches fails the check either way.
+                              type: boolean
+                            suite:
+                              description: |-
+                                Suite names a check the version's contract ships (its checks[].name)
+                                for an eval provider to run; without it the provider runs the only check
+                                the version ships. A version whose contract ships no check of that name,
+                                or with no suite ships none or more than one, is held for a person
+                                before it ships.
+                              minLength: 1
+                              type: string
+                            suiteDigest:
+                              description: |-
+                                SuiteDigest pins the suite's bytes ("sha256:" and 64 hex digits). A
+                                version whose suite has another digest changed its own exam: it is held
+                                for a person before it ships, and an eval check of it is Unknown.
+                              pattern: ^sha256:[a-f0-9]{64}$
+                              type: string
+                          required:
+                          - name
+                          - provider
+                          type: object
+                        maxItems: 16
+                        type: array
+                      recheck:
+                        description: |-
+                          Recheck is how often the verify gates run again on the version the
+                          Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail
+                          rolls it back; Unknown never does.
+                        type: string
+                      window:
+                        description: |-
+                          Window is how long the verify gates may stay Unknown before the
+                          operation is held for a human (a Go duration, default 5m). Re-checks
+                          after release judge the same length of time.
+                        type: string
+                    type: object
+                type: object
+              records:
+                description: |-
+                  RecordsPolicy says whether automation may move the Stage while its records
+                  cannot be written.
+                properties:
+                  required:
+                    description: |-
+                      Required holds every promote or rollback an agent or the promoter
+                      raises for a person to approve while the recorder is not writing this
+                      Stage's records (RecordStoreReady is not True) or more than five of
+                      its operations wait for a record (MaxRecordsPending).
+                    type: boolean
+                type: object
+              service:
+                description: |-
+                  ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified
+                  service name its contracts declare.
+                properties:
+                  domain:
+                    description: Domain is the registry and organisation scope (empty
+                      for the default).
+                    type: string
+                  name:
+                    description: Name is the contract's service.name.
+                    type: string
+                required:
+                - name
+                type: object
+              startLevel:
+                default: observe
+                description: |-
+                  StartLevel is where a new Stage begins. It is read once, when
+                  status.level is empty; after that only an autonomy operation moves the
+                  level. Creating a Stage is an admin action, so any level is accepted, and
+                  a Stage whose status is lost seeds back to this level. Only observe and
+                  advise keep Pacto from shipping without a person.
+                enum:
+                - observe
+                - advise
+                - auto-nonbreaking
+                - autonomous
+                type: string
+                x-kubernetes-validations:
+                - message: startLevel is fixed at creation; propose delivery.pacto.trianalab.io/autonomy
+                    to change the level
+                  rule: self == oldSelf
+              workload:
+                description: |-
+                  Workload is the workload the service runs as, in the Stage's namespace:
+                  the one object pacto.contract and pacto.runtime may judge. The Pacto
+                  resource ships inside every version and names its own target, so
+                  without this a version could point its own check at a decoy. Empty is
+                  the Deployment named spec.service.name.
+                properties:
+                  kind:
+                    description: Kind is the workload kind, such as Deployment or
+                      StatefulSet.
+                    minLength: 1
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+            required:
+            - applyRef
+            - environment
+            - service
+            type: object
+          status:
+            description: |-
+              StageStatus is written by the promoter's operation and stage reconcilers and
+              by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each
+              through a compare-and-swap on the Stage's resourceVersion.
+            properties:
+              authFreshness:
+                description: |-
+                  AuthFreshness is how old a login the promoter accepts on an approval
+                  (a Go duration). Clients ask for a fresh login with a margin under it
+                  (DecisionFreshnessFor). Empty: no login is too old, and a person
+                  decides with the session they have.
+                type: string
+              autoHold:
+                description: |-
+                  AutoHold stops auto-promotion after a person or agent rolled back or
+                  promoted back to a version the Stage already verified.
+                type: boolean
+              candidate:
+                description: Candidate is the newest eligible candidate the stage
+                  reconciler saw.
+                type: string
+              conditions:
+                description: |-
+                  Conditions holds Ready. It is False, naming what is missing, when the
+                  Stage cannot promote: its applier cannot be read, lacks the apply-ref
+                  label or (on Argo CD) has no single OCI source or no automated sync; its
+                  candidate OCIRepository does not exist or sets no spec.verify naming the
+                  publisher; the records of its upstream in another cluster are not
+                  trusted or cannot be read; or it names no candidate source at all. The
+                  recorder adds RecordStoreReady: False when the registry has no
+                  Referrers API, cannot be reached or holds a stream it refuses to fork.
+                items:
+                  description: |-
+                    Condition is a Kubernetes status condition, so `kubectl wait
+                    --for=condition=Ready`, kstatus and Argo CD read it. Write it with
+                    SetCondition.
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is when Status last changed
+                        (RFC 3339).
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      description: ObservedGeneration is the Stage generation the
+                        condition was set from.
+                      format: int64
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              failedDigests:
+                description: |-
+                  FailedDigests are the last 50 versions that failed here; none of them is
+                  promoted again. An older failure drops out.
+                items:
+                  type: string
+                type: array
+              frozen:
+                type: boolean
+              frozenReason:
+                type: string
+              lastCheck:
+                description: LastCheck is the newest re-check of the running version
+                  after it shipped.
+                properties:
+                  at:
+                    description: At is when the gates ran (RFC 3339).
+                    type: string
+                  digest:
+                    type: string
+                  operation:
+                    description: Operation is the uid of the operation that shipped
+                      the version.
+                    type: string
+                  verdicts:
+                    items:
+                      description: Verdict is one gate's answer plus a citation that
+                        can be re-run.
+                      properties:
+                        citation:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        gate:
+                          type: string
+                        message:
+                          type: string
+                        phase:
+                          enum:
+                          - pre
+                          - verify
+                          type: string
+                        result:
+                          description: Result is a gate verdict.
+                          enum:
+                          - Pass
+                          - Fail
+                          - Unknown
+                          type: string
+                      required:
+                      - gate
+                      - phase
+                      - result
+                      type: object
+                    type: array
+                required:
+                - at
+                - digest
+                - operation
+                type: object
+              lastOp:
+                description: LastOp is the uid of the operation that last moved the
+                  pointer.
+                type: string
+              level:
+                description: |-
+                  Level is the Stage's autonomy level. The stage reconciler seeds it from
+                  spec.startLevel; after that only an autonomy operation writes it.
+                type: string
+              locks:
+                additionalProperties:
+                  type: string
+                description: Locks maps a facet to the uid of the operation holding
+                  it.
+                type: object
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the Stage generation the stage reconciler last
+                  judged Ready from.
+                format: int64
+                type: integer
+              observedRevision:
+                description: ObservedRevision is what GitOps' source reports while
+                  the Stage observes.
+                properties:
+                  digest:
+                    type: string
+                  since:
+                    type: string
+                required:
+                - digest
+                - since
+                type: object
+              offered:
+                description: |-
+                  Offered holds the digests a promote carried through pacto.published
+                  with a pass (not an accepted unknown) and that then verified here,
+                  oldest first (cap 50). Only these are offered to a downstream Stage.
+                items:
+                  type: string
+                type: array
+              pointer:
+                description: |-
+                  Pointer is the digest the Stage moved the environment to. It is set
+                  when an operation holding the pointer lock starts to apply, before
+                  Flux or Argo CD runs it: Applied on that operation says when they did.
+                type: string
+              proposal:
+                description: Proposal is the next level Pacto proposes, or why not
+                  yet.
+                properties:
+                  blockers:
+                    items:
+                      description: Blocker is one reason the next level is not proposed.
+                      properties:
+                        kind:
+                          description: |-
+                            Kind is missing-contract, undeclared-range, unlabelled-apply-ref,
+                            no-observed-digest, no-record-store, needs-verified,
+                            needs-cleared-breaking, incident or partial-graph.
+                          type: string
+                        message:
+                          type: string
+                        subject:
+                          description: Subject is the service, consumer or caller
+                            identity.
+                          type: string
+                      required:
+                      - kind
+                      - message
+                      type: object
+                    maxItems: 32
+                    type: array
+                  evidence:
+                    description: Evidence names the digests or operation uids that
+                      earned it.
+                    items:
+                      type: string
+                    maxItems: 20
+                    type: array
+                  level:
+                    description: Level is empty while nothing is proposed.
+                    type: string
+                type: object
+              published:
+                description: |-
+                  Published holds the candidate digests Flux verified the signature of on
+                  the candidate OCIRepository (spec.verify naming the publisher's
+                  identity), oldest first (cap 50). Only these are promoted from the
+                  OCIRepository.
+                items:
+                  type: string
+                type: array
+              rolledBack:
+                description: |-
+                  RolledBack holds the uids of the failed operations the promoter raised
+                  its one automatic rollback for, oldest first (cap 50). A failure listed
+                  here never gets a second one.
+                items:
+                  type: string
+                type: array
+              shadow:
+                description: |-
+                  Shadow holds the newest would-have decisions while the Stage observes,
+                  newest first.
+                items:
+                  description: |-
+                    Shadow is what Pacto would have decided for a candidate on a fully
+                    automatic Stage while this one observes, and what then happened. It is
+                    advisory status, never a record.
+                  properties:
+                    candidate:
+                      type: string
+                    decision:
+                      description: 'Decision is the floor''s decision: approve or
+                        accept-unknown.'
+                      type: string
+                    from:
+                      type: string
+                    impactDigest:
+                      type: string
+                    intentDigest:
+                      type: string
+                    observedAt:
+                      description: |-
+                        ObservedAt is when GitOps' source reported this candidate (RFC 3339):
+                        not proof of rollout.
+                      type: string
+                    owners:
+                      items:
+                        type: string
+                      maxItems: 16
+                      type: array
+                    plannedAt:
+                      description: PlannedAt is when Pacto planned it (RFC 3339).
+                      type: string
+                    predicted:
+                      description: Prediction is what plan() expects the promoter
+                        to do.
+                      type: string
+                    question:
+                      type: string
+                    verification:
+                      description: Verification is the shadow verify on the observed
+                        digest.
+                      type: string
+                  required:
+                  - candidate
+                  - intentDigest
+                  - plannedAt
+                  - predicted
+                  type: object
+                maxItems: 20
+                type: array
+              stream:
+                description: Stream numbers a Stage's concluded operations.
+                properties:
+                  anchor:
+                    description: |-
+                      Anchor is where the stream's records are listed:
+                      <repository>@<anchor digest>. Only the recorder writes it.
+                    type: string
+                  concluded:
+                    description: |-
+                      Concluded are the newest operations given a seq, each with how it
+                      concluded, written in the compare-and-swap that took the seq. An
+                      operation whose own status write then failed concludes again from
+                      here: the same seq and outcome, never a second seq.
+                    items:
+                      description: Concluded is one operation's seq and conclusion,
+                        as the Stage holds it.
+                      properties:
+                        cause:
+                          description: |-
+                            Cause is the uid of the operation whose failure made the promoter
+                            raise this one: an automatic rollback, freeze or step-down.
+                          type: string
+                        clearedBreaking:
+                          description: |-
+                            ClearedBreaking is a promote of a change that is not NON_BREAKING whose
+                            impact verdict passed: every consumer accepts it.
+                          type: boolean
+                        outcome:
+                          description: Outcome is how a concluded operation ended.
+                          type: string
+                        person:
+                          description: |-
+                            Person is true when the operation carried an approval or a person
+                            raised it.
+                          type: boolean
+                        reason:
+                          description: 'Reason is "Code: message".'
+                          type: string
+                        seq:
+                          format: int64
+                          type: integer
+                        type:
+                          description: Type is the operation type.
+                          type: string
+                        uid:
+                          type: string
+                        verification:
+                          description: Verification qualifies a Succeeded outcome.
+                          type: string
+                      required:
+                      - seq
+                      - uid
+                      type: object
+                    type: array
+                  head:
+                    description: |-
+                      Head is the digest of the newest record in the stream. Only the
+                      recorder writes it.
+                    type: string
+                  id:
+                    description: |-
+                      ID is <clusterID>/<namespace>/<name>; the cluster id is the kube-system
+                      namespace uid.
+                    type: string
+                  recordedSeq:
+                    description: |-
+                      RecordedSeq is the newest local seq the recorder wrote or adopted a
+                      record for. Only the recorder writes it.
+                    format: int64
+                    type: integer
+                  seq:
+                    format: int64
+                    type: integer
+                type: object
+              upstreamAcknowledged:
+                description: |-
+                  UpstreamAcknowledged holds the ids of the unrecordable stand-ins in the
+                  upstream stream that a person on this Stage checked and acknowledged,
+                  oldest first (cap 50). They no longer stop the Stage offering.
+                items:
+                  type: string
+                type: array
+              upstreamSeen:
+                description: |-
+                  UpstreamSeen is the newest record this Stage read from the upstream
+                  stream it follows (candidates.upstreamRecords). A later read that ends
+                  before it, or holds another record at its seq, offers nothing, so
+                  records removed from the upstream's tail never go unseen.
+                properties:
+                  record:
+                    description: Record is the record's id, the digest of its signed
+                      payload.
+                    type: string
+                  seq:
+                    format: int64
+                    type: integer
+                  stream:
+                    description: Stream is the stream id.
+                    type: string
+                required:
+                - record
+                - seq
+                - stream
+                type: object
+              verified:
+                description: Verified holds the newest verified digests, oldest first
+                  (cap 10).
+                items:
+                  type: string
+                type: array
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -68,8 +68,8 @@ func newRunCommand(svc *app.Service, v *viper.Viper, version string, d deps) *co
 			"terminal, the command's group takes it over: it reads the terminal and gets Ctrl-C and Ctrl-Z straight " +
 			"from it, and pacto run takes the terminal back once it exits. Otherwise SIGINT and SIGTERM sent to " +
 			"pacto run are passed on to the command's whole group.\n\n" +
-			"The command's stdin, stdout and stderr are its own, untouched. Rounds go to stderr, each in a single " +
-			"write, or with --report to a file instead: the file is truncated when the run starts and every round " +
+			"Pacto leaves the command's stdin, stdout and stderr untouched. Rounds go to stderr, each in a single " +
+			"write, or with --report to a file: the file is truncated when the run starts and every round " +
 			"is appended to it in a single write, so a reader following it sees whole rounds (with json, one " +
 			"object per line).\n\n" +
 			"With root (or BPF, PERFMON, SYS_PTRACE and write access to its own cgroup) on Linux 5.8 or later with " +

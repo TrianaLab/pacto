@@ -1,7 +1,8 @@
 name: Security
 
-# Vulnerability scanning: govulncheck (Go source + dependencies, reachability
-# aware) and Trivy (built container image, OS + language CVEs). The two scan jobs
+# Vulnerability scanning: govulncheck (Go source + dependencies of both modules,
+# reachability aware) and Trivy (every shipped container image, OS + language
+# CVEs). The two scan jobs
 # run in parallel (no `needs`); a follow-up `comment` job posts a summary on pull
 # requests.
 #
@@ -29,6 +30,22 @@ on:
 permissions:
   contents: read
 
+# The ONE accepted govulncheck advisory, read by the gate and the PR summary.
+# GO-2026-5932: golang.org/x/crypto/openpgp is unmaintained and has no fixed
+# version. It reaches Pacto only via sigstore-go/pkg/sign -> rekor/pkg/pki ->
+# rekor/pkg/pki/pgp, and Pacto never parses PGP. The exception is scoped, not
+# module-wide: the gate accepts a trace only when it ends in a package init or in
+# a Read or Error method (an io.Reader or error interface call govulncheck cannot
+# resolve), meaning a receiver type sits between the package and the name. A trace
+# ending anywhere else, such as a direct openpgp call or the package-level
+# packet.Read parser, fails.
+# Removal is enforced, not remembered: the gate fails once govulncheck stops
+# reporting the ID, so the stale exception has to be deleted in that same run.
+# Every other reachable advisory still fails the job.
+# tests/release/govulncheck_exception_test.go pins this to exactly one ID.
+env:
+  IGNORED_VULN: GO-2026-5932
+
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -51,41 +68,83 @@ jobs:
         run: bash release/scripts/retry.sh go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
       # With -format sarif, govulncheck always exits 0 (findings live in the
       # SARIF), so gating happens in the "Fail on ..." step below.
+      # Both modules, with -tags kms: the signing package's cloud KMS providers
+      # (pkg/signing/kms_*.go) only compile under that tag, and the pacto-delivery
+      # image is built with GO_TAGS=kms, so a scan without it misses what ships.
       - name: Run govulncheck (SARIF)
-        run: govulncheck -format sarif ./... > govulncheck.sarif
+        run: |
+          govulncheck -format sarif -tags kms ./... > govulncheck.sarif
+          (cd integrations/kubernetes && govulncheck -format sarif -tags kms ./...) > govulncheck-k8s.sarif
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           sarif_file: govulncheck.sarif
           category: govulncheck
+      - name: Upload operator module SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          sarif_file: govulncheck-k8s.sarif
+          category: govulncheck-k8s
       - name: Upload SARIF artifact
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: govulncheck-sarif
-          path: govulncheck.sarif
+          path: govulncheck*.sarif
           if-no-files-found: ignore
       - name: Fail on reachable vulnerabilities
         run: |
           # Only error-level results are reachable vulnerabilities; warning/note
-          # are imported-but-unused and must not fail the build.
-          n=$(jq '[.runs[].results[]? | select(.level == "error")] | length' govulncheck.sarif)
-          echo "govulncheck reachable (error-level) vulnerabilities: $n"
+          # are imported-but-unused and must not fail the build. Every
+          # govulncheck*.sarif (one per module) is read as one report.
+          sarifs=(govulncheck*.sarif)
+          ids=$(jq -rs '[.[].runs[].results[]? | select(.level == "error") | .ruleId] | unique | .[]' "${sarifs[@]}")
+          if ! grep -qxF "$IGNORED_VULN" <<<"$ids"; then
+            echo "::error::$IGNORED_VULN is no longer reported by govulncheck; delete the stale exception (IGNORED_VULN) from security.yml"
+            exit 1
+          fi
+          # The exception covers only traces ending in an init or a Read/Error
+          # interface call. Any other terminal frame is a real call into the
+          # vulnerable package and fails like any other advisory.
+          bad=$(jq -rs --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId == $ign) | (.codeFlows // []) as $cf | if ($cf | length) == 0 then "(no trace)" else ($cf[].threadFlows[].locations[-1].location.message.text | select(test("/[^/]+\\.(init|[^./]+\\.(Read|Error))$") | not)) end] | unique | .[]' "${sarifs[@]}")
+          if [ -n "$bad" ]; then
+            echo "::error::$IGNORED_VULN is reached outside the accepted init and interface traces:"
+            echo "$bad"
+            exit 1
+          fi
+          n=$(jq -s --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId != $ign)] | length' "${sarifs[@]}")
+          echo "govulncheck reachable (error-level) vulnerabilities, excluding $IGNORED_VULN: $n"
           [ "$n" -eq 0 ]
 
+  # One leg per shipped image: the CLI image (root Dockerfile) and both images
+  # built from integrations/kubernetes/Dockerfile, the operator and the
+  # pacto-delivery recorder. The delivery leg uses the release build arguments,
+  # GO_TAGS=kms included (the Dockerfile default), so the cloud KMS SDKs it links
+  # are scanned as shipped.
   trivy-image:
-    name: Trivy (image)
+    name: Trivy (image, ${{ matrix.image }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
       actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: cli
+            build: .
+          - image: operator
+            build: --file integrations/kubernetes/Dockerfile .
+          - image: delivery
+            build: --file integrations/kubernetes/Dockerfile --target delivery --build-arg CMD=cmd/delivery .
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build image
-        run: docker build -t local/scan:${{ github.sha }} .
+        run: docker build -t local/scan:${{ github.sha }} ${{ matrix.build }}
       - name: Install Trivy
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.72.0/contrib/install.sh \
@@ -110,15 +169,15 @@ jobs:
             "local/scan:${{ github.sha }}"
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           sarif_file: trivy.sarif
-          category: trivy-image
+          category: ${{ matrix.image == 'cli' && 'trivy-image' || format('trivy-image-{0}', matrix.image) }}
       - name: Upload SARIF artifact
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: trivy-sarif
+          name: trivy-sarif-${{ matrix.image }}
           path: trivy.sarif
           if-no-files-found: ignore
 
@@ -140,34 +199,36 @@ jobs:
           path: sarif
       - name: Build summary
         run: |
-          gv=sarif/govulncheck-sarif/govulncheck.sarif
-          tv=sarif/trivy-sarif/trivy.sarif
+          gvs=(sarif/govulncheck-sarif/govulncheck*.sarif)
           {
             echo "<!-- security-scan -->"
             echo "## 🔒 Security scan"
             echo
-            if [ -f "$gv" ]; then
-              n=$(jq '[.runs[].results[]? | select(.level == "error")] | length' "$gv")
+            if [ -f "${gvs[0]}" ]; then
+              n=$(jq -s --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId != $ign)] | length' "${gvs[@]}")
               if [ "$n" -eq 0 ]; then
-                echo "- **govulncheck (Go):** ✅ no reachable vulnerabilities"
+                echo "- **govulncheck (Go, both modules):** ✅ no reachable vulnerabilities (accepted exception: $IGNORED_VULN)"
               else
-                ids=$(jq -r '[.runs[].results[]? | select(.level == "error") | .ruleId] | unique | join(", ")' "$gv")
-                echo "- **govulncheck (Go):** ❌ $n reachable — $ids"
+                ids=$(jq -rs --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId != $ign) | .ruleId] | unique | join(", ")' "${gvs[@]}")
+                echo "- **govulncheck (Go, both modules):** ❌ $n reachable — $ids"
               fi
             else
               echo "- **govulncheck (Go):** ⚠️ no report produced (job error)"
             fi
-            if [ -f "$tv" ]; then
-              tn=$(jq '[.runs[].results[]?] | length' "$tv")
-              if [ "$tn" -eq 0 ]; then
-                echo "- **Trivy (image):** ✅ no HIGH/CRITICAL vulnerabilities"
+            for img in cli operator delivery; do
+              tv="sarif/trivy-sarif-$img/trivy.sarif"
+              if [ -f "$tv" ]; then
+                tn=$(jq '[.runs[].results[]?] | length' "$tv")
+                if [ "$tn" -eq 0 ]; then
+                  echo "- **Trivy ($img image):** ✅ no HIGH/CRITICAL vulnerabilities"
+                else
+                  tids=$(jq -r '[.runs[].results[]? | .ruleId] | unique | join(", ")' "$tv")
+                  echo "- **Trivy ($img image):** ❌ $tn HIGH/CRITICAL — $tids"
+                fi
               else
-                tids=$(jq -r '[.runs[].results[]? | .ruleId] | unique | join(", ")' "$tv")
-                echo "- **Trivy (image):** ❌ $tn HIGH/CRITICAL — $tids"
+                echo "- **Trivy ($img image):** ⚠️ no report produced (job error)"
               fi
-            else
-              echo "- **Trivy (image):** ⚠️ no report produced (job error)"
-            fi
+            done
             echo
             echo "_Details: [Security tab](${{ github.server_url }}/${{ github.repository }}/security/code-scanning) · [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})._"
           } > comment.md
@@ -192,7 +253,7 @@ jobs:
   # Single required status for branch protection, mirroring ci.yml's `required`
   # and docs-check.yml's `docs-required`: green when both scans passed AND when
   # they were correctly skipped, red only when one actually failed. Requiring
-  # `govulncheck (Go)` and `Trivy (image)` individually would work today but
+  # `govulncheck (Go)` and each `Trivy (image, ...)` leg individually would work today but
   # silently stops covering the next scan someone adds; this aggregate picks it
   # up as soon as it joins the `needs:` list.
   #

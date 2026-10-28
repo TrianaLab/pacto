@@ -1,17 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
+import { appReady } from './ready';
 
 // Browser E2E against the built WASM demo (see playwright.config.ts): the real Svelte
 // bundle + the real dashboard API compiled to wasm, serving deterministic embedded
 // data over the LIVE product endpoints (overview/entities/neighborhood/impact). Tests
 // are organized around user WORKFLOWS (land -> search the operational graph -> focus a
 // neighborhood -> inspect -> analyze impact) and use precise, role-based locators.
-
-async function waitReady(page: Page) {
-  await page.goto('/');
-  // The Operational Graph tab is capability-gated, so its presence proves the wasm
-  // host registered the fleet provider and capabilities were fetched.
-  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: 20_000 });
-}
 
 // The search-first graph landing (no focus): a discovery state, never a hairball.
 async function gotoGraphDiscovery(page: Page) {
@@ -51,14 +45,14 @@ async function searchAndFocus(page: Page, text: string, perspective: 'service' |
 // The tour is opt-in: it exists only after the invitation in the demo strip is pressed,
 // which is also the only thing that lets it move the route.
 async function startTour(page: Page) {
-  await waitReady(page);
+  await appReady(page);
   const start = page.getByTestId('demo-tour-start');
   await expect(start).toBeVisible({ timeout: 20_000 });
   await start.click();
   await expect(page.getByTestId('demo-tour-bubble')).toBeVisible({ timeout: 20_000 });
 }
 
-// The same, at a phone viewport, from the first paint. waitReady's probe is a desktop
+// The same, at a phone viewport, from the first paint. appReady's probe is a desktop
 // signal -- a narrow window keeps that nav link in the hamburger drawer -- and the
 // invitation is the better readiness signal anyway: the strip only offers it once the
 // engine has resolved. Sized before the goto, because a tour started wide and then
@@ -95,6 +89,15 @@ async function leaveStep(page: Page) {
     if ((await stepNo.textContent()) !== before) return;
   }
   await next.click();
+}
+
+// The revision pickers read "1.0.0 · <short digest>": pick the one of a version,
+// once the revisions have loaded into the picker.
+async function chooseRevision(page: Page, sel: string, version: string) {
+  const read = () => page.locator(`${sel} option`).evaluateAll(
+    (os, v) => (os as HTMLOptionElement[]).find((o) => (o.textContent ?? '').startsWith(`${v} `))?.value ?? '', version);
+  await expect.poll(read, { message: `no ${version} revision in ${sel}`, timeout: 20_000 }).not.toBe('');
+  await page.locator(sel).selectOption(await read());
 }
 
 // Does the cut-out actually contain the element it claims to spotlight? A rotted
@@ -226,14 +229,14 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 });
   });
 
-  // The primary nav teaches ONE order -- state, inventory, relationships, change -- so a
-  // Fleet host has exactly those four destinations. Owners, Data sources, Needs attention
-  // and Readiness are dimensions of them (reachable from the Overview, entity pages and
-  // the palette), and the legacy-only destinations never leak onto a Fleet host.
-  test('navigation exposes exactly the four primary workflows (no dead tabs, no dimensions promoted)', async ({ page }) => {
-    await waitReady(page);
+  // The primary nav teaches ONE order -- state, inventory, relationships, change -- with
+  // Needs attention beside the Overview and Owners beside Services, plus Delivery where
+  // delivery is served (the demo simulates it). Data sources and Readiness are not
+  // tabs, and the legacy-only destinations never leak onto a Fleet host.
+  test('navigation exposes exactly the primary destinations (no dead tabs)', async ({ page }) => {
+    await appReady(page);
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational graph', 'Change analysis']);
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Operational graph', 'Change analysis', 'Delivery']);
   });
 
   test('O1: graph opens SEARCH-FIRST with zero Cytoscape topology nodes', async ({ page }) => {
@@ -331,6 +334,9 @@ test.describe('WASM dashboard demo — workflows', () => {
 
   test('graph honesty: a partial snapshot surfaces the incompleteness caveat', async ({ page }) => {
     await gotoGraphFocus(page, 'service', 'payments-service');
+    // One notice line above the canvas names it; the full sentence opens under it.
+    await expect(page.getByTestId('graph-notice')).toContainText('Some data is missing');
+    await page.getByTestId('graph-notice').locator('summary').click();
     await expect(page.getByTestId('graph-knowledge-caveat')).toBeVisible();
   });
 
@@ -353,7 +359,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('the Pacto logo is HOME: from inside the fleet product it lands on the Operational Overview', async ({ page }) => {
-    await waitReady(page); // fleet-capable host
+    await appReady(page); // fleet-capable host
     await page.goto('/#/fleet/services');
     await expect(page).toHaveURL(/\/fleet\/services/);
     // Wait until the fleet capability has RESOLVED to true (not merely unresolved): the
@@ -373,7 +379,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('workflow: a legacy Compare bookmark lands in Change analysis, not a legacy screen', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.goto('/#/diff?from_name=payments-service&from_ver=1.2.1&to_name=payments-service&to_ver=2.0.1');
     // The legacy compare route has a product equivalent, so a Fleet host canonicalizes it
     // and resolves the display NAME to a canonical ServiceKey through the Product API --
@@ -384,32 +390,35 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('changes: the Change analysis workspace compares by canonical identity', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.goto('/#/fleet/changes/payments-service');
     // The revision selectors are populated from the product service detail (never the
     // raw snapshot). Pick the known breaking pair 1.0.0 -> 2.0.1.
-    await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
-    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
+    await chooseRevision(page, '#impact-old-rev', '1.0.0');
+    await chooseRevision(page, '#impact-new-rev', '2.0.1');
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     // Stage 1 -- the field-level semantic diff survives the migration off the legacy screen.
     await expect(page.getByTestId('changes-what-changed')).toBeVisible({ timeout: 20_000 });
     // Stage 2 -- and the same revision pair answers what it operationally affects.
     await expect(page.getByTestId('changes-what-it-affects')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText('breaking', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
-    // A consumer path renders (consumer -> ... -> changed service).
+    // A consumer path renders (consumer -> ... -> changed service), one fold away.
+    await page.getByTestId('changes-consumers').locator('summary').click();
     await expect(page.locator('.path-cell', { hasText: '→' }).first()).toBeVisible({ timeout: 20_000 });
   });
 
   test('changes: include-observed surfaces the observed-only shadow consumer', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.goto('/#/fleet/changes/payments-service');
-    await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
-    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
+    await chooseRevision(page, '#impact-old-rev', '1.0.0');
+    await chooseRevision(page, '#impact-new-rev', '2.0.1');
     const cb = page.getByRole('checkbox');
     await expect(cb).toBeEnabled(); // the demo carries embedded observed edges
     await cb.check();
     await page.getByRole('button', { name: /Compare revisions/ }).click();
-    // audit-log declares no dependency on payments-service — an observed-only shadow.
+    // audit-log declares no dependency on payments-service — an observed-only shadow,
+    // listed in the consumers fold under the one-line answer.
+    await page.getByTestId('changes-consumers').locator('summary').click();
     await expect(page.getByText('audit-log').first()).toBeVisible({ timeout: 20_000 });
   });
 
@@ -421,11 +430,11 @@ test.describe('WASM dashboard demo — workflows', () => {
   // explanation. Assert what the visitor is owed: the fixture is named, and the
   // documentation is one click away.
   test('demo strip: the fixture is labelled and the docs are one click away', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     const strip = page.getByTestId('demo-strip');
     await expect(strip).toBeVisible({ timeout: 20_000 });
     await expect(strip).toContainText('fixture fleet', { timeout: 20_000 });
-    await expect(strip).toContainText('Nothing here is a real system');
+    await expect(strip).toContainText('All of its data is made up');
     // The fast path from the home page's primary call to action never passes the
     // explainer, so the two deliberate oddities (degraded-source banner, duplicated
     // config name) have to be flagged here or the visitor reads them as defects.
@@ -449,19 +458,27 @@ test.describe('WASM dashboard demo — workflows', () => {
       .toHaveAttribute('href', '../examples/dashboard-demo/');
   });
 
-  // The strip floats over the bottom of the dashboard and never leaves. On a short
-  // window that is where the content is, so a reader who has read it needs a way to put
-  // it away — otherwise the notice explaining the demo is also obscuring it.
-  test('demo strip: the reader can dismiss it once they have read it', async ({ page }) => {
-    await waitReady(page);
+  // The strip is a band above the dashboard, in the page's own flow: it never covers
+  // content, at any width. It used to float over the foot of the page, which on a short
+  // window is where the content was. A reader who has read it can still put it away.
+  test('demo strip: it never covers the page, and the reader can dismiss it', async ({ page }) => {
+    await appReady(page);
     const strip = page.getByTestId('demo-strip');
     await expect(strip).toBeVisible({ timeout: 20_000 });
+    // A phone, where the strip wraps to several lines.
+    await page.setViewportSize({ width: 360, height: 640 });
+    const layout = await strip.evaluate((el) => {
+      const app = el.nextElementSibling as HTMLElement;
+      return { position: getComputedStyle(el).position, stripBottom: el.getBoundingClientRect().bottom, appTop: app.getBoundingClientRect().top };
+    });
+    expect(layout.position).not.toBe('fixed');
+    expect(layout.stripBottom).toBeLessThanOrEqual(layout.appTop + 1);
     await page.getByTestId('demo-strip-close').click();
     await expect(strip).toBeHidden();
   });
 
   // The walkthrough. Labelling the fixture tells a visitor what they are looking at and
-  // nothing about what it is FOR, so the strip offers a guided tour: six steps, each one
+  // nothing about what it is FOR, so the strip offers a guided tour: eight steps, each one
   // making the reader drive the real app to the screen that answers one question.
   //
   // It is a HARD gate, so the thing worth asserting is not the copy and not even the
@@ -476,11 +493,11 @@ test.describe('WASM dashboard demo — workflows', () => {
   // own. The steps with nothing to observe are the mirror image -- they keep a real button
   // and must be proved NOT to move without it.
   //
-  // Demo-only by construction: this lives in examples/demo/boot.js, which ships with the
+  // Demo-only by construction: this lives in examples/demo/tour.js, which ships with the
   // demo and nothing else, so there is no deployment flag that could turn it on in front
   // of a real fleet.
   test('demo tour: it never starts itself — the strip invites, and nothing more', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     const strip = page.getByTestId('demo-strip');
     // The fixture disclosure is the strip's resting state, owed before anything is
     // pressed: the fast path from the home page's call to action never passes the
@@ -495,7 +512,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page).toHaveURL((url) => url.hash === '#/fleet');
   });
 
-  test('demo tour: six steps, each one detecting its own action', async ({ page }) => {
+  test('demo tour: eight steps, one action each, each one detecting its own action', async ({ page }) => {
     // The whole walkthrough. Every gated step detects the action itself -- nothing here is
     // ever pressed to confirm a thing was done. What differs is what happens next: a step
     // whose result is read on the following screen moves by itself after a deliberate
@@ -508,7 +525,7 @@ test.describe('WASM dashboard demo — workflows', () => {
 
     // 1 — the disclosure, on the overview. There is nothing here the tour could watch for,
     // so it keeps a real button and waits to be pressed.
-    await expect(stepNo).toHaveText('1 / 6');
+    await expect(stepNo).toHaveText('1 / 8');
     await expect(page.getByTestId('demo-tour-text')).toContainText('two things that look like bugs are deliberate');
     await expect(page.getByTestId('demo-tour-back')).toBeDisabled();
     await expect(next).toBeVisible();
@@ -517,13 +534,13 @@ test.describe('WASM dashboard demo — workflows', () => {
     // The light is on something real. A spotlight whose selector has rotted points at
     // nothing and the tour is dead, so prove the cut-out encloses the target it names.
     await expect(page.getByTestId('demo-tour-spotlight')).toBeVisible();
-    expect(await spotlightEncloses(page, '#sec-attention')).toBe(true);
+    expect(await spotlightEncloses(page, '#ov-answer')).toBe(true);
     await next.click();
 
     // 2 — search. The gate is the reader's own committed search, not the presence of a
     // row: this fleet is small enough that payments-service is on the unfiltered page 1.
     // Nothing is pressed to leave this step; doing the step IS pressing Next.
-    await expect(stepNo).toHaveText('2 / 6');
+    await expect(stepNo).toHaveText('2 / 8');
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/services', { timeout: 20_000 });
     await expect(next).toBeHidden();
     await expect(auto).toBeVisible();
@@ -532,7 +549,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await search.press('Enter');
     const row = page.locator('[data-testid="service-list"] a[href$="/fleet/services/payments-service"]');
     await expect(row).toBeVisible({ timeout: 20_000 });
-    await expect(stepNo).toHaveText('3 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('3 / 8', { timeout: 20_000 });
 
     // 3 — open it. The step stays on the list route, so the search the reader just
     // committed survives the step change rather than being navigated away. This is the
@@ -547,46 +564,56 @@ test.describe('WASM dashboard demo — workflows', () => {
     // Held, not merely slow: the service page is still there well past the point an
     // auto-advancing step would have taken it away.
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('3 / 6');
+    await expect(stepNo).toHaveText('3 / 8');
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/services/payments-service');
     await next.click();
-    await expect(stepNo).toHaveText('4 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('4 / 8', { timeout: 20_000 });
 
-    // 4 — compare two revisions and get a real field-level diff back. The step the whole
-    // tour is for, so it holds: the reader reads the Breaking verdict and leaves when they
-    // are done, rather than being shown it and moved off it a second later.
+    // 4 — one action: choose the oldest revision as the earlier one. The light is on that
+    // picker, and choosing it moves the tour on by itself to the button on the same screen.
     await expect(page).toHaveURL((url) => url.hash.split('?')[0] === '#/fleet/changes/payments-service', { timeout: 20_000 });
     await expect(next).toBeHidden();
-    await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
+    await expect.poll(() => spotlightEncloses(page, '#impact-old-rev'), { timeout: 20_000 }).toBe(true);
+    await chooseRevision(page, '#impact-old-rev', '1.0.0');
+    await expect(stepNo).toHaveText('5 / 8', { timeout: 20_000 });
+
+    // 5 — compare and get a real field-level diff back. The step the whole tour is for, so
+    // it holds: the reader reads the Breaking verdict and leaves when they are done, rather
+    // than being shown it and moved off it a second later.
+    await expect.poll(() => spotlightEncloses(page, '#sec-revisions button[type=submit]'), { timeout: 20_000 }).toBe(true);
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     const diff = page.getByTestId('changes-what-changed');
     await expect(diff).toBeVisible({ timeout: 20_000 });
     await expect(next).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('4 / 6');
+    await expect(stepNo).toHaveText('5 / 8');
     await expect(diff).toBeVisible();
     await next.click();
-    await expect(stepNo).toHaveText('5 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('6 / 8', { timeout: 20_000 });
 
-    // 5 — search the operational graph and focus a result, which is what renders a
-    // neighborhood at all (the graph tab opens search-first, never a hairball). Holds too:
-    // the neighborhood IS the blast radius the step promised.
+    // 6 — search the operational graph (the graph tab opens search-first, never a hairball).
+    // One action, so it moves on when the results come back.
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
     await expect(next).toBeHidden();
     await page.locator('[data-testid="graph-discovery"] input[type=search]').fill('orders');
     const focus = page.getByTestId('graph-focus-link').first();
     await expect(focus).toBeVisible({ timeout: 20_000 });
+    await expect(stepNo).toHaveText('7 / 8', { timeout: 20_000 });
+
+    // 7 — focus a result, which renders the neighborhood. Holds: the neighborhood IS the
+    // blast radius the step promised.
+    await expect.poll(() => spotlightEncloses(page, '[data-testid="graph-focus-link"]'), { timeout: 20_000 }).toBe(true);
     await focus.click();
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     await expect(next).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('5 / 6');
+    await expect(stepNo).toHaveText('7 / 8');
     await next.click();
-    await expect(stepNo).toHaveText('6 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('8 / 8', { timeout: 20_000 });
 
-    // 6 — terminal. No screen of its own: it is the hand-off to the CLI tour, which
-    // answers the same six questions from a terminal. Nothing left to observe, so it keeps
-    // a real button, and since there is no step seven that button finishes the tour.
+    // 8 — terminal. No screen of its own: it is the hand-off to the CLI tour, which
+    // answers the same questions from a terminal. Nothing left to observe, so it keeps a
+    // real button, and since there is no step nine that button finishes the tour.
     await expect(next).toBeVisible();
     await expect(next).toHaveText('Done');
     await expect(auto).toBeHidden();
@@ -598,15 +625,15 @@ test.describe('WASM dashboard demo — workflows', () => {
     // again on the result the reader already produced -- a step only moves on a state
     // change it watched happen, never on one it was dropped into.
     await page.getByTestId('demo-tour-back').click();
-    await expect(stepNo).toHaveText('5 / 6');
+    await expect(stepNo).toHaveText('7 / 8');
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
     await expect(page.getByTestId('demo-tour-more')).toBeHidden();
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('5 / 6');
+    await expect(stepNo).toHaveText('7 / 8');
 
     // Done ends it, and leaves the reader where they got to.
     await leaveStep(page);
-    await expect(stepNo).toHaveText('6 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('8 / 8', { timeout: 20_000 });
     await next.click();
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(0);
     await expect(page.getByTestId('demo-strip')).toBeVisible();
@@ -624,17 +651,17 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(next).toBeHidden();
     const auto = page.getByTestId('demo-tour-auto');
     await expect(auto).toBeVisible();
-    await expect(auto).toContainText('the tour moves on when you do it');
+    await expect(auto).toContainText('The tour moves on when you do it');
     // A tour that is waiting with no reason given is a wall, so the bubble says what for.
     await expect(page.getByTestId('demo-tour-bubble')).toContainText('Waiting for a search');
     // And it is genuinely waiting: an auto-advance that fires on the state the step opened
     // in is a slideshow with extra steps.
     await page.waitForTimeout(2500);
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 6');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 8');
     const search = page.getByTestId('svc-search');
     await search.fill('payments');
     await search.press('Enter');
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 6', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 8', { timeout: 20_000 });
     // The two ways out are untouched by any of this: they are on every step, always.
     await expect(page.getByTestId('demo-tour-skip')).toBeVisible();
     await expect(page.getByTestId('demo-tour-exit')).toBeVisible();
@@ -650,25 +677,28 @@ test.describe('WASM dashboard demo — workflows', () => {
     const stepNo = page.getByTestId('demo-tour-step');
     const next = page.getByTestId('demo-tour-next');
     await next.click();
-    for (const n of ['3 / 6', '4 / 6']) {
+    for (const n of ['3 / 8', '4 / 8']) {
       await leaveStep(page);
       await expect(stepNo).toHaveText(n, { timeout: 20_000 });
     }
 
-    // Step 4. Do the comparison for real, and get a verdict that actually says Breaking --
-    // a hold over an empty result would prove nothing about the defect.
-    await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
+    // Steps 4 and 5. Do the comparison for real, and get a verdict that actually says
+    // Breaking -- a hold over an empty result would prove nothing about the defect.
+    await chooseRevision(page, '#impact-old-rev', '1.0.0');
+    await expect(stepNo).toHaveText('5 / 8', { timeout: 20_000 });
     await page.getByRole('button', { name: /Compare revisions/ }).click();
-    const diff = page.getByTestId('changes-what-changed');
+    // The answer leads the page, and the tour lights it; the diff folds below it.
+    const diff = page.getByTestId('changes-answer');
     await expect(diff).toContainText(/Breaking/i, { timeout: 20_000 });
+    await expect.poll(() => spotlightEncloses(page, '[data-testid="changes-answer"]'), { timeout: 20_000 }).toBe(true);
 
     // The tour saw it happen -- nothing below is a button pressed to report the action.
-    await expect(page.locator('#pacto-tour-hint')).toHaveText('Done — that is the answer. Read it, then press Continue.', { timeout: 20_000 });
+    await expect(page.locator('#pacto-tour-hint')).toHaveText('Done. That is the answer. Read it, then press Continue.', { timeout: 20_000 });
     // And having seen it, it holds. Ten seconds is far past the ~1.1s an auto-advancing
     // step takes, and past the six-second skip deadline that used to move a held step on
     // behind the reader's back.
     await page.waitForTimeout(10_000);
-    await expect(stepNo).toHaveText('4 / 6');
+    await expect(stepNo).toHaveText('5 / 8');
     await expect(diff).toBeVisible();
     await expect(page).toHaveURL((url) => url.hash.split('?')[0] === '#/fleet/changes/payments-service');
     // A held step offers one forward control and no second way to do the same thing: Skip
@@ -678,18 +708,19 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByTestId('demo-tour-auto')).toBeHidden();
 
     await next.click();
-    await expect(stepNo).toHaveText('5 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('6 / 8', { timeout: 20_000 });
 
-    // Step 5, the same contract over the blast radius.
+    // Steps 6 and 7, the same contract over the blast radius.
     await page.locator('[data-testid="graph-discovery"] input[type=search]').fill('orders');
     const focus = page.getByTestId('graph-focus-link').first();
     await expect(focus).toBeVisible({ timeout: 20_000 });
+    await expect(stepNo).toHaveText('7 / 8', { timeout: 20_000 });
     await focus.click();
     const canvas = page.getByTestId('neighborhood-canvas');
     await expect(canvas).toBeVisible({ timeout: 20_000 });
     await expect(next).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(10_000);
-    await expect(stepNo).toHaveText('5 / 6');
+    await expect(stepNo).toHaveText('7 / 8');
     await expect(canvas).toBeVisible();
   });
 
@@ -705,15 +736,15 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByTestId('demo-tour-auto')).toBeHidden();
     await expect(page.getByTestId('demo-tour-skip')).toBeHidden(); // nothing to skip either
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('1 / 6'); // the disclosure does not read itself
+    await expect(stepNo).toHaveText('1 / 8'); // the disclosure does not read itself
     await next.click();
-    for (const n of ['3 / 6', '4 / 6', '5 / 6', '6 / 6']) {
+    for (const n of ['3 / 8', '4 / 8', '5 / 8', '6 / 8', '7 / 8', '8 / 8']) {
       await leaveStep(page);
       await expect(stepNo).toHaveText(n, { timeout: 20_000 });
     }
     await expect(next).toHaveText('Done');
     await page.waitForTimeout(2500);
-    await expect(stepNo).toHaveText('6 / 6'); // the hand-off does not dismiss itself either
+    await expect(stepNo).toHaveText('8 / 8'); // the hand-off does not dismiss itself either
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
   });
 
@@ -737,14 +768,14 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     const stepNo = page.getByTestId('demo-tour-step');
     await page.getByTestId('demo-tour-next').click();
-    for (const n of ['3 / 6', '4 / 6', '5 / 6', '6 / 6']) {
+    for (const n of ['3 / 8', '4 / 8', '5 / 8', '6 / 8', '7 / 8', '8 / 8']) {
       await leaveStep(page);
       await expect(stepNo).toHaveText(n, { timeout: 20_000 });
     }
     // And nothing arrives late: no second advance from a gate that opened after the move.
     await page.waitForTimeout(2000);
     const log = await page.evaluate(() => (window as unknown as { __stepLog: string[] }).__stepLog);
-    expect(log.slice(log.indexOf('2 / 6'))).toEqual(['2 / 6', '3 / 6', '4 / 6', '5 / 6', '6 / 6']);
+    expect(log.slice(log.indexOf('2 / 8'))).toEqual(['2 / 8', '3 / 8', '4 / 8', '5 / 8', '6 / 8', '7 / 8', '8 / 8']);
   });
 
   // The report this feature came from: the tour fired the instant the hash carried a text
@@ -755,7 +786,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     await page.getByTestId('demo-tour-next').click();
     const stepNo = page.getByTestId('demo-tour-step');
-    await expect(stepNo).toHaveText('2 / 6');
+    await expect(stepNo).toHaveText('2 / 8');
     const search = page.getByTestId('svc-search');
     await search.click();
     // Commit a one-character search. From here the step-2 gate is SATISFIED and the reader
@@ -769,21 +800,21 @@ test.describe('WASM dashboard demo — workflows', () => {
     for (const ch of 'ayments') {
       await search.pressSequentially(ch);
       await page.waitForTimeout(180);
-      await expect(stepNo).toHaveText('2 / 6');
+      await expect(stepNo).toHaveText('2 / 8');
     }
     // Only once they stop does it move.
     await search.press('Enter');
-    await expect(stepNo).toHaveText('3 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('3 / 8', { timeout: 20_000 });
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/services?text=payments', { timeout: 20_000 });
   });
 
   test('demo tour: Skip step performs the action and lands on the same screen', async ({ page }) => {
     await startTour(page);
     await page.getByTestId('demo-tour-next').click();
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 6');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 8');
     await expect(page.getByTestId('demo-tour-next')).toBeHidden(); // an action step has no forward button
     await page.getByTestId('demo-tour-skip').click();
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 6', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 8', { timeout: 20_000 });
     // The search really was committed -- a bare `value =` assignment leaves Svelte's own
     // state on the old value and this URL would read `#/fleet/services` -- and the row
     // step 3 asks for is on screen.
@@ -823,14 +854,14 @@ test.describe('WASM dashboard demo — workflows', () => {
 
   test('demo tour: Escape closing the mobile nav drawer leaves the tour standing', async ({ page }) => {
     await startTourAt(page, 390, 844); // the hamburger appears at <=768px
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 6');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 8');
     await page.getByRole('button', { name: 'Menu' }).click();
     await expect(page.locator('#mobile-drawer')).toBeVisible();
     // Focus is inside the drawer (it moves there on open), so this Escape belongs to it.
     await page.keyboard.press('Escape');
     await expect(page.locator('#mobile-drawer')).toHaveCount(0);
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 6'); // and no progress lost
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 8'); // and no progress lost
   });
 
   test('demo tour: Escape closing the command palette leaves the tour standing', async ({ page }) => {
@@ -841,13 +872,13 @@ test.describe('WASM dashboard demo — workflows', () => {
     await page.keyboard.press('Escape');
     await expect(palette).toHaveCount(0);
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 6');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 8');
   });
 
   test('demo tour: Escape in a search field leaves the tour standing, and the step still completes', async ({ page }) => {
     await startTour(page);
     await page.getByTestId('demo-tour-next').click();
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 6');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 8');
     // A type=search field clears itself on Escape and deliberately lets the key through
     // when it has no suggestion popup to dismiss — so this is the one that used to reach
     // the document handler unopposed, on the very step that asks the reader to type.
@@ -855,12 +886,12 @@ test.describe('WASM dashboard demo — workflows', () => {
     await search.click();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 6');
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 8');
     // Alive is not enough: the reader can still finish the step they were asked to do, and
     // the tour still carries them on when they have.
     await search.fill('payments');
     await search.press('Enter');
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 6', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 8', { timeout: 20_000 });
   });
 
   // Skip performs the action and then WAITS for that step's own gate. Step 4 is where it
@@ -870,13 +901,13 @@ test.describe('WASM dashboard demo — workflows', () => {
   test('demo tour: Skip waits for the step it skipped, so the analysis never desyncs the URL', async ({ page }) => {
     test.setTimeout(60_000);
     // Sampled on mutation rather than polled: the whole question is whether one state
-    // (step 4, diff rendered) existed BEFORE another (step 5), and a poll can miss it.
+    // (step 5, diff rendered) existed BEFORE another (step 6), and a poll can miss it.
     await page.addInitScript(() => {
       const log: string[] = [];
       (window as unknown as { __tourLog: string[] }).__tourLog = log;
       new MutationObserver(() => {
         const step = document.querySelector('[data-testid="demo-tour-step"]')?.textContent ?? '';
-        const diff = !!document.querySelector('[data-testid="changes-what-changed"]');
+        const diff = !!document.querySelector('[data-testid="changes-answer"]');
         const s = `${step}|${diff}`;
         if (step && log[log.length - 1] !== s) log.push(s);
       }).observe(document, { subtree: true, childList: true, characterData: true });
@@ -884,15 +915,17 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     const stepNo = page.getByTestId('demo-tour-step');
     await page.getByTestId('demo-tour-next').click();
-    await expect(stepNo).toHaveText('2 / 6');
+    await expect(stepNo).toHaveText('2 / 8');
     await leaveStep(page);
-    await expect(stepNo).toHaveText('3 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('3 / 8', { timeout: 20_000 });
     await leaveStep(page);
-    await expect(stepNo).toHaveText('4 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('4 / 8', { timeout: 20_000 });
     await expect(page).toHaveURL((url) => url.hash.split('?')[0] === '#/fleet/changes/payments-service', { timeout: 20_000 });
+    await leaveStep(page);
+    await expect(stepNo).toHaveText('5 / 8', { timeout: 20_000 });
 
     await leaveStep(page);
-    await expect(stepNo).toHaveText('5 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('6 / 8', { timeout: 20_000 });
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
     // The analysis has nothing left to rewrite: the URL stays on step 5's screen well past
     // the point where the orphaned replaceState used to land on it.
@@ -902,7 +935,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     // still on screen, which is the point of the feature: the reader gets a moment to see
     // what was done for them.
     const log = await page.evaluate(() => (window as unknown as { __tourLog: string[] }).__tourLog);
-    expect(log).toContain('4 / 6|true');
+    expect(log).toContain('5 / 8|true');
   });
 
   // Waiting must be bounded: a gate that never opens has to move the reader on rather than
@@ -921,10 +954,10 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     const stepNo = page.getByTestId('demo-tour-step');
     await page.getByTestId('demo-tour-next').click();
-    await expect(stepNo).toHaveText('2 / 6');
+    await expect(stepNo).toHaveText('2 / 8');
     const t0 = Date.now();
     await page.getByTestId('demo-tour-skip').click();
-    await expect(stepNo).toHaveText('3 / 6', { timeout: 20_000 });
+    await expect(stepNo).toHaveText('3 / 8', { timeout: 20_000 });
     // It waited for the gate it could never get, then went anyway.
     expect(Date.now() - t0).toBeGreaterThan(2000);
   });
@@ -976,11 +1009,11 @@ test.describe('WASM dashboard demo — workflows', () => {
     const search = page.getByTestId('svc-search');
     await search.fill('payments');
     await search.press('Enter');
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 6', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 8', { timeout: 20_000 });
     const log = await page.evaluate(() => (window as unknown as { __hintLog: string[] }).__hintLog);
     // Announced while step 2 was still up: the reader connects the search they ran to the
     // result it produced, and is told the tour is about to move rather than discovering it.
-    expect(log).toContain('2 / 6|Done — moving on.');
+    expect(log).toContain('2 / 8|Done. Moving on.');
     // The step they land on says what IT is waiting for, so the region is never emptied.
     await expect(hint).toHaveText('Waiting for the payments-service page to open.');
   });
@@ -991,7 +1024,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await startTour(page);
     await page.getByTestId('demo-tour-next').click();
     await page.getByTestId('demo-tour-skip').click();
-    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 6', { timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 8', { timeout: 20_000 });
     const text = page.getByTestId('demo-tour-text');
     await expect(text).toContainText('every revision it has published and what was observed about the targets running it');
     await expect(text).not.toContainText('every revision of it, and');
@@ -1007,7 +1040,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     const stepNo = page.getByTestId('demo-tour-step');
     await expect(about).toBeVisible();
     await expect(about).toHaveAttribute('href', '../examples/dashboard-demo/');
-    for (const n of ['2 / 6', '3 / 6', '4 / 6', '5 / 6', '6 / 6']) {
+    for (const n of ['2 / 8', '3 / 8', '4 / 8', '5 / 8', '6 / 8', '7 / 8', '8 / 8']) {
       await leaveStep(page);
       await expect(stepNo).toHaveText(n, { timeout: 20_000 });
       await expect(about).toBeVisible();
@@ -1040,7 +1073,7 @@ test.describe('WASM dashboard demo — workflows', () => {
       await new Promise((r) => setTimeout(r, 3000));
       await route.continue();
     });
-    await waitReady(page);
+    await appReady(page);
     await expect(page.getByTestId('demo-strip')).toContainText('fixture fleet', { timeout: 30_000 });
     const log = await page.evaluate(() => (window as unknown as { __meterLog: string[] }).__meterLog);
     // Elapsed seconds while the engine is in flight, and the real transfer size read
@@ -1051,8 +1084,53 @@ test.describe('WASM dashboard demo — workflows', () => {
     expect(log[log.length - 1]).toBe('');
   });
 
+  // The report: while the engine booted, the skeleton's sweep froze and the counter sat
+  // at 0s, because the engine ran on the page's main thread. It runs in a worker now and
+  // the sweep is a transform, so both keep moving. The samples are taken by a timer on
+  // the main thread: a blocked thread shows up as a gap between samples, and a frozen
+  // sweep as the same transform read again and again.
+  test('demo boot: the skeleton keeps moving while the engine loads in its worker', async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __sweep: Array<{ t: number; v: string }>; __pactoReady?: Promise<void> };
+      const log: Array<{ t: number; v: string }> = [];
+      w.__sweep = log;
+      let done = false;
+      const iv = setInterval(() => {
+        if (w.__pactoReady && !done) { done = true; void w.__pactoReady.then(() => clearInterval(iv)); }
+        const sk = document.querySelector('.skeleton');
+        if (sk) log.push({ t: performance.now(), v: getComputedStyle(sk, '::after').transform });
+      }, 50);
+    });
+    await page.route('**/app.wasm*', async (route) => {
+      await new Promise((r) => setTimeout(r, 3000));
+      await route.continue();
+    });
+    await appReady(page, '/#/fleet');
+    // The engine is not on this thread: the page never loads Go's runtime.
+    expect(await page.evaluate(() => typeof (window as unknown as { Go?: unknown }).Go)).toBe('undefined');
+    const log = await page.evaluate(() => (window as unknown as { __sweep: Array<{ t: number; v: string }> }).__sweep);
+    expect(log.length).toBeGreaterThan(20);
+    expect(new Set(log.map((s) => s.v)).size).toBeGreaterThan(10);
+    for (const s of log) expect(s.v).toMatch(/^matrix\(/);
+    let gap = 0;
+    for (let i = 1; i < log.length; i++) gap = Math.max(gap, log[i].t - log[i - 1].t);
+    expect(gap, 'the main thread stalled while the engine booted').toBeLessThan(1000);
+  });
+
+  test('demo boot: no sweep for a reader who asked for less motion', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.route('**/app.wasm*', async (route) => {
+      await new Promise((r) => setTimeout(r, 3000));
+      await route.continue();
+    });
+    await page.goto('/#/fleet');
+    const sk = page.locator('.skeleton').first();
+    await expect(sk).toBeVisible();
+    expect(await sk.evaluate((el) => getComputedStyle(el, '::after').display)).toBe('none');
+  });
+
   test('accessibility: keyboard reaches the primary nav with real, named links', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.keyboard.press('Tab');
     expect(await page.evaluate(() => document.activeElement?.tagName)).toBeTruthy();
     await expect(page.getByRole('link', { name: 'Operational Graph' })).toHaveAttribute('href', /#\/fleet/);

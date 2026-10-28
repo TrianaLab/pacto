@@ -1,0 +1,11 @@
+{{- if and .Values.delivery.enabled .Values.delivery.createNamespace }}
+# Delivery's own namespace. The operator holds no Role here, so it cannot run
+# a pod as the promoter or the recorder, mint their tokens or change their
+# Deployments. With createNamespace false it must exist before the install.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+{{- end }}

@@ -287,6 +287,17 @@ describe('PageToc', () => {
     unmount(c);
   });
 
+  it('aims again once a section it opened has mounted its content', async () => {
+    body = page(['A', 'B'], `<details id="sec-late" data-toc="Late"><summary>Late</summary><p>x</p></details>`);
+    const c = mountToc();
+    const late = document.getElementById('sec-late') as HTMLDetailsElement;
+    links(target).find((b) => b.textContent?.trim() === 'Late')!.click();
+    expect(late.scrollIntoView).toHaveBeenCalledTimes(1);
+    // jsdom fires toggle on its own once the section opens.
+    await vi.waitFor(() => expect((late.scrollIntoView as any).mock.calls.length).toBeGreaterThan(1));
+    unmount(c);
+  });
+
   it('honours a reduced-motion preference instead of animating the jump', () => {
     body = page(['A', 'B', 'C']);
     const c = mountToc();

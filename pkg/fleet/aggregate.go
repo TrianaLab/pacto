@@ -635,7 +635,7 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 		}
 		declared[rel.ToService] = true
 		dk := depKey(rel)
-		if !rel.Resolved && !unresolved[dk] {
+		if rel.missing() && !unresolved[dk] {
 			unresolved[dk] = true
 			sum.UnresolvedDeclared++
 		}

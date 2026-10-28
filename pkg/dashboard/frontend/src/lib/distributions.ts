@@ -319,13 +319,13 @@ export function ownerRanking(agg: OwnerRankingTally | undefined, href: (ownerKey
   // includes owners that rank nowhere because every service naming them is disputed.
   const scope = ranked === distinct
     ? `Top ${shown} of ${ranked} named ${ranked === 1 ? 'owner' : 'owners'} by service count.`
-    : `Top ${shown} of ${ranked} rankable ${ranked === 1 ? 'owner' : 'owners'} by service count, out of ${distinct} named across these services — the other ${distinct - ranked} ${distinct - ranked === 1 ? 'is named only by services whose revisions disagree' : 'are named only by services whose revisions disagree'}.`;
+    : `Top ${shown} of ${ranked} rankable ${ranked === 1 ? 'owner' : 'owners'} by service count, out of ${distinct} named across these services. The other ${distinct - ranked} ${distinct - ranked === 1 ? 'is named only by services whose revisions disagree' : 'are named only by services whose revisions disagree'}.`;
   const rest = ranked - shown;
   const tail = beyond > 0
     ? ` ${rest === 1 ? 'The remaining owner accounts' : `The remaining ${rest} of ${ranked} owners account`} for ${beyond} more ${beyond === 1 ? 'service' : 'services'}.`
     : '';
   const unidentifiedNote = unidentified > 0
-    ? `${svc(unidentified)} ${unidentified === 1 ? 'is' : 'are'} consistently owned by a declaration that names no team or DRI — contacts only. That is ownership, but there is nobody to rank or link to, so it appears in no row above.`
+    ? `${svc(unidentified)} ${unidentified === 1 ? 'is' : 'are'} consistently owned by a declaration that names no team or DRI, only contacts. It has no team or person to rank or link to, so it appears in no row above.`
     : '';
   return {
     distinct,

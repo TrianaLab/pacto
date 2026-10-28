@@ -43,10 +43,10 @@
               <span class="lock-badge" data-tip={`Locked to ${pol.lockedDigest}`}>🔒 @{shortDigest(pol.lockedDigest)}</span>
             {/if}
             {#if pol.valuesAreCurrent}
-              <span class="current-badge" data-tip="Values shown are from the referenced service's current version — this ref is not version-pinned">current</span>
+              <span class="current-badge" data-tip="Values come from the referenced service's current version, because this ref pins no version">current</span>
             {/if}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <a href={serviceUrl(refServiceName(pol.ref))} class="ref-link" onclick={(e) => e.stopPropagation()}>
+            <a href={serviceUrl(refServiceName(pol.ref))} class="ref-link" title={pol.ref} onclick={(e) => e.stopPropagation()}>
               {pol.ref} →
             </a>
           {/if}
@@ -80,51 +80,18 @@
 {/if}
 
 <style>
-  .detail-card {
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    margin-bottom: var(--sp-2);
-  }
-  .detail-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    padding: var(--sp-3);
-    background: none;
-    border: none;
-    font: inherit;
-    color: var(--c-text);
-    text-align: left;
-    gap: var(--sp-3);
-  }
-  .detail-card-header.expandable { cursor: pointer; }
-  .detail-card-header.expandable:hover { background: var(--c-surface-hover, var(--c-surface-inset)); border-radius: var(--radius-sm); }
-  .detail-card-header-left {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    min-width: 0;
-  }
+  .detail-card-header { flex-wrap: wrap; }
+  .detail-card-header-left { flex-wrap: wrap; flex: 1 1 16rem; }
   .pill-ref { background: var(--c-accent-bg); color: var(--c-accent); font-size: var(--text-xs); flex-shrink: 0; }
   .pill-local { background: var(--c-neutral-bg); color: var(--c-text-2); font-size: var(--text-xs); flex-shrink: 0; }
-  .expand-icon {
-    display: inline-flex;
-    color: var(--c-text-3);
-    transform: rotate(-90deg);
-    flex-shrink: 0;
-  }
-  .expand-icon.open { transform: rotate(0deg); }
-  .expand-icon svg { width: 12px; height: 12px; }
-  .detail-card-title { font-weight: 600; }
-  .detail-card-sub { font-size: var(--text-sm); color: var(--c-text-2); }
+  /* A long ref ellipsizes within 40% of the header (the whole ref in its title) instead
+     of squeezing the policy name to one word per line. */
   .ref-link {
     font-size: var(--text-xs);
     color: var(--c-accent);
     text-decoration: none;
     white-space: nowrap;
-    flex-shrink: 0;
+    max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   }
   .ref-link:hover { text-decoration: underline; }
   .current-badge {
@@ -146,9 +113,4 @@
     margin: 0;
     padding: 0 var(--sp-3) var(--sp-3);
   }
-  .detail-card-body {
-    padding: 0 var(--sp-3) var(--sp-3);
-  }
-  .detail-card-table { font-size: var(--text-sm); }
-  .detail-card-table th { font-size: var(--text-xs); }
 </style>

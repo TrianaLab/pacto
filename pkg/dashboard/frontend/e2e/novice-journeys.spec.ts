@@ -39,13 +39,16 @@ async function openPaymentsService(page: Page) {
 
 test.describe('novice journey — a first-time user reads ONE product', () => {
   // J1. "Where am I, and what can I do here?" The app opens on state, and the primary
-  // nav teaches one order: state -> inventory -> relationships -> change.
-  test('J1: the app opens on operational state with exactly four primary workflows', async ({ page }) => {
+  // nav teaches one order: state -> inventory -> relationships -> change, then delivery
+  // where it is served (the demo simulates it).
+  test('J1: the app opens on operational state with exactly the primary destinations', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: T });
-    await expect(page.getByRole('heading', { level: 1, name: 'Operational overview' })).toBeVisible({ timeout: T });
+    await expect(page.getByRole('heading', { level: 1, name: 'Is anything wrong?' })).toBeVisible({ timeout: T });
+    // The question in the title is answered in one line straight under it.
+    await expect(page.getByTestId('overview-answer')).toBeVisible({ timeout: T });
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational graph', 'Change analysis']);
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Operational graph', 'Change analysis', 'Delivery']);
     await expectNoLegacyScreen(page);
   });
 
@@ -70,8 +73,9 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
   test('J3: readiness is a triage dimension, reachable from the overview, never a legacy screen', async ({ page }) => {
     await boot(page);
     await page.goto('/#/fleet');
-    await page.getByRole('navigation', { name: 'Filter attention by category' })
-      .getByRole('link', { name: 'Readiness gate' }).click();
+    // The overview shows the worst few items and one link to the rest; the category is picked there.
+    await page.locator('#sec-attention').getByRole('link', { name: /^View all/ }).click();
+    await page.getByLabel('Filter by category').selectOption({ label: 'Readiness gate' });
     await expect(page).toHaveURL(/#\/fleet\/attention\?category=readiness/, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: T });
     // The old bookmark lands on the revision inventory rather than mounting a second
@@ -113,7 +117,8 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     const misuses = await page.evaluate(() => {
       const WORD = /\bDeployments?\b/;
       // A canonical TargetKey is "<scope>/<Kind>/<name>"; the kind sits between slashes.
-      const INSIDE_A_KEY = /\/Deployment\//;
+      // On its own service's page the key drops the service name, leaving "<scope>/<Kind>".
+      const INSIDE_A_KEY = /\/Deployment(\/|$)/;
       const out: string[] = [];
       const walker = document.createTreeWalker(document.querySelector('main')!, NodeFilter.SHOW_TEXT);
       for (let n = walker.nextNode(); n; n = walker.nextNode()) {
@@ -189,8 +194,12 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     await page.getByRole('link', { name: 'Compare revisions' }).click();
     await expect(page).toHaveURL(/#\/fleet\/changes\//, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: T });
-    await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
-    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
+    // The pickers read "1.0.0 · <short digest>": pick by version.
+    for (const [sel, v] of [['#impact-old-rev', '1.0.0'], ['#impact-new-rev', '2.0.1']]) {
+      const value = await page.locator(`${sel} option`).evaluateAll(
+        (os, ver) => (os as HTMLOptionElement[]).find((o) => (o.textContent ?? '').startsWith(`${ver} `))?.value ?? '', v);
+      await page.locator(sel).selectOption(value);
+    }
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     await expect(page.getByTestId('changes-what-changed')).toBeVisible({ timeout: T });
     await expect(page.getByTestId('changes-what-it-affects')).toBeVisible({ timeout: T });

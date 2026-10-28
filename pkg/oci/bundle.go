@@ -72,6 +72,26 @@ func BundleImage(b *contract.Bundle) (v1.Image, error) {
 	return bundleToImage(b)
 }
 
+// BundleDigest is the digest Push would publish b under, computed without
+// pushing: the layer stream is drained so the digest is final.
+func BundleDigest(b *contract.Bundle) (string, error) {
+	img, err := bundleToImage(b)
+	if err != nil {
+		return "", err
+	}
+	// bundleToImage builds exactly one layer, and reading it can only fail if
+	// the bundle's filesystem does, which the digest call below reports too.
+	layers, _ := img.Layers()
+	rc, _ := layers[0].Compressed()
+	_, _ = io.Copy(io.Discard, rc)
+	_ = rc.Close()
+	d, err := img.Digest()
+	if err != nil {
+		return "", err
+	}
+	return d.String(), nil
+}
+
 // walkTar walks the filesystem and writes each entry as a tar header/data pair.
 func walkTar(tw *tar.Writer, fsys fs.FS) error {
 	return fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, walkErr error) error {

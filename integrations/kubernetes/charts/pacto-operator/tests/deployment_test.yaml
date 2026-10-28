@@ -128,6 +128,32 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--kernel-evidence-staleness=2m"
 
+  - it: should ignore the Flannel and Calico namespaces by default
+    set:
+      controller.kernelEvidence.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--caller-coverage-ignore-namespace=calico-system"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--caller-coverage-ignore-namespace=kube-flannel"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--caller-coverage-ignore-namespace=tigera-operator"
+
+  - it: should pass each extra namespace caller coverage ignores
+    set:
+      controller.kernelEvidence.enabled: true
+      controller.kernelEvidence.callerIgnoreNamespaces: [cilium, longhorn-system]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--caller-coverage-ignore-namespace=cilium"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--caller-coverage-ignore-namespace=longhorn-system"
+
   - it: should ignore kernel evidence settings while it is disabled
     set:
       controller.kernelEvidence.namespace: node-agents
@@ -143,6 +169,21 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].image
           value: "ghcr.io/trianalab/pacto/operator:v1.2.3"
+
+  - it: pins the image by digest when image.digest is set
+    set:
+      image.tag: "v1.2.3"
+      image.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/trianalab/pacto/operator:v1.2.3@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+  - it: refuses an image.digest that is not a sha256 digest
+    set:
+      image.digest: "latest"
+    asserts:
+      - failedTemplate: {}
 
   - it: should disable leader election
     set:
@@ -169,7 +210,24 @@ tests:
       dashboard.ociSecret: my-secret
     asserts:
       - failedTemplate:
-          errorPattern: "Additional property ociSecret is not allowed"
+          # Helm 3 and Helm 4 word the schema refusal differently.
+          errorPattern: "(?i)additional propert(y|ies) '?ociSecret'? (is )?not allowed"
+
+  - it: rejects dashboard.auth.required, which nothing reads (sign-in turns on with an issuer or token sign-in)
+    set:
+      dashboard.enabled: true
+      dashboard.auth.required: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)additional propert(y|ies) '?required'? (is )?not allowed"
+
+  - it: rejects dashboard.auth.deliveryNamespace, which moved to dashboard.delivery.namespace
+    set:
+      dashboard.enabled: true
+      dashboard.auth.deliveryNamespace: delivery
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)additional propert(y|ies) '?deliveryNamespace'? (is )?not allowed"
 
   - it: should include dashboard OCI secrets arg when list is set
     set:
@@ -181,6 +239,227 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oci-secrets=ghcr-creds,ecr-creds"
+
+  - it: should pass no sign-in by default
+    set:
+      dashboard.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-delivery|--dashboard-session|--dashboard-token"
+
+  - it: should pass the dashboard sign-in, the client secret by reference only
+    set:
+      dashboard.enabled: true
+      dashboard.delivery.miraURL: http://mira.observability:4318
+      dashboard.delivery.namespace: delivery
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        extraScopes: [audience:server:client_id:pacto-cli]
+        clientSecretRef: {name: dashboard-oidc}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-issuer-url=https://idp.example
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-client-id=pacto-dashboard
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-redirect-url=https://dash.example/auth/callback
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-extra-scopes=audience:server:client_id:pacto-cli
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-client-secret-name=dashboard-oidc
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-client-secret-key=client-secret
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-delivery-namespace=delivery
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mira-url=http://mira.observability:4318
+
+  - it: should pass the internal issuer address and the issuer CA bundle from a ConfigMap
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        internalIssuerURL: http://dex.dex:5556
+        caBundle: {configMap: corp-ca}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-internal-issuer-url=http://dex.dex:5556
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-configmap=corp-ca
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-key=ca.crt
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-secret=
+          any: true
+
+  - it: should name the identity provider on the sign-in button only when set
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        displayName: "Acme SSO: staff"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oidc-display-name=Acme SSO: staff"
+
+  - it: should leave the sign-in button saying OIDC by default
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-display-name=
+          any: true
+
+  - it: should pass the issuer CA bundle from a Secret key
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        caBundle: {secret: corp-ca, key: bundle.pem}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-secret=corp-ca
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-ca-key=bundle.pem
+
+  - it: should refuse an issuer CA bundle from both a ConfigMap and a Secret
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        caBundle: {configMap: corp-ca, secret: corp-ca}
+    asserts:
+      - failedTemplate:
+          errorMessage: dashboard.auth.oidc.caBundle takes a configMap or a secret, not both
+
+  - it: should refuse an internal issuer URL that is not http or https
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc.internalIssuerURL: dex.dex:5556
+    asserts:
+      - failedTemplate: {}
+
+  - it: should pass the delivery trust config the dashboard verifies History with
+    set:
+      dashboard.enabled: true
+      dashboard.delivery.trust: {configMap: delivery-trust}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-delivery-trust-configmap=delivery-trust
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-delivery-trust-key=trust.yaml
+
+  - it: should pass the claim mapping the API server uses, the session lifetime and token sign-in
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        usernameClaim: email
+        usernamePrefix: "oidc:"
+        groupsClaim: roles
+        groupsPrefix: "oidc:"
+      dashboard.auth.session: {idleTimeout: 30m, maxAge: 8h}
+      dashboard.auth.tokenLogin.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-username-claim=email
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oidc-username-prefix=oidc:"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-groups-claim=roles
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oidc-groups-prefix=oidc:"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-session-idle-timeout=30m
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-session-max-age=8h
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+
+  - it: should keep the issuer prefix with its hash intact
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc: {issuerURL: https://idp.example, clientID: c, redirectURL: https://dash.example/auth/callback, usernamePrefix: "https://idp.example#"}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oidc-username-prefix=https://idp.example#"
+
+  - it: should offer token sign-in without an issuer
+    set:
+      dashboard.enabled: true
+      dashboard.auth.tokenLogin.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-oidc"
+
+  - it: should refuse a session lifetime that is no duration
+    set:
+      dashboard.enabled: true
+      dashboard.auth.session.maxAge: twelve hours
+    asserts:
+      - failedTemplate: {}
+
+  - it: should refuse a claim mapping key the chart does not know
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc.usernameClaims: email
+    asserts:
+      - failedTemplate: {}
+
+  - it: should require a client id with an issuer
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc.issuerURL: https://idp.example
+    asserts:
+      - failedTemplate:
+          errorPattern: "clientID is required"
 
   - it: should include no trace-source arg by default
     asserts:

@@ -6,7 +6,7 @@
  * node the backend did not return.
  */
 import { describe, it, expect } from 'vitest';
-import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature } from './neighborhoodGraph.ts';
+import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature, laneGraph, sidesOf, GROUP_THRESHOLD, MAX_GROUPS_PER_SIDE, LANE_CAP } from './neighborhoodGraph.ts';
 import type { GraphData } from './graph.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -148,9 +148,196 @@ describe('graph signatures (Part 5: topology vs presentation)', () => {
     expect(presentationSignature(changed)).not.toBe(presentationSignature(base()));
   });
 
+  it("a group's count or a group edge's words alter presentation but NOT topology", () => {
+    const counted = base();
+    counted.nodes[0].version = '7 entities';
+    const worded = base();
+    worded.nodes[0].edges![0].label = 'observed, not expected (3)';
+    for (const changed of [counted, worded]) {
+      expect(topoSignature(changed)).toBe(topoSignature(base()));
+      expect(presentationSignature(changed)).not.toBe(presentationSignature(base()));
+    }
+  });
+
   it('adding a node/edge alters the topology signature', () => {
     const changed = base();
     changed.nodes.push({ id: 'c', serviceName: 'c', status: 'Compliant', kind: 'service', edges: [] });
     expect(topoSignature(changed)).not.toBe(topoSignature(base()));
+  });
+});
+
+describe('neighborhoodToGraph — revision labels', () => {
+  it('puts a revision version on its own label line so truncation never cuts it', () => {
+    const g = neighborhoodToGraph({
+      nodes: [{ ref: { kind: 'revision', key: 'r1', label: 'payments-ledger-replica 12.4.0', version: '12.4.0' }, status: 'Compliant' }],
+      edges: [],
+    } as never);
+    expect(g.nodes[0]).toMatchObject({ serviceName: 'payments-ledger-replica', version: '12.4.0' });
+  });
+});
+
+describe('laneGraph', () => {
+  type N = GraphData['nodes'][number];
+  const node = (id: string, depth: number, owner?: string, edges: N['edges'] = []): N => ({ id, serviceName: id, status: 'Compliant', depth, ...(owner ? { owner } : {}), edges });
+  // A focus with `near` dependencies (focus -> n) and `far` entities a hop past them
+  // (n -> f), split over owners.
+  const graph = (near: number, far: number, owners = ['team-a', 'team-b']): GraphData => {
+    const nodes: N[] = [node('focus', 0, undefined, Array.from({ length: near }, (_, i) => ({ targetId: `n${i}` })))];
+    for (let i = 0; i < near; i++) nodes.push(node(`n${i}`, 1, owners[i % owners.length], Array.from({ length: far }, (_, k) => k).filter((k) => k % Math.max(1, near) === i).map((k) => ({ targetId: `f${k}`, edgeState: k < 2 ? 'drift' : 'matched' }))));
+    for (let i = 0; i < far; i++) nodes.push(node(`f${i}`, 2, owners[i % owners.length]));
+    return { nodes };
+  };
+  const byId = (g: GraphData, id: string) => g.nodes.find((n) => n.id === id)!;
+
+  it('puts each entity on a side: what the focus points at, what points at it, and the rest by who reached them', () => {
+    const g: GraphData = { nodes: [
+      node('focus', 0, undefined, [{ targetId: 'dep' }, { targetId: 'both' }, { targetId: 'focus' }]),
+      node('dep', 1, undefined, [{ targetId: 'dep2' }]),
+      node('both', 1, undefined, [{ targetId: 'focus' }]),
+      node('user', 1, undefined, [{ targetId: 'focus' }]),
+      node('dep2', 2), node('sibling', 2, undefined, [{ targetId: 'user' }]), node('island', 2),
+    ] };
+    expect(Object.fromEntries(sidesOf(g, 'focus'))).toEqual({
+      dep: 'depends-on', both: 'depends-on', user: 'used-by', dep2: 'depends-on', sibling: 'used-by', island: 'used-by',
+    });
+  });
+
+  it('returns a graph with no focus as it is', () => {
+    const g: GraphData = { nodes: [node('a', 1), node('b', 1)] };
+    expect(laneGraph(g)).toEqual({ graph: g, groups: [], folded: 0 });
+  });
+
+  it('draws a small neighborhood in lanes without folding anything', () => {
+    const g = graph(2, 3);
+    g.nodes.push(node('user', 1, 'team-a', [{ targetId: 'focus', edgeState: 'matched' }]));
+    const { graph: out, groups, folded } = laneGraph(g);
+    expect([groups, folded]).toEqual([[], 0]);
+    // Lanes first, so the boxes exist before what goes in them.
+    expect(out.nodes.slice(0, 2)).toEqual([
+      { id: 'lane:depends-on', serviceName: 'Depends on (2)', status: 'lane', kind: 'service', lane: true, side: -1, edges: [] },
+      { id: 'lane:used-by', serviceName: 'Used by (1)', status: 'lane', kind: 'service', lane: true, side: 1, edges: [] },
+    ]);
+    expect(byId(out, 'focus')).toMatchObject({ side: 0 });
+    expect(byId(out, 'focus').parent).toBeUndefined();
+    expect(byId(out, 'n0')).toMatchObject({ side: -1, parent: 'lane:depends-on' });
+    expect(byId(out, 'user')).toMatchObject({ side: 1, parent: 'lane:used-by', edges: [{ targetId: 'focus', edgeState: 'matched' }] });
+    // A far entity sits outside the lane, a column further out.
+    expect(byId(out, 'f0')).toMatchObject({ side: -1, depth: 2 });
+    expect(byId(out, 'f0').parent).toBeUndefined();
+    expect(out.nodes).toHaveLength(2 + g.nodes.length);
+    expect(laneGraph(graph(4, 60), { all: true }).groups).toEqual([]);
+  });
+
+  it('folds everything two hops out into one group per team and side, with one edge to its lane', () => {
+    const { graph: out, groups, folded } = laneGraph(graph(4, 60));
+    expect(groups).toEqual([
+      { id: 'group:depends-on:team-a', owner: 'team-a', side: 'depends-on', count: 30 },
+      { id: 'group:depends-on:team-b', owner: 'team-b', side: 'depends-on', count: 30 },
+    ]);
+    expect(folded).toBe(60);
+    expect(out.nodes.some((n) => /^f\d/.test(n.id))).toBe(false);
+    expect(byId(out, 'group:depends-on:team-a')).toMatchObject({ serviceName: 'team-a', version: '30 entities', status: 'group', group: 30, depth: 2, side: -1 });
+    expect(byId(out, 'group:depends-on:team-a').parent).toBeUndefined();
+    // The lane points out at each group, once, in the worst state among what it stands for.
+    expect(byId(out, 'lane:depends-on').edges).toEqual([
+      { targetId: 'group:depends-on:team-a', type: 'dependency', edgeState: 'drift', label: 'observed, not expected (1)' },
+      { targetId: 'group:depends-on:team-b', type: 'dependency', edgeState: 'drift', label: 'observed, not expected (1)' },
+    ]);
+    expect(byId(out, 'n0').edges).toEqual([]);
+  });
+
+  it('points a used-by group into its lane, and says how many links when there is no state to show', () => {
+    const nodes: N[] = [node('focus', 0), node('u', 1, 't', [{ targetId: 'focus' }])];
+    for (let i = 0; i < GROUP_THRESHOLD; i++) nodes.push(node(`f${i}`, 2, i ? 'team-x' : 'team-y', i < 2 ? [{ targetId: 'u', type: 'runs' }] : [{ targetId: 'u' }]));
+    const { graph: out, groups } = laneGraph({ nodes });
+    expect(groups.map((g) => [g.id, g.count])).toEqual([['group:used-by:team-x', 39], ['group:used-by:*', 1]]);
+    expect(byId(out, 'group:used-by:team-x').edges).toEqual([{ targetId: 'lane:used-by', type: 'dependency', label: '39 links' }]);
+    // A group whose only link is a runs edge draws a runs edge.
+    expect(byId(out, 'group:used-by:*')).toMatchObject({ serviceName: 'Other teams', version: '1 entity', edges: [{ targetId: 'lane:used-by', type: 'runs', label: '1 link' }] });
+  });
+
+  it('lets small teams, and teams past the per-side budget, share an Other teams group', () => {
+    const owners = Array.from({ length: MAX_GROUPS_PER_SIDE + 3 }, (_, i) => `t${i}`);
+    const g = graph(2, 60, owners);
+    g.nodes.push(node('solo', 2, 'just-me'));
+    byId(g, 'n0').edges!.push({ targetId: 'solo', edgeState: 'insufficient' });
+    const { graph: out, groups } = laneGraph(g);
+    const other = groups.find((x) => x.id === 'group:depends-on:*')!;
+    expect(groups.filter((x) => x.id !== other.id)).toHaveLength(MAX_GROUPS_PER_SIDE);
+    // Listed by name, the two Other teams groups say which side they are on.
+    expect(other).toMatchObject({ owner: 'Other teams that it depends on', side: 'depends-on' });
+    expect(other.count).toBe(61 - groups.filter((x) => x !== other).reduce((t, x) => t + x.count, 0));
+    expect(byId(out, 'group:depends-on:*').serviceName).toBe('Other teams');
+    // Opening Other teams shows its entities.
+    const opened = laneGraph(g, { open: new Set(['group:depends-on:*']) });
+    expect(opened.groups.some((x) => x.id === 'group:depends-on:*')).toBe(false);
+    expect(opened.graph.nodes.some((n) => n.id === 'solo')).toBe(true);
+  });
+
+  it('shows an opened group as its entities and keeps an edge between two drawn entities as it is', () => {
+    const { graph: out, groups } = laneGraph(graph(4, 60), { open: new Set(['group:depends-on:team-a']) });
+    expect(groups.map((x) => x.owner)).toEqual(['team-b']);
+    expect(byId(out, 'n0').edges).toHaveLength(15);
+    expect(byId(out, 'n0').edges![0]).toEqual({ targetId: 'f0', edgeState: 'drift' });
+    expect(byId(out, 'f0')).toMatchObject({ side: -1, depth: 2 });
+  });
+
+  it('counts an edge between two groups into both, drops one inside a group and draws no edge for a group with no links', () => {
+    const nodes: N[] = [node('focus', 0, undefined, [{ targetId: 'n' }]), node('n', 1, 'a', [{ targetId: 'a1' }])];
+    for (let i = 0; i < 20; i++) nodes.push(node(`a${i}`, 2, 'team-a', [...(i < 19 ? [{ targetId: `a${i + 1}` }] : []), { targetId: `b${i}`, edgeState: 'expected-not-observed' }]));
+    for (let i = 0; i < 20; i++) nodes.push(node(`b${i}`, 2, 'team-b'));
+    nodes.push(node('c0', 2, 'team-c'), node('c1', 2, 'team-c')); // reached by nothing
+    const { graph: out } = laneGraph({ nodes });
+    const lane = byId(out, 'lane:depends-on').edges!;
+    expect(lane.find((e) => e.targetId === 'group:depends-on:team-a')).toEqual({ targetId: 'group:depends-on:team-a', type: 'dependency', edgeState: 'expected-not-observed', label: 'expected, not observed (20)' });
+    expect(lane.find((e) => e.targetId === 'group:depends-on:team-b')).toMatchObject({ label: 'expected, not observed (20)' });
+    expect(byId(out, 'group:used-by:team-c').edges).toEqual([]);
+    expect(byId(out, 'lane:used-by').serviceName).toBe('Used by (0)');
+  });
+
+  it('folds the direct neighbors by team too when they alone are past the threshold, attached to the focus', () => {
+    const g = graph(GROUP_THRESHOLD + 5, 0, ['team-a', 'team-b', 'solo']);
+    g.nodes[g.nodes.length - 1].owner = 'only-me'; // a direct neighbor alone in its team stays itself
+    g.nodes.push(node('user1', 1, 'team-u', [{ targetId: 'focus', edgeState: 'matched' }]), node('user2', 1, 'team-u', [{ targetId: 'focus' }]));
+    const { graph: out, groups } = laneGraph(g);
+    expect(groups.map((x) => x.id)).toEqual(['group:depends-on:team-a', 'group:depends-on:team-b', 'group:depends-on:solo', 'group:used-by:team-u']);
+    expect(out.nodes.map((n) => n.id)).toContain(`n${GROUP_THRESHOLD + 4}`);
+    expect(byId(out, 'group:depends-on:team-a')).toMatchObject({ depth: 1, parent: 'lane:depends-on' });
+    expect(byId(out, 'focus').edges).toEqual(expect.arrayContaining([
+      { targetId: 'group:depends-on:team-a', type: 'dependency', label: '15 links' },
+      { targetId: `n${GROUP_THRESHOLD + 4}` },
+    ]));
+    expect(byId(out, 'group:used-by:team-u').edges).toEqual([{ targetId: 'focus', type: 'dependency', edgeState: 'matched', label: 'matched (1)' }]);
+  });
+
+  it('shows a lane its first eight direct neighbors, the ones worth a look first, and holds the rest back undrawn', () => {
+    const g = graph(12, 0);
+    byId(g, 'focus').edges!.find((e) => e.targetId === 'n11')!.edgeState = 'drift';
+    byId(g, 'n10').status = 'NonCompliant';
+    const { graph: out, groups, folded, more } = laneGraph(g);
+    expect([groups, folded]).toEqual([[], 0]);
+    expect(more).toEqual([{ id: 'group:depends-on:+', owner: '+4 more', side: 'depends-on', count: 4 }]);
+    const shown = out.nodes.filter((n) => n.parent === 'lane:depends-on').map((n) => n.id);
+    expect(shown).toHaveLength(LANE_CAP);
+    expect(shown).toEqual(expect.arrayContaining(['n11', 'n10']));
+    // No "+N more" box on the canvas: the button above it is the one way in.
+    expect(out.nodes.some((n) => n.id === 'group:depends-on:+')).toBe(false);
+    expect(byId(out, 'focus').edges!.some((e) => e.targetId === 'group:depends-on:+')).toBe(false);
+    // Opened, the lane shows every direct neighbor; nine is not worth holding one back.
+    expect(laneGraph(g, { open: new Set(['group:depends-on:+']) }).more).toBeUndefined();
+    expect(laneGraph(graph(LANE_CAP + 1, 0)).more).toBeUndefined();
+  });
+
+  it('groups entities with no owner together', () => {
+    expect(laneGraph(graph(2, 50, [''])).groups).toEqual([{ id: 'group:depends-on:No owner', owner: 'No owner', side: 'depends-on', count: 50 }]);
+  });
+
+  it('reads hop depth and owner from the neighborhood', () => {
+    const g = neighborhoodToGraph({ nodes: [
+      { ref: { kind: 'service', key: 'a', label: 'a' }, focus: true, depth: 0 },
+      { ref: { kind: 'service', key: 'b', label: 'b' }, depth: 2, owner: 'team-b' },
+      { ref: { kind: 'service', key: 'c', label: 'c' } },
+    ] } as never);
+    expect(g.nodes.map((n) => [n.depth, n.owner])).toEqual([[0, undefined], [2, 'team-b'], [undefined, undefined]]);
   });
 });

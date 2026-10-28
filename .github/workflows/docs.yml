@@ -63,7 +63,7 @@ jobs:
         # gh-pages history it appends each versioned deploy to.
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
           cache: pip
@@ -77,16 +77,10 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - name: Build the WASM dashboard demo
-        run: make -C examples/demo build
-      - name: Smoke test the wasm engine
-        run: make -C examples/demo smoke
-      # Fold the demo into the docs tree so mike's internal `mkdocs build` copies it
-      # into every versioned deploy at /demo/.
-      - name: Fold the demo into the docs site
-        run: |
-          mkdir -p docs/demo
-          cp -r examples/demo/dist/. docs/demo/
+      # Build the WASM demo, smoke its engine and fold it into the docs tree so
+      # mike's internal `mkdocs build` copies it into every versioned deploy at /demo/.
+      - name: Build, smoke and fold the WASM demo into the docs site
+        run: make docs-demo
       # Strict gate: mike's internal build is not --strict, so run the same strict
       # build the PR "Docs check" enforces, against a throwaway dir. This is a
       # main-push validation net; it does NOT deploy.

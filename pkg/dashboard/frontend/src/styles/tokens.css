@@ -11,8 +11,8 @@
 
   /* Text */
   --c-text: #f1f5f9;
-  --c-text-2: #94a3b8;
-  --c-text-3: #818ea3; /* clears AA 4.5:1 on surfaces, still dimmer than text-2 */
+  --c-text-2: #b4bfcf;
+  --c-text-3: #9aa6b8; /* 7.2:1 on the surface, 5.9:1 on a hovered row: AA with margin, still dimmer than text-2 */
 
   /* Borders */
   --c-border: #1e293b;
@@ -45,6 +45,9 @@
      White on the light-indigo dark-mode accent is only 2.98:1; a dark ink is 6.47:1, so
      on-accent controls read at AA. (Light theme flips this to white; see below.) */
   --c-on-accent: #0a0e17;
+  /* Ink for a label printed ON a solid status fill (chart slices). Dark ink on the light
+     dark-theme tones is 7:1 or more on every one; the light theme flips it to white. */
+  --seg-ink: #0a0e17;
 
   /* ── Typography: the SIZE RAMP ──
      One ramp, no gaps. 1rem inside the app is 15px (base.css sets the rem base to
@@ -60,13 +63,19 @@
      role could reproduce and nothing could match. */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  --text-xs: 0.75rem;     /* 11.25px */
+  /* The identity: a signed document. Titles, big numbers and labels are set in a serif,
+     the rest of the product stays in the sans. Source Serif 4 is bundled (typography.css,
+     SIL OFL 1.1, licence shipped as licenses/source-serif-4-OFL.md), so the identity does
+     not depend on what the reader has installed, and it carries REAL small caps, which
+     labels need: a synthesized small cap is a shrunken capital, thin and uneven. */
+  --font-display: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
+  --text-xs: 0.8125rem;   /* 12.19px: the smallest step, raised from 11.25px so captions and meta read without effort */
   --text-sm: 0.875rem;    /* 13.13px */
   --text-base: 0.9375rem; /* 14.06px */
   --text-md: 1.125rem;    /* 16.88px — the step between base and lg that section titles need */
   --text-lg: 1.25rem;     /* 18.75px */
-  --text-xl: 1.625rem;    /* 24.38px */
   --text-2xl: 2rem;       /* 30px */
+  --text-3xl: 2.25rem;    /* 33.75px — the page title, set in the serif */
   --line-height: 1.65;
 
   /* ── Typography: the ROLES ──
@@ -76,17 +85,23 @@
      rendered as h3 because it is nested still looks like every other section.
      Use them through the .t-* classes in typography.css; these tokens exist so a
      component that must set the size on its own element still lands on the ramp. */
-  --role-page-title-size: var(--text-xl);
+  --role-page-title-family: var(--font-display);
+  --role-page-title-size: var(--text-3xl);
   --role-page-title-weight: 700;
-  --role-page-title-lh: 1.25;
+  --role-page-title-lh: 1.2;
+  /* The double rule under a page title: the line a signed agreement is closed with. */
+  --role-page-title-rule: 3px double var(--c-text);
 
-  --role-section-title-size: var(--text-md);
-  --role-section-title-weight: 600;
-  --role-section-title-lh: 1.35;
+  --role-section-title-family: var(--font-display);
+  --role-section-title-size: 1.375rem; /* 20.63px: serif runs small, so a step between lg and xl */
+  --role-section-title-weight: 700;
+  --role-section-title-lh: 1.3;
 
-  --role-subsection-title-size: var(--text-base);
+  --role-subsection-title-family: var(--font-display);
+  --role-subsection-title-size: var(--text-md);
   --role-subsection-title-weight: 600;
-  --role-subsection-title-lh: 1.4;
+  --role-subsection-title-lh: 1.35;
+  --role-subsection-title-style: italic;
 
   --role-body-size: var(--text-base);
   --role-body-weight: 400;
@@ -96,18 +111,29 @@
   --role-body-2-weight: 400;
   --role-body-2-lh: 1.6;
 
-  --role-label-size: var(--text-xs);
-  --role-label-weight: 500;
+  /* A label is set in serif small caps at BODY size: a small cap is only as tall as a
+     lowercase letter, so the body step is what makes it read like the caption it is.
+     All-small-caps (not lowercase + small-caps) keeps the text as written, so an
+     acronym like OCI stays OCI for copy and for screen readers. --role-label-font is the
+     whole label in one value, for the components that style a label on their own
+     element: `font: var(--role-label-font); font-variant-caps: var(--role-label-caps);
+     letter-spacing: var(--role-label-tracking)`. */
+  --role-label-family: var(--font-display);
+  --role-label-size: var(--text-base);
+  --role-label-weight: 600;
   --role-label-lh: 1.4;
-  --role-label-tracking: 0.04em;
+  --role-label-tracking: 0.05em;
+  --role-label-caps: all-small-caps;
+  --role-label-font: var(--role-label-weight) var(--role-label-size) / var(--role-label-lh) var(--role-label-family);
 
   --role-meta-size: var(--text-xs);
   --role-meta-weight: 400;
   --role-meta-lh: 1.5;
 
-  --role-metric-size: var(--text-lg);
+  --role-metric-family: var(--font-display);
+  --role-metric-size: 2.4rem; /* 36px: the number the reader lands on */
   --role-metric-weight: 700;
-  --role-metric-lh: 1.2;
+  --role-metric-lh: 1.1;
 
   --role-code-size: var(--text-xs);
   --role-code-weight: 400;
@@ -130,7 +156,6 @@
   --radius-pill: 999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
 
   /* ── Motion: the DURATION RAMP ──
@@ -146,28 +171,19 @@
   --dur-2: 160ms;  /* a state that flipped: tone, chip, active tab, toc marker */
   --dur-3: 240ms;  /* a box that changed size, or a surface that arrived */
 
-  /* Easings — three, matched to the three things motion can be doing. Arriving
-     decelerates; leaving accelerates and always gets the SHORTER duration, because an
-     exit as long as its entrance reads as reluctance; moving-while-staying is
-     symmetric. No overshoot and no spring: a bounce claims the software is playful,
-     and the screen this product exists for is the 3am one. */
+  /* Easings — two, matched to the two things motion here does. Arriving decelerates;
+     moving-while-staying is symmetric. No overshoot and no spring: a bounce claims the
+     software is playful, and the screen this product exists for is the 3am one. */
   --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-leave: cubic-bezier(0.4, 0, 1, 1);
   --ease-in-place: cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* Travel. Something appearing in place rises; only a panel with a genuine offscreen
-     edge slides. Nothing here travels further than 12px under its own power. */
-  --motion-rise: 6px;
-  --motion-slide: 12px;
 
   /* ── Motion: the ROLES ──
      What the motion IS, and the only thing a component chooses — exactly like a type
-     role. Four, and the list is closed. If an interaction fits none of them, the
+     role. Three, and the list is closed. If an interaction fits none of them, the
      honest answer is almost always that it should not move. */
   --motion-feedback: var(--dur-1) var(--ease-in-place);
   --motion-flip:     var(--dur-2) var(--ease-in-place);
   --motion-reveal:   var(--dur-3) var(--ease-arrive);
-  --motion-dismiss:  var(--dur-2) var(--ease-leave);
 
   /* What a control is allowed to transition. Eight of the most-clicked controls in the
      product said `transition: all`, which animates every property a rule declares now AND
@@ -236,8 +252,8 @@
   --c-surface-hover: #e2e8f0;
   --c-surface-inset: #f1f5f9;
   --c-text: #0f172a;
-  --c-text-2: #475569;
-  --c-text-3: #5f6d80; /* clears AA 4.5:1 on light surfaces, still dimmer than text-2 */
+  --c-text-2: #3f4b5c;
+  --c-text-3: #526073; /* 6.1:1 on white, 5.2:1 on a hovered row: AA with margin, still dimmer than text-2 */
   --c-border: #e2e8f0;
   --c-border-subtle: rgba(0, 0, 0, 0.04);
   /* emerald-700: deepened from #059669 so ok-as-text (badges, scores, diff-added) clears
@@ -267,7 +283,7 @@
   --c-accent-hover: #4338ca;
   /* On the darker light-mode accent, white now clears AA (6.29:1). */
   --c-on-accent: #ffffff;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --seg-ink: #ffffff;
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
@@ -295,8 +311,6 @@
     --dur-2: 0ms;
     --dur-3: 0ms;
     --stagger-step: 0ms;
-    --motion-rise: 0px;
-    --motion-slide: 0px;
     --motion-alarm-period: 0s;
     --motion-alarm-count: 0;
   }

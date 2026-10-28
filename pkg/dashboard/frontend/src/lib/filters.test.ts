@@ -21,6 +21,11 @@ describe('filters hash', () => {
     expect(writeFiltersToHash('#/owners', EMPTY_FILTERS)).toBe('#/owners');
   });
 
+  it('keeps a list order and page size across a filter change, and drops its page', () => {
+    expect(writeFiltersToHash('#/?sort=name&dir=asc&limit=50&offset=100', { ...EMPTY_FILTERS, owner: 'a' }))
+      .toBe('#/?owner=a&sort=name&dir=asc&limit=50');
+  });
+
   it('parses filters from hash query params', () => {
     const f = readFiltersFromHash('#/services?search=pay&owner=team%2Fpay&contractStatus=Compliant');
     expect(f.search).toBe('pay');

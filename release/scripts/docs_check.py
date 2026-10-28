@@ -143,6 +143,8 @@ def yaml_docs(block: str) -> list:
 # is the point: the validator must see the same INVALID_INTERFACE_SPEC a reader
 # copying the example would get.
 PROTO_STUB = 'syntax = "proto3";\n\nservice Stub {\n}\n'
+# An mcp interface must list at least one named tool (INVALID_MCP_TOOLS).
+MCP_STUB = '{"tools": [{"name": "stub"}]}\n'
 
 
 def is_local_ref(val) -> bool:
@@ -157,7 +159,7 @@ def is_local_ref(val) -> bool:
 def collect_local_refs(obj, out: set[str]) -> None:
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if k in ("ref", "schema") and is_local_ref(v):
+            if k in ("ref", "schema", "file") and is_local_ref(v):
                 out.add(v)
             else:
                 collect_local_refs(v, out)
@@ -197,6 +199,10 @@ def check_contracts(pacto_bin: str, md_files: list[str]) -> None:
                             # rejects with INVALID_INTERFACE_SPEC. Stubbing that
                             # with "{}" would pass a doc example the real CLI fails.
                             fh.write(PROTO_STUB if ref.endswith(".proto") else "{}\n")
+                    for iface in doc.get("interfaces") or []:
+                        if iface.get("type") == "mcp" and iface.get("ref") in refs:
+                            with open(os.path.join(tmp, iface["ref"]), "w", encoding="utf-8") as fh:
+                                fh.write(MCP_STUB)
                     proc = run([pacto_bin, "validate", tmp])
                     if proc.returncode == 0:
                         ok += 1
@@ -512,6 +518,14 @@ def check_chart() -> None:
         for m in re.finditer(r"^\| `([\w.\[\]-]+)` \| .* \|\s*\|$", read(ref), re.M)
     ]
 
+    # --reuse-values replaces the new chart's defaults with the old release's
+    # values, so an upgrade that adds a values section renders it as nil and
+    # fails. The delivery install shipped that way. Use --reset-then-reuse-values.
+    for path in site_markdown():
+        for n, line in enumerate(read(path).splitlines(), 1):
+            if re.search(r"(?<![\w-])--reuse-values\b", line):
+                bad_sets.append(f"{os.path.relpath(path, REPO_ROOT)}:{n}:--reuse-values")
+
     ok = ok_helm and not bad_sets and not undocumented
     detail = f"helm lint+template OK, install --set keys valid, {len(known)} values all documented"
     if not ok:
@@ -519,7 +533,7 @@ def check_chart() -> None:
         if not ok_helm:
             parts.append("helm lint/template failed: " + (lint.stderr or tmpl.stderr).strip()[:200])
         if bad_sets:
-            parts.append("unknown --set keys: " + ", ".join(bad_sets))
+            parts.append("unknown --set keys or --reuse-values: " + ", ".join(bad_sets))
         if undocumented:
             parts.append(
                 f"{len(undocumented)} values.yaml keys have no `# --` description on the LEAF key: "
@@ -538,16 +552,20 @@ def check_coordinates() -> None:
     units = manifest["units"]
     ah = read(os.path.join(K8S, "docs", "generated", "artifact-hub.md"))
     problems = []
-    for uid in ("operator-image", "operator-chart", "k8s-module"):
+    for uid in ("operator-image", "operator-chart", "delivery-image", "k8s-module"):
         u = units[uid]
         if u["coordinate"] not in ah:
             problems.append(f"{uid} coordinate {u['coordinate']} absent from artifact-hub.md")
         if u["version"] not in ah:
             problems.append(f"{uid} version {u['version']} absent from artifact-hub.md")
     # Authored install snippets must use the manifest chart coordinate, not a stale one.
-    chart_coord = units["operator-chart"]["coordinate"]
-    for name in ("installation.md", "upgrade.md"):
-        text = read(os.path.join(K8S, "docs", name))
+    for path, unit in ((os.path.join(K8S, "docs", "installation.md"), "operator-chart"),
+                       (os.path.join(K8S, "docs", "upgrade.md"), "operator-chart"),
+                       (os.path.join(K8S, "docs", "delivery-setup.md"), "operator-chart"),
+                       (os.path.join(REPO_ROOT, "docs", "pactify.md"), "operator-chart")):
+        name = os.path.basename(path)
+        chart_coord = units[unit]["coordinate"]
+        text = read(path)
         for coord in re.findall(r"oci://(ghcr\.io/\S*charts/\S+)", text):
             if coord.rstrip("\\").strip() != chart_coord:
                 problems.append(f"{name}: chart coordinate {coord} != manifest {chart_coord}")
@@ -558,8 +576,20 @@ def check_coordinates() -> None:
         for ver in re.findall(r"--version\s+(\d\S*)", text):
             problems.append(
                 f"{name}: hand-written --version {ver}; include "
-                f"generated/_install-command.md or _upgrade-command.md instead"
+                f"generated/_install-command.md, _upgrade-command.md or "
+                "_delivery-install-command.md instead"
             )
+    # The CRD-apply snippets, for a cluster that sets crds.install=false, must
+    # name exactly the CRDs the chart renders, split by group. A delivery CRD in
+    # the operator snippet would install delivery's kinds where delivery is off;
+    # a missing one would leave the operator or the promoter unable to start.
+    shipped_crds = os.listdir(os.path.join(K8S, "charts", "pacto-operator", "files", "crds"))
+    for snippet, delivery in (("_crd-apply.md", False), ("_delivery-crd-apply.md", True)):
+        named = sorted(re.findall(r"/config/crd/bases/(\S+\.yaml)",
+                                  read(os.path.join(K8S, "docs", "generated", snippet))))
+        shipped = sorted(f for f in shipped_crds if f.startswith("delivery.") == delivery)
+        if named != shipped:
+            problems.append(f"{snippet} applies {named}, chart pacto-operator ships {shipped}")
     # Every pinned image coordinate anywhere on the site, not only the chart's.
     # `ghcr.io/trianalab/pacto/demo:3.2.1` sat in the Compose demo page against a
     # 3.2.7 release unit with nothing comparing them, so the page's one
@@ -714,26 +744,66 @@ SUPPLY_CHAIN_DOC = os.path.join(REPO_ROOT, "docs", "installation.md")
 COORD = re.compile(r"ghcr\.io/[a-z0-9._/-]+")
 
 
+def expand_aliases(text: str) -> str:
+    """Inline YAML anchors textually: `key: *name` takes the lines `key: &name` owns.
+
+    release.yml shares one set of steps between the operator and delivery jobs
+    this way, so without it the delivery jobs would show no signing step.
+    """
+    lines = text.splitlines()
+    bodies = {}
+    for i, line in enumerate(lines):
+        m = re.match(r"^(\s*)[^\s#][^:]*: &([\w-]+)\s*$", line)
+        if not m:
+            continue
+        body = []
+        for b in lines[i + 1:]:
+            if b.strip() and len(b) - len(b.lstrip(" ")) <= len(m.group(1)):
+                break
+            body.append(b)
+        bodies[m.group(2)] = body
+    out = []
+    for line in lines:
+        m = re.match(r"^(\s*)([^\s#][^:]*): \*([\w-]+)\s*$", line)
+        if m and m.group(3) in bodies:
+            out.append(f"{m.group(1)}{m.group(2)}:")
+            out.extend(bodies[m.group(3)])
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def signed_coordinates() -> set[str]:
     """Coordinates the release workflow actually runs `cosign sign` against.
 
-    Signing targets are written as `${REF}` inside a job whose env sets `REF:`,
-    or as a bare literal. Track the last `REF:` seen and resolve on the way past
-    -- crude, but it is the same reading a human does, and it is grounded in the
-    workflow rather than in a second document repeating the claim.
+    Signing targets are written as `${REF}` inside a job whose env sets `REF:`
+    (itself often `${{ env.IMAGE_REPO }}:...`), as `$CHART_REPO`, or as a bare
+    literal. Track every upper-case env value seen in the current job and
+    resolve on the way past -- crude, but it is the same reading a human does,
+    and it is grounded in the workflow rather than in a second document
+    repeating the claim.
     """
-    ref = ""
+    env = {}
     found = set()
     # A signing command is routinely wrapped, and the coordinate is on the
     # continuation line. Collapse `\`-continuations before scanning.
-    text = re.sub(r"\\\n\s*", " ", read(RELEASE_YML))
+    text = re.sub(r"\\\n\s*", " ", expand_aliases(read(RELEASE_YML)))
+
+    def resolve(value: str) -> str:
+        for _ in range(3):
+            # Longest name first, so $CHART never eats the front of $CHART_REPO.
+            for k, v in sorted(env.items(), key=lambda kv: -len(kv[0])):
+                value = value.replace("${{ env.%s }}" % k, v).replace("${%s}" % k, v).replace("$" + k, v)
+        return value
+
     for line in text.splitlines():
-        m = re.match(r"\s*REF:\s*(\S+)", line)
+        if re.match(r"^  [\w-]+:\s*$", line):
+            env = {}  # a new job
+        m = re.match(r"\s*([A-Z][A-Z0-9_]*):\s*(\S.*?)\s*$", line)
         if m:
-            ref = m.group(1)
+            env[m.group(1)] = m.group(2)
         if "cosign sign" in line and not line.lstrip().startswith("#"):
-            target = line.replace("${REF}", ref).replace("$REF", ref)
-            found.update(COORD.findall(target))
+            found.update(COORD.findall(resolve(line)))
     # Drop the digest/tag suffix: the table names repositories, not releases.
     return {c.split(":")[0].split("@")[0] for c in found}
 

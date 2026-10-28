@@ -6,8 +6,6 @@ package validation
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"io/fs"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -18,7 +16,13 @@ import (
 // The rawYAML parameter is the original YAML bytes for JSON Schema validation.
 // The bundleFS parameter provides access to bundle files for cross-field validation.
 func Validate(c *contract.Contract, rawYAML []byte, bundleFS fs.FS) ValidationResult {
-	return runLayers(c, rawYAML, bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
+	return ValidateDocument(c, contract.DecodeDocument(rawYAML), bundleFS)
+}
+
+// ValidateDocument is [Validate] over a document a loader already decoded
+// ([contract.ParseDocument]), so the YAML is not read twice.
+func ValidateDocument(c *contract.Contract, doc *contract.Document, bundleFS fs.FS) ValidationResult {
+	return runLayers(c, doc, bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
 		return ResolvePoliciesFromBundle(c, bundleFS)
 	})
 }
@@ -27,7 +31,7 @@ func Validate(c *contract.Contract, rawYAML []byte, bundleFS fs.FS) ValidationRe
 // BundleResolver for recursive ref-based policy resolution. If resolver is nil,
 // any ref-based policies produce a hard POLICY_REF_UNRESOLVED error (fail closed).
 func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolver BundleResolver) ValidationResult {
-	return runLayers(c, rawYAML, bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
+	return runLayers(c, contract.DecodeDocument(rawYAML), bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
 		return ResolvePoliciesWithResolver(ctx, c, bundleFS, resolver)
 	})
 }
@@ -36,9 +40,9 @@ func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []b
 // structural and cross-field failures. Layer 3 policy resolution is delegated to
 // resolvePolicies, which is the only step that differs between the local-only
 // Validate and the resolver-based ValidateWithResolver.
-func runLayers(c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolvePolicies func() ([]ResolvedPolicy, ValidationResult)) ValidationResult {
+func runLayers(c *contract.Contract, doc *contract.Document, bundleFS fs.FS, resolvePolicies func() ([]ResolvedPolicy, ValidationResult)) ValidationResult {
 	// Layer 1: Structural validation via JSON Schema.
-	result := ValidateStructuralRaw(rawYAML)
+	result := validateStructuralDoc(doc)
 	if !result.IsValid() {
 		return result
 	}
@@ -53,77 +57,23 @@ func runLayers(c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolvePoli
 	policies, policyResult := resolvePolicies()
 	result.Merge(policyResult)
 	if result.IsValid() {
-		result.Merge(EnforcePolicies(rawYAML, policies))
+		result.Merge(enforcePolicies(doc, policies))
 	}
 
 	return result
 }
 
 // ValidateStructuralRaw performs Layer 1 (JSON Schema) validation on raw YAML bytes.
-// It converts the YAML to a generic interface{} and validates against the schema.
 func ValidateStructuralRaw(rawYAML []byte) ValidationResult {
-	data, err := yamlToGeneric(rawYAML)
+	return validateStructuralDoc(contract.DecodeDocument(rawYAML))
+}
+
+func validateStructuralDoc(doc *contract.Document) ValidationResult {
+	data, err := doc.JSON()
 	if err != nil {
 		var result ValidationResult
 		result.AddError("", "YAML_PARSE_ERROR", err.Error())
 		return result
 	}
 	return ValidateStructural(data)
-}
-
-// yamlToGeneric converts YAML bytes to a generic interface{} suitable for
-// JSON Schema validation. It goes through JSON to ensure type compatibility
-// with the JSON Schema library.
-func yamlToGeneric(data []byte) (any, error) {
-	// contract.DecodeYAML, not yaml.Unmarshal: an unquoted date scalar resolves to
-	// time.Time and JSON-marshals to RFC3339, so the schema would be checking a
-	// value that is not in the document.
-	var yamlObj any
-	if err := contract.DecodeYAML(data, &yamlObj); err != nil {
-		return nil, err
-	}
-
-	// Convert map[string]interface{} (yaml uses map[interface{}]interface{} for nested)
-	converted := convertYAMLToJSON(yamlObj)
-
-	// Round-trip through JSON to ensure types match JSON Schema expectations
-	jsonBytes, err := json.Marshal(converted)
-	if err != nil {
-		return nil, err
-	}
-
-	// Bytes json.Marshal just produced always decode into an any.
-	var result any
-	_ = json.Unmarshal(jsonBytes, &result)
-	return result, nil
-}
-
-// convertYAMLToJSON recursively converts YAML-style maps to JSON-compatible maps.
-func convertYAMLToJSON(v any) any {
-	switch v := v.(type) {
-	case map[string]any:
-		result := make(map[string]any, len(v))
-		for key, val := range v {
-			result[key] = convertYAMLToJSON(val)
-		}
-		return result
-	case map[any]any:
-		result := make(map[string]any, len(v))
-		for key, val := range v {
-			strKey, ok := key.(string)
-			if !ok {
-				strKey = fmt.Sprintf("%v", key)
-			}
-			result[strKey] = convertYAMLToJSON(val)
-		}
-		return result
-	case []any:
-		result := make([]any, len(v))
-		for i, val := range v {
-			result[i] = convertYAMLToJSON(val)
-		}
-		return result
-	default:
-		return v
-	}
 }

@@ -1,14 +1,15 @@
 <script>
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
+  import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import {
     attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel,
   } from '../lib/entityLabels.ts';
-  import { statusLabel, STATUS_FILTER_OPTIONS, ownerKeyLabel, ownerKeyKind } from '../lib/format.ts';
+  import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
+  import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
   import { fleetOverviewUrl, fleetAttentionUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import EntityCombobox from '../components/EntityCombobox.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import SeverityBadge from '../components/SeverityBadge.svelte';
@@ -19,6 +20,10 @@
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import { severitySegments, severityHrefs, SEVERITY_STATES, bucketLabel } from '../lib/distributions.ts';
   import PageHeader from '../components/PageHeader.svelte';
+  import Pager from '../components/Pager.svelte';
+  import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
+  import { formatCount } from '../lib/format.ts';
+  import { joinAnd, problemPhrase } from '../lib/answers.ts';
   import { fly } from 'svelte/transition';
   import { flip } from 'svelte/animate';
   import { MOTION, dur, stagger } from '../lib/motion.ts';
@@ -34,13 +39,14 @@
   // canonical backlog for `team-a` never quietly includes `team-a-platform`.
   let {
     category = '', severity = '', status = '', owner = '', ownerKey = '', source = '', service = '',
-    staleOnly = '', offset = '', refreshTick = 0,
+    staleOnly = '', offset = '', limit = '', refreshTick = 0,
   } = $props();
 
   const PAGE_SIZE = 25;
   const CATEGORIES = ATTENTION_CATEGORIES;
   const SEVERITIES = ['error', 'warning', 'info'];
-  const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
+  const pageOffset = $derived(urlInt(offset));
+  const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   const isStale = $derived(staleOnly === '1');
   // The name a reader reads, and — where two owners share one — which of them.
   const ownerBox = $derived(ownerKey ? ownerKeyLabel(ownerKey) : owner);
@@ -64,34 +70,29 @@
     service: service || undefined,
     staleOnly: isStale ? true : undefined,
     offset: pageOffset || undefined,
-    limit: PAGE_SIZE,
+    limit: pageLimit,
   }));
   // queryIdentity is the QUESTION (filters + page); refreshTick only re-asks it. Rows
   // are retained across a re-ask and never across a different question.
-  const queryIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly, pageOffset].join('@@'));
-  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
+  const queryIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly, pageOffset, pageLimit].join('@@'));
+  // listIdentity is the same question without its page: a page turn keeps the rows.
+  const listIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly].join('@@'));
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
-  const loading = $derived(loader.loading);
-  const error = $derived(loader.error);
-  const knowledge = $derived(snapshotKnowledge(list?.meta));
-  const count = $derived(list?.items?.length ?? 0);
-  const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
-  // `loader.data`, not `list`: `list` is nulled the instant the query changes, which is
-  // exactly when the skeleton renders, and 0 rows is no shape at all.
-  const skeletonRows = $derived(loader.data?.items?.length || PAGE_SIZE);
-  // A poll that failed over rows we can still show. decideViewState keeps the rows;
-  // this is the half that keeps it honest, so a frozen list never reads as a live one.
-  const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
-  // A poll in flight over data already on screen. decideViewState has decided this on
-  // every page since stale-while-revalidate landed; the header is the first thing to
-  // actually say it, in words rather than by spinning something.
-  const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
+  const view = productListState(loader, (d) => d.items, () => ({ tag: queryIdentity, family: listIdentity, filtered: anyFilter, pageLimit }));
+  const list = $derived(view.data);
+  const knowledge = $derived(view.knowledge);
+  const count = $derived(view.count);
+  const state = $derived(view.state);
+  const skeletonRows = $derived(view.skeletonRows);
+  const refreshError = $derived(view.refreshError);
+  const revalidating = $derived(view.revalidating);
 
   // A filter change resets the offset to page 1; a patch value of '' clears a filter.
-  function urlWith(patch, off = 0) {
+  // The page size survives a filter change; only the page resets.
+  function urlWith(patch, off = 0, lim = pageLimit) {
     const stale = patch.staleOnly !== undefined ? patch.staleOnly : isStale;
     return fleetAttentionUrl({
       category: patch.category ?? category,
@@ -103,17 +104,25 @@
       service: patch.service ?? service,
       staleOnly: stale || undefined,
       offset: off,
+      limit: limitParam(lim, limit, PAGE_SIZE),
     });
   }
   function apply(patch) { location.hash = urlWith(patch); }
+
+  // Owner, source and service are picked from what exists, not typed as exact ids. A
+  // picked owner is an identity (ownerKey); typed text stays the generous owner search.
+  // committed guards the change event a pick is followed by, which would otherwise
+  // re-read the exact choice as a substring search.
+  let committed = { owner: '', source: '', service: '' };
+  function pickOwner(ref) { committed.owner = ref.label ?? ''; apply({ ownerKey: ref.key ?? '', owner: '' }); }
+  function typeOwner(v) { if (v !== committed.owner && v !== ownerBox) { committed.owner = v; apply({ owner: v, ownerKey: '' }); } }
+  function pickSource(ref) { committed.source = ref.label ?? ''; apply({ source: ref.key ?? '' }); }
+  function typeSource(v) { if (v !== committed.source && v !== source) { committed.source = v; apply({ source: v }); } }
+  // A service filter is a canonical key, so only a pick sets it; clearing the box clears it.
+  function pickService(ref) { committed.service = ref.label ?? ''; apply({ service: ref.key ?? '' }); }
+  function typeService(v) { if (!v && service) apply({ service: '' }); }
   function clearAll() { location.hash = fleetAttentionUrl(); }
 
-  const total = $derived(list?.total ?? 0);
-  const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
-  const shownTo = $derived((list?.offset ?? pageOffset) + count);
-  const hasPrev = $derived((list?.offset ?? pageOffset) > 0);
-  const hasNext = $derived(list?.nextOffset != null);
-  const prevOffset = $derived(Math.max(0, (list?.offset ?? pageOffset) - PAGE_SIZE));
 
   const chips = $derived([
     category ? { key: 'category', label: 'Category', value: attentionCategoryLabel(category) } : null,
@@ -183,13 +192,33 @@
   // against printing them in prose (see the severity-vocabulary test).
   const urgent = $derived((list?.severities?.errors ?? 0) + (list?.severities?.warnings ?? 0));
   const headerCount = $derived(
-    list ? `${list.total} item${list.total === 1 ? '' : 's'} · ${urgent ? 'most urgent first' : 'nothing urgent'}` : '',
+    list ? `${formatCount(list.total)} item${list.total === 1 ? '' : 's'} · ${urgent ? 'most urgent first' : 'nothing urgent'}` : '',
   );
+  // The answer line: what to fix first, over every item this filter matched (the
+  // backend tallies, not the page). Confirmed problems lead; the rest is a count.
+  const attnAnswer = $derived.by(() => {
+    if (!list || !list.total) return null;
+    const cats = list.categories ?? [];
+    const first = cats.map((b) => ({ n: b.count ?? 0, text: problemPhrase(b.category, b.count ?? 0) })).filter((x) => x.n > 0 && x.text);
+    const firstN = first.reduce((a, x) => a + x.n, 0);
+    const rest = list.total - firstN;
+    const more = rest > 0 ? `${formatCount(rest)} more ${rest === 1 ? 'is' : 'are'} worth a look.` : '';
+    return first.length
+      ? { lead: `Fix first: ${joinAnd(first.map((x) => x.text))}.`, rest: more }
+      : { lead: 'Nothing confirmed broken.', rest: `${formatCount(list.total)} ${list.total === 1 ? 'item is' : 'items are'} worth a look.` };
+  });
+  // A run of rows with the same next step says it once, on the first row of the run:
+  // twenty-five identical hints down the right edge were the same sentence, not advice.
+  const showNext = (i) => !!list.items[i].nextStep && (i === 0 || list.items[i - 1].nextStep !== list.items[i].nextStep);
 </script>
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Needs attention' }]} />
-  <PageHeader title="Needs attention" count={headerCount} asOf={list?.meta?.asOf} {revalidating} />
+  <PageHeader title="Needs attention" count={headerCount} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
+
+  {#if attnAnswer && state.kind === 'ready'}
+    <p class="page-answer t-body" data-testid="attention-answer"><strong>{attnAnswer.lead}</strong> {attnAnswer.rest}</p>
+  {/if}
 
   <!-- Primary triage filters; secondary ones live behind an advanced disclosure so the
        default surface stays simple. -->
@@ -221,17 +250,26 @@
             {#each STATUS_FILTER_OPTIONS as s}<option value={s}>{statusLabel(s)}</option>{/each}
           </select>
         </label>
-        <label class="av-field">
-          <span>Owner</span>
+        <!-- Not wrapping <label>s: a click inside one is forwarded to its control, which
+             would swallow the click on a suggestion. The association is by `for`. -->
+        <div class="av-field">
+          <label for="attn-owner">Owner</label>
           <!-- Arriving here from an owner page carries the canonical `ownerKey`; the
                box shows that owner's NAME, because `team:alice` is a wire form and
                editing it would hand the reader a search for the encoding. -->
-          <input class="input" type="text" value={ownerBox} placeholder="team or DRI" aria-label="Filter by owner" onchange={(e) => apply({ owner: e.currentTarget.value.trim(), ownerKey: '' })} />
-        </label>
-        <label class="av-field">
-          <span>Source</span>
-          <input class="input" type="text" value={source} placeholder="source id" aria-label="Filter by source" onchange={(e) => apply({ source: e.currentTarget.value.trim() })} />
-        </label>
+          <EntityCombobox id="attn-owner" value={ownerBox} kinds={['owner']} placeholder="team or DRI" label="Filter by owner"
+            testid="attn-owner" onselect={pickOwner} oncommit={typeOwner} />
+        </div>
+        <div class="av-field">
+          <label for="attn-source">Source</label>
+          <EntityCombobox id="attn-source" value={source} kinds={['source']} placeholder="data source" label="Filter by source"
+            testid="attn-source" onselect={pickSource} oncommit={typeSource} />
+        </div>
+        <div class="av-field">
+          <label for="attn-service">Service</label>
+          <EntityCombobox id="attn-service" value={service} kinds={['service']} placeholder="service" label="Filter by service"
+            testid="attn-service" onselect={pickService} oncommit={typeService} />
+        </div>
         <label class="av-check">
           <input type="checkbox" checked={isStale} aria-label="Show only stale evidence" onchange={(e) => apply({ staleOnly: e.currentTarget.checked })} />
           <span>Stale evidence only</span>
@@ -250,7 +288,9 @@
     <StaleRefreshNotice noun="attention list" onRetry={load} />
   {/if}
 
-  {#if state.kind !== 'ready'}
+  {#if pastEnd(list, count)}
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} count={0} noun="attention items" testid="attn" />
+  {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="attention items" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
     <!-- The shape of the backlog before the backlog itself. Both charts read the
@@ -293,29 +333,16 @@
             <SeverityBadge severity={it.severity} />
             <span class="attn-cat">{attentionCategoryLabel(it.category)}</span>
             <EntityLink ref={it.entity} showStatus={false} />
-            <span class="attn-summary">{it.summary || it.reason || it.label}</span>
-            {#if it.source}<span class="attn-src">via {it.source}</span>{/if}
+            <!-- The source sits inside the summary so the two wrap as one: on its own it
+                 dropped to a line of its own under a long service name. -->
+            <span class="attn-summary">{it.summary || it.reason || it.label}{#if it.source}{' '}<span class="attn-src">via {it.source}</span>{/if}</span>
           </div>
-          {#if it.nextStep}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
+          {#if showNext(i)}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
         </li>
       {/each}
     </ul>
 
-    <nav class="av-pager pl-pager" aria-label="Attention pages">
-      <span class="av-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="av-pager-btns pl-pager-btns">
-        {#if hasPrev}
-          <a class="av-page pl-page" href={urlWith({}, prevOffset)} data-testid="attn-prev" rel="prev">Previous</a>
-        {:else}
-          <span class="av-page pl-page disabled" aria-disabled="true">Previous</span>
-        {/if}
-        {#if hasNext}
-          <a class="av-page pl-page" href={urlWith({}, list.nextOffset)} data-testid="attn-next" rel="next">Next</a>
-        {:else}
-          <span class="av-page pl-page disabled" aria-disabled="true">Next</span>
-        {/if}
-      </div>
-    </nav>
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} label="Attention pages" noun="items" testid="attn" />
   {/if}
 </div>
 
@@ -327,7 +354,7 @@
      nothing; a fold that starts below the first item does. */
   .av-shape { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); align-items: start; }
   .av-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
-  .av-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); }
+  .av-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); position: relative; min-width: 12rem; }
   /* Look and behaviour come from the shared .disclosure class: an accent-coloured
      summary here and quiet grey ones elsewhere read as two different controls. */
   .av-adv-grid { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; margin-top: var(--sp-2); }
@@ -335,8 +362,14 @@
   /* Shape only. The frame, the divider and the hover come from the shared .pl-row.
      The row keeps its own padding because its main child is not the only child. */
   .attn-item {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-2) var(--sp-3);
+    /* The next step is capped: as an auto column a long one took the whole row and
+       squeezed the entity to a character per line. On a phone it goes underneath. */
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 28ch); align-items: center; gap: var(--sp-2) var(--sp-3);
     padding: var(--sp-2) var(--sp-3);
+  }
+  @media (max-width: 40rem) {
+    .attn-item { grid-template-columns: minmax(0, 1fr); }
+    .attn-next { text-align: left; }
   }
   /* The severity rail. Two selectors deep on purpose: .pl-row:hover paints the same 3px
      slot accent, and one stripe cannot mean both "clickable" and "this one is an error".
@@ -358,11 +391,11 @@
   }
   .attn-main { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .attn-cat {
-    font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em;
     color: var(--c-text-3); background: var(--c-surface-inset); padding: 1px 6px; border-radius: var(--radius-xs);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .attn-summary { color: var(--c-text-2); font-size: var(--text-sm); }
-  .attn-src { color: var(--c-text-3); font-size: var(--text-xs); }
+  .attn-src { color: var(--c-text-3); font-size: var(--text-xs); white-space: nowrap; }
   /* Backend-provided guidance, not a control. Right-aligned grey micro-text with an
      imperative verb read as a link that did nothing when clicked; the "Next" key
      names it as advice, the same way every labelled fact row does. */
@@ -370,6 +403,6 @@
   /* No opacity: every other uppercase micro-label in the product (.attn-cat, .te-k,
      .src-k) is plain --c-text-3, and dimming this one further put it at 3.58:1 -- below
      WCAG AA -- while also making it the only micro-label with its own shade. */
-  .attn-next-k { text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .attn-next-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   /* The list and the pager are the shared .pl-* rules in styles/components.css. */
 </style>

@@ -28,18 +28,24 @@ import (
 // direction matters more than the precision -- a red run is always a real
 // finding, and a green run is the weaker claim.
 //
-// A live example of that under-report, so the limitation is not theoretical:
-// pkg/otelobserver.Observe has no caller, but the operator calls a method also
-// named Observe on its own runtime observer, and the two are indistinguishable
-// here. Resolving them apart needs the import graph, and a first pass at that
-// showed why it is not worth it: qualifying non-method uses is easy, but a
-// method use is a selector on a value whose type only a type-checker knows, so
+// Resolving same-named symbols apart needs the import graph, and a first pass
+// at that showed why it is not worth it: qualifying non-method uses is easy, but
+// a method use is a selector on a value whose type only a type-checker knows, so
 // every method in the repo would read as dead.
 
 // deadCodeAllowlist names symbols the gate would otherwise report, each with
 // the reason it is allowed to have no production caller. A stale entry fails
 // the test as loudly as a missing one: an exemption that has stopped applying
 // is how the next real instance hides.
+// sigstoreKeypair is why a sign.Keypair method has no caller in Pacto:
+// sigstore-go calls it through that interface while it signs.
+const sigstoreKeypair = "a sign.Keypair method sigstore-go calls through that interface, never by name"
+
+// runtimeBoundsV6 explains the deprecated MaxRuntime* constants: public API of
+// the released k8s module v6.0, outside pkg/ so the Deprecated: pass does not
+// cover them, kept so a minor upgrade does not break importers.
+const runtimeBoundsV6 = "deprecated public API of the released k8s module v6.0, kept for source compatibility"
+
 var deadCodeAllowlist = map[string]string{
 	// Every entry is "<pkg>.<Symbol>": reason.
 
@@ -49,6 +55,21 @@ var deadCodeAllowlist = map[string]string{
 		"assertion about two packages, so it cannot be written inside either one's production " +
 		"code, and deleting the table to satisfy this gate would delete the coverage proof " +
 		"with it",
+
+	"integrations/kubernetes/api/v1alpha1.MaxRuntimePodsPerNode":       runtimeBoundsV6,
+	"integrations/kubernetes/api/v1alpha1.MaxRuntimeListenersPerPod":   runtimeBoundsV6,
+	"integrations/kubernetes/api/v1alpha1.MaxRuntimeConnectionsPerPod": runtimeBoundsV6,
+
+	"pkg/signing.GetHashAlgorithm":    sigstoreKeypair,
+	"pkg/signing.GetKeyAlgorithm":     sigstoreKeypair,
+	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
+	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
+
+	"pkg/validation.EnforcePolicies": "public API of the released v4 major for callers that hold only " +
+		"the raw YAML; in-tree validation now decodes once and goes through ValidateDocument",
+
+	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
+		"through that interface, never by name",
 
 	"pkg/contract.PolicyTargetContract":     schemaVocabulary,
 	"pkg/contract.CategoryArchitecture":     schemaVocabulary,
@@ -72,6 +93,10 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/contract.EvidenceTypeReport":       schemaVocabulary,
 	"pkg/contract.EvidenceTypeTicket":       schemaVocabulary,
 	"pkg/contract.EvidenceTypeURL":          schemaVocabulary,
+
+	"pkg/delivery.DeepCopyInto": "the delivery CRDs embed the pkg/delivery wire types, and the only caller " +
+		"is the controller-gen deepcopy of integrations/kubernetes/api/delivery/v1alpha1, a generated file " +
+		"this gate does not read",
 
 	"integrations/kubernetes/api/v1alpha1.CollectionRunning":  crdVocabulary,
 	"integrations/kubernetes/api/v1alpha1.CollectionDegraded": crdVocabulary,
@@ -118,7 +143,7 @@ type decl struct {
 func (d decl) key() string { return d.pkgDir + "." + d.name }
 
 func TestNoProductionSymbolIsReachableOnlyFromTests(t *testing.T) {
-	root := repoDir(t)
+	root := repoRoot(t)
 	fset := token.NewFileSet()
 
 	var decls []decl

@@ -24,6 +24,8 @@ import KnowledgeBanner from './KnowledgeBanner.svelte';
 import RelationshipList from './RelationshipList.svelte';
 // @ts-expect-error
 import FindingList from './FindingList.svelte';
+// @ts-expect-error
+import PageHeader from './PageHeader.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
 let target: HTMLElement;
@@ -152,6 +154,14 @@ describe('ProductEmptyState — honest knowledge states', () => {
     expect(target.textContent).toContain('no revision with this key');
   });
 
+  it('a bare "not found" from the backend is said once, with a way back', async () => {
+    const { ApiError } = await import('../lib/api.ts');
+    const state = decideViewState({ loading: false, itemCount: 0, error: new ApiError(404, 'not found') });
+    comp = mount(ProductEmptyState, { target, props: { state } });
+    expect(target.textContent?.match(/not found/gi)).toHaveLength(1);
+    expect(target.querySelector('a')?.getAttribute('href')).toBe('#/fleet');
+  });
+
   it('scenario 15: a schema/contract incompatibility renders an explicit error state', async () => {
     const { SchemaCompatibilityError } = await import('../lib/api.ts');
     const state = decideViewState({ loading: false, itemCount: 0, error: new SchemaCompatibilityError('pacto.dev/fleet-product/v2') });
@@ -172,6 +182,14 @@ describe('SourceHealth', () => {
     expect(links[0].getAttribute('href')).toBe('#/fleet/sources/k8s');
     expect(links[1].textContent).toContain('local');     // then stale
     expect(links[2].textContent).toContain('oci');       // available last
+  });
+
+  it('folds forty healthy sources into one chip and keeps every unhealthy one', () => {
+    const sources = [{ id: 'k8s', status: 'unavailable' }, ...Array.from({ length: 40 }, (_, i) => ({ id: `oci-${i}`, status: 'available' }))];
+    comp = mount(SourceHealth, { target, props: { sources } });
+    const links = Array.from(target.querySelectorAll('a.sh-chip')) as HTMLAnchorElement[];
+    expect(links.map((a) => a.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['k8s Unavailable', '40 available']);
+    expect(links[1].getAttribute('href')).toBe('#/fleet/sources?sourceHealth=available');
   });
 });
 
@@ -204,7 +222,7 @@ describe('OperationalSummary', () => {
   // Eight identical tiles made the reader redo the ranking the backend had already done,
   // so the backend's own grade now decides the treatment: errors share the grid with the
   // lead tile, everything milder becomes one compact line.
-  it('leads with the errors and compacts the milder grades, worded as the backend worded them', () => {
+  it('leads with the errors and compacts the milder grades in a few words, the backend wording as the title', () => {
     comp = mount(OperationalSummary, { target, props: summaryProps() });
     expect(Array.from(target.querySelectorAll('.tile-grid .tile-label')).map((n) => n.textContent)).toEqual([
       'Services need attention',
@@ -213,7 +231,8 @@ describe('OperationalSummary', () => {
     // Demoting the treatment must not delete the number: the milder entries keep their
     // exact count and stay one click away.
     const sec = Array.from(target.querySelectorAll('.op-secondary a.op-sec'));
-    expect(sec.map((n) => n.querySelector('.op-sec-label')?.textContent)).toEqual([
+    expect(sec.map((n) => n.querySelector('.op-sec-label')?.textContent)).toEqual(['stale evidence', 'undeclared runtime calls']);
+    expect(sec.map((n) => n.querySelector('.op-sec-label')?.getAttribute('title'))).toEqual([
       'Operational targets with stale evidence',
       'Undeclared runtime dependencies observed',
     ]);
@@ -241,7 +260,7 @@ describe('OperationalSummary', () => {
       .find((t) => t.textContent?.includes(text)) as HTMLElement).className;
     expect(toneOf('not compliant')).toContain('tone-err');
     expect(toneOf('stale evidence')).toContain('tone-warn');
-    expect(toneOf('Undeclared runtime dependencies')).toContain('tone-info');
+    expect(toneOf('undeclared runtime calls')).toContain('tone-info');
     expect(toneOf('Services need attention')).toContain('tone-warn');
   });
 
@@ -249,7 +268,7 @@ describe('OperationalSummary', () => {
     const props = summaryProps();
     props.entryPoints = props.entryPoints.map((ep) => ({ ...ep, count: 0 }));
     comp = mount(OperationalSummary, { target, props });
-    const entry = Array.from(target.querySelectorAll('a.tile, a.op-sec')).find((t) => t.textContent?.includes('Undeclared')) as HTMLElement;
+    const entry = Array.from(target.querySelectorAll('a.tile, a.op-sec')).find((t) => t.textContent?.includes('undeclared')) as HTMLElement;
     expect(entry.className).toContain('tone-ok');
   });
 
@@ -393,5 +412,17 @@ describe('FindingList provenance', () => {
     const metas = [...target.querySelectorAll('.f-meta')].map((m) => m.textContent ?? '');
     expect(metas[0]).toContain('seen by: Kubernetes + kernel');
     expect(metas[1]).not.toContain('seen by');
+  });
+});
+
+describe('PageHeader', () => {
+  const age = () => target.querySelector('[data-testid="snapshot-age"]')?.textContent?.trim();
+  it('says a page turn is loading, over a poll in flight', () => {
+    comp = mount(PageHeader, { target, props: { title: 'Services', revalidating: true, paging: true } });
+    expect(age()).toBe('Loading another page…');
+  });
+  it('says a poll is checking when no page turn is in flight', () => {
+    comp = mount(PageHeader, { target, props: { title: 'Services', revalidating: true } });
+    expect(age()).toBe('Checking for changes…');
   });
 });

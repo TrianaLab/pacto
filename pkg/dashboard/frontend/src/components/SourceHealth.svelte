@@ -1,5 +1,6 @@
 <script>
-  import { fleetEntityUrl } from '../lib/router.ts';
+  import { formatCount } from '../lib/format.ts';
+  import { fleetEntityUrl, fleetSourcesUrl } from '../lib/router.ts';
   import { sourceHealthLabel, sourceHealthTone } from '../lib/entityLabels.ts';
 
   // Renders per-source health as navigable chips (which sources are
@@ -19,13 +20,18 @@
   const ordered = $derived(
     [...(sources ?? [])].sort((a, b) => (RANK[a?.status] ?? 9) - (RANK[b?.status] ?? 9)),
   );
+  // Every source that needs a look gets its own chip; forty healthy ones are one chip
+  // that says how many and links to them, instead of a wall that buries the broken one.
+  const HEALTHY_CHIPS = 3;
+  const healthy = $derived(ordered.filter((s) => s?.status === 'available'));
+  const shown = $derived(healthy.length > HEALTHY_CHIPS ? ordered.filter((s) => s?.status !== 'available') : ordered);
 </script>
 
 <nav class="source-health" aria-label={label}>
   {#if ordered.length === 0}
     <span class="sh-none">No sources reported.</span>
   {:else}
-    {#each ordered as s (s.id)}
+    {#each shown as s (s.id)}
       <a class="sh-chip tone-{sourceHealthTone(s.status)}" href={fleetEntityUrl('source', s.id)} title={s.error?.message || ''}>
         <span class="sh-dot" aria-hidden="true"></span>
         <span class="sh-id">{s.id}</span>
@@ -33,6 +39,12 @@
         <span class="sh-status">{sourceHealthLabel(s.status)}</span>
       </a>
     {/each}
+    {#if shown.length < ordered.length}
+      <a class="sh-chip tone-ok" href={fleetSourcesUrl({ sourceHealth: 'available' })} data-testid="sources-healthy">
+        <span class="sh-dot" aria-hidden="true"></span>
+        <span class="sh-id">{formatCount(healthy.length)} available</span>
+      </a>
+    {/if}
     {#if truncated}<span class="sh-trunc" title="Only the least-healthy sources are shown">+ more sources</span>{/if}
   {/if}
 </nav>

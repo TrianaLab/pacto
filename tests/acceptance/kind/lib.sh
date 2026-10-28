@@ -12,16 +12,22 @@
 # means its EXIT traps, its fixtures and its own assertions.
 #
 # This file covers the CLUSTER scenarios only. tests/acceptance/local/ has no
-# cluster to manage and keeps its own small helpers; integrations/kubernetes/
-# test/utils serves the operator module. Three toolboxes, no shared base.
+# cluster to manage and keeps its own small helpers. Two toolboxes, no shared
+# base.
 #
 # Functions that operate "in the current run" read the caller's $NS and $CLUSTER
 # globals (every scenario sets both before using them); everything else is an
 # explicit argument.
 #
 #   pass MSG / fail MSG            report one claim; fail exits 1
-#   eventually ROUNDS CMD...       run CMD until it succeeds, 3s apart
-#   ensure_cluster                 create $CLUSTER if absent, point KUBECONFIG at it
+#   eventually ROUNDS CMD...       run CMD until it succeeds, ROUNDS tries over ROUNDS x 3s
+#   always ROUNDS CMD...           CMD holds every 3s for ROUNDS rounds
+#   section TITLE / timed TITLE CMD  a section header, timed when KIND_TIMING=FILE
+#   timing_end / timing_summary FILE close a phase's last section / where the time went
+#   infra DESC CMD...              retry an infrastructure step; exit 75 when it never works
+#   cluster_start_bg [CONFIG]      start creating $CLUSTER in the background
+#   ensure_cluster [CONFIG]        create $CLUSTER if absent, point KUBECONFIG at it
+#   pull_pinned REF@DIGEST         pull exactly that digest and tag it REF
 #   use_existing_cluster HINT      require an already-running $CLUSTER
 #   load_images IMG...             import images into $CLUSTER
 #   delete_cluster / down_cluster  quiet teardown / the chatty `down` subcommand
@@ -61,14 +67,25 @@ fail() { echo "  FAIL: $*" >&2; exit 1; }
 # takes. Every scenario grew its own `for _ in $(seq 1 N)` around that; they
 # differ only in the condition and in how long they are willing to wait, so
 # those are the two arguments.
+#
+# KIND_POLL (whole seconds, default 3) only changes how often CMD is tried. A
+# wait gives up only after at least ROUNDS tries AND at least ROUNDS x 3s of
+# sleeping between them, so a faster poll never means fewer tries or a shorter
+# wait than the old "ROUNDS tries, 3s apart". It counts tries and sleeps, not the
+# wall clock: time CMD spends running, or a host asleep mid-wait, uses up none
+# of it.
 eventually() {
   local rounds="$1"; shift
-  local i
-  for ((i = 0; i < rounds; i++)); do
-    "$@" && return 0
-    sleep 3
+  local start=$SECONDS tries=0 slept=0 poll="${KIND_POLL:-3}" rc=1
+  while :; do
+    "$@" && { rc=0; break; }
+    tries=$((tries + 1))
+    [ "$tries" -ge "$rounds" ] && [ "$slept" -ge $((rounds * 3)) ] && break
+    sleep "$poll"
+    slept=$((slept + poll))
   done
-  return 1
+  _timed_wait eventually "$start" "$@"
+  return $rc
 }
 
 # always ROUNDS CMD... — the mirror of eventually: run CMD every 3s and fail on
@@ -79,12 +96,109 @@ eventually() {
 # exists to prevent.
 always() {
   local rounds="$1"; shift
-  local i
+  local i start=$SECONDS
   for ((i = 0; i < rounds; i++)); do
-    "$@" || return 1
+    "$@" || { _timed_wait always "$start" "$@"; return 1; }
     sleep 3
   done
+  _timed_wait always "$start" "$@"
   return 0
+}
+
+# --- timing -----------------------------------------------------------------
+#
+# KIND_TIMING=FILE turns timing on: every section start and every wait that
+# took a second or more is appended to FILE (a file, so waits inside command
+# substitutions and concurrent phases are counted too) and printed to stderr.
+# timing_summary prints where the time went. TIMING_PHASE names the phase a
+# line belongs to.
+
+_timing_line() { # KIND SECONDS LABEL
+  [ -n "${KIND_TIMING:-}" ] || return 0
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "${TIMING_PHASE:-setup}" "$1" "$2" "$3" >> "$KIND_TIMING"
+}
+
+# _timed_wait KIND START CMD... — log a wait that took a second or more, with
+# the line that waited.
+_timed_wait() {
+  local kind="$1" took=$((SECONDS - $2)); shift 2
+  [ -n "${KIND_TIMING:-}" ] && [ "$took" -ge 1 ] || return 0
+  local at="${BASH_SOURCE[2]##*/}:${BASH_LINENO[1]}" what
+  # A wait inside a helper (wait_op, wait_concluded) also names the helper's caller.
+  case "${FUNCNAME[2]:-main}" in main | source | phase_* | *_scenario) ;; *) at+=" <- ${BASH_LINENO[2]}" ;; esac
+  what="$(printf '%s' "$*" | tr '\n\t' '  ' | cut -c1-80)"
+  echo "  wait: ${took}s $kind $what ($at)" >&2
+  _timing_line "$kind" "$took" "$what ($at)"
+}
+
+# section TITLE — a section header, timed: its duration runs to the next
+# section (or timing_end) of the same phase.
+section() {
+  _timing_line section 0 "$*"
+  echo "== $* =="
+}
+
+# timing_end — close the current phase's last section.
+timing_end() { _timing_line end 0 "${TIMING_PHASE:-setup}"; }
+
+# timed LABEL CMD... — run one setup step as a section of its own.
+timed() { local label="$1"; shift; section "$label"; "$@"; }
+
+# timing_summary FILE — the phases, the slowest sections and the waits.
+timing_summary() {
+  [ -s "${1:-}" ] || return 0
+  echo "== timing =="
+  sort -s -n -k1,1 "$1" | awk -F'\t' '
+    $3 == "section" || $3 == "end" {
+      if ($2 in open) { d = $1 - at[$2]; sec[++n] = sprintf("%6ds  %-9s %s", d, $2, open[$2]) }
+      if ($3 == "end") { delete open[$2]; last[$2] = $1 } else { open[$2] = $5; at[$2] = $1 }
+      if (!($2 in first)) first[$2] = $1
+      next
+    }
+    { w[++m] = sprintf("%6ds  %-9s %-10s %s", $4, $2, $3, $5); tot[$3] += $4; ph[$2 "/" $3] += $4 }
+    END {
+      print "-- phases (wall clock, first section to end) --"
+      for (p in first) if (p in last) printf "%6ds  %s\n", last[p] - first[p], p
+      print "-- sections --"; for (i = 1; i <= n; i++) print sec[i]
+      print "-- waits by kind --"; for (k in tot) printf "%6ds  %s\n", tot[k], k
+      print "-- waits by phase --"; for (k in ph) printf "%6ds  %s\n", ph[k], k
+      print "-- waits of 10s or more --"; for (i = 1; i <= m; i++) { split(w[i], a, " "); if (a[1] + 0 >= 10) print w[i] }
+    }'
+}
+
+# infra DESC CMD... — run an INFRASTRUCTURE step: cluster creation, an image
+# pull or load, a third-party install or rollout (Flux, Mira). Three attempts,
+# 10s then 20s apart. A runner that cannot reach a registry or start a cluster is not a
+# product failure, and one retry is usually all it needs.
+#
+# Never wrap a check in it, and never a Pacto chart install or rollout: those
+# run images built from the tree under test, so their failure is a FAIL. A
+# check that passes on the second try hides exactly the flake it exists to
+# catch.
+#
+# When the attempts run out it prints INFRASTRUCTURE FAILED and exits 75
+# (EX_TEMPFAIL), never 1, so CI can tell "the environment broke" from "a check
+# failed" (scripts/ci/kind-run.sh reads the line).
+infra() {
+  local desc="$1" i start=$SECONDS
+  shift
+  for i in 1 2 3; do
+    "$@" && { _timed_wait infra "$start" "$desc"; return 0; }
+    [ "$i" = 3 ] && break
+    echo "  infra: $desc failed (attempt $i of 3); retrying in $((i * 10))s" >&2
+    sleep $((i * 10))
+  done
+  echo "  INFRASTRUCTURE FAILED: $desc (3 attempts)" >&2
+  exit 75
+}
+
+# pull_pinned REPO:TAG@DIGEST — pull exactly that digest and tag it REPO:TAG, the
+# name the manifests and load_images use. A tag moved upstream can no longer
+# change what a run tests.
+pull_pinned() {
+  local ref="${1%@*}" digest="${1#*@}"
+  infra "pull $1" docker pull -q "${ref%:*}@${digest}" >/dev/null
+  docker tag "${ref%:*}@${digest}" "$ref"
 }
 
 # --- cluster lifecycle ------------------------------------------------------
@@ -97,8 +211,27 @@ _kubeconfig_for_cluster() {
   kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
 }
 
-ensure_cluster() {
-  kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s
+# A half-created cluster is deleted, so the next attempt starts clean.
+_create_cluster() { # [KIND_CONFIG]
+  kind create cluster --name "$CLUSTER" --wait 90s ${1:+--config "$1"} || { delete_cluster; return 1; }
+}
+
+# cluster_start_bg [KIND_CONFIG] — start creating $CLUSTER in the background, so
+# the image builds and pulls that follow overlap it. ensure_cluster waits for it.
+_CLUSTER_BG_PID=
+cluster_start_bg() {
+  kind get clusters 2>/dev/null | grep -qx "$CLUSTER" && return 0
+  _CLUSTER_BG_LOG="$(mktemp)"
+  _create_cluster "${1:-}" >"$_CLUSTER_BG_LOG" 2>&1 &
+  _CLUSTER_BG_PID=$!
+}
+
+ensure_cluster() { # [KIND_CONFIG] — the config only applies when the cluster is created
+  if [ -n "$_CLUSTER_BG_PID" ]; then
+    wait "$_CLUSTER_BG_PID" || { cat "$_CLUSTER_BG_LOG" >&2; echo "  infra: background cluster creation failed; trying again" >&2; }
+    _CLUSTER_BG_PID=
+  fi
+  kind get clusters | grep -qx "$CLUSTER" || infra "create kind cluster $CLUSTER" _create_cluster "${1:-}"
   _kubeconfig_for_cluster
 }
 
@@ -156,21 +289,22 @@ release_version() {
     "$_PACTO_ROOT/release/release-plan.json" "$1"
 }
 
-# build_operator_images OP_IMG DASH_IMG VERSION — the two production builds, in
-# the order that couples them: the operator deploys the dashboard image baked in
-# at build time, so the dashboard must exist first and be named in the operator's
-# DASHBOARD_IMAGE build-arg.
+# build_operator_images OP_IMG DASH_IMG VERSION — the two production builds.
+# They are coupled by name only: the operator deploys the dashboard image baked
+# in at build time through its DASHBOARD_IMAGE build-arg, a string, so the two
+# build at the same time.
 #
 # --load forces the result into the local docker image store even when the
 # default buildx builder uses the docker-container driver (otherwise the image
 # lives only in buildkit's cache and `kind load docker-image` fails with
 # "content digest not found").
 build_operator_images() {
-  echo "== build the dashboard image (root Dockerfile) =="
-  docker build --load -f "$_PACTO_ROOT/Dockerfile" -t "$2" "$_PACTO_ROOT"
-  echo "== build the operator image (production root context) coupled to that dashboard =="
+  section "build the dashboard (root Dockerfile) and operator (production root context) images"
+  docker build --load -f "$_PACTO_ROOT/Dockerfile" -t "$2" "$_PACTO_ROOT" &
+  local dash=$!
   docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" \
-    --build-arg VERSION="$3" --build-arg DASHBOARD_IMAGE="$2" -t "$1" "$_PACTO_ROOT"
+    --build-arg VERSION="$3" --build-arg DASHBOARD_IMAGE="$2" -t "$1" "$_PACTO_ROOT" || { wait "$dash"; return 1; }
+  wait "$dash"
 }
 
 # package_chart CHART_DIR [helm package args...] — prints the packaged .tgz path.
@@ -239,10 +373,11 @@ wait_pacto_status() {
 # conformant option: same port, same /var/lib/registry, no CVE-database
 # downloads to make a demo depend on the network.
 #
-# Pinned to a released tag so a scenario's `imagePullPolicy: Never` names a
-# version rather than whatever `latest` moved to this morning.
+# Pinned to a released tag and its index digest (the same pin as the Compose
+# demo's ComposeDefaultRegistryImage), so a tag moved upstream cannot change what
+# a run tests. The node knows it by the tag: pull_pinned tags the digest locally.
 # shellcheck disable=SC2034  # read by the scenarios that source this file
-PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20"
+PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b341f4a319963f7c5e169858663a10565e4037e71605737daee202ee"
 
 # install_registry — an in-cluster OCI registry in $NS, ready to be pushed to.
 # Plain HTTP, so callers must also teach whatever resolves from it to treat the
@@ -250,14 +385,16 @@ PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20"
 # into the node rather than pulled from the internet by every kind node in CI.
 #
 # The pull stays unconditional and needs no protecting: the registry image is a
-# multi-platform tag, and the host's copy of it is a multi-platform index whose
+# multi-platform index, and the host's copy of it is a multi-platform index whose
 # other platforms are not present — the very artifact that used to break the
 # load. load_images narrows it at load time, so re-pulling cannot restore a
 # broken state and there is no pre-flattened local image for a later pull to
-# overwrite.
+# overwrite. A scenario that already put the image on the host under its tag
+# (the delivery demo loads it from CI's one-time pull) sets
+# PACTO_REGISTRY_IMAGE_PRESENT and the pull is skipped.
 install_registry() {
-  docker pull "$PACTO_REGISTRY_IMAGE" >/dev/null
-  load_images "$PACTO_REGISTRY_IMAGE"
+  [ -n "${PACTO_REGISTRY_IMAGE_PRESENT:-}" ] || pull_pinned "$PACTO_REGISTRY_IMAGE"
+  load_images "${PACTO_REGISTRY_IMAGE%@*}"
   kubectl -n "$NS" apply -f - >/dev/null <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -269,7 +406,7 @@ spec:
     metadata: { labels: { app: pacto-registry } }
     spec:
       containers:
-      - { name: registry, image: $PACTO_REGISTRY_IMAGE, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
+      - { name: registry, image: ${PACTO_REGISTRY_IMAGE%@*}, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
 ---
 apiVersion: v1
 kind: Service
@@ -424,8 +561,16 @@ pf() {
 # caller's own cleanup function; if omitted a generic helm-uninstall +
 # delete-namespace is used. NS/CLUSTER are arguments (they differ per script:
 # pacto-system, pacto-modes, pacto-upgrade) — nothing is hardcoded here.
+#
+# A failed run in CI (CI set, and the EXIT trap's rc non-zero) is also kept: the
+# runner is thrown away anyway, and scripts/ci/kind-diagnostics.sh runs after
+# the scenario exits, so it must find the failed state, not a torn-down one.
 keep_or_teardown() {
   local ns="${1:-}" cluster="${2:-}" fn="${3:-}"
+  if [ -n "${CI:-}" ] && [ "${rc:-0}" -ne 0 ]; then
+    echo "== failed in CI — leaving namespace '$ns' in kind cluster '$cluster' for the diagnostics step =="
+    return 0
+  fi
   if [ -n "${KEEP_E2E_CLUSTER:-}" ]; then
     echo "== KEEP_E2E_CLUSTER set — leaving namespace '$ns' in kind cluster '$cluster' for inspection (KUBECONFIG=${KUBECONFIG:-unset}) =="
     return 0

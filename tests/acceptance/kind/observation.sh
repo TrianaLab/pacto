@@ -156,7 +156,7 @@ kubectl -n "$NS" create configmap fixture-trace-export --from-literal=traces.jso
 
 echo "== install the operator with four declared observation sources =="
 helm install pacto-operator "$CHART" -n "$NS" \
-  --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+  --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=true \
   --set 'dashboard.observation.sources[0].name=orders-traces' \
   --set 'dashboard.observation.sources[0].file=traces.json' \
@@ -186,7 +186,7 @@ kubectl -n "$NS" get deployment pacto-dashboard -o json \
 echo "== declared services: orders declares a dependency on checkout =="
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 for svc in checkout orders; do
-  kubectl -n "$DEMO_NS" create deployment "$svc" --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+  kubectl -n "$DEMO_NS" create deployment "$svc" --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
 done
 kubectl -n "$DEMO_NS" rollout status deployment/checkout --timeout=90s
 kubectl -n "$DEMO_NS" rollout status deployment/orders --timeout=90s
@@ -263,7 +263,7 @@ kill "$DASH_PF" 2>/dev/null || true
 echo "== force a configured source to fail: drop one source, repoint the other =="
 BEFORE="$(kubectl -n "$NS" get deployment pacto-dashboard -o jsonpath='{.metadata.generation}')"
 helm upgrade pacto-operator "$CHART" -n "$NS" \
-  --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+  --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=true \
   --set 'dashboard.observation.sources[0].name=orders-traces' \
   --set 'dashboard.observation.sources[0].file=absent.json' \

@@ -1,9 +1,12 @@
 package fleet
 
 import (
+	"cmp"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/semver"
 )
 
 // EntityFilter constrains a global entity search. The zero
@@ -62,9 +65,21 @@ type EntityFilter struct {
 	// the raw FleetSnapshot, so the service-detail revisions preview never has to be
 	// treated as the complete revision universe.
 	Service string
-	Limit   int
-	Offset  int
+	// Sort orders the answer: "" by kind then key, SortName by label in natural
+	// order (target-2 before target-10), SortHealth least healthy first, then by
+	// name. Paging walks the sorted answer, so every page agrees with the order.
+	Sort   string
+	Limit  int
+	Offset int
 }
+
+// Entity sort orders (see [EntityFilter.Sort]).
+const (
+	SortName   = "name"
+	SortHealth = "health"
+	// SortServices puts the owners with the most services first, then by name.
+	SortServices = "services"
+)
 
 // EntityList is a bounded, deterministically ordered page of entity references.
 // Limit and Offset are the effective (defaulted and capped) page bounds;
@@ -104,6 +119,25 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		}
 	}
 	sortEntityRefs(filtered)
+	switch f.Sort {
+	case SortName:
+		sort.SliceStable(filtered, func(i, j int) bool { return naturalLess(filtered[i].Label, filtered[j].Label) })
+	case SortHealth:
+		sort.SliceStable(filtered, func(i, j int) bool {
+			a, b := healthRank(filtered[i].Status), healthRank(filtered[j].Status)
+			if a != b {
+				return a < b
+			}
+			return naturalLess(filtered[i].Label, filtered[j].Label)
+		})
+	case SortServices:
+		sort.SliceStable(filtered, func(i, j int) bool {
+			if a, b := filtered[i].Services, filtered[j].Services; a != b {
+				return a > b
+			}
+			return naturalLess(filtered[i].Label, filtered[j].Label)
+		})
+	}
 
 	pg := Paginate(filtered, f.Limit, f.Offset, DefaultEntityLimit, MaxEntityLimit)
 	return &EntityList{
@@ -147,23 +181,17 @@ func validReadinessFilter(s string) bool {
 }
 
 func validateEntityFilter(f EntityFilter) error {
-	if f.Offset < 0 {
-		return &InvalidQueryError{Field: "offset", Value: fmt.Sprint(f.Offset), Reason: "must be >= 0"}
+	if err := validatePaging(f.Limit, f.Offset); err != nil {
+		return err
 	}
-	if f.Limit < 0 {
-		return &InvalidQueryError{Field: "limit", Value: fmt.Sprint(f.Limit), Reason: "must be >= 0"}
-	}
-	if f.Status != "" && !ValidStatus(f.Status) {
-		return &InvalidQueryError{Field: "status", Value: f.Status, Reason: "not a canonical status"}
-	}
-	if f.SourceHealth != "" && !validSourceHealth(f.SourceHealth) {
-		return &InvalidQueryError{Field: "sourceHealth", Value: f.SourceHealth, Reason: "not a source-health value (available, partial, stale, unavailable)"}
-	}
-	if f.Ownership != "" && !validOwnershipFilter(f.Ownership) {
-		return &InvalidQueryError{Field: "ownership", Value: f.Ownership, Reason: "not an ownership state (consistent, conflicting, unowned)"}
-	}
-	if f.Readiness != "" && !validReadinessFilter(f.Readiness) {
-		return &InvalidQueryError{Field: "readiness", Value: f.Readiness, Reason: "not a readiness state (passing, below-threshold, expired, not-declared)"}
+	if err := validateFields([]fieldCheck{
+		{"sort", f.Sort, "not a sort order (name, health, services)", validSort},
+		{"status", f.Status, "not a canonical status", ValidStatus},
+		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable)", validSourceHealth},
+		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned)", validOwnershipFilter},
+		{"readiness", f.Readiness, "not a readiness state (passing, below-threshold, expired, not-declared)", validReadinessFilter},
+	}); err != nil {
+		return err
 	}
 	for _, k := range f.Kinds {
 		if !validEntityKind(k) {
@@ -172,6 +200,8 @@ func validateEntityFilter(f EntityFilter) error {
 	}
 	return validateFilterCombos(f)
 }
+
+func validSort(s string) bool { return s == SortName || s == SortHealth || s == SortServices }
 
 // validSourceHealth reports whether s is a known source-health value.
 func validSourceHealth(s string) bool {
@@ -242,7 +272,7 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 	var refs []EntityRef
 	if want[KindService] {
 		for _, s := range q.snap.Services {
-			refs = append(refs, serviceEntityRef(s))
+			refs = append(refs, q.serviceListRef(s))
 		}
 	}
 	if want[KindRevision] {
@@ -256,14 +286,45 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 		}
 	}
 	if want[KindOwner] {
-		for _, o := range q.owners() {
-			refs = append(refs, ownerEntityRef(o))
-		}
+		refs = append(refs, q.ownerListRefs()...)
 	}
 	if want[KindSource] {
 		for _, st := range q.snap.Sources {
 			refs = append(refs, sourceEntityRef(st))
 		}
+	}
+	return refs
+}
+
+// serviceListRef is a service row with its target count and owner summary.
+func (q *Query) serviceListRef(s *ServiceRecord) EntityRef {
+	ref := serviceEntityRef(s)
+	ref.Targets = len(s.Targets)
+	switch n, key := q.ownershipState(s); {
+	case n == 1 && key != "":
+		ref.Owner = ownerEntityRef(key).Label
+	case n > 1:
+		ref.Owner = fmt.Sprintf("%d owners claim it", n)
+	}
+	return ref
+}
+
+// ownerListRefs is one row per owner with the number of services it claims.
+func (q *Query) ownerListRefs() []EntityRef {
+	var refs []EntityRef
+	// The same rule as the owner page: a service is an owner's when any of its
+	// revisions names them.
+	claimed := map[string]int{}
+	for _, s := range q.snap.Services {
+		claims := q.ownerClaimsOf(s)
+		for _, k := range claims.keys {
+			claimed[k]++
+		}
+	}
+	for _, o := range q.owners() {
+		ref := ownerEntityRef(o)
+		ref.Services = claimed[o]
+		refs = append(refs, ref)
 	}
 	return refs
 }
@@ -471,12 +532,20 @@ func (q *Query) entityFromSource(r EntityRef, source string) bool {
 }
 
 // sortEntityRefs orders references by kind then key, so search output is stable.
+// Revisions of one service go newest version first (see siblingRevisions): their
+// key ends in a content digest, and digest order is no order a reader can use.
 func sortEntityRefs(refs []EntityRef) {
 	sort.SliceStable(refs, func(i, j int) bool {
-		if refs[i].Kind != refs[j].Kind {
-			return refs[i].Kind < refs[j].Kind
+		a, b := refs[i], refs[j]
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
 		}
-		return refs[i].Key < refs[j].Key
+		if a.Kind == KindRevision && a.ParentService == b.ParentService {
+			if c := semver.Compare(a.Version, b.Version); c != 0 {
+				return c > 0
+			}
+		}
+		return a.Key < b.Key
 	})
 }
 
@@ -506,4 +575,53 @@ func Paginate[T any](all []T, limit, offset, defLimit, maxLimit int) Page[T] {
 		p.NextOffset = &end
 	}
 	return p
+}
+
+// healthRank is how unhealthy a status reads, lowest first: compliance
+// statuses by [severityRank], source health by [sourceHealthRank]. An
+// unrecognised one sorts last.
+func healthRank(status string) int {
+	if r, ok := severityRank[status]; ok {
+		return r
+	}
+	if validSourceHealth(status) {
+		return sourceHealthRank(SourceStatus(status))
+	}
+	return len(severityRank)
+}
+
+// naturalLess compares two labels case-insensitively, reading each run of
+// digits as a number, so target-2 sorts before target-10.
+func naturalLess(a, b string) bool {
+	return NaturalCompare(strings.ToLower(a), strings.ToLower(b)) < 0
+}
+
+// NaturalCompare compares a and b case-sensitively, reading each run of ASCII
+// digits as a number (env-2 before env-10) and the rest byte by byte.
+func NaturalCompare(a, b string) int {
+	for a != "" && b != "" {
+		da, db := digitRun(a), digitRun(b)
+		if da > 0 && db > 0 {
+			na, nb := strings.TrimLeft(a[:da], "0"), strings.TrimLeft(b[:db], "0")
+			if c := cmp.Or(cmp.Compare(len(na), len(nb)), cmp.Compare(na, nb)); c != 0 {
+				return c
+			}
+			a, b = a[da:], b[db:]
+			continue
+		}
+		if c := cmp.Compare(a[0], b[0]); c != 0 {
+			return c
+		}
+		a, b = a[1:], b[1:]
+	}
+	return cmp.Compare(len(a), len(b))
+}
+
+// digitRun is the length of the ASCII digits s starts with.
+func digitRun(s string) int {
+	n := 0
+	for n < len(s) && s[n] >= '0' && s[n] <= '9' {
+		n++
+	}
+	return n
 }

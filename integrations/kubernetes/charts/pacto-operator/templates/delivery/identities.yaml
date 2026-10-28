@@ -1,0 +1,34 @@
+{{- if .Values.delivery.enabled }}
+{{- if not (or .Values.delivery.identities.humanGroups .Values.delivery.identities.allowEmptyHumanGroups) }}
+{{- fail "delivery.identities.humanGroups is empty, so anyone in no agent group counts as a person, and an agent identity that completes a pacto-approve login can approve. Set humanGroups to the groups your people are in, or set delivery.identities.allowEmptyHumanGroups=true to accept that." }}
+{{- end }}
+# The promoter's identity policy, published for clients. The promoter mounts
+# this ConfigMap and runs with it; `pacto delivery`, `pacto mcp --delivery` and
+# the dashboard read it, so what they offer matches what the promoter and
+# admission decide. Every authenticated user may read it: it names groups, no
+# secret. The name is fixed so clients find it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pacto-delivery-identities
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter") | nindent 4 }}
+data:
+  policy.json: {{ include "pacto-operator.delivery.identitiesJSON" . | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-identities-reader
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [pacto-delivery-identities]
+    verbs: [get]
+---
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-identities-reader" (include "pacto-operator.delivery.fullname" .)) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" (include "pacto-operator.delivery.labels" .) "group" "system:authenticated") }}
+{{- end }}

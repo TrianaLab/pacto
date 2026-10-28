@@ -1,0 +1,86 @@
+suite: CRDs
+templates:
+  - templates/crds.yaml
+release:
+  name: p
+  namespace: pacto-system
+tests:
+  - it: renders the three operator CRDs and no delivery CRD by default
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: CustomResourceDefinition
+      - containsDocument:
+          kind: CustomResourceDefinition
+          apiVersion: apiextensions.k8s.io/v1
+          name: pactos.pacto.trianalab.io
+          any: true
+      - containsDocument:
+          kind: CustomResourceDefinition
+          apiVersion: apiextensions.k8s.io/v1
+          name: pactorevisions.pacto.trianalab.io
+          any: true
+      - containsDocument:
+          kind: CustomResourceDefinition
+          apiVersion: apiextensions.k8s.io/v1
+          name: noderuntimeobservations.pacto.trianalab.io
+          any: true
+      - equal:
+          path: spec.group
+          value: pacto.trianalab.io
+
+  - it: adds the three delivery CRDs when delivery is enabled
+    set:
+      delivery.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 6
+      - containsDocument:
+          kind: CustomResourceDefinition
+          apiVersion: apiextensions.k8s.io/v1
+          name: stages.delivery.pacto.trianalab.io
+          any: true
+      - containsDocument:
+          kind: CustomResourceDefinition
+          apiVersion: apiextensions.k8s.io/v1
+          name: operations.delivery.pacto.trianalab.io
+          any: true
+      - containsDocument:
+          kind: CustomResourceDefinition
+          apiVersion: apiextensions.k8s.io/v1
+          name: approvals.delivery.pacto.trianalab.io
+          any: true
+
+  - it: keeps every CRD on helm uninstall
+    set:
+      delivery.enabled: true
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - isNotNullOrEmpty:
+          path: metadata.annotations["controller-gen.kubebuilder.io/version"]
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm
+
+  - it: renders every CRD on helm upgrade, so the upgrade updates them
+    release:
+      upgrade: true
+    set:
+      delivery.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 6
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+
+  - it: renders no CRD when you manage them yourself
+    set:
+      crds.install: false
+      delivery.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0

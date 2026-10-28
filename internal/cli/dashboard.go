@@ -16,17 +16,20 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
-func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Command {
+func newDashboardCommand(svc *app.Service, v *viper.Viper, version string, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dashboard [sources...]",
 		Short: "Start a local web dashboard for exploring service contracts",
@@ -51,8 +54,8 @@ When no arguments are given, sources are auto-detected:
 
 When running alongside the Kubernetes operator, OCI repositories are
 automatically discovered from the status.contract.resolvedRef fields of Pacto
-CRD resources, on every refresh rather than once at startup. That gives a hybrid
-view: runtime truth from the operator combined with contract truth from OCI.
+CRD resources on every refresh. The result combines runtime state from the
+operator with contract content from OCI.
 
 Every source contributes to one snapshot, rebuilt in the background, and each
 answer carries the as-of time and the completeness of the sources behind it.`,
@@ -135,10 +138,17 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			}
 			mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 				return svc.Fleet(ctx, withClusterContractRefs(ctx, fopts, discover, cacheUse))
-			}, fleet.ManagerOptions{})
+			})
 			go mgr.Start(cmd.Context(), fleetRefreshInterval)
 
-			server := dashboard.NewServer(dashboard.Options{
+			// The cluster config the callers' own clients are built from: its
+			// address and CA, never its credentials. No cluster, no delivery.
+			clusterCfg, _ := d.clusterConfig()
+			identity, err := newDashboardIdentity(v, host, clusterCfg, d)
+			if err != nil {
+				return err
+			}
+			opts := dashboard.Options{
 				UI:   dashboard.EmbeddedUI(),
 				Host: host,
 				Port: port,
@@ -149,14 +159,24 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				Version:    version,
 				CORSOrigin: corsOrigin,
 				Fleet:      managerFleetProvider(mgr),
-				Impact:     impactProviderForFleet(svc, mgr),
+				Published:  managerPublished(mgr),
+				Impact:     impactProviderForFleet(svc),
 				Refresh:    mgr.Refresh,
-			})
+				MiraURL:    v.GetString("dashboard.mira-url"),
+
+				DeliveryNamespace: namespace,
+			}
+			identity.options(&opts)
+			server := dashboard.NewServer(opts)
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
 			addr := fmt.Sprintf("http://%s:%d", displayHost(host), port)
+			if identity.auth.Local() {
+				// The per-launch token: delivery actions in this browser need it.
+				addr = identity.auth.LaunchURL(addr)
+			}
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\nPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "))
 
 			return server.Serve(ctx)
@@ -169,6 +189,21 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
+	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
+	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
+	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
+	cmd.Flags().String("oidc-display-name", "", "the identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC; also PACTO_DASHBOARD_OIDC_DISPLAY_NAME)")
+	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
+	cmd.Flags().String("oidc-ca-file", "", "PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)")
+	cmd.Flags().String("oidc-internal-issuer-url", "", "address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)")
+	addClaimFlags(cmd)
+	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
+	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
+	cmd.Flags().Bool("token-login", false, "let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)")
+	cmd.Flags().String("mira-url", "", "Mira's address, to link the health-check citations of delivery verdicts")
+	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
+	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
+		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
@@ -177,11 +212,41 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
+	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
+		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
+		"session-idle-timeout", "session-max-age", "token-login", "mira-url", "delivery-namespace", "delivery-trust"} {
+		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
+	}
+	// A secret never goes on a command line, where any process can read it.
+	_ = v.BindEnv("dashboard.oidc-client-secret", "PACTO_DASHBOARD_OIDC_CLIENT_SECRET")
 	// Env-only settings, bound by name so they read the same through any viper.
 	_ = v.BindEnv("dashboard.repo", "PACTO_DASHBOARD_REPO")
 	_ = v.BindEnv("evidence-source-url", "PACTO_EVIDENCE_SOURCE_URL")
 
 	return cmd
+}
+
+// addClaimFlags registers the claim mapping the API server applies to an ID
+// token. The dashboard and the remote MCP server take the same flags, so one
+// person is one Kubernetes identity in both.
+func addClaimFlags(cmd *cobra.Command) {
+	cmd.Flags().String("oidc-username-claim", "", "ID token claim the API server takes the username from; must match its claim mapping (default sub)")
+	cmd.Flags().String("oidc-username-prefix", "", "prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)")
+	cmd.Flags().String("oidc-groups-claim", "", "ID token claim the API server takes the groups from; must match its claim mapping (default groups)")
+	cmd.Flags().String("oidc-groups-prefix", "", "prefix the API server puts before every group; must match its claim mapping")
+}
+
+// claimsFlags is the claim mapping addClaimFlags registers, each setting read
+// by its flag name from get: the dashboard's viper, which also reads
+// PACTO_DASHBOARD_*, or the MCP server's flags.
+func claimsFlags(get func(name string) string) authn.Claims {
+	return authn.Claims{UsernameClaim: get("oidc-username-claim"), UsernamePrefix: get("oidc-username-prefix"),
+		GroupsClaim: get("oidc-groups-claim"), GroupsPrefix: get("oidc-groups-prefix")}
+}
+
+// flagString reads a string flag of cmd by name.
+func flagString(cmd *cobra.Command) func(string) string {
+	return func(name string) string { v, _ := cmd.Flags().GetString(name); return v }
 }
 
 // parseDashboardArgs splits positional arguments into a local directory and
@@ -334,20 +399,19 @@ func managerFleetProvider(mgr *fleet.Manager) func(context.Context) (*fleet.Quer
 	return func(ctx context.Context) (*fleet.Query, error) { return currentQuery(ctx, mgr) }
 }
 
+// managerPublished serves the published snapshot and never starts a build.
+func managerPublished(mgr *fleet.Manager) func() *fleet.Query {
+	return func() *fleet.Query { q, _ := mgr.Query(); return q }
+}
+
 // impactProviderForFleet returns an impact provider backing /api/fleet/impact.
-// It resolves the old/new refs and analyzes the change against the SAME snapshot
-// the dashboard is currently serving (the Manager's published one), so the impact
-// answer's snapshotId matches the Operational Graph the user is looking at — never
-// a freshly rebuilt, divergent snapshot. Extracted so the wiring is testable.
-func impactProviderForFleet(svc *app.Service, mgr *fleet.Manager) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
-	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
-		// Use the ORIGINAL published snapshot (with its query indexes), not a
-		// serialization clone — impact traverses the dependency graph, which a
-		// clone cannot answer.
-		snap, err := currentSnapshot(ctx, mgr)
-		if err != nil {
-			return nil, err
-		}
+// It analyzes the change against the snapshot the dashboard hands it: the
+// Manager's published one as the caller sees it, so the impact answer's
+// snapshotId matches the Operational Graph the user is looking at and leaves
+// out what their permissions hide. The snapshot keeps its query indexes, which
+// impact traverses and a serialization clone would not.
+func impactProviderForFleet(svc *app.Service) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{
 			OldPath: oldRef, NewPath: newRef,
 			IncludeObserved: includeObserved,

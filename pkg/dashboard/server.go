@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -28,6 +29,29 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
+
+// ContentSecurityPolicy is sent with every answer. The page holds sessions and
+// the Approve button and renders Markdown from any registry, so it backs the
+// sanitiser: no inline or foreign script, no plugins, no <base> rewrite, forms
+// post only here and nothing may frame the page (the Approve button must not
+// be clickjacked). Inline styles stay allowed because Svelte and Mermaid set
+// them; the sanitiser refuses them in Markdown. Remote images are refused too,
+// so a doc cannot track who reads it.
+const ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; " +
+	"base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders sets the headers every answer carries, signed in or not.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", ContentSecurityPolicy)
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
 
 // Options configures a [Server]. Every field is optional.
 type Options struct {
@@ -50,18 +74,46 @@ type Options struct {
 	// Fleet enables the read-only operational-graph endpoints. When nil, none of
 	// the /api/fleet/* endpoints are registered.
 	Fleet func(ctx context.Context) (*fleet.Query, error)
-	// Impact enables the read-only /api/fleet/impact endpoint. When nil, the
-	// endpoint is not registered.
-	Impact func(ctx context.Context, old, new string, includeObserved bool) (*impact.Result, error)
+	// Published returns the snapshot already published, or nil, without
+	// building one. Capabilities, the nav and delivery read it, so a slow
+	// first build never holds them up. Nil falls back to Fleet, for hosts
+	// whose snapshot is always at hand, like the WASM demo.
+	Published func() *fleet.Query
+	// View narrows a fleet query to what the request's caller may see. Every
+	// fleet answer, impact included, goes through it once per snapshot read.
+	// Nil shows everyone everything, as a local or sign-in-free host does.
+	View func(ctx context.Context, q *fleet.Query) (*fleet.Query, error)
+	// Impact enables the read-only /api/fleet/impact endpoint, analysing over
+	// snap, the snapshot the caller sees (nil on a host without Fleet). When
+	// nil, the endpoint is not registered.
+	Impact func(ctx context.Context, snap *fleet.FleetSnapshot, old, new string, includeObserved bool) (*impact.Result, error)
 	// Refresh rebuilds the fleet snapshot for /api/refresh. When nil — as in the
 	// offline WASM demo, whose snapshot is baked in — refresh is a successful no-op.
 	Refresh func(ctx context.Context) error
+	// Delivery serves /api/delivery/* as the caller: it returns the delivery
+	// API bound to the request's own identity, or a *DeliveryError saying why
+	// there is none. Nil on hosts without a cluster: no delivery routes.
+	Delivery func(*http.Request) (DeliveryAPI, error)
+	// DeliveryInstalled reports whether the cluster serves the delivery API
+	// group; an error means the cluster could not be asked. Nil means it does.
+	DeliveryInstalled func(context.Context) (bool, error)
+	// DeliveryNamespace, when set, is the only namespace delivery reads and
+	// acts in, as the fleet views are scoped to it.
+	DeliveryNamespace string
+	// Auth is the identity layer: sign-in, sessions and request guards.
+	Auth *Auth
+	// MiraURL, when set, turns Mira citations into links.
+	MiraURL string
 }
 
 // Server serves the dashboard web UI and REST API.
 type Server struct {
 	opts       Options
 	listenAddr string // server URL for the OpenAPI spec, empty when no port is set
+
+	// people are the names of the people who signed in, by username.
+	peopleMu sync.Mutex
+	people   map[string]string
 }
 
 // APIConfig returns the Huma configuration for the dashboard API.
@@ -161,6 +213,11 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	mux := http.NewServeMux()
 
 	s.registerAPI(mux)
+	handler := withRequest(mux)
+	if a := s.opts.Auth; a != nil {
+		mux.Handle("/auth/", a.Routes)
+		handler = a.Middleware(handler)
+	}
 
 	// Static UI — served on the raw mux, not through Huma.
 	mux.Handle("/", http.FileServer(http.FS(s.opts.UI)))
@@ -171,7 +228,7 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	defer cancelBase()
 
 	srv := &http.Server{
-		Handler:           s.corsMiddleware(mux),
+		Handler:           securityHeaders(s.corsMiddleware(handler)),
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -255,6 +312,8 @@ func (s *Server) RegisterOperations(api huma.API) {
 	s.registerCapabilitiesOperation(api)
 	s.registerFleetOperations(api)
 	s.registerProductOperations(api)
+	s.registerAuthOperations(api)
+	s.registerDeliveryOperations(api)
 }
 
 // ExportOpenAPI builds the Huma API with every operation registered — the live
@@ -313,17 +372,43 @@ func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
 	return out, nil
 }
 
-// publishedQuery returns the currently published fleet query, or nil when no
-// fleet provider is wired or no snapshot has been built yet.
+// publishedQuery returns the currently published fleet query as the caller
+// sees it, or nil when no fleet provider is wired, no snapshot has been built
+// yet or the caller's permissions could not be checked.
 func (s *Server) publishedQuery(ctx context.Context) *fleet.Query {
 	if s.opts.Fleet == nil {
 		return nil
 	}
-	q, err := s.opts.Fleet(ctx)
-	if err != nil {
-		return nil
+	q := (*fleet.Query)(nil)
+	if s.opts.Published != nil {
+		q = s.opts.Published()
+	} else if fq, err := s.opts.Fleet(ctx); err == nil {
+		q = fq
 	}
+	// A caller whose permissions cannot be checked sees no snapshot, not all of it.
+	q, _ = s.view(ctx, q)
 	return q
+}
+
+// fleetQuery is the fleet query as the request's caller sees it: the one
+// place every fleet answer is narrowed. Any failure is the 503 every fleet
+// endpoint answers with.
+func (s *Server) fleetQuery(ctx context.Context) (*fleet.Query, error) {
+	q, err := s.opts.Fleet(ctx)
+	if err == nil {
+		q, err = s.view(ctx, q)
+	}
+	if err != nil {
+		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+	}
+	return q, nil
+}
+
+func (s *Server) view(ctx context.Context, q *fleet.Query) (*fleet.Query, error) {
+	if s.opts.View == nil || q == nil {
+		return q, nil
+	}
+	return s.opts.View(ctx, q)
 }
 
 func (s *Server) metrics(ctx context.Context, _ *struct{}) (*metricsOutput, error) {

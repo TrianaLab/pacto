@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { stable, sha256Stable, manifestSha as manifestShaOf } from '../orchestrator/canonical.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const unitsDir = join(root, 'release', 'units');
@@ -128,6 +128,9 @@ function buildPlan(u) {
           { unit: 'k8s-module', kind: 'go-module', coordinate: u['k8s-module'].coordinate, tag: k8sModuleTag },
           { unit: 'operator-image', kind: 'oci-image', coordinate: u['operator-image'].coordinate, tag: k8s },
           { unit: 'operator-chart', kind: 'helm-chart', coordinate: u['operator-chart'].coordinate, chartVersion: k8s, appVersion: k8s, defaultImageTag: k8s },
+          // The opt-in delivery promoter: its own image, installed by the operator
+          // chart (delivery.enabled) and versioned with it.
+          { unit: 'delivery-image', kind: 'oci-image', coordinate: u['delivery-image'].coordinate, tag: k8s },
           { unit: 'k8s-docs', kind: 'docs', version: k8s },
         ],
         compatibility: { pactoCore: `>=${compatMajor}.0.0` },
@@ -139,19 +142,11 @@ function buildPlan(u) {
       'core:go-module', 'core:dashboard-image', 'core:dashboard-contract-bundle',
       'core:cli', 'core:demo-bundles', 'core:demo-compose',
       'kubernetes:go-mod-pin', 'kubernetes:go-module', 'kubernetes:operator-image',
-      'kubernetes:operator-chart', 'kubernetes:docs',
+      'kubernetes:operator-chart', 'kubernetes:delivery-image',
+      'kubernetes:docs',
     ],
   };
   return plan;
-}
-
-// Stable stringify (sorted keys) for byte-identical output.
-function stable(v) {
-  if (Array.isArray(v)) return v.map(stable);
-  if (v && typeof v === 'object') {
-    return Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])]));
-  }
-  return v;
 }
 
 // buildTransaction — the release-ready plan.
@@ -192,10 +187,8 @@ function buildTransaction(plan, units, prev) {
   const previousVersions = {};
   for (const u of Object.keys(newVersions)) previousVersions[u] = prev[u] ?? null;
 
-  const sha16 = (obj) => createHash('sha256')
-    .update(JSON.stringify(stable(obj))).digest('hex').slice(0, 16);
-  const manifestSha = createHash('sha256')
-    .update(JSON.stringify(stable(newVersions))).digest('hex');
+  const sha16 = (obj) => sha256Stable(obj).slice(0, 16);
+  const manifestSha = manifestShaOf(newVersions);
   const transactionId = changedUnits.length
     ? sha16({ changedUnits, newVersions, previousVersions }) : '';
 

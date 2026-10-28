@@ -50,7 +50,7 @@ describe('maxNodes (the node budget the reader can raise)', () => {
   });
   it('parses a raised budget and clamps one above the backend ceiling', () => {
     expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes: '150' }).maxNodes).toBe(150);
-    // Offering a rung the backend then silently clamps is a UI that lies about
+    // Offering a level the backend then silently clamps is a UI that lies about
     // what it just fetched, so the clamp happens here too.
     expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes: '99999' }).maxNodes).toBe(MAX_NODES);
   });
@@ -59,14 +59,14 @@ describe('maxNodes (the node budget the reader can raise)', () => {
       expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes }).maxNodes).toBe(DEFAULT_MAX_NODES);
     }
   });
-  it('climbs the rungs once each and then stops at the ceiling', () => {
-    expect(nextMaxNodes(DEFAULT_MAX_NODES)).toBe(150);
+  it('climbs the levels once each and then stops at the ceiling', () => {
+    expect(nextMaxNodes(DEFAULT_MAX_NODES)).toBe(100);
     expect(nextMaxNodes(150)).toBe(MAX_NODES);
     expect(nextMaxNodes(MAX_NODES)).toBeNull();
-    // A budget between rungs still climbs to the next one above it.
-    expect(nextMaxNodes(61)).toBe(150);
+    // A budget between levels still climbs to the next one above it.
+    expect(nextMaxNodes(41)).toBe(100);
   });
-  it('keeps the rungs ascending, so "show more" always shows more', () => {
+  it('keeps the levels ascending, so "show more" always shows more', () => {
     expect([...MAX_NODES_STEPS].sort((a, b) => a - b)).toEqual([...MAX_NODES_STEPS]);
     expect(MAX_NODES_STEPS[0]).toBe(DEFAULT_MAX_NODES);
   });
@@ -95,7 +95,7 @@ describe('difference vocabulary (backend-authoritative, never color-only)', () =
     expect(differenceTone('insufficient')).toBe('neutral');
     expect(differenceDescription('insufficient')).toMatch(/no observation data/i);
     // expected-not-observed is explicitly NOT proof of being unused.
-    expect(differenceDescription('expected-not-observed')).toMatch(/not proof/i);
+    expect(differenceDescription('expected-not-observed')).toMatch(/may still be in use/i);
   });
   it('observed-not-expected is a distinct, warned difference', () => {
     expect(differenceLabel('observed-not-expected')).toBe('Observed, not expected');
@@ -179,8 +179,8 @@ describe('service-scoped corroboration', () => {
     expect(corroborationTone('insufficient')).toBe('neutral');
   });
   it('caveats a fine-grained edge as service-scoped, not an edge-scope observation', () => {
-    expect(serviceScopedCaveat('revision')).toMatch(/service-scoped corroboration/i);
-    expect(serviceScopedCaveat('target')).toMatch(/service-scoped corroboration/i);
+    expect(serviceScopedCaveat('revision')).toMatch(/supports the service as a whole/i);
+    expect(serviceScopedCaveat('target')).toMatch(/supports the service as a whole/i);
     expect(serviceScopedCaveat('service')).toBe('');
   });
 });
@@ -226,5 +226,16 @@ describe('projectionFocusMismatch (Part 4: canonicalize a bookmarked reinterpret
   it('returns null when there is no projection focus', () => {
     expect(projectionFocusMismatch({}, 'target', 'x')).toBeNull();
     expect(projectionFocusMismatch(null, 'target', 'x')).toBeNull();
+  });
+});
+
+describe('graph budgets', () => {
+  it('climbs 40, 100, 200 and asks for twice as many relationships as entities', async () => {
+    const { nextMaxNodes, maxEdgesFor, MAX_NODES_STEPS } = await import('./graphState.ts');
+    expect([...MAX_NODES_STEPS]).toEqual([40, 100, 200]);
+    expect(nextMaxNodes(60)).toBe(100);
+    expect(nextMaxNodes(200)).toBeNull();
+    expect(maxEdgesFor(60)).toBe(120);
+    expect(maxEdgesFor(800)).toBe(1000);
   });
 });

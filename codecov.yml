@@ -13,6 +13,7 @@ ignore:
   - "tests/**"
   - "cmd/gendocs/**"
   - "internal/testutil/**"
+  - "pkg/signing/testutil/**"
   # Kernel-touching (loads the eBPF program): covered by `make test-ebpf` and the
   # kind e2e shards, mirroring the operator's cmd/ exclusion.
   - "internal/runtimewatch/ebpf/**"

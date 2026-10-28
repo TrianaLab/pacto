@@ -11,16 +11,32 @@ import (
 // the dashboard server. Huma's schema registry generates a JSON Schema from
 // this struct, including defaults and descriptions via struct tags.
 type DashboardConfig struct {
-	Host             string `json:"PACTO_DASHBOARD_HOST" default:"127.0.0.1" doc:"Bind address for the server"`
-	Port             int    `json:"PACTO_DASHBOARD_PORT" default:"3000" doc:"HTTP server port"`
-	Namespace        string `json:"PACTO_DASHBOARD_NAMESPACE,omitempty" doc:"Kubernetes namespace filter (empty = all)"`
-	Repo             string `json:"PACTO_DASHBOARD_REPO,omitempty" doc:"Comma-separated OCI repositories to scan"`
-	CacheDir         string `json:"PACTO_CACHE_DIR,omitempty" doc:"OCI bundle cache directory (default: ~/.cache/pacto/oci)"`
-	NoCache          bool   `json:"PACTO_NO_CACHE" default:"false" doc:"Disable OCI bundle caching"`
-	NoUpdateCheck    bool   `json:"PACTO_NO_UPDATE_CHECK" default:"false" doc:"Disable update checks"`
-	RegistryUsername string `json:"PACTO_REGISTRY_USERNAME,omitempty" doc:"Registry authentication username"`
-	RegistryPassword string `json:"PACTO_REGISTRY_PASSWORD,omitempty" doc:"Registry authentication password"`
-	RegistryToken    string `json:"PACTO_REGISTRY_TOKEN,omitempty" doc:"Registry authentication token"`
+	Host               string `json:"PACTO_DASHBOARD_HOST" default:"127.0.0.1" doc:"Bind address for the server"`
+	Port               int    `json:"PACTO_DASHBOARD_PORT" default:"3000" doc:"HTTP server port"`
+	Namespace          string `json:"PACTO_DASHBOARD_NAMESPACE,omitempty" doc:"Kubernetes namespace filter (empty = all)"`
+	Repo               string `json:"PACTO_DASHBOARD_REPO,omitempty" doc:"Comma-separated OCI repositories to scan"`
+	CacheDir           string `json:"PACTO_CACHE_DIR,omitempty" doc:"OCI bundle cache directory (default: ~/.cache/pacto/oci)"`
+	NoCache            bool   `json:"PACTO_NO_CACHE" default:"false" doc:"Disable OCI bundle caching"`
+	NoUpdateCheck      bool   `json:"PACTO_NO_UPDATE_CHECK" default:"false" doc:"Disable update checks"`
+	RegistryUsername   string `json:"PACTO_REGISTRY_USERNAME,omitempty" doc:"Registry authentication username"`
+	RegistryPassword   string `json:"PACTO_REGISTRY_PASSWORD,omitempty" doc:"Registry authentication password"`
+	RegistryToken      string `json:"PACTO_REGISTRY_TOKEN,omitempty" doc:"Registry authentication token"`
+	OIDCIssuerURL      string `json:"PACTO_DASHBOARD_OIDC_ISSUER_URL,omitempty" doc:"OpenID Connect issuer people sign in with before the dashboard shows anything; every view then follows their Kubernetes RBAC"`
+	OIDCClientID       string `json:"PACTO_DASHBOARD_OIDC_CLIENT_ID,omitempty" doc:"OpenID Connect client id of the dashboard"`
+	OIDCClientSecret   string `json:"PACTO_DASHBOARD_OIDC_CLIENT_SECRET,omitempty" doc:"OpenID Connect client secret of the dashboard"`
+	OIDCRedirectURL    string `json:"PACTO_DASHBOARD_OIDC_REDIRECT_URL,omitempty" doc:"The dashboard's /auth/callback as browsers reach it"`
+	OIDCDisplayName    string `json:"PACTO_DASHBOARD_OIDC_DISPLAY_NAME,omitempty" doc:"The identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC)"`
+	OIDCExtraScopes    string `json:"PACTO_DASHBOARD_OIDC_EXTRA_SCOPES,omitempty" doc:"Space-separated scopes beyond openid, profile and groups"`
+	OIDCUsernameClaim  string `json:"PACTO_DASHBOARD_OIDC_USERNAME_CLAIM,omitempty" doc:"ID token claim the API server takes the username from (default sub); must match its claim mapping"`
+	OIDCUsernamePrefix string `json:"PACTO_DASHBOARD_OIDC_USERNAME_PREFIX,omitempty" doc:"Prefix the API server puts before the username (default the issuer URL and #, none for the email claim; - for none); must match its claim mapping"`
+	OIDCGroupsClaim    string `json:"PACTO_DASHBOARD_OIDC_GROUPS_CLAIM,omitempty" doc:"ID token claim the API server takes the groups from (default groups); must match its claim mapping"`
+	OIDCGroupsPrefix   string `json:"PACTO_DASHBOARD_OIDC_GROUPS_PREFIX,omitempty" doc:"Prefix the API server puts before every group; must match its claim mapping"`
+	SessionIdleTimeout string `json:"PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT,omitempty" doc:"A session without a request for this long ends, as a Go duration (default 1h)"`
+	SessionMaxAge      string `json:"PACTO_DASHBOARD_SESSION_MAX_AGE,omitempty" doc:"A session ends this long after sign-in, as a Go duration (default 12h)"`
+	TokenLogin         bool   `json:"PACTO_DASHBOARD_TOKEN_LOGIN,omitempty" default:"false" doc:"Let people sign in by pasting a Kubernetes bearer token; a token session never decides"`
+	DeliveryNamespace  string `json:"PACTO_DASHBOARD_DELIVERY_NAMESPACE,omitempty" default:"pacto-delivery" doc:"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads"`
+	DeliveryTrust      string `json:"PACTO_DASHBOARD_DELIVERY_TRUST,omitempty" doc:"Trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config)"`
+	MiraURL            string `json:"PACTO_DASHBOARD_MIRA_URL,omitempty" doc:"Mira's address, to link health-check citations"`
 }
 
 // ExportConfigSchema generates a JSON Schema for DashboardConfig using Huma's

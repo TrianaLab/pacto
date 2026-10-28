@@ -18,6 +18,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
 
 const testRepoPath = "team/contracts/orders"
@@ -107,7 +108,7 @@ func pushBlob(t *testing.T, repo *remote.Repository, mediaType string, data []by
 // the store's own push, so a test can never seed bytes the product cannot.
 func publish(t *testing.T, repo *remote.Repository, art Artifact) {
 	t.Helper()
-	if err := pushArtifact(t.Context(), repo, art); err != nil {
+	if err := ocireferrer.Push(t.Context(), repo, art); err != nil {
 		t.Fatalf("push evidence artifact: %v", err)
 	}
 }
@@ -231,10 +232,7 @@ func TestScanSubject_ReadsEveryPublishedRecord(t *testing.T) {
 	}
 	ids := map[string]bool{}
 	for _, f := range got.Found {
-		ids[f.Record.Envelope.ID] = true
-		if f.Desc.Digest == "" {
-			t.Error("a scanned record carries no manifest digest")
-		}
+		ids[f.Envelope.ID] = true
 	}
 	for i := 1; i <= 3; i++ {
 		if !ids[fmt.Sprintf("env-%d", i)] {
@@ -483,7 +481,7 @@ func TestScanSubject_CountsArtifactsTheRegistryCannotServe(t *testing.T) {
 	if len(got.Found) != 1 || got.Invalid != 2 {
 		t.Fatalf("read %d records with %d invalid, want 1 and 2", len(got.Found), got.Invalid)
 	}
-	if got.Found[0].Record.Envelope.ID != "env-3" {
-		t.Errorf("surviving record is %q, want env-3", got.Found[0].Record.Envelope.ID)
+	if got.Found[0].Envelope.ID != "env-3" {
+		t.Errorf("surviving record is %q, want env-3", got.Found[0].Envelope.ID)
 	}
 }

@@ -18,7 +18,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 15 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 41 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 71 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 13 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -43,7 +43,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `interfaces[]` | `verified` | `verified` | `verified` | `verified` | Compliant when present; INTERFACE_ABSENT (error) when absent; OBSERVATION_UNSUPPORTED when unbound; EVIDENCE_STALE or COLLECTION_FAILED when the node agent is stale or failed; DUPLICATE_INTERFACE_NAME statically |
 | `interfaces[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_INTERFACE_NAME |
 | `interfaces[].type` | `partial` | `partial` | `partial` | `partial` | Compliant; INTERFACE_PROTOCOL_MISMATCH (error); listed in evaluationCoverage.unverified otherwise; SCHEMA_VIOLATION statically |
-| `interfaces[].ref` | `static-only` | - | - | - | FILE_NOT_FOUND, INVALID_INTERFACE_SPEC |
+| `interfaces[].ref` | `static-only` | - | - | - | FILE_NOT_FOUND, INVALID_INTERFACE_SPEC, INVALID_MCP_TOOLS |
 | `interfaces[].visibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; INTERFACE_VISIBILITY_MISMATCH (error); listed in evaluationCoverage.unverified otherwise; SCHEMA_VIOLATION statically |
 | `configurations` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
 | `configurations[]` | `partial` | `partial` | `unverified` | `unverified` | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically |
@@ -61,9 +61,11 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `dependencies` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
 | `dependencies[]` | `verified` | `verified` | `verified` | `partial` | Compliant; DEPENDENCY_UNREACHABLE (error, warning when optional); OBSERVATION_UNSUPPORTED when the provider is not a Pacto target; DEPENDENCY_UNDECLARED (warning) for reachable peers no entry names |
 | `dependencies[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_DEPENDENCY_NAME |
-| `dependencies[].ref` | `partial` | `partial` | `unverified` | `unverified` | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically |
+| `dependencies[].ref` | `partial` | `partial` | `unverified` | `unverified` | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically; DEPENDENCY_REF_REQUIRED when missing on a dependency that is not external |
 | `dependencies[].required` | `partial` | `partial` | `partial` | `partial` | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted |
 | `dependencies[].compatibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically |
+| `dependencies[].external` | `static-only` | - | - | - | DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0 |
+| `dependencies[].version` | `static-only` | - | - | - | EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF |
 | `state` | `not-applicable` | - | - | - | PARSE_ERROR when not an object |
 | `state.type` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `state.persistence` | `not-applicable` | - | - | - | SCHEMA_VIOLATION when missing |
@@ -98,6 +100,34 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `readiness.claims[].evidence` | `static-only` | - | - | - | EMPTY_READINESS_EVIDENCE |
 | `readiness.claims[].weight` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `readiness.claims[].description` | `static-only` | - | - | - | EMPTY_READINESS_DESCRIPTION |
+| `publish` | `static-only` | - | - | - | PARSE_ERROR when not a map; SCHEMA_VIOLATION under 2.0 |
+| `publish.bundle` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.deploy` | `static-only` | - | - | - | PUBLISH_DEPLOY_NOT_MANIFESTS |
+| `publish.artifacts` | `static-only` | - | - | - | PARSE_ERROR when not a list |
+| `publish.artifacts[]` | `static-only` | - | - | - | DUPLICATE_PUBLISH_ARTIFACT |
+| `publish.artifacts[].name` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].type` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].ref` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].build` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].build.dockerfile` | `static-only` | - | - | - | PUBLISH_DOCKERFILE_NOT_IMAGE |
+| `publish.artifacts[].build.dockerfile.context` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].build.dockerfile.file` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].build.dockerfile.platforms` | `static-only` | - | - | - | PARSE_ERROR when not a list |
+| `publish.artifacts[].build.dockerfile.platforms[]` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].build.command` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].build.command[]` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.artifacts[].sbom` | `static-only` | - | - | - | PUBLISH_SBOM_NOT_IMAGE |
+| `publish.sign` | `static-only` | - | - | - | SCHEMA_VIOLATION; pacto publish refuses when omitted |
+| `publish.sign.keyless` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.sign.identity` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.sign.issuer` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.sign.key` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.sign.kms` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.sign.transparencyLog` | `static-only` | - | - | - | PARSE_ERROR when not a boolean |
+| `checks` | `static-only` | - | - | - | PARSE_ERROR when not a list; NEEDS_PACTO_2_1 under 2.0 |
+| `checks[]` | `static-only` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
+| `checks[].name` | `static-only` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
+| `checks[].file` | `static-only` | - | - | - | FILE_NOT_FOUND |
 | `metadata` | `not-applicable` | - | - | - | PARSE_ERROR when not a map |
 | `extensions` | `not-applicable` | - | - | - | PARSE_ERROR when not a map |
 
@@ -110,14 +140,14 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Contract format version; selects the JSON Schema the contract is validated against. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | parse rejects anything but "2.0" before any other layer runs |
+| Rule | parse rejects anything but "2.0" and "2.1" before any other layer runs; the version selects the schema |
 | Outcomes | PARSE_ERROR when unsupported |
-| Limitations | only 2.0 exists |
+| Limitations | 2.0 has its own schema without publish, checks, external dependencies or mcp; this inventory walks 2.1, the superset |
 | Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid` |
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| `2.0` | `static-only` | the Operational Contract format this release reads | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
+| `2.1` | `static-only` | the newest Operational Contract format, which adds publish, agent and the mcp interface type; 2.0 contracts keep working unchanged | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
 
 ### `service`
 
@@ -333,6 +363,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `openapi` | `verified` | HTTP API described by an OpenAPI document. | http1 or http2 satisfies; other contradicts | Compliant or INTERFACE_PROTOCOL_MISMATCH | tls or no probe answer is unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=openapi`; e2e: `tests/acceptance/kind/runtime-conformance.sh:conforming-workload`, `tests/acceptance/kind/runtime-conformance.sh:protocol-mismatch` |
 | `grpc` | `verified` | gRPC service; HTTP/2 on the wire. | http2 satisfies; http1 or other contradicts | Compliant or INTERFACE_PROTOCOL_MISMATCH | tls or no probe answer is unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=grpc`; e2e: `tests/acceptance/kind/runtime-conformance.sh:protocol-mismatch` |
 | `asyncapi` | `static-only` | Message-driven API described by an AsyncAPI document. | no wire protocol is implied, so nothing satisfies or contradicts it | always listed as unverified when the interface is present | brokers and protocols vary (Kafka, AMQP, MQTT, WebSocket) | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=asyncapi` |
+| `mcp` | `static-only` | The tools a service exposes, as an MCP tools/list result (pactoVersion 2.1). | cross-field: the file lists tools, each named once; diff compares tool by tool | INVALID_MCP_TOOLS; always listed as unverified when the interface is present | MCP runs over stdio or HTTP, so no wire protocol is implied; descriptions are not compared | unit: `pkg/validation/crossfield_test.go:TestValidateMCPInterfaces`, `pkg/diff/mcp_test.go:TestDiffMCP`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=mcp`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=mcp/no-tools` |
 
 ### `interfaces[].ref`
 
@@ -342,7 +373,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Runtime | `static-only` |
 | Evidence | none: request and response conformance against the spec is not observed (no payload capture) |
 | Rule | cross-field: file exists; YAML or JSON parses (.proto is not parsed) |
-| Outcomes | FILE_NOT_FOUND, INVALID_INTERFACE_SPEC |
+| Outcomes | FILE_NOT_FOUND, INVALID_INTERFACE_SPEC, INVALID_MCP_TOOLS |
 | Limitations | only the protocol family is checked at runtime, through interfaces[].type |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateInterfaceFiles_FileNotFound`, `pkg/validation/crossfield_test.go:TestValidateInterfaceFileContent_InvalidYAML`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].ref/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].ref/invalid` |
 
@@ -597,8 +628,8 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Runtime | `partial` |
 | Evidence | resolution key: matched against sibling Pacto status.contract.resolvedRef to find the provider Service |
 | Rule | a ref that matches no sibling cannot be observed |
-| Outcomes | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically |
-| Limitations | a ref without a scheme is a local path and gets no static check |
+| Outcomes | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically; DEPENDENCY_REF_REQUIRED when missing on a dependency that is not external |
+| Limitations | a ref without a scheme is a local path and gets no static check; only an external dependency may leave it out |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidOCI`, `pkg/validation/crossfield_test.go:TestValidateDependencyRefs_TagNotDigestWarning`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-reachable-kernel` |
 
 | Platform | Evidence | Why | Tests |
@@ -642,6 +673,30 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Kubernetes (the operator with its node agent) | `partial` | the provider Pacto's deployed contract version | the e2e scenarios above |
 | `pacto agent` (a Docker host or a server) | `unverified` | no source off Kubernetes: no provider version is known, so the facet is listed in coverage.unverified | - |
 | `pacto run` (one wrapped command) | `unverified` | no source off Kubernetes: no provider version is known, so the facet is listed in coverage.unverified | - |
+
+### `dependencies[].external`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The dependency is not delivered by this Pacto system (it may still run in the same company). |
+| Runtime | `static-only` |
+| Evidence | none: it only changes expectations; Pacto does not expect to see it running and never moves it first |
+| Rule | cross-field: a dependency without ref must be external with a version; pactoVersion 2.1 only |
+| Outcomes | DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0 |
+| Limitations | with a ref it is compared like any other dependency; reachability is still checked when bound |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateDependencyForm`, `pkg/graph/resolver_test.go:TestResolve_ExternalDependency`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/invalid-2.0` |
+
+### `dependencies[].version`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Free-text version an external dependency with no ref runs against. |
+| Runtime | `static-only` |
+| Evidence | none: no contract to compare it with, so anything relying on it is Unknown |
+| Rule | cross-field: required for an external dependency without ref, refused beside a ref; diff: any change is potentially breaking |
+| Outcomes | EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF |
+| Limitations | shown in the graph and in diffs only; compatibility can never be confirmed |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateDependencyForm`, `pkg/diff/dependency_test.go:TestDiffDependencies_External`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/invalid` |
 
 ### `state`
 
@@ -1176,6 +1231,348 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Outcomes | EMPTY_READINESS_DESCRIPTION |
 | Limitations | display only |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateReadiness_BlankDescription`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].description/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].description/invalid` |
+
+### `publish`
+
+| Key | Value |
+| --- | --- |
+| Meaning | What the service publishes, where each artifact goes and how it is built. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: object with bundle; pactoVersion 2.1 only |
+| Outcomes | PARSE_ERROR when not a map; SCHEMA_VIOLATION under 2.0 |
+| Limitations | read by pacto publish only |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish/invalid` |
+
+### `publish.bundle`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The repository the contract bundle is published to. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: oci://host/path, no tag or digest |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | the tag is always service.version |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.bundle/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.bundle/invalid` |
+
+### `publish.deploy`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The manifests artifact a Flux Kustomization applies; tagged last. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | cross-field: names a manifests artifact |
+| Outcomes | PUBLISH_DEPLOY_NOT_MANIFESTS |
+| Limitations | charts are published, never deployed |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidatePublish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/invalid` |
+
+### `publish.artifacts`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The artifacts published beside the contract, built in order. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: array |
+| Outcomes | PARSE_ERROR when not a list |
+| Limitations | none |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts/invalid` |
+
+### `publish.artifacts[]`
+
+| Key | Value |
+| --- | --- |
+| Meaning | One artifact. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | cross-field: names unique |
+| Outcomes | DUPLICATE_PUBLISH_ARTIFACT |
+| Limitations | none |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidatePublish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[]/invalid` |
+
+### `publish.artifacts[].name`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The artifact name; later builds read its digest as PACTO_DIGEST_&lt;NAME&gt;. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: lower-case name |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | none |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].name/invalid` |
+
+### `publish.artifacts[].type`
+
+| Key | Value |
+| --- | --- |
+| Meaning | What the artifact is. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema enum |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | none |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type/invalid` |
+
+| Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
+| --- | --- | --- | --- | --- | --- | --- |
+| `image` | `static-only` | a container image, pushed from an OCI image layout | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type=image` |
+| `chart` | `static-only` | a Helm chart, published but never deployed | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type=chart` |
+| `manifests` | `static-only` | a directory of Kubernetes manifests, packaged as a Flux artifact | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type=manifests` |
+
+### `publish.artifacts[].ref`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The repository the artifact is published to. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: oci://host/path, no tag or digest |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | the tag is always service.version |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].ref/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].ref/invalid` |
+
+### `publish.artifacts[].build`
+
+| Key | Value |
+| --- | --- |
+| Meaning | How the artifact is built: exactly one builder. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: exactly one of dockerfile or command |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | builders never push |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/invalid` |
+
+### `publish.artifacts[].build.dockerfile`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Build an image with docker buildx into an OCI image layout. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | cross-field: images only |
+| Outcomes | PUBLISH_DOCKERFILE_NOT_IMAGE |
+| Limitations | needs docker buildx on the publishing host |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidatePublish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile/invalid` |
+
+### `publish.artifacts[].build.dockerfile.context`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The build context. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty string |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | relative to the contract directory |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.context/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.context/invalid` |
+
+### `publish.artifacts[].build.dockerfile.file`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The Dockerfile. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty string |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | relative to the contract directory |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.file/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.file/invalid` |
+
+### `publish.artifacts[].build.dockerfile.platforms`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The platforms to build. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: array |
+| Outcomes | PARSE_ERROR when not a list |
+| Limitations | defaults to the builder platform |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.platforms/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.platforms/invalid` |
+
+### `publish.artifacts[].build.dockerfile.platforms[]`
+
+| Key | Value |
+| --- | --- |
+| Meaning | One platform, such as linux/amd64. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: os/arch[/variant] |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | none |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.platforms[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.platforms[]/invalid` |
+
+### `publish.artifacts[].build.command`
+
+| Key | Value |
+| --- | --- |
+| Meaning | A command that writes the artifact to $PACTO_OUT. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty array |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | runs in the contract directory; Pacto never edits its output |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.command/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.command/invalid` |
+
+### `publish.artifacts[].build.command[]`
+
+| Key | Value |
+| --- | --- |
+| Meaning | One argument. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty string |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | not run through a shell |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.command[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.command[]/invalid` |
+
+### `publish.artifacts[].sbom`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The SPDX or CycloneDX JSON file the build writes; Pacto attaches it as a referrer and signs it. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: a .spdx.json or .cdx.json path; cross-field: images only |
+| Outcomes | PUBLISH_SBOM_NOT_IMAGE |
+| Limitations | Pacto never makes the SBOM; publish refuses a missing file or one that is not the format its name says |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidatePublish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].sbom/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].sbom/invalid` |
+
+### `publish.sign`
+
+| Key | Value |
+| --- | --- |
+| Meaning | How each published digest is signed, with sigstore-go. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: exactly one of keyless, key and kms |
+| Outcomes | SCHEMA_VIOLATION; pacto publish refuses when omitted |
+| Limitations | the signature is a Sigstore bundle referrer that cosign verify and Flux check |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign/invalid` |
+
+### `publish.sign.keyless`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Sign with the ambient OIDC identity. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: true only |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | needs identity and issuer, so Pacto can tell its own signature from anyone else's |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.keyless/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.keyless/invalid` |
+
+### `publish.sign.identity`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The certificate identity keyless signing produces. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty string, required with keyless |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | matched exactly when Pacto verifies; Flux needs its own matchOIDCIdentity |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.identity/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.identity/invalid` |
+
+### `publish.sign.issuer`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The OIDC issuer of the keyless identity. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty string, required with keyless |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | matched exactly when Pacto verifies |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.issuer/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.issuer/invalid` |
+
+### `publish.sign.key`
+
+| Key | Value |
+| --- | --- |
+| Meaning | A PEM private key file, such as a cosign key. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty string |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | relative to the contract directory; the password comes from COSIGN_PASSWORD |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.key/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.key/invalid` |
+
+### `publish.sign.kms`
+
+| Key | Value |
+| --- | --- |
+| Meaning | A KMS key URI. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty string |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | awskms://, gcpkms://, azurekms:// or hashivault:// |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.kms/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.kms/invalid` |
+
+### `publish.sign.transparencyLog`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Upload signatures to the transparency log. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: boolean |
+| Outcomes | PARSE_ERROR when not a boolean |
+| Limitations | false is for private registries; keyless signing needs the log |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/invalid` |
+
+### `checks`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Test or eval suites shipped with the version; a delivery gate hands one to a runner. |
+| Runtime | `static-only` |
+| Evidence | none: a suite gate in delivery asks a runner to run a suite, bound to its sha256 |
+| Rule | schema: non-empty list; pactoVersion 2.1 only |
+| Outcomes | PARSE_ERROR when not a list; NEEDS_PACTO_2_1 under 2.0 |
+| Limitations | Pacto never reads a suite; its format is the runner's |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateChecks`, `pkg/diff/checks_test.go:TestDiffChecks`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/checks/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks/invalid-2.0` |
+
+### `checks[]`
+
+| Key | Value |
+| --- | --- |
+| Meaning | One suite, by name and file. |
+| Runtime | `static-only` |
+| Evidence | none: a suite gate runs it by name |
+| Rule | schema: name and file, nothing else; cross-field: names are unique; diff: added is non-breaking, removed or changed is potentially breaking |
+| Outcomes | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
+| Limitations | the diff cannot tell a stricter suite from a weaker one |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateChecks`, `pkg/diff/checks_test.go:TestDiffChecksSuiteContent`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[]/invalid` |
+
+### `checks[].name`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The suite's name; a delivery gate names it to run it. |
+| Runtime | `static-only` |
+| Evidence | none: identity only |
+| Rule | schema: required non-empty string; cross-field: unique |
+| Outcomes | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
+| Limitations | none |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateChecks`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].name/invalid` |
+
+### `checks[].file`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The suite's file in the bundle; a runner reads it, Pacto only hashes it. |
+| Runtime | `static-only` |
+| Evidence | none: the suite gate sends its path and sha256 and accepts only a verdict about that digest |
+| Rule | cross-field: file exists in the bundle |
+| Outcomes | FILE_NOT_FOUND |
+| Limitations | the file's format is the runner's |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateChecks`, `pkg/delivery/eval_test.go:TestEvalSuiteBinding`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].file/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].file/invalid` |
 
 ### `metadata`
 

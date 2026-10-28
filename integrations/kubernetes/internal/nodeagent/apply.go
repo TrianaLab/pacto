@@ -18,6 +18,7 @@ import (
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 )
 
 // agentVerbs is everything the agent's Role grants on its observation:
@@ -49,7 +50,7 @@ var PodSecurityLevels = map[string]string{
 // never conflict.
 func namespaceAC(cfg Config) *corev1ac.NamespaceApplyConfiguration {
 	return corev1ac.Namespace(cfg.Namespace).
-		WithLabels(map[string]string{LabelComponent: ComponentValue}).
+		WithLabels(map[string]string{component.LabelComponent: ComponentValue}).
 		WithLabels(PodSecurityLevels)
 }
 

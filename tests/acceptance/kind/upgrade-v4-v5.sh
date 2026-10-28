@@ -14,15 +14,16 @@
 #      from crds/) with the real v4 image 4.7.0.
 #   2. create a representative v4-shaped Pacto CR + its target workload; let the v4
 #      operator reconcile; capture status.contractStatus + the CR UID.
-#   3. server-side apply the NEW v6 CRDs (every file in config/crd/bases/) — the documented
-#      mechanism, because `helm upgrade` never touches a chart's crds/. Prove the
-#      apply succeeds and the CRD schema actually changed (v4 Passed/Failed printer
-#      columns -> v6 Errors/Warnings).
-#   4. helm upgrade to the v6 chart built from the working tree. Prove the SAME CR
+#   3. hand the v4 CRDs (installed from crds/, so Helm never recorded them) to the
+#      release with the documented label + annotate, since the v6 chart renders
+#      every CRD as a template.
+#   4. helm upgrade to the v6 chart built from the working tree. Prove the upgrade
+#      migrated the CRDs (v4 Passed/Failed printer columns -> v6 Errors/Warnings,
+#      the new NodeRuntimeObservation CRD created), and that the SAME CR
 #      (unchanged UID) is still stored + readable under the new CRD (no decode /
 #      conversion error, i.e. NOT silently dropped) and reconciles to a v6 status
 #      that carries a post-v4 field (status.evaluationCoverage).
-#   5. clean uninstall.
+#   5. clean uninstall, which keeps the CRDs (helm.sh/resource-policy: keep).
 # Prints V4-TO-V6-UPGRADE PASS.
 set -euo pipefail
 # shellcheck source=tests/acceptance/kind/lib.sh
@@ -130,7 +131,7 @@ echo "== STEP 2: create a representative v4-shaped Pacto CR + let v4 reconcile =
 # faithful: the point is the v4 operator RECONCILES the CR and writes a status
 # (surfaced, not dropped). The v6 operator resolves it to Compliant after upgrade.
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl -n "$DEMO_NS" create deployment orders --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+kubectl -n "$DEMO_NS" create deployment orders --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
 kubectl -n "$DEMO_NS" rollout status deployment/orders --timeout=90s >/dev/null
 kubectl apply -f - >/dev/null <<YAML
 apiVersion: pacto.trianalab.io/v1alpha1
@@ -162,31 +163,38 @@ V4_UID=$(kubectl -n "$DEMO_NS" get pacto orders -o jsonpath='{.metadata.uid}')
 echo "  v4 reconciled: contractStatus=$V4_STATUS uid=$V4_UID"
 
 echo
-echo "== STEP 3: CRD migration — server-side apply the NEW v6 CRDs BEFORE the upgrade =="
-# helm upgrade never touches a chart's crds/, so the new schema must be applied out
-# of band. Server-side apply is required: these CRDs exceed the client-side
-# last-applied-configuration annotation limit. --force-conflicts takes ownership of
-# the fields helm set when it installed the v4 CRDs. The WHOLE directory, as the
-# docs say: v6 adds CRDs v4 never had (NodeRuntimeObservation), and the v6
-# manager cannot start without them -- its cache resolves every kind it reads.
-kubectl apply --server-side --force-conflicts -f "$ROOT/integrations/kubernetes/config/crd/bases/"
-kubectl get crd "$CRD_NROS" >/dev/null || fail "CRD migration did not create the NodeRuntimeObservation CRD"
+echo "== STEP 3: hand the v4 CRDs to the Helm release =="
+# The v4 chart installed its CRDs from crds/, which Helm never records as part of
+# the release. The v6 chart renders them as templates, so without Helm's ownership
+# label and annotations helm upgrade stops with "invalid ownership metadata". This
+# is the command upgrade.md documents, with no adoption logic in the chart.
+CRDS=$(kubectl get crd -o name | grep -E '/[a-z]+\.pacto\.trianalab\.io$')
+# shellcheck disable=SC2086  # one argument per CRD name
+kubectl label $CRDS app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
+# shellcheck disable=SC2086
+kubectl annotate $CRDS --overwrite \
+  meta.helm.sh/release-name=pacto-operator meta.helm.sh/release-namespace="$NS" >/dev/null
+echo "  handed to the release: ${CRDS//$'\n'/ }"
+
+echo
+echo "== STEP 4: helm upgrade to the v6 chart (built from the working tree) =="
+helm upgrade pacto-operator "$NEW_CHART" -n "$NS" \
+  --set global.imageRegistry= --set image.repository="$NEW_REPO" --set image.tag="$NEW_TAG" --set image.pullPolicy=Never \
+  --set dashboard.enabled=true --set controller.stabilizationWindow=5s --wait --timeout 180s
+wait_ready pacto-operator 120s >/dev/null
+# helm upgrade itself migrates the CRDs now: the schema changed and the CRD v4
+# never had (NodeRuntimeObservation, which the v6 manager cannot start without)
+# exists.
+kubectl get crd "$CRD_NROS" >/dev/null || fail "helm upgrade did not create the NodeRuntimeObservation CRD"
 NEWCOLS=$(kubectl get crd "$CRD_PACTOS" -o jsonpath='{.spec.versions[0].additionalPrinterColumns[*].name}')
 echo "  migrated CRD printer columns (v6): $NEWCOLS"
-echo "$NEWCOLS" | grep -qw Errors || fail "CRD did not migrate to the v6 schema (no 'Errors' column): $NEWCOLS"
+echo "$NEWCOLS" | grep -qw Errors || fail "helm upgrade did not migrate the CRD to the v6 schema (no 'Errors' column): $NEWCOLS"
 # The stored v4 CR must remain readable under the new CRD (no decode/conversion
 # error, same UID) — proof it was NOT silently dropped by the schema change.
 POST_UID=$(kubectl -n "$DEMO_NS" get pacto orders -o jsonpath='{.metadata.uid}' 2>/dev/null) \
   || fail "existing Pacto CR is no longer readable after the CRD migration"
 [ "$POST_UID" = "$V4_UID" ] || fail "CR UID changed across the CRD migration ($V4_UID -> $POST_UID)"
 echo "  existing CR still stored + readable under the v6 CRD (uid unchanged)"
-
-echo
-echo "== STEP 4: helm upgrade to the v6 chart (built from the working tree) =="
-helm upgrade pacto-operator "$NEW_CHART" -n "$NS" \
-  --set image.repository="$NEW_REPO" --set image.tag="$NEW_TAG" --set image.pullPolicy=Never \
-  --set dashboard.enabled=true --set controller.stabilizationWindow=5s --wait --timeout 180s
-wait_ready pacto-operator 120s >/dev/null
 UP_IMG=$(kubectl -n "$NS" get deploy pacto-operator -o jsonpath='{.spec.template.spec.containers[0].image}')
 echo "  operator rolled to: $UP_IMG"
 echo "$UP_IMG" | grep -q "${NEW_REPO}:${NEW_TAG}" || fail "operator did not roll to the v6 image: $UP_IMG"
@@ -210,6 +218,9 @@ helm uninstall pacto-operator -n "$NS" --wait >/dev/null
 sleep 3
 deploy_exists pacto-operator \
   && fail "operator Deployment survived uninstall" || echo "  operator runtime resources removed"
+kubectl get crd "$CRD_PACTOS" "$CRD_REVS" "$CRD_NROS" >/dev/null \
+  || fail "helm uninstall deleted a CRD despite helm.sh/resource-policy: keep"
+echo "  CRDs kept on uninstall"
 
 echo
 echo "V4-TO-V6-UPGRADE PASS"

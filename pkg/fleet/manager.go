@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -18,35 +17,23 @@ var ErrNoSnapshot = errors.New("fleet: no snapshot has been published yet")
 // It must honor context cancellation.
 type Builder func(ctx context.Context) (*FleetSnapshot, error)
 
-// ManagerOptions tunes a [Manager]. The zero value is valid.
-type ManagerOptions struct {
-	// Now is the clock used for refresh timestamps; defaults to time.Now.
-	Now func() time.Time
-}
-
 // Manager owns the current published [FleetSnapshot] and refreshes it. It lets a
 // long-running host (the dashboard, an MCP server) serve many pure queries from
 // one coherent, immutable snapshot and swap it atomically, rather than rebuilding
 // the whole graph per request. It is safe for concurrent use.
 //
 // Guarantees: publication is atomic (a half-built snapshot is never observable);
-// a failed refresh retains the last good snapshot and records the degradation;
+// a failed refresh retains the last good snapshot and logs the failure;
 // concurrent Refresh calls coalesce into a single in-flight build (bounded
 // concurrency of one); readers are race-safe.
 type Manager struct {
 	build Builder
-	now   func() time.Time
 
-	mu          sync.RWMutex
-	current     *FleetSnapshot
-	lastErr     error
-	lastRefresh time.Time
+	mu      sync.RWMutex
+	current *FleetSnapshot
 
 	flightMu sync.Mutex
 	inflight *refreshCall
-
-	refreshes atomic.Int64
-	failures  atomic.Int64
 }
 
 type refreshCall struct {
@@ -54,14 +41,19 @@ type refreshCall struct {
 	err  error
 }
 
+// ManagerOptions tunes a [Manager].
+//
+// Deprecated: ignored. Kept so callers of the v4.0 two-argument [NewManager]
+// still compile.
+type ManagerOptions struct {
+	Now func() time.Time
+}
+
 // NewManager returns a manager that builds snapshots with build. No snapshot is
-// published until the first successful Refresh.
-func NewManager(build Builder, opts ManagerOptions) *Manager {
-	now := time.Now
-	if opts.Now != nil {
-		now = opts.Now
-	}
-	return &Manager{build: build, now: now}
+// published until the first successful Refresh. The variadic options are
+// deprecated and ignored.
+func NewManager(build Builder, _ ...ManagerOptions) *Manager {
+	return &Manager{build: build}
 }
 
 // Current returns the current published snapshot, or [ErrNoSnapshot] if none has
@@ -111,20 +103,14 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	m.inflight = nil
 	m.flightMu.Unlock()
 
-	m.refreshes.Add(1)
-	m.mu.Lock()
-	m.lastRefresh = m.now()
 	if err != nil {
-		m.failures.Add(1)
-		m.lastErr = err
-		m.mu.Unlock()
 		logging.LoggerFromContext(ctx).Debug("fleet snapshot refresh failed; retaining last good snapshot", "error", err)
 		call.err = err
 		close(call.done)
 		return err
 	}
+	m.mu.Lock()
 	m.current = snap
-	m.lastErr = nil
 	m.mu.Unlock()
 	logging.LoggerFromContext(ctx).Debug("fleet snapshot published", "snapshotId", snap.SnapshotID, "services", len(snap.Services))
 	close(call.done)
@@ -152,7 +138,10 @@ func (m *Manager) Start(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// ManagerStatus reports the manager's lifecycle state for health/metrics.
+// ManagerStatus reports the manager's lifecycle state.
+//
+// Deprecated: only HasSnapshot and SnapshotID are populated; the other fields
+// are always zero.
 type ManagerStatus struct {
 	HasSnapshot bool         `json:"hasSnapshot"`
 	SnapshotID  string       `json:"snapshotId,omitempty"`
@@ -163,24 +152,14 @@ type ManagerStatus struct {
 	Failures    int64        `json:"failures"`
 }
 
-// Status returns the current lifecycle state. Degraded is true when the last
-// refresh failed but a previous good snapshot is still being served. The error
-// is sanitized (no secrets).
+// Status reports whether a snapshot is published and its ID.
+//
+// Deprecated: use [Manager.Current].
 func (m *Manager) Status() ManagerStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	st := ManagerStatus{
-		HasSnapshot: m.current != nil,
-		LastRefresh: m.lastRefresh,
-		Degraded:    m.current != nil && m.lastErr != nil,
-		Refreshes:   m.refreshes.Load(),
-		Failures:    m.failures.Load(),
+	if m.current == nil {
+		return ManagerStatus{}
 	}
-	if m.current != nil {
-		st.SnapshotID = m.current.SnapshotID
-	}
-	if m.lastErr != nil {
-		st.Error = sanitizeError(m.lastErr)
-	}
-	return st
+	return ManagerStatus{HasSnapshot: true, SnapshotID: m.current.SnapshotID}
 }

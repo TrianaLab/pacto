@@ -19,7 +19,9 @@ Source-of-truth map (page -> inputs):
   _compatibility.md        <- integration.yaml (compatibility) + release/release-manifest.json
   _install-command.md      <- release/release-manifest.json (operator-chart version)
   _upgrade-command.md      <- release/release-manifest.json (operator-chart version)
+  _delivery-install-command.md <- release/release-manifest.json (operator-chart version)
   _crd-apply.md            <- release/release-manifest.json (k8s-module release tag)
+  _delivery-crd-apply.md   <- release/release-manifest.json (k8s-module release tag)
 
 Usage:
   python3 release/scripts/gen_integration_docs.py [--repo-root DIR] [--integration-dir DIR]
@@ -514,10 +516,8 @@ def controller_help(repo_root: str) -> str:
 def parse_flags(help_text: str) -> list[dict]:
     """Parse `flag`-style --help output into {name, type, default, description}."""
     flags: list[dict] = []
-    lines = help_text.splitlines()
-    i = 0
     cur = None
-    for line in lines:
+    for line in help_text.splitlines():
         m = re.match(r"^  -(\S+)(?:\s+(\S.*))?$", line)
         if m:
             if cur:
@@ -541,7 +541,7 @@ def parse_flags(help_text: str) -> list[dict]:
 
 def chart_arg_flags(helper: str) -> dict[str, str]:
     """Map flag name -> how the chart renders it, for every controller arg the
-    chart can emit.
+    chart can emit, as a literal `- --flag` or a quoted `- {{ printf "--flag=...` line.
 
     The Deployment's args come from one helper template and there is no
     `extraArgs` value, so a flag the helper never emits is unreachable on the
@@ -560,7 +560,7 @@ def chart_arg_flags(helper: str) -> dict[str, str]:
     out: dict[str, str] = {}
     guards: list[str] = []
     for line in (body if nxt < 0 else body[:nxt]).splitlines():
-        m = re.match(r"^\s*-\s+--([a-z0-9-]+)", line)
+        m = re.match(r'^\s*-\s+(?:\{\{\s*printf\s+")?--([a-z0-9-]+)', line)
         if m:
             controlled = ".Values" in line or any(".Values" in g for g in guards)
             out[m.group(1)] = "chart value" if controlled else "always on"
@@ -576,6 +576,10 @@ def chart_arg_flags(helper: str) -> dict[str, str]:
 def gen_operator_configuration(repo_root: str, k8s: str) -> str:
     help_text = controller_help(repo_root)
     flags = parse_flags(help_text)
+    if not flags:
+        # A controller that fails to build prints no flags; writing an empty table
+        # would erase the reference and still exit 0.
+        sys.exit("operator --help listed no flags:\n" + help_text[-2000:])
     main_src = read(os.path.join(k8s, "cmd/main.go"))
     env_vars = sorted(set(re.findall(r'os\.Getenv\("([^"]+)"\)', main_src)))
 
@@ -727,10 +731,10 @@ def gen_contract_bindings(k8s: str) -> str:
         "reproducible: what the operator asserted last Tuesday is what it asserts "
         "today. The cost is real -- publishing a contract revision becomes a change to "
         "the `Pacto` resource too.\n"
-        "- **Tag** (`...:1.2.3`) is a name you control, not an immutable one. If someone "
-        "force-pushes that tag the operator notices rather than drifting silently: it "
+        "- **Tag** (`...:1.2.3`) is a mutable name you control. If someone "
+        "force-pushes that tag, the operator "
         "records a new `PactoRevision` and emits a `TagOverwritten` Warning Event naming "
-        "the old and new digests. It does not refuse the new content. Choose a tag when "
+        "the old and new digests. It still accepts the new content. Choose a tag when "
         "you want a promotable pointer and will treat that Event as a signal.\n"
         "- **Unversioned** (`ghcr.io/org/service-pacto`) re-resolves the highest semver "
         "tag on every reconcile -- every `spec.checkIntervalSeconds`, 300 by default. It "
@@ -889,8 +893,8 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
 
     out.append("## Contract status\n")
     out.append(
-        "`status.contractStatus` says whether the service matches its contract. It is not a "
-        "health check. Values are generated from the `Pacto` API.\n"
+        "`status.contractStatus` says whether the service matches its contract. It does not "
+        "report pod health. Values are generated from the `Pacto` API.\n"
     )
     out.append("| Status | Meaning |")
     out.append("| --- | --- |")
@@ -908,7 +912,7 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     out.append("")
     out.append(
         "Precedence when summarizing findings (see `summarizeFindings` in "
-        "`internal/controller/pacto_controller.go`): `Invalid` (structural) outranks all; "
+        "`internal/controller/status.go`): `Invalid` (structural) outranks all; "
         "then any error -> `NonCompliant`; else any unknown -> `Unknown`; else any warning -> "
         "`Warning`; else `Compliant`. Reference-only contracts short-circuit to `Reference`.\n"
     )
@@ -1072,10 +1076,11 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
     out.append("## Artifact coordinates\n")
     out.append("| Artifact | Kind | Coordinate | Version |")
     out.append("| --- | --- | --- | --- |")
-    order = ["operator-image", "operator-chart", "k8s-module", "k8s-docs"]
+    order = ["operator-image", "operator-chart", "delivery-image", "k8s-module", "k8s-docs"]
     labels = {
         "operator-image": "Controller image",
         "operator-chart": "Helm chart",
+        "delivery-image": "Delivery image (opt-in)",
         "k8s-module": "Go module",
         "k8s-docs": "Documentation",
     }
@@ -1095,8 +1100,9 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
     if signed:
         out.append("## Verify a published artifact\n")
         out.append(
-            "The controller image and the Helm chart are signed keylessly by the release "
-            "workflow through GitHub's OIDC issuer. Verify either before installing it:\n"
+            "The controller image, the opt-in delivery image and the Helm chart are "
+            "signed keylessly by the release workflow through GitHub's OIDC "
+            "issuer. Verify each one before installing it:\n"
         )
         out.append("```bash")
         out.append("cosign verify \\")
@@ -1139,15 +1145,17 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
 # installation.md and upgrade.md, so the literal can only ever be the published
 # one and `make docs-check` catches any drift.
 
-def chart_command(chart_unit: dict, verb: str) -> str:
+def chart_command(chart_unit: dict, verb: str, release: str = "pacto-operator",
+                  namespace: str = "pacto-operator-system", extra: str = "") -> str:
     """Fenced `helm install|upgrade` block pinned to the published chart version."""
-    extra = " --create-namespace" if verb == "install" else ""
+    if verb == "install":
+        extra = " --create-namespace" + extra
     return (
         "```bash\n"
-        f"helm {verb} pacto-operator \\\n"
+        f"helm {verb} {release} \\\n"
         f"  oci://{chart_unit['coordinate']} \\\n"
         f"  --version {chart_unit['version']} \\\n"
-        f"  --namespace pacto-operator-system{extra}\n"
+        f"  --namespace {namespace}{extra}\n"
         "```\n"
     )
 
@@ -1159,22 +1167,39 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
     )
 
 
-# The CRD apply in upgrade.md used to fetch from `main`, one command above a
-# `helm upgrade` pinned to an exact chart version: the reader was told to install
-# chart X and to apply whatever CRDs happened to be on the default branch that
-# day. Same drift class as the `--version` literal above, so same fix -- pin the
-# ref to the integration release tag the docs describe. The file list is read
-# from config/crd/bases, so a new CRD cannot be left out of the upgrade snippet
-# (`helm upgrade` never adds or updates CRDs).
+# Delivery is a section of the operator chart: turning it on is an upgrade of the
+# operator release that keeps its values. A later `helm upgrade` updates the
+# delivery CRDs too, since they are templates, so no CRD snippet goes with it.
+# --reset-then-reuse-values (Helm 3.14+), not --reuse-values: the latter drops the
+# new chart's defaults, so on the upgrade that first ships `delivery` the section
+# holds only `enabled` and the render dies on a nil map. docs_check (g) refuses it.
+def gen_delivery_install_command(repo_root: str) -> str:
+    manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
+    return banner("release/release-manifest.json") + chart_command(
+        manifest["units"]["operator-chart"], "upgrade",
+        extra=" \\\n  --reset-then-reuse-values --set delivery.enabled=true \\\n  --set delivery.identities.humanGroups={staff}",
+    )
+
+
+# The CRD apply for a cluster that sets crds.install=false and applies the CRDs
+# itself. It used to fetch from `main` next to a chart pinned to an exact
+# version, the same drift class as the `--version` literal above, so the ref is
+# pinned to the integration release tag the docs describe. The file list is read
+# from config/crd/bases, so a new CRD cannot be left out. One snippet per group:
+# the delivery.pacto.trianalab.io CRDs are needed only with delivery.enabled, so
+# delivery-setup.md includes their snippet and installation.md does not.
 CRD_BASES = "integrations/kubernetes/config/crd/bases"
 RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
 
 
-def gen_crd_apply(repo_root: str) -> str:
+def gen_crd_apply(repo_root: str, group: str = "pacto.trianalab.io") -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     tag = manifest["units"]["k8s-module"]["tag"]
+    paths = sorted(glob.glob(os.path.join(repo_root, CRD_BASES, f"{group}_*.yaml")))
+    if not paths:
+        raise SystemExit(f"no {group} CRDs in {CRD_BASES}")
     out = [banner("release/release-manifest.json"), "```bash"]
-    for path in sorted(glob.glob(os.path.join(repo_root, CRD_BASES, "*.yaml"))):
+    for path in paths:
         out.append("kubectl apply --server-side --force-conflicts \\")
         out.append(f"  -f {RAW_BASE}/{tag}/{CRD_BASES}/{os.path.basename(path)}")
     out.append("```")
@@ -1202,6 +1227,7 @@ def gen_compatibility(repo_root: str, k8s: str) -> str:
     out.append("| --- | --- | --- |")
     out.append(f"| Operator image | `{units['operator-image']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Operator chart | `{units['operator-chart']['version']}` | `{pacto_core_req}` |")
+    out.append(f"| Delivery image | `{units['delivery-image']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Go module | `{units['k8s-module']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Integration docs | `{units['k8s-docs']['version']}` | `{pacto_core_req}` |")
     out.append("")
@@ -1295,7 +1321,9 @@ def main() -> int:
         "_compatibility.md": gen_compatibility(repo_root, k8s),
         "_install-command.md": gen_chart_command(repo_root, "install"),
         "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
+        "_delivery-install-command.md": gen_delivery_install_command(repo_root),
         "_crd-apply.md": gen_crd_apply(repo_root),
+        "_delivery-crd-apply.md": gen_crd_apply(repo_root, "delivery.pacto.trianalab.io"),
     }
     for name, content in pages.items():
         path = os.path.join(out_dir, name)

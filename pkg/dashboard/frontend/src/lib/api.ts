@@ -15,21 +15,32 @@
  */
 
 import type { operations, components, paths } from './generated/schema';
-import { client } from './transport';
+import { client, dashboardFetch } from './transport';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** The stable refusal code a delivery answer carries (FreshLoginRequired,
+   *  NotYourTeam and so on); empty for any other error. */
+  code: string;
+  /** The fresh plan a PlanStale refusal carries. */
+  plan?: DeliveryPlan;
+  constructor(status: number, message: string, code = '', plan?: DeliveryPlan) {
     super(message);
     this.status = status;
     this.name = 'ApiError';
+    this.code = code;
+    this.plan = plan;
   }
 }
 
 // ── generated response types (never redeclared) ──────────────────────────────
 // Product responses are inline operation payloads; alias them from the generated
 // operations so the facade and UI consume the generated wire types.
-type JSON200<T extends keyof operations> =
+// Only operations that answer 200: a create answers 201 and has no 200 entry.
+type OpsWith200 = {
+  [K in keyof operations]: operations[K]['responses'] extends { 200: unknown } ? K : never;
+}[keyof operations];
+type JSON200<T extends OpsWith200> =
   operations[T]['responses'][200]['content']['application/json'];
 
 export type ProductOverview = JSON200<'fleet-overview'>;
@@ -50,6 +61,37 @@ type GetResponse<P extends keyof paths> =
   paths[P] extends { get: { responses: { 200: infer R } } } ? JSONBody<R> : never;
 type PostResponse<P extends keyof paths> =
   paths[P] extends { post: { responses: { 200: infer R } } } ? JSONBody<R> : never;
+type CreatedResponse<P extends keyof paths> =
+  paths[P] extends { post: { responses: { 201: infer R } } } ? JSONBody<R> : never;
+type DeleteResponse<P extends keyof paths> =
+  paths[P] extends { delete: { responses: { 200: infer R } } } ? JSONBody<R> : never;
+
+/** Who the dashboard acts as: the identity mode and the signed-in person. */
+export type Session = GetResponse<'/api/session'>;
+
+// ── delivery wire types ──────────────────────────────────────────────────────
+/** Who delivery classifies the caller as, with the published team rule. */
+export type DeliveryCaller = GetResponse<'/api/delivery/caller'>;
+export type DeliveryInbox = GetResponse<'/api/delivery/inbox'>;
+export type DeliveryEnvironments = GetResponse<'/api/delivery/environments'>;
+export type DeliveryAutonomy = GetResponse<'/api/delivery/autonomy'>;
+export type DeliveryPublished = GetResponse<'/api/delivery/published'>;
+export type DeliveryHistory = GetResponse<'/api/delivery/history'>;
+export type DeliveryOperation = GetResponse<'/api/delivery/operations/{namespace}/{name}'>;
+export type DeliveryBlame = GetResponse<'/api/delivery/blame'>;
+export type DeliveryUndo = GetResponse<'/api/delivery/undo'>;
+export type DeliveryRefusals = GetResponse<'/api/delivery/refusals'>;
+/** The paging and filter a long delivery list takes, from the generated query. */
+export type DeliveryQuery<P extends keyof paths> =
+  paths[P] extends { get: { parameters: { query?: infer Q } } } ? NonNullable<Q> : never;
+/** Which slice of a list an answer holds. */
+export type DeliveryPage = components['schemas']['Page'];
+export type DeliveryPlan = components['schemas']['Delivery.Plan'];
+export type DeliveryRequest = components['schemas']['Delivery.Request'];
+export type DeliveryDecision = components['schemas']['DecideInputBody']['decision'];
+export type DeliveryVerdict = components['schemas']['Delivery.ExplainedVerdict'];
+export type InboxItem = components['schemas']['InboxItem'];
+export type EnvironmentRow = components['schemas']['EnvironmentRow'];
 
 // ── finite wire vocabularies (derived from generated enums, never hand-listed) ──
 /** One canonical entity reference as the backend emits it, href and all. */
@@ -225,6 +267,14 @@ interface FetchResult<T> {
   response: Response;
 }
 
+function errorCode(error: unknown): { code: string; plan?: DeliveryPlan } {
+  if (error && typeof error === 'object') {
+    const e = error as { code?: string; plan?: DeliveryPlan };
+    return { code: e.code ?? '', plan: e.plan };
+  }
+  return { code: '' };
+}
+
 function errorMessage(error: unknown, response: Response): string {
   if (error && typeof error === 'object') {
     const e = error as { detail?: string; title?: string };
@@ -239,7 +289,8 @@ function errorMessage(error: unknown, response: Response): string {
 async function unwrap<T>(p: Promise<FetchResult<T>>): Promise<T> {
   const { data, error, response } = await p;
   if (!response.ok || error !== undefined) {
-    throw new ApiError(response.status, errorMessage(error, response));
+    const { code, plan } = errorCode(error);
+    throw new ApiError(response.status, errorMessage(error, response), code, plan);
   }
   return (data ?? null) as T;
 }
@@ -250,6 +301,56 @@ async function productGet<T extends { meta?: ProductMeta }>(p: Promise<FetchResu
   checkProductSchema(res?.meta);
   return res;
 }
+
+// The CSRF token every mutating request carries, read from the session. A
+// signed-in browser holds a session cookie, and the server then asks for the
+// token on every POST, PUT, PATCH and DELETE, not only on delivery ones.
+let csrf = '';
+async function csrfHeaders(): Promise<Record<string, string>> {
+  if (!csrf) csrf = (await readSession().catch(() => null))?.csrf ?? '';
+  return csrf ? { 'X-Pacto-CSRF': csrf } : {};
+}
+
+// One /api/session read at a time: the session store and a mutating call that
+// needs the token while the store's read is in flight share the same request.
+let reading: Promise<Session> | null = null;
+function readSession(): Promise<Session> {
+  reading ??= unwrap(client.GET('/api/session'))
+    .then((s) => { csrf = s?.csrf ?? ''; return s; })
+    .finally(() => { reading = null; });
+  return reading;
+}
+
+// A mutating request kept unsent, so a refusal for a stale token can be retried.
+const unsent = new WeakMap<Request, Request>();
+
+client.use({
+  async onRequest({ request }) {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      for (const [k, v] of Object.entries(await csrfHeaders())) request.headers.set(k, v);
+      unsent.set(request, request.clone());
+    }
+    return request;
+  },
+  // Signing in again (in another tab too) issues a new session token, and the
+  // server then refuses the one cached here. Read the session again and retry
+  // once, only when it has a different token: any other 403 stands.
+  async onResponse({ request, response }) {
+    // A session that ended (expired, or signed out in another tab) turns the
+    // API away: the page reads the session again and shows its sign-in screen.
+    if (response.status === 401 && new URL(request.url).pathname !== '/api/session') {
+      window.dispatchEvent(new Event('pacto:unauthorized'));
+    }
+    const retry = unsent.get(request);
+    if (response.status !== 403 || !retry) return response;
+    const sent = request.headers.get('X-Pacto-CSRF') ?? '';
+    csrf = '';
+    const fresh = (await csrfHeaders())['X-Pacto-CSRF'];
+    if (!fresh || fresh === sent) return response;
+    retry.headers.set('X-Pacto-CSRF', fresh);
+    return dashboardFetch(retry);
+  },
+});
 
 // ── the facade ───────────────────────────────────────────────────────────────
 // Legacy endpoints preserve their GENERATED response types (never `unknown`); the
@@ -280,26 +381,6 @@ export const api = {
     })),
   refresh: (): Promise<PostResponse<'/api/refresh'>> => unwrap(client.POST('/api/refresh', {})),
 
-  // ── Operational graph (fleet) legacy ──
-  fleetSnapshot: (): Promise<GetResponse<'/api/fleet/snapshot'>> => unwrap(client.GET('/api/fleet/snapshot')),
-  fleetServices: (
-    params: NonNullable<operations['fleet-search']['parameters']['query']> = {},
-  ): Promise<GetResponse<'/api/fleet/services'>> => unwrap(client.GET('/api/fleet/services', { params: { query: params } })),
-  fleetServiceGraph: (
-    name: string,
-    opts: { direction?: string; transitive?: boolean; maxDepth?: number } = {},
-  ): Promise<GetResponse<'/api/fleet/services/{name}/graph'>> =>
-    unwrap(client.GET('/api/fleet/services/{name}/graph', { params: { path: { name }, query: opts } })),
-  fleetStatus: (): Promise<GetResponse<'/api/fleet/status'>> => unwrap(client.GET('/api/fleet/status')),
-  fleetService: (key: string): Promise<GetResponse<'/api/fleet/service'>> =>
-    unwrap(client.GET('/api/fleet/service', { params: { query: { key } } })),
-  fleetTarget: (key: string): Promise<GetResponse<'/api/fleet/target'>> =>
-    unwrap(client.GET('/api/fleet/target', { params: { query: { key } } })),
-  fleetImpact: (oldRef: string, newRef: string, includeObserved?: boolean): Promise<GetResponse<'/api/fleet/impact'>> =>
-    unwrap(client.GET('/api/fleet/impact', {
-      params: { query: { old: oldRef, new: newRef, includeObserved: includeObserved ?? false } },
-    })),
-
   // ── Product-oriented operational-graph APIs ──
   fleetOverview: (): Promise<ProductOverview> =>
     productGet(client.GET('/api/fleet/overview')),
@@ -329,4 +410,65 @@ export const api = {
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>
     productGet(client.GET('/api/fleet/revisions/document', { params: { query: { key, path } } })),
+
+  // ── Session: who the dashboard acts as and how people sign in. ──
+  /** The identity mode and the signed-in person, as the API server names them. */
+  session: (): Promise<Session> => readSession(),
+  /** Signs in with a pasted Kubernetes bearer token (POST /auth/token, outside the
+   *  API). The server checks it with the cluster and keeps it in the session. */
+  signInWithToken: async (token: string): Promise<void> => {
+    const res = await dashboardFetch(new Request(new URL('/auth/token', location.origin), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+    }));
+    if (!res.ok) throw new ApiError(res.status, ((await res.text()) || res.statusText).trim());
+  },
+  /** Ends the session (POST /auth/logout, outside the API) and returns the identity
+   *  provider's logout page when it has one. */
+  signOut: async (): Promise<string> => {
+    const res = await dashboardFetch(new Request(new URL('/auth/logout', location.origin), {
+      method: 'POST', headers: await csrfHeaders(),
+    }));
+    if (!res.ok) throw new ApiError(res.status, (await res.text()) || res.statusText);
+    csrf = '';
+    const body = (await res.json().catch(() => ({}))) as { logoutURL?: string };
+    return body.logoutURL ?? '';
+  },
+
+  // ── Delivery. Every call runs as the caller: the signed-in person, or the
+  // kubeconfig user of a local dashboard. The apiserver decides. ──
+  /** Who delivery classifies the caller as, and the published team rule. */
+  deliveryCaller: (): Promise<DeliveryCaller> => unwrap(client.GET('/api/delivery/caller')),
+  deliveryInbox: (query: DeliveryQuery<'/api/delivery/inbox'> = {}): Promise<DeliveryInbox> =>
+    unwrap(client.GET('/api/delivery/inbox', { params: { query } })),
+  deliveryEnvironments: (query: DeliveryQuery<'/api/delivery/environments'> = {}): Promise<DeliveryEnvironments> =>
+    unwrap(client.GET('/api/delivery/environments', { params: { query } })),
+  deliveryAutonomy: (query: DeliveryQuery<'/api/delivery/autonomy'> = {}): Promise<DeliveryAutonomy> =>
+    unwrap(client.GET('/api/delivery/autonomy', { params: { query } })),
+  deliveryPublished: (query: DeliveryQuery<'/api/delivery/published'> = {}): Promise<DeliveryPublished> =>
+    unwrap(client.GET('/api/delivery/published', { params: { query } })),
+  deliveryHistory: (namespace = '', stage = '', query: DeliveryQuery<'/api/delivery/history'> = {}): Promise<DeliveryHistory> =>
+    unwrap(client.GET('/api/delivery/history', {
+      params: { query: { ...query, namespace: namespace || undefined, stage: stage || undefined } },
+    })),
+  deliveryBlame: (namespace: string, stage: string, digest = ''): Promise<DeliveryBlame> =>
+    unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined } } })),
+  deliveryUndo: (namespace: string, name: string, stage = ''): Promise<DeliveryUndo> =>
+    unwrap(client.GET('/api/delivery/undo', { params: { query: { namespace, name, stage: stage || undefined } } })),
+  deliveryRefusals: (): Promise<DeliveryRefusals> => unwrap(client.GET('/api/delivery/refusals')),
+  deliveryOperation: (namespace: string, name: string): Promise<DeliveryOperation> =>
+    unwrap(client.GET('/api/delivery/operations/{namespace}/{name}', { params: { path: { namespace, name } } })),
+  deliveryPlan: (body: DeliveryRequest): Promise<DeliveryPlan> =>
+    unwrap(client.POST('/api/delivery/plan', { body })),
+  deliveryPropose: (body: DeliveryRequest): Promise<CreatedResponse<'/api/delivery/operations'>> =>
+    unwrap(client.POST('/api/delivery/operations', { body })),
+  deliveryDecide: (
+    namespace: string, name: string, decision: DeliveryDecision, note = '',
+  ): Promise<CreatedResponse<'/api/delivery/operations/{namespace}/{name}/decision'>> =>
+    unwrap(client.POST('/api/delivery/operations/{namespace}/{name}/decision', {
+      params: { path: { namespace, name } }, body: { decision, note: note || undefined },
+    })),
+  deliveryCancel: (namespace: string, name: string): Promise<DeleteResponse<'/api/delivery/operations/{namespace}/{name}'>> =>
+    unwrap(client.DELETE('/api/delivery/operations/{namespace}/{name}', {
+      params: { path: { namespace, name } },
+    })),
 };

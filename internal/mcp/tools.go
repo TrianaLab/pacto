@@ -2,8 +2,13 @@ package mcp
 
 import (
 	"context"
+	"os"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"k8s.io/client-go/dynamic"
+
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -15,7 +20,11 @@ func createTool() *mcpsdk.Tool {
 		Description: "Creates a new Pacto service contract from structured inputs. " +
 			"Translates user intent (stores_data, data_survives_restart, etc.) into " +
 			"correct contract primitives. Scaffolds pacto.yaml plus interface and " +
-			"config files. Supports dry_run mode.",
+			"config files. Supports dry_run mode. With pactify it does what `pacto init` does " +
+			"to an existing service folder at path: reads its Dockerfile and Kubernetes manifests, " +
+			"plans the contract (publish section included) and, with delivery, the cluster pieces, " +
+			"and returns what it found, the dependencies and consumers found and what is Unknown. " +
+			"It only adds files; dry_run plans and writes nothing.",
 		InputSchema: inputSchema(map[string]property{
 			"name":                         {Type: "string", Description: "Service name (DNS-compatible, e.g. 'payment-api')"},
 			"description":                  {Type: "string", Description: "Natural-language description; infers interfaces and workload only, never state (set stores_data and friends explicitly)"},
@@ -23,7 +32,7 @@ func createTool() *mcpsdk.Tool {
 			"version":                      {Type: "string", Description: "Service version (defaults to '0.1.0')"},
 			"owner":                        {Type: "string", Description: "Owner identifier (e.g. 'team/platform')"},
 			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, visibility?}]"},
-			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted)"},
+			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref"},
 			"workload":                     {Type: "string", Description: "Workload type", Enum: []string{"service", "job", "scheduled"}},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data (drives state model; never inferred from the description, unset means stateless)"},
 			"data_survives_restart":        {Type: "boolean", Description: "Whether data must survive pod restarts"},
@@ -32,6 +41,17 @@ func createTool() *mcpsdk.Tool {
 			"config_properties":            {Type: "string", Description: "JSON array of config properties: [{name, type?, required?}]"},
 			"metadata":                     {Type: "string", Description: "JSON object of metadata key-value pairs"},
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
+			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
+			"delivery":                     {Type: "boolean", Description: "With pactify: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization"},
+			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
+			"environments":                 {Type: "string", Description: "With delivery: JSON array of environments in promotion order (default [\"test\",\"prod\"])"},
+			"no_transparency_log":          {Type: "boolean", Description: "With pactify: write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)"},
+			"insecure_registry":            {Type: "boolean", Description: "With delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)"},
+			"registry_secret":              {Type: "string", Description: "With delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with"},
+			"fleet_roots":                  {Type: "string", Description: "With pactify: JSON array of folders of other services' contracts, searched for the services that use this one"},
+			"paths":                        {Type: "string", Description: "With pactify: JSON array of service folders, each planned like path and named after its folder (name is ignored); dry_run defaults to true"},
+			"cluster":                      {Type: "boolean", Description: "With pactify: draft a contract for every workload in the current kubeconfig context that no Pacto describes, into path/<namespace>/<name>, with the services it was seen calling pinned to the version seen running; dry_run defaults to true"},
+			"namespaces":                   {Type: "string", Description: "With cluster: JSON array of namespaces to read (default: every namespace)"},
 		}, []string{"name"}),
 	}
 }
@@ -54,11 +74,25 @@ type createArgs struct {
 	DataLossImpact            string `json:"data_loss_impact"`
 	ConfigProperties          string `json:"config_properties"`
 	Metadata                  string `json:"metadata"`
-	DryRun                    bool   `json:"dry_run"`
+	DryRun                    *bool  `json:"dry_run"`
+	Pactify                   bool   `json:"pactify"`
+	Delivery                  bool   `json:"delivery"`
+	Registry                  string `json:"registry"`
+	Environments              string `json:"environments"`
+	FleetRoots                string `json:"fleet_roots"`
+	NoTransparencyLog         bool   `json:"no_transparency_log"`
+	InsecureRegistry          bool   `json:"insecure_registry"`
+	RegistrySecret            string `json:"registry_secret"`
+	Paths                     string `json:"paths"`
+	Cluster                   bool   `json:"cluster"`
+	Namespaces                string `json:"namespaces"`
 }
 
 func createHandler() mcpsdk.ToolHandlerFor[createArgs, any] {
-	return func(_ context.Context, _ *mcpsdk.CallToolRequest, args createArgs) (*mcpsdk.CallToolResult, any, error) {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args createArgs) (*mcpsdk.CallToolResult, any, error) {
+		if args.Pactify {
+			return pactifyFolder(ctx, args)
+		}
 		input := CreateInput{
 			Name:                      args.Name,
 			Description:               args.Description,
@@ -70,7 +104,7 @@ func createHandler() mcpsdk.ToolHandlerFor[createArgs, any] {
 			DataSurvivesRestart:       args.DataSurvivesRestart,
 			DataSharedAcrossInstances: args.DataSharedAcrossInstances,
 			DataLossImpact:            args.DataLossImpact,
-			DryRun:                    args.DryRun,
+			DryRun:                    args.DryRun != nil && *args.DryRun,
 		}
 
 		if err := unmarshalFields([]jsonField{
@@ -91,6 +125,64 @@ func createHandler() mcpsdk.ToolHandlerFor[createArgs, any] {
 	}
 }
 
+// pactifyFolder is pacto_create with pactify: `pacto init` for an agent.
+// Several folders or a whole cluster only plan unless dry_run is false.
+func pactifyFolder(ctx context.Context, args createArgs) (*mcpsdk.CallToolResult, any, error) {
+	plan := args.Paths != "" || args.Cluster
+	if args.DryRun != nil {
+		plan = *args.DryRun
+	}
+	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Registry: args.Registry,
+		Delivery: args.Delivery, Plan: plan, NoTransparencyLog: args.NoTransparencyLog,
+		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
+	var paths []string
+	cluster := pactify.ClusterOptions{Out: args.Path}
+	if err := unmarshalFields([]jsonField{
+		{"environments", args.Environments, &opts.Environments},
+		{"fleet_roots", args.FleetRoots, &opts.FleetRoots},
+		{"paths", args.Paths, &paths},
+		{"namespaces", args.Namespaces, &cluster.Namespaces},
+	}); err != nil {
+		return nil, nil, err
+	}
+	if args.Cluster || args.Paths != "" {
+		opts.Dir, opts.Name = "", "" // each service is named after its folder or workload
+	}
+	var b *pactify.Bulk
+	var err error
+	switch {
+	case args.Cluster:
+		var dyn dynamic.Interface
+		if dyn, err = newDynamic(); err == nil {
+			b, err = pactify.Cluster(ctx, dyn, opts, cluster, os.WriteFile)
+		}
+	case args.Paths != "":
+		b, err = pactify.Many(ctx, opts, paths, os.WriteFile)
+	default:
+		r, err := pactify.Init(ctx, opts, os.WriteFile)
+		if err != nil {
+			return nil, nil, err
+		}
+		res, err := jsonResult(r)
+		return res, nil, err
+	}
+	if b == nil {
+		return nil, nil, err
+	}
+	// A folder or draft that failed does not hide the ones already written:
+	// the results come first and the error after, as the CLI prints them.
+	res, jerr := jsonResult(b)
+	if jerr != nil || err == nil {
+		return res, nil, jerr
+	}
+	res.IsError = true
+	res.Content = append(res.Content, &mcpsdk.TextContent{Text: err.Error()})
+	return res, nil, nil
+}
+
+// newDynamic is the cluster client the cluster argument reads with.
+var newDynamic = k8sclient.NewDynamic
+
 // --- pacto_edit ---
 
 func editTool() *mcpsdk.Tool {
@@ -106,8 +198,8 @@ func editTool() *mcpsdk.Tool {
 			"owner":                        {Type: "string", Description: "New owner identifier"},
 			"add_interfaces":               {Type: "string", Description: "JSON array of interfaces to add: [{name, type, visibility?}]"},
 			"remove_interfaces":            {Type: "string", Description: "JSON array of interface names to remove: [\"name1\", \"name2\"]"},
-			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted)"},
-			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]"},
+			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref"},
+			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]; an external dependency with no ref is removed by name"},
 			"workload":                     {Type: "string", Description: "New workload type", Enum: []string{"service", "job", "scheduled"}},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data"},
 			"data_survives_restart":        {Type: "boolean", Description: "Whether data must survive pod restarts"},
@@ -230,7 +322,7 @@ type schemaResult struct {
 func schemaHandler() mcpsdk.ToolHandlerFor[struct{}, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		result := schemaResult{
-			Description: "Pacto is an operational contract format for cloud-native services. " +
+			Description: "Pacto is continuous delivery driven by service contracts. " +
 				"A pacto.yaml file describes the service itself — interfaces, dependencies, " +
 				"configuration, workload and state semantics, and policies. Use pacto_create to generate new contracts and pacto_edit to " +
 				"modify existing ones. Use pacto_check to validate and get improvement suggestions.",

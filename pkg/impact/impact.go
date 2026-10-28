@@ -89,6 +89,9 @@ type AffectedConsumer struct {
 	Confidence           Confidence `json:"confidence"`
 	Status               string     `json:"status,omitempty"`
 	Targets              []string   `json:"targets,omitempty"`
+	// Uncontracted marks a runtime caller no contract describes: Service is its
+	// raw observed identity, and it has no range a change could be checked against.
+	Uncontracted bool `json:"uncontracted,omitempty"`
 }
 
 // Result is the deterministic impact answer.
@@ -240,6 +243,17 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 			targets[tk] = true
 		}
 	}
+	if opts.IncludeObserved {
+		for _, u := range snap.UncontractedCallers {
+			if u.ToService == changed {
+				res.Consumers = append(res.Consumers, AffectedConsumer{
+					Service: u.Caller, Depth: 1, Direct: true, Path: []string{u.Caller, string(changed)},
+					CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved,
+					Confidence: ConfidenceObserved, Uncontracted: true,
+				})
+			}
+		}
+	}
 	res.Owners = sortedKeys(owners)
 	res.ActiveTargets = sortedKeys(targets)
 	return res
@@ -364,7 +378,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 		sort.Strings(c.Targets)
 	}
 
-	rel, hasDeclared, observed := edgeEvidence(snap, node.key, changed, observedEdges)
+	rel, hasDeclared, observed := edgeEvidence(snap, node.key, changed, newVersion, observedEdges)
 	// The observedEdges slice is empty unless the caller opted in and the endpoints
 	// resolved to unique domain-qualified keys, so `observed` is already gated.
 	observedCounted := observed
@@ -381,7 +395,12 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 // relationship or supplied via telemetry. The observedEdges are pre-resolved to
 // unique domain-qualified keys, so comparison is a plain key match (no default-
 // domain coercion that could corroborate a same-named service in another domain).
-func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, observedEdges []resolvedObservedEdge) (rel fleet.Relationship, declared, observed bool) {
+//
+// A consumer running more than one revision declares one edge per revision.
+// The one that accepts newVersion least speaks for the consumer (incompatible
+// over unknown over compatible): one running revision that breaks is enough
+// for the change to break the consumer, whatever order the edges come in.
+func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, newVersion string, observedEdges []resolvedObservedEdge) (rel fleet.Relationship, declared, observed bool) {
 	for i := range snap.Relationships {
 		r := snap.Relationships[i]
 		if r.Type != fleet.RelationshipDependency || r.FromService != consumer || r.ToService != changed {
@@ -398,7 +417,9 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey,
 		if r.Provenance == fleet.ProvenanceObserved {
 			continue
 		}
-		rel = r
+		if !declared || verdictRank(compatibilityVerdict(r.Compatibility, newVersion, true)) > verdictRank(compatibilityVerdict(rel.Compatibility, newVersion, true)) {
+			rel = r
+		}
 		declared = true
 	}
 	for _, e := range observedEdges {
@@ -463,6 +484,17 @@ func compatibilityVerdict(constraint, version string, declared bool) string {
 		return CompatibilityCompatible
 	}
 	return CompatibilityIncompatible
+}
+
+// verdictRank orders compatibility verdicts from the one that accepts most.
+func verdictRank(v string) int {
+	switch v {
+	case CompatibilityIncompatible:
+		return 2
+	case CompatibilityUnknown:
+		return 1
+	}
+	return 0
 }
 
 func serviceTargets(snap *fleet.FleetSnapshot, key fleet.ServiceKey) []string {

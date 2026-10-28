@@ -1,5 +1,7 @@
 <script>
+  import { untrack } from 'svelte';
   import HelpTip from './HelpTip.svelte';
+  import { formatCount } from '../lib/format.ts';
 
   // THE section grammar. Every titled block on a product page is one
   // of these, so a reader learns the shape once: title, count, tone, an optional
@@ -54,9 +56,21 @@
     children,
   } = $props();
 
+  // A closed section mounts nothing: two hundred rows behind a closed disclosure still
+  // cost their DOM, and a page of them was 600k px with every section open.
+  let isOpen = $state(untrack(() => open));
+  $effect(() => { isOpen = open; });
+
+  // A long preview shows its first rows and a Show all button, so one block never pushes
+  // the rest of the page screens down. Focus inside it opens it, so a keyboard reader
+  // never tabs into rows they cannot see.
+  const CLIP_ROWS = 8;
+  let expanded = $state(false);
+  const clipped = $derived(count > CLIP_ROWS && !expanded);
+
   const totalKnown = $derived(typeof total === 'number' && Number.isFinite(total));
   const titleClass = $derived(role === 'subsection' ? 't-subsection-title' : 't-section-title');
-  const countText = $derived(totalKnown ? `${count} of ${total}` : `${count}`);
+  const countText = $derived(totalKnown ? `${formatCount(count)} of ${formatCount(total)}` : formatCount(count));
 
   // Every top-level section on a page is addressable, so the shared "On this page"
   // navigator can DISCOVER it instead of a page hand-listing its own contents and
@@ -82,10 +96,15 @@
   {#if count === 0}
     <p class="ps-empty t-body-2">{empty}</p>
   {:else}
-    {@render children?.()}
+    <div class="ps-clip" class:ps-clipped={clipped} onfocusin={() => { expanded = true; }}>{@render children?.()}</div>
+    {#if count > CLIP_ROWS}
+      <button type="button" class="btn btn-sm ps-all" aria-expanded={expanded} onclick={() => { expanded = !expanded; }} data-testid="preview-show-all">
+        {expanded ? 'Show fewer' : `Show all ${formatCount(count)}`}
+      </button>
+    {/if}
     {#if truncated}
       <p class="ps-more t-body-2" data-testid="preview-more">
-        {#if totalKnown}Showing {count} of {total}.{:else}Showing {count}. More exist; total unknown.{/if}
+        {#if totalKnown}Showing {formatCount(count)} of {formatCount(total)}.{:else}Showing {formatCount(count)}. More exist; total unknown.{/if}
         {#if viewAllHref}<a href={viewAllHref}>{viewAllLabel}</a>{/if}
       </p>
     {/if}
@@ -98,12 +117,13 @@
        would be an interactive element nested in an interactive element: the help click
        would also toggle the section. Requirement 14 asks for substantive explanation
        behind an expandable disclosure anyway, and this section already is one. -->
-  <details class="ps disclosure ps-collapsible" class:ps-toned={tone} data-tone={tone} data-testid="preview-section" {open} {...toc}>
+  <details class="ps disclosure ps-collapsible" class:ps-toned={tone} data-tone={tone} data-testid="preview-section" open={isOpen}
+    ontoggle={(e) => { isOpen = e.currentTarget.open; }} {...toc}>
     <summary class="ps-head">
       <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
       {@render head(false)}
     </summary>
-    <div class="ps-panel">{@render body(!!help)}</div>
+    {#if isOpen}<div class="ps-panel">{@render body(!!help)}</div>{/if}
   </details>
 {:else}
   <section class="ps" class:ps-toned={tone} data-tone={tone} data-testid="preview-section" {...toc}>
@@ -113,6 +133,8 @@
 {/if}
 
 <style>
+  .ps-clipped { max-height: 22rem; overflow: hidden; mask-image: linear-gradient(to bottom, #000 75%, transparent); }
+  .ps-all { margin-top: var(--sp-2); }
   .ps { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   /* Tone is a left edge, not a fill: a section that needs attention has to be findable
      while scrolling without turning the page into a colour chart. */
@@ -123,7 +145,10 @@
   .ps-toned[data-tone='info'] { border-left-color: var(--c-info); }
 
   .ps-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+  /* The count never drops to a line of its own: in a grid of cards it would leave each
+     card's title at a different height. */
   .ps-head-end { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; margin-left: auto; }
+  .ps-count { white-space: nowrap; }
   .ps-count, .ps-empty, .ps-more, .ps-help { margin: 0; }
   .ps-help { margin-bottom: var(--sp-3); max-width: 72ch; }
   .ps-more { margin-top: var(--sp-2); }
@@ -131,8 +156,9 @@
   .ps-more a:hover { text-decoration: underline; }
 
   /* The gap between a section title and its content is the same everywhere, whether the
-     section opens or is always visible. */
-  .ps > .ps-head { margin-bottom: var(--sp-3); }
+     section opens or is always visible. A closed disclosure has no content below its
+     head, so it gets no gap: the old rule matched its summary too and left an empty band. */
+  section.ps > .ps-head { margin-bottom: var(--sp-3); }
   .ps-panel { margin-top: var(--sp-3); }
 
   /* Layout, caret and hit area come from the shared `.disclosure` in components.css --

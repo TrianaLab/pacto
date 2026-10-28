@@ -14,7 +14,6 @@
 package fleetsrc
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
@@ -135,7 +134,7 @@ func loadRevision(dir string) (fleet.RawRevision, error) {
 	if err != nil {
 		return fleet.RawRevision{}, fmt.Errorf("read pacto.yaml: %w", err)
 	}
-	c, err := contract.Parse(bytes.NewReader(data))
+	c, doc, err := contract.ParseDocument(data)
 	if err != nil {
 		return fleet.RawRevision{}, fmt.Errorf("parse pacto.yaml: %w", err)
 	}
@@ -146,7 +145,7 @@ func loadRevision(dir string) (fleet.RawRevision, error) {
 	}
 	fsys := ignore.FS(dirFS, matcher)
 	b := &contract.Bundle{Contract: c, RawYAML: data, FS: fsys}
-	rev := fleet.RawRevision{Bundle: b, RequestedRef: "file://" + dir}
+	rev := fleet.RawRevision{Bundle: b, RequestedRef: "file://" + dir, Document: doc}
 	if h, err := lock.HashFS(fsys); err == nil {
 		rev.Digest = h
 	}

@@ -2,7 +2,7 @@
   import { serviceUrl } from '../lib/router.ts';
   import { getFilters } from '../lib/filters.svelte.ts';
   import { applyFilters } from '../lib/filters.ts';
-  import { statusClass, statusLabel, statusTone } from '../lib/format.ts';
+  import { statusClass, statusLabel, statusTone, formatCount } from '../lib/format.ts';
   import FilterBar from '../components/FilterBar.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
@@ -48,7 +48,7 @@
 </script>
 
 <div class="list-header">
-  <h1>Services {#if services.length > 0}<span class="tab-count">{filtered.length === services.length ? services.length : `${filtered.length} / ${services.length}`}</span>{/if}</h1>
+  <h1>Services {#if services.length > 0}<span class="tab-count">{filtered.length === services.length ? formatCount(services.length) : `${formatCount(filtered.length)} / ${formatCount(services.length)}`}</span>{/if}</h1>
 </div>
 
 <!-- Shared filter + summary: the summary reacts to the active filters. -->
@@ -93,7 +93,7 @@
       level={3}
       description="How many other services each one would affect if it broke. Bar colour is the service's own compliance status."
       scopeNote={blastRanked.length > BLAST_ROWS
-        ? `Top ${BLAST_ROWS} of ${blastRanked.length} services that anything depends on.`
+        ? `Top ${BLAST_ROWS} of ${formatCount(blastRanked.length)} services that anything depends on.`
         : ''}
       items={blastRows}
       unit="services"
@@ -110,7 +110,7 @@
       <a href={serviceUrl(svc.name)} class="alert-item" class:alert-err={svc.contractStatus === 'NonCompliant'} class:alert-warn={svc.contractStatus === 'Warning'}>
         <span class="alert-dot" style="background:{svc.contractStatus === 'NonCompliant' ? 'var(--c-err)' : 'var(--c-warn)'}"></span>
         <span class="alert-name">{svc.name}</span>
-        <span class="badge badge-{statusClass(svc.contractStatus)}" style="font-size:10px">{statusLabel(svc.contractStatus)}</span>
+        <span class="badge badge-{statusClass(svc.contractStatus)}" style="font-size: var(--text-xs)">{statusLabel(svc.contractStatus)}</span>
         {#if svc.topInsight}<span class="alert-reason">{svc.topInsight}</span>{/if}
         {#if (svc.blastRadius || 0) > 0}
           <span class="blast-pill" class:blast-pill-high={svc.blastRadius >= 5} class:blast-pill-med={svc.blastRadius >= 3 && svc.blastRadius < 5}>
@@ -128,7 +128,7 @@
     error={loadError}
     onRetry={onRetry}
     title="Can’t reach the backend"
-    message="The dashboard couldn’t load services. It will keep retrying." />
+    message="Pacto keeps trying on its own." />
 {:else if services.length === 0 && (initialLoading || discovering)}
   <EmptyState loading message={initialLoading ? 'Loading services…' : 'Discovering services…'} />
 {:else if services.length === 0}
@@ -200,7 +200,7 @@
   .graph-cta-desc { display: block; font-size: var(--text-xs); opacity: 0.8; margin-top: 2px; }
 
   .alerts { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-5); }
-  .alerts-title { font-size: var(--text-xs); font-weight: 600; color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--sp-1); }
+  .alerts-title { color: var(--c-text-3); margin-bottom: var(--sp-1); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .alert-item {
     display: flex; align-items: center; gap: var(--sp-2);
     padding: var(--sp-3) var(--sp-3); border-radius: var(--radius-xs);

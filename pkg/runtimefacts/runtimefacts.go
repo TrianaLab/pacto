@@ -14,6 +14,7 @@ import (
 	"net"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/evidence"
@@ -215,6 +216,11 @@ const (
 	CoverageFailed                   // the host's collection failed
 	CoverageStale                    // no snapshot, or none within the staleness bound
 )
+
+// String names the coverage the way the Pacto status reports it.
+func (c Coverage) String() string {
+	return [...]string{"Complete", "Partial", "Failed", "Stale"}[c]
+}
 
 // Verdict is the kernel's answer for one assertion.
 type Verdict int
@@ -495,4 +501,29 @@ func DependencyObservation(name string, v Verdict, prov evidence.Provenance) evi
 func unobserved(kind evidence.ObservationKind, subj evidence.SubjectRef, v Verdict, prov evidence.Provenance) evidence.Observation {
 	obs, _ := evidence.NewUnobserved(kind, subj, v.Outcome(), prov)
 	return obs
+}
+
+// Callers returns the workloads with a successful connection to any of peers at or after since, sorted by
+// ID. Failures alone never make a caller: a refused connection is not a dependency.
+func Callers(snaps []Snapshot, peers []Address, since time.Time) []Identity {
+	seen := map[Identity]bool{}
+	for _, s := range snaps {
+		for _, w := range s.Workloads {
+			if seen[w.Identity] {
+				continue
+			}
+			for _, c := range w.Connections {
+				if !c.LastSuccessAt.IsZero() && !c.LastSuccessAt.Before(since) && slices.Contains(peers, NewAddress(c.Address, c.Port)) {
+					seen[w.Identity] = true
+					break
+				}
+			}
+		}
+	}
+	out := make([]Identity, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	slices.SortFunc(out, func(a, b Identity) int { return strings.Compare(a.ID, b.ID) })
+	return out
 }

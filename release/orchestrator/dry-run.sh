@@ -47,7 +47,7 @@ echo "== TRANSACTION SELECTION: drive the REAL orchestrator (detect.mjs) per sce
 # detect.mjs release.yml runs; the release.yml job `if:` selection over these
 # units is separately gated by tests/release/dag_test.go.
 CORE_UNITS="core,cli,dashboard-image,dashboard-contract-bundle,demo-bundles,demo-compose"
-K8S_UNITS="k8s-module,operator-image,operator-chart,k8s-docs"
+K8S_UNITS="k8s-module,operator-image,operator-chart,delivery-image,k8s-docs"
 mk_txn() { # <id> <groups-csv> <units-csv> <ready 0|1> -> transaction json
   python3 - "$@" <<'PY'
 import json,sys
@@ -91,9 +91,15 @@ echo "   OK recovery-refused: mismatched transactionId rejected (no second relea
 echo "== build + push the operator image (production root context) =="
 docker build -f "$ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$DV" -t "$OPIMG" "$ROOT"
 docker push "$OPIMG" >/dev/null
-digest() { crane digest --insecure "$1" 2>/dev/null || crane digest "$1"; }
+digest() { bash "$ROOT/release/orchestrator/verify-oci.sh" --digest "$1"; }
 OPDIGEST="$(digest "$OPIMG")"
 echo "   operator image digest: $OPDIGEST"
+
+echo "== build + push the delivery image (same Dockerfile, CMD=cmd/delivery) =="
+DLIMG="$REG/pacto/delivery:$DV"
+docker build -f "$ROOT/integrations/kubernetes/Dockerfile" --target delivery --build-arg CMD=cmd/delivery --build-arg VERSION="$DV" -t "$DLIMG" "$ROOT"
+docker push "$DLIMG" >/dev/null
+echo "   delivery image digest: $(digest "$DLIMG")"
 
 echo "== build the CLI binaries + checksums + SBOM (reproducible) =="
 PACTO_DIST_DIR="$DIST" bash "$ROOT/release/orchestrator/build-cli.sh" "v$CORE" "$SHA"
@@ -126,13 +132,22 @@ if bash "$ROOT/release/orchestrator/verify-oci.sh" "$CHART_REF" "" "wrong-sha" "
 fi
 echo "   foreign revision refused (fail-closed)"
 
+echo "== the operator chart installs delivery from the delivery image at its appVersion =="
+# One chart ships both: with delivery.enabled its default promoter image has to be
+# the delivery image the same release publishes.
+helm template d "$CHART" --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
+  --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy \
+  | grep -q "image: \"ghcr.io/trianalab/pacto/delivery:$DV\"" \
+  || { echo "operator chart delivery image is not ghcr.io/trianalab/pacto/delivery:$DV"; exit 1; }
+echo "   delivery image is ghcr.io/trianalab/pacto/delivery at the chart appVersion"
+
 echo "== DURABLE LEDGER + absent/identical/conflict + partial-failure/resume (shared adapter) =="
 export PACTO_LEDGER_REPO="$REG/pacto-release-ledger"
 led() { bash "$ROOT/release/orchestrator/ledger.sh" "$@"; }
 vfy() { bash "$ROOT/release/orchestrator/verify-oci.sh" "$@"; }
 TXN="dryrun-$(git -C "$ROOT" rev-parse --short HEAD)"
 export PACTO_RELEASE_TXN="$TXN"
-MSHA="$(node -e 'const c=require("crypto"),fs=require("fs");const m=JSON.parse(fs.readFileSync("'"$ROOT"'/release/release-manifest.json"));const nv=Object.fromEntries(Object.entries(m.units).map(([u,v])=>[u,v.version]));const st=v=>Array.isArray(v)?v.map(st):(v&&typeof v=="object"?Object.fromEntries(Object.keys(v).sort().map(k=>[k,st(v[k])])):v);process.stdout.write(c.createHash("sha256").update(JSON.stringify(st(nv))).digest("hex"))')"
+MSHA="$(node --input-type=module -e 'import { readFileSync } from "node:fs"; const root = process.argv[1]; const { manifestSha } = await import(root + "/release/orchestrator/canonical.mjs"); const m = JSON.parse(readFileSync(root + "/release/release-manifest.json")); process.stdout.write(manifestSha(Object.fromEntries(Object.entries(m.units).map(([u, v]) => [u, v.version]))))' "$ROOT")"
 led init "$TXN" "$SHA" "$MSHA" >/dev/null
 
 # Publish EACH unit through the EXACT shared adapter release.yml uses
@@ -180,7 +195,7 @@ echo "   verify MISMATCH refused (fail closed)"
 
 echo "== ITEM 2: parallel per-unit records lose nothing; idempotent; conflict fails =="
 CTX="dryrun-conc-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$CTX" "$SHA" "$MSHA" >/dev/null
-CUNITS="core cli dashboard-image dashboard-contract-bundle demo-bundles demo-compose k8s-module operator-image operator-chart k8s-docs"
+CUNITS="core cli dashboard-image dashboard-contract-bundle demo-bundles demo-compose k8s-module operator-image operator-chart delivery-image k8s-docs"
 i=0
 for u in $CUNITS; do i=$((i+1)); led record "$CTX" "$u" "coord/$u" "1.0.0" "sha256:$(printf '%064x' $((i*7)))" complete >/dev/null 2>&1 & done
 wait

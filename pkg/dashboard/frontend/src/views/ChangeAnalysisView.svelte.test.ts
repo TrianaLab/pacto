@@ -12,9 +12,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { detailFn, entitiesFn, impactFn, rawImpactFn, snapshotFn, capsFn } = vi.hoisted(() => ({
+const { detailFn, entitiesFn, impactFn, capsFn } = vi.hoisted(() => ({
   detailFn: vi.fn(), entitiesFn: vi.fn(), impactFn: vi.fn(),
-  rawImpactFn: vi.fn(), snapshotFn: vi.fn(), capsFn: vi.fn(),
+  capsFn: vi.fn(),
 }));
 
 vi.mock('../lib/api.ts', async (importOriginal) => {
@@ -25,8 +25,6 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
       fleetEntityDetail: (...a: unknown[]) => detailFn(...a),
       fleetEntities: (...a: unknown[]) => entitiesFn(...a),
       fleetImpactByIdentity: (...a: unknown[]) => impactFn(...a),
-      fleetImpact: (...a: unknown[]) => rawImpactFn(...a),   // the legacy GET: must NEVER be called
-      fleetSnapshot: (...a: unknown[]) => snapshotFn(...a),  // the raw snapshot: must NEVER be called
       capabilities: (...a: unknown[]) => capsFn(...a),
     },
   };
@@ -98,7 +96,7 @@ const analyzeBtn = (t: HTMLElement) => Array.from(t.querySelectorAll('button')).
 
 describe('ChangeAnalysisView — one workspace for what changed and what it affects', () => {
   beforeEach(() => {
-    for (const f of [detailFn, entitiesFn, impactFn, rawImpactFn, snapshotFn, capsFn]) f.mockReset();
+    for (const f of [detailFn, entitiesFn, impactFn, capsFn]) f.mockReset();
     detailFn.mockResolvedValue(serviceDetail());
     impactFn.mockResolvedValue(impactResult());
     capsFn.mockResolvedValue({ fleet: true, impact: true, observed: false });
@@ -110,7 +108,6 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
     // selectors are populated from the product entity-detail preview (never the snapshot)
     expect(detailFn).toHaveBeenCalledWith('service', 'domain-a/payments');
-    expect(snapshotFn).not.toHaveBeenCalled();
     analyzeBtn(target).click();
     await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
     // canonical ServiceKey + canonical RevisionKeys + snapshot id for mismatch rejection
@@ -122,32 +119,24 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
       includeObserved: false, limit: 100, offset: 0,
     }));
     // the legacy raw GET and the raw snapshot are never used by the product UI
-    expect(rawImpactFn).not.toHaveBeenCalled();
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
-  it('carries the shared page navigator, and only lists sections the analysis actually rendered', async () => {
-    // A finished analysis runs several screens deep, so the workspace joins the long
-    // product pages on the shared rail. Before there is a result there is one section to
-    // name, and offering a contents list for it would promise a page that is not there.
+  it('answers first, folds the parts that back the answer, and needs no page navigator', async () => {
+    impactFn.mockResolvedValue({ ...impactResult(), consumers: { ...impactResult().consumers, byVerdict: [{ key: 'incompatible', count: 1 }, { key: 'unknown', count: 1 }] } });
     const { target, component } = mountView({ svc: 'domain-a/payments' });
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
-    expect(document.querySelector('[data-testid="page-toc"]')).toBeNull();
-
     analyzeBtn(target).click();
-    await vi.waitFor(() => expect(target.textContent).toContain('Affected consumers'));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-answer"]')).toBeTruthy());
     flushSync();
-    const toc = document.querySelector('[data-testid="page-toc"]');
-    expect(toc).toBeTruthy();
-    expect(Array.from(toc!.querySelectorAll('.toc-link')).map((b) => b.textContent)).toEqual([
-      'Revisions to compare', 'What changed', 'What it affects', 'Affected consumers',
-    ]);
-    // Every entry has to land somewhere: the navigator scrolls to an id, so an entry
-    // whose section carries no id is a control that does nothing when clicked.
-    for (const id of ['sec-revisions', 'sec-what-changed', 'sec-what-it-affects', 'sec-affected-consumers']) {
-      expect(target.querySelector(`#${id}`), id).toBeTruthy();
-    }
+    const answer = target.querySelector('[data-testid="changes-answer"] .ca-answer-line')?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(answer).toBe('Breaking 3 changes, 1 breaking. 2 consumers affected: 1 does not accept payments 2.0.0, 1 unknown.');
+    // Every backing part is a real disclosure widget, closed until asked for.
+    const folds = Array.from(target.querySelectorAll('details.ca-fold')) as HTMLDetailsElement[];
+    expect(folds.map((d) => d.querySelector('summary h2')?.textContent)).toEqual(['What changed', 'Affected consumers', 'Owners and targets']);
+    expect(folds.every((d) => !d.open)).toBe(true);
+    expect(target.querySelector('[data-testid="changes-consumers"] summary')?.textContent).toContain('2 · 1 incompatible');
+    expect(document.querySelector('[data-testid="page-toc"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -159,7 +148,6 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     // it pages the complete revision set via the product entities API scoped to the service
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['revision'], service: 'domain-a/payments' }));
     await vi.waitFor(() => expect(Array.from(target.querySelectorAll('#impact-old-rev option')).length).toBe(4)); // 3 revs + placeholder
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -185,10 +173,15 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
     analyzeBtn(target).click();
     await vi.waitFor(() => expect(target.textContent).toContain('Affected consumers'));
-    impactFn.mockResolvedValueOnce(impactResult({ offset: 100 }));
+    let release: (v: unknown) => void = () => {};
+    impactFn.mockReturnValueOnce(new Promise((r) => { release = r; }));
     const next = Array.from(target.querySelectorAll('button')).find((b) => b.textContent === 'Next') as HTMLButtonElement;
     next.click();
     await vi.waitFor(() => expect(impactFn).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100 })));
+    // While the next page loads the answer stays mounted, so the reader keeps their place.
+    expect(target.textContent).toContain('Affected consumers');
+    expect(target.textContent).not.toContain('Comparing the two revisions');
+    release(impactResult({ offset: 100 }));
     unmount(component); document.body.removeChild(target);
   });
 
@@ -245,7 +238,6 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     (target.querySelector('[data-testid="impact-picker-results"] button') as HTMLButtonElement).click();
     flushSync();
     expect(location.hash).toBe('#/fleet/changes/domain-a%2Fpayments');
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -272,7 +264,6 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     entitiesFn.mockResolvedValue({ meta, total: 9999, count: 200, nextOffset: 200, entities: Array.from({ length: 200 }, (_, i) => ref('revision', `domain-a/big@sha256:${i}`, `1.${i}.0`)) });
     const { target, component } = mountView({ svc: 'domain-a/big' });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-revisions-incomplete"]')).toBeTruthy());
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -387,7 +378,7 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
 // used to live on the legacy Compare screen's impact CTA, which this workspace replaces.)
 describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', () => {
   beforeEach(() => {
-    for (const f of [detailFn, entitiesFn, impactFn, rawImpactFn, snapshotFn, capsFn]) f.mockReset();
+    for (const f of [detailFn, entitiesFn, impactFn, capsFn]) f.mockReset();
     detailFn.mockResolvedValue(serviceDetail());
     impactFn.mockResolvedValue(impactResult());
     capsFn.mockResolvedValue({ fleet: true, impact: true, observed: false });

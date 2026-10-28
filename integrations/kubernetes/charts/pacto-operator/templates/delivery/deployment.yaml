@@ -1,0 +1,141 @@
+{{- if .Values.delivery.enabled }}
+{{- include "pacto-operator.delivery.gate" . }}
+{{- with .Values.delivery.promoter.upstreamTrust }}
+# The recorder keys of other clusters whose records an upstreamRecords Stage
+# promotes on, per stream glob. Public keys only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" $ }}-upstream-trust
+  namespace: {{ include "pacto-operator.delivery.namespace" $ }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" $ "component" "delivery-promoter") | nindent 4 }}
+data:
+  trust.yaml: {{ . | quote }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter") | nindent 4 }}
+spec:
+  replicas: {{ .Values.delivery.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-promoter") | nindent 6 }}
+  template:
+    metadata:
+      {{- /* The promoter reads its identity policy once: a change restarts it. */}}
+      {{- $checksum := dict "checksum/identities" (include "pacto-operator.delivery.identitiesJSON" . | sha256sum) }}
+      {{- include "pacto-operator.podMetadata" (dict "ctx" . "values" .Values.delivery "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "annotations" $checksum) | trim | nindent 6 }}
+    spec:
+      {{- include "pacto-operator.podSpec" (dict "ctx" . "values" .Values.delivery "serviceAccountName" (include "pacto-operator.delivery.serviceAccountName" .)) | trim | nindent 6 }}
+      containers:
+        - name: promoter
+          {{- include "pacto-operator.image" (dict "ctx" . "image" .Values.delivery.image) | nindent 10 }}
+          args:
+            - promoter
+            - --leader-elect={{ .Values.delivery.promoter.leaderElect }}
+            - --poll={{ .Values.delivery.promoter.poll }}
+            - --resync={{ .Values.delivery.promoter.resync }}
+            - --workers={{ .Values.delivery.promoter.workers }}
+            - --auth-freshness={{ .Values.delivery.promoter.authFreshness | default "0" }}
+            - --controller-user={{ include "pacto-operator.delivery.controllerUser" . }}
+            - --identities=/etc/pacto/identities/policy.json
+            {{- if .Values.delivery.argocd.enabled }}
+            - --argocd
+            {{- end }}
+            {{- if .Values.delivery.admissionPolicies.enabled }}
+            {{- $fullname := include "pacto-operator.delivery.fullname" . }}
+            {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}
+            {{- if .Values.delivery.argocd.enabled }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
+            {{- if .Values.delivery.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
+            - --admission-policies={{ range $i, $p := $policies }}{{ if $i }},{{ end }}{{ $fullname }}-{{ $p }}{{ end }}
+            {{- end }}
+            {{- if .Values.delivery.recorder.enabled }}
+            - --records
+            - --recorded-ttl={{ .Values.delivery.recorder.operationTTL }}
+            {{- end }}
+            {{- with .Values.delivery.gates.providers }}
+            - {{ printf "--gate-providers=%s" (toJson .) | quote }}
+            {{- end }}
+            {{- if .Values.delivery.promoter.upstreamTrust }}
+            - --upstream-trust-config=/etc/pacto/upstream-trust/trust.yaml
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.delivery.promoter.registryCredentials.secretName }}
+            - name: DOCKER_CONFIG
+              value: /etc/pacto/registry
+            {{- end }}
+            {{- if .Values.delivery.gates.caBundle.configMap }}
+            # Read on top of the image's roots in /etc/ssl/certs.
+            - name: SSL_CERT_FILE
+              value: /etc/pacto/ca/{{ .Values.delivery.gates.caBundle.key }}
+            {{- end }}
+            {{- with .Values.delivery.insecureRegistries }}
+            - name: PACTO_INSECURE_REGISTRIES
+              value: {{ join "," . | quote }}
+            {{- end }}
+          {{- include "pacto-operator.ports" (dict "metrics" 8080) | nindent 10 }}
+          {{- include "pacto-operator.probes" dict | nindent 10 }}
+          {{- include "pacto-operator.securityContext" (dict "ctx" . "values" .Values.delivery) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.delivery.resources | nindent 12 }}
+          {{- $creds := .Values.delivery.promoter.registryCredentials.secretName }}
+          volumeMounts:
+            {{- if .Values.delivery.promoter.upstreamTrust }}
+            - name: upstream-trust
+              mountPath: /etc/pacto/upstream-trust
+              readOnly: true
+            {{- end }}
+            {{- if $creds }}
+            - name: registry
+              mountPath: /etc/pacto/registry
+              readOnly: true
+            {{- end }}
+            - name: identities
+              mountPath: /etc/pacto/identities
+              readOnly: true
+            {{- if .Values.delivery.gates.caBundle.configMap }}
+            - name: gate-ca
+              mountPath: /etc/pacto/ca
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.delivery.promoter.upstreamTrust }}
+        - name: upstream-trust
+          configMap:
+            name: {{ include "pacto-operator.delivery.fullname" . }}-upstream-trust
+        {{- end }}
+        {{- if $creds }}
+        - name: registry
+          secret:
+            secretName: {{ $creds }}
+            items:
+              - key: .dockerconfigjson
+                path: config.json
+        {{- end }}
+        - name: identities
+          configMap:
+            name: pacto-delivery-identities
+        {{- with .Values.delivery.gates.caBundle }}
+        {{- if .configMap }}
+        - name: gate-ca
+          configMap:
+            name: {{ .configMap }}
+            items:
+              - key: {{ .key }}
+                path: {{ .key }}
+        {{- end }}
+        {{- end }}
+      {{- with include "pacto-operator.scheduling" .Values.delivery | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
+{{- end }}

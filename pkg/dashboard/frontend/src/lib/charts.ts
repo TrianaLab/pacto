@@ -3,22 +3,11 @@
  * Each render fn takes a container element, data and options, draws an SVG.
  */
 import * as d3 from 'd3';
-import { readinessBucketLabel, ownerKeyLabel, ownerKeyKind, statusLabel, statusTone } from './format';
-import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState } from './chartkit';
+import { statusLabel, statusTone, formatCount } from './format';
+import { ownerKeyLabel, ownerKeyKind } from './owners';
+import { readinessBucketLabel } from './readiness';
+import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState, bindHover, legendItem } from './chartkit';
 import { categoryIconInner } from './categoryIcons';
-import { prefersReducedMotion } from './motion';
-
-/**
- * How long a chart's hover response lasts. A d3 transition is a JS clock, so it is the one
- * kind of motion the stylesheet's reduced-motion policy cannot reach: fourteen call sites
- * had `.duration(150)` written into them and not one asked whether the reader wanted it.
- *
- * 90ms mirrors --dur-1, the feedback step -- a hover is under the finger. It is a literal
- * because JS cannot read a CSS token without a layout read per frame, and the preference
- * is queried per call rather than once at module load, because it can change while the
- * page is open.
- */
-const hoverMs = () => (prefersReducedMotion() ? 0 : 90);
 
 /** Horizontal stacked bar chart for readiness category breakdown. */
 export interface CategoryBarData {
@@ -113,20 +102,11 @@ export function renderCategoryStackedBars(
     .attr('height', y.bandwidth())
     .attr('rx', radius)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
+    .call((sel) => bindHover(sel, tooltip, (d) => {
       const cat = d.data as CategoryBarData;
       const total = cat.done + cat.partial + cat.notDone + cat.deferred;
-      const content = `${cat.category} — done ${cat.done} · partial ${cat.partial} · not-done ${cat.notDone} · deferred ${cat.deferred} · total: ${total} checks`;
-      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mousemove', function (event) {
-      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
-      tooltip.hide();
-    })
+      return `${cat.category} — done ${formatCount(cat.done)} · partial ${formatCount(cat.partial)} · not-done ${formatCount(cat.notDone)} · deferred ${formatCount(cat.deferred)} · total: ${formatCount(total)} checks`;
+    }))
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect((d.data as CategoryBarData).category);
     });
@@ -217,9 +197,13 @@ export function renderPriorityQuadrant(
 
   const pal = resolvePalette(container);
 
-  const margin = { top: 30, right: 30, bottom: 50, left: 60 };
+  // The status legend wraps onto as many rows as it needs above the plot instead of
+  // running off its right edge; the top margin grows with it.
   const width = container.clientWidth || 600;
-  const height = 300;
+  const legendLabels = [...new Set(data.map((d) => d.status))].filter(Boolean).sort().map((st) => statusLabel(st));
+  const legendRows = legendLayout(legendLabels, width - 90);
+  const margin = { top: 30 + 14 * (legendRows.rows - 1), right: 30, bottom: 50, left: 60 };
+  const height = 300 + 14 * (legendRows.rows - 1);
 
   const svg = d3.select(container)
     .append('svg')
@@ -245,12 +229,21 @@ export function renderPriorityQuadrant(
     .domain([Math.min(xExtent[0], 0) - xPad, Math.max(xExtent[1], 0) + xPad])
     .range([0, innerWidth]);
 
-  // Y scale: impact/blast 0–max
-  const yMax = d3.max(data, (d) => d.y) || 1;
-  const y = d3.scaleLinear().domain([0, yMax]).range([innerHeight, 0]);
+  // Y scale: impact/blast 0–max, square-root so one hub with a huge blast radius does not
+  // squash every other service onto the floor of the plot.
+  // The domain stops at the 95th percentile when a few outliers sit far above it
+  // (one hub at 1,234 over two thousand services under 10): those dots are drawn
+  // on the top edge, ringed, and counted in a note, and the tooltip keeps the
+  // real number.
+  const blastValues = data.map((d) => d.y).sort((a, b) => a - b);
+  const yMax = blastValues[blastValues.length - 1] || 1;
+  const p95 = blastValues[Math.floor(0.95 * (blastValues.length - 1))] || 0;
+  const yTop = data.length >= 20 && p95 > 0 && yMax > 2 * p95 ? p95 * 1.1 : yMax;
+  const capped = (d: QuadrantDatum) => d.y > yTop;
+  const outliers = data.filter(capped).length;
+  const y = d3.scaleSqrt().domain([0, yTop]).range([innerHeight, 0]);
 
   // Quadrant guide lines: vertical at the gate, horizontal at y=median
-  const blastValues = data.map((d) => d.y).sort((a, b) => a - b);
   const medianBlast = blastValues[Math.floor(blastValues.length / 2)] || yMax / 2;
 
   g.append('line')
@@ -283,7 +276,47 @@ export function renderPriorityQuadrant(
     .attr('stroke-width', 1)
     .attr('stroke-dasharray', '4 4');
 
-  // Quadrant labels
+  // Status colour, from format.ts's table — the same one the row badges read.
+  const statusColor = (status: string) => pal[statusTone(status)] || pal.neutral;
+
+  const tooltip = sharedTooltip();
+  tooltip.attach(container);
+
+  // One radius for every dot. It used to be scaled by blast radius, which is the
+  // y position: the same number said twice, once by height and once by area, so the
+  // top-right of the plot grew heavy for no added fact. Impact is on the axis.
+  // Smaller and see-through when there are many, so two thousand services read as a
+  // density instead of one solid line.
+  const DOT_R = data.length > 200 ? 3 : data.length > 50 ? 5 : 8;
+  const DOT_OPACITY = data.length > 50 ? 0.6 : 1;
+
+  // Dots
+  const dots = g.selectAll('circle')
+    .data(data)
+    .join('circle')
+    .attr('cx', (d) => x(d.x))
+    .attr('cy', (d) => y(Math.min(d.y, yTop)))
+    .attr('r', DOT_R)
+    .attr('fill', (d) => statusColor(d.status))
+    .attr('fill-opacity', DOT_OPACITY)
+    .attr('stroke', (d) => (capped(d) ? 'var(--c-text)' : 'var(--c-surface)'))
+    .attr('stroke-width', (d) => (capped(d) ? 1.5 : DOT_R > 4 ? 2 : 0.5))
+    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
+    .call((sel) => bindHover(sel, tooltip, (d) => {
+      const gap = d.x > 0 ? `${d.x} above its threshold` : d.x < 0 ? `${-d.x} below its threshold` : 'exactly at its threshold';
+      return `${d.name} · ${gap} · impact ${formatCount(d.y)} · ${statusLabel(d.status)}`;
+    }))
+    .on('click', (_, d) => {
+      if (opts.onSelect) opts.onSelect(d.name);
+    });
+
+  // Enter animation: r 0→value
+  animateIn(dots, { attr: 'r', from: 0, to: () => DOT_R });
+
+  // Quadrant labels, drawn over the dots with a halo so a dense band never
+  // hides them.
+  const halo = (t: d3.Selection<SVGTextElement, unknown, null, undefined>) => t
+    .style('paint-order', 'stroke').style('stroke', 'var(--c-surface)').style('stroke-width', '3px').style('stroke-linejoin', 'round');
   g.append('text')
     .attr('x', 6)
     .attr('y', 6)
@@ -291,6 +324,7 @@ export function renderPriorityQuadrant(
     .style('font-size', 'var(--text-xs)')
     .style('font-weight', '500')
     .style('fill', 'var(--c-text-3)')
+    .call(halo)
     .text('Fix first');
 
   g.append('text')
@@ -301,49 +335,21 @@ export function renderPriorityQuadrant(
     .style('font-size', 'var(--text-xs)')
     .style('font-weight', '500')
     .style('fill', 'var(--c-text-3)')
+    .call(halo)
     .text('Healthy');
 
-  // Status colour, from format.ts's table — the same one the row badges read.
-  const statusColor = (status: string) => pal[statusTone(status)] || pal.neutral;
+  if (outliers) {
+    g.append('text')
+      .attr('x', innerWidth - 6)
+      .attr('y', 6)
+      .attr('text-anchor', 'end')
+      .attr('dominant-baseline', 'hanging')
+      .style('font-size', 'var(--text-xs)')
+      .style('fill', 'var(--c-text-3)')
+      .call(halo)
+      .text(`${formatCount(outliers)} with impact above ${formatCount(Math.round(yTop))}, drawn on the top edge`);
+  }
 
-  const tooltip = sharedTooltip();
-  tooltip.attach(container);
-
-  // One radius for every dot. It used to be scaled by blast radius, which is the
-  // y position: the same number said twice, once by height and once by area, so the
-  // top-right of the plot grew heavy for no added fact. Impact is on the axis.
-  const DOT_R = 8;
-
-  // Dots
-  const dots = g.selectAll('circle')
-    .data(data)
-    .join('circle')
-    .attr('cx', (d) => x(d.x))
-    .attr('cy', (d) => y(d.y))
-    .attr('r', DOT_R)
-    .attr('fill', (d) => statusColor(d.status))
-    .attr('stroke', 'var(--c-surface)')
-    .attr('stroke-width', 2)
-    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
-      const gap = d.x > 0 ? `${d.x} above its threshold` : d.x < 0 ? `${-d.x} below its threshold` : 'exactly at its threshold';
-      const content = `${d.name} · ${gap} · impact ${d.y} · ${statusLabel(d.status)}`;
-      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mousemove', function (event) {
-      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
-      tooltip.hide();
-    })
-    .on('click', (_, d) => {
-      if (opts.onSelect) opts.onSelect(d.name);
-    });
-
-  // Enter animation: r 0→value
-  animateIn(dots, { attr: 'r', from: 0, to: () => DOT_R });
 
   // X axis: signed distance from the gate, so the sign is read rather than inferred
   // from which side of the line a tick fell on.
@@ -391,29 +397,29 @@ export function renderPriorityQuadrant(
     .map((status) => ({ label: statusLabel(status), color: statusColor(status) }));
 
   if (statusLegendData.length > 0) {
-    const legend = svg.append('g').attr('transform', `translate(${margin.left}, ${margin.top - 12})`);
-    let legendX = 0;
-    const swatch = 8;
-    const swatchGap = 6;
-    const itemGap = 16;
-    const charW = 6;
-    statusLegendData.forEach((d) => {
-      const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
-      item.append('circle')
-        .attr('cx', swatch / 2)
-        .attr('cy', -swatch / 2)
-        .attr('r', swatch / 2)
-        .attr('fill', d.color);
-      item.append('text')
-        .attr('x', swatch + swatchGap)
-        .attr('dominant-baseline', 'middle')
-        .style('font-size', 'var(--text-xs)')
-        .style('font-weight', '500')
-        .style('fill', 'var(--c-text-3)')
-        .text(d.label);
-      legendX += swatch + swatchGap + d.label.length * charW + itemGap;
+    const legend = svg.append('g').attr('transform', `translate(${margin.left}, ${12 + 0})`);
+    statusLegendData.forEach((d, i) => {
+      const at = legendRows.at[i] ?? { x: 0, row: 0 };
+      legendItem(legend, at.x, at.row * 14 + 6, d.label, d.color);
     });
   }
+}
+
+/**
+ * legendLayout places legend labels left to right, wrapping onto a new row when the
+ * next one would pass maxWidth. at[i] is where label i goes.
+ */
+export function legendLayout(labels: string[], maxWidth: number): { rows: number; at: Array<{ x: number; row: number }> } {
+  const swatch = 8, swatchGap = 6, itemGap = 16, charW = 6;
+  const at: Array<{ x: number; row: number }> = [];
+  let x = 0, row = 0;
+  for (const l of labels) {
+    const w = swatch + swatchGap + l.length * charW;
+    if (x > 0 && x + w > maxWidth) { x = 0; row++; }
+    at.push({ x, row });
+    x += w + itemGap;
+  }
+  return { rows: row + 1, at };
 }
 
 /** Heatmap for team × category readiness. */
@@ -510,22 +516,7 @@ export function renderHeatmap(
     .attr('stroke', 'var(--c-border)')
     .attr('stroke-width', 1)
     .attr('cursor', opts.onSelectCell ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      if (d.score != null) {
-        d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
-        const content = `${ownerKeyLabel(d.owner)} · ${d.category} · ${d.score}% · ${d.n} checks`;
-        tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-      }
-    })
-    .on('mousemove', function (event) {
-      if (tooltip['el'].textContent) {
-        tooltip.show(tooltip['el'].textContent, event.offsetX + 10, event.offsetY - 10);
-      }
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
-      tooltip.hide();
-    })
+    .call((sel) => bindHover(sel, tooltip, (d) => (d.score != null ? `${ownerKeyLabel(d.owner)} · ${d.category} · ${d.score}% · ${d.n} checks` : null)))
     .on('click', (_, d) => {
       if (opts.onSelectCell) opts.onSelectCell(d.owner, d.category);
     });
@@ -639,6 +630,8 @@ export interface VersionTimelineDatum {
   at: number; // epoch ms
   classification?: string;
   isCurrent?: boolean;
+  /** How many versions this marker stands for, when a week of them is binned into one. */
+  count?: number;
 }
 
 export interface VersionTimelineOptions {
@@ -724,25 +717,18 @@ export function renderVersionTimeline(
     .join('circle')
     .attr('cx', (d) => x(d.at))
     .attr('cy', baselineY)
-    .attr('r', (d) => d.isCurrent ? 8 : 6)
+    .attr('r', (d) => (d.isCurrent ? 8 : (d.count ?? 1) > 1 ? 7 : 6))
     .attr('fill', (d) => classColor[d.classification || ''] || pal.neutral)
     .attr('stroke', (d) => d.isCurrent ? 'var(--c-surface)' : 'none')
     .attr('stroke-width', 2)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
+    .call((sel) => bindHover(sel, tooltip, (d) => {
       const dateStr = (!d.at || isNaN(d.at)) ? '—' : new Date(d.at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
       const classStr = d.classification ? d.classification.replace(/_/g, ' ').toLowerCase() : '—';
-      const content = `${d.version} · ${dateStr} · ${classStr}`;
-      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mousemove', function (event) {
-      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
-      tooltip.hide();
-    })
+      return (d.count ?? 1) > 1
+        ? `${formatCount(d.count ?? 1)} versions in the week of ${dateStr}, up to ${d.version} · worst: ${classStr}`
+        : `${d.version} · ${dateStr} · ${classStr}`;
+    }))
     .on('click', (_, d) => {
       if (opts.onSelect) opts.onSelect(d.version);
     });
@@ -766,19 +752,7 @@ export function renderVersionTimeline(
   const charW = 6;
 
   legendData.forEach((d) => {
-    const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
-    item.append('circle')
-      .attr('cx', swatch / 2)
-      .attr('cy', -swatch / 2)
-      .attr('r', swatch / 2)
-      .attr('fill', d.color);
-    item.append('text')
-      .attr('x', swatch + swatchGap)
-      .attr('dominant-baseline', 'middle')
-      .style('font-size', 'var(--text-xs)')
-      .style('font-weight', '500')
-      .style('fill', 'var(--c-text-3)')
-      .text(d.label);
+    legendItem(legend, legendX, 0, d.label, d.color);
     legendX += swatch + swatchGap + d.label.length * charW + itemGap;
   });
 }

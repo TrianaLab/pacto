@@ -6,7 +6,7 @@
  * legacy detail view. On a non-Fleet host, the legacy UI is the only UI and stays. If a
  * future change re-mounts a superseded legacy view on a Fleet host, these fail.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
 
 const { capabilitiesFn, entitiesFn, overviewFn, neighborhoodFn, servicesFn } = vi.hoisted(() => ({
@@ -41,7 +41,7 @@ async function mountAt(hash: string) {
   document.body.appendChild(target);
   const app = mount(App, { target });
   // Let capabilities resolve and the redirect effect settle.
-  for (let i = 0; i < 6; i++) { await Promise.resolve(); }
+  for (let i = 0; i < 12; i++) { await Promise.resolve(); }
   return { target, app };
 }
 const q = (t: HTMLElement, s: string) => t.querySelector(s);
@@ -110,6 +110,17 @@ describe('dual-UI guard — Fleet host canonicalizes legacy routes to the produc
 });
 
 describe('dual-UI guard — non-Fleet host keeps the legacy UI as its only UI', () => {
+  // The legacy screens load on first use. A cold run transforms each module
+  // on its first import, which can outlast a test's timeout on a busy
+  // machine, so load them once here, under a hook timeout that allows it.
+  beforeAll(async () => {
+    // @ts-expect-error — Svelte components have no declaration file
+    const readiness = import('./views/ReadinessView.svelte');
+    // @ts-expect-error — Svelte components have no declaration file
+    const diff = import('./views/DiffView.svelte');
+    await Promise.all([readiness, diff]);
+  }, 120_000);
+
   beforeEach(() => {
     servicesFn.mockReset();
     servicesFn.mockResolvedValue([]);
@@ -135,7 +146,8 @@ describe('dual-UI guard — non-Fleet host keeps the legacy UI as its only UI', 
   ])('keeps %s on its legacy screen (there is no product route to send it to)', async (hash, heading) => {
     const { target, app } = await mountAt(hash);
     expect(location.hash).toBe(hash);
-    expect(target.querySelector('h1')?.textContent).toContain(heading);
+    // The legacy screens load on first use, and a cold transform is slow on a busy machine.
+    await vi.waitFor(() => expect(target.querySelector('h1')?.textContent).toContain(heading), { timeout: 60_000 });
     unmount(app); document.body.removeChild(target);
-  });
+  }, 90_000);
 });

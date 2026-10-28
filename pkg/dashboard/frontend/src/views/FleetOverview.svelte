@@ -1,21 +1,25 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
+  import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
-  import { sourceHealthTally, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
+  import { sourceHealthTally, splitEntryPoints } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
-  import { formatDate } from '../lib/dateFormat.ts';
+  import { formatDateTime } from '../lib/dateFormat.ts';
+  import { joinAnd, problemPhrase } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import OperationalSummary from '../components/OperationalSummary.svelte';
   import SourceHealth from '../components/SourceHealth.svelte';
   import EntityLink from '../components/EntityLink.svelte';
+  import EvidenceList from '../components/EvidenceList.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import SeverityBadge from '../components/SeverityBadge.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import PageToc from '../components/PageToc.svelte';
+  import HelpTip from '../components/HelpTip.svelte';
   import PostureBars from '../components/viz/PostureBars.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
 
@@ -24,22 +28,18 @@
   // snapshot -- and answers "what needs attention / is my knowledge incomplete /
   // where do I go next" without requiring graph knowledge.
   //
-  // The page is three bands, in the order the questions actually get asked:
-  //
-  //   1. Immediate situation   what requires action, and can I trust what I am reading
-  //   2. Operational posture   how is what is RUNNING behaving
-  //   3. Organization          is ownership/readiness a systemic gap rather than a bug
-  //
-  // Everything below them is the itemized detail of band 1. The bands exist because a
-  // flat page of eleven equal sections made the reader rank the fleet's problems
-  // themselves; a band says which question its contents answer, and answers it in one
-  // screenful before the lists begin.
+  // The page asks ONE question in its title -- is anything wrong? -- and answers it in
+  // one line straight under it. Then, in order: where (the error tiles and the milder
+  // count chips), the fleet posture, ownership and readiness, data sources, the worst
+  // open items and recent evidence. This is a summary page, so every section stays open:
+  // the answer goes on top and the sections stay visible below it. Definitions sit
+  // behind help buttons instead of as sentences under each heading.
   let { refreshTick = 0 } = $props();
 
   let overview = $state(null);
   let loading = $state(true);
   let error = $state(null);
-  let lastTick = refreshTick;
+  let lastTick = untrack(() => refreshTick); // the tick this page last loaded for
 
   async function load() {
     loading = true;
@@ -100,6 +100,23 @@
   // said when the distribution the same payload carries actually says so.
   const allTargetsCompliant = $derived(totalTargets > 0 && (s.compliantTargets || 0) === totalTargets);
 
+  // The answer line. It names the error-grade entry points the backend counted -- the
+  // same split the tiles below use -- and never claims "no" past what the knowledge allows.
+  const errorPoints = $derived(splitEntryPoints(overview?.entryPoints).lead.filter((ep) => (ep.count || 0) > 0));
+  // Plain sentences for the categories we know; any other entry point keeps the
+  // backend's own label, so a new category still reaches the answer.
+  const errorText = $derived(joinAnd(errorPoints.map((ep) => (problemPhrase(ep.category, ep.count) || `${formatCount(ep.count)} ${(ep.label || '').toLowerCase()}`))));
+
+  // Where the broken targets run: the scope with the most of them, for the answer line,
+  // and every scope the backend tallied (worst first, bounded) for the Where section.
+  const scopes = $derived(s.byScope ?? []);
+  const worstScope = $derived(scopes[0]?.nonCompliant > 0 ? scopes[0] : null);
+  const whereText = $derived(!worstScope ? ''
+    : (s.scopes ?? scopes.length) === 1 ? `All the targets that break their contract run in ${worstScope.scope || 'one unnamed scope'}.`
+    : `${formatCount(worstScope.nonCompliant)} of the targets that break their contract run in ${worstScope.scope || 'an unnamed scope'}.`);
+  // The overview shows the worst few open items; the rest is one link away.
+  const topAttention = $derived((overview?.attention?.items ?? []).slice(0, 3));
+
   // Band 2. The fleet posture is drawn by the SAME component a service page and an
   // owner page use, so the three surfaces cannot drift in wording, ordering or colour.
   // The flat OverviewSummary counters are reshaped into the shared tally shape here
@@ -147,81 +164,97 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview' }]} />
-  <PageHeader title="Operational overview" asOf={overview?.meta?.asOf} {revalidating} />
+  <PageHeader title="Is anything wrong?" asOf={overview?.meta?.asOf} {revalidating} />
 
   {#if pageState.kind !== 'ready'}
     <ProductEmptyState state={pageState} noun="operational data" onRetry={load} />
   {:else}
+  <!-- The answer, before anything else. The chain is an if/else on purpose: with the
+       snapshot short of data we can neither call the fleet healthy NOR call it
+       confirmed-empty, so the caveat replaces both claims rather than sitting above one. -->
+  <div class="ov-answer-block" id="ov-answer">
+    {#if errorPoints.length}
+      <p class="page-answer t-body" data-testid="overview-answer"><strong>Yes.</strong> {errorText}.{#if whereText}{' '}{whereText}{/if}</p>
+    {:else if knowledge.incomplete}
+      <!-- The banner right under it says what is missing, so the answer does not say it twice. -->
+      <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing broken found.</strong></p>
+    {:else if isEmptyFleet}
+      <p class="page-answer t-body empty-fleet" role="status" data-testid="overview-answer"><strong>No services tracked yet.</strong> Nothing has reported a contract or a running target yet. Health appears here once a source reports.</p>
+    {:else if canAllClear}
+      <p class="page-answer t-body all-clear" role="status" data-testid="overview-answer">
+        <strong>No. All clear.</strong>
+        {#if allTargetsCompliant}
+          Every operational target is compliant and every data source is healthy.
+        {:else}
+          No open attention items, and every source is healthy.
+        {/if}
+      </p>
+    {:else}
+      <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing is broken.</strong> {formatCount(attentionTotal)} {attentionTotal === 1 ? 'item is' : 'items are'} worth a look.</p>
+    {/if}
+    <KnowledgeBanner {knowledge} noun="overview" sources={overview.meta?.sources || []} tone="warn" />
+  </div>
   <div class="page-toc-layout">
     <PageToc />
     <div class="page-toc-main">
       {#if refreshError}
         <StaleRefreshNotice noun="overview" onRetry={load} />
       {/if}
-    <section class="band" id="sec-now" data-toc="Immediate situation" aria-labelledby="ov-now">
-      <h2 id="ov-now" class="t-section-title">Immediate situation</h2>
-
-      <!-- The chain is an if/else on purpose: with the snapshot short of data we can
-           neither call the fleet healthy NOR call it confirmed-empty, so the caveat
-           replaces both claims rather than sitting above one. -->
-      {#if knowledge.incomplete}
-        <KnowledgeBanner {knowledge} noun="overview" />
-      {:else if isEmptyFleet}
-        <div class="empty-fleet" role="status">
-          <strong>No services tracked yet.</strong>
-          <span>Nothing has reported a contract or a running target yet. That is not a health assessment.</span>
-        </div>
-      {:else if canAllClear}
-        <div class="all-clear" role="status">
-          <strong>All clear.</strong>
-          <span>
-            {#if allTargetsCompliant}
-              Every operational target is compliant and every data source is healthy.
-            {:else}
-              No open attention items, and every source is healthy.
-            {/if}
-          </span>
-        </div>
-      {/if}
-
+    <section class="band" id="sec-now" data-toc="Where" aria-labelledby="ov-now">
+      <h2 id="ov-now" class="t-section-title">Where</h2>
       <OperationalSummary summary={overview.summary} entryPoints={overview.entryPoints} {attentionTotal} />
+      {#if scopes.length > 1 || (scopes.length === 1 && scopes[0].scope)}
+        <div class="data-scroll">
+          <table class="data-table ov-scopes" data-testid="overview-by-scope">
+            <caption class="visually-hidden">Targets by environment, the most broken first</caption>
+            <colgroup><col style="width: 40%" /><col /><col /><col /><col /></colgroup>
+            <thead><tr><th scope="col">Environment</th><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Unknown</th><th scope="col">Stale</th></tr></thead>
+            <tbody>
+              {#each scopes as sc (sc.scope)}
+                <tr>
+                  <th scope="row"><a class="cell-clip" href={fleetEntityListUrl('target', { scope: sc.scope })} title={sc.scope}>{sc.scope || 'No scope'}</a></th>
+                  <td data-label="Targets">{formatCount(sc.targets)}</td>
+                  <td data-label="Not compliant" class:ov-bad={sc.nonCompliant > 0}>{formatCount(sc.nonCompliant)}</td>
+                  <td data-label="Unknown">{formatCount(sc.unknown)}</td>
+                  <td data-label="Stale">{formatCount(sc.stale)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#if (s.scopes ?? 0) > scopes.length}<p class="ov-more">The {formatCount(scopes.length)} with the most broken targets of {formatCount(s.scopes)} environments. <a href={fleetEntityListUrl('target')}>See every target</a></p>{/if}
+      {/if}
     </section>
 
     <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
-      <h2 id="ov-posture" class="t-section-title">Operational posture</h2>
-      <p class="ov-sub t-body-2">
-        Three separate questions about the {totalTargets} operational {totalTargets === 1 ? 'target' : 'targets'} the snapshot knows about — never rolled into one score.
-      </p>
-      <!-- No summary line under the bars. It restated the Exact and Stale evidence
-           buckets in a sentence, so the same two numbers were on the screen twice and a
-           reader had to check they agreed. -->
+      <div class="ov-head">
+        <div class="ov-title"><h2 id="ov-posture" class="t-section-title">Operational posture</h2><HelpTip label="operational posture" text="Three separate questions about every running target, each answered on its own." /></div>
+        <span class="ov-tally t-body-2">{formatCount(totalTargets)} operational {totalTargets === 1 ? 'target' : 'targets'}</span>
+      </div>
       <PostureBars summary={posture} {attentionUrl} />
     </section>
 
-    <section class="band" id="sec-org" data-toc="Organization and contract" aria-labelledby="ov-org">
+    <section class="band" id="sec-org" data-toc="Ownership and readiness" aria-labelledby="ov-org">
       <!-- Owners is a DIMENSION of the four primary destinations, not a fifth one, so it
            is not in the nav. This is where a reader who has just been shown a fleet-wide
            ownership gap goes to find out whose it is. -->
       <div class="ov-head">
-        <h2 id="ov-org" class="t-section-title">Organization and contract</h2>
+        <div class="ov-title"><h2 id="ov-org" class="t-section-title">Ownership and readiness</h2><HelpTip label="ownership and readiness" text="Gaps in the contracts: whether ownership is declared at all and whether anyone assesses readiness. Failures at run time appear under Operational posture." /></div>
         <a class="ov-viewall" href={fleetOwnersUrl()}>Browse owners</a>
       </div>
-      <p class="ov-sub t-body-2">
-        Systemic gaps rather than operational failures: whether ownership is declared at all, and whether anyone is assessing readiness.
-      </p>
       <div class="ov-org-grid">
         <DistributionBar
           title="Declared ownership"
           description="Authored on each contract revision, so a service is cleanly owned only when its revisions agree."
-          scopeNote={`All ${totalServices} ${totalServices === 1 ? 'service' : 'services'} in the snapshot.`}
+          scopeNote={`All ${formatCount(totalServices)} ${totalServices === 1 ? 'service' : 'services'} in the snapshot.`}
           segments={ownership}
           total={totalServices}
           emptyLabel="No services are tracked yet, so there is no ownership picture."
         />
         <DistributionBar
           title="Contract revision readiness"
-          description="Declared preparedness of each revision, judged against its own threshold. This is not compliance: a passing revision can still be running on a target that violates its contract."
-          scopeNote={`All ${totalRevisions} contract ${totalRevisions === 1 ? 'revision' : 'revisions'} in the snapshot.`}
+          description="Declared preparedness of each revision, judged against its own threshold. Readiness is separate from compliance: a passing revision can still run on a target that violates its contract."
+          scopeNote={`All ${formatCount(totalRevisions)} contract ${totalRevisions === 1 ? 'revision' : 'revisions'} in the snapshot.`}
           segments={readiness}
           total={totalRevisions}
           emptyLabel="No contract revisions are tracked yet, so there is no readiness picture."
@@ -229,25 +262,15 @@
       </div>
     </section>
 
-    <!-- Data sources are SECONDARY -- they are not one of the four primary destinations
-         and they are not a fifth tab -- but they are not a footnote either: every count
-         above this point is bounded by which sources answered. As a subheading inside
-         the immediate-situation band the whole subject was unfindable, absent from the
-         page contents and read as a caption for the counters above it. It is a section
-         now, with its own heading, its own place in the contents and one action that
-         opens the complete inventory. It appears ONCE on this page. -->
+    <!-- Data sources are SECONDARY but not a footnote: every count above this point is
+         bounded by which sources answered. It appears ONCE on this page. -->
     <section class="band" id="sec-sources" data-toc="Data sources" aria-labelledby="ov-sources">
       <div class="ov-head">
-        <h2 id="ov-sources" class="t-section-title">Data sources</h2>
+        <div class="ov-title"><h2 id="ov-sources" class="t-section-title">Data sources</h2><HelpTip label="data sources" text="Where everything above came from. A degraded source makes the counts on this page incomplete." /></div>
         <a class="ov-viewall" href={fleetSourcesUrl()}>View all data sources</a>
       </div>
-      <p class="ov-sub t-body-2">
-        Where everything above came from. A degraded source makes the counts on this page incomplete, not zero.
-      </p>
       <!-- The tally is over the COMPLETE source population; the chips below it are the
-           bounded, least-healthy-first list from the meta. Stating both is what lets the
-           chips be a shortcut to the interesting sources rather than a claim to be all
-           of them. -->
+           bounded, least-healthy-first list from the meta. -->
       <p class="ov-tally t-body-2">{sourceTally}</p>
       <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
     </section>
@@ -255,23 +278,13 @@
     <section class="ov-section" id="sec-attention" data-toc="Needs attention" aria-labelledby="ov-attention">
       <div class="ov-head">
         <h2 id="ov-attention" class="t-section-title">Needs attention</h2>
-        <a class="ov-viewall" href={fleetAttentionUrl()}>View all ({attentionTotal})</a>
+        <a class="ov-viewall" href={fleetAttentionUrl()}>View all ({formatCount(attentionTotal)})</a>
       </div>
-      <!-- Triage dimensions, not destinations. Readiness lives here rather than in the
-           primary nav: it is declared contract preparedness, one reason a thing needs
-           attention, and it shares the product's single definition of it. These are
-           filters, so they are deliberately count-free -- a chip claiming "0" would be a
-           health assessment the overview has not made. -->
-      <nav class="ov-cats" aria-label="Filter attention by category">
-        {#each ATTENTION_CATEGORIES as c}
-          <a class="ov-cat" href={fleetAttentionUrl({ category: c })}>{attentionCategoryLabel(c)}</a>
-        {/each}
-      </nav>
       {#if overview.attention.items.length === 0}
         <ProductEmptyState state={decideViewState({ loading: false, itemCount: 0, knowledge })} noun="attention items" />
       {:else}
         <ul class="attn-list pl-list">
-          {#each overview.attention.items as it}
+          {#each topAttention as it}
             <li class="attn-item pl-row">
               <SeverityBadge severity={it.severity} />
               <EntityLink ref={it.entity} showStatus={false} />
@@ -279,8 +292,8 @@
             </li>
           {/each}
         </ul>
-        {#if overview.attention.truncated}
-          <p class="ov-more">Showing {overview.attention.count} of {attentionTotal}. <a href={fleetAttentionUrl()}>See all</a></p>
+        {#if attentionTotal > topAttention.length}
+          <p class="ov-more">The worst {formatCount(topAttention.length)} of {formatCount(attentionTotal)}. <a href={fleetAttentionUrl()}>See all</a></p>
         {/if}
       {/if}
     </section>
@@ -288,16 +301,10 @@
     <section class="ov-section" id="sec-evidence" data-toc="Recent evidence" aria-labelledby="ov-evidence">
       <h2 id="ov-evidence" class="t-section-title">Recent evidence</h2>
       {#if overview.recentEvidence.items.length}
-        <ul class="evi-list pl-list">
-          {#each overview.recentEvidence.items as ev}
-            <li class="evi-item pl-row">
-              <EntityLink ref={ev.target} showStatus={false} />
-              {#if ev.at}<span class="evi-at">{formatDate(ev.at)}</span>{/if}
-            </li>
-          {/each}
-        </ul>
+        <EvidenceList items={overview.recentEvidence.items} when={formatDateTime} />
       {:else}
-        <p class="ov-none">No evidence arrived recently.</p>
+        <!-- The window is the engine's: fleet.RecentEvidenceWindow, 24 hours before the snapshot. -->
+        <p class="ov-none">No evidence arrived in the 24 hours before this snapshot.</p>
       {/if}
     </section>
     </div>
@@ -312,7 +319,9 @@
   .band + .band, .band + .ov-section { padding-top: var(--sp-4); border-top: 1px solid var(--c-border); }
   .ov-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
   .ov-head h2, .band > h2, .ov-section > h2 { margin: 0; }
-  .ov-sub { margin: 0; max-width: 80ch; }
+  .ov-title { display: flex; align-items: center; gap: var(--sp-2); }
+  .ov-answer-block { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+  .ov-answer-block .page-answer { margin: 0; }
   .ov-tally { margin: 0; color: var(--c-text); }
   /* Two bars side by side where there is room; one on a phone. Same rule as the posture
      grid, so the two bands line up instead of each inventing a breakpoint. */
@@ -322,29 +331,21 @@
      be distinguishable from the surrounding text without color alone (WCAG 1.4.1). */
   .ov-more a { color: var(--c-accent); text-decoration: underline; font-size: var(--text-sm); }
   .ov-viewall:hover { text-decoration: underline; }
-  .ov-cats { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-  .ov-cat {
-    font-size: var(--text-sm); color: var(--c-text-2); text-decoration: none;
-    padding: 4px 10px; border: 1px solid var(--c-border); border-radius: var(--radius-pill, var(--radius-sm));
-    background: var(--c-surface); min-height: var(--touch-min); display: inline-flex; align-items: center;
-  }
-  .ov-cat:hover { border-color: var(--c-accent); color: var(--c-accent); }
+  .ov-scopes td { font-variant-numeric: tabular-nums; }
+  .ov-scopes .ov-bad { color: var(--c-err); font-weight: 600; }
+  .ov-scopes a { color: var(--c-accent); }
   /* The degraded-knowledge caveat is KnowledgeBanner's, styled once there. */
-  .all-clear, .empty-fleet {
-    display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline;
-    padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
-  }
-  .all-clear { background: var(--c-ok-bg); border: 1px solid var(--c-ok-border); color: var(--c-text); }
-  /* An empty fleet is a neutral fact, never a green all-clear. */
+  /* An all-clear is a green confirmation and an empty fleet a neutral fact. */
+  .all-clear, .empty-fleet { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-md); }
+  .all-clear { background: var(--c-ok-bg); border: 1px solid var(--c-ok-border); }
   .empty-fleet { background: var(--c-surface-inset); border: 1px solid var(--c-border); color: var(--c-text-2); }
   /* Shape only. The frame, the divider and the hover come from the shared .pl-row in
      styles/components.css; these rows keep their own padding because the entity link is
      a middle child, so handing it the padding would leave the badge flush to the edge. */
-  .attn-item, .evi-item {
+  .attn-item {
     gap: var(--sp-2); flex-wrap: wrap;
     padding: var(--sp-2) var(--sp-3);
   }
   .attn-reason { color: var(--c-text-3); font-size: var(--text-sm); }
-  .evi-at { color: var(--c-text-3); font-size: var(--text-xs); margin-left: auto; }
   .ov-none, .ov-more { color: var(--c-text-3); font-size: var(--text-sm); }
 </style>

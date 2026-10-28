@@ -23,6 +23,13 @@ are recorded in
   - `verify-oci.sh` — absent / identical / adopt / conflict for an OCI ref.
   - `publish-oci-unit.sh` — the crash-safe two-phase publish adapter.
   - `publish-go-tag.sh`, `build-cli.sh`, `finalize-release.sh`, `verify-artifacthub.sh`.
+  - `verify-transaction.sh`, `verify-public.sh` — the terminal checks: every unit
+    published, and every published image and chart reads anonymously. GitHub creates
+    a new GHCR package as private, so the first release of a new unit (the delivery
+    image in 6.1.0) fails here. Link each new package to `TrianaLab/pacto`,
+    make it public, then re-run the failed job. `PACTO_VERIFY_PUBLIC_LIST_ONLY=1` prints the
+    repositories it would query without touching the network, and
+    `tests/release/verify_public_test.go` asserts that list on every PR.
   - `dry-run.sh` — `make release-dry-run`: the whole transaction against a disposable
     local registry, only coordinates/credentials differ from production.
 
@@ -48,7 +55,7 @@ groups (a group releases together or not at all):
 | Group | Units | Coordinate kind |
 |-------|-------|-----------------|
 | **`core`** | `core`, `cli`, `dashboard-image`, `dashboard-contract-bundle`, `demo-bundles`, `demo-compose` | Go module tag, GitHub Release binaries, OCI image, OCI contract bundle, OCI bundles, OCI demo artifact |
-| **`kubernetes`** | `k8s-module`, `operator-image`, `operator-chart`, `k8s-docs` | Go module tag, OCI image, Helm/OCI chart, versioned docs |
+| **`kubernetes`** | `k8s-module`, `operator-image`, `operator-chart`, `delivery-image`, `k8s-docs` | Go module tag, OCI images, Helm/OCI chart, versioned docs |
 
 ## The release transaction and source-SHA binding
 
@@ -119,7 +126,7 @@ path (both production `release.yml` and the staging dry-run call them). For each
   "Complete" is the operative word for that last one: an `artifactType` of exactly
   `application/vnd.docker.compose.project`, exactly one layer, that layer's media
   type exactly `application/vnd.docker.compose.file+yaml`, and its digest exactly
-  `PACTO_EXPECT_CONTENT`. Bytes are not a type — any artifact can carry the same
+  `PACTO_EXPECT_CONTENT`. Bytes carry no type: any artifact can carry the same
   compose file as one octet-stream layer under any artifact type, and adopting it
   on the strength of a layer count and a digest would record something
   `docker compose -f oci://…` cannot run. `verify-oci.sh` is the one place that
@@ -177,8 +184,8 @@ and `helm`, none of which the runner image provides. Nothing in the YAML declare
 that dependency — the install step and the script that needs the tool sit in
 different files. `tests/release/workflow_tooling_test.go` walks each job's shell
 through its `make` targets and the transitive closure of the scripts it invokes, and
-fails when a job can reach a gated CLI it never installed. It is one-directional: an
-unused install is not an error, an uninstalled use is.
+fails when a job can reach a gated CLI it never installed. It checks one direction:
+every use needs an install.
 
 This matters more than a missing binary usually would, because the release scripts
 answer questions with strings. `ledger.sh` returning `""` means "nothing recorded" —

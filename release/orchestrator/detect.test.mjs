@@ -6,22 +6,19 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { manifestSha as manifestShaOf, sha256Stable } from './canonical.mjs';
 import { decideRelease, decideRecovery } from './detect.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-
-const stable = (v) => Array.isArray(v) ? v.map(stable)
-  : (v && typeof v === 'object'
-    ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])])) : v);
 
 // A ready transaction fixture with an internally consistent manifestSha + id.
 function txn(over = {}) {
   const changedUnits = over.changedUnits ?? ['core', 'cli', 'dashboard-image'];
   const newVersions = over.newVersions ?? { core: '2.8.0', 'k8s-module': '4.7.0' };
   const previousVersions = over.previousVersions ?? { core: '2.7.0', 'k8s-module': '4.7.0' };
-  const manifestSha = createHash('sha256').update(JSON.stringify(stable(newVersions))).digest('hex');
+  const manifestSha = manifestShaOf(newVersions);
   const transactionId = changedUnits.length
-    ? createHash('sha256').update(JSON.stringify(stable({ changedUnits, newVersions, previousVersions }))).digest('hex').slice(0, 16)
+    ? sha256Stable({ changedUnits, newVersions, previousVersions }).slice(0, 16)
     : '';
   return {
     schema: 'pacto-release-transaction/v1',
@@ -148,4 +145,9 @@ test('committed release-transaction.json releases nothing on an unchanged merge 
   // Asserting `.ready === false` / `changedUnits === []` here was a pre-release-only
   // proxy that wrongly fails in the window right after a release merges to main.
   assert.equal(decideRelease(committed, committed).release, false);
+});
+
+test('manifestSha is sha256 of the sorted-key compact JSON (the jq form release.yml uses)', () => {
+  const want = createHash('sha256').update('{"a":"2.0.0","b":"1.0.0"}').digest('hex');
+  assert.equal(manifestShaOf({ b: '1.0.0', a: '2.0.0' }), want);
 });

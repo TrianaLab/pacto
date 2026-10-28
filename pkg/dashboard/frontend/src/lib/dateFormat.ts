@@ -20,6 +20,19 @@ export function formatDate(iso: string | null | undefined): string {
 }
 
 /**
+ * Format an ISO timestamp with its time of day: "Jul 29, 2026, 14:03".
+ * For lists ordered by time, where a date alone makes same-day rows look unordered.
+ */
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  return new Date(t).toLocaleString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+}
+
+/**
  * Format an ISO timestamp as an age: "4 minutes ago", "3 hours ago", "Jul 29, 2026".
  *
  * Snapshot freshness is the one date in the product where the TIME is the whole point --

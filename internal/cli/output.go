@@ -46,7 +46,13 @@ func formatResult(cmd *cobra.Command, format string, result any, textFn, markdow
 
 func printInitResult(cmd *cobra.Command, result *app.InitResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
-		revealInit(cmd, cmd.OutOrStdout(), initLines(result))
+		w := cmd.OutOrStdout()
+		if !result.Applied {
+			printInitPlan(w, result)
+			return nil
+		}
+		revealInit(cmd, w, initLines(result))
+		printInitFindings(w, result)
 		return nil
 	}, nil)
 }
@@ -91,7 +97,11 @@ func printPackResult(cmd *cobra.Command, result *app.PackResult, format string) 
 func printPushResult(cmd *cobra.Command, result *app.PushResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
-		_, _ = fmt.Fprintf(w, "%sPushed %s@%s -> %s\n", okGlyph(w), result.Name, result.Version, result.Ref)
+		verb := "Pushed"
+		if result.Unchanged {
+			verb = "Already published"
+		}
+		_, _ = fmt.Fprintf(w, "%s%s %s@%s -> %s\n", okGlyph(w), verb, result.Name, result.Version, result.Ref)
 		_, _ = fmt.Fprintf(w, "Digest: %s\n", result.Digest)
 		return nil
 	}, nil)
@@ -113,6 +123,7 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 		hasDepSBOM := hasAnyDepSBOM(result.DependencyDiffs)
 
 		_, _ = fmt.Fprintf(w, "Classification: %s\n", colorClassification(w, result.Classification))
+		_, _ = fmt.Fprintf(w, "Required bump: %s\n", result.RequiredBump)
 
 		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" && !hasSBOM && !hasDepSBOM {
 			_, _ = fmt.Fprintln(w, "No changes detected.")
@@ -153,7 +164,7 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 
 func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 	w := cmd.OutOrStdout()
-	_, _ = fmt.Fprintf(w, "## Contract Diff\n\n**Classification:** `%s`\n\n", result.Classification)
+	_, _ = fmt.Fprintf(w, "## Contract Diff\n\n**Classification:** `%s`\n\n**Required bump:** `%s`\n\n", result.Classification, result.RequiredBump)
 
 	hasChanges := len(result.Changes) > 0 || len(result.DependencyDiffs) > 0
 	rendered := graph.RenderDiffTree(result.GraphDiff)
@@ -294,6 +305,10 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 				req := "optional"
 				if dep.Required {
 					req = "required"
+				}
+				if dep.Ref == "" {
+					_, _ = fmt.Fprintf(w, "  - %s: external, version %s (cannot be checked, %s)\n", dep.Name, dep.Version, req)
+					continue
 				}
 				_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, dep.Compatibility, req)
 			}

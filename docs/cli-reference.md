@@ -2,26 +2,25 @@
 
 Every command accepts `-v` / `--verbose` for debug-level logging and `--help` for detailed usage. `--output-format` is a global flag taking `text` (the default), `json` or `markdown`.
 
-!!! warning "What `--output-format` does and does not promise"
+!!! warning "What `--output-format` guarantees"
     Read this before you parse Pacto's output in a script.
 
-    - **`json` describes a *successful* result.** When a command cannot produce
-      its result at all — an unreachable reference, a missing `pacto.lock` — the
-      error goes to **stderr as plain text and stdout stays empty**, whatever
-      `--output-format` said. But a *verdict* of "no" is a result, not a
-      failure: `pacto validate` on an invalid contract and `pacto diff` on a
-      breaking change both print their whole JSON document to stdout **and**
-      exit 1. So the exit code does not tell you whether there is anything to parse —
-      an empty stdout does. Read stdout when it is non-empty; read the exit code
-      for the verdict.
-    - **`markdown` is implemented by `pacto diff` only**, for posting a diff as a
-      CI comment. Every other command silently renders text instead.
+    - **`json` describes a *successful* result.** When a command fails to
+      produce its result, for example because a reference is unreachable or
+      `pacto.lock` is missing, the error goes to **stderr as plain text and
+      stdout stays empty**, whatever `--output-format` says. A negative
+      *verdict* is still a result: `pacto validate` on an invalid contract and
+      `pacto diff` on a breaking change both print their whole JSON document to
+      stdout **and** exit 1. An empty stdout tells you there is nothing to
+      parse. Read stdout when it is non-empty, and read the exit code for the
+      verdict.
+    - **Only `pacto diff` implements `markdown`**, for posting a diff as a CI
+      comment. Every other command renders text.
     - **Keys are camelCase** in every command (`"path"`, `"valid"`, `"errors"`,
       `"upToDate"`). Before v4, `init`, `validate`, `pack`, `pull` and `push`
       emitted capitalised keys (`"Path"`, `"Valid"`).
     - **An unrecognised value is rejected.** `--output-format yaml` exits 1 with
-      `unsupported output format "yaml"` before the command runs, so a typo never
-      passes for success.
+      `unsupported output format "yaml"` before the command runs.
 
     The interactive and side-effecting commands (`login`, `logout`, `update`,
     `mcp`, `dashboard`) inherit the flag from the root command and always emit text.
@@ -45,57 +44,51 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
 
 ## Exit codes
 
-Pacto exits `0` or `1` and nothing else. `0` means the command produced its
-result and the result was acceptable; `1` means anything else. Because there is
-no third code, **the exit status alone never distinguishes "the check failed"
-from "the command could not run"**.
+Pacto exits `0` or `1`. `0` means the command produced its result and the
+result was acceptable. `1` means anything else, so **the exit status alone
+cannot distinguish "the check failed" from "the command could not run"**.
 
 | Exits `1` | Exits `0` |
 | --- | --- |
 | `pacto diff` where the overall classification is `BREAKING` | a `POTENTIAL_BREAKING` or `NON_BREAKING` diff |
 | `pacto validate` reporting at least one error | validation that reported only warnings |
 | `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
-| **any command that could not run** — an unresolvable reference, an unreadable bundle, an unknown flag | `pacto impact` run on declared-only sources, *whatever* it classifies (see below) |
+| **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | `pacto impact` run on declared-only sources, *whatever* it classifies (see below) |
 
-Two rows deserve emphasis, because both silently break a CI gate:
+Two cases affect CI gates:
 
-- A `pacto diff` against a reference that does not exist exits `1` exactly like a
-  breaking change does.
-- `pacto impact` exits non-zero only when the change is breaking **and** a live
-  source shows an incompatible consumer. With declared-only sources there are no
-  consumers to find, so it prints `Classification: BREAKING` and still exits `0`.
+- A `pacto diff` against a missing reference exits `1`, the same as a breaking
+  change.
+- `pacto impact` exits `1` only when the change is breaking **and** a live
+  source shows an incompatible consumer. Declared-only sources have no
+  consumers, so it prints `Classification: BREAKING` and exits `0`.
 
-**Use stdout, not the exit code, to tell a verdict from a failure.** A command
-that produced a verdict writes it to stdout and puts a one-line summary on
-stderr. A command that could not run writes *nothing* to stdout:
+**Use stdout to tell a verdict from a failure.** A command that produced a
+verdict writes it to stdout and puts a one-line summary on stderr. A command
+that could not run leaves stdout empty:
 
 | Invocation | Exit | stdout | stderr |
 | --- | --- | --- | --- |
 | `pacto diff --output-format json OLD NEW` (breaking) | `1` | the full JSON result | `breaking changes detected` |
 | `pacto diff --output-format json oci://…/absent:1.0.0 NEW` | `1` | *empty* | `old contract: artifact not found: …` |
 
-So the rule for a script is: branch on stdout when it is non-empty, and treat an
-empty stdout with a non-zero exit as a tool failure rather than a verdict.
-
-!!! warning "JSON key casing is not uniform"
-    `pacto validate` emits `Path`, `Valid` and `Errors` in PascalCase; every other
-    command emits camelCase (`oldPath`, `classification`). One parser will not read
-    both without allowing for it.
+In a script, branch on stdout when it is non-empty, and treat an empty stdout
+with exit `1` as a tool failure.
 
 ---
 
 ## OCI version resolution
 
-All commands that accept `oci://` references support automatic version resolution. When a reference omits the tag (e.g. `oci://ghcr.io/acme/svc-pacto` instead of `oci://ghcr.io/acme/svc-pacto:1.0.0`), pacto queries the registry for available tags and selects the **highest semver version**.
+All commands that accept `oci://` references support automatic version resolution. When a reference omits the tag (for example `oci://ghcr.io/acme/svc-pacto` with no `:1.0.0`), pacto queries the registry for available tags and selects the **highest semver version**.
 
 For dependency references declared with a `compatibility` constraint, only tags satisfying the constraint are considered. For example, a dependency with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0` resolves to `2.3.0`.
 
-Non-semver tags (e.g. `latest`, `main`) are ignored during resolution. Digest-pinned references (`@sha256:...`) and explicitly tagged references are used as-is.
+Resolution ignores non-semver tags such as `latest` and `main`. Digest-pinned references (`@sha256:...`) and explicitly tagged references are used as-is.
 
-!!! note "Constraints apply to the CLI's dependency graph, not dashboard discovery"
-    `compatibility` constraints are applied by the CLI when resolving a contract's
-    **declared dependencies** (e.g. `pacto graph`). The **dashboard's** version
-    discovery selects the highest semver tag and does **not** apply per-dependency
+!!! note "Constraints apply to the CLI's dependency graph"
+    The CLI applies `compatibility` constraints when it resolves a contract's
+    **declared dependencies**, for example in `pacto graph`. The **dashboard's**
+    version discovery selects the highest semver tag and ignores per-dependency
     `compatibility` constraints. Root-contract pulls (a tagless top-level `oci://`
     ref) also select the highest semver tag with no constraint.
 
@@ -188,8 +181,8 @@ When no arguments are given, sources are auto-detected:
 
 When running alongside the Kubernetes operator, OCI repositories are
 automatically discovered from the status.contract.resolvedRef fields of Pacto
-CRD resources, on every refresh rather than once at startup. That gives a hybrid
-view: runtime truth from the operator combined with contract truth from OCI.
+CRD resources on every refresh. The result combines runtime state from the
+operator with contract content from OCI.
 
 Every source contributes to one snapshot, rebuilt in the background, and each
 answer carries the as-of time and the completeness of the sources behind it.
@@ -223,18 +216,272 @@ pacto dashboard [sources...] [flags]
 **Flags:**
 
 ```
-      --cors-origin string         explicit cross-origin allowed to call the API (default: same-origin only)
-  -h, --help                       help for dashboard
-      --host string                bind address for the dashboard server (default "127.0.0.1")
-      --namespace string           Kubernetes namespace (empty = all namespaces)
-      --port int                   port for the dashboard server (default 3000)
-      --trace-source stringArray   named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
-      --traces stringArray         OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
+      --cors-origin string                explicit cross-origin allowed to call the API (default: same-origin only)
+      --delivery-namespace string         namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+  -h, --help                              help for dashboard
+      --host string                       bind address for the dashboard server (default "127.0.0.1")
+      --mira-url string                   Mira's address, to link the health-check citations of delivery verdicts
+      --namespace string                  Kubernetes namespace (empty = all namespaces)
+      --oidc-ca-file string               PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)
+      --oidc-client-id string             OpenID Connect client id of the dashboard
+      --oidc-display-name string          the identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC; also PACTO_DASHBOARD_OIDC_DISPLAY_NAME)
+      --oidc-extra-scopes strings         scopes to ask for beyond openid, profile and groups
+      --oidc-groups-claim string          ID token claim the API server takes the groups from; must match its claim mapping (default groups)
+      --oidc-groups-prefix string         prefix the API server puts before every group; must match its claim mapping
+      --oidc-internal-issuer-url string   address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)
+      --oidc-issuer-url string            OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
+      --oidc-redirect-url string          the dashboard's /auth/callback as browsers reach it (https)
+      --oidc-username-claim string        ID token claim the API server takes the username from; must match its claim mapping (default sub)
+      --oidc-username-prefix string       prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
+      --port int                          port for the dashboard server (default 3000)
+      --session-idle-timeout duration     a session without a request for this long ends (default 1h)
+      --session-max-age duration          a session ends this long after sign-in, renewed or not (default 12h)
+      --token-login                       let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)
+      --trace-source stringArray          named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
+      --traces stringArray                OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
 
 It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).
 
 For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).
+
+---
+
+## `pacto delivery`
+
+Pacto delivery decides which version each environment (a Stage) runs. Every change is an Operation: plan it to see what the promoter will do and who must agree, propose it, and a person approves only when the contracts say a consumer would break, Pacto cannot see enough or the Stage asks for approval on every promote.
+
+There is no approve tool for agents. `approve` is for people.
+
+```
+pacto delivery [flags]
+```
+
+**Flags:**
+
+```
+      --delivery-namespace string   namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+  -h, --help                        help for delivery
+  -n, --namespace string            namespace of the Stage and its Operations (default "default")
+      --trust string                the trust config delivery records are verified with: the recorder's PEM public key, or a YAML file of keys and the streams each may sign (default $PACTO_DELIVERY_TRUST)
+```
+
+### `pacto delivery approve`
+
+Record your decision on a held operation, as the person your kubeconfig signs you in as. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
+
+```
+pacto delivery approve <operation> [flags]
+```
+
+**Flags:**
+
+```
+      --decision string             approve, reject or accept-unknown (default "approve")
+  -h, --help                        help for approve
+      --note string                 why, for the record
+      --oidc-ca-file string         PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)
+      --oidc-client-id string       OpenID Connect client used only for approvals, never by a kubeconfig (a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET) (default "pacto-approve")
+      --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
+      --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
+      --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
+```
+
+### `pacto delivery blame`
+
+Say who put a version in place on a Stage: who asked, for whom, who approved and what every gate said
+
+```
+pacto delivery blame [flags]
+```
+
+**Flags:**
+
+```
+      --digest string   the version to blame (defaults to the one the Stage runs)
+  -h, --help            help for blame
+      --stage string    the Stage (required)
+```
+
+### `pacto delivery cancel`
+
+Cancel an operation that has not moved the pointer yet
+
+```
+pacto delivery cancel <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for cancel
+```
+
+### `pacto delivery describe`
+
+Show what an operation type checks, when a person is needed and how it is undone
+
+```
+pacto delivery describe <type> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for describe
+```
+
+### `pacto delivery explain`
+
+Explain an operation: where it is, every verdict with its citation and how to run it again
+
+```
+pacto delivery explain <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for explain
+```
+
+### `pacto delivery get`
+
+Show an operation: phase, outcome, verdicts and the question a person is asked
+
+```
+pacto delivery get <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for get
+```
+
+### `pacto delivery history`
+
+List what happened on a Stage, from its signed records when the recorder runs, otherwise from the cluster
+
+```
+pacto delivery history [flags]
+```
+
+**Flags:**
+
+```
+      --all            walk every Stage in the namespace given with -n, or in every namespace you can list
+  -h, --help           help for history
+      --stage string   the Stage (this or --all)
+```
+
+### `pacto delivery plan`
+
+Predict what the promoter will do: verdicts, the approval floor, the one question for a person and what must move first
+
+```
+pacto delivery plan [flags]
+```
+
+**Flags:**
+
+```
+      --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
+  -h, --help                                                        help for plan
+      --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
+      --reason string                                               why, for the record
+      --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
+      --stage string                                                the Stage to change (required)
+      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a level (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
+      --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
+      --undoes string                                               for a rollback: the name of the operation it undoes
+```
+
+### `pacto delivery propose`
+
+Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan
+
+```
+pacto delivery propose [flags]
+```
+
+**Flags:**
+
+```
+      --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
+  -h, --help                                                        help for propose
+      --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches
+      --name string                                                 the Operation name (generated when empty)
+      --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
+      --reason string                                               why, for the record
+      --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
+      --stage string                                                the Stage to change (required)
+      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a level (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
+      --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
+      --undoes string                                               for a rollback: the name of the operation it undoes
+```
+
+### `pacto delivery record`
+
+Work with the signed records of operations
+
+```
+pacto delivery record [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for record
+```
+
+#### `pacto delivery record verify`
+
+Verify every record of a Stage's stream against the trust config and check the chain
+
+```
+pacto delivery record verify [flags]
+```
+
+**Flags:**
+
+```
+      --all            verify every Stage's stream in the namespace given with -n, or in every namespace you can list
+  -h, --help           help for verify
+      --stage string   the Stage (this or --all)
+```
+
+### `pacto delivery types`
+
+List the operation types you may propose
+
+```
+pacto delivery types [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for types
+```
+
+### `pacto delivery undo`
+
+Plan how to undo an operation; it proposes nothing and prints the command that would
+
+```
+pacto delivery undo <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help           help for undo
+      --stage string   the operation's Stage, needed only when the Operation was deleted and must be found in the records
+```
 
 ---
 
@@ -266,11 +513,11 @@ pacto diff <old> <new> [flags]
       --old-values stringArray   values file to merge into the old contract (can be repeated)
 ```
 
-**Exit code:** `1` when the overall classification is `BREAKING` — and also `1` when the diff could not be produced at all, so a non-zero exit is not by itself a contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A `POTENTIAL_BREAKING` result exits `0`, so a CI gate that wants to stop on it has to read the classification rather than the exit code.
+**Exit code:** `1` when the overall classification is `BREAKING`, and also when the diff could not be produced. A non-zero exit alone is therefore no contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A `POTENTIAL_BREAKING` result exits `0`, so a CI gate that stops on it must read the classification.
 
-The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level. The optional `docs/` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
+The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level. The optional `docs/` directory is ignored: documentation changes produce no diff entries and leave the compatibility classification unchanged.
 
-When both bundles include an `sbom/` directory with recognized SBOM files (`.spdx.json` or `.cdx.json`), `pacto diff` reports package-level changes — added, removed or modified packages (version and license). SBOM changes are informational and do not affect the overall classification or exit code.
+When both bundles include an `sbom/` directory with recognized SBOM files (`.spdx.json` or `.cdx.json`), `pacto diff` reports package-level changes: added, removed or modified packages (version and license). SBOM changes are informational and leave the overall classification and exit code unchanged.
 
 When dependencies change between the old and new contracts (version upgrades, additions or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 
@@ -328,7 +575,7 @@ pacto doc [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-The header line reports the contract's own state, not a runtime measurement: `pacto doc` reads a bundle and never observes a cluster. A contract that has never been runtime-evaluated therefore reads `status NotEvaluated`, and one that declares no workload reads `compliance REFERENCE`. Both are the expected result for a freshly scaffolded contract — see [Compliance states](model.md#compliance-model).
+The header line reports the contract's own state. `pacto doc` reads a bundle and observes no cluster. A contract that has never been runtime-evaluated therefore reads `status NotEvaluated`, and one that declares no workload reads `compliance REFERENCE`. Both are the expected result for a freshly scaffolded contract. See [Compliance states](model.md#compliance-model).
 
 Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.
 
@@ -356,7 +603,7 @@ pacto evidence [flags]
 
 ### `pacto evidence keygen`
 
-Writes the private seed to &lt;keyId&gt;.key (base64, 0600) and the public key into --out. With --producer, the public key is written as &lt;producer&gt;__&lt;keyId&gt;.pub, which binds the key to that producer in the trust store — hand that file to the platform. Sign with the SAME --producer and --key-id. With no --producer, a bare &lt;keyId&gt;.pub binds the key to a producer named after the key id (the single-producer default).
+Writes the private seed to &lt;keyId&gt;.key (base64, 0600) and the public key into --out. With --producer, the public key is written as &lt;producer&gt;__&lt;keyId&gt;.pub, which binds the key to that producer in the trust store. Hand that file to the platform. Sign with the SAME --producer and --key-id. With no --producer, a bare &lt;keyId&gt;.pub binds the key to a producer named after the key id (the single-producer default).
 
 ```
 pacto evidence keygen [flags]
@@ -467,9 +714,9 @@ pacto explain [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-**What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly. `metadata` is carried by `--output-format json` only; the text output omits it.
+**What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. To read `configurations` and `policies`, use `pacto doc` or open `pacto.yaml`. `metadata` is carried by `--output-format json` only; the text output omits it.
 
-**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: "2.0"` feature), `explain` adds a Readiness block: the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state) and a per-check table showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight and `evidence`. The Readiness block also includes a revision-history table when `history[]` is present. `--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount` and `expired` (boolean). Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.
+**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: "2.0"` feature), `explain` adds a Readiness block: the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state) and a per-check table showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight and `evidence`. The Readiness block also includes a revision-history table when `history[]` is present. `--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount` and `expired` (boolean). Readiness status is time-dependent: the score is 0 when the current date is past the assessment-level `expires`.
 
 ---
 
@@ -493,7 +740,7 @@ pacto fleet [flags]
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
@@ -547,7 +794,7 @@ pacto fleet graph <service> [flags]
 
 ### `pacto fleet reconcile`
 
-Reconciles what the fleet's contracts declare against what runtime traces prove. Reports matched dependencies, declared-but-not-observed (dormant or unseen — not proof of a dead dependency) and observed-but-not-declared (shadow dependencies).
+Reconciles what the fleet's contracts declare against what runtime traces prove. Reports matched dependencies, declared-but-not-observed (dormant or unseen in the trace window, so possibly still in use) and observed-but-not-declared (shadow dependencies).
 
 ```
 pacto fleet reconcile [flags]
@@ -697,7 +944,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 
 Composes a semantic contract diff (old→new) with the operational graph to answer which consumers a change really affects, how strong the evidence is and whether their declared compatibility still holds.
 
-Exit status is non-zero when the change is BREAKING and at least one ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). Active means the snapshot knows of somewhere that consumer is deployed — at least one operational target. A consumer that is incompatible on paper but is running nowhere the snapshot can see does not fail the command, so a declared-only run over `--local` bundles alone exits 0 no matter how incompatible it says the consumers are. The exit is non-zero only when there exists at least one consumer that is BOTH incompatible and has at least one active target. Supply targets with --target-state (or query a live fleet with `pacto fleet`) to make the exit code mean something.
+Exit status is non-zero when the change is BREAKING and at least one ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). Active means the snapshot knows at least one operational target where that consumer is deployed. An incompatible consumer with no visible target leaves the exit at 0, so a declared-only run over `--local` bundles alone always exits 0 whatever it classifies. Supply targets with --target-state (or query a live fleet with `pacto fleet`) to make the exit code meaningful.
 
 ```
 pacto impact <old> <new> [flags]
@@ -730,7 +977,7 @@ pacto impact <old> <new> [flags]
       --old-set stringArray        set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray     values file to merge into the old contract (can be repeated)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces string              OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
 ```
 
@@ -738,36 +985,77 @@ pacto impact <old> <new> [flags]
 
 ## `pacto init`
 
-Creates a new directory with pacto.yaml and the bundle directory structure (interfaces/, configuration/).
+Writes the contract for the service in dir (default: the current folder).
+
+An empty or new folder gets a blank contract with the bundle structure
+(interfaces/, configuration/). A folder that already holds a service gets a
+contract read from its Dockerfile and Kubernetes manifests, publish section
+included, and a list of what Pacto found and what it could not tell
+(Unknown). --delivery also writes the cluster pieces: the Pacto resource that
+checks the running service, and per environment a Stage with the Flux
+OCIRepository and Kustomization it applies through. Each Stage starts at
+observe: it plans every new version and moves nothing, and the OCIRepository
+stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
+last environment's Stage also asks a person to approve every promote.
+
+Several folders are each pactified, with a summary at the end. --cluster
+drafts a contract for every workload in the namespaces that no Pacto
+describes yet, in &lt;out&gt;/&lt;namespace&gt;/&lt;name&gt;: its manifests are read from the
+cluster, and the services its pods were seen calling become dependencies
+pinned to the version seen running, for you to widen. Drafts are only
+written, never published, and a draft that is not valid fails the command.
+
+It only adds files and missing .pactoignore lines; any other file already
+there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
+changes nothing.
 
 ```
-pacto init <name> [flags]
+pacto init [dir...] [flags]
 ```
 
 **Examples:**
 
 ```
   pacto init my-service
+  pacto init --plan
+  pacto init --delivery --owner payments --fleet ../contracts
+  pacto init --delivery --no-transparency-log --insecure-registry
+  pacto init --delivery --registry-secret registry-creds
+  pacto init services/checkout services/payments --plan
+  pacto init --cluster --namespace shop --out drafts
 ```
 
 **Flags:**
 
 ```
-  -h, --help   help for init
+      --cluster                  draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
+      --delivery                 also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
+      --env strings              environments for --delivery, in promotion order (default [test,prod])
+      --fleet strings            folders of other services' contracts to find the services that use this one
+  -h, --help                     help for init
+      --insecure-registry        with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
+      --name string              service name (default: the workload's name, then the folder's)
+      --namespace strings        with --cluster: a namespace to read; repeat it for more (default: every namespace)
+      --no-transparency-log      write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
+      --out string               with --cluster: the folder the drafts go in, one <namespace>/<name> folder each
+      --owner string             the team that owns the service (default: the workload's team label)
+      --plan                     show what would be added and change nothing
+      --registry string          where to publish, as host/path (default: read from the workload's image)
+      --registry-secret string   with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
 ```
 
 Scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`.
 
-`<name>` is the service name, not a path: it becomes the directory *and* `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. `pacto init fleet/checkout-web` therefore scaffolds a bundle that does not validate — `service.name` gets the whole path and fails `SCHEMA_VIOLATION`. To scaffold inside a directory, `cd` there first and pass the bare name.
+`<name>` is the service name: it becomes the directory *and* `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. `pacto init fleet/checkout-web` therefore scaffolds a bundle that fails validation: `service.name` gets the whole path and fails `SCHEMA_VIOLATION`. To scaffold inside a directory, `cd` there first and pass the bare name.
 
-All three are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. Deleting a directory without also deleting the section that references it fails validation with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
+All three are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. If you delete a directory, also delete the section that references it, or validation fails with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
 
-!!! note "The scaffold does not pass `validate --readiness`, by design"
+!!! note "The scaffold fails `validate --readiness` on purpose"
     Its two placeholder readiness claims are `not-done`, which scores 0 against the
     scaffolded `minScore: 80` and fails with `READINESS_GATE_UNMET`. Plain
     `pacto validate` passes, because the gate is opt-in. Fill the claims in as the
-    work lands — the placeholder is the starting position of a real assessment, not a
-    template to delete.
+    work lands. The placeholder is the starting position of a real assessment, so keep it
+    and update it.
 
 ---
 
@@ -829,7 +1117,7 @@ Credentials are stored in `~/.config/pacto/config.json` (or `$XDG_CONFIG_HOME/pa
 
 ### GitHub Container Registry (ghcr.io)
 
-For GitHub registries (`ghcr.io` and `docker.pkg.github.com`), pacto can automatically reuse credentials from the [GitHub CLI](https://cli.github.com/) — no `pacto login` required.
+For GitHub registries (`ghcr.io` and `docker.pkg.github.com`), pacto can reuse credentials from the [GitHub CLI](https://cli.github.com/), so you can skip `pacto login`.
 
 If you already have `gh` installed and authenticated, pacto will use `gh auth token` to obtain a token transparently. To verify your setup:
 
@@ -849,7 +1137,7 @@ gh auth refresh --scopes write:packages
 
 After this, `pacto push oci://ghcr.io/...` will work without any additional login step.
 
-If `gh` is not installed or not authenticated, pacto silently falls back to the next credential source in the chain.
+If `gh` is missing or unauthenticated, pacto moves on to the next credential source in the chain.
 
 ---
 
@@ -881,11 +1169,17 @@ Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents.
 
 When a bundle reference (local directory or oci:// ref) is given, the server also exposes one executable tool per OpenAPI operation in the bundle's openapi interfaces, plus a pacto_skill tool for any skills/*.md domain knowledge. Read-only (GET/HEAD) operations are exposed by default; pass --allow-writes to expose mutating operations.
 
-With --root, the server instead exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so a registry tag that moves later does not change the session. Roots that do not resolve stay visible as partial knowledge. Discovery is not authorization and nothing in the catalog executes.
+With --root, the server exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so the session keeps its startup view even when a registry tag moves. Roots that fail to resolve stay visible as partial knowledge. The catalog grants no authorization and executes nothing.
 
-With --fleet, the server instead exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags — --local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose that snapshot and are read in --fleet mode only.
+With --fleet, the server exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
 
-A bundle reference, --root and --fleet select different servers and cannot be combined.
+With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
+
+Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools. With --fleet the server names each caller with the claim mapping (--oidc-username-claim, --oidc-username-prefix, --oidc-groups-claim and --oidc-groups-prefix) and asks Kubernetes RBAC about that user; the API server does not confirm it, so the mapping must match its claimMappings.
+
+With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish a contract's version exactly as `pacto publish` does, with this process's registry credentials.
+
+A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.
 
 ```
 pacto mcp [bundle-ref] [flags]
@@ -914,65 +1208,81 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --allow-writes               expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --auth stringArray           credential for a security scheme as name=value (repeatable)
-      --base-url string            base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --cache                      include every bundle in the local OCI cache as an offline baseline revision
-      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --fleet                      expose read-only operational-graph (fleet) query tools
-      --freshness duration         mark target evidence older than this as stale (0 disables)
-  -h, --help                       help for mcp
-      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
-      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
-      --port int                   port for HTTP transport (default 8585)
-      --root stringArray           contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
-      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
-  -t, --transport string           transport type: stdio or http (default "stdio")
+      --allow-writes                  expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --audience string               with --auth-issuer: the audience incoming tokens must carry (default --resource)
+      --auth stringArray              credential for a security scheme as name=value (repeatable)
+      --auth-issuer string            OpenID issuer whose bearer tokens every HTTP request must carry
+      --base-url string               base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --cache                         include every bundle in the local OCI cache as an offline baseline revision
+      --delivery                      expose the Pacto delivery tools over the ambient cluster
+      --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --delivery-trust string         in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+      --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --exchange-audience string      with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
+      --exchange-client-id string     with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
+      --fleet                         expose read-only operational-graph (fleet) query tools
+      --freshness duration            mark target evidence older than this as stale (0 disables)
+  -h, --help                          help for mcp
+      --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
+      --k8s                           include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
+      --oidc-groups-claim string      ID token claim the API server takes the groups from; must match its claim mapping (default groups)
+      --oidc-groups-prefix string     prefix the API server puts before every group; must match its claim mapping
+      --oidc-username-claim string    ID token claim the API server takes the username from; must match its claim mapping (default sub)
+      --oidc-username-prefix string   prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
+      --port int                      port for HTTP transport (default 8585)
+      --publish                       expose pacto_publish_plan and pacto_publish beside the authoring tools
+      --resource string               with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
+      --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+  -t, --transport string              transport type: stdio or http (default "stdio")
 ```
 
-The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:
+The **default** server exposes the four authoring tools below. A bundle reference and four flags select a different server, each with its own tools. See [Server modes](#server-modes) after this table:
 
 | Tool | Description |
 |------|-------------|
 | `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |
-| `pacto_edit` | Edit an existing contract — add/remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |
+| `pacto_edit` | Edit an existing contract: add or remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |
 | `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 
-These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and do not resolve `oci://` refs.
+These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and accept no `oci://` refs.
 
 ### Server modes
 
-The default server exposes the authoring tools above. Three flags select a different server instead, and they cannot be combined — passing more than one is an error, never a silent choice:
+The default server exposes the authoring tools above. A bundle reference, `--root`, `--fleet`, `--publish` and `--delivery` each select a different server. Passing more than one is an error:
 
 | Invocation | Server |
 |------------|--------|
 | `pacto mcp` | Authoring tools. |
 | `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |
 | `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |
-| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots, and nothing else: catalog mode registers no authoring tools, so nothing reachable in it writes to disk. |
+| `pacto mcp --publish` | Authoring tools plus `pacto_publish_plan` and `pacto_publish`, which publish a version to your registry. Stdio only. |
+| `pacto mcp --delivery` | Authoring tools plus the delivery tools over the cluster your kubeconfig points at: read delivery state and, for an agent, ask for or cancel a change. There is no approve tool. |
+| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots. Catalog mode registers only catalog tools, and none of them writes to disk. |
 
-`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.
+`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so every answer reflects startup state even if a registry tag moves. A root that fails to resolve stays visible with a classified reason, and the catalog reports itself as partial. The catalog reads only the named roots and their closure, never refreshes and persists nothing.
 
 ### Fleet tool arguments
 
-The arguments each fleet query tool takes, since none of them is required except where marked:
+The arguments each fleet query tool takes. Arguments are optional unless marked:
 
 | Tool | Arguments |
 |------|-----------|
 | `pacto_fleet_search` | `text`, `owner`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |
-| `pacto_fleet_get` | `service` **or** `target` — one names a logical service, the other an operational target by key or name |
+| `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
 | `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `missing_readiness`; plus `limit` |
-| `pacto_fleet_explain` | `subject` (**required**) — a service name or a target key or name |
+| `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
 | `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
 
-Argument names are not flag names: the substring filter is `text`, not `query`, and every tool above closes its schema, so a wrong guess is rejected as an error rather than dropped into an unfiltered answer.
+Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 
-See [MCP Integration](mcp-integration.md) for detailed setup, serving a bundle's operations as tools and the catalog surface.
+See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.
 
 ---
 
@@ -992,7 +1302,7 @@ pacto otel [flags]
 
 ### `pacto otel observe`
 
-Reads an OTLP/JSON trace export and derives the service dependency edges its outbound spans prove. By default it prints the observed edges as text; add --output-format json for machine-readable output. With --evidence it emits one EvidenceSet per calling service -- a JSON array, and each set's ContractRef is empty because traces do not name a contract revision. Signing is therefore not a pipe: pacto evidence sign reads one EvidenceSet from a file, so write the array out, split it and set each ContractRef to the revision it describes before signing (pacto evidence sign) and reporting (pacto evidence send).
+Reads an OTLP/JSON trace export and derives the service dependency edges its outbound spans prove. By default it prints the observed edges as text; add --output-format json for machine-readable output. With --evidence it emits one EvidenceSet per calling service as a JSON array. Each set's ContractRef is empty because traces carry no contract revision. pacto evidence sign reads one EvidenceSet from a file, so write the array out, split it and set each ContractRef to the revision it describes before signing (pacto evidence sign) and reporting (pacto evidence send).
 
 ```
 pacto otel observe <traces.json> [flags]
@@ -1040,7 +1350,45 @@ pacto pack [dir] [flags]
 
 The contract is validated before packing. If validation fails, no archive is created.
 
-Files matched by `.pactoignore` are excluded from the archive — see [Packaging ignore](pactoignore.md).
+Files matched by `.pactoignore` are excluded from the archive. See [Packaging ignore](pactoignore.md).
+
+---
+
+## `pacto publish`
+
+Publishes every artifact the contract's publish section declares (pactoVersion 2.1), the contract bundle and the deploy artifact Flux applies, all tagged with service.version. Docker or the declared command builds. Pacto pushes each artifact to a new tag, signs every digest with Sigstore (built in) and attaches the SBOM files the build wrote. A breaking change since the last published version is refused below a major bump (a minor before 1.0).
+
+--plan shows what is missing and changes nothing. Running publish again from the same commit finishes what is missing and changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage, once the Stage records it as published, meaning Flux polled the candidate OCIRepository and verified the signature. It waits up to --propose-timeout for that.
+
+```
+pacto publish [dir] [flags]
+```
+
+**Examples:**
+
+```
+  # What would be published, and what refuses it
+  pacto publish --plan
+
+  # The same, for the contract in ./payments
+  pacto publish --plan ./payments
+
+  # Publish, then propose the version on the test Stage
+  pacto publish --propose test/payments
+```
+
+**Flags:**
+
+```
+  -h, --help                       help for publish
+  -p, --path string                path to contract directory, the same as [dir] (default: current directory)
+      --plan                       show what is missing and what refuses it; change nothing
+      --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
+      --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
+      --revision string            source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
+      --set stringArray            set a contract value (e.g. --set service.version=2.0.0)
+      --values stringArray         values file to merge into the contract (can be repeated; last wins)
+```
 
 ---
 
@@ -1073,7 +1421,7 @@ pacto pull <ref> [flags]
 
 ## `pacto push`
 
-Validates the contract (including remote policy and config refs), builds an OCI artifact and pushes it to the specified registry reference.
+Validates the contract (including remote policy and config refs), builds an OCI artifact and pushes it to the specified registry reference. Pushing the same content again succeeds without writing anything; different content under an existing reference is refused unless --force.
 
 ```
 pacto push <ref> [flags]
@@ -1102,7 +1450,7 @@ pacto push <ref> [flags]
       --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-If the artifact already exists in the registry, `pacto push` prints a warning and exits successfully without pushing. Use `--force` to overwrite.
+If the tag already holds the same content, `pacto push` succeeds and writes nothing. If it holds different content, `pacto push` refuses with a non-zero exit and writes nothing. Use `--force` to overwrite.
 
 !!! note "`--values` has no `-f` shorthand on push"
     On every other override-taking command `-f` is the shorthand for `--values`. On `pacto push`, `-f` is `--force`, so `--values` must be spelled out in full here.
@@ -1115,7 +1463,7 @@ Starts the command and watches the TCP sockets of its whole process tree: the in
 
 The command runs in a process group of its own, so a Ctrl-C reaches it once. When pacto run owns the terminal, the command's group takes it over: it reads the terminal and gets Ctrl-C and Ctrl-Z straight from it, and pacto run takes the terminal back once it exits. Otherwise SIGINT and SIGTERM sent to pacto run are passed on to the command's whole group.
 
-The command's stdin, stdout and stderr are its own, untouched. Rounds go to stderr, each in a single write, or with --report to a file instead: the file is truncated when the run starts and every round is appended to it in a single write, so a reader following it sees whole rounds (with json, one object per line).
+Pacto leaves the command's stdin, stdout and stderr untouched. Rounds go to stderr, each in a single write, or with --report to a file: the file is truncated when the run starts and every round is appended to it in a single write, so a reader following it sees whole rounds (with json, one object per line).
 
 With root (or BPF, PERFMON, SYS_PTRACE and write access to its own cgroup) on Linux 5.8 or later with BTF and cgroup v2, the command starts inside a new cgroup pacto-run-&lt;pid&gt; and an eBPF program sees every listener and every connection outcome of the tree, failures included (collector pacto-run+ebpf). Otherwise it falls back to polling /proc every second and says so (collector pacto-run): listeners are seen in full, so a missing one is still confirmed, but a connection is seen only while it is open at a poll and a failed connection never, so a dependency is reported reachable or unknown, never unreachable. If the program attached but the command cannot start inside the new cgroup, the run falls back to polling too and says so. Elsewhere than Linux the command runs unobserved and every runtime assertion is unsupported.
 
@@ -1159,7 +1507,7 @@ pacto run --contract <dir|oci ref> [flags] -- command [args...]
 
 ## `pacto tui`
 
-Opens a full-screen terminal UI over the same fleet snapshot `pacto fleet` queries. Navigate services, revisions, targets, owners and sources, then run pacto's verbs against whatever is selected — the selection becomes the argument, so you never type a path.
+Opens a full-screen terminal UI over the same fleet snapshot `pacto fleet` queries. Navigate services, revisions, targets, owners and sources, then run pacto's verbs against the selection, which becomes the command's argument.
 
 Read verbs run in-process against the loaded snapshot. Write verbs shell out to this same binary so they own the terminal, and every one of them asks for confirmation first. Pass --read-only to hide the write verbs entirely.
 
@@ -1192,7 +1540,7 @@ pacto tui [flags]
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --read-only                  hide every write verb
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
       --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
@@ -1223,7 +1571,7 @@ pacto update [version] [flags]
 ```
 
 !!! note
-    `pacto update` is not available on dev builds. If you built from source without version injection, install a release build first.
+    `pacto update` works only on release builds. If you built from source without version injection, install a release build first.
 
 ### Update notifications
 
@@ -1280,7 +1628,7 @@ pacto validate [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment — individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). See the [readiness reference](contract-reference/readiness.md#readiness) for the score and gate semantics.
+The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment. Individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. Without the flag, validation checks the contract's structure and rules. It still checks the shape of readiness claims and skips the freshness gate. See the [readiness reference](contract-reference/readiness.md#readiness) for the score and gate semantics.
 
 **Exit code:** Non-zero if validation fails.
 
@@ -1312,10 +1660,10 @@ pacto version [flags]
 
 Boolean variables are parsed the way Go parses a boolean: `1`, `t`, `T`,
 `true`, `TRUE` and `True` enable them and `0`, `f`, `F`, `false`, `FALSE` and
-`False` disable them. Anything else — including `yes` and `on` — reads as *off*,
-silently, except for the two opt-outs `PACTO_NO_ANIM` and
-`PACTO_NO_UPDATE_CHECK`: there any other non-empty value reads as *on*, because
-whoever set an opt-out meant it.
+`False` disable them. Any other value, including `yes` and `on`,
+reads as *off* with no warning. The two opt-outs `PACTO_NO_ANIM` and
+`PACTO_NO_UPDATE_CHECK` are the exception: for them any other non-empty value
+reads as *on*.
 
 | Variable | Description |
 |----------|-------------|
@@ -1326,8 +1674,8 @@ whoever set an opt-out meant it.
 | `PACTO_REGISTRY_USERNAME` | Registry username for authentication |
 | `PACTO_REGISTRY_PASSWORD` | Registry password for authentication |
 | `PACTO_REGISTRY_TOKEN` | Registry token for authentication |
-| `PACTO_INSECURE_REGISTRIES` | Comma-separated registry **hosts** Pacto may reach over plain HTTP instead of HTTPS. It applies to every registry access: `pacto push`, `pacto pull`, dependency and policy resolution and the Evidence Server. Scoped per host, so HTTPS registries are unaffected. Loopback hosts are already plain HTTP without being listed. Intended for a controlled in-cluster registry, never the public internet: it disables transport encryption, so credentials and payloads travel in the clear. |
-| `PACTO_EVIDENCE_SOURCE_URL` | Base URL of an Evidence Server whose read-only [operational-graph](operational-graph.md) contribution `pacto dashboard` should consume. Set by the operator when it wires a managed Evidence Server; unset means *no evidence source configured*, which is not the same as an unavailable one. |
+| `PACTO_INSECURE_REGISTRIES` | Comma-separated registry **hosts** that Pacto reaches over plain HTTP. It applies to every registry access: `pacto push`, `pacto pull`, dependency and policy resolution and the Evidence Server. Scoped per host, so HTTPS registries are unaffected. Loopback hosts use plain HTTP without being listed. Use it only for a controlled in-cluster registry: it disables transport encryption, so credentials and payloads travel in the clear. |
+| `PACTO_EVIDENCE_SOURCE_URL` | Base URL of an Evidence Server whose read-only [operational-graph](operational-graph.md) contribution `pacto dashboard` should consume. The operator sets it when it wires a managed Evidence Server. Unset means *no evidence source configured*, which the dashboard reports separately from an unavailable source. |
 | `XDG_CONFIG_HOME` | Override config directory (default: `~/.config`). Affects `pacto login` credentials and update check cache |
 | `XDG_CACHE_HOME` | Override cache directory (default: `~/.cache`). Affects OCI bundle cache location |
 
@@ -1343,19 +1691,18 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespace filter (empty = all) |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | `--cors-origin` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
-| `PACTO_DASHBOARD_TRACE_SOURCES` | `--trace-source` | Named offline trace sources as `NAME=PATH`, where `NAME` is the source's identity (what the fleet, the API and the dashboard's Data Source list call it) and `PATH` is the trace file location. Identity and location are deliberately separate: reordering the configuration never renames a source, moving the file never renames it either. Two sources whose files happen to share a basename stay two sources. A name must be unique across every Data Source the dashboard assembles. |
+| `PACTO_DASHBOARD_TRACE_SOURCES` | `--trace-source` | Named offline trace sources as `NAME=PATH`, where `NAME` is the source's identity (what the fleet, the API and the dashboard's Data Source list call it) and `PATH` is the trace file location. Identity and location are separate, so reordering the configuration or moving the file keeps the source's name. Two sources whose files share a basename stay two sources. A name must be unique across every Data Source the dashboard assembles. |
 
-!!! warning "The two list variables split on **whitespace**, not commas"
+!!! warning "The two list variables split on **whitespace**"
     `PACTO_DASHBOARD_TRACES` and `PACTO_DASHBOARD_TRACE_SOURCES` go through the
     same generic flag binding as every other dashboard variable, which splits a
     multi-valued string on spaces. `PACTO_DASHBOARD_TRACES="a.json b.json"` supplies
     two files; `PACTO_DASHBOARD_TRACES=a.json,b.json` supplies **one**, named
-    `a.json,b.json`. `PACTO_DASHBOARD_REPO` is the odd one out — it is read
-    directly and does split on commas.
+    `a.json,b.json`. `PACTO_DASHBOARD_REPO` is read directly and splits on
+    commas.
 
-    Neither mistake stops the dashboard: a trace file it cannot read is skipped and
-    the server still starts, so the symptom is missing observed dependencies rather
-    than an error. Check the snapshot's reported limitations if the operational
+    The dashboard starts either way: it skips a trace file it cannot read, so the
+    symptom is missing observed dependencies with no error. Check the snapshot's reported limitations if the operational
     graph looks emptier than you expect.
 
 ---
@@ -1365,11 +1712,11 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 Pacto follows this credential resolution chain:
 
 1. Environment variables (`PACTO_REGISTRY_TOKEN`, or `PACTO_REGISTRY_USERNAME` + `PACTO_REGISTRY_PASSWORD`)
-2. Pacto config (`~/.config/pacto/config.json`, written by `pacto login` — where `--username` / `--password` are persisted)
+2. Pacto config (`~/.config/pacto/config.json`, written by `pacto login`, which persists `--username` and `--password`)
 3. GitHub CLI (`gh auth token`, for `ghcr.io` and `docker.pkg.github.com` only)
 4. Docker config (`~/.docker/config.json`) and credential helpers (including cloud-registry helpers for ECR, GCR and ACR)
 5. Anonymous fallback
 
 For GitHub registries, step 3 means you can skip `pacto login` entirely if you have `gh` authenticated with the `write:packages` scope (see [`pacto login`](#pacto-login) above).
 
-No credentials are ever stored in contract files.
+Pacto stores no credentials in contract files.

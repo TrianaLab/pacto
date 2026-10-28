@@ -17,8 +17,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { neighborhoodFn, entitiesFn, snapshotFn } = vi.hoisted(() => ({
-  neighborhoodFn: vi.fn(), entitiesFn: vi.fn(), snapshotFn: vi.fn(),
+const { neighborhoodFn, entitiesFn } = vi.hoisted(() => ({
+  neighborhoodFn: vi.fn(), entitiesFn: vi.fn(),
 }));
 const { renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy, applyTopologySpy, legendFilterSpy, focusNodeSpy } = vi.hoisted(() => ({
   renderSpy: vi.fn(), fitSpy: vi.fn(), zoomInSpy: vi.fn(), zoomOutSpy: vi.fn(), patchDataSpy: vi.fn(),
@@ -31,7 +31,6 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
     api: {
       fleetNeighborhood: (...a: unknown[]) => neighborhoodFn(...a),
       fleetEntities: (...a: unknown[]) => entitiesFn(...a),
-      fleetSnapshot: (...a: unknown[]) => snapshotFn(...a), // must NEVER be called
     },
   };
 });
@@ -120,7 +119,7 @@ const qa = (t: HTMLElement, sel: string) => Array.from(t.querySelectorAll(sel)) 
 
 describe('GraphView — product Operational Graph', () => {
   beforeEach(() => {
-    for (const f of [neighborhoodFn, entitiesFn, snapshotFn, renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy]) f.mockReset();
+    for (const f of [neighborhoodFn, entitiesFn, renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy]) f.mockReset();
     neighborhoodFn.mockResolvedValue(neighborhood());
     entitiesFn.mockResolvedValue({ meta: {}, total: 1, count: 1, entities: [ref('service', 'domain-a/web', 'web', { domain: 'domain-a' })] });
     location.hash = '';
@@ -135,7 +134,6 @@ describe('GraphView — product Operational Graph', () => {
     // affordance, not an empty page and never the whole fleet.
     expect(q(target, '[data-testid="graph-discovery-placeholder"]')).toBeTruthy();
     expect(neighborhoodFn).not.toHaveBeenCalled();
-    expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -174,11 +172,14 @@ describe('GraphView — product Operational Graph', () => {
     expect(neighborhoodFn).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'service', key: 'domain-a/web', perspective: 'service', direction: 'both', depth: 1, views: ['expected', 'differences'],
     }));
-    expect(snapshotFn).not.toHaveBeenCalled();
-    // The engine received a graph node for every returned neighborhood node (3).
+    // The engine received a graph node for every returned neighborhood node (3), plus the
+    // two lanes they sit in: api on the depends-on side, obs on the used-by side.
     await vi.waitFor(() => expect(renderSpy).toHaveBeenCalled());
     const graphData = renderSpy.mock.calls.at(-1)![1];
-    expect(graphData.nodes).toHaveLength(3);
+    expect(graphData.nodes.filter((n: { lane?: boolean }) => !n.lane)).toHaveLength(3);
+    expect(graphData.nodes.map((n: { id: string; parent?: string }) => [n.id, n.parent ?? ''])).toEqual(expect.arrayContaining([
+      ['lane:depends-on', ''], ['lane:used-by', ''], ['domain-a/api', 'lane:depends-on'], ['domain-a/obs', 'lane:used-by'], ['domain-a/web', ''],
+    ]));
     unmount(component); document.body.removeChild(target);
   });
 
@@ -187,7 +188,7 @@ describe('GraphView — product Operational Graph', () => {
     const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/web', perspective: 'target' });
     await vi.waitFor(() => expect(renderSpy).toHaveBeenCalled());
     const graphData = renderSpy.mock.calls.at(-1)![1];
-    const kinds = graphData.nodes.map((n: { kind: string }) => n.kind).sort();
+    const kinds = graphData.nodes.filter((n: { lane?: boolean }) => !n.lane).map((n: { kind: string }) => n.kind).sort();
     expect(kinds).toEqual(['revision', 'service', 'target']); // mixed kinds present
     const edgeTypes = graphData.nodes.flatMap((n: { edges?: { type: string }[] }) => (n.edges || []).map((e) => e.type)).sort();
     expect(edgeTypes).toContain('runs');
@@ -211,6 +212,21 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('answers "is anything wrong here" first: undeclared calls count, insufficient evidence does not', async () => {
+    neighborhoodFn.mockResolvedValue(neighborhood({
+      edges: [
+        { id: 'a|b', relation: 'dependency', from: ref('service', 'a', 'a'), to: ref('service', 'b', 'b'), expected: true, observed: false, provenance: 'declared', difference: 'insufficient', declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] } },
+        { id: 'c|d', relation: 'dependency', from: ref('service', 'c', 'c'), to: ref('service', 'd', 'd'), expected: false, observed: true, provenance: 'observed', difference: 'observed-not-expected', declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] } },
+      ],
+    }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-answer"]')).toBeTruthy());
+    // The focus first, then what is around it.
+    expect(q(target, '[data-testid="graph-answer"]')?.textContent).toBe('web meets its contract. Around it, 1 call is undeclared.');
+    expect(q(target, '[data-testid="graph-answer"]')?.className).toContain('has-problems');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('labels a fine-grained edge as service-scoped corroboration, never as an edge-scope observation', async () => {
     neighborhoodFn.mockResolvedValue(targetNeighborhood());
     const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/web', perspective: 'target' });
@@ -222,7 +238,7 @@ describe('GraphView — product Operational Graph', () => {
     flushSync();
     const drawer = q(target, '[data-testid="graph-drawer"]');
     expect(drawer?.textContent).toContain('Corroboration');
-    expect(q(target, '[data-testid="edge-scope-caveat"]')?.textContent).toMatch(/service-scoped corroboration/i);
+    expect(q(target, '[data-testid="edge-scope-caveat"]')?.textContent).toMatch(/supports the service as a whole/i);
     unmount(component); document.body.removeChild(target);
   });
 
@@ -244,15 +260,19 @@ describe('GraphView — product Operational Graph', () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-truncated"]')).toBeTruthy());
     expect(q(target, '[data-testid="graph-truncated"]')?.textContent).toContain('Showing 3 of 210');
+    // Missing data and the cut answer share ONE line above the canvas, folded.
+    expect(qa(target, '[data-testid="graph-notice"]')).toHaveLength(1);
+    expect((q(target, '[data-testid="graph-notice"]') as HTMLDetailsElement).open).toBe(false);
+    expect(q(target, '[data-testid="graph-notice"] summary')?.textContent).toBe('▸Some data is missing · 3 of 210 entities shown');
 
     (q(target, '[data-testid="graph-show-more"]') as HTMLButtonElement).click();
-    expect(location.hash).toContain('maxNodes=150');
+    expect(location.hash).toContain('maxNodes=100');
     unmount(component); document.body.removeChild(target);
   });
 
   it('climbs to the ceiling and then tells the reader to narrow instead of offering a dead button', async () => {
     neighborhoodFn.mockResolvedValue(neighborhood({ totalNodes: 210 }));
-    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web', maxNodes: '500' });
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web', maxNodes: '200' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-truncated"]')).toBeTruthy());
     expect(q(target, '[data-testid="graph-show-more"]')).toBeNull();
     expect(q(target, '[data-testid="graph-truncated"]')?.textContent).toMatch(/Narrow the direction or depth/i);
@@ -271,10 +291,105 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('folds a large neighborhood by team and side, opens a group on request and can show every entity', async () => {
+    const base = neighborhood();
+    const obs = ref('service', 'domain-a/obs', 'obs');
+    const far = Array.from({ length: 50 }, (_, i) => ({ ref: ref('service', `domain-b/s${i}`, `s${i}`), depth: 2, status: 'Compliant', owner: i % 2 ? 'team-x' : 'team-y' }));
+    // Every far entity uses obs, which uses the focus: they all sit on the used-by side.
+    // Three of those calls were never declared.
+    const farEdges = far.map((n, i) => ({
+      id: `${n.ref.key}|domain-a/obs`, relation: 'dependency', from: n.ref, to: obs, expected: i >= 3, observed: true, provenance: 'observed',
+      difference: i < 3 ? 'observed-not-expected' : 'matched', declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] },
+    }));
+    neighborhoodFn.mockResolvedValue(neighborhood({ nodes: [...base.nodes, ...far], edges: [...base.edges, ...farEdges], truncated: false }));
+    applyTopologySpy.mockReset();
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-grouped"]')).toBeTruthy());
+    expect(q(target, '[data-testid="graph-grouped"]')?.textContent).toContain('50 grouped by team (2 groups)');
+    // The group buttons are a row of buttons, not a sentence: no commas between them.
+    const row = q(target, '[data-testid="graph-grouped"] ul') as HTMLElement;
+    expect(row.className).toContain('cl-row');
+    expect(row.textContent).not.toContain(',');
+    const btn = qa(target, '[data-testid="graph-open-group"]').find((b) => b.textContent?.includes('team-x')) as HTMLButtonElement;
+    expect(btn.getAttribute('aria-label')).toBe('Open team-x: 25 entities that use it');
+    const drawn = renderSpy.mock.calls.at(-1)![1];
+    expect(drawn.nodes.map((n: { id: string }) => n.id)).toEqual(expect.arrayContaining(['group:used-by:team-x', 'group:used-by:team-y', 'lane:used-by', 'domain-a/web']));
+    expect(drawn.nodes).toHaveLength(7);
+    // One edge per group, into its lane, with the worst state and how many carry it.
+    const teamY = drawn.nodes.find((n: { id: string }) => n.id === 'group:used-by:team-y');
+    expect(teamY.edges).toEqual([{ targetId: 'lane:used-by', type: 'dependency', edgeState: 'drift', label: 'observed, not expected (2)' }]);
+    // The summary still counts every entity and says which are grouped; the list names them all.
+    expect(q(target, '[data-testid="graph-summary"]')?.textContent).toContain('50 of them are grouped by team');
+    expect(qa(target, '.gv-nodes > li').length).toBe(53);
+    // A group opens from the note as well as from the canvas.
+    btn.click();
+    flushSync();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes).toHaveLength(31);
+    // Selecting a group's node on the canvas opens it too, and opens no drawer.
+    renderSpy.mock.calls.at(-1)![2].onSelectNode('group:used-by:team-y');
+    flushSync();
+    expect(q(target, '[data-testid="graph-grouped"]')).toBeNull();
+    expect(q(target, '[data-testid="graph-drawer"]')).toBeNull();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes).toHaveLength(55);
+    unmount(component); document.body.removeChild(target);
+
+    const again = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(again.target, '[data-testid="graph-show-every"]')).toBeTruthy());
+    // Selecting the one edge a group draws opens that group as well.
+    renderSpy.mock.calls.at(-1)![2].onSelectEdge('group:used-by:team-x→lane:used-by:dependency');
+    flushSync();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes).toHaveLength(31);
+    (q(again.target, '[data-testid="graph-show-every"]') as HTMLButtonElement).click();
+    flushSync();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes).toHaveLength(55);
+    expect(q(again.target, '[data-testid="graph-grouped"]')?.textContent).toContain('Every entity is drawn.');
+    (q(again.target, '[data-testid="graph-group-again"]') as HTMLButtonElement).click();
+    flushSync();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes).toHaveLength(7);
+    unmount(again.component); document.body.removeChild(again.target);
+  });
+
+  it('holds a crowded lane back undrawn and opens it from the notice', async () => {
+    const base = neighborhood();
+    const focus = base.nodes.find((n: { focus?: boolean }) => n.focus)!.ref;
+    const users = Array.from({ length: 12 }, (_, i) => ({ ref: ref('service', `domain-c/u${i}`, `u${i}`), depth: 1, status: 'Compliant' }));
+    const userEdges = users.map((n) => ({
+      id: `${n.ref.key}|${focus.key}`, relation: 'dependency', from: n.ref, to: focus, expected: true, observed: true, provenance: 'declared',
+      declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] },
+    }));
+    neighborhoodFn.mockResolvedValue(neighborhood({ nodes: [...base.nodes, ...users], edges: [...base.edges, ...userEdges], truncated: false }));
+    applyTopologySpy.mockReset();
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-lane-cap"]')).toBeTruthy());
+    const btn = q(target, '[data-testid="graph-open-more"]') as HTMLButtonElement;
+    expect(btn.textContent).toMatch(/^Show \d+ more dependents$/);
+    expect(q(target, '[data-testid="graph-summary"]')?.textContent).toMatch(/\d+ direct neighbors are not drawn until you show them/);
+    expect(q(target, '[data-testid="graph-notice"] summary')?.textContent).toContain('8 worst direct neighbors per side');
+    // No "+N more" box on the canvas duplicates the button.
+    const drawn = renderSpy.mock.calls.at(-1)![1];
+    expect(drawn.nodes.some((n: { id: string }) => n.id === 'group:used-by:+')).toBe(false);
+    unmount(component); document.body.removeChild(target);
+
+    const again = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(again.target, '[data-testid="graph-open-more"]')).toBeTruthy());
+    (q(again.target, '[data-testid="graph-open-more"]') as HTMLButtonElement).click();
+    flushSync();
+    expect(q(again.target, '[data-testid="graph-lane-cap"]')).toBeNull();
+    unmount(again.component); document.body.removeChild(again.target);
+  });
+
   it('asks the backend for the node budget in the URL', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web', maxNodes: '150' });
     await vi.waitFor(() => expect(neighborhoodFn).toHaveBeenCalled());
-    expect(neighborhoodFn.mock.calls[0][0]).toMatchObject({ maxNodes: 150 });
+    expect(neighborhoodFn.mock.calls[0][0]).toMatchObject({ maxNodes: 150, maxEdges: 300 });
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says the relationships ran out when the edge budget, not the node budget, cut it', async () => {
+    neighborhoodFn.mockResolvedValue(neighborhood({ truncatedEdges: true }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-truncated"]')).toBeTruthy());
+    expect(q(target, '[data-testid="graph-truncated"]')?.textContent).toMatch(/relationships: more exist/);
     unmount(component); document.body.removeChild(target);
   });
 
@@ -327,7 +442,7 @@ describe('GraphView — product Operational Graph', () => {
 
   it('exposes only perspectives valid for the focus (a service cannot become a revision/target)', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
-    await vi.waitFor(() => expect(q(target, '[data-testid="perspective-service"]')).toBeTruthy());
+    await vi.waitFor(() => expect(q(target, '[data-testid="perspective-only"]')?.textContent).toBe('Services'));
     expect(q(target, '[data-testid="perspective-revision"]')).toBeNull();
     expect(q(target, '[data-testid="perspective-target"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
@@ -506,6 +621,17 @@ describe('GraphView — product Operational Graph', () => {
     const drawer = q(target, '[data-testid="graph-drawer"]');
     expect(drawer?.textContent).toContain('Declared by');
     expect(drawer?.textContent).toContain('^1.0.0');
+    // The parts of a claim are spaced: never "…· ^1.0.0· declared-not-observed".
+    expect(drawer?.querySelector('.gv-claims li')?.textContent).toMatch(/ · \^1\.0\.0 · declared-not-observed$/);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says once that unresolved dependencies have no provider, not on every row', async () => {
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-unresolved"]')).toBeTruthy());
+    const row = q(target, '[data-testid="graph-unresolved-list"] li')?.textContent ?? '';
+    expect(row.replace(/\s+/g, ' ')).toContain('declares oci://x/ghost: no provider');
+    expect(row).not.toContain('no provider resolves it');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -528,6 +654,25 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('a focus that does not exist says so and offers search, not a raw error', async () => {
+    neighborhoodFn.mockRejectedValue(new ApiError(404, 'not found'));
+    const { target, component } = mountView({ kind: 'service', sel: 'nope' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-not-found"]')).toBeTruthy());
+    expect(q(target, '[data-testid="graph-not-found"]')?.textContent).toContain('Nothing found for “nope”');
+    expect(q(target, '[data-testid="graph-not-found"] a')?.getAttribute('href')).toBe('#/fleet/graph');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('a failed neighborhood load offers Retry', async () => {
+    neighborhoodFn.mockRejectedValueOnce(new ApiError(503, 'backend unavailable'));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(target.textContent).toContain('Couldn’t load the graph'));
+    neighborhoodFn.mockResolvedValue(neighborhood());
+    (Array.from(target.querySelectorAll('button')).find((b) => b.textContent === 'Retry') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-summary"]')).toBeTruthy());
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('a stale search response cannot overwrite a newer query', async () => {
     let resolveFirst: (v: unknown) => void = () => {};
     const first = new Promise((res) => { resolveFirst = res; });
@@ -536,6 +681,8 @@ describe('GraphView — product Operational Graph', () => {
     const { target, component } = mountView({});
     const input = q(target, 'input[type="search"]') as HTMLInputElement;
     input.value = 'ol'; input.dispatchEvent(new Event('input', { bubbles: true }));   // query 1 (pending)
+    // Searches are debounced: wait for the first to be asked before typing on.
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(1));
     input.value = 'new'; input.dispatchEvent(new Event('input', { bubbles: true }));  // query 2 (resolves)
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-focus-link"]')).toBeTruthy());
     expect(target.textContent).toContain('new');
@@ -545,6 +692,18 @@ describe('GraphView — product Operational Graph', () => {
     flushSync();
     expect(target.textContent).toContain('new');
     expect(target.textContent).not.toContain('old');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('asks once per pause in typing, not once per key', async () => {
+    entitiesFn.mockResolvedValue({ meta: {}, total: 0, count: 0, entities: [] });
+    const { target, component } = mountView({});
+    const input = q(target, 'input[type="search"]') as HTMLInputElement;
+    for (const v of ['o', 'or', 'ord', 'orde', 'order']) { input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); }
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(entitiesFn).toHaveBeenCalledTimes(1);
+    expect(entitiesFn.mock.calls[0][0]).toMatchObject({ text: 'order' });
     unmount(component); document.body.removeChild(target);
   });
 

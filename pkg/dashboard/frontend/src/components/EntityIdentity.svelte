@@ -31,8 +31,8 @@
 
 <span class="entity-identity">
   {#if showKind}<span class="ei-kind">{kindLabel(ref.kind)}</span>{/if}
-  <span class="ei-label">{primary}</span>
-  {#if showStatus}<EntityStatusBadge kind={ref.kind} status={ref.status} />{/if}
+  <span class="ei-label" title={primary}>{primary}</span>
+  {#if showStatus}<span class="ei-status"><EntityStatusBadge kind={ref.kind} status={ref.status} /></span>{/if}
   {#if context.length}
     <span class="ei-context">
       {#each context as bit, i}{#if i > 0}<span class="ei-dot" aria-hidden="true">·</span>{/if}<span title={display(bit) === bit ? undefined : bit}>{display(bit)}</span>{/each}
@@ -46,9 +46,9 @@
 <style>
   .entity-identity { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .ei-kind {
-    font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em;
     color: var(--c-text-3); background: var(--c-surface-inset);
     padding: 1px 6px; border-radius: var(--radius-xs); flex-shrink: 0;
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .ei-label { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
   .ei-context { font-size: var(--text-xs); color: var(--c-text-3); display: inline-flex; gap: var(--sp-1); flex-wrap: wrap; min-width: 0; overflow-wrap: anywhere; }

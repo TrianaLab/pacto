@@ -28,11 +28,13 @@ Compliant transition:
 ## How it works
 
 ```
-index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base=/pacto/demo/
-   ├─ wasm_exec.js              Go's wasm runtime glue
-   └─ boot.js                   loads app.wasm; routes /api,/health,/metrics into wasm
+index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base=./
+   ├─ tour.js, tours.js         the guided-tour runner and the two tours it runs
+   └─ boot.js                   starts the engine worker; routes /api,/health,/metrics to it
                                      │
    app fetch('/api/services') ──────┘  (a fetch shim intercepts only those paths)
+                                     ▼  postMessage
+                                engine.js (Web Worker) ─► wasm_exec.js, Go's wasm runtime glue
                                      ▼
                                 app.wasm: httptest → Pacto's Huma handlers
                                      │
@@ -52,7 +54,16 @@ index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base
   target page exists to show. Nothing is invented: a target with no evidence stays Unknown, and
   the only EXACT match pins the real content digest of an embedded revision.
 - `main_wasm.go` — builds the dashboard's Huma API in memory and exposes `__pactoServe`.
-- `boot.js` — loads the wasm engine and shims `fetch` for `/api`, `/health`, `/metrics`.
+- `engine.js` — runs the wasm engine in a Web Worker, so its boot and its heavier
+  answers never stall the page: the loading counter and the skeletons keep moving.
+- `boot.js` — starts the worker and shims `fetch` for `/api`, `/health`, `/metrics`,
+  passing those calls to the worker. `__pactoServe` and `__pactoPersona` keep their
+  names on `window` and return promises. It also draws the demo strip that offers
+  the guided tours.
+- `tour.js` — the guided-tour runner: the spotlight overlay, the bubble and the gates
+  that move a tour from step to step.
+- `tours.js` — the fleet tour and the delivery story as data, plus the simulated
+  sign-in and person switch their gates read.
 
 The graph, dependents and cross-reference views derive from each contract's
 declared dependencies (every referenced service is embedded), so no OCI resolver
@@ -63,10 +74,10 @@ is needed.
 Requirements: Go 1.26+, Node 22+, make.
 
 ```bash
-make build                 # builds dist/ at base /pacto/demo/
+make build                 # builds dist/ at the relative base ./
 make build BASE=/          # build at site root for local preview
 make smoke                 # exercise the built wasm engine in Node
-make serve                 # preview at http://localhost:8088/pacto/demo/
+make serve                 # preview at http://localhost:8088/
 ```
 
 `make build` rebuilds the dashboard UI from `../../pkg/dashboard/frontend` into a
@@ -111,9 +122,10 @@ synthetic lockfiles are gone.
 
 ## Size
 
-`app.wasm` is ≈52 MB raw / ~9.6 MB gzipped: it links Kubernetes and OCI client
-init code that the demo never calls, which dead-code elimination can't drop.
-Acceptable for a cached static asset.
+`app.wasm` is about 18.6 MB raw and 4.6 MB gzipped (measured 2026-10-27). It links no Kubernetes
+client (`TestWasmBuildHasNoKubernetes` keeps it that way): most of it is the Go
+runtime, the contract engine and the embedded demo data. Acceptable for a cached
+static asset.
 
 ## Don't use sudo
 

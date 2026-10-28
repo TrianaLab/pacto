@@ -91,6 +91,11 @@ func renderChildren(b *strings.Builder, edges []Edge, prefix string, col TreeCol
 			continue
 		}
 
+		if edge.Type == EdgeExternal {
+			fmt.Fprintf(b, "%s%s%s %s\n", prefix, connector, nameVersion(edge.Name, edge.Version, col), apply(col.Marker, "[external]"))
+			continue
+		}
+
 		if edge.Error != "" {
 			fmt.Fprintf(b, "%s%s%s %s\n", prefix, connector, apply(col.Name, ShortRef(edge.Ref)), apply(col.Error, fmt.Sprintf("(error: %s)", edge.Error)))
 			continue
@@ -100,6 +105,9 @@ func renderChildren(b *strings.Builder, edges []Edge, prefix string, col TreeCol
 			label := nameVersion(edge.Node.Name, edge.Node.Version, col)
 			if edge.Node.Local {
 				label += " " + apply(col.Marker, "[local]")
+			}
+			if edge.External {
+				label += " " + apply(col.Marker, "[external]")
 			}
 			if edge.Shared {
 				fmt.Fprintf(b, "%s%s%s %s\n", prefix, connector, label, apply(col.Marker, "(shared)"))

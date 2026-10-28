@@ -1,4 +1,6 @@
 <script>
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
   import GraphPanel from '../GraphPanel.svelte';
@@ -33,6 +35,11 @@
     const node = graphData.nodes.find((n) => n.id === depName || n.serviceName === depName);
     return node?.status === 'external' ? node.reason : undefined;
   }
+  // Twelve hundred dependents show the first twenty-five.
+  const dependentRows = cap(25);
+  const depRows = cap(25);
+  const refRows = cap(25);
+  const refByRows = cap(25);
 </script>
 
 {#if hasContent}
@@ -67,12 +74,16 @@
             </colgroup>
             <thead><tr><th data-tip="Dependency service name">Service</th><th data-tip="OCI or version reference">Ref</th><th data-tip="Is this dependency required?">Required</th><th data-tip="Version compatibility constraint">Compatibility</th><th data-tip="Pinned version and digest from pacto.lock">Pinned</th></tr></thead>
             <tbody>
-              {#each dependencies as dep}
+              {#each depRows.slice(dependencies) as dep}
                 {@const reason = svcExists(dep.name) ? undefined : depReason(dep.name)}
                 <tr>
                   <td>
                     {#if svcExists(dep.name)}
                       <a href={serviceUrl(dep.name)}>{dep.name}</a>
+                    {:else if services.length === 0}
+                      <!-- The fleet list has not arrived yet (a direct link): calling every
+                           dependency External before it does would be a guess. -->
+                      {dep.name} <span class="badge" data-testid="dep-resolving">Resolving…</span>
                     {:else}
                       {dep.name} <span class="badge {reasonBadgeClass(reason)}" data-tip={reasonTooltip(reason)}>{reasonLabel(reason)}</span>
                     {/if}
@@ -103,19 +114,20 @@
             </tbody>
           </table>
         </div>
+        <ShowAll cap={depRows} total={dependencies.length} noun="dependencies" testid="dependencies-show-all" />
       </div>
     {/if}
 
     {#if depsError}
       <div class="subsection deps-error" role="alert">
-        <span>⚠ Couldn’t load dependents and references — the "Depended on by" list and blast radius may be incomplete.</span>
+        <span>⚠ Couldn’t load dependents and references, so the "Depended on by" list and blast radius may be incomplete.</span>
         {#if onRetry}<button type="button" class="deps-retry" onclick={onRetry}>Retry</button>{/if}
       </div>
     {/if}
 
     {#if dependents?.length > 0}
       <div class="subsection">
-        <h3>Depended on by {#if isHistorical}<span class="current-badge" data-tip="Reflects the current dependency graph, not the selected historical version">current</span>{/if}</h3>
+        <h3>Depended on by {#if isHistorical}<span class="current-badge" data-tip="Shows the current dependency graph, whatever version you select">current</span>{/if}</h3>
         <div class="table-wrap">
           <table class="deps-table deps-table--triple">
             <colgroup>
@@ -125,7 +137,7 @@
             </colgroup>
             <thead><tr><th data-tip="Service that depends on this one">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Is this a required dependency?">Required</th></tr></thead>
             <tbody>
-              {#each dependents as dep}
+              {#each dependentRows.slice(dependents) as dep, di (di)}
                 <tr>
                   <td><a href={serviceUrl(dep.name)}>{dep.name}</a></td>
                   <td><StatusBadge status={dep.contractStatus} /></td>
@@ -135,12 +147,13 @@
             </tbody>
           </table>
         </div>
+        <ShowAll cap={dependentRows} total={dependents.length} noun="dependents" testid="dependents-show-all" />
       </div>
     {/if}
 
     {#if crossRefs?.references?.length > 0}
       <div class="subsection">
-        <h3>References {#if isHistorical}<span class="current-badge" data-tip="Reflects current cross-references, not the selected historical version">current</span>{/if}</h3>
+        <h3>References {#if isHistorical}<span class="current-badge" data-tip="Shows the current cross-references, whatever version you select">current</span>{/if}</h3>
         <div class="table-wrap">
           <table class="deps-table deps-table--triple">
             <colgroup>
@@ -150,7 +163,7 @@
             </colgroup>
             <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
             <tbody>
-              {#each crossRefs.references as ref}
+              {#each refRows.slice(crossRefs.references) as ref}
                 <tr>
                   <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
                   <td><span class="pill">{ref.refType}</span></td>
@@ -160,12 +173,13 @@
             </tbody>
           </table>
         </div>
+        <ShowAll cap={refRows} total={crossRefs.references.length} noun="references" />
       </div>
     {/if}
 
     {#if crossRefs?.referencedBy?.length > 0}
       <div class="subsection">
-        <h3>Referenced by {#if isHistorical}<span class="current-badge" data-tip="Reflects current cross-references, not the selected historical version">current</span>{/if}</h3>
+        <h3>Referenced by {#if isHistorical}<span class="current-badge" data-tip="Shows the current cross-references, whatever version you select">current</span>{/if}</h3>
         <div class="table-wrap">
           <table class="deps-table deps-table--triple">
             <colgroup>
@@ -175,7 +189,7 @@
             </colgroup>
             <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
             <tbody>
-              {#each crossRefs.referencedBy as ref}
+              {#each refByRows.slice(crossRefs.referencedBy) as ref}
                 <tr>
                   <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
                   <td><span class="pill">{ref.refType}</span></td>
@@ -185,6 +199,7 @@
             </tbody>
           </table>
         </div>
+        <ShowAll cap={refByRows} total={crossRefs.referencedBy.length} noun="references" />
       </div>
     {/if}
   </CollapsibleSection>

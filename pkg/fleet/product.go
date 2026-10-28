@@ -1,7 +1,7 @@
 package fleet
 
 import (
-	"fmt"
+	"cmp"
 	"slices"
 	"sort"
 	"time"
@@ -75,6 +75,14 @@ type EntityRef struct {
 	// consumer can match a requested version to a canonical RevisionKey without parsing a
 	// label -- e.g. the legacy version-bookmark migration.
 	Version string `json:"version,omitempty"`
+	// Owner is who a SERVICE reference's revisions name, set only on list answers:
+	// the owner's label when they agree on one, "N owners claim it" when they do
+	// not, and empty when none declares an owner.
+	Owner string `json:"owner,omitempty"`
+	// Targets counts what a SERVICE reference runs on; Services counts the services
+	// an OWNER reference's revisions claim. Both are set only on list answers.
+	Targets  int `json:"targets,omitempty"`
+	Services int `json:"services,omitempty"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY
@@ -141,7 +149,7 @@ func (q *Query) productMeta() ProductMeta {
 	// reaching back into the snapshot or a later answer, and the meta never grows
 	// unbounded with the fleet's source or limitation count.
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
-	lims, limTrunc := boundLimitations(cloneLimitations(q.snap.Limitations))
+	lims, limTrunc := BoundLimitations(cloneLimitations(q.snap.Limitations))
 	return ProductMeta{
 		SchemaVersion:        ProductSchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,
@@ -248,6 +256,7 @@ type OverviewSummary struct {
 	StaleTargets              int `json:"staleTargets"`
 	UnresolvedRelationships   int `json:"unresolvedRelationships"`
 	ObservedOnlyRelationships int `json:"observedOnlyRelationships"`
+	UncontractedCallers       int `json:"uncontractedCallers"`
 	DegradedSources           int `json:"degradedSources"`
 	StaleSources              int `json:"staleSources"`
 	UnavailableSources        int `json:"unavailableSources"`
@@ -268,6 +277,54 @@ type OverviewSummary struct {
 	// but a proportion needs the whole partition, and fresh / stale / never-observed is
 	// only a partition once "never observed at all" is its own bucket.
 	Evidence EvidenceWindow `json:"evidence"`
+	// ByScope says where the targets are, by scope (the environment or cluster a
+	// target runs in), the scope with the most non-compliant targets first. It is
+	// bounded to overviewScopeLimit; Scopes is how many scopes there are in all.
+	ByScope []ScopeTally `json:"byScope"`
+	Scopes  int          `json:"scopes"`
+}
+
+// ScopeTally counts the targets of one scope and how many of them are broken,
+// unknown or stale.
+type ScopeTally struct {
+	Scope        string `json:"scope"`
+	Targets      int    `json:"targets"`
+	NonCompliant int    `json:"nonCompliant"`
+	Unknown      int    `json:"unknown"`
+	Stale        int    `json:"stale"`
+}
+
+// overviewScopeLimit is how many scopes the overview breaks the targets down by.
+const overviewScopeLimit = 8
+
+// tallyScopes fills ByScope and Scopes from every target.
+func (q *Query) tallyScopes(sum *OverviewSummary) {
+	by := map[string]*ScopeTally{}
+	for _, t := range q.snap.Targets {
+		st := by[t.Scope]
+		if st == nil {
+			st = &ScopeTally{Scope: t.Scope}
+			by[t.Scope] = st
+		}
+		st.Targets++
+		switch t.Compliance {
+		case StatusNonCompliant:
+			st.NonCompliant++
+		case StatusUnknown:
+			st.Unknown++
+		}
+		if t.Stale {
+			st.Stale++
+		}
+	}
+	all := make([]ScopeTally, 0, len(by))
+	for _, st := range by {
+		all = append(all, *st)
+	}
+	slices.SortFunc(all, func(a, b ScopeTally) int {
+		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(b.Unknown, a.Unknown), cmp.Compare(a.Scope, b.Scope))
+	})
+	sum.ByScope, sum.Scopes, _ = boundSlice(all, overviewScopeLimit)
 }
 
 // EntryPointView is the route-neutral destination class of an entry point. The
@@ -368,6 +425,7 @@ func (q *Query) Overview() *Overview {
 	sum.NotEvaluatedTargets, sum.OtherComplianceTargets = comp.NotEvaluated, comp.Other
 	q.tallyRelationships(sum)
 	q.tallySources(sum)
+	q.tallyScopes(sum)
 
 	sum.ServicesNeedingAttention = q.servicesNeedingAttention()
 	// A constant, valid filter never errors; ignore it deliberately. The attention
@@ -392,7 +450,7 @@ func (q *Query) tallyRelationships(sum *OverviewSummary) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared {
-			if !rel.Resolved {
+			if rel.missing() {
 				sum.UnresolvedRelationships++
 			}
 			if rel.ToService != "" {
@@ -407,6 +465,7 @@ func (q *Query) tallyRelationships(sum *OverviewSummary) {
 			sum.ObservedOnlyRelationships++
 		}
 	}
+	sum.UncontractedCallers = len(q.snap.UncontractedCallers)
 }
 
 // tallySources counts degraded, stale and unavailable sources.
@@ -452,7 +511,7 @@ func (q *Query) servicesNeedingAttention() int {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && !rel.Resolved {
+		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && rel.missing() {
 			need[rel.FromService] = true
 		}
 	}
@@ -482,6 +541,7 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid, Severity: severityError},
 		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved, Severity: severityWarning},
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices, Severity: severityInfo},
+		{Label: "Uncontracted callers observed", Count: sum.UncontractedCallers, View: EntryPointServices, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
 	}
 	out := []EntryPoint{}
@@ -576,19 +636,13 @@ type AttentionList struct {
 // or offset, or an unknown kind/status) rather than silently defaulting it, so a
 // bad input is a typed error and never a misleading empty or full result.
 func validateAttentionFilter(f AttentionFilter) error {
-	if f.Limit < 0 {
-		return &InvalidQueryError{Field: "limit", Value: fmt.Sprint(f.Limit), Reason: "must be >= 0"}
+	if err := validatePaging(f.Limit, f.Offset); err != nil {
+		return err
 	}
-	if f.Offset < 0 {
-		return &InvalidQueryError{Field: "offset", Value: fmt.Sprint(f.Offset), Reason: "must be >= 0"}
-	}
-	if f.Kind != "" && !validEntityKind(EntityKind(f.Kind)) {
-		return &InvalidQueryError{Field: "kind", Value: f.Kind, Reason: "not a known entity kind"}
-	}
-	if f.Status != "" && !ValidStatus(f.Status) {
-		return &InvalidQueryError{Field: "status", Value: f.Status, Reason: "not a canonical status"}
-	}
-	return nil
+	return validateFields([]fieldCheck{
+		{"kind", f.Kind, "not a known entity kind", func(k string) bool { return validEntityKind(EntityKind(k)) }},
+		{"status", f.Status, "not a canonical status", ValidStatus},
+	})
 }
 
 // Attention reports attention items across every category, filtered, sorted and
@@ -737,7 +791,7 @@ func (q *Query) unresolvedAttention() []AttentionItem {
 	var out []AttentionItem
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.Resolved {
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || !rel.missing() {
 			continue
 		}
 		// A declared dependency's FromService always exists — it is the service

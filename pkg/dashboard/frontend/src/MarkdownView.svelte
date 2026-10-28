@@ -1,5 +1,5 @@
 <script>
-  import { renderMarkdown } from './lib/markdown.ts';
+  import { renderMarkdown, MERMAID_CONFIG } from './lib/markdown.ts';
   import DOMPurify from 'dompurify';
 
   let { content = '', truncated = false } = $props();
@@ -13,17 +13,7 @@
     if (!mermaidPromise) {
       mermaidPromise = import('mermaid').then((m) => {
         const mermaid = m.default;
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict', // no JS, no click handlers
-          // Render labels as native SVG <text> rather than HTML in <foreignObject>:
-          // the sanitized-SVG output keeps <text>/<tspan>, but would strip foreignObject
-          // HTML, leaving empty shapes. htmlLabels:false also keeps <br/> as line breaks.
-          htmlLabels: false,
-          flowchart: { htmlLabels: false },
-          theme: 'neutral',
-          fontFamily: 'inherit',
-        });
+        mermaid.initialize(MERMAID_CONFIG);
         return mermaid;
       });
     }
@@ -79,7 +69,7 @@
 </script>
 
 {#if truncated}
-  <div class="md-truncated">Truncated for display — open the file in the bundle for the full document.</div>
+  <div class="md-truncated">Truncated for display. Open the file in the bundle for the full document.</div>
 {/if}
 <div class="markdown-body" bind:this={container}>{@html html}</div>
 
@@ -96,7 +86,9 @@
     margin: 0.7em 0 0.35em;
     line-height: 1.25;
   }
-  .markdown-body :global(h1) { font-size: var(--text-lg, 1.1rem); }
+  /* base.css draws the page-title double rule under every `main h1`; a doc heading is
+     not the page title, so it opts out. */
+  .markdown-body :global(h1) { font-size: var(--text-lg, 1.1rem); border-bottom: 0; padding-bottom: 0; }
   .markdown-body :global(p) { margin: 0.4em 0; }
   .markdown-body :global(ul),
   .markdown-body :global(ol) { margin: 0.4em 0; padding-left: 1.4em; }

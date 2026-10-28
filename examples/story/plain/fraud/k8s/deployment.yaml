@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud
+  labels: {app: fraud}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: fraud}
+  template:
+    metadata:
+      labels: {app: fraud}
+    spec:
+      containers:
+        - name: fraud
+          image: registry.example/story/images/fraud:1.0.0
+          ports:
+            - containerPort: 8080

@@ -7,6 +7,8 @@
  * component never hard-codes "exact" strings inconsistently.
  */
 
+import { formatCount } from './format.ts';
+
 export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
 
 /**
@@ -176,6 +178,15 @@ export function severityTone(s: string | undefined): Tone {
   }
 }
 
+/** Entry points worth a tile or a chip on the overview: drops the one that links back
+ *  to the overview and the uncategorised attention one (the lead tile's own number).
+ *  Errors and any grade this build cannot read lead; warning and info follow. */
+export function splitEntryPoints<T extends { view?: string; category?: string; severity?: string }>(eps: T[] = []): { lead: T[]; secondary: T[] } {
+  const shown = eps.filter((ep) => ep.view !== 'overview' && !(ep.view === 'attention' && !ep.category));
+  const milder = (ep: T) => ep.severity === 'warning' || ep.severity === 'info';
+  return { lead: shown.filter((ep) => !milder(ep)), secondary: shown.filter(milder) };
+}
+
 // ── source health ────────────────────────────────────────────────────────────
 export function sourceHealthLabel(status: string | undefined): string {
   switch (status) {
@@ -239,7 +250,7 @@ export function sourceHealthTallyParts(c: SourceCounts | null | undefined): Sour
 export function sourceHealthTally(c: SourceCounts | null | undefined): string {
   const total = c?.total ?? 0;
   if (total === 0) return 'No data sources reported.';
-  const noun = `${total} data source${total === 1 ? '' : 's'}`;
+  const noun = `${formatCount(total)} data source${total === 1 ? '' : 's'}`;
   const parts = sourceHealthTallyParts(c);
   if (parts.length === 1 && parts[0].status === 'available') return `${noun}, all available.`;
   return `${noun} — ${parts.map((p) => p.text).join(', ')}.`;
@@ -259,7 +270,7 @@ export function sourceHealthSentence(status: string | undefined): string {
     case 'available':
       return 'This data source answered in full, so everything it holds is in the snapshot.';
     case 'partial':
-      return 'This data source answered only in part, so records it holds are missing from the snapshot rather than absent from the fleet.';
+      return 'This data source answered only in part, so some of its records are missing from the snapshot and may still exist in the fleet.';
     case 'stale':
       return 'This data source last answered too long ago to be treated as current, so what it contributed to the snapshot may already have changed.';
     case 'unavailable':

@@ -7,10 +7,10 @@
     differenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
     defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
-    canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes,
+    canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
   } from '../lib/graphState.ts';
-  import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
-  import { abbreviateDigests } from '../lib/format.ts';
+  import { cyEdgeId, neighborhoodToGraph, laneGraph, GROUP_PREFIX, LANE_CAP, GROUP_THRESHOLD as GROUP_LIMIT, OTHER_TEAMS } from '../lib/neighborhoodGraph.ts';
+  import { abbreviateDigests, formatCount, countOf, statusTone } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -18,6 +18,8 @@
   import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetChangesUrl, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import CappedList from '../components/CappedList.svelte';
+  import { createEntitySuggest } from '../lib/entitySuggest.svelte.ts';
   import EntityLink from '../components/EntityLink.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
@@ -25,6 +27,7 @@
   import { kindLabelPlural } from '../lib/entityLabels.ts';
   import LimitationsList from '../components/LimitationsList.svelte';
   import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
 
   // The product Operational Graph. With no focus it shows a DISCOVERY state
   // (search only) and loads NO neighborhood and NO FleetSnapshot -- never a whole-fleet
@@ -42,7 +45,7 @@
   // ── focused neighborhood (product API only) ──────────────────────────────────
   const loader = createProductLoader(() => api.fleetNeighborhood({
     kind: gs.kind, key: gs.key, perspective: gs.perspective,
-    direction: gs.direction, depth: gs.depth, views: gs.views, maxNodes: gs.maxNodes,
+    direction: gs.direction, depth: gs.depth, views: gs.views, maxNodes: gs.maxNodes, maxEdges: maxEdgesFor(gs.maxNodes),
   }));
   $effect(() => {
     if (focused) {
@@ -93,6 +96,7 @@
     }
   });
   const loading = $derived(focused && loader.loading);
+  const notFound = $derived(focused && !shown && loader.error instanceof ApiError && loader.error.status === 404);
   const error = $derived(focused ? loader.error : null);
   const knowledge = $derived(snapshotKnowledge(shown?.meta));
   const focusRef = $derived(shown?.requestedFocus ?? null);
@@ -117,6 +121,9 @@
   // the drawer so a screen reader announces it.
   const selected = $state({ kind: '', node: null, edge: null });
   let drawerEl = $state(null);
+  // A relationship declared by a hundred revisions shows its first five claims.
+  let claimsShown = $state(5);
+  $effect(() => { if (selected.edge) claimsShown = 5; });
   let drawerOpener = null;
   function rememberOpener() {
     const a = document.activeElement;
@@ -147,12 +154,35 @@
   function onDrawerKeydown(e) { if (e.key === 'Escape' && selected.kind) { e.preventDefault(); closeDrawer(); } }
   // Move focus into the drawer when it opens so it is announced and Escape-operable.
   $effect(() => {
-    if (selected.kind && drawerEl) queueMicrotask(() => drawerEl?.focus());
+    // preventScroll: the drawer is sticky (wide) or a bottom sheet (narrow), so it is
+    // already in view; scrolling to it used to throw the reader thousands of pixels.
+    if (selected.kind && drawerEl) queueMicrotask(() => drawerEl?.focus({ preventScroll: true }));
   });
   // Canvas selection reports the Cytoscape element id; map it back to the backend node
   // (by canonical key) or edge (by the reproduced Cytoscape edge id).
-  function selectNodeById(id) { selectNode((shown?.nodes || []).find((n) => n.ref.key === id), { pin: false }); }
+  function selectNodeById(id) {
+    // A team's folded node opens the team instead of a drawer.
+    if (id?.startsWith(GROUP_PREFIX)) { openGroup(id); return; }
+    selectNode((shown?.nodes || []).find((n) => n.ref.key === id), { pin: false });
+  }
+
+  // ── folding a large neighborhood by team ─────────────────────────────────────
+  // The canvas is laid out in lanes: what the focus depends on to its left, what uses it
+  // to its right. Past GROUP_THRESHOLD entities the ones beyond the direct neighbors are
+  // drawn as one node per team and side. Opening a team or showing every entity is per
+  // question: a new focus, depth or budget starts folded again.
+  let openGroups = $state(new Set());
+  let showEvery = $state(false);
+  let groupedFor = '';
+  $effect(() => { if (queryKey !== groupedFor) { groupedFor = queryKey; openGroups = new Set(); showEvery = false; } });
+  const grouped = $derived(shown ? laneGraph(neighborhoodToGraph(shown), { open: openGroups, all: showEvery }) : null);
+  function openGroup(id) { openGroups = new Set([...openGroups, id]); }
+  // The two "Other teams" groups already name their direction.
+  const sideWords = (g) => (g.owner.startsWith(OTHER_TEAMS) ? '' : g.side === 'depends-on' ? ' that it depends on' : ' that use it');
   function selectEdgeByCyId(cyId) {
+    // The one edge a group draws stands for many relationships: selecting it opens the group.
+    const g = (grouped?.groups ?? []).find((x) => cyId?.startsWith(`${x.id}→`) || cyId?.includes(`→${x.id}:`));
+    if (g) { openGroup(g.id); return; }
     selectEdge((shown?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
   }
 
@@ -171,6 +201,7 @@
       { key: 'kind:service', label: 'Service', cls: 'lg-node lg-service' },
       { key: 'kind:revision', label: 'Revision', cls: 'lg-node lg-revision' },
       { key: 'kind:target', label: 'Operational target', cls: 'lg-node lg-target' },
+      { key: 'kind:group', label: 'A team (grouped)', cls: 'lg-node lg-team' },
     ] },
     { title: 'Relationship', items: [
       { key: 'rel:dependency', label: 'Depends on', cls: 'lg-edge lg-dep' },
@@ -210,15 +241,66 @@
   const totalNodes = $derived(shown?.totalNodes ?? 0);
   const withheldNodes = $derived(shown ? Math.max(0, totalNodes - shown.nodes.length) : 0);
   const moreNodes = $derived(nextMaxNodes(gs.maxNodes));
+  // Which budget cut the answer, so the note never blames entities when it was the
+  // relationships that ran out (and the button asks for both).
   const truncationNote = $derived(
     withheldNodes
-      ? `Showing ${shown.nodes.length} of ${totalNodes} entities within this depth.`
-      : 'This neighborhood is bounded and was truncated.'
+      ? `Showing ${formatCount(shown.nodes.length)} of ${formatCount(totalNodes)} entities within this depth.`
+      : shown?.truncatedEdges
+        ? `Showing ${formatCount(shown.edges.length)} relationships: more exist than this view draws.`
+        : 'This neighborhood is bounded and was truncated.'
   );
 
+  // The one question this page answers first: is anything wrong around this focus? Only
+  // confirmed problems count -- an entity whose status is an error tone, or a call seen at
+  // runtime that no contract declares. "Expected, not observed" is not a problem (it is not
+  // proof of non-use), so it stays on the canvas and out of this line.
+  const problems = $derived.by(() => {
+    if (!shown || carrying || neighborhoodIsEmpty(shown)) return null;
+    const failing = shown.nodes.filter((n) => !n.focus && n.ref?.kind !== 'source' && n.status && statusTone(n.status) === 'err').length;
+    const undeclared = shown.edges.filter((e) => e.relation !== 'runs' && e.difference === 'observed-not-expected').length;
+    return { failing, undeclared };
+  });
+  // The focus comes first: it is what the reader asked about. Then what is around it.
+  const focusTone = $derived(focusNode?.status ? statusTone(focusNode.status) : '');
+  const focusSentence = $derived.by(() => {
+    if (!problems) return '';
+    const name = focusRef?.label || focusRef?.key || gs.key;
+    if (focusTone === 'err') return `${name} breaks its contract.`;
+    if (focusTone === 'ok') return `${name} meets its contract.`;
+    return focusNode?.status ? `${name} has no confirmed contract result yet.` : '';
+  });
+  const answer = $derived.by(() => {
+    if (!problems) return '';
+    const parts = [
+      problems.failing ? `${countOf(problems.failing, 'entity', 'entities')} ${problems.failing === 1 ? 'breaks its' : 'break their'} contract` : '',
+      problems.undeclared ? `${countOf(problems.undeclared, 'call')} ${problems.undeclared === 1 ? 'is' : 'are'} undeclared` : '',
+    ].filter(Boolean);
+    const it = focusSentence ? 'it' : focusRef?.label || focusRef?.key || gs.key;
+    if (parts.length) return `Around ${it}, ${parts.join(' and ')}.`;
+    return knowledge?.incomplete ? `Nothing wrong found around ${it}, but some data is missing.` : `Nothing wrong found around ${it}.`;
+  });
+
+  // ── one notice line above the canvas ─────────────────────────────────────────
+  // Missing data, a cut answer, team groups and capped lanes each used to be a box of
+  // their own, and together they pushed the canvas below the fold. One line names them;
+  // the full sentences and their buttons open under it.
+  const showTruncated = $derived(!carrying && !!shown?.truncated);
+  const showEveryNote = $derived(!grouped?.groups.length && showEvery && (shown?.nodes.length ?? 0) > GROUP_LIMIT);
+  const noticeParts = $derived(!shown ? [] : [
+    knowledge?.incomplete ? 'Some data is missing' : '',
+    showTruncated ? (withheldNodes ? `${formatCount(shown.nodes.length)} of ${formatCount(totalNodes)} entities shown` : 'Some relationships are not drawn') : '',
+    oneHopNote ? 'One hop deep' : '',
+    grouped?.groups.length ? `${formatCount(grouped.folded)} grouped by team` : '',
+    showEveryNote ? 'Every entity is drawn' : '',
+    grouped?.more ? `${LANE_CAP} worst direct neighbors per side` : '',
+  ].filter(Boolean));
+
   const graphSummary = $derived(!shown ? '' : [
-    `${shown.nodes.length} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${shown.edges.length} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
+    `${formatCount(shown.nodes.length)} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${formatCount(shown.edges.length)} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
     withheldNodes ? `${withheldNodes} more within this depth are not shown.` : '',
+    grouped?.folded ? `${grouped.folded} of them are grouped by team on the canvas; the list below names each one.` : '',
+    grouped?.more ? `${grouped.more.reduce((t, m) => t + m.count, 0)} direct neighbors are not drawn until you show them${grouped.folded ? '.' : '; the list below names each one.'}` : '',
     hiddenLabels.length ? `Dimmed on the canvas: ${hiddenLabels.join(', ')}.` : '',
     selectedSummary,
   ].filter(Boolean).join(' '));
@@ -264,42 +346,23 @@
 
   // ── discovery search (search-first entry, product-honest) ────────────────────
   let queryText = $state('');
-  let results = $state([]);
-  let searchTotal = $state(0);
-  let searching = $state(false);
-  let searchError = $state(null);
-  let searchSeq = 0;
-  function runSearch() {
-    const q = queryText.trim();
-    const mySeq = ++searchSeq;
-    if (!q) { results = []; searchTotal = 0; searching = false; searchError = null; return; }
-    searching = true;
-    searchError = null;
-    // Only graph-focusable kinds: the graph projects services, revisions and targets.
-    api.fleetEntities({ text: q, kinds: ['service', 'revision', 'target'], limit: 20 })
-      .then((r) => {
-        if (mySeq !== searchSeq) return; // a newer query supersedes this response
-        results = r.entities || [];
-        searchTotal = r.total ?? results.length;
-        searchError = null;
-      })
-      .catch((e) => {
-        if (mySeq !== searchSeq) return;
-        // Product-honest: a transport/schema failure is NOT "no matches". Keep the
-        // error distinct so the UI never renders an empty state after a failed request.
-        results = [];
-        searchTotal = 0;
-        searchError = e;
-      })
-      .finally(() => { if (mySeq === searchSeq) searching = false; });
-  }
+  // The shared search mechanics (debounce, bound, stale-response guard): one request per
+  // pause in typing, not one per key. Only graph-focusable kinds: the graph projects
+  // services, revisions and targets. A transport failure stays an error, never "no matches".
+  const suggest = createEntitySuggest({ kinds: ['service', 'revision', 'target'], limit: 20 });
+  onDestroy(() => suggest.destroy());
+  const results = $derived(suggest.results);
+  const searchTotal = $derived(suggest.total);
+  // The previous results stay while the next ones load, so the list does not flash.
+  const searching = $derived(suggest.loading && results.length === 0);
+  const searchError = $derived(suggest.error);
+  function runSearch() { suggest.search(queryText); }
   function submitSearch(e) { e.preventDefault(); runSearch(); }
-  onDestroy(() => { searchSeq++; });
 
   function searchErrorMessage(e) {
     if (e instanceof SchemaCompatibilityError) return 'The dashboard and backend API versions differ; reload to update.';
-    if (e instanceof ApiError) return `Search failed (HTTP ${e.status}). ${e.message}`;
-    return 'Search is unavailable right now. Check your connection and try again.';
+    if (e instanceof ApiError) return `Search failed (HTTP ${e.status}): ${e.message}`;
+    return 'Search is unavailable. Check your connection and try again.';
   }
 </script>
 
@@ -317,7 +380,7 @@
        name once one is chosen. -->
   <PageHeader
     title="Operational graph"
-    subtitle={focused ? '' : 'The operational graph is search-first: pick one entity and see its local neighborhood render below. It never opens every service at once.'}
+    subtitle={focused ? '' : 'Pick one entity to see what it touches.'}
   >
     {#if focused}
       <div class="gv-focus">
@@ -351,7 +414,7 @@
           {/each}
         </ul>
         {#if searchTotal > results.length}
-          <p class="disco-hint" data-testid="graph-search-truncated">Showing {results.length} of {searchTotal}. Refine your search to narrow the results.</p>
+          <p class="disco-hint" data-testid="graph-search-truncated">Showing {formatCount(results.length)} of {formatCount(searchTotal)}. Refine your search to narrow the results.</p>
         {/if}
       {:else if queryText.trim()}
         <p class="disco-hint" data-testid="graph-search-empty">No entities match "{queryText}".</p>
@@ -365,41 +428,39 @@
             <line x1="30" y1="32" x2="66" y2="18" /><line x1="30" y1="32" x2="66" y2="46" /><line x1="66" y1="18" x2="96" y2="32" />
             <circle cx="30" cy="32" r="9" /><circle cx="66" cy="18" r="7" /><circle cx="66" cy="46" r="7" /><circle cx="96" cy="32" r="7" />
           </svg>
-          <p class="disco-ph-title t-section-title">Select a service, revision or operational target to render its local graph</p>
-          <p class="disco-ph-sub">Search above, or start from an entity that needs attention. The graph appears right here once you pick a focus.</p>
+          <p class="disco-ph-title t-section-title">Pick a service, revision or target</p>
+          <p class="disco-ph-sub">Its graph shows up here.</p>
         </div>
       {/if}
 
-      <div class="disco-panels">
-        <div class="disco-panel">
-          <h2>Start from what needs attention</h2>
-          <p>Jump straight into the graph focused on an operational problem.</p>
-          <a class="gv-link" href={fleetAttentionUrl()}>Open attention triage &rarr;</a>
-        </div>
-        <div class="disco-panel">
-          <h2>What the graph shows</h2>
-          <dl class="disco-legend">
-            {#each VIEW_DEFS as vd}
-              <dt><IdentityBadge label={vd.label} tone={vd.v === 'differences' ? 'warn' : (vd.v === 'observed' ? 'info' : 'ok')} /></dt>
-              <dd>{vd.help}</dd>
-            {/each}
-          </dl>
-        </div>
-      </div>
+      <!-- One line, not two panels: the way in from a problem, and the layer definitions
+           one (i) away instead of a card of prose the reader passes on every visit. -->
+      <p class="disco-more" data-testid="graph-discovery-more">
+        Or start from <a class="gv-link" href={fleetAttentionUrl()}>what needs attention</a>
+        <span class="disco-more-sep" aria-hidden="true">·</span>
+        What the graph shows <HelpTip label="the graph layers" text={VIEW_HELP} />
+      </p>
     </section>
   {:else}
     <!-- Focused neighborhood: an actual visual topology. -->
+    <!-- No controls over a focus that does not exist: there is nothing for them to drive. -->
+    {#if !notFound}
     <div class="workspace-controls is-row" role="group" aria-label="Graph controls">
       <div class="gv-ctl">
         <span class="gv-ctl-k">Perspective</span>
-        <div class="gv-seg">
-          {#each perspectives as p}
-            <!-- The wire enum is service/revision/target; the button says what the user
-                 reads everywhere else in the product ("Operational targets", never a
-                 lowercase "target"). data-testid keeps the wire value for tests. -->
-            <button type="button" class:active={gs.perspective === p} onclick={() => setPerspective(p)} data-testid="perspective-{p}">{kindLabelPlural(p)}</button>
-          {/each}
-        </div>
+        {#if perspectives.length > 1}
+          <div class="gv-seg">
+            {#each perspectives as p}
+              <!-- The wire enum is service/revision/target; the button says what the user
+                   reads everywhere else in the product ("Operational targets", never a
+                   lowercase "target"). data-testid keeps the wire value for tests. -->
+              <button type="button" class:active={gs.perspective === p} onclick={() => setPerspective(p)} data-testid="perspective-{p}">{kindLabelPlural(p)}</button>
+            {/each}
+          </div>
+        {:else}
+          <!-- One perspective is not a choice: plain text, not a one-button segment. -->
+          <span class="gv-one" data-testid="perspective-only">{kindLabelPlural(perspectives[0] ?? gs.perspective)}</span>
+        {/if}
       </div>
       <div class="gv-ctl">
         <span class="gv-ctl-k">Knowledge <HelpTip label="the knowledge layers" text={VIEW_HELP} /></span>
@@ -440,6 +501,12 @@
         </div>
       </div>
     </div>
+    {/if}
+    <!-- The answer sits under the controls, as on Change analysis, so both workspaces
+         start their body at the same distance from the title. -->
+    {#if answer}
+      <p class="gv-answer" class:has-problems={problems && (problems.failing || problems.undeclared)} data-testid="graph-answer">{#if focusSentence}<span class:gv-focus-err={focusTone === 'err'} data-testid="graph-answer-focus">{focusSentence}</span>{' '}{/if}<span class="gv-around">{answer}</span></p>
+    {/if}
 
     <!-- A refresh keeps the rendered graph MOUNTED. Swapping it for a loading line every
          poll destroyed the canvas and rebuilt it from scratch, which is what made a
@@ -450,20 +517,33 @@
     {#if !shown && loading}
       <p class="gv-status" role="status">Loading the neighborhood...</p>
     {:else if !shown && error}
-      <div class="gv-error" role="alert">Couldn't load the neighborhood: {error instanceof Error ? error.message : String(error)}</div>
+      <!-- A focus that does not exist is not a failure to retry: say so and offer the way
+           back. Anything else is a load error with a Retry. -->
+      {#if notFound}
+        <div class="gv-error-state" role="alert" data-testid="graph-not-found">
+          <h2>Nothing found for “{gs.key}”</h2>
+          <a class="btn" href={fleetGraphDiscoveryUrl()}>Search again</a>
+        </div>
+      {:else}
+        <EmptyState error title="Couldn’t load the graph" message={error instanceof Error ? error.message : String(error)} onRetry={() => loader.refresh()} />
+      {/if}
     {:else if shown}
       {#if loading}
         <p class="gv-status" role="status" data-testid="graph-refreshing">Refreshing the neighborhood...</p>
       {:else if error}
         <div class="gv-error" role="alert" data-testid="graph-refresh-error">Couldn't refresh the neighborhood, so this is the last answer we got: {error instanceof Error ? error.message : String(error)}</div>
       {/if}
+      {#if noticeParts.length}
+      <details class="gv-notice disclosure" data-testid="graph-notice">
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>{noticeParts.join(' · ')}</summary>
+        <div class="gv-notice-body">
       <KnowledgeBanner {knowledge} noun="neighborhood" testid="graph-knowledge-caveat" />
-      {#if !carrying && shown.truncated}
-        <div class="gv-caveat tone-warn" role="status" data-testid="graph-truncated">
+      {#if showTruncated}
+        <div class="gv-caveat" data-testid="graph-truncated">
           {truncationNote}
           {#if moreNodes}
             <button type="button" class="gv-more" data-testid="graph-show-more" onclick={() => go({ maxNodes: moreNodes })}>
-              Show up to {moreNodes}
+              Show up to {moreNodes} entities
             </button>
           {:else}
             Narrow the direction or depth, or open an entity to continue.
@@ -471,9 +551,32 @@
         </div>
       {/if}
       {#if oneHopNote}
-        <div class="gv-caveat tone-info" role="status" data-testid="graph-effective-depth">
-          The {gs.perspective} projection is evaluated one hop deep; deeper exploration lives in the revision projection.
+        <div class="gv-caveat" data-testid="graph-effective-depth">
+          The {gs.perspective} view is one hop deep. Use Revisions to go deeper.
         </div>
+      {/if}
+      {#if !neighborhoodIsEmpty(shown)}
+            {#if grouped?.groups.length}
+              <div class="gv-caveat" data-testid="graph-grouped">
+                {formatCount(grouped.folded)} grouped by team ({countOf(grouped.groups.length, 'group')}). Open one:
+                <CappedList items={grouped.groups} max={6} row={true} label="Teams grouped on the graph">{#snippet item(g)}<button type="button" class="gv-more" data-testid="graph-open-group" title="{g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'}{sideWords(g)}" aria-label="Open {g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'}{sideWords(g)}" onclick={() => openGroup(g.id)}><span aria-hidden="true">{g.side === 'depends-on' ? '← ' : ''}</span>{g.owner} ({formatCount(g.count)})<span aria-hidden="true">{g.side === 'used-by' ? ' →' : ''}</span></button>{/snippet}</CappedList>
+                <button type="button" class="gv-more" data-testid="graph-show-every" onclick={() => { showEvery = true; }}>Show every entity</button>
+              </div>
+            {:else if showEveryNote}
+              <div class="gv-caveat" data-testid="graph-grouped">
+                Every entity is drawn.
+                <button type="button" class="gv-more" data-testid="graph-group-again" onclick={() => { showEvery = false; openGroups = new Set(); }}>Group by team again</button>
+              </div>
+            {/if}
+            {#if grouped?.more}
+              <div class="gv-caveat" data-testid="graph-lane-cap">
+                Showing the {LANE_CAP} worst direct neighbors per side.
+                {#each grouped.more as m (m.id)}<button type="button" class="gv-more" data-testid="graph-open-more" onclick={() => openGroup(m.id)}>Show {formatCount(m.count)} more {m.side === 'depends-on' ? 'dependencies' : 'dependents'}</button>{/each}
+              </div>
+            {/if}
+      {/if}
+        </div>
+      </details>
       {/if}
 
       <!-- The drawer column is reserved only while a drawer is open. Reserved always, the
@@ -483,10 +586,10 @@
       <div class="gv-body" class:gv-body-drawer={selected.kind === 'node' || selected.kind === 'edge'}>
         <div class="gv-main">
           {#if neighborhoodIsEmpty(shown)}
-            <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} are known for this focus under the selected views.</p>
+            <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} known under these views.</p>
           {:else}
             <!-- Primary: the visual Cytoscape topology. -->
-            <NeighborhoodGraph neighborhood={shown} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
+            <NeighborhoodGraph neighborhood={shown} graph={grouped?.graph} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
 
             <!-- Legend, and the canvas's filter: every item is a REAL canvas distinction.
                  Node kinds are shapes/borders; edge relation and reconciliation state are
@@ -494,7 +597,8 @@
                  width + tone), never a decorative badge for a state the canvas can't show.
                  Because each entry names something the canvas draws, each entry can also
                  switch it off. The drawer/text list keeps the precise, scoped wording. -->
-            <div class="gv-legend" role="group" data-testid="graph-legend" aria-label="Graph legend and filters">
+            <!-- Always shown: a reader new to the canvas needs the key right beside it. -->
+            <div class="gv-legend" role="group" aria-label="Graph legend and filters" data-testid="graph-legend">
               {#each LEGEND_GROUPS as grp (grp.title)}
                 <span class="lg-group">{grp.title}</span>
                 {#each grp.items as it (it.key)}
@@ -509,6 +613,7 @@
                   ><span class={it.cls} aria-hidden="true"></span> {it.label}</button>
                 {/each}
               {/each}
+              <span class="t-meta lg-hint">Select an entry to hide it.</span>
             </div>
 
             <!-- Accessible text alternative: the same nodes and edges as
@@ -557,21 +662,22 @@
           {/if}
 
           {#if (shown.unresolvedDependencies?.count ?? 0) > 0}
-            <section class="gv-unresolved" data-testid="graph-unresolved">
-              <h2>Unresolved dependencies ({shown.unresolvedDependencies.total})</h2>
-              <ul>
-                {#each shown.unresolvedDependencies.items as u (u.from.key + '::' + u.ref)}
-                  <li><EntityLink ref={u.from} showStatus={false} /> declares <code>{u.requestedRef || u.ref}</code> - no provider resolves it{#if u.reason}: {u.reason}{/if}</li>
-                {/each}
-              </ul>
-            </section>
+            <!-- A secondary list: a count that opens, not a block that pushes the page down. -->
+            <details class="gv-unresolved disclosure" data-testid="graph-unresolved">
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Unresolved dependencies</h2> <span class="gv-chip">{formatCount(shown.unresolvedDependencies.total)}</span></summary>
+              <p class="t-meta">Declared, but nothing Pacto knows provides it.</p>
+              <CappedList items={shown.unresolvedDependencies.items} max={8} label="Unresolved dependencies" testid="graph-unresolved-list">
+                {#snippet item(u)}<EntityLink ref={u.from} showStatus={false} />{' '}declares <code>{u.requestedRef || u.ref}</code>{#if u.reason}{': '}{u.reason}{/if}{/snippet}
+              </CappedList>
+              {#if shown.unresolvedDependencies.truncated}<p class="t-meta">Showing {formatCount(shown.unresolvedDependencies.count)} of {formatCount(shown.unresolvedDependencies.total)}.</p>{/if}
+            </details>
           {/if}
 
           {#if (shown.limitations?.count ?? 0) > 0}
-            <section class="gv-limitations" data-testid="graph-limitations">
-              <h2>Limitations</h2>
+            <details class="gv-limitations disclosure" data-testid="graph-limitations">
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Limitations</h2> <span class="gv-chip">{formatCount(shown.limitations.total ?? shown.limitations.count)}</span></summary>
               <LimitationsList items={shown.limitations.items} />
-            </section>
+            </details>
           {/if}
         </div>
 
@@ -601,7 +707,7 @@
             <div class="gv-drawer-head"><h2>Relationship</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>
             <p class="gv-drow"><EntityLink ref={selected.edge.from} showStatus={false} /> <strong>{relationLabel(selected.edge.relation)}</strong> <EntityLink ref={selected.edge.to} showStatus={false} /></p>
             {#if selected.edge.relation === 'runs'}
-              <p class="gv-ddesc">This operational target runs the linked revision. It is an observed link at target scope, not a declared dependency.</p>
+              <p class="gv-ddesc">Seen running here. Not a declared dependency.</p>
             {:else}
               {#if selected.edge.difference}
                 <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(selected.edge.difference)} tone={differenceTone(selected.edge.difference)} /></p>
@@ -611,21 +717,24 @@
                 <p class="gv-ddesc" data-testid="edge-scope-caveat">{serviceScopedCaveat(gs.perspective)}</p>
               {/if}
               {#if (selected.edge.declaredClaims?.count ?? 0) > 0}
-                <div class="gv-claims">
-                  <span class="gv-k">Declared by</span>
+                <details class="gv-claims disclosure">
+                  <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><span class="gv-k">Declared by</span> <span class="t-meta">{#if selected.edge.declaredClaims.truncated}{formatCount(selected.edge.declaredClaims.count)} of {formatCount(selected.edge.declaredClaims.total)}{:else}{formatCount(selected.edge.declaredClaims.count)}{/if}</span></summary>
                   <ul>
-                    {#each selected.edge.declaredClaims.items as c, i (i)}
+                    {#each selected.edge.declaredClaims.items.slice(0, claimsShown) as c, i (i)}
                       <!-- Through the shared abbreviator, like every other surface that
                            prints a canonical revision key. A 64-hex digest has no break
                            opportunity, so printed whole it also sets this panel's
                            minimum width and pushes the panel off the screen. -->
-                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility} &middot; <code>{c.compatibility}</code>{/if}{#if c.reconciliation} &middot; {c.reconciliation}{/if}</li>
+                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility}{' · '}<code>{c.compatibility}</code>{/if}{#if c.reconciliation}{' · '}{c.reconciliation}{/if}</li>
                     {/each}
                   </ul>
-                </div>
+                  {#if selected.edge.declaredClaims.items.length > claimsShown}
+                    <button type="button" class="btn btn-sm" onclick={() => { claimsShown = Infinity; }}>Show all {formatCount(selected.edge.declaredClaims.items.length)}</button>
+                  {/if}
+                </details>
               {/if}
               {#if selected.edge.observed}
-                <p class="gv-drow"><span class="gv-k">Observed</span> {selected.edge.count || 0} calls{#if selected.edge.observationSources?.total} across {selected.edge.observationSources.total} source(s){/if}{#if selected.edge.stale} &middot; stale window{/if}</p>
+                <p class="gv-drow"><span class="gv-k">Observed</span> {selected.edge.count || 0} calls{#if selected.edge.observationSources?.total} across {formatCount(selected.edge.observationSources.total)} source(s){/if}{#if selected.edge.stale}{' · '}stale window{/if}</p>
               {/if}
             {/if}
           </aside>
@@ -648,9 +757,10 @@
   .gv-reset { margin-left: auto; }
   .gv-ctl { display: flex; flex-direction: column; gap: 4px; }
   .gv-viewctl { margin-left: auto; }
-  .gv-ctl-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .gv-ctl-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
-  .gv-seg button { padding: 6px 10px; border: none; background: var(--c-bg); color: var(--c-text-2); font: inherit; font-size: var(--text-sm); cursor: pointer; text-transform: capitalize; }
+  .gv-seg button { padding: 6px 10px; border: none; background: var(--c-bg); color: var(--c-text-2); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+  .gv-one { font-size: var(--text-sm); color: var(--c-text-2); padding: 6px 0; }
   .gv-seg button.active { background: var(--c-accent); color: var(--c-on-accent); }
   .gv-seg button:disabled { opacity: 0.5; cursor: not-allowed; }
   .gv-depth { align-items: center; }
@@ -663,11 +773,26 @@
   .gv-more { border: 1px solid var(--c-warn-border); border-radius: var(--radius-xs); background: none; padding: 1px 8px; margin-left: 4px; font: inherit; color: inherit; cursor: pointer; transition: background var(--motion-feedback); }
   .gv-more:hover { background: var(--c-surface); }
   .gv-status { color: var(--c-text-3); }
+  .gv-error-state { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); padding: var(--sp-8) var(--sp-4); text-align: center; }
+  .gv-error-state h2 { margin: 0; color: var(--c-text-2); }
   .gv-error { padding: var(--sp-3); border-radius: var(--radius-sm); background: var(--c-err-bg); border: 1px solid var(--c-err); color: var(--c-text); }
 
   .gv-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); }
   .gv-main { display: flex; flex-direction: column; gap: var(--sp-4); }
 
+  .gv-answer { margin: var(--sp-3) 0; font-size: var(--text-md); color: var(--c-text-2); }
+  .gv-answer.has-problems .gv-around { color: var(--c-err); font-weight: 600; }
+  .disco-more { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-3) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .disco-more-sep { color: var(--c-border); }
+  .gv-focus-err { color: var(--c-err); }
+  .lg-hint { margin-left: auto; }
+  /* One line until opened; the pieces inside lose their own boxes. */
+  .gv-notice { padding: 0 var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm); background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); }
+  .gv-notice > summary { color: var(--c-text-2); }
+  .gv-notice-body { display: flex; flex-direction: column; gap: var(--sp-2); padding-bottom: var(--sp-3); }
+  .gv-notice-body .gv-caveat, .gv-notice-body :global(.knowledge) { padding: 0; background: none; border: 0; }
+  .gv-fold-title { display: inline; }
+  .gv-chip { display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--c-text-2); background: var(--c-bg); }
   .gv-legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); font-size: var(--text-sm); color: var(--c-text-2); }
   /* A legend entry is a toggle, so it is a button -- reset to look like the text it
      replaced, and given a hit target and a focus ring like every other control. */
@@ -680,8 +805,9 @@
   .lg-node { width: 16px; height: 12px; border: 1.5px solid var(--c-text-3); background: var(--c-surface); }
   .lg-service { border-radius: 3px; }
   .lg-revision { border-radius: 3px; border-style: dashed; }
+  .lg-team { border-radius: 3px; border-style: double; border-width: 3px; }
   .lg-target { border-radius: 50%; }
-  .lg-group { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); font-weight: 600; margin-left: var(--sp-2); }
+  .lg-group { color: var(--c-text-3); margin-left: var(--sp-2); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .lg-group:first-child { margin-left: 0; }
   .lg-edge { width: 22px; height: 0; border-top: 2px solid var(--c-text-3); }
   /* Line-swatches mirror the exact canvas edge styles (lib/graph.ts cyStylesheet):
@@ -707,22 +833,28 @@
   .gv-textbtn.is-selected, .gv-edge.is-selected { border-color: var(--c-accent); box-shadow: inset 0 0 0 2px var(--c-accent); }
   .gv-edge { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); cursor: pointer; }
   .gv-edge:hover, .gv-textbtn:hover { border-color: var(--c-accent); }
-  .gv-rel { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em; color: var(--c-text-3); }
+  .gv-rel { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-diff { margin-left: auto; }
   .gv-unresolved, .gv-limitations { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); }
   /* These were h3s forced back up to section size with a hard-coded font-size -- a
      section title dressed as a subsection, then un-dressed by hand. They sit directly
      under the page h1, so h2 is both the honest outline level and, via base.css, the
      section role. No override left to drift. */
-  .gv-unresolved h2, .gv-limitations h2 { margin: 0 0 var(--sp-2); }
-  .gv-unresolved ul { margin: 0; padding-left: var(--sp-4); font-size: var(--text-sm); color: var(--c-text-2); display: flex; flex-direction: column; gap: 4px; }
+  .gv-unresolved[open] > summary, .gv-limitations[open] > summary { margin-bottom: var(--sp-2); }
+  .gv-unresolved :global(ul) { margin: 0; padding-left: var(--sp-4); font-size: var(--text-sm); color: var(--c-text-2); display: flex; flex-direction: column; gap: 4px; }
 
-  .gv-drawer { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-2); }
+  /* A bottom sheet on a narrow screen, so opening it never scrolls the page to where a
+     one-column layout put it; beside the canvas and sticky on a wide one. */
+  .gv-drawer {
+    border: 1px solid var(--c-border); border-radius: var(--radius-md) var(--radius-md) 0 0; padding: var(--sp-4); background: var(--c-surface);
+    display: flex; flex-direction: column; gap: var(--sp-2);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; max-height: 60vh; overflow: auto; box-shadow: var(--shadow-md);
+  }
   .gv-drawer-head { display: flex; align-items: center; justify-content: space-between; }
   .gv-drawer-head h2 { margin: 0; }
   .gv-close { background: none; border: none; color: var(--c-text-3); cursor: pointer; font-size: var(--text-md); }
   .gv-drow { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .gv-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .gv-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-ddesc { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .gv-claims ul { margin: 4px 0 0; padding-left: var(--sp-4); font-size: var(--text-sm); color: var(--c-text-2); }
   .gv-drawer-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
@@ -731,5 +863,9 @@
     /* minmax(0, ...) rather than a bare 1fr: a grid item's automatic minimum is its
        content, so one wide child is enough to stop the column shrinking for the drawer. */
     .gv-body.gv-body-drawer { grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); align-items: start; }
+    .gv-drawer {
+      position: sticky; top: calc(var(--navbar-h) + var(--sp-3)); left: auto; right: auto; bottom: auto; z-index: auto;
+      max-height: calc(100vh - var(--navbar-h) - 2 * var(--sp-3)); border-radius: var(--radius-md); box-shadow: none;
+    }
   }
 </style>

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -172,6 +173,19 @@ func TestRevisionFrom_NilBundle(t *testing.T) {
 	}
 	if rev, _ := revisionFrom(RawRevision{Bundle: &contract.Bundle{}}, "src", fixedNow()); rev != nil {
 		t.Error("bundle with nil contract must project to nil")
+	}
+}
+
+// TestRevisionFrom_ValidatesTheLoadersDocument: a Document the loader decoded
+// is what gets validated, so the YAML is not decoded a second time.
+func TestRevisionFrom_ValidatesTheLoadersDocument(t *testing.T) {
+	_, doc, err := contract.ParseDocument([]byte(invalidYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev, _ := revisionFrom(RawRevision{Bundle: validLeafBundle(t), Digest: "sha256:leaf", Document: doc}, "local", fixedNow())
+	if rev.Valid {
+		t.Error("the loader's (invalid) document was not the one validated")
 	}
 }
 
@@ -1467,7 +1481,8 @@ func TestBuild_ObservedRelationships(t *testing.T) {
 			{From: "api", To: "web", Count: 1},      // different caller -> sort by 'from'
 			{From: "web", To: "payments", Count: 1}, // payments ambiguous across domains -> limitation
 			{From: "web", To: "payments", Count: 4}, // same ambiguous name again -> limitation deduped
-			{From: "ghost", To: "api", Count: 1},    // ghost unknown -> limitation
+			{From: "ghost", To: "api", Count: 1},    // ghost unknown, api resolved -> uncontracted caller
+			{From: "web", To: "nowhere", Count: 1},  // callee unknown -> limitation
 		},
 	})
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
@@ -1600,7 +1615,8 @@ func TestBuild_ObservedRelationships_Unresolved(t *testing.T) {
 		Observed: []ObservedEdge{
 			{From: "web", To: "payments", Count: 1}, // payments ambiguous across domains -> limitation
 			{From: "web", To: "payments", Count: 4}, // same ambiguous name again -> deduped
-			{From: "ghost", To: "api", Count: 1},    // ghost unknown -> limitation
+			{From: "ghost", To: "api", Count: 1},    // ghost unknown, api resolved -> uncontracted caller
+			{From: "web", To: "nowhere", Count: 1},  // callee unknown -> limitation
 		},
 	})
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
@@ -1614,7 +1630,11 @@ func TestBuild_ObservedRelationships_Unresolved(t *testing.T) {
 		}
 	}
 	if unresolved != 2 {
-		t.Errorf("want 2 unresolved observed limitations (payments ambiguous, ghost unknown), got %d: %+v", unresolved, snap.Limitations)
+		t.Errorf("want 2 unresolved observed limitations (payments ambiguous, nowhere unknown), got %d: %+v", unresolved, snap.Limitations)
+	}
+	want := []UncontractedCaller{{Caller: "ghost", ToService: NewServiceKey("api"), Sources: []string{"otel"}}}
+	if !reflect.DeepEqual(snap.UncontractedCallers, want) {
+		t.Errorf("uncontracted callers = %+v, want %+v", snap.UncontractedCallers, want)
 	}
 	if relObserved(snap.Relationships, "ghost", "api") != nil {
 		t.Error("an unknown caller must not create an observed relationship")
@@ -1623,6 +1643,56 @@ func TestBuild_ObservedRelationships_Unresolved(t *testing.T) {
 	s2, _ := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("x", "y", &Collection{}))
 	if len(s2.Relationships) != 0 {
 		t.Error("no observed edges must add no relationships")
+	}
+}
+
+// TestBuild_UncontractedCallers keeps a caller with no contract of a service
+// with one, merges its sources, sorts by (ToService, Caller), flags an
+// ambiguous caller and carries no count or time, so the snapshot id stays the
+// same across ticks that saw the same callers.
+func TestBuild_UncontractedCallers(t *testing.T) {
+	build := func(count int, seen time.Time) *FleetSnapshot {
+		revs := []RawRevision{
+			{Bundle: bundleFor(t, "web"), Digest: "sha256:web"},
+			{Bundle: bundleFor(t, "api"), Digest: "sha256:api"},
+			{Domain: "eu", Bundle: bundleFor(t, "pay"), Digest: "sha256:pe"},
+			{Domain: "us", Bundle: bundleFor(t, "pay"), Digest: "sha256:pu"},
+		}
+		a := NewMemorySource("a", "observation", &Collection{Revisions: revs, Observed: []ObservedEdge{
+			{From: "k8s:ns/Deployment/z", To: "web", Count: count, FirstSeen: seen, LastSeen: seen},
+			{From: "k8s:ns/Deployment/b", To: "web", Count: count},
+			{From: "pay", To: "api", Count: count},
+		}})
+		b := NewMemorySource("b", "observation", &Collection{Observed: []ObservedEdge{{From: "k8s:ns/Deployment/z", To: "web", Count: 1}}})
+		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, a, b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+	snap := build(1, fixedNow())
+	want := []UncontractedCaller{
+		{Caller: "pay", ToService: NewServiceKey("api"), Sources: []string{"a"}, Ambiguous: true},
+		{Caller: "k8s:ns/Deployment/b", ToService: NewServiceKey("web"), Sources: []string{"a"}},
+		{Caller: "k8s:ns/Deployment/z", ToService: NewServiceKey("web"), Sources: []string{"a", "b"}},
+	}
+	if !reflect.DeepEqual(snap.UncontractedCallers, want) {
+		t.Fatalf("uncontracted callers = %+v\nwant %+v", snap.UncontractedCallers, want)
+	}
+	for _, l := range snap.Limitations {
+		if l.Code == LimitationObservedIdentityUnresolved {
+			t.Errorf("a kept caller raised a limitation: %+v", l)
+		}
+	}
+	if q := NewQuery(snap).Overview(); q.Summary.UncontractedCallers != 3 {
+		t.Errorf("overview uncontracted callers = %d", q.Summary.UncontractedCallers)
+	}
+	again := build(7, fixedNow().Add(time.Hour))
+	if !reflect.DeepEqual(again.UncontractedCallers, snap.UncontractedCallers) {
+		t.Errorf("counts or times changed the callers: %+v", again.UncontractedCallers)
+	}
+	if again.SnapshotID != snap.SnapshotID {
+		t.Error("counts or times of uncontracted callers changed the snapshot id")
 	}
 }
 

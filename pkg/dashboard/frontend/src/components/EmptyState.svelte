@@ -13,7 +13,13 @@
   // moment the data landed. Default 0 keeps the table for callers that are not lists.
   let { title = undefined, message = undefined, loading = false, error = null, onRetry = null, level = 2, rows = 0 } = $props();
 
-  const errorText = $derived(message || (typeof error === 'string' ? error : ''));
+  // A message that only repeats the title ("Not found" / "not found") is said once.
+  const same = (a, b) => !!a && !!b && String(a).trim().toLowerCase().replace(/[.!]$/, '') === String(b).trim().toLowerCase().replace(/[.!]$/, '');
+  const errorText = $derived.by(() => {
+    const t = message || (typeof error === 'string' ? error : '');
+    return same(t, title || 'Couldn’t load') ? '' : t;
+  });
+  const bodyText = $derived(same(message, title) ? '' : message);
   // Bounded: a page size is the natural value, but nothing renders a hundred grey bars.
   const skeletonRows = $derived(Math.min(Math.max(0, Math.trunc(rows)), 12));
 </script>
@@ -58,7 +64,7 @@
     {/if}
   {:else if title || message}
     {#if title}<svelte:element this={`h${level}`}>{title}</svelte:element>{/if}
-    {#if message}<p>{message}</p>{/if}
+    {#if bodyText}<p>{bodyText}</p>{/if}
   {/if}
 </div>
 

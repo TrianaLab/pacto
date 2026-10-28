@@ -19,6 +19,11 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
+  // Half the cores, stated rather than left to the default so the reasoning is on the
+  // page: each worker is a whole Chromium whose main thread also runs the Go engine, so
+  // a worker needs more than one core to itself. That is 6 on a 12-core laptop and 2 on
+  // GitHub's 4-vCPU ubuntu-latest, which is what keeps the CI job fast without starving it.
+  workers: '50%',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
@@ -33,13 +38,13 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `python3 -m http.server ${APP_PORT} --directory ${DIST}`,
+      command: `python3 e2e/serve.py ${APP_PORT} ${DIST}`,
       url: `http://127.0.0.1:${APP_PORT}/index.html`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },
     {
-      command: `python3 -m http.server ${DOC_PORT} --directory ${DOC_DIST}`,
+      command: `python3 e2e/serve.py ${DOC_PORT} ${DOC_DIST}`,
       url: `http://127.0.0.1:${DOC_PORT}/index.html`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,

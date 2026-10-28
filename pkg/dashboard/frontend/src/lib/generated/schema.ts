@@ -24,6 +24,270 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/delivery/autonomy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The path to autonomy
+         * @description How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for or approved, each Stage's level with the next level Pacto proposes and its newest would-have decision, and the blockers with a fix to copy. It only reads: a level moves through a proposed and approved operation.
+         */
+        get: operations["delivery-autonomy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/blame": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who put this version here
+         * @description The newest change that moved a Stage to a digest (by default the one it runs): who asked, for whom, who approved and what every check said, read from its signed record when there is one. No change with a partial completeness means unknown, never nobody.
+         */
+        get: operations["delivery-blame"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/caller": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who delivery says I am
+         * @description The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
+         */
+        get: operations["delivery-caller"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/environments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every Stage
+         * @description Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold.
+         */
+        get: operations["delivery-environments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What happened
+         * @description What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own completeness, problems and what could not be read.
+         */
+        get: operations["delivery-history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What waits on me
+         * @description Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
+         */
+        get: operations["delivery-inbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose a change
+         * @description Promote, roll back (with undoes), freeze or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass.
+         */
+        post: operations["delivery-propose"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/operations/{namespace}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One change
+         * @description The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take.
+         */
+        get: operations["delivery-operation"];
+        put?: never;
+        post?: never;
+        /**
+         * Cancel a change
+         * @description Cancel an operation that has not moved the pointer yet.
+         */
+        delete: operations["delivery-cancel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/operations/{namespace}/{name}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide on a held change
+         * @description Approve, reject or accept an unknown, as the signed-in person; where the Stage publishes a login freshness, with a login that recent. Only the teams the question names may decide. Never served in local mode or to agents.
+         */
+        post: operations["delivery-decide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan a change
+         * @description What the promoter would do: verdicts, whether a person must decide, who and the question.
+         */
+        post: operations["delivery-plan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/published": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Published versions
+         * @description Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
+         */
+        get: operations["delivery-published"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/refusals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Publishes Pacto refused
+         * @description Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
+         */
+        get: operations["delivery-refusals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How to undo a change
+         * @description A plan nobody has proposed: a rollback bound to the change when the Stage still runs it, a promote back to the version it replaced when something changed since, or nothing. It never acts; propose the plan to carry it out.
+         */
+        get: operations["delivery-undo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diff": {
         parameters: {
             query?: never;
@@ -488,6 +752,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who is signed in
+         * @description The identity mode, whether the caller is signed in, who the API server says they are, when they last logged in and the CSRF token for mutating requests.
+         */
+        get: operations["session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources": {
         parameters: {
             query?: never;
@@ -557,13 +841,119 @@ export interface components {
             name: string;
             sources: components["schemas"]["ServiceSourceData"][] | null;
         };
+        AutonomyBlocker: {
+            fix?: components["schemas"]["BlockerFix"];
+            /** @description missing-contract, undeclared-range, unlabelled-apply-ref, no-observed-digest, no-record-store, needs-verified, needs-cleared-breaking, incident or partial-graph */
+            kind: string;
+            message?: string;
+            stages?: string[] | null;
+            /** @description The service, consumer or caller it is about */
+            subject: string;
+        };
+        AutonomyOutputBody: {
+            asOf: string;
+            /** @description How many blockers of each kind match, over every page, in page order */
+            blockerKinds: components["schemas"]["BlockerKind"][] | null;
+            blockers: components["schemas"]["AutonomyBlocker"][] | null;
+            /** @description Which blockers this page holds, grouped by kind */
+            blockersPage: components["schemas"]["Page"];
+            /**
+             * Format: int64
+             * @description Stages, over every page, Pacto proposes a next level for
+             */
+            canMoveUp: number;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            contracted?: components["schemas"]["ContractShare"];
+            /** @description Which Stages this page holds */
+            page: components["schemas"]["Page"];
+            /** @description Counted over every Stage, not only this page */
+            promotionsWithoutPerson: components["schemas"]["PromotionCount"];
+            stages: components["schemas"]["AutonomyStage"][] | null;
+            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            unreadable?: string[] | null;
+        };
+        AutonomyProposal: {
+            blockers?: components["schemas"]["AutonomyBlocker"][] | null;
+            /** @description The digests or operations that earned it */
+            evidence?: string[] | null;
+            /** @description Empty: nothing to propose yet */
+            level?: string;
+        };
+        AutonomyStage: {
+            environment: string;
+            lastShadow?: components["schemas"]["ShadowDecision"];
+            /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
+            level?: string;
+            namespace: string;
+            proposal?: components["schemas"]["AutonomyProposal"];
+            service: string;
+            stage: string;
+        };
+        BlameOutputBody: {
+            approvals?: components["schemas"]["Delivery.RecordApproval"][] | null;
+            asOf: string;
+            change?: components["schemas"]["Delivery.HistoryEntry"];
+            completeness: string;
+            digest: string;
+            intentReason?: string;
+            note: string;
+            onBehalfOf?: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            source: string;
+            stage: components["schemas"]["Delivery.StageNow"];
+            unreadable?: string[] | null;
+            unsigned?: string[] | null;
+            verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
+        };
+        BlockerFix: {
+            /** @description A shell command to run */
+            command?: string;
+            /** @description YAML to add to a contract */
+            snippet?: string;
+        };
+        BlockerKind: {
+            /** Format: int64 */
+            count: number;
+            kind: string;
+        };
+        CallerOutputBody: {
+            authTime?: string;
+            class: string;
+            groups?: string[] | null;
+            /** @description A question that names no team has nobody who may answer it; only break-glass can override */
+            requireOwnerTeam: boolean;
+            user: string;
+        };
+        CancelOutputBody: {
+            cancelled: string;
+        };
         CapabilitiesOutputBody: {
+            /** @description What this caller's Kubernetes permissions leave out of the fleet views */
+            auth: components["schemas"]["CapabilityAuth"];
+            /** @description The delivery views and actions are served */
+            delivery: boolean;
             /** @description The operational-graph (fleet) endpoints are served */
             fleet: boolean;
             /** @description The impact endpoint is served */
             impact: boolean;
+            /** @description Mira's address, to link health-check citations */
+            miraURL?: string;
             /** @description An observation source backs impact analysis */
             observed: boolean;
+        };
+        CapabilityAuth: {
+            /** @description Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace */
+            hidden: boolean;
+            /** @description Every service is hidden because this caller's Kubernetes permissions let them read none of their namespaces */
+            nothingVisible?: boolean;
         };
         CapabilityInfo: {
             ref?: string;
@@ -601,6 +991,10 @@ export interface components {
             path?: string;
             type: string;
         };
+        "Contract.Check": {
+            file: string;
+            name: string;
+        };
         "Contract.Configuration": {
             name: string;
             ref?: string;
@@ -612,6 +1006,7 @@ export interface components {
         };
         "Contract.Contract": {
             capabilities?: components["schemas"]["Contract.Capability"][] | null;
+            checks?: components["schemas"]["Contract.Check"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
             dependencies?: components["schemas"]["Contract.Dependency"][] | null;
             extensions?: {
@@ -623,16 +1018,24 @@ export interface components {
             };
             pactoVersion: string;
             policies?: components["schemas"]["Contract.Policy"][] | null;
+            publish?: components["schemas"]["Contract.Publish"];
             readiness?: components["schemas"]["Contract.Readiness"];
             service: components["schemas"]["Contract.Service"];
             state?: components["schemas"]["Contract.State"];
             workload?: string;
         };
         "Contract.Dependency": {
-            compatibility: string;
+            compatibility?: string;
+            external?: boolean;
             name: string;
-            ref: string;
+            ref?: string;
             required: boolean;
+            version?: string;
+        };
+        "Contract.DockerfileBuild": {
+            context: string;
+            file?: string;
+            platforms?: string[] | null;
         };
         "Contract.Interface": {
             name: string;
@@ -659,6 +1062,31 @@ export interface components {
             ref?: string;
             schema?: string;
             target?: string;
+        };
+        "Contract.Publish": {
+            artifacts?: components["schemas"]["Contract.PublishArtifact"][] | null;
+            bundle: string;
+            deploy?: string;
+            sign?: components["schemas"]["Contract.PublishSign"];
+        };
+        "Contract.PublishArtifact": {
+            build: components["schemas"]["Contract.PublishBuild"];
+            name: string;
+            ref: string;
+            sbom?: string;
+            type: string;
+        };
+        "Contract.PublishBuild": {
+            command?: string[] | null;
+            dockerfile?: components["schemas"]["Contract.DockerfileBuild"];
+        };
+        "Contract.PublishSign": {
+            identity?: string;
+            issuer?: string;
+            key?: string;
+            keyless?: boolean;
+            kms?: string;
+            transparencyLog?: boolean;
         };
         "Contract.Readiness": {
             claims?: components["schemas"]["Contract.ReadinessClaim"][] | null;
@@ -695,6 +1123,18 @@ export interface components {
             persistence: components["schemas"]["Contract.Persistence"];
             type: string;
         };
+        ContractShare: {
+            /**
+             * Format: int64
+             * @description Services with a contract
+             */
+            services: number;
+            /**
+             * Format: int64
+             * @description Distinct workloads seen calling a contracted service with no contract of their own
+             */
+            uncontractedCallers: number;
+        };
         CrossReference: {
             contractStatus?: string;
             name: string;
@@ -705,14 +1145,342 @@ export interface components {
             referencedBy: components["schemas"]["CrossReference"][] | null;
             references: components["schemas"]["CrossReference"][] | null;
         };
+        DecideInputBody: {
+            /** @enum {string} */
+            decision: "approve" | "reject" | "accept-unknown";
+            note?: string;
+        };
+        DecideOutputBody: {
+            /** @description The Approval created; the promoter consumes it */
+            approval: string;
+        };
+        "Delivery.Actor": {
+            groups?: string[] | null;
+            user: string;
+        };
+        "Delivery.ApplyRef": {
+            kind?: string;
+            name: string;
+        };
+        "Delivery.ApprovalPolicy": {
+            always?: boolean;
+        };
+        "Delivery.ApprovalRecord": {
+            authTime?: string;
+            by: string;
+            decision: string;
+            name: string;
+            note?: string;
+        };
+        "Delivery.AutonomyPolicy": {
+            /** Format: int64 */
+            proposeAfter?: number;
+        };
+        "Delivery.Candidate": {
+            accepts?: string;
+            digest: string;
+            verifiedOn: components["schemas"]["Delivery.StageRef"];
+            version?: string;
+        };
+        "Delivery.Candidates": {
+            ociRepositoryRef?: components["schemas"]["Delivery.LocalRef"];
+            upstreamRecords?: components["schemas"]["Delivery.RemoteStage"];
+            upstreamStage?: components["schemas"]["Delivery.StageRef"];
+        };
+        "Delivery.Cause": {
+            operation?: string;
+            reason?: string;
+            verdict?: components["schemas"]["Delivery.Verdict"];
+        };
+        "Delivery.Deadlines": {
+            approval?: string;
+            execution?: string;
+        };
+        "Delivery.ExplainedVerdict": {
+            citation?: {
+                [key: string]: string;
+            };
+            gate: string;
+            message?: string;
+            phase: string;
+            rerun: string;
+            result: string;
+        };
+        "Delivery.Explanation": {
+            operation: string;
+            order?: components["schemas"]["Delivery.Order"];
+            spec: components["schemas"]["Delivery.OperationSpec"];
+            stage: components["schemas"]["Delivery.StageNow"];
+            status: components["schemas"]["ExplanationStatusStruct"];
+            summary: string;
+            verdicts: components["schemas"]["Delivery.ExplainedVerdict"][] | null;
+        };
+        "Delivery.Floor": {
+            consumers?: string[] | null;
+            decision?: string;
+            human?: boolean;
+            owners?: string[] | null;
+        };
+        "Delivery.GateCheck": {
+            name: string;
+            params?: {
+                [key: string]: string;
+            };
+            provider: string;
+            requireObservedModel?: boolean;
+            suite?: string;
+            suiteDigest?: string;
+        };
+        "Delivery.Gates": {
+            impact?: components["schemas"]["Delivery.ImpactGate"];
+            verify?: components["schemas"]["Delivery.VerifyGates"];
+        };
+        "Delivery.HistoryEntry": {
+            actor: string;
+            actorClass?: string;
+            approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
+            finished?: string;
+            from?: string;
+            kind?: string;
+            operation: string;
+            outcome?: string;
+            phase?: string;
+            pointer?: components["schemas"]["Delivery.PointerChange"];
+            reason?: string;
+            record?: string;
+            /** Format: int64 */
+            seq?: number;
+            since?: string;
+            to?: string;
+            type: string;
+            unverifiedRecord?: string;
+            verification?: string;
+        };
+        "Delivery.ImpactGate": {
+            declaredConsumersOnly?: boolean;
+        };
+        "Delivery.LocalRef": {
+            name: string;
+        };
+        "Delivery.MoveFirst": {
+            accepts?: string;
+            candidate?: components["schemas"]["Delivery.Candidate"];
+            domain?: string;
+            message: string;
+            service: string;
+            stage?: components["schemas"]["Delivery.StageRef"];
+            unknown?: string;
+            version?: string;
+        };
+        "Delivery.ObjectMeta": {
+            creationTimestamp?: string;
+            finalizers?: string[] | null;
+            labels?: {
+                [key: string]: string;
+            };
+            name: string;
+            namespace?: string;
+            uid?: string;
+        };
+        "Delivery.OperationObject": {
+            metadata: components["schemas"]["Delivery.ObjectMeta"];
+            spec: components["schemas"]["Delivery.OperationSpec"];
+            status: components["schemas"]["Delivery.OperationStatus"];
+        };
+        "Delivery.OperationSpec": {
+            actor: components["schemas"]["Delivery.Actor"];
+            cause?: components["schemas"]["Delivery.Cause"];
+            correlationID?: string;
+            facet: string;
+            intentDigest?: string;
+            onBehalfOf?: components["schemas"]["Delivery.Principal"];
+            params?: components["schemas"]["Delivery.Params"];
+            reason?: string;
+            stage: string;
+            type: string;
+            witnessed?: boolean;
+        };
+        "Delivery.OperationStatus": {
+            actorClass?: string;
+            applied?: boolean;
+            approvals?: components["schemas"]["Delivery.ApprovalRecord"][] | null;
+            approvedTeams?: string[] | null;
+            guarded?: boolean;
+            message?: string;
+            outcome?: string;
+            phase?: string;
+            plan?: components["schemas"]["Delivery.Plan"];
+            pointer?: components["schemas"]["Delivery.PointerChange"];
+            policy?: components["schemas"]["Delivery.StageSpec"];
+            question?: string;
+            reason?: string;
+            record?: components["schemas"]["Delivery.RecordRef"];
+            /** Format: int64 */
+            seq?: number;
+            stageUID?: string;
+            times?: components["schemas"]["Delivery.Times"];
+            verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
+            verification?: string;
+        };
+        "Delivery.Order": {
+            moveFirst: components["schemas"]["Delivery.MoveFirst"][] | null;
+            unknown?: string[] | null;
+        };
+        "Delivery.Params": {
+            from?: string;
+            record?: string;
+            to?: string;
+            undoes?: string;
+        };
+        "Delivery.Plan": {
+            conflicts?: string[] | null;
+            floor?: components["schemas"]["Delivery.Floor"];
+            from?: string;
+            impactDigest?: string;
+            intentDigest: string;
+            order?: components["schemas"]["Delivery.Order"];
+            precedent?: components["schemas"]["Delivery.Precedent"];
+            predicted: string;
+            question?: string;
+            to?: string;
+            toVersion?: string;
+            type: string;
+            verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
+        };
+        "Delivery.PointerChange": {
+            after?: string;
+            before?: string;
+        };
+        "Delivery.Precedent": {
+            completeness: string;
+            entries?: components["schemas"]["Delivery.PrecedentEntry"][] | null;
+            note?: string;
+        };
+        "Delivery.PrecedentEntry": {
+            finished?: string;
+            outcome: string;
+            reason?: string;
+            record: string;
+            /** Format: int64 */
+            seq: number;
+            stream: string;
+            type: string;
+            verification?: string;
+        };
+        "Delivery.Principal": {
+            user: string;
+        };
+        "Delivery.Recheck": {
+            at: string;
+            digest: string;
+            operation: string;
+            verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
+        };
+        "Delivery.RecordApproval": {
+            authTime?: string;
+            by: string;
+            decision: string;
+            intentDigest: string;
+            note?: string;
+            operation: string;
+        };
+        "Delivery.RecordRef": {
+            digest: string;
+            kind: string;
+            refused?: string;
+            /** Format: int64 */
+            seq: number;
+        };
+        "Delivery.RecordsPolicy": {
+            required?: boolean;
+        };
+        "Delivery.RemoteStage": {
+            repository: string;
+            stream: string;
+        };
+        "Delivery.Request": {
+            cause?: components["schemas"]["Delivery.Cause"];
+            from?: string;
+            intentDigest?: string;
+            name?: string;
+            namespace: string;
+            onBehalfOf?: string;
+            reason?: string;
+            record?: string;
+            stage: string;
+            to?: string;
+            type?: string;
+            undoes?: string;
+        };
+        "Delivery.ServiceRef": {
+            domain?: string;
+            name: string;
+        };
+        "Delivery.StageNow": {
+            autoHold?: boolean;
+            failedDigests?: string[] | null;
+            frozen?: boolean;
+            frozenReason?: string;
+            lastCheck?: components["schemas"]["Delivery.Recheck"];
+            name: string;
+            pointer?: string;
+            verified?: string[] | null;
+        };
+        "Delivery.StageRef": {
+            name: string;
+            namespace?: string;
+        };
+        "Delivery.StageSpec": {
+            applyRef: components["schemas"]["Delivery.ApplyRef"];
+            approval?: components["schemas"]["Delivery.ApprovalPolicy"];
+            autonomy?: components["schemas"]["Delivery.AutonomyPolicy"];
+            candidates?: components["schemas"]["Delivery.Candidates"];
+            deadlines?: components["schemas"]["Delivery.Deadlines"];
+            environment: string;
+            gates?: components["schemas"]["Delivery.Gates"];
+            records?: components["schemas"]["Delivery.RecordsPolicy"];
+            service: components["schemas"]["Delivery.ServiceRef"];
+            startLevel?: string;
+            workload?: components["schemas"]["Delivery.WorkloadRef"];
+        };
+        "Delivery.Times": {
+            admitted?: string;
+            applied?: string;
+            approvalDeadline?: string;
+            executionDeadline?: string;
+            finished?: string;
+            held?: string;
+            started?: string;
+            verifyDeadline?: string;
+        };
+        "Delivery.Verdict": {
+            citation?: {
+                [key: string]: string;
+            };
+            gate: string;
+            message?: string;
+            phase: string;
+            result: string;
+        };
+        "Delivery.VerifyGates": {
+            checks?: components["schemas"]["Delivery.GateCheck"][] | null;
+            recheck?: string;
+            window?: string;
+        };
+        "Delivery.WorkloadRef": {
+            kind: string;
+            name: string;
+        };
         DependencyInfo: {
             compatibility?: string;
             driftStatus?: string;
+            external?: boolean;
             lockedDigest?: string;
             lockedVersion?: string;
             name: string;
             ref: string;
             required: boolean;
+            version?: string;
         };
         DependentInfo: {
             compatibility?: string;
@@ -751,11 +1519,77 @@ export interface components {
             title: string;
             truncated?: boolean;
         };
+        EnvironmentRow: {
+            /** @description What the caller's class may ask for here: promote, unfreeze */
+            actions: string[] | null;
+            autoHold: boolean;
+            /** @description The newest eligible candidate */
+            candidate?: string;
+            /** @description The version the candidate's contract declares, when the artifact could be read */
+            candidateVersion?: string;
+            environment: string;
+            /** @description The running digest failed here */
+            failed: boolean;
+            frozen: boolean;
+            frozenReason?: string;
+            /**
+             * Format: int64
+             * @description Operations on this Stage waiting for a person
+             */
+            held: number;
+            /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
+            level?: string;
+            namespace: string;
+            /** @description The digest the environment runs */
+            pointer?: string;
+            /** @description The Ready condition: True, or False with the reason the Stage cannot promote */
+            ready?: string;
+            /** @description Why the Stage cannot promote, in words, when Ready is not True */
+            readyMessage?: string;
+            service: string;
+            /** @description On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed */
+            shadow?: components["schemas"]["ShadowDecision"][] | null;
+            stage: string;
+            /** @description The running digest passed its verify gates here */
+            verified: boolean;
+            /** @description The version its contract declares, when the artifact could be read */
+            version?: string;
+        };
+        EnvironmentsOutputBody: {
+            asOf: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /** @description Failed, frozen and waiting Stages over every page, after q, environment and tier */
+            counts: components["schemas"]["StageCounts"];
+            /** @description Every environment of the services that match q, over every page, ordered the way changes travel: dev, test, prod, then the rest */
+            environmentNames: string[] | null;
+            /** @description dev, test or prod for each environment whose name says which; an environment it cannot tell is left out */
+            environmentTiers: {
+                [key: string]: string;
+            };
+            /** @description The Stages of the services on this page */
+            environments: components["schemas"]["EnvironmentRow"][] | null;
+            /** @description Which services this page holds; offset and limit count services */
+            page: components["schemas"]["Page"];
+            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            unreadable?: string[] | null;
+        };
         EvaluationCoverage: {
             /** Format: int64 */
             evaluated: number;
             /** Format: int64 */
             required: number;
+        };
+        ExplanationStatusStruct: {
+            actorClass?: string;
+            message?: string;
+            outcome?: string;
+            phase: string;
+            question?: string;
+            reason?: string;
+            /** Format: int64 */
+            seq?: number;
+            verification?: string;
         };
         "Finding.EvidenceRef": {
             collector?: string;
@@ -961,6 +1795,7 @@ export interface components {
             targets: {
                 [key: string]: components["schemas"]["Fleet.TargetRecord"];
             };
+            uncontractedCallers?: components["schemas"]["Fleet.UncontractedCaller"][] | null;
         };
         "Fleet.GraphNode": {
             /** Format: int64 */
@@ -1056,6 +1891,7 @@ export interface components {
         "Fleet.OverviewSummary": {
             /** Format: int64 */
             ambiguousTargetLinks: number;
+            byScope: components["schemas"]["Fleet.ScopeTally"][] | null;
             /** Format: int64 */
             compliantTargets: number;
             /** Format: int64 */
@@ -1086,6 +1922,8 @@ export interface components {
             /** Format: int64 */
             revisions: number;
             /** Format: int64 */
+            scopes: number;
+            /** Format: int64 */
             services: number;
             /** Format: int64 */
             servicesNeedingAttention: number;
@@ -1097,6 +1935,8 @@ export interface components {
             targets: number;
             /** Format: int64 */
             unavailableSources: number;
+            /** Format: int64 */
+            uncontractedCallers: number;
             /** Format: int64 */
             unknownTargets: number;
             /** Format: int64 */
@@ -1242,10 +2082,12 @@ export interface components {
         };
         "Fleet.Relationship": {
             compatibility?: string;
+            external?: boolean;
             /** Format: date-time */
             firstSeen?: string;
             fromRevision?: string;
             fromService: string;
+            hidden?: boolean;
             /** Format: date-time */
             lastSeen?: string;
             lockedDigest?: string;
@@ -1264,6 +2106,7 @@ export interface components {
             to: string;
             toService?: string;
             type: string;
+            version?: string;
         };
         "Fleet.RevisionCapabilities": {
             revision: string;
@@ -1307,6 +2150,17 @@ export interface components {
             /** Format: int64 */
             packages: number;
         };
+        "Fleet.ScopeTally": {
+            /** Format: int64 */
+            nonCompliant: number;
+            scope: string;
+            /** Format: int64 */
+            stale: number;
+            /** Format: int64 */
+            targets: number;
+            /** Format: int64 */
+            unknown: number;
+        };
         "Fleet.SearchResult": {
             /** Format: int64 */
             count: number;
@@ -1332,6 +2186,10 @@ export interface components {
         };
         "Fleet.ServiceRecord": {
             domain?: string;
+            /** Format: int64 */
+            hiddenDependencies?: number;
+            /** Format: int64 */
+            hiddenDependents?: number;
             key: string;
             labels?: {
                 [key: string]: string;
@@ -1501,6 +2359,12 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.UncontractedCaller": {
+            ambiguous?: boolean;
+            caller: string;
+            sources: string[] | null;
+            toService: string;
+        };
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
@@ -1542,6 +2406,35 @@ export interface components {
              */
             version?: string;
         };
+        HistoryCounts: {
+            /** Format: int64 */
+            frozen: number;
+            /**
+             * Format: int64
+             * @description Stages with a change waiting for a person
+             */
+            waiting: number;
+        };
+        HistoryOutputBody: {
+            asOf: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /** @description Without a stage: Stages that wait for a person and frozen Stages, over every page */
+            counts?: components["schemas"]["HistoryCounts"];
+            histories: components["schemas"]["StageHistory"][] | null;
+            /** @description Which Stages this page holds. With a stage, offset, limit and q page its changes instead (see entriesPage) */
+            page: components["schemas"]["Page"];
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            unreadable?: string[] | null;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
+        };
         "Impact.AffectedConsumer": {
             compatibility?: string;
             compatibilityVerdict: string;
@@ -1557,6 +2450,7 @@ export interface components {
             service: string;
             status?: string;
             targets?: string[] | null;
+            uncontracted?: boolean;
         };
         "Impact.ChangesPreview": {
             /** Format: int64 */
@@ -1625,6 +2519,49 @@ export interface components {
             snapshotId?: string;
             /** @description Canonical revision key of the new revision */
             toRevisionKey: string;
+        };
+        InboxItem: {
+            /** @description The services that made a person necessary */
+            consumers?: string[] | null;
+            /** @description The decision asked for: approve, or accept-unknown */
+            decision?: string;
+            from?: string;
+            fromVersion?: string;
+            name: string;
+            namespace: string;
+            /** @description What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first */
+            order?: components["schemas"]["Delivery.Order"];
+            outcome?: string;
+            /** @description The teams that may answer; empty means no team is declared: nobody may answer when identities.requireOwnerTeam is true (the default), else any person */
+            owners?: string[] | null;
+            phase: string;
+            question?: string;
+            reason?: string;
+            stage: string;
+            to?: string;
+            toVersion?: string;
+            type: string;
+        };
+        InboxOutputBody: {
+            asOf: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /** @description Errored operations of the caller's services whose Stage is still frozen */
+            errored: components["schemas"]["InboxItem"][] | null;
+            erroredPage: components["schemas"]["Page"];
+            /** @description Frozen Stages of the caller's services */
+            frozen: components["schemas"]["EnvironmentRow"][] | null;
+            frozenPage: components["schemas"]["Page"];
+            /** @description Held operations whose question names one of the caller's teams; for break-glass also those that name no team */
+            held: components["schemas"]["InboxItem"][] | null;
+            heldPage: components["schemas"]["Page"];
+            /**
+             * Format: int64
+             * @description How many held changes, over every page, more than one team may answer
+             */
+            heldShared: number;
+            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            unreadable?: string[] | null;
         };
         Insight: {
             description?: string;
@@ -1731,6 +2668,45 @@ export interface components {
             /** Format: int64 */
             terminationGracePeriodSeconds?: number;
             workloadKind?: string;
+        };
+        OperationOutputBody: {
+            /** @description What the caller may ask for: approve, reject, accept-unknown, cancel, rollback */
+            actions: string[] | null;
+            /**
+             * Format: int64
+             * @description How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides
+             */
+            decisionFreshness?: number;
+            explanation: components["schemas"]["Delivery.Explanation"];
+            /** @description The Stage's level now: observe, advise, auto-nonbreaking or autonomous */
+            level?: string;
+            operation: components["schemas"]["Delivery.OperationObject"];
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            /** @description The rollback that undid this change, read from its Stage's history */
+            undoneBy?: components["schemas"]["Delivery.HistoryEntry"];
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
+        };
+        Page: {
+            /** Format: int64 */
+            limit: number;
+            /**
+             * Format: int64
+             * @description Where the next page starts; absent on the last page
+             */
+            nextOffset?: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description How many match, over every page
+             */
+            total: number;
         };
         PolicyInfo: {
             content?: string;
@@ -1968,6 +2944,7 @@ export interface components {
             /** Format: int64 */
             totalNodes: number;
             truncated: boolean;
+            truncatedEdges: boolean;
             unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
             views: ("expected" | "observed" | "differences")[] | null;
         };
@@ -1976,6 +2953,10 @@ export interface components {
             depth: number;
             expansions?: string[] | null;
             focus?: boolean;
+            /** Format: int64 */
+            hiddenDependencies?: number;
+            /** Format: int64 */
+            hiddenDependents?: number;
             owner?: string;
             ref: components["schemas"]["ProductRef"];
             revisionState?: string;
@@ -2025,10 +3006,15 @@ export interface components {
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source";
             label: string;
+            owner?: string;
             parentService?: string;
             scope?: string;
             secondary?: string;
+            /** Format: int64 */
+            services?: number;
             status?: string;
+            /** Format: int64 */
+            targets?: number;
             version?: string;
         };
         ProductRefPreview: {
@@ -2093,6 +3079,10 @@ export interface components {
             domain?: string;
             evidence: components["schemas"]["ProductEvidencePreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
+            /** Format: int64 */
+            hiddenDependencies?: number;
+            /** Format: int64 */
+            hiddenDependents?: number;
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
             ownership?: components["schemas"]["ProductOwnership"];
             referencedBy: components["schemas"]["ProductRefPreview"];
@@ -2158,6 +3148,76 @@ export interface components {
             ref: string;
             requestedRef?: string;
             sourceRevision?: string;
+        };
+        PromotionCount: {
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Succeeded promotions in the windows: the last 20 operations per Stage
+             */
+            of: number;
+            /**
+             * Format: int64
+             * @description Operations in the windows with no type: Pacto cannot tell whether they were promotions
+             */
+            untyped: number;
+        };
+        ProposeOutputBody: {
+            operation: components["schemas"]["Delivery.OperationObject"];
+            plan: components["schemas"]["Delivery.Plan"];
+        };
+        PublishRefusal: {
+            /** @description Who ran the publish, as the cluster or the record names them */
+            actor?: string;
+            /** @description When it was refused (RFC 3339) */
+            at: string;
+            /** @description The highest published version below it, the one the change was compared with */
+            baseline?: string;
+            /** @description The check that refused it: version, sign, lock, validation or conflict */
+            check: string;
+            /** @description Why, in one sentence */
+            reason: string;
+            /**
+             * @description The smallest bump the change needs
+             * @enum {string}
+             */
+            requiredBump?: "major" | "minor" | "patch";
+            service: string;
+            /** @description A signed record of the refusal was verified */
+            verified: boolean;
+            /** @description The version the publish asked for */
+            version: string;
+        };
+        PublishedOnStages: {
+            environment: string;
+            failed: boolean;
+            namespace: string;
+            running: boolean;
+            stage: string;
+            verified: boolean;
+        };
+        PublishedOutputBody: {
+            asOf: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /** @description Which services this page holds; offset and limit count services */
+            page: components["schemas"]["Page"];
+            services: components["schemas"]["PublishedService"][] | null;
+            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            unreadable?: string[] | null;
+        };
+        PublishedService: {
+            service: string;
+            versions: components["schemas"]["PublishedVersion"][] | null;
+        };
+        PublishedVersion: {
+            /** @description The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract) */
+            contract?: string;
+            digest: string;
+            signed: boolean;
+            stages: components["schemas"]["PublishedOnStages"][] | null;
+            version?: string;
         };
         "Readiness.CheckResult": {
             category: string;
@@ -2257,6 +3317,23 @@ export interface components {
              */
             status: string;
         };
+        RefusalsOutputBody: {
+            asOf: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /** @description Where the refusals were read and what may be missing */
+            note?: string;
+            /** @description This cluster keeps a record of refused publishes; false means an empty list proves nothing */
+            recorded: boolean;
+            refusals: components["schemas"]["PublishRefusal"][] | null;
+            /**
+             * Format: int64
+             * @description How many refusals were read; refusals holds the newest 20
+             */
+            total: number;
+            /** @description What could not be read, and why */
+            unreadable?: string[] | null;
+        };
         RuntimeDiffRow: {
             contractPath?: string;
             declaredValue: string;
@@ -2349,6 +3426,51 @@ export interface components {
             service: components["schemas"]["ServiceDetails"];
             sourceType: string;
         };
+        SessionOutputBody: {
+            /** @description When the signed-in person last logged in at the identity provider, as Unix seconds or RFC 3339, when known */
+            authTime?: string;
+            /** @description Send it in the X-Pacto-CSRF header of every mutating request */
+            csrf?: string;
+            /** @description The signed-in person's groups as the API server names them */
+            groups?: string[] | null;
+            /** @description People sign in with the identity provider */
+            login: boolean;
+            /** @description The identity provider's name on the sign-in button; empty says OIDC */
+            loginName?: string;
+            /**
+             * @description How the caller signed in: with the identity provider or with a pasted token, which never decides
+             * @enum {string}
+             */
+            method?: "oidc" | "token";
+            /**
+             * @description local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; open: shared without sign-in, so nobody is identified; none: no identity layer
+             * @enum {string}
+             */
+            mode: "local" | "shared" | "open" | "none";
+            /** @description The signed-in person's name from their ID token (name, else email) */
+            name?: string;
+            /** @description The caller has a live session (shared) or the launch cookie (local) */
+            signedIn: boolean;
+            /** @description People may sign in by pasting a Kubernetes bearer token */
+            tokenLogin?: boolean;
+            /** @description The signed-in person's username as the API server names them; every view shows what its Kubernetes RBAC lets this user read */
+            user?: string;
+        };
+        ShadowDecision: {
+            candidate: string;
+            /** @description The decision a person would have been asked: approve or accept-unknown */
+            decision?: string;
+            from?: string;
+            intentDigest?: string;
+            /** @description When GitOps' source reported this candidate; not when it rolled out */
+            observedAt?: string;
+            owners?: string[] | null;
+            plannedAt?: string;
+            /** @description Proceeds, Held, Rejected or Waits, as a fully automatic Stage would have */
+            predicted: string;
+            question?: string;
+            verification?: string;
+        };
         SkillInfo: {
             content?: string;
             name: string;
@@ -2358,11 +3480,65 @@ export interface components {
             reason?: string;
             type: string;
         };
+        StageCounts: {
+            /**
+             * Format: int64
+             * @description Stages whose running digest failed
+             */
+            failed: number;
+            /** Format: int64 */
+            frozen: number;
+            /**
+             * Format: int64
+             * @description Stages with a change waiting for a person
+             */
+            waiting: number;
+        };
+        StageHistory: {
+            asOf: string;
+            completeness: string;
+            entries: components["schemas"]["Delivery.HistoryEntry"][] | null;
+            /** @description Which of the Stage's changes entries holds, newest first */
+            entriesPage: components["schemas"]["Page"];
+            head?: string;
+            namespace: string;
+            note: string;
+            /**
+             * Format: int64
+             * @description How many problems the records show. Without a stage, problems and unreadable are left out and only these counts are sent
+             */
+            problemCount?: number;
+            problems?: string[] | null;
+            source: string;
+            stage: components["schemas"]["Delivery.StageNow"];
+            unreadable?: string[] | null;
+            /**
+             * Format: int64
+             * @description How many things could not be read or verified
+             */
+            unreadableCount?: number;
+            verified?: boolean;
+        };
         StateInfo: {
             dataCriticality?: string;
             persistenceDurability?: string;
             persistenceScope?: string;
             type: string;
+        };
+        UndoOutputBody: {
+            command?: string;
+            kind: string;
+            note: string;
+            operation: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            plan?: components["schemas"]["Delivery.Plan"];
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
         };
         "V2.ErrorDetail": {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -2454,6 +3630,1108 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-autonomy": {
+        parameters: {
+            query?: {
+                /** @description Where the page starts. Past the end answers the last page */
+                offset?: number;
+                /** @description How many per page; 0 means the list's default */
+                limit?: number;
+                /** @description Keep only what contains this text, ignoring case */
+                q?: string;
+                /** @description Where the page of blockers starts; limit and q apply to it too */
+                blockers?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutonomyOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-blame": {
+        parameters: {
+            query: {
+                /** @description The Stage's namespace */
+                namespace: string;
+                /** @description The Stage's name */
+                stage: string;
+                /** @description The digest to blame; empty means the one the Stage runs */
+                digest?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlameOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-caller": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-environments": {
+        parameters: {
+            query?: {
+                /** @description Where the page starts. Past the end answers the last page */
+                offset?: number;
+                /** @description How many per page; 0 means the list's default */
+                limit?: number;
+                /** @description Keep only what contains this text, ignoring case */
+                q?: string;
+                /** @description Keep only the services with a Stage in this environment, and only those Stages */
+                environment?: string;
+                /** @description Keep only the services with a Stage in an environment of this tier, and only those Stages */
+                tier?: "dev" | "test" | "prod";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvironmentsOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-history": {
+        parameters: {
+            query?: {
+                /** @description Namespace of one Stage (with stage); empty lists every Stage the caller can see */
+                namespace?: string;
+                /** @description One Stage's name */
+                stage?: string;
+                /** @description Where the page starts. Past the end answers the last page */
+                offset?: number;
+                /** @description How many per page; 0 means the list's default */
+                limit?: number;
+                /** @description Keep only what contains this text, ignoring case */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-inbox": {
+        parameters: {
+            query?: {
+                /** @description Where the page of held changes starts */
+                held?: number;
+                /** @description Where the page of frozen Stages starts */
+                frozen?: number;
+                /** @description Where the page of Errored changes starts */
+                errored?: number;
+                /** @description How many of each section per page; 0 means 25 */
+                limit?: number;
+                /** @description Keep only what names this text (namespace, Stage, service or change), ignoring case */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-propose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Delivery.Request"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposeOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-operation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                namespace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                namespace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                namespace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecideOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Delivery.Request"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Delivery.Plan"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-published": {
+        parameters: {
+            query?: {
+                /** @description Where the page starts. Past the end answers the last page */
+                offset?: number;
+                /** @description How many per page; 0 means the list's default */
+                limit?: number;
+                /** @description Keep only what contains this text, ignoring case */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishedOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-refusals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefusalsOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-undo": {
+        parameters: {
+            query: {
+                /** @description The operation's namespace */
+                namespace: string;
+                /** @description The operation to undo */
+                name: string;
+                /** @description Its Stage, to find it in the records when it is gone from the cluster */
+                stage?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndoOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2571,6 +4849,8 @@ export interface operations {
                 source?: string;
                 /** @description Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service) */
                 service?: string;
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key */
+                sort?: "name" | "health" | "services";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;
@@ -3279,6 +5559,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceDetails"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOutputBody"];
                 };
             };
             /** @description Error */

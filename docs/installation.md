@@ -1,6 +1,6 @@
 # Installation
 
-Install the `pacto` command-line tool (CLI). Most people should use the installer script: one command, plugins included. The other two ways need Go and suit contributors.
+Install the `pacto` command-line tool (CLI). Use the installer script: it installs `pacto` and the plugins with one command. The other two ways need Go and suit contributors.
 
 | Method | Installs | `pacto version` reports |
 |---|---|---|
@@ -8,7 +8,7 @@ Install the `pacto` command-line tool (CLI). Most people should use the installe
 | [`go install`](#via-go) | `pacto` only | `dev`, with commit and date `unknown` |
 | [From source](#from-source) | `pacto` only | version, commit and date from your checkout |
 
-Want to look first? The [live dashboard demo](examples/dashboard-demo.md) runs Pacto in your browser with nothing to install.
+To look first, open the [live dashboard demo](examples/dashboard-demo.md). It runs Pacto in your browser.
 
 ## Via installer script
 
@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 
 This puts three programs in `/usr/local/bin`: `pacto`, `pacto-plugin-schema-infer` and `pacto-plugin-openapi-infer`. The script checks each download's SHA-256 checksum first. If a plugin fails to install, the script warns and still installs `pacto`.
 
-Pass `--version` for a specific release: `bash -s -- --version v3.1.4`.
+Pass `--version` for a specific release: `bash -s -- --version v4.0.0`. The CLI, the charts and the images each have their own version numbers.
 
 !!! warning "If the script cannot find a version (GitHub API rate limit)"
     The script asks the GitHub API for the latest version. Without a token GitHub allows 60 requests per hour per IP address, so on a shared network it can fail with `Failed to fetch latest version`. Set `GH_TOKEN` to any GitHub token and run it again:
@@ -45,14 +45,14 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 go install github.com/trianalab/pacto/v4/cmd/pacto@latest
 ```
 
-Requires [Go 1.26.9](https://go.dev/dl/) or later. The binary is placed in `$GOBIN` (typically `~/go/bin`).
+Requires [Go 1.26.10](https://go.dev/dl/) or later. The binary is placed in `$GOBIN` (typically `~/go/bin`).
 
 !!! warning "`go install` builds report as `dev`"
     `pacto version` prints `Pacto: dev` and `pacto update` refuses to run. Use the installer script if you need version metadata.
 
 ## From source
 
-Requires Go 1.26.9 or later, `make` and `git`.
+Requires Go 1.26.10 or later, `make` and `git`.
 
 ```bash
 git clone https://github.com/TrianaLab/pacto.git
@@ -86,7 +86,7 @@ Without them, `pacto generate schema-infer` fails with `plugin "schema-infer" no
 
 ```bash
 pacto update              # latest release
-pacto update v3.1.4       # specific version
+pacto update v4.0.0       # a specific version
 ```
 
 This verifies the new binary's SHA-256 before replacing the current one. A `go install` build cannot use it; re-run `go install github.com/trianalab/pacto/v4/cmd/pacto@latest` instead.
@@ -111,20 +111,21 @@ rm -rf ~/.cache/pacto
 
 The last two follow `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` where you set them. Removing `~/.config/pacto` deletes stored registry credentials; run [`pacto logout <registry>`](cli-reference.md#pacto-logout) first if you would rather drop them one registry at a time.
 
-## Supply chain: what is signed and what is not
+## Supply chain: signatures and checksums { #supply-chain-what-is-signed-and-what-is-not }
 
-Some release artifacts are signed and some are not. Know which before you rely on a signature:
+Check what ships with each release artifact before you rely on a signature:
 
 | Artifact | What ships with it |
 | --- | --- |
 | `ghcr.io/trianalab/pacto/operator` | Cosign signature (keyless) |
 | `ghcr.io/trianalab/pacto/charts/pacto-operator` | Cosign signature (keyless) |
+| `ghcr.io/trianalab/pacto/delivery` | Cosign signature (keyless) |
 | `ghcr.io/trianalab/pacto/dashboard` | Cosign signature (keyless) |
 | CLI binaries on the GitHub release | `checksums.txt` (SHA-256) and an SPDX SBOM. **No signature, no provenance attestation.** |
 | `ghcr.io/trianalab/pacto/dashboard-contract` | Nothing. **Unsigned.** |
 | The demo contract bundles (`ghcr.io/trianalab/pacto/<service>`) | Nothing. **Unsigned.** |
 
-The release workflow signs the three images with [Cosign](https://docs.sigstore.dev/cosign/) "keyless" signing: the signature is tied to the GitHub workflow that built the image, not to a key you must store. Verifying it proves *who built it*:
+The release workflow signs the three images and the chart with [Cosign](https://docs.sigstore.dev/cosign/) "keyless" signing: the signature is tied to the GitHub workflow that built the image, so you store no key. Verifying it proves *who built it*:
 
 ```bash
 cosign verify \
@@ -133,7 +134,7 @@ cosign verify \
   ghcr.io/trianalab/pacto/operator:<version>
 ```
 
-A successful run prints the certificate subject and the workflow ref it was issued to. Anything else — including `no signatures found` — means do not deploy it.
+A successful run prints the certificate subject and the workflow ref it was issued to. Any other output, including `no signatures found`, means do not deploy it.
 
 For the CLI binaries the check available to you is the checksum:
 

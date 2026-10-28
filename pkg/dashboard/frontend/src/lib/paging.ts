@@ -1,0 +1,120 @@
+/**
+ * The one paging model every long list shares: the server answers a page
+ * (total, offset, limit) and the list keeps offset, limit and its filter in
+ * the URL. Pager draws it; these are the numbers behind it.
+ */
+
+/** A page as the server describes it (delivery Page, fleet lists alike). */
+export interface PageWire {
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+/** What a pager shows, and where each of its links goes (null: none). */
+export interface PageView {
+  from: number;
+  to: number;
+  total: number;
+  limit: number;
+  page: number;
+  pages: number;
+  first: number | null;
+  prev: number | null;
+  next: number | null;
+  last: number | null;
+}
+
+/** pageView reads a server page: the range shown, page X of Y and the offsets to move to. */
+export function pageView(p: PageWire | null | undefined): PageView {
+  const total = Math.max(0, p?.total ?? 0);
+  const limit = Math.max(1, p?.limit ?? 1);
+  const offset = Math.max(0, p?.offset ?? 0);
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(pages, Math.floor(offset / limit) + 1);
+  const lastOffset = (pages - 1) * limit;
+  return {
+    from: total === 0 ? 0 : offset + 1,
+    to: Math.min(offset + limit, total),
+    total, limit, page, pages,
+    first: offset > 0 ? 0 : null,
+    // Past the end (a stale link, a list that shrank) Previous and Last both lead
+    // back to the last real page instead of to another empty one.
+    prev: offset > 0 ? Math.min(lastOffset, Math.max(0, offset - limit)) : null,
+    next: offset + limit < total ? offset + limit : null,
+    last: offset !== lastOffset ? lastOffset : null,
+  };
+}
+
+/** pastEnd: the server matched rows but this page holds none (an offset past the end). */
+export function pastEnd(p: PageWire | null | undefined, count: number): boolean {
+  return !!p && p.total > 0 && count === 0 && p.offset > 0;
+}
+
+/** offsetOfPage is where page n (1-based, clamped to 1..pages) starts. */
+export function offsetOfPage(n: number, pages: number, limit: number): number {
+  const page = Math.min(Math.max(1, Math.trunc(n) || 1), Math.max(1, pages));
+  return (page - 1) * limit;
+}
+
+/** The page sizes a reader may pick, with the current one always among them. */
+export function pageSizes(limit: number, sizes: number[] = [25, 50, 100]): number[] {
+  return [...new Set([...sizes, limit])].filter((n) => n > 0).sort((a, b) => a - b);
+}
+
+/** A non-negative whole number read from a URL value; 0 when it is not one. */
+export function urlInt(v: string | number | null | undefined): number {
+  const n = Math.trunc(Number(v));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * pagedHash builds a hash route with its query, leaving out what is empty or
+ * zero, so page 1 with no filter is the bare route.
+ */
+export function pagedHash(path: string, params: Record<string, string | number | null | undefined>): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '' && v !== 0) qs.set(k, String(v));
+  }
+  const s = qs.toString();
+  return s ? `${path}?${s}` : path;
+}
+
+/**
+ * limitParam is the limit a link carries: none when the URL named none and
+ * the page size is the list's default, so a default page has a clean URL.
+ */
+export function limitParam(wanted: number, urlLimit: string | number | undefined, defaultLimit: number): number | undefined {
+  return urlInt(urlLimit) || wanted !== defaultLimit ? wanted : undefined;
+}
+
+/**
+ * hashWith sets query keys on a hash route and keeps the rest; an empty, zero or
+ * null value removes its key. It is how a list the client holds in full keeps
+ * its page, page size and order in the URL beside the filters already there.
+ */
+export function hashWith(hash: string, patch: Record<string, string | number | null | undefined>): string {
+  const i = hash.indexOf('?');
+  // An empty hash is the home route; a bare '?…' href would leave the hash router.
+  const path = (i === -1 ? hash : hash.slice(0, i)).replace(/^#?$/, '#/');
+  const qs = new URLSearchParams(i === -1 ? '' : hash.slice(i + 1));
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined || v === null || v === '' || v === 0) qs.delete(k);
+    else qs.set(k, String(v));
+  }
+  const s = qs.toString();
+  return s ? `${path}?${s}` : path;
+}
+
+/**
+ * clientPage is one page of a list the client already holds, described the way
+ * the server describes its pages, so the same Pager draws both. An offset past
+ * the end answers the last page.
+ */
+export function clientPage<T>(all: T[], offset: number, limit: number): { items: T[]; page: PageWire } {
+  const size = Math.max(1, limit);
+  const lastOffset = Math.max(0, Math.ceil(all.length / size) - 1) * size;
+  const start = Math.min(Math.max(0, offset), lastOffset);
+  return { items: all.slice(start, start + size), page: { total: all.length, offset: start, limit: size } };
+}

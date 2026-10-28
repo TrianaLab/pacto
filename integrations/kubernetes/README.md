@@ -56,7 +56,7 @@ kubectl get pactos                 # STATUS: one of Compliant, Warning, NonCompl
 kubectl describe pacto my-service  # conditions + findings
 ```
 
-Full install options (Helm values, Kustomize) are in [Installation](#installation).
+Full install options (Helm values) are in [Installation](#installation).
 
 ---
 
@@ -134,7 +134,7 @@ The contract status follows a strict precedence over the findings (worst wins):
 - `Warning` — no errors or unknowns, but at least one `warning`-severity finding.
 - `Compliant` — no findings above `info`.
 
-The evaluator compares only what the contract declares and the operator can observe: interfaces, capabilities, dependencies, configurations, workload type and persistence. Image, upgrade strategy and probe timing are **observed** into `status.observedRuntime` but are not asserted into findings.
+The evaluator compares only what the contract declares and the operator can observe: interfaces, capabilities, dependencies, configurations, workload type and persistence. Image, upgrade strategy and probe timing are **observed** into `status.observedRuntime` and never produce findings.
 
 ### Health and metrics capabilities
 
@@ -189,7 +189,7 @@ A `Pacto` resource binds a contract source to an optional runtime target:
 - **Private registries**: set `spec.contractRef.pullSecretRef` to the name of a Kubernetes Secret (in the same namespace) containing OCI credentials. See [Private OCI Registries](#private-oci-registries).
 - **Target**: a Kubernetes Service (`spec.target.serviceName`) and workload (`spec.target.workloadRef`). If the workload ref is omitted, it defaults to a Deployment with the same name as the service.
 - **Reference mode**: when no target is specified, the Pacto is reference-only — the contract is resolved and stored, but no runtime validation runs. ContractStatus is `Reference`.
-- **Reconciliation frequency**: `spec.checkIntervalSeconds` is the requeue delay the operator returns after each reconciliation (default: 300, minimum: 30) — it is not a background poll. The operator also reconciles immediately whenever the spec, status, or a referenced Secret changes, then requeues itself after this interval.
+- **Reconciliation frequency**: `spec.checkIntervalSeconds` is the requeue delay the operator returns after each reconciliation (default: 300, minimum: 30). The operator also reconciles immediately whenever the spec, status, or a referenced Secret changes, then requeues itself after this interval.
 
 ### PactoRevision
 
@@ -217,7 +217,7 @@ ContractStatus reflects **contract validation/compliance**, not runtime health. 
 
 ## Installation
 
-### Helm (recommended)
+### Helm
 
 ```bash
 helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
@@ -225,13 +225,6 @@ helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator 
 ```
 
 The dashboard is enabled by default. See the [chart README](charts/pacto-operator/) for all configuration options including Service type, Ingress, and Gateway API HTTPRoute.
-
-### Kustomize
-
-```bash
-make install   # Install CRDs
-make deploy    # Deploy the controller
-```
 
 ---
 
@@ -331,7 +324,7 @@ kubectl apply -f config/prometheus/alerts.yaml
 
 ## Artifact Verification
 
-All published artifacts (controller image and Helm chart) are signed with [Cosign](https://docs.sigstore.dev/cosign/signing/overview/) using keyless OIDC signing via GitHub Actions.
+All published artifacts (the controller image and Helm chart, and the opt-in delivery image) are signed with [Cosign](https://docs.sigstore.dev/cosign/signing/overview/) using keyless OIDC signing via GitHub Actions.
 
 Verify the controller image:
 
@@ -387,9 +380,9 @@ make run-with-dashboard     # Operator with dashboard enabled
 **Local Kubernetes** (operator runs inside a local cluster as a container):
 
 ```bash
-make deploy-local                  # Build, install CRDs, deploy (any kube context)
-make deploy-local-with-dashboard   # Build, install CRDs, deploy with dashboard
-make undeploy-local                # Remove from current kube context
+make deploy-local                  # Build, then helm upgrade --install (any kube context)
+make deploy-local-with-dashboard   # The same with the dashboard enabled
+make undeploy-local                # helm uninstall from the current kube context
 ```
 
 These targets work with any local Kubernetes distribution (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image is available inside the cluster, or use `make deploy-kind` which combines both steps.
@@ -406,6 +399,7 @@ See the repository-root [CONTRIBUTING.md](../../CONTRIBUTING.md) for the full de
 |----------|----------|
 | Controller image | `ghcr.io/trianalab/pacto/operator` |
 | Helm chart | `oci://ghcr.io/trianalab/pacto/charts/pacto-operator` |
+| Delivery image (opt-in) | `ghcr.io/trianalab/pacto/delivery` |
 
 ## License
 

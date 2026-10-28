@@ -425,3 +425,47 @@ func TestDecodeYAML_TypeMismatch(t *testing.T) {
 		t.Error("expected error decoding a sequence into a map")
 	}
 }
+
+// TestParse_V21Publish: 2.1 parses, publish included.
+func TestParse_V21Publish(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader(`pactoVersion: "2.1"
+service: {name: my-svc, version: 1.0.0}
+publish:
+  bundle: oci://ghcr.io/acme/pacto/my-svc
+  deploy: m
+  artifacts:
+    - {name: api, type: image, ref: "oci://ghcr.io/acme/my-svc", sbom: sbom/api.spdx.json, build: {dockerfile: {context: ., platforms: [linux/amd64]}}}
+    - {name: m, type: manifests, ref: "oci://ghcr.io/acme/deploy/my-svc", build: {command: [./render.sh]}}
+  sign: {key: cosign.key, transparencyLog: false}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := c.Publish
+	if p.Deploy != "m" || len(p.Artifacts) != 2 || p.Artifacts[0].Build.Dockerfile.Platforms[0] != "linux/amd64" ||
+		p.Artifacts[1].Build.Command[0] != "./render.sh" || p.Sign.Key != "cosign.key" || *p.Sign.TransparencyLog || p.Artifacts[0].SBOM != "sbom/api.spdx.json" {
+		t.Fatalf("publish: %+v", p)
+	}
+}
+
+// TestParse_ValidStructuredOwner: an owner given as team, DRI and contacts
+// parses into every field, contact purpose included.
+func TestParse_ValidStructuredOwner(t *testing.T) {
+	f, err := os.Open("testdata/valid_structured_owner.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	c, err := contract.Parse(f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := contract.Owner{Team: "foundations", DRI: "eduardo.diaz", Contacts: []contract.OwnerContact{
+		{Type: "email", Value: "foundations@acme.com", Purpose: "ownership"},
+		{Type: "chat", Value: "#foundations"},
+	}}
+	if !reflect.DeepEqual(c.Service.Owner, want) {
+		t.Errorf("owner = %+v, want %+v", c.Service.Owner, want)
+	}
+}

@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
+	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
@@ -24,7 +26,7 @@ import (
 // bundle ref, fleet enabled, so a fleet-backed server is returned.
 func TestBuildMCPServer_WithFleet(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	if err := cmd.Flags().Set("fleet", "true"); err != nil {
 		t.Fatal(err)
@@ -32,7 +34,7 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 	if err := cmd.Flags().Set("local", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	server, err := buildMCPServer(cmd, svc, "v", nil)
+	server, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps())
 	if err != nil {
 		t.Fatalf("buildMCPServer --fleet: %v", err)
 	}
@@ -45,7 +47,7 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	cmd.SetContext(ctx)
-	if _, err := buildMCPServer(cmd, svc, "v", nil); err == nil {
+	if _, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps()); err == nil {
 		t.Fatal("buildMCPServer --fleet with a cancelled context: expected an error")
 	}
 }
@@ -55,14 +57,14 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 // covers the closure body and its fleet-options capture.
 func TestMCPImpactProvider(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	provide := mcpImpactProvider(cmd, svc)
-	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
+	if _, err := provide(context.Background(), nil, "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")
 	}
 	// A nonexistent traces path is a read error before any resolution.
-	if _, err := provide(context.Background(), "/old", "/new", false, "/nonexistent/traces.json"); err == nil {
+	if _, err := provide(context.Background(), nil, "/old", "/new", false, "/nonexistent/traces.json"); err == nil {
 		t.Fatal("expected a traces read error")
 	}
 	// A readable traces file is consumed (implying include-observed), then the
@@ -71,8 +73,45 @@ func TestMCPImpactProvider(t *testing.T) {
 	if err := os.WriteFile(tf, []byte(`{"resourceSpans":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", false, tf); err == nil {
+	if _, err := provide(context.Background(), nil, "/nonexistent/old", "/nonexistent/new", false, tf); err == nil {
 		t.Fatal("expected a resolution error after reading traces")
+	}
+	// Handed a snapshot (the caller's view), it analyses over it: the
+	// nonexistent revisions still fail first.
+	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, "/nonexistent/old", "/nonexistent/new", false, ""); err == nil {
+		t.Fatal("expected a resolution error over a handed snapshot")
+	}
+}
+
+// TestMCPFleetView: only an HTTP server whose callers sign in narrows the
+// fleet tools, and a caller whose permissions cannot be checked gets an error.
+func TestMCPFleetView(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	d := defaultDeps()
+	d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
+	cmd := newMCPCommand(svc, "v", d)
+	if mcpFleetView(cmd, d) != nil {
+		t.Fatal("a stdio server narrows nothing")
+	}
+	_ = cmd.Flags().Set("transport", "http")
+	if mcpFleetView(cmd, d) != nil {
+		t.Fatal("an HTTP server without sign-in narrows nothing")
+	}
+	_ = cmd.Flags().Set("auth-issuer", "https://idp.example")
+	view := mcpFleetView(cmd, d)
+	// Even a snapshot with no namespace asks whether the caller reads the whole
+	// cluster: that decides the services known only from a registry.
+	if _, err := view(context.Background(), nil, fleet.NewQuery(&fleet.FleetSnapshot{})); err == nil {
+		t.Fatal("a snapshot with no namespace still needs the cluster-wide answer")
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
+		Targets: []fleet.RawTarget{{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "web", Service: "web"}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := view(context.Background(), nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
+		t.Fatalf("no cluster to ask: %v", err)
 	}
 }
 
@@ -90,46 +129,31 @@ func writeCLIBundle(t *testing.T, dir, name, version string) {
 }
 
 // TestImpactProviderForFleet exercises the dashboard /api/fleet/impact provider
-// closure: the resolve-error branch, and (section 2.2) that a successful impact answer
-// binds to the Manager's PUBLISHED snapshot — same snapshotId the fleet endpoints
-// serve, never a rebuilt one.
+// closure: the resolve-error branch, and that an answer is bound to the
+// snapshot it is handed (same snapshotId), never a rebuilt one.
 func TestImpactProviderForFleet(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	fleetRoot := t.TempDir()
 	writeCLIBundle(t, filepath.Join(fleetRoot, "orders"), "orders", "2.0.0")
-	mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
-		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{fleetRoot}})
-	}, fleet.ManagerOptions{})
-	provide := impactProviderForFleet(svc, mgr)
+	snap, err := svc.Fleet(context.Background(), app.FleetOptions{LocalRoots: []string{fleetRoot}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provide := impactProviderForFleet(svc)
 
-	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", false); err == nil {
+	if _, err := provide(context.Background(), snap, "/nonexistent/old", "/nonexistent/new", false); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")
 	}
 
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeCLIBundle(t, oldDir, "orders", "1.0.0")
 	writeCLIBundle(t, newDir, "orders", "2.0.0")
-	res, err := provide(context.Background(), oldDir, newDir, false)
+	res, err := provide(context.Background(), snap, oldDir, newDir, false)
 	if err != nil {
-		t.Fatalf("impact against the published snapshot: %v", err)
+		t.Fatalf("impact against the handed snapshot: %v", err)
 	}
-	fleetQ, err := managerFleetProvider(mgr)(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.SnapshotID == "" || res.SnapshotID != fleetQ.SnapshotID() {
-		t.Errorf("impact snapshotId %q must equal the dashboard's published snapshot %q", res.SnapshotID, fleetQ.SnapshotID())
-	}
-
-	// When the published snapshot is unavailable (first build fails on a cancelled
-	// context), the provider surfaces that error rather than rebuilding.
-	mgr2 := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
-		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{fleetRoot}})
-	}, fleet.ManagerOptions{})
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := impactProviderForFleet(svc, mgr2)(ctx, oldDir, newDir, false); err == nil {
-		t.Fatal("expected an error when the published snapshot is unavailable")
+	if res.SnapshotID == "" || res.SnapshotID != snap.SnapshotID {
+		t.Errorf("impact snapshotId %q must equal the handed snapshot %q", res.SnapshotID, snap.SnapshotID)
 	}
 }
 
@@ -347,7 +371,7 @@ func TestManagerFleetProvider(t *testing.T) {
 	dir := t.TempDir()
 	mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
-	}, fleet.ManagerOptions{})
+	})
 	provider := managerFleetProvider(mgr)
 
 	// First call: no snapshot yet -> coalesced build then query.
@@ -365,7 +389,7 @@ func TestManagerFleetProvider(t *testing.T) {
 	// returns the refresh error.
 	mgr2 := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
-	}, fleet.ManagerOptions{})
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := managerFleetProvider(mgr2)(ctx); err == nil {
@@ -381,18 +405,14 @@ type fakeClusterClient struct {
 	listErr  error
 }
 
-func (c *fakeClusterClient) Probe(context.Context) error { return nil }
 func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
 	return &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, nil
 }
-func (c *fakeClusterClient) ListJSON(context.Context, string, string) ([]byte, error) {
+func (c *fakeClusterClient) ListJSON(context.Context, k8sclient.CRDDiscovery, string) ([]byte, error) {
 	if c.listErr != nil {
 		return nil, c.listErr
 	}
 	return []byte(c.listJSON), nil
-}
-func (c *fakeClusterClient) CountResources(context.Context, string, string) (int, error) {
-	return 0, nil
 }
 
 // TestClusterContractRefs proves the callback exists only when a cluster client
@@ -694,5 +714,35 @@ func TestFleetSearch_StatusFlagNamesEveryStatus(t *testing.T) {
 	slices.Sort(got)
 	if want := fleet.CanonicalStatuses(); !slices.Equal(got, want) {
 		t.Errorf("--status help advertises %v, want the canonical vocabulary %v", got, want)
+	}
+}
+
+// TestManagerPublishedNeverBuilds: the published-only provider answers nil
+// at once while the first build is still running, and the snapshot after.
+func TestManagerPublishedNeverBuilds(t *testing.T) {
+	release := make(chan struct{})
+	mgr := fleet.NewManager(func(context.Context) (*fleet.FleetSnapshot, error) {
+		<-release
+		return &fleet.FleetSnapshot{}, nil
+	})
+	go func() { _ = mgr.Refresh(context.Background()) }()
+	published := managerPublished(mgr)
+	done := make(chan *fleet.Query, 1)
+	go func() { done <- published() }()
+	select {
+	case q := <-done:
+		if q != nil {
+			t.Fatalf("nothing is published yet, got %v", q)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the published-only provider waited on the build")
+	}
+	close(release)
+	deadline := time.Now().Add(3 * time.Second)
+	for published() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the finished build was never served")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

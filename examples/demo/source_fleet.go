@@ -33,9 +33,15 @@ const (
 	partnerDomain   = "partners"
 )
 
-// demoNow is a fixed clock so the embedded snapshot (and its stale-target
-// computation) is fully deterministic across builds.
-func demoNow() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
+// demoClock is when the demo loaded. The fleet snapshot is taken then and every
+// fixture time is an offset from it, so the stale-target split is the same on every
+// load while "Data as of" reads off the same wall clock the simulated delivery runs
+// on. A fixed date here had the fleet pages say "Jul 29, 2026" beside delivery pages
+// saying "just now".
+var demoClock = time.Now().UTC().Truncate(time.Second)
+
+// demoNow is the clock the fleet snapshot is built against.
+func demoNow() time.Time { return demoClock }
 
 // buildDemoFleet builds a fleet query over every embedded revision plus the
 // demo's operational targets, and returns a ref→bundle index so the impact
@@ -60,6 +66,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 					RequestedRef: registry + name + ":" + ver,
 					ResolvedRef:  ref,
 					Digest:       "sha256:" + entry.hash,
+					Document:     entry.doc,
 				})
 				byRef[ref] = entry.bundle
 			}
@@ -129,14 +136,14 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 }
 
 // demoImpactProvider returns the impact provider the demo wires into the
-// dashboard. It analyzes against the SAME published snapshot the Operational
-// Graph serves (so snapshotIds match, section 2.2), resolving the two revisions from the
+// dashboard. It analyzes against the snapshot the dashboard hands it, the SAME
+// published snapshot the Operational Graph serves (so snapshotIds match, section 2.2), resolving the two revisions from the
 // in-memory ref index. Observed edges are folded into that snapshot by
 // buildDemoFleet, so include-observed is a real capability driven by the SAME
 // pipeline the Operational Graph uses (surfacing a shadow consumer), not a placebo
 // and not a second, divergent source of observed data.
-func demoImpactProvider(snap *fleet.FleetSnapshot, byRef map[string]*contract.Bundle) func(context.Context, string, string, bool) (*impact.Result, error) {
-	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+func demoImpactProvider(byRef map[string]*contract.Bundle) func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
+	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 		oldB, newB := byRef[oldRef], byRef[newRef]
 		if oldB == nil || newB == nil {
 			return nil, fmt.Errorf("unknown revision reference (old=%q new=%q)", oldRef, newRef)

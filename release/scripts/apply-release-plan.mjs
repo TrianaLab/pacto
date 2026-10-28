@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { stable } from '../orchestrator/canonical.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const R = (...p) => join(root, ...p);
@@ -19,8 +20,9 @@ const plan = JSON.parse(readFileSync(R('release', 'release-plan.json'), 'utf8'))
 // ---- values from the plan (single source of truth) ----
 const core = plan.groups.core;
 const k8s = plan.groups.kubernetes;
-const chart = k8s.artifacts.find((a) => a.kind === 'helm-chart');
+const chart = k8s.artifacts.find((a) => a.unit === 'operator-chart');
 const opImage = k8s.artifacts.find((a) => a.unit === 'operator-image');
+const dlImage = k8s.artifacts.find((a) => a.unit === 'delivery-image');
 const chartVersion = chart.chartVersion;      // e.g. 4.7.0
 const appVersion = chart.appVersion;          // e.g. 4.7.0
 const imageTag = chart.defaultImageTag;       // e.g. 4.7.0
@@ -91,27 +93,34 @@ assert(pathMajor >= 2 ? majorOf(pin.version) === pathMajor : majorOf(pin.version
     `${rel}: versioned core replace not pinned to ${pin.version}`);
 }
 
-// ---- 2. operator chart Chart.yaml: version, appVersion, artifacthub image ----
+// ---- 2. chart Chart.yaml: version, appVersion, artifacthub images ----
+// The operator chart also installs the opt-in delivery promoter (delivery.enabled),
+// whose image tag defaults to the same appVersion, so moving appVersion here points
+// both at the images the same release publishes.
 {
+  // Artifact Hub lists the delivery image beside the controller: one chart ships both.
   const rel = 'integrations/kubernetes/charts/pacto-operator/Chart.yaml';
   const after = edit(rel, (s) => {
-    s = s.replace(/^version:.*$/m, `version: ${chartVersion}`);
-    s = s.replace(/^appVersion:.*$/m, `appVersion: "${appVersion}"`);
+    s = s.replace(/^version:.*$/m, `version: ${chart.chartVersion}`);
+    s = s.replace(/^appVersion:.*$/m, `appVersion: "${chart.appVersion}"`);
     // Artifact Hub image annotation: add once, then keep its tag in sync.
     if (!s.includes('artifacthub.io/images')) {
       if (!s.endsWith('\n')) s += '\n';
-      s += `annotations:\n  artifacthub.io/images: |\n    - name: pacto-controller\n` +
-           `      image: ${opImageCoord}:${appVersion}\n`;
+      if (!/^annotations:/m.test(s)) s += 'annotations:\n';
+      s += `  artifacthub.io/images: |\n    - name: pacto-controller\n` +
+           `      image: ${opImageCoord}:${chart.appVersion}\n`;
     }
-    s = s.replace(new RegExp(`(${esc(opImageCoord)}:)v?${SEMVER}`), `$1${appVersion}`);
+    s = s.replace(new RegExp(`(${esc(opImageCoord)}:)v?${SEMVER}`), `$1${chart.appVersion}`);
+    s = s.replace(new RegExp(`(${esc(dlImage.coordinate)}:)v?${SEMVER}`), `$1${chart.appVersion}`);
     return s;
   });
-  assert(new RegExp(`^version: ${esc(chartVersion)}$`, 'm').test(after), `${rel}: version != ${chartVersion}`);
-  assert(new RegExp(`^appVersion: "${esc(appVersion)}"$`, 'm').test(after), `${rel}: appVersion != ${appVersion}`);
-  assert(after.includes(`${opImageCoord}:${appVersion}`), `${rel}: artifacthub image tag != ${appVersion}`);
+  assert(new RegExp(`^version: ${esc(chart.chartVersion)}$`, 'm').test(after), `${rel}: version != ${chart.chartVersion}`);
+  assert(new RegExp(`^appVersion: "${esc(chart.appVersion)}"$`, 'm').test(after), `${rel}: appVersion != ${chart.appVersion}`);
+  assert(after.includes(`${opImageCoord}:${chart.appVersion}`), `${rel}: artifacthub image tag != ${chart.appVersion}`);
+  assert(after.includes(`${dlImage.coordinate}:${chart.appVersion}`), `${rel}: artifacthub delivery image tag != ${chart.appVersion}`);
 }
-  // image.tag intentionally NOT pinned in values.yaml: the chart deployment defaults
-  // the tag to .Chart.AppVersion, so pinning it here would only create helm-docs drift.
+// image.tag intentionally NOT pinned in values.yaml: the chart deployment defaults
+// the tag to .Chart.AppVersion, so pinning it here would only create helm-docs drift.
 
 // ---- 4. artifacthub-repo.yml consistency (repo metadata carries no version) ----
 {
@@ -176,11 +185,6 @@ assert(pathMajor >= 2 ? majorOf(pin.version) === pathMajor : majorOf(pin.version
 }
 
 // ---- 7. release-manifest.json: every unit -> {version, coordinate, tag, artifactKind} ----
-function stable(v) {
-  if (Array.isArray(v)) return v.map(stable);
-  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])]));
-  return v;
-}
 {
   const unitsDir = R('release', 'units');
   const unitCoord = {};

@@ -2760,3 +2760,47 @@ func TestEdit_AddConfigProperties_UnreadableSchemaFails(t *testing.T) {
 		t.Fatal("expected an error for a schema that is not JSON")
 	}
 }
+
+// TestExternalDependencies: an external dependency with no ref is written
+// with its version and no ref or range, one with a ref keeps both, and either
+// moves a 2.0 contract to 2.1, which still validates. One with no ref is
+// removed by name.
+func TestExternalDependencies(t *testing.T) {
+	external := []DependencyInput{
+		{Name: "model", External: true, Version: "claude-sonnet-4-5", Required: true},
+		{Name: "ledger", Ref: "oci://ghcr.io/acme/ledger-pacto:1.0.0", Compatibility: "^1.0.0", External: true},
+	}
+	dir := filepath.Join(t.TempDir(), "agent")
+	if _, err := Create(CreateInput{Name: "agent", Path: dir, Dependencies: external}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Check(context.Background(), nil, dir)
+	if err != nil || !res.Valid || !containsStr(res.Summary.Dependencies, "model (external claude-sonnet-4-5)") {
+		t.Fatalf("created: %v %+v", err, res)
+	}
+
+	dir = testutil.WriteTestBundle(t)
+	ed, err := Edit(EditInput{Path: dir, AddDependencies: external})
+	if err != nil || !containsStr(ed.Changes, `set pactoVersion "2.1" for the external dependency`) || !containsStr(ed.Changes, `added dependency "model"`) {
+		t.Fatalf("edit: %v %+v", err, ed)
+	}
+	if res, err := Check(context.Background(), nil, dir); err != nil || !res.Valid {
+		t.Fatalf("edited: %v %+v", err, res)
+	}
+	ed, err = Edit(EditInput{Path: dir, AddDependencies: []DependencyInput{{Name: "cache", External: true, Version: "7"}}, RemoveDeps: []string{"model"}})
+	if err != nil || !containsStr(ed.Changes, `removed dependency "model"`) || containsStr(ed.Changes, "pactoVersion") {
+		t.Fatalf("remove by name, already 2.1: %v %+v", err, ed)
+	}
+}
+
+func TestDependencyEntry(t *testing.T) {
+	if e := dependencyEntry(DependencyInput{Name: "model", External: true, Version: "v1"}); e["ref"] != nil || e["compatibility"] != nil || e["version"] != "v1" || e["external"] != true {
+		t.Errorf("external, no ref: %v", e)
+	}
+	if e := dependencyEntry(DependencyInput{Ref: "oci://r/a:1"}); e["external"] != nil || e["compatibility"] != "^1.0.0" {
+		t.Errorf("plain: %v", e)
+	}
+	if needs21(map[string]any{"pactoVersion": "2.0"}, []DependencyInput{{Ref: "r"}}) {
+		t.Error("no external dependency needs no 2.1")
+	}
+}

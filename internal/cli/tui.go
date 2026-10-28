@@ -21,8 +21,8 @@ func newTUICommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 		Short: "Browse the fleet and run pacto commands in a full-screen terminal UI",
 		Long: "Opens a full-screen terminal UI over the same fleet snapshot `pacto fleet` " +
 			"queries. Navigate services, revisions, targets, owners and sources, then run " +
-			"pacto's verbs against whatever is selected — the selection becomes the " +
-			"argument, so you never type a path.\n\n" +
+			"pacto's verbs against the selection, which becomes the command's " +
+			"argument.\n\n" +
 			"Read verbs run in-process against the loaded snapshot. Write verbs shell out " +
 			"to this same binary so they own the terminal, and every one of them asks for " +
 			"confirmation first. Pass --read-only to hide the write verbs entirely.\n\n" +

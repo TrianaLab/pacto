@@ -1,0 +1,187 @@
+package dashboard
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+)
+
+// DeliveryAPI is Pacto delivery as one caller sees it. A live host binds it to
+// the caller's own cluster identity (the signed-in person's token, or the
+// kubeconfig in local mode), so every read and every action is the caller's
+// and the apiserver decides what they may do. This package never reaches a
+// cluster itself.
+type DeliveryAPI interface {
+	WhoAmI(ctx context.Context) (delivery.Caller, error)
+	// Stages and Operations list one namespace, or all of them for "".
+	// Operations may leave out those that concluded Succeeded: no view reads
+	// them, and on a cluster that has run delivery a while they are nearly
+	// all of them. A host may share what they return with other requests,
+	// so a view reads it and never changes it.
+	Stages(ctx context.Context, namespace string) ([]delivery.StageObject, error)
+	Operations(ctx context.Context, namespace string) ([]delivery.OperationObject, error)
+	Get(ctx context.Context, namespace, name string) (*delivery.OperationObject, error)
+	Stage(ctx context.Context, namespace, name string) (*delivery.StageObject, error)
+	Explain(ctx context.Context, namespace, name string) (*delivery.Explanation, error)
+	// History reads a Stage's history. listed, when not nil, is the Stage as
+	// the caller just read it, so the host need not read it again.
+	History(ctx context.Context, namespace, stage string, listed *delivery.StageObject) (*delivery.History, error)
+	Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error)
+	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error)
+	Approve(ctx context.Context, namespace, name string, decision delivery.Decision, note string) (string, error)
+	Cancel(ctx context.Context, namespace, name string) error
+	// Describe reads what a Stage's artifact digest carries: its contract and
+	// version. A digest never changes, so a host may cache the answer.
+	Describe(ctx context.Context, stage *delivery.StageObject, digest string) delivery.Revision
+	// Blame says who put digest (by default the one running) in place on a
+	// Stage; Undo plans how to undo an operation and proposes nothing. stage
+	// finds an operation that is gone from the cluster in the records.
+	Blame(ctx context.Context, namespace, stage, digest string) (*delivery.Blame, error)
+	Undo(ctx context.Context, namespace, name, stage string) (*delivery.Undo, error)
+	// PublishRefusals are the publishes Pacto refused for services with Stages
+	// in namespace ("" for all). Nil with no error means this host keeps no
+	// record of refused publishes.
+	PublishRefusals(ctx context.Context, namespace string) (*PublishRefusals, error)
+	// Can asks the apiserver whether the caller may verb resource of the
+	// delivery API group in namespace.
+	Can(ctx context.Context, verb, resource, namespace string) (bool, error)
+	// StageNamespaces are the namespaces the caller may list Stages in,
+	// whether or not anything else runs there. Nil with no error means this
+	// host cannot enumerate namespaces.
+	StageNamespaces(ctx context.Context) ([]string, error)
+}
+
+// DeliveryError is a delivery answer that says no: the HTTP status, a stable
+// code the UI acts on (FreshLoginRequired sends the browser to a fresh login)
+// and the reason, verbatim when the apiserver gave it.
+type DeliveryError struct {
+	Status int    `json:"status"`
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
+	// Plan is the fresh plan of a PlanStale refusal.
+	Plan *delivery.Plan `json:"plan,omitempty"`
+}
+
+func (e *DeliveryError) Error() string { return e.Code + ": " + e.Detail }
+
+// GetStatus is the HTTP status huma answers with.
+func (e *DeliveryError) GetStatus() int { return e.Status }
+
+// Refuse builds a DeliveryError.
+func Refuse(status int, code, detail string) *DeliveryError {
+	return &DeliveryError{Status: status, Code: code, Detail: detail}
+}
+
+func (s *Server) deliveryInstalled(ctx context.Context) (bool, error) {
+	if s.opts.DeliveryInstalled == nil {
+		return true, nil
+	}
+	return s.opts.DeliveryInstalled(ctx)
+}
+
+// deliveryFor is the caller's delivery API, or the refusal that says why
+// there is none.
+func (s *Server) deliveryFor(ctx context.Context) (DeliveryAPI, error) {
+	switch installed, err := s.deliveryInstalled(ctx); {
+	case err != nil:
+		return nil, Refuse(http.StatusServiceUnavailable, "ClusterUnreachable",
+			"cannot reach the cluster to tell whether it serves delivery: "+err.Error())
+	case !installed:
+		return nil, Refuse(http.StatusNotFound, "DeliveryNotInstalled",
+			"this cluster does not serve delivery.pacto.trianalab.io/v1alpha1. Install pacto-operator with delivery.enabled=true")
+	}
+	return s.opts.Delivery(requestFrom(ctx))
+}
+
+// ── caller ─────────────────────────────────────────────────────────────
+
+type callerOutput struct {
+	Body struct {
+		delivery.Caller
+		// RequireOwnerTeam is the published policy's rule for a question
+		// that names no team: nobody may answer it, only break-glass
+		// overrides.
+		RequireOwnerTeam bool `json:"requireOwnerTeam" doc:"A question that names no team has nobody who may answer it; only break-glass can override"`
+	}
+}
+
+// deliveryCaller is the caller as delivery classifies them: the person the
+// session names, their actor class and the published policy's team rule.
+func (s *Server) deliveryCaller(ctx context.Context, _ *struct{}) (*callerOutput, error) {
+	api, err := s.deliveryFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, err := api.WhoAmI(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := &callerOutput{}
+	out.Body.Caller, out.Body.RequireOwnerTeam = c, c.Policy.RequireOwnerTeam
+	return out, nil
+}
+
+// ── registration ───────────────────────────────────────────────────────
+
+func (s *Server) registerDeliveryOperations(api huma.API) {
+	if s.opts.Delivery == nil {
+		return
+	}
+	reg := func(op huma.Operation) huma.Operation {
+		op.Tags = []string{"Delivery"}
+		op.Errors = []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
+		return op
+	}
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-caller", Method: http.MethodGet, Path: "/api/delivery/caller",
+		Summary: "Who delivery says I am",
+		Description: "The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in " +
+			"and whether a question that names no team has nobody who may answer it."}), s.deliveryCaller)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-inbox", Method: http.MethodGet, Path: "/api/delivery/inbox",
+		Summary: "What waits on me",
+		Description: "Held operations whose question names one of the caller's teams, with the decision asked and the affected services; " +
+			"frozen Stages of the caller's services and the Errored operations on them."}), s.deliveryInbox)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-environments", Method: http.MethodGet, Path: "/api/delivery/environments",
+		Summary:     "Every Stage",
+		Description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold."}), s.deliveryEnvironments)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-autonomy", Method: http.MethodGet, Path: "/api/delivery/autonomy",
+		Summary: "The path to autonomy",
+		Description: "How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for " +
+			"or approved, each Stage's level with the next level Pacto proposes and its newest would-have decision, and the blockers with a fix " +
+			"to copy. It only reads: a level moves through a proposed and approved operation."}), s.deliveryAutonomy)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-published", Method: http.MethodGet, Path: "/api/delivery/published",
+		Summary:     "Published versions",
+		Description: "Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each."}), s.deliveryPublished)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-history", Method: http.MethodGet, Path: "/api/delivery/history",
+		Summary: "What happened",
+		Description: "What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not " +
+			"recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own " +
+			"completeness, problems and what could not be read."}), s.deliveryHistory)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-blame", Method: http.MethodGet, Path: "/api/delivery/blame",
+		Summary: "Who put this version here",
+		Description: "The newest change that moved a Stage to a digest (by default the one it runs): who asked, for whom, who approved and what " +
+			"every check said, read from its signed record when there is one. No change with a partial completeness means unknown, never nobody."}), s.deliveryBlame)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-undo", Method: http.MethodGet, Path: "/api/delivery/undo",
+		Summary: "How to undo a change",
+		Description: "A plan nobody has proposed: a rollback bound to the change when the Stage still runs it, a promote back to the version it " +
+			"replaced when something changed since, or nothing. It never acts; propose the plan to carry it out."}), s.deliveryUndo)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-refusals", Method: http.MethodGet, Path: "/api/delivery/refusals",
+		Summary: "Publishes Pacto refused",
+		Description: "Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. " +
+			"recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing."}), s.deliveryRefusals)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-operation", Method: http.MethodGet, Path: "/api/delivery/operations/{namespace}/{name}",
+		Summary:     "One change",
+		Description: "The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take."}), s.deliveryOperation)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-plan", Method: http.MethodPost, Path: "/api/delivery/plan",
+		Summary: "Plan a change", Description: "What the promoter would do: verdicts, whether a person must decide, who and the question."}), s.deliveryPlan)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-propose", Method: http.MethodPost, Path: "/api/delivery/operations",
+		DefaultStatus: http.StatusCreated, Summary: "Propose a change",
+		Description: "Promote, roll back (with undoes), freeze or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass."}), s.deliveryPropose)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-decide", Method: http.MethodPost, Path: "/api/delivery/operations/{namespace}/{name}/decision",
+		DefaultStatus: http.StatusCreated, Summary: "Decide on a held change",
+		Description: "Approve, reject or accept an unknown, as the signed-in person; where the Stage publishes a login freshness, with a login that recent. Only the teams the question names may decide. Never served in local mode or to agents."}), s.deliveryDecide)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-cancel", Method: http.MethodDelete, Path: "/api/delivery/operations/{namespace}/{name}",
+		Summary: "Cancel a change", Description: "Cancel an operation that has not moved the pointer yet."}), s.deliveryCancel)
+}

@@ -8,7 +8,7 @@
  *  - a refresh cannot overwrite a subsequent navigation.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { createProductLoader } from './productLoader.svelte.ts';
+import { createProductLoader, productListState } from './productLoader.svelte.ts';
 
 interface Deferred<T> { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void; }
 function deferred<T>(): Deferred<T> {
@@ -112,5 +112,95 @@ describe('createProductLoader', () => {
     d2.resolve('B');
     await flush();
     expect(loader.data).toBe('B');
+  });
+
+  it('keeps the page on screen while another page of the same list loads, and drops it on a new question or a failure', async () => {
+    const d1 = deferred<string>();
+    const d2 = deferred<string>();
+    const d3 = deferred<string>();
+    const fetcher = vi.fn().mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise).mockReturnValueOnce(d3.promise);
+    const loader = createProductLoader(fetcher);
+    expect(loader.answer('f@0', 'f')).toEqual({ data: null, paging: false });
+
+    loader.sync('f@0', 'f@0', 'f');
+    d1.resolve('page1'); await flush();
+    expect(loader.answer('f@0', 'f')).toEqual({ data: 'page1', paging: false });
+
+    // Page 2 asked for: page 1 stays, flagged as a page turn, even before sync runs.
+    expect(loader.answer('f@25', 'f')).toEqual({ data: 'page1', paging: true });
+    loader.sync('f@25', 'f@25', 'f');
+    expect(loader.answer('f@25', 'f')).toEqual({ data: 'page1', paging: true });
+    // Another question (a filter), or a list that names no family, is not a page turn.
+    expect(loader.answer('g@0', 'g')).toEqual({ data: null, paging: false });
+    expect(loader.answer('f@25', undefined)).toEqual({ data: null, paging: false });
+
+    // Page 2 fails: the old rows go, so the error is what shows.
+    d2.reject(new Error('boom')); await flush();
+    expect(loader.answer('f@25', 'f')).toEqual({ data: null, paging: false });
+
+    loader.refresh();
+    d3.resolve('page2'); await flush();
+    expect(loader.dataTag).toBe('f@25');
+    expect(loader.answer('f@25', 'f')).toEqual({ data: 'page2', paging: false });
+  });
+});
+
+describe('productListState', () => {
+  type Page = { rows: string[]; meta?: { completeness: string } };
+  const complete = { completeness: 'complete' };
+
+  it('draws a skeleton a page tall while nothing is on hand', () => {
+    const loader = createProductLoader<Page>(() => deferred<Page>().promise);
+    const view = productListState(loader, (d) => d.rows, () => ({ tag: 'q', family: 'l', filtered: false, pageLimit: 25 }));
+    loader.sync('q', 'q', 'l');
+    expect(view.state.kind).toBe('loading');
+    expect(view.data).toBeNull();
+    expect(view.count).toBe(0);
+    expect(view.skeletonRows).toBe(25);
+    expect(view.refreshError).toBeNull();
+    expect(view.revalidating).toBe(false);
+  });
+
+  it('keeps the rows and says so when a refresh is in flight and when it fails', async () => {
+    const first = deferred<Page>();
+    const second = deferred<Page>();
+    const fetcher = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const loader = createProductLoader<Page>(fetcher);
+    const view = productListState(loader, (d) => d.rows, () => ({ tag: 'q', family: 'l', filtered: false, pageLimit: 25 }));
+    loader.sync('q@@0', 'q', 'l');
+    first.resolve({ rows: ['a', 'b'], meta: complete });
+    await flush();
+    expect(view.state.kind).toBe('ready');
+    expect(view.count).toBe(2);
+    expect(view.skeletonRows).toBe(2);
+    expect(view.knowledge.incomplete).toBe(false);
+
+    loader.sync('q@@1', 'q', 'l'); // the poll re-asks the same question
+    expect(view.revalidating).toBe(true);
+    const boom = new Error('boom');
+    second.reject(boom);
+    await flush();
+    expect(view.revalidating).toBe(false);
+    expect(view.refreshError).toBe(boom);
+    expect(view.data?.rows).toEqual(['a', 'b']);
+  });
+
+  it('turns a page over the rows on screen and reports a filtered-empty answer', async () => {
+    const first = deferred<Page>();
+    const second = deferred<Page>();
+    const fetcher = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const loader = createProductLoader<Page>(fetcher);
+    let tag = 'p1';
+    const view = productListState(loader, (d) => d.rows, () => ({ tag, family: 'l', filtered: true, pageLimit: 25 }));
+    loader.sync(tag, tag, 'l');
+    first.resolve({ rows: ['a'], meta: complete });
+    await flush();
+    tag = 'p2';
+    loader.sync(tag, tag, 'l');
+    expect(view.paging).toBe(true);
+    second.resolve({ rows: [], meta: complete });
+    await flush();
+    expect(view.paging).toBe(false);
+    expect(view.state.kind).toBe('filtered-empty');
   });
 });

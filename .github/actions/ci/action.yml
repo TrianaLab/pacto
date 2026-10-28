@@ -17,14 +17,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
       with:
         go-version-file: go.mod
         # We manage the Go cache explicitly below (disk-guarded); disable setup-go's
         # built-in cache so the two do not fight over the same paths.
         cache: false
 
-    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       if: inputs.node == 'true'
       with:
         node-version: '22'
@@ -54,7 +54,7 @@ runs:
         echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
         echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
 
-    - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       if: steps.cacheguard.outputs.enabled == 'true'
       continue-on-error: true
       with:

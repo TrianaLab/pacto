@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../../lib/format.ts';
   import { retrievabilityLabel, retrievabilityTone } from '../../lib/entityLabels.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
@@ -10,8 +11,10 @@
   import EntityRefList from '../../components/EntityRefList.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
   import FindingList from '../../components/FindingList.svelte';
-  import LimitationsList from '../../components/LimitationsList.svelte';
+  import LimitationsSection from '../../components/LimitationsSection.svelte';
   import HorizontalBars from '../../components/viz/HorizontalBars.svelte';
+  import HelpTip from '../../components/HelpTip.svelte';
+  import { joinAnd } from '../../lib/answers.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import { fleetEntityListUrl } from '../../lib/router.ts';
 
@@ -57,6 +60,14 @@
     ...(sbom?.licenses ?? []).map((l) => ({ label: l.license, value: l.count, tone: l.license === 'unspecified' ? 'warn' : 'info' })),
     ...(sbom?.otherLicensed ? [{ label: 'Less common licenses', value: sbom.otherLicensed, tone: 'neutral' }] : []),
   ]);
+  // What the revision declares is inspection detail on a page about one item, so a
+  // declared section opens on request and the empty ones share a single line instead of
+  // three cards that each say "none".
+  const declaredEmpty = $derived(joinAnd([
+    (d.interfaces?.count ?? 0) === 0 ? 'interfaces' : '',
+    (d.configurations?.count ?? 0) === 0 ? 'configuration' : '',
+    (d.policies?.count ?? 0) === 0 ? 'policies' : '',
+  ].filter(Boolean), 'or'));
 </script>
 
 <div class="rev-entity">
@@ -102,7 +113,7 @@
     <details class="re-contacts disclosure">
       <summary>
         <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-        Declared contacts ({o.contacts.total})
+        Declared contacts ({formatCount(o.contacts.total)})
       </summary>
       <ul class="re-contactrows">
         {#each o.contacts.items as c, i (`${c.type}:${c.value}:${c.purpose ?? ''}:${i}`)}
@@ -114,7 +125,7 @@
         {/each}
       </ul>
       {#if o.contacts.truncated}
-        <p class="re-ctrunc t-body-2">Showing {o.contacts.count} of {o.contacts.total} declared contact points.</p>
+        <p class="re-ctrunc t-body-2">Showing {formatCount(o.contacts.count)} of {formatCount(o.contacts.total)} declared contact points.</p>
       {/if}
     </details>
   {/if}
@@ -123,14 +134,14 @@
     <section class="re-readiness" id="sec-readiness" data-toc="Readiness">
       <div class="rr-head">
         <h2 class="t-section-title">Readiness</h2>
+        <HelpTip label="readiness" text="The preparedness the authors declare for this revision, read from its contract." />
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
       </div>
       <!-- The distinction a first-time user cannot guess from the word "readiness":
            this is the contract's own self-assessment of how prepared this revision is,
            scored against a gate its authors declared. It says nothing about whether the
            running system obeys the contract -- that is compliance, shown on the targets. -->
-      <p class="rr-lead t-body-2">What the authors declared about this revision's preparedness — not a measurement of the running system.</p>
-      <p class="rr-line t-body">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.deferredCount ? ` · ${r.deferredCount} deferred` : ''}{r.expired ? ' · expired' : ''}</p>
+      <p class="rr-line t-body">Score {r.score} / {r.minScore} required · {formatCount(r.doneCount)} done · {formatCount(r.partialCount)} partial · {formatCount(r.notDoneCount)} not done{r.deferredCount ? ` · ${r.deferredCount} deferred` : ''}{r.expired ? ' · expired' : ''}</p>
       {#if (r.checks?.count ?? 0) > 0}
         <!-- Requirement 13 draws the line here and not on the section: FAILING readiness
              detail is an active problem and stays open; a passing gate's check-by-check
@@ -138,7 +149,7 @@
              is visible either way, so the state is never hidden -- only its evidence. -->
         <PreviewSection title="Readiness checks" level={3} role="subsection" collapsible open={!r.passing} summary={r.passing ? 'All declared checks accounted for' : 'Open to see which checks are outstanding'} total={r.checks?.total ?? 0} count={r.checks?.count ?? 0} truncated={r.checks?.truncated}>
           <ul class="re-checks">
-            {#each r.checks.items as c (c.id)}
+            {#each r.checks.items as c, ci (`${c.id}:${ci}`)}
               <li>
                 <IdentityBadge label={c.status || 'unknown'} tone={c.status === 'done' ? 'ok' : (c.status === 'not-done' ? 'warn' : 'neutral')} />
                 <span class="rc-id">{c.id}</span>
@@ -160,7 +171,7 @@
         <h2 class="t-section-title">Readiness</h2>
         <IdentityBadge label="Not declared" tone="neutral" />
       </div>
-      <p class="rr-lead t-body-2">This revision declares no readiness gate, so there is nothing here to pass or fail — which is not the same as failing one.</p>
+      <p class="rr-lead t-body-2">This revision declares no readiness gate, so it has nothing to pass or fail.</p>
     </section>
   {/if}
 
@@ -174,15 +185,22 @@
 
   <!-- ── what this revision declares ────────────────────────────────────────── -->
 
+  {#if declaredEmpty}
+    <p class="re-none t-body-2" data-testid="revision-declares-none">Declares no {declaredEmpty}.</p>
+  {/if}
+
+  {#if (d.interfaces?.count ?? 0) > 0}
   <PreviewSection
     title="Interfaces"
+    collapsible
+    open={false}
     total={d.interfaces?.total ?? 0}
     count={d.interfaces?.count ?? 0}
     truncated={d.interfaces?.truncated}
     empty="This revision declares no interfaces."
   >
     <ul class="re-ifaces">
-      {#each d.interfaces?.items ?? [] as i (i.name)}
+      {#each d.interfaces?.items ?? [] as i, ii (`${i.name}:${ii}`)}
         <li class="ri">
           <div class="ri-head">
             <span class="ri-name">{i.name}</span>
@@ -200,10 +218,10 @@
             <details class="ri-ops disclosure">
               <summary>
                 <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-                {i.operations.count}{i.operations.truncated ? ` of ${i.operations.total}` : ''} {i.operations.total === 1 && !i.operations.truncated ? 'operation' : 'operations'}
+                {formatCount(i.operations.count)}{i.operations.truncated ? ` of ${formatCount(i.operations.total)}` : ''} {i.operations.total === 1 && !i.operations.truncated ? 'operation' : 'operations'}
               </summary>
               <ul class="re-tools">
-                {#each i.operations.items as t (t.name + t.method + t.path)}
+                {#each i.operations.items as t, ti (`${t.name}${t.method}${t.path}:${ti}`)}
                   <li>
                     {#if t.mutating}<IdentityBadge label="mutating" tone="warn" />{/if}
                     <span class="rt-method">{t.method}</span>
@@ -214,7 +232,7 @@
                 {/each}
               </ul>
               {#if i.operations.truncated}
-                <p class="ri-note">Showing {i.operations.count} of {i.operations.total} operations.</p>
+                <p class="ri-note">Showing {formatCount(i.operations.count)} of {formatCount(i.operations.total)} operations.</p>
               {/if}
             </details>
           {:else if i.operationsKnown}
@@ -222,22 +240,26 @@
           {:else}
             <!-- Absence of evidence is not evidence of absence: an unread document must
                  never render as "this interface has no operations". -->
-            <p class="ri-note">Operations unknown — the referenced document was not available when this revision was indexed.</p>
+            <p class="ri-note">Operations unknown: the referenced document was unavailable when this revision was indexed.</p>
           {/if}
         </li>
       {/each}
     </ul>
   </PreviewSection>
+  {/if}
 
+  {#if (d.configurations?.count ?? 0) > 0}
   <PreviewSection
     title="Configuration"
+    collapsible
+    open={false}
     total={d.configurations?.total ?? 0}
     count={d.configurations?.count ?? 0}
     truncated={d.configurations?.truncated}
     empty="This revision declares no configuration."
   >
     <ul class="re-cfgs">
-      {#each d.configurations?.items ?? [] as c (c.name)}
+      {#each d.configurations?.items ?? [] as c, ci (`${c.name}:${ci}`)}
         <li class="ri">
           <div class="ri-head">
             <span class="ri-name">{c.name || 'default'}</span>
@@ -252,33 +274,40 @@
             <details class="ri-ops disclosure">
               <summary>
                 <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-                {c.values.count}{c.values.truncated && typeof c.values.total === 'number' ? ` of ${c.values.total}` : ''} {c.values.count === 1 && !c.values.truncated ? 'value' : 'values'}
+                {formatCount(c.values.count)}{c.values.truncated && typeof c.values.total === 'number' ? ` of ${formatCount(c.values.total)}` : ''} {c.values.count === 1 && !c.values.truncated ? 'value' : 'values'}
               </summary>
               <table class="re-kv">
                 <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
                 <tbody>
-                  {#each c.values.items as v (v.key)}<tr><td>{v.key}</td><td>{v.value}</td></tr>{/each}
+                  {#each c.values.items as v, vi (`${v.key}:${vi}`)}<tr><td>{v.key}</td><td>{v.value}</td></tr>{/each}
                 </tbody>
               </table>
-              {#if c.values.truncated}<p class="ri-note">Showing {c.values.count} values{typeof c.values.total === 'number' ? ` of ${c.values.total}` : '; total unknown'}.</p>{/if}
+              {#if c.values.truncated}<p class="ri-note">Showing {formatCount(c.values.count)} values{typeof c.values.total === 'number' ? ` of ${formatCount(c.values.total)}` : '; total unknown'}.</p>{/if}
             </details>
           {/if}
         </li>
       {/each}
     </ul>
   </PreviewSection>
+  {/if}
 
+  {#if (d.policies?.count ?? 0) > 0}
   <PreviewSection
     title="Policies"
+    collapsible
+    open={false}
     total={d.policies?.total ?? 0}
     count={d.policies?.count ?? 0}
     truncated={d.policies?.truncated}
     empty="This revision declares no policies."
   >
-    <table class="re-table">
+    <!-- The shared table rules: fixed columns so a long reference can no longer squeeze
+         Name to one word per line or push Target off the card. -->
+    <table class="data-table re-policies">
+      <colgroup><col style="width:26%" /><col style="width:12%" /><col /><col style="width:22%" /></colgroup>
       <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Definition</th><th scope="col">Target</th></tr></thead>
       <tbody>
-        {#each d.policies?.items ?? [] as p (p.name)}
+        {#each d.policies?.items ?? [] as p, pi (`${p.name}:${pi}`)}
           <tr>
             <td data-label="Name">{p.name}</td>
             <td data-label="Kind">{p.ref ? 'Remote' : 'Local'}</td>
@@ -291,6 +320,7 @@
       </tbody>
     </table>
   </PreviewSection>
+  {/if}
 
   <PreviewSection
     title="Capabilities"
@@ -332,7 +362,7 @@
     <!-- showClaims: on the contract inspector a dependency is a DECLARATION, so the row
          carries what was declared (requested ref, required, compatibility, lockfile pin)
          rather than only the name of the other service. -->
-    <PreviewSection title="Declared dependencies" total={d.dependencies?.total ?? null} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated}>
+    <PreviewSection title="Declared dependencies" collapsible open={false} total={d.dependencies?.total ?? null} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated}>
       <RelationshipList items={d.dependencies?.items ?? []} showClaims />
     </PreviewSection>
   {/if}
@@ -343,7 +373,7 @@
          operation reachable if the interface list above is truncated. -->
     <PreviewSection title="Tools exposed to agents" collapsible open={false} summary="Every operation, flat and cross-interface" total={d.tools?.total ?? 0} count={d.tools?.count ?? 0} truncated={d.tools?.truncated}>
       <ul class="re-tools">
-        {#each d.tools.items as t (t.name + t.method + t.path)}
+        {#each d.tools.items as t, ti (`${t.name}${t.method}${t.path}:${ti}`)}
           <li>
             {#if t.mutating}<IdentityBadge label="mutating" tone="warn" />{/if}
             <span class="rt-method">{t.method}</span>
@@ -358,7 +388,7 @@
 
   {#if (d.skills?.count ?? 0) > 0}
     <PreviewSection title="Skills" collapsible open={false} total={d.skills?.total ?? 0} count={d.skills?.count ?? 0} truncated={d.skills?.truncated}>
-      <ul class="re-chips">{#each d.skills.items as s (s)}<li>{s}</li>{/each}</ul>
+      <ul class="re-chips">{#each d.skills.items as s, si (`${s}:${si}`)}<li>{s}</li>{/each}</ul>
     </PreviewSection>
   {/if}
 
@@ -391,7 +421,7 @@
           unitOne="package"
           emptyLabel="This inventory records no packages."
         />
-        <p class="ri-note">The package list itself is not retained by the dashboard; read it from the bundle's {sbomDir} directory.</p>
+        <p class="ri-note">The dashboard keeps only this summary. Read the package list from the bundle's {sbomDir} directory.</p>
       </div>
     </details>
   {/if}
@@ -412,7 +442,7 @@
       <table class="re-kv">
         <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
         <tbody>
-          {#each d.metadata.items as m (m.key)}<tr><td>{m.key}</td><td>{m.value}</td></tr>{/each}
+          {#each d.metadata.items as m, mi (`${m.key}:${mi}`)}<tr><td>{m.key}</td><td>{m.value}</td></tr>{/each}
         </tbody>
       </table>
     </PreviewSection>
@@ -458,7 +488,7 @@
         {#if (prov.sources?.count ?? 0) > 0}
           <div class="re-fact">
             <span class="re-k">Seen by</span>
-            <span>{prov.sources.items.join(', ')}{prov.sources.truncated ? ` (${prov.sources.count} of ${prov.sources.total})` : ''}</span>
+            <span>{prov.sources.items.join(', ')}{prov.sources.truncated ? ` (${formatCount(prov.sources.count)} of ${formatCount(prov.sources.total)})` : ''}</span>
           </div>
         {/if}
         {#if prov.fetchedAt}<div class="re-fact"><span class="re-k">Fetched at</span><span>{formatDate(prov.fetchedAt)}</span></div>{/if}
@@ -466,25 +496,22 @@
     </details>
   {/if}
 
-  {#if (d.limitations?.count ?? 0) > 0}
-    <PreviewSection title="Limitations" tone="warn" collapsible open={false} summary="What Pacto could not determine" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
-      <LimitationsList items={d.limitations?.items ?? []} />
-    </PreviewSection>
-  {/if}
+  <LimitationsSection page={d.limitations} />
 </div>
 
 <style>
+  .re-none { margin: 0; color: var(--c-text-3); }
   .rev-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
   .re-facts, .re-idrows, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .re-fact, .re-idrow, .re-adj { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .re-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .re-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .re-contactrows { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .re-contactrow { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .re-cpurpose { font-size: var(--text-sm); color: var(--c-text-3); }
   .re-ctrunc { margin: var(--sp-2) 0 0; color: var(--c-text-3); }
   .re-readiness, .re-sbom { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   .re-readiness { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
+  .rr-head { display: flex; align-items: center; gap: var(--sp-3); }
   .rr-head h2 { margin: 0; }
   .rr-line, .rr-lead { margin: 0; }
   /* A section that happens to collapse must not rank below one that does not, so the
@@ -516,16 +543,8 @@
   .ri-name { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
   .ri-ref { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .ri-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .re-kv, .re-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-  .re-kv th, .re-table th { text-align: left; font-weight: 600; color: var(--c-text-3); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; }
-  .re-kv td, .re-table td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
+  .re-kv { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+  .re-kv th { text-align: left; color: var(--c-text-3); padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+  .re-kv td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
   .re-kv td:first-child { font-family: var(--font-mono, monospace); color: var(--c-text); }
-  /* 320px: a four-column policy table cannot fit, so it becomes a stacked list with
-     each cell keeping its column name as a prefix. */
-  @media (max-width: 30rem) {
-    .re-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-    .re-table tr { display: block; border-top: 1px solid var(--c-border); padding: var(--sp-2) 0; }
-    .re-table td { display: block; border: 0; padding: 0; }
-    .re-table td::before { content: attr(data-label) ' '; color: var(--c-text-3); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; }
-  }
 </style>

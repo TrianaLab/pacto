@@ -1,4 +1,5 @@
 <script>
+  import HelpTip from '../HelpTip.svelte';
   // A ranked comparison of like-for-like magnitudes (per-owner service counts,
   // per-category attention counts, per-consumer impact counts).
   //
@@ -41,7 +42,7 @@
 <figure class="hbars">
   <figcaption class="hb-cap">
     <svelte:element this={`h${level}`} class="hb-title t-subsection-title">{title}</svelte:element>
-    {#if description}<p class="hb-desc">{description}</p>{/if}
+    {#if description}<HelpTip label={title} text={description} textClass="hb-desc" />{/if}
     {#if scopeNote}<p class="hb-scope">{scopeNote}</p>{/if}
   </figcaption>
 
@@ -58,13 +59,13 @@
         <li class="hb-row tone-{r.tone || 'info'}">
           {#if r.href}
             <a class="hb-inner" href={r.href}>
-              <span class="hb-label">{r.label}</span>
+              <span class="hb-label" title={r.label}>{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" data-motion style="width: {width(r.value)}%"></span></span>
               <span class="hb-value">{amount(r.value)}</span>
             </a>
           {:else}
             <span class="hb-inner">
-              <span class="hb-label">{r.label}</span>
+              <span class="hb-label" title={r.label}>{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" data-motion style="width: {width(r.value)}%"></span></span>
               <span class="hb-value">{amount(r.value)}</span>
             </span>
@@ -82,22 +83,26 @@
 
 <style>
   .hbars { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .hb-cap { display: flex; flex-direction: column; gap: 2px; }
+  .hb-cap { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-2); }
+  .hb-scope { flex-basis: 100%; }
   /* A chart title is a SUBSECTION of the block it sits in. It used to hard-code the
      section size and weight instead, so a level-3 chart title rendered larger than the
      level-2 section heading above it. Size and weight come from the role now. */
   .hb-title { margin: 0; }
-  .hb-desc, .hb-scope, .hb-scale, .hb-empty { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .hb-scope, .hb-scale, .hb-empty { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .hb-scope { font-style: italic; }
   .hb-scale { font-size: var(--text-xs); }
   .hb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .hb-inner {
-    display: grid; grid-template-columns: minmax(6ch, 14ch) 1fr auto; align-items: center;
+    display: grid; grid-template-columns: minmax(6ch, 20ch) 1fr auto; align-items: center;
     gap: var(--sp-2); text-decoration: none; color: var(--c-text-2); font-size: var(--text-sm);
     min-height: var(--touch-min);
   }
   a.hb-inner:hover .hb-label, a.hb-inner:focus-visible .hb-label { text-decoration: underline; }
-  .hb-label { overflow-wrap: anywhere; }
+  /* One line: a long name wrapped over five lines and made one bar five rows tall.
+     20ch holds every attention category label ("Unresolved revision") whole; 14ch
+     clipped two of the six. */
+  .hb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hb-track { display: block; height: 10px; border-radius: var(--radius-xs); background: var(--c-surface-inset); border: 1px solid var(--c-border); }
   .hb-fill { display: block; height: 100%; background: var(--tone-c, var(--c-info)); transition: width var(--motion-reveal); }
   .hb-value { font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }

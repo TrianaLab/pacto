@@ -1,0 +1,106 @@
+{{- if .Values.delivery.enabled }}
+{{- if .Values.delivery.serviceAccount.create }}
+{{- include "pacto-operator.serviceAccount" (dict "name" (include "pacto-operator.delivery.serviceAccountName" .) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "sa" .Values.delivery.serviceAccount) }}
+---
+{{- end }}
+# The promoter: it writes delivery status, raises its own operations, reads
+# Flux, Pacto and the workloads Pacto checked, and sets spec.ref.digest on the
+# OCIRepositories Stages point at. Its RBAC reaches every OCIRepository (and
+# Application); the promoter-writes admission policies narrow that to labelled
+# objects and the one pointer field. It holds no signing key and no registry
+# push right.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-promoter
+  labels:
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter") | nindent 4 }}
+rules:
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages]
+    verbs: [get, list, watch]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [approvals]
+    # patch: it makes each Approval's operation its owner, so they are
+    # garbage collected together; the CRD keeps the spec as it was given.
+    verbs: [get, list, watch, patch]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [operations]
+    # delete: with the recorder, a recorded operation is deleted after recorder.operationTTL.
+    verbs: [get, list, watch, create, update, patch{{ if .Values.delivery.recorder.enabled }}, delete{{ end }}]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages/status, operations/status]
+    verbs: [get, update, patch]
+  {{- if .Values.delivery.admissionPolicies.enabled }}
+  # It checks its own admission policies are installed before trusting a spec.
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
+    verbs: [get, list, watch]
+  {{- end }}
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [ocirepositories]
+    verbs: [get, list, watch, patch]
+  # It emits Events on the operations and Stages it holds, concludes, rolls
+  # back and freezes.
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  {{- if .Values.delivery.argocd.enabled }}
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch, patch]
+  {{- end }}
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, list, watch]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, replicasets, daemonsets]
+    verbs: [get]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get]
+  {{- include "pacto-operator.delivery.rbac.clusterIdentityRule" . | nindent 2 }}
+---
+{{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-promoter" (include "pacto-operator.delivery.fullname" .)) "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "serviceAccount" (include "pacto-operator.delivery.serviceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+rules:
+  {{- include "pacto-operator.rbac.leaderElectionRules" . | nindent 2 }}
+---
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-leader-election" (include "pacto-operator.delivery.fullname" .)) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" (include "pacto-operator.delivery.labels" .) "serviceAccount" (include "pacto-operator.delivery.serviceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
+---
+# Bind this to agents (their own service accounts, or the agent group): they
+# may propose and read operations, cancel the ones they proposed (admission
+# refuses the rest) and read Stages. Planning reads the
+# Pactos and the Kustomizations, which place each consumer. No approvals, no
+# status, no pointer.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-agent
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+rules:
+  {{- include "pacto-operator.delivery.rbac.agentRules" (dict "ctx" .) | nindent 2 }}
+---
+# Bind this to the people who may approve: everything an agent may do, plus
+# creating Approvals. Admission still refuses an approval from a service
+# account or an agent group, so binding it to an agent does not make it one.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-approver
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+rules:
+  {{- include "pacto-operator.delivery.rbac.agentRules" (dict "ctx" . "approver" true) | nindent 2 }}
+{{- end }}

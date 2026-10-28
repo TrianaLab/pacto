@@ -15,7 +15,7 @@
  * can trace what the redesign had to keep.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, unmount, flushSync } from 'svelte';
 
 const { detailFn, docFn } = vi.hoisted(() => ({ detailFn: vi.fn(), docFn: vi.fn() }));
 vi.mock('../../lib/api.ts', async (importOriginal) => {
@@ -143,7 +143,24 @@ async function mountView(kind: string, key: string) {
   document.body.appendChild(target);
   const component = mount(FleetEntityView, { target, props: { kind, entityKey: key, refreshTick: 0 } });
   await vi.waitFor(() => expect(target.querySelector('.ev-body')).toBeTruthy());
+  openAll(target);
   return { target, component };
+}
+
+/**
+ * A closed section mounts nothing, so the parity checks open every disclosure first,
+ * the way a reader looking for the information would. Nested ones appear as their
+ * parents open, hence the few passes.
+ */
+function openAll(target: HTMLElement) {
+  for (let pass = 0; pass < 4; pass++) {
+    target.querySelectorAll('details:not([open])').forEach((d) => {
+      (d as HTMLDetailsElement).open = true;
+      d.dispatchEvent(new Event('toggle'));
+    });
+    target.querySelectorAll('[data-testid="preview-show-all"][aria-expanded="false"]').forEach((b) => (b as HTMLButtonElement).click());
+    flushSync();
+  }
 }
 
 async function renderRevision() {

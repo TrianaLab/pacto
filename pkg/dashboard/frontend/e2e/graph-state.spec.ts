@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { installServeInterceptor } from './graphServe';
 
 // Browser acceptance for Operational Graph SPATIAL STATE: semantics update while
 // the arrangement holds still.
@@ -28,57 +29,6 @@ interface Spatial { positions: Record<string, Point>; pan: Point; zoom: number }
 interface Semantics {
   nodes: { id: string; status: string; label: string }[];
   edges: { id: string; state: string }[];
-}
-
-/** Amends the ONE neighborhood response under test, in the page, before the app parses it. */
-function installServeInterceptor(): void {
-  interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
-  const w = window as unknown as { __pactoMutate?: string };
-  let real: Serve | null = null;
-  const NEW = 'synthetic-probe-service';
-  const wrapped: Serve = (method, path, body) => {
-    const res = (real as Serve)(method, path, body);
-    const mode = w.__pactoMutate;
-    if (!mode || !path.startsWith('/api/fleet/neighborhood') || res.status !== 200) return res;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let doc: any;
-    try { doc = JSON.parse(res.body); } catch { return res; }
-    if (!doc || !Array.isArray(doc.nodes) || !doc.nodes.length) return res;
-    if (mode === 'semantic') {
-      // Same topology, different truth: statuses, labels and reconciliation verdicts move.
-      for (const n of doc.nodes) {
-        if (n.focus) continue;
-        n.status = 'NonCompliant';
-        // A PREFIX, not a suffix: canvas labels are truncated at 18 characters, so a
-        // suffix would be invisible on the canvas and the assertion would be vacuous.
-        n.ref.label = `rechecked-${n.ref.label || n.ref.key}`;
-      }
-      for (const e of doc.edges || []) {
-        if (e.relation === 'runs') continue;
-        if (e.serviceCorroboration) e.serviceCorroboration = 'expected-not-observed';
-        e.difference = 'observed-not-expected';
-      }
-    } else if (mode === 'addNode' && !doc.nodes.some((n: { ref: { key: string } }) => n.ref.key === NEW)) {
-      // Topology change: one genuinely new provider appears next to the focus.
-      const focus = doc.nodes.find((n: { focus?: boolean }) => n.focus) || doc.nodes[0];
-      const ref = { kind: 'service', key: NEW, label: NEW, href: `/fleet/services/${NEW}` };
-      doc.nodes.push({ ref, depth: 1, status: 'Unknown' });
-      doc.edges = doc.edges || [];
-      doc.edges.push({
-        id: `${focus.ref.key}->${NEW}`, from: focus.ref, to: ref, relation: 'dependency',
-        expected: true, observed: false, provenance: 'declared', difference: 'expected-not-observed',
-        declaredClaims: { total: 0, count: 0, truncated: false },
-        observationSources: { total: 0, count: 0, truncated: false },
-      });
-    }
-    return { status: res.status, body: JSON.stringify(doc), contentType: res.contentType };
-  };
-  Object.defineProperty(window, '__pactoServe', {
-    configurable: true,
-    get() { return real ? wrapped : undefined; },
-    set(v: Serve) { real = v; },
-  });
 }
 
 async function waitPainted(page: Page) {
@@ -149,8 +99,15 @@ async function waitStable(page: Page, tries = 25): Promise<Spatial> {
   return prev as Spatial;
 }
 
+/** Scrolls the canvas to the middle of the window: a point below the fold takes no mouse
+ *  events, and scrolling the page moves neither the graph nor its viewport. */
+async function centreCanvas(page: Page): Promise<void> {
+  await page.getByTestId('neighborhood-canvas').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+}
+
 /** Drags a node by a real mouse gesture, toward the middle of the canvas so it stays in view. */
 async function dragNode(page: Page, id: string, by = 130): Promise<void> {
+  await centreCanvas(page);
   const geom = await page.evaluate((nid) => {
     const c = document.querySelector('[data-testid="neighborhood-canvas"]') as
       (HTMLElement & { pactoGraphSpatial?: () => Spatial | null }) | null;
@@ -184,6 +141,16 @@ async function arrange(page: Page, id: string): Promise<Spatial> {
   expect(moved(after.positions[id], before.positions[id]), 'the drag moved the node').toBeGreaterThan(25);
   expect(after.zoom, 'the zoom changed').not.toBeCloseTo(before.zoom, 3);
   return after;
+}
+
+/** Waits until the browser store does (or no longer does) hold an arrangement at this
+ *  zoom. The save is debounced, so a reload is safe only once the store itself says so --
+ *  not after a guess at the debounce. Zoom is the arrangement's fingerprint: `arrange`
+ *  changes it, and a fresh layout fits to a different one. */
+async function expectSaved(page: Page, zoom: number, held = true): Promise<void> {
+  await expect.poll(() => page.evaluate((z) => Object.keys(sessionStorage)
+    .filter((k) => k.startsWith('pacto.graph.spatial.v1:'))
+    .some((k) => Math.abs(JSON.parse(sessionStorage.getItem(k) || '{}').zoom - z) < 1e-3), zoom)).toBe(held);
 }
 
 function expectSamePlace(after: Spatial, before: Spatial, ids: string[], tol = 1.5) {
@@ -225,7 +192,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
     // NonCompliant, so waiting for one of those would be satisfied before the refresh
     // even landed and every assertion after it would be vacuous.
     const nonCompliant = (s: Semantics | null) => s?.nodes.filter((n) => n.status === 'NonCompliant').length ?? 0;
-    await expect.poll(async () => (await readSemantics(page))?.nodes.filter((n) => n.label.startsWith('rechecked-')).length ?? 0,
+    await expect.poll(async () => (await readSemantics(page))?.nodes.filter((n) => n.label.startsWith('rechecked')).length ?? 0,
       { timeout: 15_000 }).toBeGreaterThan(0);
     const semAfter = (await readSemantics(page)) as Semantics;
     expect(semAfter.nodes.map((n) => n.id).sort(), 'topology unchanged').toEqual(semBefore!.nodes.map((n) => n.id).sort());
@@ -247,7 +214,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
     await waitPainted(page);
     const ids = Object.keys((await waitStable(page)).positions).sort();
     const arranged = await arrange(page, ids[0]);
-    await page.waitForTimeout(600); // the save is debounced
+    await expectSaved(page, arranged.zoom);
 
     await page.reload();
     await waitPainted(page);
@@ -297,7 +264,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
     expect(ids.some((i) => moved(relaid.positions[i], arranged.positions[i]) > 25), 'the layout was recomputed').toBe(true);
 
     // A reload must not resurrect what the user just threw away.
-    await page.waitForTimeout(600);
+    await expectSaved(page, arranged.zoom, false);
     await page.reload();
     await waitPainted(page);
     const afterReload = await waitStable(page);
@@ -311,7 +278,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
     // payments-service is a node in BOTH neighborhoods (orders-service depends on it), so
     // a leak would be visible as the same id sitting at the same dragged coordinates.
     const arranged = await arrange(page, 'payments-service');
-    await page.waitForTimeout(600);
+    await expectSaved(page, arranged.zoom);
 
     await page.evaluate(() => { location.hash = '#/fleet/graph/service/orders-service'; });
     await waitPainted(page);
@@ -330,5 +297,85 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
       { timeout: 20_000 }).toBe(false);
     const back = await waitStable(page);
     expectSamePlace(back, arranged, ['payments-service'], 2);
+  });
+});
+
+interface Lanes {
+  focusX: number;
+  zoom: number;
+  faded: number;
+  nodes: number;
+  groups: { id: string; x: number; edges: number; lane: string; label: string }[];
+  opened: string[];
+}
+
+/** The lane picture as the canvas holds it: where the groups sit, and what each one draws. */
+async function readLanes(page: Page): Promise<Lanes> {
+  return page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cy = (document.querySelector('[data-testid="neighborhood-canvas"]') as any)._cyreg.cy;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const groups = cy.nodes('[group = 1]').map((n: any) => {
+      const e = n.connectedEdges();
+      return { id: n.id(), x: n.position('x'), edges: e.length, lane: e.connectedNodes('[lane = 1]').map((l: any) => l.id()).join(','), label: e.data('elabel') || '' };
+    });
+    return {
+      focusX: cy.nodes('[isFocus = 1]').position('x'), zoom: cy.zoom(), faded: cy.nodes('[lane = 0].pacto-faded').length,
+      nodes: cy.nodes('[lane = 0]').length, groups,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      opened: cy.nodes('[lane = 0]').filter((n: any) => n.id().startsWith('far-')).map((n: any) => n.id()),
+    };
+  });
+}
+
+test.describe('Operational graph — a large neighborhood folds into lanes', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(installServeInterceptor);
+  });
+
+  test('two hops out folds into team groups, one edge each with its state and count, and a group opens in place', async ({ page }) => {
+    await page.goto(PAYMENTS);
+    await waitPainted(page);
+    await page.evaluate(() => { (window as unknown as { __pactoMutate?: string }).__pactoMutate = 'many'; });
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    const grouped = page.getByTestId('graph-grouped');
+    await expect(grouped).toContainText('60 grouped by team (4 groups)', { timeout: 15_000 });
+    // The group buttons are a row of buttons, not a sentence: no stray commas between them.
+    await expect(grouped.locator('ul')).not.toContainText(',');
+    await expect.poll(async () => (await readLanes(page)).groups.length, { timeout: 15_000 }).toBe(4);
+    const lanes = await readLanes(page);
+
+    // Every far entity calls a service that uses the focus, so every group is on the
+    // used-by side, right of the focus, with exactly one edge: into the used-by lane.
+    for (const g of lanes.groups) {
+      expect(g.x, `${g.id} sits right of the focus`).toBeGreaterThan(lanes.focusX);
+      expect(g.edges, `${g.id} draws one edge`).toBe(1);
+      expect(g.lane, `${g.id} attaches to its lane`).toBe('lane:used-by');
+    }
+    // The reconciliation colour survives the fold, in words and with how many carry it.
+    expect(lanes.groups.map((g) => g.label).sort()).toEqual(['matched (15)', 'observed, not expected (1)', 'observed, not expected (1)', 'observed, not expected (1)']);
+    // At fit the labels are still text: 14px labels never drawn under 0.7.
+    expect(lanes.zoom).toBeGreaterThanOrEqual(0.7 - 1e-6);
+    expect(lanes.faded).toBe(0);
+
+    // The full name shows on hover, and a click opens the group where it stands.
+    await centreCanvas(page);
+    const at = await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const c = document.querySelector('[data-testid="neighborhood-canvas"]') as any;
+      const p = c._cyreg.cy.getElementById('group:used-by:team-0').renderedPosition();
+      const r = c.getBoundingClientRect();
+      return { x: r.left + p.x, y: r.top + p.y };
+    });
+    await page.mouse.move(at.x, at.y);
+    await expect(page.getByTestId('neighborhood-canvas')).toHaveAttribute('title', 'team-0: 15 entities. Select to show them.');
+    await page.mouse.click(at.x, at.y);
+    await expect.poll(async () => (await readLanes(page)).opened.length, { timeout: 15_000 }).toBe(15);
+    const open = await readLanes(page);
+    expect(open.groups.map((g) => g.id)).not.toContain('group:used-by:team-0');
+    expect(open.nodes).toBe(lanes.nodes - 1 + 15);
+    // Opening a group pins nothing: nothing on the canvas is left faded.
+    expect(open.faded).toBe(0);
+    await expect(page.getByTestId('graph-drawer')).toHaveCount(0);
   });
 });

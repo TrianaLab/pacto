@@ -21,14 +21,14 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from '@
 const CORE = {
   path: '/operational-graph/',
   diagrams: [
-    ['Operational Graph', 'Fleet Query', 'Evidence Server', 'Live Kubernetes'],
+    ['Operational Graph', 'Queries', 'Evidence Server', 'Live Kubernetes'],
     ['EvidenceSet', 'Findings + Coverage', 'Query answers'],
   ],
 };
 
 const INSTANT_TARGET = {
   path: '/impact/',
-  diagrams: [['Semantic diff', 'Fleet Snapshot', 'Impact result', 'Owners to notify']],
+  diagrams: [['Semantic diff', 'Operational graph', 'Impact result', 'Owners to notify']],
 };
 
 // Owned by integrations/kubernetes/docs/overview.md and assembled into the site

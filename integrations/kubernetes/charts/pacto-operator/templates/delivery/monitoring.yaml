@@ -1,0 +1,47 @@
+{{- if .Values.delivery.enabled }}
+{{- if and .Values.delivery.recorder.enabled .Values.delivery.recorder.monitoring.enabled }}
+{{- $name := include "pacto-operator.delivery.recorderName" . }}
+{{- $ns := include "pacto-operator.delivery.namespace" . }}
+{{- $labels := include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-recorder") }}
+{{- $selector := include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-recorder") }}
+{{ include "pacto-operator.metricsService" (dict "name" (printf "%s-metrics" $name) "namespace" $ns "labels" $labels "port" 8080 "selector" $selector) }}
+---
+{{ include "pacto-operator.serviceMonitor" (dict "name" $name "namespace" $ns "labels" $labels "selector" $selector "monitor" dict) }}
+---
+# A Stage with spec.records.required stops moving on its own once more than
+# five operations wait for a record; this alert fires before anyone is asked.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  groups:
+    - name: pacto.delivery.records
+      rules:
+        - alert: PactoDeliveryRecordsPending
+          expr: max by (stream) (pacto_delivery_records_pending) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Stream {{ "{{ $labels.stream }}" }} has operations with no signed record"
+            description: >-
+              {{ "{{ $value }}" }} concluded operation(s) of stream {{ "{{ $labels.stream }}" }} have waited
+              more than 15 minutes for a record. Check the Stage's RecordStoreReady condition: the
+              registry or the signer may be down. A Stage with spec.records.required asks a person
+              before automation moves it again.
+        - alert: PactoDeliveryRecorderDown
+          expr: absent(up{job="{{ $name }}-metrics"} == 1)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The Pacto delivery recorder is not scraped"
+            description: >-
+              No recorder answered a scrape for 15 minutes, so no record is being written and the
+              pending alert cannot fire.
+{{- end }}
+{{- end }}

@@ -1,5 +1,8 @@
 /** Minimal hash router — returns a reactive route object. */
 
+import { pagedHash } from './paging.ts';
+import { DEFAULT_MAX_NODES, DEFAULT_VIEWS, type GraphState } from './graphState.ts';
+
 export interface Route {
   view:
     | 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail' | 'readiness'
@@ -13,7 +16,14 @@ export interface Route {
     | 'fleet-sources'   // /fleet/sources    product source list
     | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
     | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
-    | 'fleet-attention';// /fleet/attention  attention list
+    | 'fleet-attention' // /fleet/attention  attention list
+    // Delivery (only where the delivery component is installed).
+    | 'delivery-inbox'        // /delivery[/inbox]
+    | 'delivery-environments' // /delivery/environments
+    | 'delivery-autonomy'     // /delivery/autonomy
+    | 'delivery-change'       // /delivery/changes/:namespace/:name
+    | 'delivery-history'      // /delivery/history[?namespace=&stage=]
+    | 'delivery-publish';     // /delivery/publish
   params: Record<string, string>;
 }
 
@@ -95,6 +105,10 @@ export function parseHash(hash: string | null | undefined): Route {
     return parseFleet(path, query);
   }
 
+  if (path === 'delivery' || path.startsWith('delivery/')) {
+    return parseDelivery(path, query);
+  }
+
   // #/impact?svc=&old=&new=&observed=1 — the superseded standalone impact deep link.
   // It parses to the Change analysis workspace so an old bookmark still lands on the
   // right screen; a Fleet host also canonicalizes the URL (legacyRedirectTarget).
@@ -143,7 +157,9 @@ function parseFleet(path: string, query: string): Route {
     // route: perspective, knowledge views, direction, depth and the
     // focus (kind/sel). The former domain/scope/owner/status/source/freshness params
     // were placebo URL state no view or backend consumed, so they are not parsed.
-    for (const k of ['perspective', 'views', 'direction', 'depth', 'sel', 'kind']) {
+    // maxNodes too: "Show up to 100" writes it, and dropping it here made the button a
+    // no-op that left the graph at the default.
+    for (const k of ['perspective', 'views', 'direction', 'depth', 'sel', 'kind', 'maxNodes']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -159,7 +175,7 @@ function parseFleet(path: string, query: string): Route {
     // attention list is deep-linkable and back/forward restores the exact page.
     // `owner` is what the reader typed and `ownerKey` is the canonical owner an
     // owner-page link carried; they are two different questions, so both travel.
-    for (const k of ['category', 'offset', 'owner', 'ownerKey', 'source', 'service', 'severity', 'status', 'staleOnly']) {
+    for (const k of ['category', 'offset', 'limit', 'owner', 'ownerKey', 'source', 'service', 'severity', 'status', 'staleOnly']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -195,7 +211,7 @@ function parseFleet(path: string, query: string): Route {
     // URL params no view consumed, so they are not parsed here.
     // `ownership` is a real Entities filter over services (consistent/conflicting/
     // unowned), and it is what makes "12 services have no declared owner" a link.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'offset']) {
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -215,7 +231,7 @@ function parseFleet(path: string, query: string): Route {
     // `readiness` is parsed for REVISIONS only. Readiness is declared and assessed per
     // contract revision, and the Entities API rejects the filter on any other kind, so
     // carrying it on /fleet/targets would be an inert param that 422s if anyone used it.
-    const keys = ['text', 'service', 'status', 'scope', 'offset'];
+    const keys = ['text', 'service', 'status', 'scope', 'offset', 'limit', 'sort'];
     for (const k of isRevisions ? [...keys, 'readiness'] : keys) {
       const v = qs.get(k);
       if (v) params[k] = v;
@@ -228,7 +244,7 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'owners' || rest === 'sources') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['text', 'sourceHealth', 'offset']) {
+    for (const k of ['text', 'sourceHealth', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -242,6 +258,29 @@ function parseFleet(path: string, query: string): Route {
 
   // Unknown /fleet/* falls back to the overview, never a broken screen.
   return { view: 'fleet-overview', params: {} };
+}
+
+// The URL state of a delivery list: which Stage, which page and the filter.
+const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'held', 'frozen', 'errored', 'blockers', 'show'];
+
+function parseDelivery(path: string, query: string): Route {
+  const rest = path.slice('delivery'.length).replace(/^\//, '');
+  const change = rest.match(/^changes\/([^/]+)\/([^/]+)$/);
+  if (change) {
+    return { view: 'delivery-change', params: { namespace: decodeURIComponent(change[1]), name: decodeURIComponent(change[2]) } };
+  }
+  const params: Record<string, string> = {};
+  const qs = new URLSearchParams(query);
+  for (const k of DELIVERY_QUERY) {
+    const v = qs.get(k);
+    if (v) params[k] = v;
+  }
+  // One Stage's history needs both halves of its name.
+  if (!params.namespace || !params.stage) { delete params.namespace; delete params.stage; }
+  const views: Record<string, Route['view']> = {
+    environments: 'delivery-environments', autonomy: 'delivery-autonomy', publish: 'delivery-publish', history: 'delivery-history',
+  };
+  return { view: views[rest] ?? 'delivery-inbox', params };
 }
 
 // replaceHash canonicalizes the current URL to `hash` WITHOUT pushing a history entry,
@@ -385,6 +424,15 @@ export function fleetOverviewUrl(): string {
   return '#/fleet';
 }
 
+/** The page, page size and order a Fleet list keeps in its URL; zero and empty stay out. */
+export interface ListPaging { offset?: number; limit?: number; sort?: string }
+
+function setPaging(qs: URLSearchParams, p: ListPaging) {
+  if (p.offset && p.offset > 0) qs.set('offset', String(p.offset));
+  if (p.limit && p.limit > 0) qs.set('limit', String(p.limit));
+  if (p.sort) qs.set('sort', p.sort);
+}
+
 // fleetServicesUrl builds the product service-list route, preserving the backend
 // filters the list implements and the page offset in the URL so a filtered/paged
 // list is deep-linkable and restored by refresh/back/forward. A zero/absent offset
@@ -393,7 +441,7 @@ export function fleetOverviewUrl(): string {
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string; offset?: number;
-} = {}): string {
+} & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   // Two owner questions, two params. `owner` is free-text SEARCH (a substring over
@@ -408,26 +456,26 @@ export function fleetServicesUrl(opts: {
   if (opts.ownership) qs.set('ownership', opts.ownership);
   if (opts.status) qs.set('status', opts.status);
   if (opts.domain) qs.set('domain', opts.domain);
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';
 }
 
 // fleetOwnersUrl / fleetSourcesUrl build the product owner/source list routes,
 // preserving the search text, the source-health filter and the page offset.
-export function fleetOwnersUrl(opts: { text?: string; offset?: number } = {}): string {
+export function fleetOwnersUrl(opts: { text?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/owners?${str}` : '#/fleet/owners';
 }
 
-export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; offset?: number } = {}): string {
+export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.sourceHealth) qs.set('sourceHealth', opts.sourceHealth);
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/sources?${str}` : '#/fleet/sources';
 }
@@ -438,8 +486,8 @@ export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; of
 // into a complete, paged answer. Any other kind falls back to its own list route,
 // because services/owners/sources already have one.
 export function fleetEntityListUrl(kind: string, opts: {
-  service?: string; text?: string; status?: string; scope?: string; readiness?: string; offset?: number;
-} = {}): string {
+  service?: string; text?: string; status?: string; scope?: string; readiness?: string;
+} & ListPaging = {}): string {
   if (kind !== 'revision' && kind !== 'target') {
     return kind === 'owner' ? fleetOwnersUrl() : kind === 'source' ? fleetSourcesUrl() : fleetServicesUrl();
   }
@@ -451,7 +499,7 @@ export function fleetEntityListUrl(kind: string, opts: {
   // Revisions only: the Entities API rejects a readiness filter on a target, so
   // emitting one here would build a URL that 422s.
   if (opts.readiness && kind === 'revision') qs.set('readiness', opts.readiness);
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   const plural = kind === 'revision' ? 'revisions' : 'targets';
   return str ? `#/fleet/${plural}?${str}` : `#/fleet/${plural}`;
@@ -472,41 +520,25 @@ export function fleetGraphDiscoveryUrl(): string {
   return '#/fleet/graph';
 }
 
-// GraphState is the shareable state of the search-first Operational Graph (Q). The
-// focus (kind + key) is a path segment; the projection/perspective, knowledge views,
-// direction and depth are query params, so back/forward restores a meaningful graph and
-// never ephemeral canvas coordinates. There are no advanced-filter params: the graph
-// only carries state the Product Neighborhood actually consumes.
-export interface GraphState {
-  kind?: string;
-  key?: string;
-  perspective?: string;
-  views?: string[];
-  direction?: string;
-  depth?: number;
-  maxNodes?: number;
+// sameViews reports whether two view sets hold the same views, in any order.
+function sameViews(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && b.every((v) => a.includes(v));
 }
 
 // fleetGraphFocusUrl builds a focused graph URL from (kind, key) plus optional graph
-// state. With no key it returns the discovery landing.
-// isDefaultGraphViews reports whether views are exactly the focused default
-// (expected + differences), so a canonical URL omits them (kept in sync with
-// graphState.DEFAULT_VIEWS; a small deliberate duplication that keeps this low-level
-// route builder free of a graph-state import).
-function isDefaultGraphViews(v?: string[]): boolean {
-  return !!v && v.length === 2 && v.includes('expected') && v.includes('differences');
-}
-
-export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphState, 'kind' | 'key'> = {}): string {
+// state (graphState.ts's GraphState). With no key it returns the discovery landing. The
+// focus is a path segment; the perspective, knowledge views, direction, depth and node
+// budget are query params, each omitted at its graphState default so a canonical URL
+// stays short.
+export function fleetGraphFocusUrl(kind: string, key: string, state: Partial<Omit<GraphState, 'kind' | 'key'>> = {}): string {
   if (!key) return fleetGraphDiscoveryUrl();
   const qs = new URLSearchParams();
   if (state.perspective && state.perspective !== 'service') qs.set('perspective', state.perspective);
-  if (state.views && state.views.length && !isDefaultGraphViews(state.views)) qs.set('views', state.views.join(','));
+  if (state.views && state.views.length && !sameViews(state.views, DEFAULT_VIEWS)) qs.set('views', state.views.join(','));
   if (state.direction && state.direction !== 'both') qs.set('direction', state.direction);
   if (state.depth && state.depth !== 1) qs.set('depth', String(state.depth));
-  // 60 is the backend default, so it is the URL's default too: only a raised node
-  // budget is worth carrying, and a canonical URL stays short.
-  if (state.maxNodes && state.maxNodes !== 60) qs.set('maxNodes', String(state.maxNodes));
+  // Only a budget other than the default is worth carrying.
+  if (state.maxNodes && state.maxNodes !== DEFAULT_MAX_NODES) qs.set('maxNodes', String(state.maxNodes));
   const base = `#/fleet/graph/${encodeURIComponent(kind)}/${encodeURIComponent(key)}`;
   const str = qs.toString();
   return str ? `${base}?${str}` : base;
@@ -518,7 +550,7 @@ export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphS
 export function fleetAttentionUrl(opts: {
   category?: string; offset?: number; owner?: string; ownerKey?: string; source?: string; service?: string;
   severity?: string; status?: string; staleOnly?: boolean;
-} = {}): string {
+} & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.category) qs.set('category', opts.category);
   // Free-text owner SEARCH and exact canonical owner IDENTITY -- see fleetServicesUrl.
@@ -532,7 +564,7 @@ export function fleetAttentionUrl(opts: {
   if (opts.severity) qs.set('severity', opts.severity);
   if (opts.status) qs.set('status', opts.status);
   if (opts.staleOnly) qs.set('staleOnly', '1');
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/attention?${str}` : '#/fleet/attention';
 }
@@ -568,4 +600,34 @@ export function compareDiffUrl(opts: { fromName?: string; fromVer?: string; toNa
   if (opts.toVer) qs.set('to_ver', opts.toVer);
   const str = qs.toString();
   return str ? `#/diff?${str}` : '#/diff';
+}
+
+// ── delivery navigation ──────────────────────────────────────────────────────
+
+/** The paging and filter a delivery list keeps in its URL. */
+export type DeliveryListQuery = Record<string, string | number | null | undefined>;
+
+export function deliveryInboxUrl(q: DeliveryListQuery = {}): string {
+  return pagedHash('#/delivery/inbox', q);
+}
+
+export function deliveryEnvironmentsUrl(q: DeliveryListQuery = {}): string {
+  return pagedHash('#/delivery/environments', q);
+}
+
+export function deliveryAutonomyUrl(q: DeliveryListQuery = {}): string {
+  return pagedHash('#/delivery/autonomy', q);
+}
+
+export function deliveryPublishUrl(q: DeliveryListQuery = {}): string {
+  return pagedHash('#/delivery/publish', q);
+}
+
+export function deliveryHistoryUrl(opts: { namespace?: string; stage?: string } & DeliveryListQuery = {}): string {
+  const { namespace, stage, ...q } = opts;
+  return pagedHash('#/delivery/history', namespace && stage ? { namespace, stage, ...q } : q);
+}
+
+export function deliveryChangeUrl(namespace: string, name: string): string {
+  return `#/delivery/changes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
 }

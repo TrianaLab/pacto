@@ -43,7 +43,7 @@
     <PostureBars
       summary={sum}
       {attentionUrl}
-      empty="Nothing running has been observed for this owner's services, so there is no compliance, identity or freshness picture yet."
+      empty="Nothing running has been seen for these services yet."
     />
   </section>
 
@@ -83,6 +83,6 @@
   .oe-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--sp-3); }
   .oe-attn { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .oe-attn-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .oe-cat { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em; color: var(--c-text-3); background: var(--c-surface-inset); padding: 1px 6px; border-radius: var(--radius-xs); }
+  .oe-cat { color: var(--c-text-3); background: var(--c-surface-inset); padding: 1px 6px; border-radius: var(--radius-xs); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .oe-sum { color: var(--c-text-2); font-size: var(--text-sm); }
 </style>

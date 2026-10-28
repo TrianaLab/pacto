@@ -3,12 +3,16 @@
   import SectionState from './SectionState.svelte';
   import MarkdownView from '../MarkdownView.svelte';
   import { methodClass } from '../lib/format.ts';
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
 
   let { capabilities = [], skills = [], open = $bindable(false), id = '' } = $props();
 
   let count = $derived((capabilities?.length || 0) + (skills?.length || 0));
   let hasContent = $derived(count > 0);
   let expanded = $state({});
+  const toolRows = cap(25);
+  const skillRows = cap(25);
 
   function toggleSkill(i) {
     expanded = { ...expanded, [i]: !expanded[i] };
@@ -22,14 +26,14 @@
       <table class="cap-table">
         <thead><tr><th>Method</th><th>Path</th><th>Tool</th><th>Summary</th></tr></thead>
         <tbody>
-          {#each capabilities as tool}
+          {#each toolRows.slice(capabilities) as tool}
             <tr>
               <td><span class="badge {methodClass(tool.method)}">{tool.method}</span></td>
               <td><code>{tool.path}</code></td>
               <td>
                 <code class="tool-name">{tool.name}</code>
                 {#if tool.mutating}
-                  <span class="badge badge-warn" data-tip="Mutating operation — exposed to agents only with --allow-writes">write</span>
+                  <span class="badge badge-warn" data-tip="Mutating operation. Agents see it only with --allow-writes">write</span>
                 {/if}
               </td>
               <td class="muted">{tool.summary || ''}</td>
@@ -38,6 +42,7 @@
         </tbody>
       </table>
       </div>
+      <ShowAll cap={toolRows} total={capabilities.length} noun="tools" />
     {/if}
 
     {#if skills?.length > 0}
@@ -46,7 +51,7 @@
              is h3. h4 only read as legal while an earlier section happened to supply
              the missing h3. -->
         <h3>Skills</h3>
-        {#each skills as skill, i}
+        {#each skillRows.slice(skills) as skill, i}
           <div class="detail-card">
             <button type="button" class="detail-card-header" onclick={() => toggleSkill(i)}>
               <span class="expand-icon" data-motion class:open={expanded[i]}>
@@ -62,6 +67,7 @@
             {/if}
           </div>
         {/each}
+        <ShowAll cap={skillRows} total={skills.length} noun="skills" />
       </div>
     {/if}
   </CollapsibleSection>
@@ -78,35 +84,9 @@
   .skills { margin-top: var(--sp-3); }
   .skills h3 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
 
-  .detail-card {
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    margin-bottom: var(--sp-2);
-  }
-  .detail-card-header {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    width: 100%;
-    padding: var(--sp-3);
-    background: none;
-    border: none;
-    font: inherit;
-    color: var(--c-text);
-    text-align: left;
-    cursor: pointer;
-  }
+  /* A skill header lines its parts up from the left and always opens. */
+  .detail-card-header { justify-content: flex-start; gap: var(--sp-2); cursor: pointer; }
   .detail-card-header:hover { background: var(--c-surface-hover, var(--c-surface-inset)); border-radius: var(--radius-sm); }
-  .expand-icon {
-    display: inline-flex;
-    color: var(--c-text-3);
-    transform: rotate(-90deg);
-    flex-shrink: 0;
-  }
-  .expand-icon.open { transform: rotate(0deg); }
-  .expand-icon svg { width: 12px; height: 12px; }
   .pill-skill { background: var(--c-accent-bg); color: var(--c-accent); font-size: var(--text-xs); flex-shrink: 0; }
   .skill-name { font-weight: 600; }
-  .detail-card-body { padding: 0 var(--sp-3) var(--sp-3); }
 </style>

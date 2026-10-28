@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   import { onDestroy, untrack } from 'svelte';
   import { createEntitySuggest } from '../lib/entitySuggest.svelte.ts';
   import EntityIdentity from './EntityIdentity.svelte';
@@ -50,7 +51,7 @@
   // aloud is the count on screen.
   const liveMsg = $derived(
     !expanded || suggest.loading ? ''
-      : results.length ? `${results.length} suggestion${results.length === 1 ? '' : 's'}`
+      : results.length ? `${formatCount(results.length)} suggestion${results.length === 1 ? '' : 's'}`
         : 'No suggestions',
   );
 
@@ -62,6 +63,9 @@
   }
 
   function close() { openList = false; activeIdx = -1; }
+
+  // The highlighted suggestion stays in view as the arrows move it.
+  $effect(() => { if (activeId) document.getElementById(activeId)?.scrollIntoView?.({ block: 'nearest' }); });
 
   function choose(r) {
     close();
@@ -148,7 +152,7 @@
           </button>
         {/each}
         {#if suggest.truncated}
-          <div class="cb-msg cb-trunc">Showing {results.length} of {suggest.total}. Keep typing to narrow.</div>
+          <div class="cb-msg cb-trunc">Showing {formatCount(results.length)} of {formatCount(suggest.total)}. Keep typing to narrow.</div>
         {/if}
       {/if}
     </div>
@@ -175,4 +179,9 @@
     min-height: var(--touch-min);
   }
   .cb-item.active { background: var(--c-surface-hover); }
+  /* One line per option: the name ellipsizes (whole in its title) and the context that
+     tells two same-named entities apart keeps its place instead of wrapping last. */
+  .cb-item :global(.entity-identity) { flex-wrap: nowrap; min-width: 0; }
+  .cb-item :global(.ei-label) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cb-item :global(.ei-context) { flex-shrink: 0; max-width: 45%; overflow: hidden; white-space: nowrap; }
 </style>

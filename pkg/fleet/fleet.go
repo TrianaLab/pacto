@@ -392,6 +392,12 @@ type ServiceRecord struct {
 	Labels    map[string]string `json:"labels,omitempty"`
 	Status    string            `json:"status,omitempty"`
 	Sources   []string          `json:"sources,omitempty"`
+	// HiddenDependencies and HiddenDependents count the services this one
+	// depends on or calls, and that depend on or call it, which the caller's
+	// Kubernetes permissions hide. They are never named. Zero outside a
+	// restricted answer.
+	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
+	HiddenDependents   int `json:"hiddenDependents,omitempty"`
 }
 
 // ContractRevision is an immutable resolved revision. It embeds a reference to
@@ -604,6 +610,15 @@ type Relationship struct {
 	LockedDigest   string `json:"lockedDigest,omitempty"`
 	LockedVersion  string `json:"lockedVersion,omitempty"`
 	Reason         string `json:"reason,omitempty"`
+	// External marks a declared dependency this Pacto system does not deliver:
+	// it is not expected in the fleet, so not resolving is not a gap. Version
+	// is the free-text version an external dependency with no ref declares.
+	External bool   `json:"external,omitempty"`
+	Version  string `json:"version,omitempty"`
+	// Hidden marks a declared dependency that resolves to a service the
+	// caller's Kubernetes permissions hide: ToService and ResolvedRevision are
+	// blank, and To is only what the declaring contract itself says.
+	Hidden bool `json:"hidden,omitempty"`
 	// ObservedCount is the TOTAL runtime calls witnessed across all sources for an
 	// observed (Provenance == observed) edge. Zero for declared edges.
 	ObservedCount int `json:"observedCount,omitempty"`
@@ -621,6 +636,10 @@ type Relationship struct {
 	FirstSeen *time.Time `json:"firstSeen,omitempty"`
 	LastSeen  *time.Time `json:"lastSeen,omitempty"`
 }
+
+// missing reports whether a declared dependency failed to resolve in a way
+// worth reporting: an external one is not expected in the fleet.
+func (r Relationship) missing() bool { return !r.Resolved && !r.External }
 
 // ObservedSourceStat is one observation source's contribution to an observed
 // relationship: the calls it witnessed and the window it saw them in.
@@ -648,6 +667,9 @@ type FleetSnapshot struct {
 	Sources       []SourceState                     `json:"sources"`
 	Completeness  Completeness                      `json:"completeness"`
 	Limitations   []Limitation                      `json:"limitations,omitempty"`
+	// UncontractedCallers are observed callers with no contract of a service
+	// that has one. Sorted by (ToService, Caller).
+	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`
 
 	// reverseDeps maps a service KEY to the keys of services that declare a
 	// dependency on it, across all their revisions (the dependents index). Built
@@ -667,6 +689,18 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
+}
+
+// UncontractedCaller is a runtime caller no contract describes, of a service
+// that has one. Caller is the raw observed identity, for example
+// "k8s:payments/Deployment/legacy-billing"; the k8s: prefix keeps it from ever
+// resolving to a contracted service by accident.
+type UncontractedCaller struct {
+	Caller    string     `json:"caller"`
+	ToService ServiceKey `json:"toService"`
+	Sources   []string   `json:"sources"`
+	// Ambiguous is set when the caller name matched more than one service.
+	Ambiguous bool `json:"ambiguous,omitempty"`
 }
 
 // Service returns the logical service record by name, or nil.

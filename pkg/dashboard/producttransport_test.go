@@ -271,11 +271,12 @@ func adversarialImpactResult() (*impact.Result, int, int) {
 	for i := range targets {
 		targets[i] = fmt.Sprintf("prod/k8s/t-%03d", i)
 	}
-	lims := make([]fleet.Limitation, impact.MaxProductLimitations+11)
+	// Analyze already capped the limitations; the product carries that truncation.
+	lims := make([]fleet.Limitation, fleet.MaxMetaLimitations)
 	for i := range lims {
 		lims[i] = fleet.Limitation{Code: fmt.Sprintf("L%03d", i)}
 	}
-	return &impact.Result{Consumers: consumers, Owners: owners, ActiveTargets: targets, Limitations: lims}, nConsumers, len(longPath)
+	return &impact.Result{Consumers: consumers, Owners: owners, ActiveTargets: targets, Limitations: lims, LimitationsTruncated: true}, nConsumers, len(longPath)
 }
 
 // TestProductImpact_ListsBounded proves owners, active targets, limitations and
@@ -290,7 +291,7 @@ func TestProductImpact_ListsBounded(t *testing.T) {
 	if p.ActiveTargets.Count != impact.MaxProductActiveTargets || !p.ActiveTargets.Truncated {
 		t.Errorf("active targets not bounded: %+v", p.ActiveTargets)
 	}
-	if p.Limitations.Count != impact.MaxProductLimitations || !p.Limitations.Truncated {
+	if p.Limitations.Count != fleet.MaxMetaLimitations || !p.Limitations.Truncated {
 		t.Errorf("limitations not bounded: %+v", p.Limitations)
 	}
 	c0 := p.Consumers.Items[0]
@@ -472,8 +473,11 @@ func TestStubProvidersForSchemaExport(t *testing.T) {
 	if _, err := s.opts.Fleet(context.Background()); err == nil {
 		t.Error("stub fleetQuery must error")
 	}
-	if _, err := s.opts.Impact(context.Background(), "old", "new", false); err == nil {
+	if _, err := s.opts.Impact(context.Background(), nil, "old", "new", false); err == nil {
 		t.Error("stub impactProvider must error")
+	}
+	if _, err := s.opts.Delivery(nil); err == nil {
+		t.Error("stub delivery must error")
 	}
 }
 

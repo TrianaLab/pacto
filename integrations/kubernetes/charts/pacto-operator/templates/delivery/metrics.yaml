@@ -1,0 +1,12 @@
+{{- if and .Values.delivery.enabled .Values.delivery.metrics.enabled }}
+{{- $ns := include "pacto-operator.delivery.namespace" . }}
+{{- $labels := include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-metrics") }}
+# The promoter's metrics, plain HTTP on port 8080 (docs/delivery-setup.md lists
+# them). The recorder's have their own Service under delivery.recorder.monitoring, so
+# this one leaves the recorder out rather than have it scraped twice.
+{{ include "pacto-operator.metricsService" (dict "name" (printf "%s-metrics" (include "pacto-operator.delivery.fullname" .)) "namespace" $ns "labels" $labels "port" 8080 "selector" (include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-promoter"))) }}
+{{- if .Values.delivery.metrics.serviceMonitor.enabled }}
+---
+{{ include "pacto-operator.serviceMonitor" (dict "name" (include "pacto-operator.delivery.fullname" .) "namespace" $ns "labels" $labels "selector" (include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-metrics")) "monitor" .Values.delivery.metrics.serviceMonitor) }}
+{{- end }}
+{{- end }}

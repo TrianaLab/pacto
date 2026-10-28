@@ -95,7 +95,7 @@ func validateContractRef(ref string, allowedRepos []string) error {
 	}
 	body := contract.TrimOCIScheme(ref)
 	repo, digest, ok := strings.Cut(body, "@")
-	if !ok || !validSHA256Digest(digest) {
+	if !ok || !ValidSHA256Digest(digest) {
 		return ErrContractRefPolicy // require a complete immutable digest, not a mutable tag
 	}
 	if repo == "" {
@@ -117,10 +117,13 @@ func digestOf(ref string) string {
 	return digest
 }
 
-// validSHA256Digest reports whether d is a complete "sha256:<64 lowercase hex>"
+// ValidSHA256Digest reports whether d is a complete "sha256:<64 lowercase hex>"
 // digest — the full immutable shape, so a truncated or malformed digest is
 // rejected rather than accepted because it merely contains the "@sha256:" marker.
-func validSHA256Digest(d string) bool {
+// Only sha256 is accepted: the contract digest is the identity every other Pacto
+// surface compares against, so a second algorithm would create a second spelling
+// of the same revision. The OCI evidence store applies the same rule.
+func ValidSHA256Digest(d string) bool {
 	const prefix = "sha256:"
 	hex, ok := strings.CutPrefix(d, prefix)
 	if !ok || len(hex) != 64 {

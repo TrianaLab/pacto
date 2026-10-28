@@ -6,6 +6,7 @@ pacto diff examples/demo/bundles/payments-service/v1.0.0 examples/demo/bundles/p
 
 ```console
 Classification: POTENTIAL_BREAKING
+Required bump: minor
 Changes (6):
   [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 1.1.0]
   [NON_BREAKING] asyncapi.channels[payment.failed] (added): channel payment.failed added [+ payment.failed]

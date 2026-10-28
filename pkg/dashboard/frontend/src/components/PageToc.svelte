@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   // "On this page": ONE navigator, shared by every long product page.
   //
   // Entries are DISCOVERED from the rendered DOM -- every element carrying an id and a
@@ -12,6 +13,7 @@
   // there is room for one, and a closed disclosure under the page title where there is
   // not. A <details> is both, which is why there is no second implementation and no
   // ARIA of our own -- the open/closed state is native, and so is keyboard and touch.
+  import { tick } from 'svelte';
   import { prefersReducedMotion } from '../lib/motion.ts';
 
   let { label = 'On this page', minEntries = 3, wide = '(min-width: 1100px)' } = $props();
@@ -131,12 +133,20 @@
   function go(id) {
     const el = document.getElementById(id);
     if (!el) return;
-    for (let p = el; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+    const scroll = () => el.scrollIntoView?.({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+    for (let p = el; p; p = p.parentElement) {
+      if (p.tagName !== 'DETAILS' || p.open) continue;
+      // A closed section mounts its content only once it has opened, which grows the
+      // page after the first scroll was aimed. Aim again once that content is in, unless
+      // the reader has taken over or chosen another section since.
+      p.addEventListener('toggle', () => tick().then(() => { if (pinned && current === id) scroll(); }), { once: true });
+      p.open = true;
+    }
     // Answer the click immediately and hold that answer. The section is current because
     // the reader chose it, not because a scroll animation eventually gets there.
     current = id;
     pinned = true;
-    el.scrollIntoView?.({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+    scroll();
     // Send the keyboard caret with the viewport, so the next Tab continues from the
     // section the reader asked for rather than from the next rail entry.
     el.setAttribute('tabindex', '-1');
@@ -153,7 +163,7 @@
       <summary class="toc-summary" onclick={() => { touched = true; }}>
         <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
         <span class="toc-title t-label">{label}</span>
-        <span class="toc-count t-meta">{entries.length}</span>
+        <span class="toc-count t-meta">{formatCount(entries.length)}</span>
       </summary>
       <!-- Buttons, not links. An href="#section-id" would introduce a SECOND meaning for
            the URL fragment in a hash-routed application: clicking one would leave the
@@ -207,5 +217,8 @@
      already as tall as the row and has nowhere to stick to. */
   @media (min-width: 1100px) {
     .toc { position: sticky; top: calc(var(--navbar-h) + var(--sp-4)); align-self: start; }
+    /* A pointer rail, not a touch list: 30px rows still clear the 24px target minimum
+       (WCAG 2.5.8) and keep a revision page's ten entries above the fold. */
+    .toc-link { min-height: 30px; padding: var(--sp-1) var(--sp-2); line-height: 1.35; }
   }
 </style>

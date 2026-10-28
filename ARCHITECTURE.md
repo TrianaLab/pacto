@@ -7,7 +7,7 @@ Dependencies flow in one direction.
 *contract* is declared operational intent. *Evidence* is what a collector
 observed about a running system. `Evaluate` is a pure function that compares the
 two and returns typed findings plus coverage. Everything else — the CLI, the
-dashboard, the operator — is delivery. A contract adds a relational and temporal
+dashboard, the operator — is a surface. A contract adds a relational and temporal
 layer over the interface specs it composes rather than replaces: ownership,
 dependencies, compatibility, readiness. That layer is why the core splits into
 `pkg/graph` (dependencies), `pkg/diff` (compatibility and change over time) and
@@ -201,6 +201,16 @@ reason.
 | `pkg/catalog` is framework-independent | It imports `pkg/contract`, go-digest and the standard library, and nothing else, so catalog semantics can never become a property of one delivery mechanism. |
 | `pkg/fleet` is route-neutral | The operational graph owns canonical identities, query facts, completeness and limitations, and returns route-neutral entity references. Turning a reference into a navigable URL is a *transport* concern: the dashboard transport adds an href built from the canonical key through a single route builder. MCP and other non-dashboard consumers read the same facts and must never receive dashboard URLs. Enforced by `TestFleetStaysRouteNeutral` in `tests/architecture`. |
 | Every assertion needs a possible Evidence path | An assertion no collector can produce Evidence for leaves a service permanently `Unknown`. This is why `verification.conformance` was removed: nothing produces interface-conformance Evidence, so declaring an `interfaces[]` entry requires runtime *availability* Evidence instead. Conformance can return once a real observation kind and evaluator exist for it — a schema field is not enough. |
+
+## Where the "How Pacto decides" pages live in the code
+
+The reader pages on pacto.run leave package names out. For contributors:
+
+| Page | Code |
+|---|---|
+| [The model](docs/model.md) | `pkg/contract` (the `Contract` type), `pkg/evidence` (`EvidenceSet`), `pkg/validation/evaluate.go` (`Evaluate`); the runtime watcher in `internal/runtimewatch`, its facts in `pkg/runtimefacts` and its probes in `pkg/probe` |
+| [Operational graph](docs/operational-graph.md) | `pkg/fleet`. The frozen view is the **Fleet Snapshot** and the query layer over it the **Fleet Query** |
+| [Impact analysis](docs/impact.md) | `pkg/impact`, over `pkg/diff` and the `pkg/fleet` snapshot. It imports no Kubernetes, OCI, dashboard, MCP or HTTP code, so the CLI, the MCP tool and the dashboard return the same answer for the same snapshot |
 
 ## See also
 

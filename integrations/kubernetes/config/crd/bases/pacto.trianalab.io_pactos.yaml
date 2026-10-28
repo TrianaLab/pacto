@@ -176,7 +176,7 @@ spec:
                   interfaceBindings:
                     description: |-
                       InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes
-                      deployment knowledge — lives on the CR, NOT the platform-agnostic contract.
+                      deployment knowledge, so it lives on the CR and the contract stays platform-agnostic.
                     items:
                       description: InterfaceBinding maps a contract interface to the
                         Service port that serves it (B4).
@@ -468,22 +468,78 @@ spec:
                       description: Compatibility is the semver constraint for the
                         dependency.
                       type: string
+                    external:
+                      description: |-
+                        External marks a dependency this Pacto system does not run, such as a
+                        managed database or a hosted model.
+                      type: boolean
                     name:
                       description: Name is the dependency name (required, unique within
                         contract).
                       type: string
                     ref:
-                      description: Ref is the dependency reference (OCI URI).
+                      description: |-
+                        Ref is the dependency reference (OCI URI). Empty for an external
+                        dependency that has no contract.
                       type: string
                     required:
                       description: Required indicates whether this dependency is mandatory.
                       type: boolean
+                    version:
+                      description: |-
+                        Version is the free-text version an external dependency without a ref
+                        declares.
+                      type: string
                   required:
                   - name
-                  - ref
                   - required
                   type: object
                 type: array
+              evaluatedRevision:
+                description: |-
+                  EvaluatedRevision ties this status to the exact contract and workload
+                  generation it was computed from, so a result for an old version is never
+                  read as the answer for a new one. A consumer acting on contractStatus
+                  (the opt-in Pacto delivery promoter) must check it first.
+                properties:
+                  contractDigest:
+                    description: |-
+                      ContractDigest is the OCI manifest digest of the evaluated contract
+                      bundle. Empty for inline contracts.
+                    type: string
+                  kernelCoverage:
+                    description: |-
+                      KernelCoverage is how far the node agent's view of the workload's pods
+                      could be trusted in this evaluation, the worst pod first: Complete,
+                      Partial, Failed or Stale. Empty when kernel evidence is off. Complete
+                      is what lets a reader tell "observed and clean" from "not observed".
+                    enum:
+                    - Complete
+                    - Partial
+                    - Failed
+                    - Stale
+                    type: string
+                  workload:
+                    description: |-
+                      Workload is the workload object and generation the evaluation read.
+                      Absent for a reference-only contract or a workload that does not exist.
+                    properties:
+                      generation:
+                        format: int64
+                        type: integer
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      uid:
+                        type: string
+                    required:
+                    - generation
+                    - kind
+                    - name
+                    - uid
+                    type: object
+                type: object
               evaluationCoverage:
                 description: |-
                   EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects
@@ -598,11 +654,12 @@ spec:
                       type: string
                     type:
                       description: 'Type is the interface type: openapi, asyncapi,
-                        or grpc.'
+                        grpc or mcp.'
                       enum:
                       - openapi
                       - asyncapi
                       - grpc
+                      - mcp
                       type: string
                     visibility:
                       description: 'Visibility is the declared visibility: public
@@ -614,7 +671,9 @@ spec:
                   type: object
                 type: array
               lastReconciledAt:
-                description: LastReconciledAt is when the last reconciliation completed.
+                description: |-
+                  LastReconciledAt is when the status was last written: on a change, and at
+                  least every half check interval while nothing changes.
                 format: date-time
                 type: string
               metadata:
@@ -651,6 +710,68 @@ spec:
                   - subject
                   type: object
                 type: array
+              observedCallers:
+                description: |-
+                  ObservedCallers are workloads the node agent saw calling this target's
+                  Service, inside the dependency observation window, that no Pacto
+                  describes. Capped at 32, sorted by namespace, kind and name.
+                items:
+                  description: |-
+                    ObservedCaller is a workload seen calling a target's Service at runtime that
+                    no Pacto describes, named by the controller that owns its pods.
+                  properties:
+                    firstSeen:
+                      description: |-
+                        FirstSeen is set once, when the caller first appears, so the status does
+                        not change on every reconcile.
+                      format: date-time
+                      type: string
+                    kind:
+                      description: |-
+                        Kind is the owning controller: Deployment, StatefulSet, DaemonSet, Job,
+                        CronJob, another controller kind, or Pod for a pod no controller owns.
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    source:
+                      description: Source is the collector that saw the calls.
+                      enum:
+                      - ebpf
+                      type: string
+                  required:
+                  - firstSeen
+                  - kind
+                  - name
+                  - namespace
+                  - source
+                  type: object
+                maxItems: 32
+                type: array
+              observedCallersCoverage:
+                description: |-
+                  ObservedCallersCoverage says whether observedCallers can be trusted as
+                  complete. Absent when runtime observation is not configured for this Pacto.
+                properties:
+                  reason:
+                    type: string
+                  refreshSeconds:
+                    description: |-
+                      RefreshSeconds is how often the operator rewrites this status. A reader
+                      treats a status not reconciled within twice that as stale, so an operator
+                      that stopped never leaves a complete coverage in place.
+                    format: int32
+                    type: integer
+                  state:
+                    enum:
+                    - complete
+                    - partial
+                    - unavailable
+                    type: string
+                required:
+                - state
+                type: object
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
                   by the controller.

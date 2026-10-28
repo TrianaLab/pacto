@@ -5,18 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pacto Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none' stroke='%23818cf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 6 5 12 10 18'/%3E%3Cpath d='M14 6 19 12 14 18'/%3E%3Ccircle cx='12' cy='12' r='1.9' fill='%23818cf8' stroke='none'/%3E%3C/svg%3E" />
-  <script>
-    // Prevent flash: apply saved theme before first paint
-    (function() {
-      var t = localStorage.getItem('pacto-theme');
-      if (t) document.documentElement.setAttribute('data-theme', t);
-      else if (window.matchMedia('(prefers-color-scheme: light)').matches)
-        document.documentElement.setAttribute('data-theme', 'light');
-    })();
-  </script>
-  <script type="module" crossorigin src="/assets/index-BOctxBn4.js"></script>
-  <link rel="modulepreload" crossorigin href="/assets/src-aspElOHd.js">
-  <link rel="stylesheet" crossorigin href="/assets/index-BX0c2ASG.css">
+  <!-- Before first paint, so the saved theme never flashes. A file, not inline,
+       so the Content-Security-Policy needs no inline script. -->
+  <script src="/theme.js"></script>
+  <script type="module" crossorigin src="/assets/index-ByczznnX.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/format-DTsU1iEW.js">
+  <link rel="modulepreload" crossorigin href="/assets/api-BAp7bu6-.js">
+  <link rel="modulepreload" crossorigin href="/assets/CopyableIdentifier-Dm1y0fFs.js">
+  <link rel="modulepreload" crossorigin href="/assets/StatusBadge-CGdrC6eI.js">
+  <link rel="modulepreload" crossorigin href="/assets/dateFormat-Lf6xaiwc.js">
+  <link rel="modulepreload" crossorigin href="/assets/PageHeader-BpAyYZC_.js">
+  <link rel="modulepreload" crossorigin href="/assets/SearchPick-Bbph0HpW.js">
+  <link rel="modulepreload" crossorigin href="/assets/hashQuery.svelte-BH5z-kKn.js">
+  <link rel="stylesheet" crossorigin href="/assets/CopyableIdentifier-BZZjy7e5.css">
+  <link rel="stylesheet" crossorigin href="/assets/PageHeader-DbzKKCd_.css">
+  <link rel="stylesheet" crossorigin href="/assets/SearchPick-V9s9ugxw.css">
+  <link rel="stylesheet" crossorigin href="/assets/index-CqjLbsVm.css">
 </head>
 <body>
   <div id="app"></div>

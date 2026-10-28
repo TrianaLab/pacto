@@ -176,12 +176,12 @@ func TestNeighborhood_DepthAndCycle(t *testing.T) {
 func TestNeighborhood_Truncation(t *testing.T) {
 	q := productFleet(t)
 	nb, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha", MaxNodes: 1})
-	if len(nb.Nodes) != 1 || !nb.Truncated {
-		t.Errorf("node cap not enforced: nodes=%d truncated=%v", len(nb.Nodes), nb.Truncated)
+	if len(nb.Nodes) != 1 || !nb.Truncated || nb.TruncatedEdges {
+		t.Errorf("node cap not enforced: nodes=%d truncated=%v edges cut=%v", len(nb.Nodes), nb.Truncated, nb.TruncatedEdges)
 	}
 	edgeCap, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha", Views: []KnowledgeView{ViewDifferences}, MaxEdges: 1})
-	if len(edgeCap.Edges) != 1 || !edgeCap.Truncated {
-		t.Errorf("edge cap not enforced: edges=%d truncated=%v", len(edgeCap.Edges), edgeCap.Truncated)
+	if len(edgeCap.Edges) != 1 || !edgeCap.Truncated || !edgeCap.TruncatedEdges {
+		t.Errorf("edge cap not enforced or not named: edges=%d truncated=%v edges cut=%v", len(edgeCap.Edges), edgeCap.Truncated, edgeCap.TruncatedEdges)
 	}
 }
 

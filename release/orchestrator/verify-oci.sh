@@ -44,7 +44,15 @@
 #
 # With no expected digest AND no provenance/content match, an existing ref is a
 # conflict: we never overwrite or blindly adopt an occupied immutable tag.
+#
+#   verify-oci.sh --digest <ref>
+#
+# prints just the remote manifest digest under the same rules digest() below
+# applies ("" for a genuine 404, exit 1 for an unreadable registry), so the
+# publisher and the dry run read digests the one strict way.
 set -euo pipefail
+MODE=verify
+if [ "${1:-}" = "--digest" ]; then MODE=digest; shift; fi
 REF="${1:?oci ref required}"
 EXPECT="${2:-}"
 EXPECT_REV="${3:-}"
@@ -150,6 +158,8 @@ content() {
         'if .artifactType == $a and (.layers | length) == 1 and .layers[0].mediaType == $l
          then .layers[0].digest else "" end' 2>/dev/null || printf ''
 }
+
+if [ "$MODE" = digest ]; then digest "$REF"; exit 0; fi
 
 remote="$(digest "$REF")"
 if [ -z "$remote" ]; then echo absent; exit 0; fi

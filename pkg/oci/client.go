@@ -2,6 +2,7 @@ package oci
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -162,6 +163,18 @@ func (c *Client) parseRef(ref string) (name.Reference, error) {
 	return r, nil
 }
 
+// Do parses ref with the client's plain-HTTP hosts and runs op against it under
+// each of the client's credentials in turn, exactly as Push and Pull do, so a
+// caller that needs a registry operation this client has no method for still
+// gets the same credential fall-through and typed errors.
+func (c *Client) Do(ctx context.Context, ref string, op func(r name.Reference, opts []remote.Option) error) error {
+	r, err := c.parseRef(ref)
+	if err != nil {
+		return err
+	}
+	return c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error { return op(r, opts) })
+}
+
 // Push converts a Bundle to an OCI image and pushes it to the given reference.
 // Returns the digest of the pushed image.
 func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) (string, error) {
@@ -277,4 +290,29 @@ func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 
 	logging.LoggerFromContext(ctx).Debug("tags listed", "repo", repo, "count", len(tags))
 	return tags, nil
+}
+
+// Annotations returns the manifest annotations of ref (a tag or digest
+// reference). Delivery reads an artifact's delivery.pacto.trianalab.io/contract annotation through
+// it, so a deployable artifact can name the contract it was built from.
+func (c *Client) Annotations(ctx context.Context, ref string) (map[string]string, error) {
+	r, err := c.parseRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	var desc *remote.Descriptor
+	if err := c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error {
+		var opErr error
+		desc, opErr = remote.Get(r, opts...)
+		return opErr
+	}); err != nil {
+		return nil, err
+	}
+	var m struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := json.Unmarshal(desc.Manifest, &m); err != nil {
+		return nil, &InvalidBundleError{Ref: ref, Err: err}
+	}
+	return m.Annotations, nil
 }

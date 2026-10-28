@@ -174,7 +174,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 // means a terminating agent cannot publish its objects again after they were
 // deleted. The namespace itself is the chart's and is left alone.
 func (r *Reconciler) cleanup(ctx context.Context, ns string) error {
-	owned := map[string]string{LabelManagedBy: ManagedByValue, LabelComponent: ComponentValue}
+	owned := component.Owned(ComponentValue)
 	key := client.ObjectKey{Namespace: ns, Name: Name}
 	if err := component.Prune(ctx, "node-agent", r.APIReader, r.Client, owned, []component.Resource{
 		{Kind: "DaemonSet", Obj: &appsv1.DaemonSet{}, Key: key},

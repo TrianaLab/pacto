@@ -31,15 +31,21 @@
 {:else if state.kind === 'schema-error'}
   <EmptyState error={true} title="Dashboard is out of date" message={`${state.message} Reload the page or upgrade the dashboard.`} {onRetry} {level} />
 {:else if state.kind === 'not-found'}
-  <EmptyState error={true} title="Not found" message={state.message} {level} />
+  <!-- The backend's 404 text is usually just "not found", so the title says it once and a
+       way back follows instead of the same words twice. -->
+  <div class="state-box" role="alert">
+    <svelte:element this={`h${level}`}>Not found</svelte:element>
+    {#if state.message && !/^not found\.?$/i.test(state.message.trim())}<p>{state.message}</p>{/if}
+    <a class="ps-btn" href="#/fleet">Back to the overview</a>
+  </div>
 {:else if state.kind === 'filtered-empty'}
   <div class="state-box">
     <svelte:element this={`h${level}`}>No matching {noun}</svelte:element>
-    <p>No {noun} match the current filters or search.</p>
+    {#if !onClearFilters}<p>Try other filters or another search.</p>{/if}
     <!-- Both facts must survive: a filter matched nothing AND knowledge is incomplete.
          The empty match never hides the incompleteness caveat. -->
     {#if state.knowledge?.incomplete}
-      <span class="ps-knowledge" role="status">{knowledgeLabel(state.knowledge.level)} — the match may be incomplete.</span>
+      <span class="ps-knowledge" role="status">{knowledgeLabel(state.knowledge.level)}, so the match may be incomplete.</span>
     {/if}
     {#if onClearFilters}
       <button type="button" class="ps-btn" onclick={onClearFilters}>Clear filters</button>
@@ -50,17 +56,17 @@
        "all clear" — it is a lack of knowledge, shown as such. -->
   <div class="state-box is-unknown" role="status">
     <svelte:element this={`h${level}`}>No {noun} known</svelte:element>
-    <p>Knowledge is incomplete, so this is not a clean bill of health.</p>
     <span class="ps-knowledge">{knowledgeLabel(state.knowledge.level)}</span>
     <!-- One sentence from the ONE place that words these counts, so this screen and
-         the KnowledgeBanner cannot describe different populations. -->
-    {#if degradedSourceSummary(state.knowledge)}<p class="ps-detail">{degradedSourceSummary(state.knowledge)}.</p>{/if}
+         the KnowledgeBanner cannot describe different populations. Without it, a short
+         line still says that none known is not none. -->
+    {#if degradedSourceSummary(state.knowledge)}<p class="ps-detail">{degradedSourceSummary(state.knowledge)}, so more may exist.</p>{:else}<p>Some data is missing, so more may exist.</p>{/if}
     {#if onRetry}<button type="button" class="ps-btn" onclick={onRetry}>Retry</button>{/if}
   </div>
 {:else if state.kind === 'empty-fleet'}
   <div class="state-box">
     <svelte:element this={`h${level}`}>No {noun} yet</svelte:element>
-    <p>Nothing here yet. Once contracts are published or running targets are observed, {noun} appear here.</p>
+    <p>They show up once contracts are published or targets are observed.</p>
   </div>
 {/if}
 
@@ -86,5 +92,6 @@
     border-radius: var(--radius-xs); color: var(--c-accent); font: inherit;
     padding: 6px 14px; min-height: var(--touch-min); cursor: pointer;
   }
+  .ps-btn { text-decoration: none; }
   .ps-btn:hover { background: var(--c-surface-inset); }
 </style>

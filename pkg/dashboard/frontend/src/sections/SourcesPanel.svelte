@@ -1,7 +1,7 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SourceDot from '../components/SourceDot.svelte';
-  import { sourceTooltip } from '../lib/format.ts';
+  import { sourceTooltip, formatCount } from '../lib/format.ts';
   import { api } from '../lib/api.ts';
 
   // Drill-down provenance: what each connected source contributes to the merged
@@ -31,11 +31,11 @@
     return [
       svc?.version && `v${svc.version}`,
       svc?.contractStatus,
-      svc?.interfaces?.length && `${svc.interfaces.length} interfaces`,
-      svc?.configurations?.length && `${svc.configurations.length} configs`,
-      svc?.policies?.length && `${svc.policies.length} policies`,
-      svc?.dependencies?.length && `${svc.dependencies.length} deps`,
-      svc?.docs?.length && `${svc.docs.length} docs`,
+      svc?.interfaces?.length && `${formatCount(svc.interfaces.length)} interfaces`,
+      svc?.configurations?.length && `${formatCount(svc.configurations.length)} configs`,
+      svc?.policies?.length && `${formatCount(svc.policies.length)} policies`,
+      svc?.dependencies?.length && `${formatCount(svc.dependencies.length)} deps`,
+      svc?.docs?.length && `${formatCount(svc.docs.length)} docs`,
       svc?.readiness && 'readiness',
       svc?.observedRuntime && 'observed runtime',
     ].filter(Boolean);
@@ -78,6 +78,6 @@
     padding: var(--sp-2) 0; border-top: 1px solid var(--c-border); font-size: var(--text-sm);
   }
   .src-row:first-of-type { border-top: none; }
-  .src-type { font-weight: 600; min-width: 56px; text-transform: uppercase; font-size: var(--text-xs); letter-spacing: 0.03em; }
+  .src-type { min-width: 56px; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .src-summary { color: var(--c-text-2); }
 </style>

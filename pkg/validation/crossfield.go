@@ -41,8 +41,78 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateConfigValues(c, bundleFS, &result)
 	validateStatePersistenceInvariants(c, &result)
 	validateReadiness(c, &result)
+	validatePublish(c, &result)
+	validateMCPInterfaces(c, bundleFS, &result)
+	validateChecks(c, bundleFS, &result)
 
 	return result
+}
+
+// validatePublish enforces what the schema cannot say about publish: artifact
+// names are unique, deploy names a manifests artifact (a Kustomization applies
+// manifests, never a chart or an image), the dockerfile builder and sbom
+// apply to images only, and an sbom needs a command build, which writes it.
+func validatePublish(c *contract.Contract, result *ValidationResult) {
+	if c.Publish == nil {
+		return
+	}
+	types := map[string]string{}
+	for i, a := range c.Publish.Artifacts {
+		path := fmt.Sprintf("publish.artifacts[%d]", i)
+		if _, dup := types[a.Name]; dup {
+			result.AddError(path+".name", "DUPLICATE_PUBLISH_ARTIFACT", fmt.Sprintf("artifact name %q is used more than once", a.Name))
+		}
+		types[a.Name] = a.Type
+		switch {
+		case a.SBOM != "" && a.Type != contract.ArtifactImage:
+			result.AddError(path+".sbom", "PUBLISH_SBOM_NOT_IMAGE", fmt.Sprintf("%s is a %s; an SBOM is attached to images only", a.Name, a.Type))
+		case a.SBOM != "" && a.Build.Dockerfile != nil:
+			result.AddError(path+".sbom", "PUBLISH_SBOM_DOCKERFILE", fmt.Sprintf("%s is built from a Dockerfile, which writes no SBOM file; build it with a command that writes %s, or drop sbom", a.Name, a.SBOM))
+		}
+		if a.Build.Dockerfile != nil && a.Type != contract.ArtifactImage {
+			result.AddError(path+".build.dockerfile", "PUBLISH_DOCKERFILE_NOT_IMAGE", fmt.Sprintf("%s is a %s; the dockerfile builder builds images only, use command", a.Name, a.Type))
+		}
+	}
+	if d := c.Publish.Deploy; d != "" && types[d] != contract.ArtifactManifests {
+		result.AddError("publish.deploy", "PUBLISH_DEPLOY_NOT_MANIFESTS", fmt.Sprintf("deploy %q must name a manifests artifact: Flux applies it through a Kustomization", d))
+	}
+}
+
+// validateMCPInterfaces checks what the schema cannot: an mcp interface file
+// is a tools/list result with named tools, so a diff can tell a removed tool
+// from a changed one.
+func validateMCPInterfaces(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	if bundleFS == nil {
+		return
+	}
+	for i, iface := range c.Interfaces {
+		if iface.Type != contract.InterfaceTypeMCP {
+			continue
+		}
+		data, err := fs.ReadFile(bundleFS, iface.Ref)
+		if err != nil {
+			continue // validateInterfaceFiles reports a missing file
+		}
+		if _, err := contract.ParseMCPTools(data); err != nil {
+			result.AddError(fmt.Sprintf("interfaces[%d].ref", i), "INVALID_MCP_TOOLS", fmt.Sprintf("mcp interface file %q %v", iface.Ref, err))
+		}
+	}
+}
+
+// validateChecks enforces that check names are unique, so a delivery gate
+// names one suite, and that each suite file is in the bundle, so it ships
+// with the version.
+func validateChecks(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	seen := map[string]int{}
+	for i, ch := range c.Checks {
+		if prev, dup := seen[ch.Name]; dup {
+			result.AddError(fmt.Sprintf("checks[%d].name", i), "DUPLICATE_CHECK_NAME", fmt.Sprintf("check name %q is already declared at checks[%d]", ch.Name, prev))
+		}
+		seen[ch.Name] = i
+		if bundleFS != nil && missingFile(bundleFS, ch.File) {
+			result.AddError(fmt.Sprintf("checks[%d].file", i), "FILE_NOT_FOUND", fmt.Sprintf("check %q: file %q not found in bundle", ch.Name, ch.File))
+		}
+	}
 }
 
 // validateReadiness enforces the readiness rules that JSON Schema cannot express:
@@ -322,8 +392,33 @@ func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *Validati
 	}
 }
 
+// validateDependencyForm enforces the two shapes a dependency takes: a ref to
+// its contract with a compatibility range, or, for a dependency this Pacto
+// system does not deliver and nobody wrote a contract for, external: true with
+// the free-text version it runs against. It reports false when the shape is
+// wrong, so the ref and range checks do not pile on.
+func validateDependencyForm(i int, dep contract.Dependency, result *ValidationResult) bool {
+	base := fmt.Sprintf("dependencies[%d]", i)
+	switch {
+	case dep.Ref == "" && !dep.External:
+		result.AddError(base+".ref", "DEPENDENCY_REF_REQUIRED", fmt.Sprintf("dependency %q has no ref: set ref to its contract, or, if this Pacto system does not deliver it, set external: true and the version you run against", dep.Name))
+	case dep.Ref == "" && dep.Version == "":
+		result.AddError(base+".version", "EXTERNAL_VERSION_REQUIRED", fmt.Sprintf("external dependency %q has no ref, so it needs a version: write the version you run against, for example version: \"2025-01\"", dep.Name))
+	case dep.Ref == "" && dep.Compatibility != "":
+		result.AddError(base+".compatibility", "COMPATIBILITY_WITHOUT_REF", fmt.Sprintf("dependency %q has a compatibility range but no ref to compare it with: add the ref of its contract, or drop compatibility and keep version", dep.Name))
+	case dep.Ref != "" && dep.Version != "":
+		result.AddError(base+".version", "VERSION_WITH_REF", fmt.Sprintf("dependency %q has a ref, so Pacto reads its version from its contract: drop version and say which versions work in compatibility", dep.Name))
+	default:
+		return true
+	}
+	return false
+}
+
 func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 	for i, dep := range c.Dependencies {
+		if !validateDependencyForm(i, dep, result) || dep.Ref == "" {
+			continue
+		}
 		parsed := graph.ParseDependencyRef(dep.Ref)
 
 		if parsed.IsOCI() {
@@ -344,7 +439,7 @@ func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 			result.AddError(
 				fmt.Sprintf("dependencies[%d].compatibility", i),
 				"EMPTY_COMPATIBILITY",
-				"compatibility range must not be empty",
+				fmt.Sprintf("dependency %q has a ref, so it needs compatibility: the versions that work, for example ^2.0.0", dep.Name),
 			)
 		} else if _, err := contract.ParseRange(dep.Compatibility); err != nil {
 			result.AddError(

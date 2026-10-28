@@ -8,6 +8,9 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"strings"
+
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,6 +44,24 @@ func clusterRoleAC() runtime.ApplyConfiguration {
 				WithAPIGroups("").
 				WithResources("services").
 				WithVerbs("get", "list", "watch"),
+			// With sign-in, the dashboard keeps one copy of the delivery objects
+			// people read and shows each person only what their own RBAC lets
+			// them read; every action goes with the person's own token.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("delivery.pacto.trianalab.io").
+				WithResources("stages", "operations").
+				WithVerbs("get", "list", "watch"),
+			// It asks the apiserver what a signed-in person may read.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("authorization.k8s.io").
+				WithResources("subjectaccessreviews").
+				WithVerbs("create"),
+			// Delivery asks, per namespace, where a signed-in person may list
+			// Stages, so it lists the namespaces' names to ask about.
+			rbacv1ac.PolicyRule().
+				WithAPIGroups("").
+				WithResources("namespaces").
+				WithVerbs("list"),
 		)
 }
 
@@ -62,6 +83,101 @@ func clusterRoleBindingAC(cfg Config) runtime.ApplyConfiguration {
 		)
 }
 
+// authEnv passes the sign-in settings to the dashboard; the client secret only
+// by secretKeyRef.
+func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
+	var env []*corev1ac.EnvVarApplyConfiguration
+	add := func(name, value string) {
+		if value != "" {
+			env = append(env, corev1ac.EnvVar().WithName(name).WithValue(value))
+		}
+	}
+	a := cfg.Auth
+	add("PACTO_DASHBOARD_OIDC_ISSUER_URL", a.IssuerURL)
+	add("PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL", a.InternalIssuerURL)
+	add("PACTO_DASHBOARD_OIDC_DISPLAY_NAME", a.DisplayName)
+	if a.CAConfigMap != "" || a.CASecret != "" {
+		add("PACTO_DASHBOARD_OIDC_CA_FILE", oidcCADir+"/"+keyOr(a.CAKey, "ca.crt"))
+	}
+	add("PACTO_DASHBOARD_OIDC_CLIENT_ID", a.ClientID)
+	add("PACTO_DASHBOARD_OIDC_REDIRECT_URL", a.RedirectURL)
+	add("PACTO_DASHBOARD_OIDC_EXTRA_SCOPES", strings.Join(a.ExtraScopes, " "))
+	add("PACTO_DASHBOARD_OIDC_USERNAME_CLAIM", a.UsernameClaim)
+	add("PACTO_DASHBOARD_OIDC_USERNAME_PREFIX", a.UsernamePrefix)
+	add("PACTO_DASHBOARD_OIDC_GROUPS_CLAIM", a.GroupsClaim)
+	add("PACTO_DASHBOARD_OIDC_GROUPS_PREFIX", a.GroupsPrefix)
+	if a.SessionIdleTimeout > 0 {
+		add("PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT", a.SessionIdleTimeout.String())
+	}
+	if a.SessionMaxAge > 0 {
+		add("PACTO_DASHBOARD_SESSION_MAX_AGE", a.SessionMaxAge.String())
+	}
+	if a.TokenLogin {
+		add("PACTO_DASHBOARD_TOKEN_LOGIN", "true")
+	}
+	if a.ClientSecretName != "" {
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_OIDC_CLIENT_SECRET").WithValueFrom(
+			corev1ac.EnvVarSource().WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.ClientSecretName).
+				WithKey(keyOr(a.ClientSecretKey, "client-secret")))))
+	}
+	return env
+}
+
+// deliveryEnv passes what the delivery views read: the namespace delivery runs
+// in, the trust config its records are verified with and Mira's address.
+func deliveryEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
+	trust := ""
+	if cfg.DeliveryTrust.Name != "" {
+		trust = deliveryTrustDir + "/" + keyOr(cfg.DeliveryTrust.Key, "trust.yaml")
+	}
+	var env []*corev1ac.EnvVarApplyConfiguration
+	for _, kv := range [][2]string{{"PACTO_DASHBOARD_DELIVERY_NAMESPACE", cfg.DeliveryNamespace},
+		{"PACTO_DASHBOARD_DELIVERY_TRUST", trust}, {"PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL}} {
+		if kv[1] != "" {
+			env = append(env, corev1ac.EnvVar().WithName(kv[0]).WithValue(kv[1]))
+		}
+	}
+	return env
+}
+
+// Where the issuer CA bundle and the delivery trust config mount.
+const (
+	oidcCADir        = "/etc/pacto/oidc-ca"
+	deliveryTrustDir = "/etc/pacto/delivery-trust"
+)
+
+func keyOr(key, def string) string {
+	if key == "" {
+		return def
+	}
+	return key
+}
+
+// authVolumes mounts the issuer CA bundle and the delivery trust config, each
+// read-only and only the key the dashboard reads.
+func authVolumes(cfg Config) ([]*corev1ac.VolumeMountApplyConfiguration, []*corev1ac.VolumeApplyConfiguration) {
+	var mounts []*corev1ac.VolumeMountApplyConfiguration
+	var vols []*corev1ac.VolumeApplyConfiguration
+	add := func(name, dir string, v *corev1ac.VolumeApplyConfiguration) {
+		mounts = append(mounts, corev1ac.VolumeMount().WithName(name).WithMountPath(dir).WithReadOnly(true))
+		vols = append(vols, v.WithName(name))
+	}
+	a := cfg.Auth
+	if key := keyOr(a.CAKey, "ca.crt"); a.CAConfigMap != "" {
+		add("oidc-ca", oidcCADir, corev1ac.Volume().WithConfigMap(corev1ac.ConfigMapVolumeSource().WithName(a.CAConfigMap).
+			WithItems(corev1ac.KeyToPath().WithKey(key).WithPath(key))))
+	} else if a.CASecret != "" {
+		add("oidc-ca", oidcCADir, corev1ac.Volume().WithSecret(corev1ac.SecretVolumeSource().WithSecretName(a.CASecret).
+			WithItems(corev1ac.KeyToPath().WithKey(key).WithPath(key))))
+	}
+	if t := cfg.DeliveryTrust; t.Name != "" {
+		key := keyOr(t.Key, "trust.yaml")
+		add("delivery-trust", deliveryTrustDir, corev1ac.Volume().WithConfigMap(corev1ac.ConfigMapVolumeSource().WithName(t.Name).
+			WithItems(corev1ac.KeyToPath().WithKey(key).WithPath(key))))
+	}
+	return mounts, vols
+}
+
 // deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
@@ -69,8 +185,9 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		corev1ac.EnvVar().WithName("PACTO_NO_UPDATE_CHECK").WithValue("1"),
 	}
 	if cfg.WatchNamespace != "" {
-		env = append(env, corev1ac.EnvVar().WithName("PACTO_WATCH_NAMESPACE").WithValue(cfg.WatchNamespace))
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_NAMESPACE").WithValue(cfg.WatchNamespace))
 	}
+	env = append(append(env, authEnv(cfg)...), deliveryEnv(cfg)...)
 	if cfg.EvidenceSourceURL != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_EVIDENCE_SOURCE_URL").WithValue(cfg.EvidenceSourceURL))
 	}
@@ -108,6 +225,9 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		volumes = append(volumes, vol)
 	}
 
+	authMounts, authVols := authVolumes(cfg)
+	volumeMounts, volumes = append(volumeMounts, authMounts...), append(volumes, authVols...)
+
 	if len(cfg.OCISecrets) > 0 {
 		volumeMounts = append(volumeMounts,
 			corev1ac.VolumeMount().WithName("oci-creds").WithMountPath("/home/pacto/.docker").WithReadOnly(true),
@@ -144,12 +264,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 				WithInitialDelaySeconds(5).
 				WithPeriodSeconds(10),
 		).
-		WithSecurityContext(
-			corev1ac.SecurityContext().
-				WithReadOnlyRootFilesystem(true).
-				WithAllowPrivilegeEscalation(false).
-				WithCapabilities(corev1ac.Capabilities().WithDrop("ALL")),
-		).
+		WithSecurityContext(component.RestrictedContainerSecurityContext()).
 		WithResources(corev1ac.ResourceRequirements().WithRequests(res.Requests).WithLimits(res.Limits))
 
 	deploy := appsv1ac.Deployment(Name, cfg.Namespace).

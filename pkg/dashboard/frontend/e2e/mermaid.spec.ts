@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { appReady, openMermaidDoc } from './ready';
 
 // Rich bundle documentation in the PRODUCT information architecture: a revision page
 // must not merely list its docs, it must open them, render the Markdown as formatted
@@ -13,41 +14,8 @@ import { test, expect, type Page } from '@playwright/test';
 
 const T = 20_000;
 
-async function waitReady(page: Page) {
-  await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: T });
-}
-
-// The demo's payments-service v2.1.1 overview carries a flowchart fence.
-//
-// The row is picked by canonical key, never by label: the demo publishes same-named
-// services in two domains, so matching on the visible name alone can silently open
-// whichever of them happens to sort first.
-async function openMermaidDoc(page: Page) {
-  await page.goto('/#/fleet/services');
-  await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible({ timeout: T });
-  await page.locator('.sv-item a.entity-link[href$="/fleet/services/payments-service"]').first().click();
-  await expect(page).toHaveURL(/#\/fleet\/services\/payments-service$/);
-  // 2.1.1 is published but not deployed, so it is not in the in-use list the page
-  // opens with -- it is in the exhaustive "All revisions" disclosure, which is
-  // collapsed. A revision nobody runs still has documentation worth reading.
-  await page
-    .locator('details.ps-collapsible')
-    .filter({ has: page.getByRole('heading', { name: 'All revisions' }) })
-    .locator('summary')
-    .first()
-    .click();
-  await page.locator('a.entity-link[href*="/fleet/revisions/"]', { hasText: '2.1.1' }).first().click();
-  await expect(page).toHaveURL(/#\/fleet\/revisions\//);
-
-  const doc = page.locator('details.rd-doc', { hasText: 'overview' }).first();
-  await expect(doc).toBeVisible({ timeout: T });
-  await doc.locator('summary').click();
-  return doc;
-}
-
 test('a revision doc opens as rendered Markdown with its mermaid diagram as SVG', async ({ page }) => {
-  await waitReady(page);
+  await appReady(page);
   const doc = await openMermaidDoc(page);
 
   // Formatted content, not raw source: the heading is an element, and the Markdown
@@ -64,7 +32,7 @@ test('a revision doc opens as rendered Markdown with its mermaid diagram as SVG'
 });
 
 test('a revision doc opens in a keyboard-usable reading view', async ({ page }) => {
-  await waitReady(page);
+  await appReady(page);
   const doc = await openMermaidDoc(page);
   await expect(doc.locator('.markdown-body h1')).toBeVisible({ timeout: T });
 

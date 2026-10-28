@@ -161,6 +161,24 @@ test.describe('page scaffold geometry on desktop', () => {
     agree(sweep, 'the gap between the page title and the first block of content', (g) => g.titleToBody);
   });
 
+  test('the operational graph canvas stays inside the content column at 1280 and 1920', async ({ page }) => {
+    test.setTimeout(SWEEP_TIMEOUT);
+    for (const width of [1280, 1920]) {
+      await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
+      await boot(page, '#/fleet/graph/service/payments-service');
+      await expect(page.getByTestId('neighborhood-canvas')).toHaveAttribute('data-graph-ready', 'painted', { timeout: 20_000 });
+      const g = await page.evaluate(() => {
+        const root = document.querySelector('main .product-page')!.getBoundingClientRect();
+        const c = document.querySelector('[data-testid="neighborhood-canvas"]')!.getBoundingClientRect();
+        return { left: Math.round(c.left - root.left), right: Math.round(root.right - c.right), width: Math.round(c.width), overflow: document.documentElement.scrollWidth > window.innerWidth };
+      });
+      expect(g.left, `canvas left edge at ${width}`).toBeGreaterThanOrEqual(0);
+      expect(g.right, `canvas right edge at ${width}`).toBeGreaterThanOrEqual(0);
+      expect(g.width, `canvas width at ${width}`).toBeGreaterThan(600);
+      expect(g.overflow, `no horizontal scroll at ${width}`).toBe(false);
+    }
+  });
+
   test('both workspaces frame their controls with the same panel', async ({ page }) => {
     test.setTimeout(SWEEP_TIMEOUT);
     const k = await canonicalKeys(page);

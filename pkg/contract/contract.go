@@ -22,8 +22,81 @@ type Contract struct {
 	Capabilities   []Capability    `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 	Policies       []Policy        `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Readiness      *Readiness      `yaml:"readiness,omitempty" json:"readiness,omitempty"`
+	Publish        *Publish        `yaml:"publish,omitempty" json:"publish,omitempty"`
+	Checks         []Check         `yaml:"checks,omitempty" json:"checks,omitempty"`
 	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+}
+
+// Check is one test or eval suite the version ships (pactoVersion 2.1).
+// Pacto never reads the file: it packs it in the bundle, records its sha256
+// and hands file and digest to the runner a delivery gate names, taking only
+// a verdict about that exact digest.
+type Check struct {
+	Name string `yaml:"name" json:"name"`
+	// File is the suite's path in the bundle.
+	File string `yaml:"file" json:"file"`
+}
+
+// Publish declares what the service publishes, where and how each artifact is
+// built (pactoVersion 2.1). `pacto publish` reads it; every tag is the
+// service version.
+type Publish struct {
+	// Bundle is the repository the contract bundle goes to (oci://, no tag).
+	Bundle string `yaml:"bundle" json:"bundle"`
+	// Deploy names the manifests artifact Flux applies. Pacto annotates it with
+	// the contract and tags it last.
+	Deploy    string            `yaml:"deploy,omitempty" json:"deploy,omitempty"`
+	Artifacts []PublishArtifact `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
+	Sign      *PublishSign      `yaml:"sign,omitempty" json:"sign,omitempty"`
+}
+
+// PublishArtifact is one artifact a service publishes.
+type PublishArtifact struct {
+	Name  string       `yaml:"name" json:"name"`
+	Type  string       `yaml:"type" json:"type"`
+	Ref   string       `yaml:"ref" json:"ref"`
+	Build PublishBuild `yaml:"build" json:"build"`
+	// SBOM is the SPDX (.spdx.json) or CycloneDX (.cdx.json) file the build
+	// writes, relative to the contract directory. Pacto attaches it to the
+	// image and signs it; it never makes one.
+	SBOM string `yaml:"sbom,omitempty" json:"sbom,omitempty"`
+}
+
+// Publish artifact types.
+const (
+	ArtifactImage     = "image"
+	ArtifactChart     = "chart"
+	ArtifactManifests = "manifests"
+)
+
+// PublishBuild is how an artifact is built: exactly one of the two.
+type PublishBuild struct {
+	Dockerfile *DockerfileBuild `yaml:"dockerfile,omitempty" json:"dockerfile,omitempty"`
+	// Command writes the artifact to $PACTO_OUT.
+	Command []string `yaml:"command,omitempty" json:"command,omitempty"`
+}
+
+// DockerfileBuild builds an image with docker buildx.
+type DockerfileBuild struct {
+	Context   string   `yaml:"context" json:"context"`
+	File      string   `yaml:"file,omitempty" json:"file,omitempty"`
+	Platforms []string `yaml:"platforms,omitempty" json:"platforms,omitempty"`
+}
+
+// PublishSign is how every published digest is signed: exactly one of
+// Keyless, Key and KMS. Keyless names the Identity and Issuer its certificate
+// carries, so Pacto can tell its own signature from anyone else's.
+type PublishSign struct {
+	Keyless bool `yaml:"keyless,omitempty" json:"keyless,omitempty"`
+	// Identity is the certificate identity keyless signing produces.
+	Identity string `yaml:"identity,omitempty" json:"identity,omitempty"`
+	// Issuer is the OIDC issuer of that identity.
+	Issuer string `yaml:"issuer,omitempty" json:"issuer,omitempty"`
+	Key    string `yaml:"key,omitempty" json:"key,omitempty"`
+	KMS    string `yaml:"kms,omitempty" json:"kms,omitempty"`
+	// TransparencyLog is nil for the default (upload).
+	TransparencyLog *bool `yaml:"transparencyLog,omitempty" json:"transparencyLog,omitempty"`
 }
 
 // Readiness declares operational readiness evidence for the service.
@@ -134,6 +207,9 @@ const (
 	InterfaceTypeOpenAPI  = "openapi"
 	InterfaceTypeAsyncAPI = "asyncapi"
 	InterfaceTypeGRPC     = "grpc"
+	// InterfaceTypeMCP is the tools a service exposes over the Model Context
+	// Protocol; its ref is a tools/list result ({"tools": [...]}).
+	InterfaceTypeMCP = "mcp"
 )
 
 // Visibility constants.
@@ -172,11 +248,19 @@ type Policy struct {
 
 // Dependency represents a named dependency on another service.
 // Name is required and must be unique within the dependencies array.
+//
+// External (pactoVersion 2.1) marks a dependency this Pacto system does not
+// deliver: Pacto does not expect to see it running and never moves it. With a
+// Ref it is compared by Compatibility like any other; without one it carries
+// a free-text Version instead, which nothing can check, so anything relying
+// on it is Unknown.
 type Dependency struct {
 	Name          string `yaml:"name" json:"name"`
-	Ref           string `yaml:"ref" json:"ref"`
+	Ref           string `yaml:"ref,omitempty" json:"ref,omitempty"`
 	Required      bool   `yaml:"required" json:"required"`
-	Compatibility string `yaml:"compatibility" json:"compatibility"`
+	Compatibility string `yaml:"compatibility,omitempty" json:"compatibility,omitempty"`
+	External      bool   `yaml:"external,omitempty" json:"external,omitempty"`
+	Version       string `yaml:"version,omitempty" json:"version,omitempty"`
 }
 
 // Reference kinds for ReferenceRef.Kind.

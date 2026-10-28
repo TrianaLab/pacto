@@ -10,7 +10,7 @@
  */
 import type { KnowledgeView, Direction, ProductNeighborhood } from './api.ts';
 
-export const GRAPH_PERSPECTIVES = ['service', 'revision', 'target'] as const;
+const GRAPH_PERSPECTIVES = ['service', 'revision', 'target'] as const;
 export type GraphPerspective = (typeof GRAPH_PERSPECTIVES)[number];
 
 // The default focused neighborhood: depth 1, both directions, and the
@@ -22,14 +22,14 @@ export type GraphPerspective = (typeof GRAPH_PERSPECTIVES)[number];
 export const DEFAULT_VIEWS: KnowledgeView[] = ['expected', 'differences'];
 export const MAX_DEPTH = 6;
 
-// How many nodes one answer may carry, and the rungs the reader can climb. The
-// backend defaults to 60 and caps at 500 (fleet.DefaultMaxNodes / MaxNeighborhoodNodes);
-// these are the same numbers, because a UI that offers a rung the backend then
-// silently clamps is a UI that lies about what it just fetched. 60 is a graph you
-// can read, 500 is the most the backend will ever draw, and 150 is the step between
-// them -- so a hub with two hundred neighbors takes one click, not four.
-export const DEFAULT_MAX_NODES = 60;
-export const MAX_NODES_STEPS = [60, 150, 500] as const;
+// How many nodes one answer may carry, and the levels the reader can climb. The
+// backend defaults to 60 and caps at 500 (fleet.DefaultMaxNodes / MaxNeighborhoodNodes),
+// so every level here is one the backend honours. 40 is a graph you can read at a glance
+// (past it the canvas folds the far entities by team, see groupByOwner) and 200 is the
+// most a canvas still reads as anything but a mass; 500 was offered and drew exactly
+// that mass, so the levels stop at 200.
+export const DEFAULT_MAX_NODES = 40;
+export const MAX_NODES_STEPS = [40, 100, 200] as const;
 export const MAX_NODES = MAX_NODES_STEPS[MAX_NODES_STEPS.length - 1];
 
 export interface GraphState {
@@ -85,9 +85,16 @@ function clampMaxNodes(n: number): number {
   return Math.min(MAX_NODES, Math.trunc(n));
 }
 
-/** nextMaxNodes returns the next rung above `current`, or null when the answer is
+/** maxEdgesFor is the relationship budget asked with a node budget: twice the nodes,
+ *  within the backend cap (fleet.MaxNeighborhoodEdges). Without it every answer got the
+ *  backend's 120-edge default whatever node budget was asked for. */
+export function maxEdgesFor(maxNodes: number): number {
+  return Math.min(1000, 2 * maxNodes);
+}
+
+/** nextMaxNodes returns the next level above `current`, or null when the answer is
  *  already allowed to be as big as the backend will ever make it. A hand-edited URL
- *  between two rungs climbs to the next one above it rather than snapping back. */
+ *  between two levels climbs to the next one above it rather than snapping back. */
 export function nextMaxNodes(current: number): number | null {
   return MAX_NODES_STEPS.find((s) => s > current) ?? null;
 }
@@ -143,7 +150,7 @@ export function differenceTone(d: string | undefined): 'ok' | 'warn' | 'info' | 
 export function differenceDescription(d: string | undefined): string {
   switch (d) {
     case 'matched': return 'Declared and corroborated by observed traffic.';
-    case 'expected-not-observed': return 'Declared, but not witnessed in the observation window. This is not proof it is unused.';
+    case 'expected-not-observed': return 'Declared, but not seen in the observation window. It may still be in use.';
     case 'observed-not-expected': return 'Observed at runtime but never declared.';
     case 'insufficient': return 'Declared, but there is no observation data to reconcile against.';
     default: return '';
@@ -285,10 +292,10 @@ export function corroborationTone(c: string | undefined): 'ok' | 'warn' | 'info'
  *  is service-scoped and not an edge-scope observation claim. */
 export function serviceScopedCaveat(perspective: string): string {
   if (perspective === 'revision') {
-    return 'Observation is recorded per service, so this is service-scoped corroboration, not proof this specific revision edge was observed.';
+    return 'Observation is recorded per service, so it supports the service as a whole and cannot confirm this specific revision edge.';
   }
   if (perspective === 'target') {
-    return 'Observation is recorded per service, so this is service-scoped corroboration, not proof this specific deployment edge was observed.';
+    return 'Observation is recorded per service, so it supports the service as a whole and cannot confirm this specific deployment edge.';
   }
   return '';
 }

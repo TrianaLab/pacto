@@ -1,0 +1,665 @@
+{{- if .Values.delivery.enabled }}
+{{- if not (or .Values.delivery.admissionPolicies.enabled .Values.delivery.admissionPolicies.allowUnguarded) }}
+{{- fail "delivery.admissionPolicies.enabled=false leaves every actor, approver and the pointer unguarded: anyone who may create an Operation or an Approval can claim to be anyone. Set delivery.admissionPolicies.allowUnguarded=true only if you accept that." }}
+{{- end }}
+{{- if .Values.delivery.admissionPolicies.enabled }}
+{{- $fullname := include "pacto-operator.delivery.fullname" . }}
+{{- $controller := include "pacto-operator.delivery.controllerUser" . }}
+{{- $agents := include "pacto-operator.delivery.celList" .Values.delivery.identities.agentGroups }}
+{{- $breakGlass := include "pacto-operator.delivery.celList" .Values.delivery.identities.breakGlassGroups }}
+{{- /* Who may create or delete a labelled pointer, applier or Application
+besides break-glass: the GitOps controllers that apply them, the namespace
+controller and the garbage collector. system:masters bypasses authorization
+and could remove these policies anyway, so refusing it guards nothing. */}}
+{{- $lifecycle := include "pacto-operator.delivery.celList" (concat .Values.delivery.admissionPolicies.gitopsUsers (list "system:serviceaccount:kube-system:namespace-controller" "system:serviceaccount:kube-system:generic-garbage-collector")) }}
+{{- $lifecycleRule := printf "request.operation == 'UPDATE' ||\n        request.userInfo.groups.exists(g, g in %s || g == 'system:masters') ||\n        request.userInfo.username in %s" $breakGlass $lifecycle }}
+{{- /* With identities.humanGroups set, anyone in none of them is an agent too. */}}
+{{- $unenrolled := "" }}
+{{- with .Values.delivery.identities.humanGroups }}
+{{- $unenrolled = printf " ||\n        !request.userInfo.groups.exists(g, g in %s)" (include "pacto-operator.delivery.celList" .) }}
+{{- end }}
+# An operation states who asked, and admission holds it to that: the actor is
+# the requesting user, only the promoter may set witnessed, override, unfreeze,
+# freeze and acknowledge are limited to their raisers, and the record finalizer
+# is required.
+# The names the promoter raises its rollbacks, freezes, step-downs and
+# automatic promotes under are its own: taken first, they would keep a failure
+# out of the records a follower reads.
+# The promoter trusts the actor in a spec only because this policy checked it:
+# it admits no operation and counts no approval while this policy or the
+# approval policy is missing.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-operation
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [operations]
+  variables:
+    - name: groups
+      expression: "has(object.spec.actor.groups) ? object.spec.actor.groups : []"
+    - name: witnessed
+      expression: "has(object.spec.witnessed) && object.spec.witnessed"
+    - name: breakGlass
+      expression: "request.userInfo.groups.exists(g, g in {{ $breakGlass }})"
+    - name: agent
+      expression: >-
+        request.userInfo.username.startsWith('system:serviceaccount:') ||
+        request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }}
+    - name: levelFrom
+      expression: "has(object.spec.params) && has(object.spec.params.from) ? object.spec.params.from : ''"
+    - name: levelTo
+      expression: "has(object.spec.params) && has(object.spec.params.to) ? object.spec.params.to : ''"
+    - name: levels
+      expression: "{'observe': 0, 'advise': 1, 'auto-nonbreaking': 2, 'autonomous': 3}"
+    - name: stepsDown
+      expression: >-
+        variables.levelFrom in variables.levels && variables.levelTo in variables.levels &&
+        variables.levels[variables.levelFrom] >= 2 &&
+        variables.levels[variables.levelFrom] - variables.levels[variables.levelTo] == 1
+  validations:
+    - expression: "object.spec.actor.user == request.userInfo.username"
+      message: "spec.actor.user must be the user creating the operation"
+      reason: Forbidden
+    - expression: >-
+        request.userInfo.username == '{{ $controller }}' ||
+        (variables.groups.all(g, g in request.userInfo.groups) &&
+        request.userInfo.groups.all(g, g in variables.groups))
+      message: "spec.actor.groups must be the groups of the user creating the operation"
+      reason: Forbidden
+    - expression: >-
+        has(object.metadata.finalizers) &&
+        'delivery.pacto.trianalab.io/record' in object.metadata.finalizers
+      message: "an operation must carry the delivery.pacto.trianalab.io/record finalizer"
+    - expression: >-
+        request.userInfo.username == '{{ $controller }}' ||
+        !(object.metadata.name.endsWith('-rollback') || object.metadata.name.endsWith('-freeze') ||
+        object.metadata.name.endsWith('-stepdown') || object.metadata.name.matches('-(auto|witnessed)-[0-9a-f]{10}$'))
+      message: "names ending in -rollback, -freeze or -stepdown, and <stage>-auto- or -witnessed- names, are the ones the Pacto delivery promoter raises its own operations under: choose another name"
+      reason: Forbidden
+    - expression: "!variables.witnessed || request.userInfo.username == '{{ $controller }}'"
+      message: "only the Pacto delivery promoter may raise a witnessed operation"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'delivery.pacto.trianalab.io/override' || variables.breakGlass ||
+        (variables.witnessed && request.userInfo.username == '{{ $controller }}')
+      message: "only break-glass may raise an override"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'delivery.pacto.trianalab.io/unfreeze' || variables.breakGlass ||
+        (!variables.agent && request.userInfo.username != '{{ $controller }}')
+      message: "only a person or break-glass may unfreeze a Stage; agents and the promoter may not"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'delivery.pacto.trianalab.io/acknowledge' ||
+        ((variables.breakGlass || (!variables.agent && request.userInfo.username != '{{ $controller }}')) &&
+        has(object.spec.reason) && size(object.spec.reason) > 0)
+      message: "only a person or break-glass may acknowledge an upstream stand-in, and only with a reason; agents and the promoter may not"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'delivery.pacto.trianalab.io/freeze' || variables.breakGlass ||
+        !variables.agent || request.userInfo.username == '{{ $controller }}'
+      message: "only a person, break-glass or the promoter may freeze a Stage; agents may not"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass ||
+        (request.userInfo.username == '{{ $controller }}' ? variables.stepsDown : !(variables.agent && variables.levelTo == 'observe'))
+      message: "the promoter only steps a Stage down one level from an automatic level, and an agent never lowers a Stage to observe"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-operation
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-operation
+  validationActions: [Deny]
+---
+# Cancelling is deleting, and it is refused once the pointer has moved: an
+# applied operation runs to its end, which may be a rollback. Once it has
+# concluded only the promoter (its operationTTL, which keeps the operation a
+# Stage runs) and the namespace controller delete it: re-checks, rollbacks
+# and the Stage's history cite the operation that shipped what runs, so
+# nobody else, not its raiser nor break-glass, removes it. An agent cancels
+# only what it asked for itself: a rollback or freeze the promoter raised, or
+# another actor's operation, is cancelled by a person, break-glass or the
+# promoter. The namespace controller may delete one with its namespace.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-cancel
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [DELETE]
+        resources: [operations]
+  validations:
+    - expression: >-
+        oldObject.spec.actor.user == request.userInfo.username ||
+        request.userInfo.username == '{{ $controller }}' ||
+        request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' ||
+        request.userInfo.groups.exists(g, g in {{ $breakGlass }}) ||
+        !(request.userInfo.username.startsWith('system:serviceaccount:') ||
+        request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }})
+      message: "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest"
+      reason: Forbidden
+    - expression: >-
+        !has(oldObject.status) || !has(oldObject.status.applied) || !oldObject.status.applied ||
+        (has(oldObject.status.phase) && oldObject.status.phase == 'Concluded' &&
+        request.userInfo.username in ['{{ $controller }}', 'system:serviceaccount:kube-system:namespace-controller'])
+      message: "the pointer moved for this operation, so it can no longer be cancelled (roll it back instead), and once it concludes only the promoter or the namespace controller removes it: re-checks, rollbacks and the Stage's history cite it"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-cancel
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-cancel
+  validationActions: [Deny]
+---
+# Approvals come from people: not a service account, not an agent group, with
+# by and groups equal to the requesting user's. An authTime is the login time the
+# apiserver reports (structured authentication maps the OIDC auth_time claim to
+# userInfo.extra["delivery.pacto.trianalab.io/auth-time"]); with
+# delivery.promoter.authFreshness set it is required, and the promoter refuses a
+# login older than that, which forces a fresh interactive login to approve. An
+# agent holding a person's credentials still cannot be told apart from that person.
+# Once given, an Approval's spec never changes (a CRD rule); the promoter only
+# adds its operation as owner.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-approval
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [approvals]
+  variables:
+    - name: groups
+      expression: "has(object.spec.groups) ? object.spec.groups : []"
+  validations:
+    - expression: "object.spec.by == request.userInfo.username"
+      message: "spec.by must be the user creating the approval"
+      reason: Forbidden
+    - expression: >-
+        !(request.userInfo.username.startsWith('system:serviceaccount:') ||
+        request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }})
+      message: "agents and service accounts may not approve"
+      reason: Forbidden
+    {{- /* Any zero duration ("0", "0s", "0m") turns freshness off, as the promoter reads it. */}}
+    {{- if not (regexMatch "^(0+(\\.0+)?(ns|us|µs|ms|s|m|h)?)+$" (.Values.delivery.promoter.authFreshness | default "0" | toString)) }}
+    - expression: >-
+        'delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
+        has(object.spec.authTime) && object.spec.authTime == request.userInfo.extra['delivery.pacto.trianalab.io/auth-time'][0]
+      message: "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
+      reason: Forbidden
+    {{- else }}
+    - expression: >-
+        !has(object.spec.authTime) || ('delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
+        object.spec.authTime == request.userInfo.extra['delivery.pacto.trianalab.io/auth-time'][0])
+      message: "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
+      reason: Forbidden
+    {{- end }}
+    - expression: >-
+        variables.groups.all(g, g in request.userInfo.groups) &&
+        request.userInfo.groups.all(g, g in variables.groups)
+      message: "spec.groups must be the groups of the user creating the approval"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-approval
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-approval
+  validationActions: [Deny]
+---
+# The pointer: on an OCIRepository a Stage applies through (label it
+# delivery.pacto.trianalab.io/apply-ref), spec.ref.digest changes only by the
+# promoter or break-glass. spec.url, spec.layerSelector and spec.ignore, which
+# also decide what runs, and the label itself change only by break-glass, so
+# nobody can unlabel the object and then move the pointer unguarded. Deleting
+# a labelled one, or creating one with the label, is an edit too: only
+# break-glass or the GitOps controller (admissionPolicies.gitopsUsers) does
+# it. Every other field, and Flux's own writes, pass.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-pointer
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    objectSelector:
+      matchExpressions:
+        - key: delivery.pacto.trianalab.io/apply-ref
+          operator: Exists
+    resourceRules:
+      - apiGroups: [source.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [ocirepositories]
+  variables:
+    - name: digest
+      expression: "has(object.spec.ref) && has(object.spec.ref.digest) ? object.spec.ref.digest : ''"
+    - name: oldDigest
+      expression: "has(oldObject.spec.ref) && has(oldObject.spec.ref.digest) ? oldObject.spec.ref.digest : ''"
+    - name: breakGlass
+      expression: "request.userInfo.groups.exists(g, g in {{ $breakGlass }})"
+  validations:
+    - expression: >-
+        {{ $lifecycleRule }}
+      message: "the delivery.pacto.trianalab.io/apply-ref label marks a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' ||
+        variables.digest == variables.oldDigest ||
+        request.userInfo.username == '{{ $controller }}' ||
+        variables.breakGlass
+      message: "spec.ref.digest is the Pacto delivery pointer: propose a promote, or use break-glass"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' || variables.breakGlass ||
+        has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
+      message: "the delivery.pacto.trianalab.io/apply-ref label guards the Pacto delivery pointer: only break-glass removes it"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' || variables.breakGlass || (
+        (has(object.spec.url) ? object.spec.url : '') == (has(oldObject.spec.url) ? oldObject.spec.url : '') &&
+        (has(object.spec.layerSelector) ? object.spec.layerSelector : {}) == (has(oldObject.spec.layerSelector) ? oldObject.spec.layerSelector : {}) &&
+        (has(object.spec.ignore) ? object.spec.ignore : '') == (has(oldObject.spec.ignore) ? oldObject.spec.ignore : ''))
+      message: "spec.url, spec.layerSelector and spec.ignore decide what the Pacto delivery pointer runs: only break-glass changes them"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-pointer
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-pointer
+  validationActions: [Deny]
+{{- if .Values.delivery.argocd.enabled }}
+---
+# The pointer on Argo CD: on an Application a Stage applies through (label it
+# delivery.pacto.trianalab.io/apply-ref), spec.source.targetRevision changes
+# only by the promoter or break-glass. The rest of spec.source and
+# spec.sources, spec.destination and spec.project, which also decide what
+# runs, and the label itself change only by break-glass. Creating or deleting
+# a labelled one is for break-glass or the GitOps controller. Every other
+# field, and Argo CD's own writes, pass.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-pointer-argocd
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    objectSelector:
+      matchExpressions:
+        - key: delivery.pacto.trianalab.io/apply-ref
+          operator: Exists
+    resourceRules:
+      - apiGroups: [argoproj.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [applications]
+  variables:
+    - name: revision
+      expression: "has(object.spec.source) && has(object.spec.source.targetRevision) ? object.spec.source.targetRevision : ''"
+    - name: oldRevision
+      expression: "has(oldObject.spec.source) && has(oldObject.spec.source.targetRevision) ? oldObject.spec.source.targetRevision : ''"
+    - name: breakGlass
+      expression: "request.userInfo.groups.exists(g, g in {{ $breakGlass }})"
+    - name: source
+      expression: "has(object.spec.source) ? object.spec.source : {}"
+    - name: oldSource
+      expression: "has(oldObject.spec.source) ? oldObject.spec.source : {}"
+  validations:
+    - expression: >-
+        {{ $lifecycleRule }}
+      message: "the delivery.pacto.trianalab.io/apply-ref label marks a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' ||
+        variables.revision == variables.oldRevision ||
+        request.userInfo.username == '{{ $controller }}' ||
+        variables.breakGlass
+      message: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' || variables.breakGlass ||
+        has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
+      message: "the delivery.pacto.trianalab.io/apply-ref label guards the Pacto delivery pointer: only break-glass removes it"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' || variables.breakGlass || (
+        variables.source.all(k, k == 'targetRevision' || (k in variables.oldSource && variables.source[k] == variables.oldSource[k])) &&
+        variables.oldSource.all(k, k == 'targetRevision' || k in variables.source) &&
+        (has(object.spec.sources) ? object.spec.sources : []) == (has(oldObject.spec.sources) ? oldObject.spec.sources : []) &&
+        (has(object.spec.destination) ? object.spec.destination : {}) == (has(oldObject.spec.destination) ? oldObject.spec.destination : {}) &&
+        (has(object.spec.project) ? object.spec.project : '') == (has(oldObject.spec.project) ? oldObject.spec.project : ''))
+      message: "spec.source, spec.sources, spec.destination and spec.project decide what the Pacto delivery pointer runs: only break-glass changes them"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-pointer-argocd
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-pointer-argocd
+  validationActions: [Deny]
+{{- end }}
+---
+# The applier: on a Flux Kustomization labelled
+# delivery.pacto.trianalab.io/apply-ref, what decides which objects run from
+# the pointer's bytes and with what rights (sourceRef, path, images, patches,
+# components, postBuild, namePrefix, nameSuffix, targetNamespace,
+# serviceAccountName, kubeConfig, suspend, decryption) and the label itself
+# change only by break-glass. Creating or deleting a labelled one is for
+# break-glass or the GitOps controller. Every other field, and Flux's own
+# writes, pass.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-applier
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    objectSelector:
+      matchExpressions:
+        - key: delivery.pacto.trianalab.io/apply-ref
+          operator: Exists
+    resourceRules:
+      - apiGroups: [kustomize.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [kustomizations]
+  variables:
+    - name: breakGlass
+      expression: "request.userInfo.groups.exists(g, g in {{ $breakGlass }})"
+    - name: guarded
+      expression: "['sourceRef', 'path', 'images', 'patches', 'components', 'postBuild', 'namePrefix', 'nameSuffix', 'targetNamespace', 'serviceAccountName', 'kubeConfig', 'suspend', 'decryption']"
+  validations:
+    - expression: >-
+        {{ $lifecycleRule }}
+      message: "the delivery.pacto.trianalab.io/apply-ref label marks what applies a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' || variables.breakGlass ||
+        has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
+      message: "the delivery.pacto.trianalab.io/apply-ref label guards what the Pacto delivery pointer runs: only break-glass removes it"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' || variables.breakGlass ||
+        variables.guarded.all(f, (f in object.spec) == (f in oldObject.spec) && (!(f in object.spec) || object.spec[f] == oldObject.spec[f]))
+      message: "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix, targetNamespace, serviceAccountName, kubeConfig, suspend and decryption decide what the Pacto delivery pointer runs: only break-glass changes them"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-applier
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-applier
+  validationActions: [Deny]
+{{- $writers := list $controller }}
+{{- if .Values.delivery.recorder.enabled }}
+{{- $writers = append $writers (printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .)) }}
+{{- end }}
+---
+# What a Stage and an Operation say happened is the promoter's to write: the
+# level, the versions published, verified and failed, the freeze, the
+# approvals. RBAC that lets someone patch stages/status or operations/status
+# would otherwise let them raise a Stage to autonomous or publish an unsigned
+# digest. Only the promoter writes them, and the recorder its record fields
+# (the records policy holds it to those). The one exception is clearing a
+# Stage's status.upstreamSeen, which a person does once an auditor confirms a
+# cut in the upstream records; nothing else may change in that write.
+# system:masters bypasses authorization and could remove this policy, so
+# refusing it guards nothing.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-status
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [stages/status, operations/status]
+  variables:
+    - name: status
+      expression: "has(object.status) ? object.status : {}"
+    - name: oldStatus
+      expression: "has(oldObject.status) ? oldObject.status : {}"
+    - name: clearsUpstreamSeen
+      expression: >-
+        request.resource.resource == 'stages' && !('upstreamSeen' in variables.status) &&
+        variables.status.all(k, k in variables.oldStatus && variables.status[k] == variables.oldStatus[k]) &&
+        variables.oldStatus.all(k, k == 'upstreamSeen' || k in variables.status)
+  validations:
+    - expression: >-
+        request.userInfo.username in {{ include "pacto-operator.delivery.celList" $writers }} ||
+        request.userInfo.groups.exists(g, g == 'system:masters') ||
+        variables.clearsUpstreamSeen
+      message: "the status of a Stage or an Operation is written only by the Pacto delivery promoter; a person may only clear a Stage's status.upstreamSeen"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-status
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-status
+  validationActions: [Deny]
+{{- if .Values.delivery.recorder.enabled }}
+{{- $recorder := printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
+---
+# The record fields belong to the recorder: status.record on an Operation and
+# status.stream.{recordedSeq,head,anchor} on a Stage change only when the
+# recorder writes them. The recorder may write those and its own
+# RecordStoreReady condition, and nothing else: an allowlist, so a status
+# field added later is closed to it without editing this policy. RBAC cannot
+# scope a status write to fields; this policy does.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-records
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [stages/status, operations/status]
+  variables:
+    - name: recorder
+      expression: "request.userInfo.username == '{{ $recorder }}'"
+    - name: status
+      expression: "has(object.status) ? object.status : {}"
+    - name: oldStatus
+      expression: "has(oldObject.status) ? oldObject.status : {}"
+    - name: stream
+      expression: "has(object.status) && has(object.status.stream) ? object.status.stream : {}"
+    - name: oldStream
+      expression: "has(oldObject.status) && has(oldObject.status.stream) ? oldObject.status.stream : {}"
+    - name: conditions
+      expression: "has(object.status) && has(object.status.conditions) ? object.status.conditions.filter(c, c.type != 'RecordStoreReady') : []"
+    - name: oldConditions
+      expression: "has(oldObject.status) && has(oldObject.status.conditions) ? oldObject.status.conditions.filter(c, c.type != 'RecordStoreReady') : []"
+  validations:
+    - expression: >-
+        variables.recorder || (
+        {{ include "pacto-operator.delivery.celSame" (list "status.record.digest" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.record.refused" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.stream.head" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.stream.recordedSeq" "0") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.stream.anchor" "''") }})
+      message: "status.record and status.stream.{recordedSeq,head,anchor} are written only by the Pacto delivery recorder"
+      reason: Forbidden
+    - expression: >-
+        !variables.recorder || (
+        variables.status.all(k, k in ['record', 'stream', 'conditions'] || (k in variables.oldStatus && variables.status[k] == variables.oldStatus[k])) &&
+        variables.oldStatus.all(k, k in ['record', 'stream', 'conditions'] || k in variables.status) &&
+        variables.stream.all(k, k in ['recordedSeq', 'head', 'anchor'] || (k in variables.oldStream && variables.stream[k] == variables.oldStream[k])) &&
+        variables.oldStream.all(k, k in ['recordedSeq', 'head', 'anchor'] || k in variables.stream) &&
+        variables.conditions == variables.oldConditions)
+      message: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-records
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-records
+  validationActions: [Deny]
+{{- end }}
+---
+# The promoter itself: its RBAC may patch any OCIRepository, so admission holds
+# it to the one write it needs. It may only touch an OCIRepository a Stage
+# applies through, and only spec.ref.digest in its spec.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-promoter-writes
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [source.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [ocirepositories]
+  matchConditions:
+    - name: promoter
+      expression: "request.userInfo.username == '{{ $controller }}'"
+  variables:
+    - name: ref
+      expression: "has(object.spec.ref) ? object.spec.ref : {}"
+    - name: oldRef
+      expression: "has(oldObject.spec.ref) ? oldObject.spec.ref : {}"
+  validations:
+    - expression: >-
+        has(oldObject.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in oldObject.metadata.labels &&
+        has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
+      message: "the promoter writes only to an OCIRepository labelled delivery.pacto.trianalab.io/apply-ref"
+      reason: Forbidden
+    - expression: >-
+        object.spec.all(k, k == 'ref' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+        oldObject.spec.all(k, k in object.spec) &&
+        variables.ref.all(k, k == 'digest' || (k in variables.oldRef && variables.ref[k] == variables.oldRef[k])) &&
+        variables.oldRef.all(k, k == 'digest' || k in variables.ref)
+      message: "the promoter may change only spec.ref.digest"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-promoter-writes
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-promoter-writes
+  validationActions: [Deny]
+{{- if .Values.delivery.argocd.enabled }}
+---
+# The promoter on Argo CD: only an Application a Stage applies through, and
+# only spec.source.targetRevision in its spec.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-promoter-writes-argocd
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [argoproj.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [applications]
+  matchConditions:
+    - name: promoter
+      expression: "request.userInfo.username == '{{ $controller }}'"
+  variables:
+    - name: source
+      expression: "has(object.spec.source) ? object.spec.source : {}"
+    - name: oldSource
+      expression: "has(oldObject.spec.source) ? oldObject.spec.source : {}"
+  validations:
+    - expression: >-
+        has(oldObject.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in oldObject.metadata.labels &&
+        has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
+      message: "the promoter writes only to an Application labelled delivery.pacto.trianalab.io/apply-ref"
+      reason: Forbidden
+    - expression: >-
+        object.spec.all(k, k == 'source' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+        oldObject.spec.all(k, k in object.spec) &&
+        variables.source.all(k, k == 'targetRevision' || (k in variables.oldSource && variables.source[k] == variables.oldSource[k])) &&
+        variables.oldSource.all(k, k == 'targetRevision' || k in variables.source)
+      message: "the promoter may change only spec.source.targetRevision"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-promoter-writes-argocd
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-promoter-writes-argocd
+  validationActions: [Deny]
+{{- end }}
+{{- end }}
+{{- end }}

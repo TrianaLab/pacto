@@ -19,7 +19,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 import FleetServicesView from './FleetServicesView.svelte';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
-function listResp(entities: any[], opts: { total?: number; offset?: number; nextOffset?: number; partial?: boolean; aggregate?: any } = {}): any {
+function listResp(entities: any[], opts: { total?: number; offset?: number; limit?: number; nextOffset?: number; partial?: boolean; aggregate?: any } = {}): any {
   const total = opts.total ?? entities.length;
   const offset = opts.offset ?? 0;
   return {
@@ -28,7 +28,7 @@ function listResp(entities: any[], opts: { total?: number; offset?: number; next
       completeness: opts.partial ? 'partial' : 'complete',
       sources: opts.partial ? [{ id: 'k8s', kind: 'kubernetes', status: 'unavailable' }] : [],
     },
-    total, count: entities.length, offset, limit: 25,
+    total, count: entities.length, offset, limit: opts.limit ?? 25,
     truncated: opts.nextOffset != null, nextOffset: opts.nextOffset, entities,
     // The backend aggregate over every service matching the filters, paging excluded.
     // Absent by default so the tests that are not about the inventory keep it off screen.
@@ -134,7 +134,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
   it('paginates through the backend metadata (Next carries the next offset)', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 60, offset: 0, nextOffset: 25 }));
     const { target, component } = mountView();
-    await vi.waitFor(() => expect(target.querySelector('.sv-range')?.textContent).toBe('Showing 1–1 of 60'));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="svc-range"]')?.textContent).toBe('Showing 1–25 of 60 services'));
     expect((target.querySelector('[data-testid="svc-next"]') as HTMLAnchorElement).getAttribute('href')).toBe('#/fleet/services?offset=25');
     expect(target.querySelector('[data-testid="svc-prev"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
@@ -152,14 +152,14 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     entitiesFn.mockResolvedValue(listResp([], { total: 0 }));
     m = mountView();
     await vi.waitFor(() => expect(m.target.textContent).toMatch(/no services yet/i));
-    expect(m.target.textContent).not.toMatch(/knowledge is incomplete/i);
+    expect(m.target.textContent).not.toMatch(/so more may exist/i);
     unmount(m.component); document.body.removeChild(m.target);
 
     // incomplete knowledge (no filter, a source unavailable)
     entitiesFn.mockResolvedValue(listResp([], { total: 0, partial: true }));
     m = mountView();
     await vi.waitFor(() => expect(m.target.textContent).toMatch(/no services known/i));
-    expect(m.target.textContent).toMatch(/knowledge is incomplete/i);
+    expect(m.target.textContent).toMatch(/so more may exist/i);
     unmount(m.component); document.body.removeChild(m.target);
   });
 
@@ -226,7 +226,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
     expect(target.querySelector('#sv-inv-h')?.textContent).toBe('What these filters select');
     const ownership = dist(target, 'Declared ownership');
-    expect(ownership.querySelector('.dist-scope')?.textContent).toBe('All 7 matching services, not just this page.');
+    expect(ownership.querySelector('.dist-scope')?.textContent).toBe('All 7 matching services, across every page.');
     expect(Array.from(ownership.querySelectorAll('.dist-legend .dist-label')).map((n) => n.textContent))
       .toEqual(['One declared owner', 'Revisions name different owners', 'No declared owner']);
     // The owner filter survives the click; it is narrowed, not replaced.
@@ -266,7 +266,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     // re-sorting a top-N-by-services list and presenting it as a target ranking.
     expect(Array.from(targets.querySelectorAll('.hb-label')).map((n) => n.textContent)).toEqual(['team-a', 'team-b']);
     expect(targets.querySelector('.hb-scope')?.textContent)
-      .toBe('Same owners, in the same service-count order as above — this is not a ranking by target count.');
+      .toBe('Same owners, in the same order as above (by service count).');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -405,6 +405,25 @@ describe('FleetServicesView — owner search vs owner identity', () => {
     props.text = 'q'; // a navigation the reader did not type still re-syncs the box
     flushSync();
     expect(input.value).toBe('q');
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+describe('FleetServicesView — order and page size', () => {
+  it('asks the server for natural name order and keeps the order and page size in the URL', async () => {
+    entitiesFn.mockReset();
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 60, offset: 0, limit: 50, nextOffset: 50 }));
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetServicesView, { target, props: { refreshTick: 0, limit: '50', sort: 'health' } });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
+    expect(entitiesFn.mock.calls[0][0]).toMatchObject({ limit: 50, sort: 'health' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="svc-next"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="svc-next"]')?.getAttribute('href')).toBe('#/fleet/services?offset=50&limit=50&sort=health');
+    const order = target.querySelector('[data-testid="svc-sort"]') as HTMLSelectElement;
+    order.value = 'name';
+    order.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/services?limit=50');
     unmount(component); document.body.removeChild(target);
   });
 });

@@ -56,12 +56,29 @@ function mountView(props: Record<string, unknown>) {
   return { target, component };
 }
 
-const range = (t: HTMLElement) => t.querySelector('.av-range')?.textContent || '';
+const range = (t: HTMLElement) => (t.querySelector('[data-testid="attn-range"]')?.textContent || '').replace(/\s+/g, ' ').trim().replace(/ items$/, '');
 const prev = (t: HTMLElement) => t.querySelector('[data-testid="attn-prev"]') as HTMLAnchorElement | null;
 const next = (t: HTMLElement) => t.querySelector('[data-testid="attn-next"]') as HTMLAnchorElement | null;
 
 describe('FleetAttentionView — real backend pagination (A2)', () => {
   beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+
+  it('a page past the end offers the last page instead of saying nothing is known', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ offset: '500' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="attn-past-end"]')).not.toBeNull());
+    expect(target.textContent).not.toContain('No attention items');
+    expect(target.querySelector('[data-testid="attn-past-end"] a')?.getAttribute('href')).toBe('#/fleet/attention?offset=50');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('keeps the page size in the URL and asks the server for it', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ limit: '50' });
+    await vi.waitFor(() => expect(attentionFn).toHaveBeenCalled());
+    expect(attentionFn.mock.calls[0][0]).toMatchObject({ limit: 50 });
+    unmount(component); document.body.removeChild(target);
+  });
 
   it('first page: renders 1-25 of 60, Prev disabled, Next -> offset 25', async () => {
     serveByOffset();
@@ -272,8 +289,8 @@ describe('FleetAttentionView — the motion ration', () => {
     serve([item('error', 'a'), item('error', 'b'), item('warning', 'c')]);
     const { target, component } = mountView({});
     await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBe(3));
-    const rung = target.querySelectorAll('.attn-item.is-alarm');
-    expect(rung).toHaveLength(1);
+    const level = target.querySelectorAll('.attn-item.is-alarm');
+    expect(level).toHaveLength(1);
     // The head of the page, because the backend sorts errors first -- so the ring is on
     // the worst thing visible rather than on whichever row happened to render first.
     expect(target.querySelectorAll('.attn-item')[0].classList.contains('is-alarm')).toBe(true);
@@ -324,5 +341,46 @@ describe('FleetAttentionView — the motion ration', () => {
     expect(m2.target.querySelector('[data-testid="page-title"]')?.parentElement?.textContent)
       .toContain('1 item · nothing urgent');
     unmount(m2.component); document.body.removeChild(m2.target);
+  });
+});
+
+describe('FleetAttentionView — searchable filters', () => {
+  beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+
+  it('offers owner, source and service as pickers, and clearing the service widens to the fleet', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ service: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBeGreaterThan(0));
+    for (const id of ['attn-owner', 'attn-source', 'attn-service']) {
+      expect(target.querySelector(`[data-testid="${id}"]`)?.getAttribute('role')).toBe('combobox');
+    }
+    const svc = target.querySelector('[data-testid="attn-service"]') as HTMLInputElement;
+    expect(svc.value).toBe('domain-a/payments');
+    svc.value = '';
+    svc.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/attention');
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+describe('FleetAttentionView — answer first, no repeated hints', () => {
+  beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+  const item = (i: number, nextStep: string) => ({ severity: 'error', category: 'invalid', entity: { kind: 'revision', key: `r${i}`, label: `r${i}`, href: `/fleet/revisions/r${i}` }, summary: 'invalid', nextStep });
+
+  it('says what to fix first and states a run of identical next steps once', async () => {
+    attentionFn.mockResolvedValue({
+      meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [] },
+      total: 10, offset: 0, limit: 25, count: 3, truncated: false,
+      categories: [{ category: 'invalid', count: 3 }, { category: 'stale', count: 7 }],
+      severities: { errors: 3, warnings: 7 },
+      items: [item(1, 'Fix the contract'), item(2, 'Fix the contract'), item(3, 'Open the target')],
+    });
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    expect(target.querySelector('[data-testid="attention-answer"]')?.textContent?.replace(/\s+/g, ' ').trim())
+      .toBe('Fix first: 3 revisions are invalid. 7 more are worth a look.');
+    const nexts = Array.from(target.querySelectorAll('.attn-item')).map((li) => li.querySelector('.attn-next')?.textContent?.replace('Next', '') ?? '');
+    expect(nexts).toEqual(['Fix the contract', '', 'Open the target']);
+    unmount(component); document.body.removeChild(target);
   });
 });

@@ -131,6 +131,8 @@ td .badge.status-badge {
 }
 .btn-primary:hover { opacity: 0.9; border-color: var(--c-accent); }
 .btn-sm { padding: 4px var(--sp-3); min-height: 32px; font-size: var(--text-xs); }
+/* A button that cannot be pressed yet looks it: a primary one too, so an empty required note reads as the reason. */
+.btn:disabled, .btn:disabled:hover { opacity: 0.5; cursor: not-allowed; background: var(--c-surface); border-color: var(--c-border); color: var(--c-text-3); }
 .btn-ghost {
   background: none;
   border: 1px solid transparent;
@@ -266,12 +268,15 @@ select {
   margin-bottom: var(--sp-6);
 }
 .section-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
   color: var(--c-text-2);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: var(--sp-3);
+  /* A section title, not a label: the legacy views' section headings read the same
+     serif section-title role as .t-section-title. */
+  font-family: var(--role-section-title-family);
+  font-size: var(--role-section-title-size);
+  font-weight: var(--role-section-title-weight);
+  line-height: var(--role-section-title-lh);
+  letter-spacing: -0.01em;
 }
 
 /* ─── Key-value grid ─── */
@@ -430,14 +435,10 @@ tr.clickable:active { background: var(--c-surface-inset); }
   background: none;
   border: none;
   padding: 0;
-  font: inherit;
-  font-size: var(--text-xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--c-text-3);
   cursor: pointer;
   white-space: nowrap;
+  font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
 }
 .col-sort:hover {
   color: var(--c-text);
@@ -559,6 +560,16 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .disclosure > summary:hover { color: var(--c-text); }
 .disclosure-caret { display: inline-block; flex-shrink: 0; }
 .disclosure[open] > summary .disclosure-caret { transform: rotate(90deg); }
+/* A fold titled by a heading reads the same on every page (Fold.svelte's look): a plain
+   sans title at body size, never a serif section title or italic, and the count or note
+   after it pushed to the right. A collapsible PreviewSection is a section that folds,
+   not a fold: its title keeps the section role's size (PreviewSection.svelte). */
+.disclosure:not(.ps-collapsible) > summary:has(> :is(h2, h3, h4)) { gap: var(--sp-2); color: var(--c-text); font-size: var(--text-base); }
+.disclosure:not(.ps-collapsible) > summary > :is(h2, h3, h4) {
+  margin: 0; font-family: var(--font-sans, inherit); font-size: var(--text-base); font-weight: 500;
+  font-style: normal; letter-spacing: normal; text-transform: none; font-variant-caps: normal; color: var(--c-text);
+}
+.disclosure:not(.ps-collapsible) > summary > :is(h2, h3, h4) + :is(.t-meta, .badge, .gv-chip) { margin-left: auto; }
 
 /* ONE caret speed. Nine components had written this same transition privately at three
    different speeds (0.12s / 150ms / 200ms), so the identical gesture read differently
@@ -569,6 +580,43 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .disclosure-caret, .toggle-icon, .expand-icon, .doc-chevron {
   transition: transform var(--motion-feedback);
 }
+
+/* ─── Detail card ─── */
+/* The folding card a service page lists configurations, policies, interfaces, docs and
+   skills in. Five sections had each written this card privately and drifted; a section
+   keeps only what is genuinely its own (a wrapping header, a narrower sub-line). The
+   header rule is for the button form; Docs' header is a row holding a button. The caret
+   is scoped to the card: the Owners and Readiness rows draw their own `.expand-icon`. */
+.detail-card {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  margin-bottom: var(--sp-2);
+}
+button.detail-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--sp-3);
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--c-text);
+  text-align: left;
+  gap: var(--sp-3);
+}
+.detail-card-header.expandable { cursor: pointer; }
+.detail-card-header.expandable:hover { background: var(--c-surface-hover, var(--c-surface-inset)); border-radius: var(--radius-sm); }
+.detail-card-header-left { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.detail-card-title { font-weight: 600; }
+.detail-card-sub { font-size: var(--text-sm); color: var(--c-text-2); }
+.detail-card-body { padding: 0 var(--sp-3) var(--sp-3); }
+.detail-card-table { font-size: var(--text-sm); }
+.detail-card-table th { font-size: var(--text-xs); }
+.detail-card .expand-icon { display: inline-flex; color: var(--c-text-3); transform: rotate(-90deg); flex-shrink: 0; }
+.detail-card .expand-icon.open { transform: rotate(0deg); }
+.detail-card .expand-icon svg { width: 12px; height: 12px; }
 
 /* ─── Page scaffold ─── */
 /* THE product page shell: breadcrumbs, page header, then sections, separated by one
@@ -612,10 +660,12 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .page-toc-layout { display: flex; flex-direction: column; gap: var(--sp-4); align-items: stretch; }
 .page-toc-main { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
 @media (min-width: 1100px) {
-  .page-toc-layout { flex-direction: row; gap: var(--sp-6); align-items: flex-start; }
+  .page-toc-layout { flex-direction: row; gap: var(--sp-5); align-items: flex-start; }
   /* The rail's width lives with the layout that reserves it, not in PageToc: the
-     navigator does not get to decide how much of the page it takes. */
-  .page-toc-layout > .toc { flex: 0 0 200px; }
+     navigator does not get to decide how much of the page it takes. Narrow, because it
+     holds about six short links; closed, it gives the page back all but its own label. */
+  .page-toc-layout > .toc { flex: 0 0 168px; }
+  .page-toc-layout > .toc:has(> details:not([open])) { flex-basis: auto; }
   .page-toc-layout > .page-toc-main { flex: 1 1 auto; }
 }
 /* Every navigable section clears the sticky app bar when it is scrolled to, rather than
@@ -693,3 +743,96 @@ tr.clickable:active { background: var(--c-surface-inset); }
 @media (prefers-reduced-motion: reduce) {
   .pl-page:active { transform: none; }
 }
+
+/* A row that stacks its children (a title, a sentence, facts) reads from the left edge
+   like any text block; centring each line was the row's default leaking through. A
+   row with several links is not one target, so it gets no hover bar either. */
+.pl-row.pl-row--stack { flex-direction: column; align-items: stretch; }
+.pl-row.pl-row--stack:hover, .pl-row.pl-row--stack:focus-within { background: none; box-shadow: none; }
+
+/* ── Data tables ── */
+/* One rule set for every long table. Columns get their widths from a <colgroup> under a
+   fixed layout, so no cell can paint over the next one; text wraps at word boundaries
+   and identifiers clip with an ellipsis (.cell-clip) and keep the full value in a title.
+   The table scrolls with the page, not in a box of its own: a bounded scroller hid most
+   of a 50-row page behind a second scrollbar. The header sticks under the navbar instead.
+   The frame clips (overflow: clip is not a scroll container, so the sticky header still
+   follows the page) and is positioned, so an absolutely positioned visually-hidden label
+   in a cell stays inside it rather than stretching the document. Under 768px each row
+   becomes a card of label and value pairs, read from data-label. */
+.data-scroll {
+  position: relative; overflow: clip;
+  border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface);
+}
+.data-table { table-layout: fixed; width: 100%; }
+.data-table th, .data-table td { overflow-wrap: break-word; min-width: 0; }
+.data-table td code { word-break: normal; }
+.data-table thead th { position: sticky; top: var(--navbar-h); z-index: 2; background: var(--c-surface); box-shadow: inset 0 -1px 0 var(--c-border); }
+.data-table tbody th { font: inherit; font-variant-caps: normal; letter-spacing: normal; color: var(--c-text); }
+.cell-clip { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A clipped link a keyboard reaches unclips while it has focus, so its whole text is
+   never only in a tooltip a mouse can open. */
+.cell-clip:focus-visible, .cell-clip:focus-within { white-space: normal; overflow-wrap: anywhere; }
+.cell-stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); min-width: 0; }
+.cell-badges { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+@media (max-width: 768px) {
+  .data-scroll { border: none; background: none; }
+  .data-table, .data-table tbody, .data-table tr, .data-table td, .data-table tbody th { display: block; width: 100%; }
+  .data-table colgroup { display: none; }
+  .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .data-table tr { border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); margin-bottom: var(--sp-2); padding: var(--sp-2) 0; }
+  .data-table td, .data-table tbody th { border: none; padding: var(--sp-1) var(--sp-3); }
+  .data-table td[data-label]::before { content: attr(data-label); display: block; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
+  .data-table td:empty { display: none; }
+}
+
+/* ── Entity list rows as columns ── */
+/* Name, status and context in fixed tracks, so the status pills line up down the list
+   instead of trailing each name at a different x. A long name ellipsizes and keeps the
+   whole value in its title. On a phone the context drops under the name. Three
+   classes on .entity-identity on purpose: its own scoped rule is two classes and,
+   injected later, wins a tie, which left every row a ragged inline run. */
+.pl-list--cols .pl-row > .entity-link { width: 100%; }
+.pl-list--cols .pl-row .entity-identity { display: grid; grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 18rem); width: 100%; }
+.pl-list--cols .ei-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-list--cols .ei-context { justify-content: flex-end; text-align: right; }
+@media (max-width: 40rem) {
+  .pl-list--cols .pl-row .entity-identity { grid-template-columns: minmax(0, 1fr) auto; }
+  .pl-list--cols .ei-context { grid-column: 1 / -1; justify-content: flex-start; text-align: left; }
+}
+
+/* ── Entity list rows with facts ── */
+/* A row that is one link with cells: the name (ellipsized), the status in a fixed
+   column, the domain and the owner, and a count right-aligned. The identity's parts
+   join the link's grid through display: contents and take named areas, so a row
+   missing a part leaves its cell empty instead of shifting the rest. Five classes
+   beat the .pl-list row-link rule above. */
+.pl-list.pl-list--facts .pl-row > .entity-link:only-child {
+  display: grid; align-items: center; column-gap: var(--sp-3); row-gap: var(--sp-1);
+  grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 10rem) minmax(0, 12rem) 8rem;
+  grid-template-areas: "name status ctx owner num";
+}
+.pl-list.pl-list--owners .pl-row > .entity-link:only-child {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 8rem) 8rem;
+  grid-template-areas: "name ctx num";
+}
+.pl-list--facts .pl-row .entity-identity { display: contents; }
+.pl-list--facts .ei-label { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-list--facts .ei-status { grid-area: status; }
+.pl-list--facts .ei-context { grid-area: ctx; overflow: hidden; }
+.pl-list--facts .pl-owner { grid-area: owner; font-size: var(--text-xs); color: var(--c-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-list--facts .pl-num { grid-area: num; font-size: var(--text-xs); color: var(--c-text-3); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 40rem) {
+  .pl-list.pl-list--facts .pl-row > .entity-link:only-child {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name status" "owner num" "ctx ctx";
+  }
+  .pl-list.pl-list--owners .pl-row > .entity-link:only-child {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name num" "ctx ctx";
+  }
+}
+
+/* The one-line answer under a page title: each page answers its question first, in
+   plain words, before any section. Body role, so it adds no type size of its own. */
+.page-answer { margin: 0 0 var(--sp-3); max-width: 72ch; color: var(--c-text); }

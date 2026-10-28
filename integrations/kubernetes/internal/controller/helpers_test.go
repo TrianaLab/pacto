@@ -503,3 +503,16 @@ func TestResetDerivedStatus_PreservesConditionTransitionTime(t *testing.T) {
 		t.Errorf("LastTransitionTime reset on unchanged status: got %v, want preserved %v", got.Time, past.Time)
 	}
 }
+
+// TestResetDerivedStatus_NotEvaluatedKeepsRefresh: a coverage marked not
+// evaluated keeps its refresh interval, so delivery explains it as not
+// evaluated instead of as a status the operator stopped writing.
+func TestResetDerivedStatus_NotEvaluatedKeepsRefresh(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{}
+	pacto.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageComplete, RefreshSeconds: 300}
+	(&PactoReconciler{}).resetDerivedStatus(pacto)
+	got := pacto.Status.ObservedCallersCoverage
+	if got.State != pactov1alpha1.CallerCoverageUnavailable || got.Reason != "not-evaluated" || got.RefreshSeconds != 300 {
+		t.Errorf("coverage after reset = %+v, want unavailable/not-evaluated with RefreshSeconds 300", *got)
+	}
+}

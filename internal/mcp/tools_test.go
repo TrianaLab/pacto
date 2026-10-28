@@ -400,7 +400,7 @@ func TestSchemaTool(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		t.Fatalf("expected valid JSON: %v", err)
 	}
-	if !strings.Contains(parsed.Description, "operational contract format") {
+	if !strings.Contains(parsed.Description, "continuous delivery driven by service contracts") {
 		t.Errorf("expected description to mention Pacto, got: %s", parsed.Description)
 	}
 	if parsed.Docs == "" {
@@ -475,5 +475,53 @@ func TestInputSchemaNoRequired(t *testing.T) {
 	}, nil)
 	if _, ok := schema["required"]; ok {
 		t.Error("expected no required field when nil")
+	}
+}
+
+// TestCreateTool_Pactify: pacto_create with pactify is pacto init for an
+// agent: dry_run plans the contract read from the folder and the cluster
+// pieces and writes nothing; without it the files are written; bad JSON and a
+// bad folder are errors.
+func TestCreateTool_Pactify(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "fraud")
+	if err := os.MkdirAll(filepath.Join(dir, "k8s"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "k8s", "d.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: fraud}\nspec: {template: {spec: {containers: [{name: fraud, image: 'registry.example/story/images/fraud:1.0.0'}]}}}\n"), 0o644)
+	args := map[string]any{"name": "fraud", "path": dir, "owner": "risk", "pactify": true, "delivery": true,
+		"environments": `["test","prod"]`, "fleet_roots": `[]`, "registry": "registry.example/story", "dry_run": true,
+		"no_transparency_log": true, "insecure_registry": true, "registry_secret": "registry-creds"}
+
+	res := callTool(t, "pacto_create", args)
+	var plan struct {
+		Mode, Service string
+		Applied       bool
+		Files         []struct{ Path, Action string }
+	}
+	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &plan) != nil || plan.Mode != "pactify" || plan.Applied || len(plan.Files) != 5 {
+		t.Fatalf("plan: %s", resultText(t, res))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
+		t.Fatal("dry_run wrote pacto.yaml")
+	}
+
+	args["dry_run"] = false
+	if res := callTool(t, "pacto_create", args); res.IsError {
+		t.Fatalf("apply: %s", resultText(t, res))
+	}
+	prod, _ := os.ReadFile(filepath.Join(dir, "delivery", "prod.yaml"))
+	contract, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if !strings.Contains(string(prod), "insecure: true") || !strings.Contains(string(prod), "secretRef:\n    name: registry-creds\n") ||
+		!strings.Contains(string(contract), "transparencyLog: false") {
+		t.Fatalf("no_transparency_log, insecure_registry and registry_secret were not written:\n%s\n%s", contract, prod)
+	}
+
+	args["environments"] = "not json"
+	if res := callTool(t, "pacto_create", args); !res.IsError {
+		t.Fatal("bad environments JSON was accepted")
+	}
+	if res := callTool(t, "pacto_create", map[string]any{"name": "Bad_Name", "path": dir, "pactify": true}); !res.IsError {
+		t.Fatal("a bad name was accepted")
 	}
 }

@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	_ "embed"
+	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,125 +29,13 @@ var ociVersionResolution string
 //go:embed prose/footer.md
 var footer string
 
-// commandNotes contains additional documentation appended after the
-// auto-generated content for each command. These notes capture behavioural
-// details, output examples, and cross-references that cannot be derived
-// from the cobra command definition alone.
-var commandNotes = map[string]string{
-	"init": `Scaffolds three files: a valid ` + "`pacto.yaml`" + `, a placeholder OpenAPI spec at ` + "`interfaces/openapi.yaml`" + ` and a configuration JSON Schema at ` + "`configuration/schema.json`" + `.
-
-` + "`<name>`" + ` is the service name, not a path: it becomes the directory *and* ` + "`service.name`" + `, which must match ` + "`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`" + `. ` + "`pacto init fleet/checkout-web`" + ` therefore scaffolds a bundle that does not validate — ` + "`service.name`" + ` gets the whole path and fails ` + "`SCHEMA_VIOLATION`" + `. To scaffold inside a directory, ` + "`cd`" + ` there first and pass the bare name.
-
-All three are required **by the scaffolded contract**, because its ` + "`interfaces:`" + ` and ` + "`configurations:`" + ` sections point at the other two files. Deleting a directory without also deleting the section that references it fails validation with ` + "`FILE_NOT_FOUND`" + `. A contract that declares neither section needs only ` + "`pacto.yaml`" + `, so drop the section and the directory together.
-
-!!! note "The scaffold does not pass ` + "`validate --readiness`" + `, by design"
-    Its two placeholder readiness claims are ` + "`not-done`" + `, which scores 0 against the
-    scaffolded ` + "`minScore: 80`" + ` and fails with ` + "`READINESS_GATE_UNMET`" + `. Plain
-    ` + "`pacto validate`" + ` passes, because the gate is opt-in. Fill the claims in as the
-    work lands — the placeholder is the starting position of a real assessment, not a
-    template to delete.`,
-
-	"validate": "The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment — individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. " +
-		"Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). " +
-		"See the [readiness reference](contract-reference/readiness.md#readiness) for the score and gate semantics.\n\n" +
-		"**Exit code:** Non-zero if validation fails.",
-
-	"explain": "**What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. " +
-		"It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly. " +
-		"`metadata` is carried by `--output-format json` only; the text output omits it.\n\n" +
-		"**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: \"2.0\"` feature), `explain` adds a Readiness block: " +
-		"the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, " +
-		"the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state) and a per-check table " +
-		"showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight and `evidence`. " +
-		"The Readiness block also includes a revision-history table when `history[]` is present. " +
-		"`--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount` and `expired` (boolean). " +
-		"Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.",
-
-	"pack": "The contract is validated before packing. If validation fails, no archive is created.\n\n" +
-		"Files matched by `.pactoignore` are excluded from the archive — see [Packaging ignore](pactoignore.md).",
-
-	"generate": "`pacto generate <plugin>` invokes the `pacto-plugin-<plugin>` binary. See [Plugins](plugins.md) for plugin discovery, the plugin registry and the official plugins bundled with Pacto.",
-
-	"lock": "See [Lockfile](lockfile.md) for the lock model and how `.pactoignore` keeps a `pacto.lock` out of a pushed bundle.",
-
-	"push": "If the artifact already exists in the registry, `pacto push` prints a warning and exits successfully without pushing. Use `--force` to overwrite.\n\n" +
-		"!!! note \"`--values` has no `-f` shorthand on push\"\n" +
-		"    On every other override-taking command `-f` is the shorthand for `--values`. On `pacto push`, `-f` is `--force`, so `--values` must be spelled out in full here.",
-
-	"diff": `**Exit code:** ` + "`1`" + ` when the overall classification is ` + "`BREAKING`" + ` — and also ` + "`1`" + ` when the diff could not be produced at all, so a non-zero exit is not by itself a contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A ` + "`POTENTIAL_BREAKING`" + ` result exits ` + "`0`" + `, so a CI gate that wants to stop on it has to read the classification rather than the exit code.
-
-The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level. The optional ` + "`docs/`" + ` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
-
-When both bundles include an ` + "`sbom/`" + ` directory with recognized SBOM files (` + "`.spdx.json`" + ` or ` + "`.cdx.json`" + `), ` + "`pacto diff`" + ` reports package-level changes — added, removed or modified packages (version and license). SBOM changes are informational and do not affect the overall classification or exit code.
-
-When dependencies change between the old and new contracts (version upgrades, additions or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
-
-See [Change Classification](contract-reference/diff.md#change-classification-rules) for the full rules.`,
-
-	"graph": `Dependencies resolved from local paths are annotated with ` + "`[local]`" + `. Shared dependencies (referenced by multiple parents) are annotated with ` + "`(shared)`" + `.
-
-Reports cycles, version conflicts and unreachable dependencies.
-
-Sibling dependencies are resolved in parallel. OCI bundles are cached locally in ` + "`~/.cache/pacto/oci/`" + ` for faster subsequent operations. Use ` + "`--no-cache`" + ` to bypass the cache.`,
-
-	"doc": "The header line reports the contract's own state, not a runtime measurement: `pacto doc` reads a bundle and never observes a cluster. " +
-		"A contract that has never been runtime-evaluated therefore reads `status NotEvaluated`, and one that declares no workload reads `compliance REFERENCE`. " +
-		"Both are the expected result for a freshly scaffolded contract — see [Compliance states](model.md#compliance-model).\n\n" +
-		"Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.\n\n`--serve` serves that static site locally. `--ui swagger` launches an interactive API explorer.\n\n`--serve`, `--ui` and `-o` are mutually exclusive. Use `--interface` to pick one OpenAPI interface with `--ui`. `--target` and `--target iface=url` point try-it-out at a backend.\n\nSibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache/pacto/oci/`. `--no-cache` bypasses the cache.",
-
-	"login": "Credentials are stored in `~/.config/pacto/config.json` (or `$XDG_CONFIG_HOME/pacto/config.json`), keeping them separate from Docker's configuration.\n\n" +
-		"### GitHub Container Registry (ghcr.io)\n\n" +
-		"For GitHub registries (`ghcr.io` and `docker.pkg.github.com`), pacto can automatically reuse credentials from the [GitHub CLI](https://cli.github.com/) — no `pacto login` required.\n\n" +
-		"If you already have `gh` installed and authenticated, pacto will use `gh auth token` to obtain a token transparently. To verify your setup:\n\n" +
-		"```bash\n# Check if gh is authenticated\ngh auth status\n\n# Verify the token is available\ngh auth token\n```\n\n" +
-		"To push container images or packages, your token needs the `write:packages` scope. If you authenticated `gh` without it, refresh your scopes:\n\n" +
-		"```bash\ngh auth refresh --scopes write:packages\n```\n\n" +
-		"After this, `pacto push oci://ghcr.io/...` will work without any additional login step.\n\n" +
-		"If `gh` is not installed or not authenticated, pacto silently falls back to the next credential source in the chain.",
-
-	"update": "!!! note\n    `pacto update` is not available on dev builds. If you built from source without version injection, install a release build first.\n\n" +
-		"### Update notifications\n\n" +
-		"When a newer version is available, pacto displays a notification after any command:\n\n" +
-		"```\nA new version of pacto is available: v1.0.0 -> v1.2.0\nRun 'pacto update' to update.\n```\n\n" +
-		"The check runs asynchronously and adds no latency. Results are cached for 24 hours in `~/.config/pacto/update-check.json`.\n\n" +
-		"Notifications are suppressed when:\n\n" +
-		"- Running a dev build\n" +
-		"- Using `--output-format json` or `--output-format markdown` (the notice shows only for text output)\n" +
-		"- The `PACTO_NO_UPDATE_CHECK=1` environment variable is set",
-
-	"dashboard": "It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).\n\n" +
-		"For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).",
-
-	"mcp": "The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:\n\n" +
-		"| Tool | Description |\n" +
-		"|------|-------------|\n" +
-		"| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |\n" +
-		"| `pacto_edit` | Edit an existing contract — add/remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |\n" +
-		"| `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |\n" +
-		"| `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |\n\n" +
-		"These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and do not resolve `oci://` refs.\n\n" +
-		"### Server modes\n\n" +
-		"The default server exposes the authoring tools above. Three flags select a different server instead, and they cannot be combined — passing more than one is an error, never a silent choice:\n\n" +
-		"| Invocation | Server |\n" +
-		"|------------|--------|\n" +
-		"| `pacto mcp` | Authoring tools. |\n" +
-		"| `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |\n" +
-		"| `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |\n" +
-		"| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots, and nothing else: catalog mode registers no authoring tools, so nothing reachable in it writes to disk. |\n\n" +
-		"`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.\n\n" +
-		"### Fleet tool arguments\n\n" +
-		"The arguments each fleet query tool takes, since none of them is required except where marked:\n\n" +
-		"| Tool | Arguments |\n" +
-		"|------|-----------|" + "\n" +
-		"| `pacto_fleet_search` | `text`, `owner`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |\n" +
-		"| `pacto_fleet_get` | `service` **or** `target` — one names a logical service, the other an operational target by key or name |\n" +
-		"| `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |\n" +
-		"| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `missing_readiness`; plus `limit` |\n" +
-		"| `pacto_fleet_explain` | `subject` (**required**) — a service name or a target key or name |\n" +
-		"| `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |\n\n" +
-		"Argument names are not flag names: the substring filter is `text`, not `query`, and every tool above closes its schema, so a wrong guess is rejected as an error rather than dropped into an unfiltered answer.\n\n" +
-		"See [MCP Integration](mcp-integration.md) for detailed setup, serving a bundle's operations as tools and the catalog surface.",
-}
+// notes holds additional documentation appended after the auto-generated
+// content of each command, one prose/notes/<command>.md per command: the
+// behavioural details, output examples and cross-references that cannot be
+// derived from the cobra command definition alone.
+//
+//go:embed prose/notes
+var notes embed.FS
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "registry" {
@@ -212,26 +100,18 @@ func main() {
 		buf.WriteString("---\n\n")
 	}
 
-	// Remove the trailing "---\n\n" from the last command since footer starts with one.
-	output := buf.String()
-	output = strings.TrimSuffix(output, "---\n\n")
-	buf.Reset()
-	buf.WriteString(output)
-	buf.WriteString(footer)
-
-	// Escape the placeholders last, over the finished document, so every source
-	// of prose on this page -- cobra help text, commandNotes, frontMatter and
+	// Drop the last command's trailing "---\n\n", since the footer starts with
+	// one, and escape the placeholders last, over the finished document, so every
+	// source of prose on this page -- cobra help text, notes, frontMatter and
 	// footer -- goes through it.
-	final := escapePlaceholders(buf.String())
-	buf.Reset()
-	buf.WriteString(final)
+	final := escapePlaceholders(strings.TrimSuffix(buf.String(), "---\n\n") + footer)
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "error creating directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := os.WriteFile(outputPath, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(outputPath, []byte(final), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "error writing file: %v\n", err)
 		os.Exit(1)
 	}
@@ -400,10 +280,9 @@ func formatCommand(cmd *cobra.Command, path, md string, depth int) string {
 	}
 
 	// Append additional notes for this command.
-	if note, ok := commandNotes[path]; ok {
+	if note, err := notes.ReadFile("prose/notes/" + path + ".md"); err == nil {
 		sb.WriteString("\n")
-		sb.WriteString(note)
-		sb.WriteString("\n")
+		sb.Write(note) // each note file ends in its own newline
 	}
 
 	sb.WriteString("\n")

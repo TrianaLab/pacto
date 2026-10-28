@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/otelobserver"
 	"github.com/trianalab/pacto/v4/pkg/override"
 )
@@ -60,6 +62,9 @@ func (s *Service) ImpactWithSnapshot(ctx context.Context, opts ImpactOptions, sn
 	if err != nil {
 		return nil, fmt.Errorf("new revision: %w", err)
 	}
+	if err := refuseHidden(snap, opts.OldPath, oldBundle.Contract, opts.NewPath, newBundle.Contract); err != nil {
+		return nil, err
+	}
 	observed, err := observedEdgesFromTraces(opts.Traces)
 	if err != nil {
 		return nil, fmt.Errorf("parse traces: %w", err)
@@ -72,6 +77,30 @@ func (s *Service) ImpactWithSnapshot(ctx context.Context, opts ImpactOptions, sn
 			IncludeObserved: opts.IncludeObserved,
 			ObservedEdges:   observed,
 		}), nil
+}
+
+// refuseHidden keeps a raw-ref impact request from reading a service the
+// caller's permissions hide. The refs resolve with this process's registry
+// credentials, so on a snapshot narrowed to the caller (it carries
+// HIDDEN_BY_PERMISSIONS) both sides must be services the caller can see: the
+// old contract leaks through the diff values as much as the new one. A service
+// the narrowed snapshot does not hold reads as not found, so a refusal says
+// nothing about whether it exists.
+func refuseHidden(snap *fleet.FleetSnapshot, oldRef string, oldC *contract.Contract, newRef string, newC *contract.Contract) error {
+	if snap == nil || !slices.ContainsFunc(snap.Limitations, func(l fleet.Limitation) bool {
+		return l.Code == fleet.LimitationHiddenByPermissions
+	}) {
+		return nil
+	}
+	for _, side := range []struct {
+		ref string
+		c   *contract.Contract
+	}{{oldRef, oldC}, {newRef, newC}} {
+		if side.c == nil || snap.Services[fleet.NewServiceKeyDomain(revisionDomain(side.ref), side.c.Service.Name)] == nil {
+			return &oci.ArtifactNotFoundError{Ref: side.ref}
+		}
+	}
+	return nil
 }
 
 // observedEdgesFromTraces derives impact observed edges from OTLP/JSON trace

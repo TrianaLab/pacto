@@ -65,7 +65,7 @@ type TargetRef struct {
 	WorkloadRef *WorkloadRef `json:"workloadRef,omitempty"`
 
 	// InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes
-	// deployment knowledge — lives on the CR, NOT the platform-agnostic contract.
+	// deployment knowledge, so it lives on the CR and the contract stays platform-agnostic.
 	// +optional
 	InterfaceBindings []InterfaceBinding `json:"interfaceBindings,omitempty"`
 
@@ -362,8 +362,8 @@ type InterfaceInfo struct {
 	// Name is the interface name.
 	Name string `json:"name"`
 
-	// Type is the interface type: openapi, asyncapi, or grpc.
-	// +kubebuilder:validation:Enum=openapi;asyncapi;grpc
+	// Type is the interface type: openapi, asyncapi, grpc or mcp.
+	// +kubebuilder:validation:Enum=openapi;asyncapi;grpc;mcp
 	Type string `json:"type"`
 
 	// Ref is the bundle-relative path to the interface specification file.
@@ -427,8 +427,10 @@ type DependencyInfo struct {
 	// Name is the dependency name (required, unique within contract).
 	Name string `json:"name"`
 
-	// Ref is the dependency reference (OCI URI).
-	Ref string `json:"ref"`
+	// Ref is the dependency reference (OCI URI). Empty for an external
+	// dependency that has no contract.
+	// +optional
+	Ref string `json:"ref,omitempty"`
 
 	// Required indicates whether this dependency is mandatory.
 	Required bool `json:"required"`
@@ -436,6 +438,16 @@ type DependencyInfo struct {
 	// Compatibility is the semver constraint for the dependency.
 	// +optional
 	Compatibility string `json:"compatibility,omitempty"`
+
+	// External marks a dependency this Pacto system does not run, such as a
+	// managed database or a hosted model.
+	// +optional
+	External bool `json:"external,omitempty"`
+
+	// Version is the free-text version an external dependency without a ref
+	// declares.
+	// +optional
+	Version string `json:"version,omitempty"`
 }
 
 // PolicyInfo describes a single named policy source from the contract.
@@ -634,6 +646,35 @@ type ObservationWindow struct {
 	FirstObservedNegativeAt metav1.Time `json:"firstObservedNegativeAt"`
 }
 
+// EvaluatedRevision identifies what one evaluation looked at.
+type EvaluatedRevision struct {
+	// ContractDigest is the OCI manifest digest of the evaluated contract
+	// bundle. Empty for inline contracts.
+	// +optional
+	ContractDigest string `json:"contractDigest,omitempty"`
+
+	// Workload is the workload object and generation the evaluation read.
+	// Absent for a reference-only contract or a workload that does not exist.
+	// +optional
+	Workload *EvaluatedWorkload `json:"workload,omitempty"`
+
+	// KernelCoverage is how far the node agent's view of the workload's pods
+	// could be trusted in this evaluation, the worst pod first: Complete,
+	// Partial, Failed or Stale. Empty when kernel evidence is off. Complete
+	// is what lets a reader tell "observed and clean" from "not observed".
+	// +kubebuilder:validation:Enum=Complete;Partial;Failed;Stale
+	// +optional
+	KernelCoverage string `json:"kernelCoverage,omitempty"`
+}
+
+// EvaluatedWorkload is one generation of one workload object.
+type EvaluatedWorkload struct {
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	UID        string `json:"uid"`
+	Generation int64  `json:"generation"`
+}
+
 // PactoStatus defines the observed state of Pacto.
 // All contract data is exposed as structured fields so external consumers
 // can read the CR status directly without parsing contracts themselves.
@@ -735,17 +776,73 @@ type PactoStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
+	// EvaluatedRevision ties this status to the exact contract and workload
+	// generation it was computed from, so a result for an old version is never
+	// read as the answer for a new one. A consumer acting on contractStatus
+	// (the opt-in Pacto delivery promoter) must check it first.
+	// +optional
+	EvaluatedRevision *EvaluatedRevision `json:"evaluatedRevision,omitempty"`
+
+	// ObservedCallers are workloads the node agent saw calling this target's
+	// Service, inside the dependency observation window, that no Pacto
+	// describes. Capped at 32, sorted by namespace, kind and name.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	ObservedCallers []ObservedCaller `json:"observedCallers,omitempty"`
+
+	// ObservedCallersCoverage says whether observedCallers can be trusted as
+	// complete. Absent when runtime observation is not configured for this Pacto.
+	// +optional
+	ObservedCallersCoverage *CallerCoverage `json:"observedCallersCoverage,omitempty"`
+
 	// CurrentRevision is the name of the active PactoRevision.
 	// +optional
 	CurrentRevision string `json:"currentRevision,omitempty"`
 
-	// LastReconciledAt is when the last reconciliation completed.
+	// LastReconciledAt is when the status was last written: on a change, and at
+	// least every half check interval while nothing changes.
 	// +optional
 	LastReconciledAt *metav1.Time `json:"lastReconciledAt,omitempty"`
 
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+// ObservedCaller is a workload seen calling a target's Service at runtime that
+// no Pacto describes, named by the controller that owns its pods.
+type ObservedCaller struct {
+	Namespace string `json:"namespace"`
+	// Kind is the owning controller: Deployment, StatefulSet, DaemonSet, Job,
+	// CronJob, another controller kind, or Pod for a pod no controller owns.
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	// Source is the collector that saw the calls.
+	// +kubebuilder:validation:Enum=ebpf
+	Source string `json:"source"`
+	// FirstSeen is set once, when the caller first appears, so the status does
+	// not change on every reconcile.
+	FirstSeen metav1.Time `json:"firstSeen"`
+}
+
+// Caller coverage states.
+const (
+	CallerCoverageComplete    = "complete"
+	CallerCoveragePartial     = "partial"
+	CallerCoverageUnavailable = "unavailable"
+)
+
+// CallerCoverage is how far a list of observed callers can be trusted.
+type CallerCoverage struct {
+	// +kubebuilder:validation:Enum=complete;partial;unavailable
+	State string `json:"state"`
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// RefreshSeconds is how often the operator rewrites this status. A reader
+	// treats a status not reconciled within twice that as stale, so an operator
+	// that stopped never leaves a complete coverage in place.
+	// +optional
+	RefreshSeconds int32 `json:"refreshSeconds,omitempty"`
 }
 
 // +kubebuilder:object:root=true

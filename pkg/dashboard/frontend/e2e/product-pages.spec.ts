@@ -62,7 +62,7 @@ test.describe('WASM demo — product pages', () => {
     await expect(page.getByLabel('Filter by compliance status')).toHaveValue('Compliant');
     // Navigate away then back: the filtered list is restored.
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: T });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: T });
     await page.goBack();
     await expect(page).toHaveURL(/status=Compliant/, { timeout: T });
   });

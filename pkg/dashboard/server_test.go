@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -47,6 +49,28 @@ func TestServerHealth(t *testing.T) {
 	}
 	if body["version"] != "1.2.3" {
 		t.Errorf("expected version '1.2.3', got %v", body["version"])
+	}
+}
+
+// Every answer, API or UI, carries the policy that backs the Markdown
+// sanitiser and refuses framing, with or without sign-in configured.
+func TestServerSecurityHeaders(t *testing.T) {
+	base := startServer(t, NewServer(Options{UI: testUI()}))
+	for _, path := range []string{"/", "/health", "/missing"} {
+		resp, err := http.Get(base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		csp := resp.Header.Get("Content-Security-Policy")
+		for _, want := range []string{"script-src 'self';", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'", "default-src 'self'"} {
+			if !strings.Contains(csp, want) {
+				t.Errorf("%s: CSP %q lacks %q", path, csp, want)
+			}
+		}
+		if resp.Header.Get("X-Frame-Options") != "DENY" || resp.Header.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: headers %v", path, resp.Header)
+		}
 	}
 }
 
@@ -340,6 +364,35 @@ func TestEmbeddedUI(t *testing.T) {
 	_ = f.Close()
 }
 
+// firstLoadBudget is how many bytes of script the page may download before it
+// shows anything: the entry chunk and what it preloads. The graph, the charts
+// and the diagram renderers load with the views that need them.
+const firstLoadBudget = 350_000
+
+// TestFirstLoadBudget keeps cytoscape, d3 and mermaid out of the first download.
+func TestFirstLoadBudget(t *testing.T) {
+	fsys := EmbeddedUI()
+	index, err := fs.ReadFile(fsys, "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := regexp.MustCompile(`(?:src|href)="/(assets/[^"]+\.js)"`).FindAllStringSubmatch(string(index), -1)
+	if len(refs) == 0 {
+		t.Fatal("index.html loads no script chunk")
+	}
+	total := 0
+	for _, ref := range refs {
+		b, err := fs.ReadFile(fsys, ref[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += len(b)
+	}
+	if total > firstLoadBudget {
+		t.Fatalf("the first load is %d bytes of script, over the %d budget: load the heavy view lazily", total, firstLoadBudget)
+	}
+}
+
 func TestExportOpenAPI(t *testing.T) {
 	data, err := ExportOpenAPI()
 	if err != nil {
@@ -413,7 +466,7 @@ func TestExportConfigSchema(t *testing.T) {
 		t.Errorf("title = %v", schema["title"])
 	}
 	props, _ := schema["properties"].(map[string]any)
-	for _, key := range []string{"PACTO_DASHBOARD_HOST", "PACTO_DASHBOARD_PORT", "PACTO_DASHBOARD_NAMESPACE", "PACTO_DASHBOARD_REPO", "PACTO_NO_CACHE", "PACTO_NO_UPDATE_CHECK", "PACTO_REGISTRY_USERNAME", "PACTO_REGISTRY_PASSWORD", "PACTO_REGISTRY_TOKEN"} {
+	for _, key := range []string{"PACTO_DASHBOARD_HOST", "PACTO_DASHBOARD_PORT", "PACTO_DASHBOARD_NAMESPACE", "PACTO_DASHBOARD_REPO", "PACTO_NO_CACHE", "PACTO_NO_UPDATE_CHECK", "PACTO_REGISTRY_USERNAME", "PACTO_REGISTRY_PASSWORD", "PACTO_REGISTRY_TOKEN", "PACTO_DASHBOARD_DELIVERY_NAMESPACE"} {
 		if props[key] == nil {
 			t.Errorf("missing property %s", key)
 		}

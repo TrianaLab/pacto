@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDate, formatRelative } from './dateFormat';
+import { formatDate, formatDateTime, formatRelative } from './dateFormat';
 
 describe('formatDate', () => {
   it('formats valid ISO date to human-readable form', () => {
@@ -50,5 +50,18 @@ describe('formatRelative', () => {
     expect(formatRelative(undefined, NOW)).toBe('');
     expect(formatRelative('', NOW)).toBe('');
     expect(formatRelative('not-a-date', NOW)).toBe('');
+  });
+});
+
+describe('formatDateTime', () => {
+  it('adds the time of day, so same-day rows read in order', () => {
+    const local = new Date(2026, 6, 29, 14, 3).toISOString();
+    expect(formatDateTime(local)).toBe('Jul 29, 2026, 14:03');
+  });
+
+  it('returns empty string for missing or unparseable input', () => {
+    expect(formatDateTime(null)).toBe('');
+    expect(formatDateTime('')).toBe('');
+    expect(formatDateTime('not-a-date')).toBe('');
   });
 });

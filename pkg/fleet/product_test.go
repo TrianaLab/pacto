@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"testing"
 	"testing/fstest"
@@ -393,5 +394,36 @@ func TestOverview_ComplianceBucketsPartitionTheTargetPopulation(t *testing.T) {
 		if buckets[st] != 1 {
 			t.Errorf("%s targets = %d, want 1: every canonical status is its own named bucket", st, buckets[st])
 		}
+	}
+}
+
+// Where the targets are: one tally per scope covering every target, worst first.
+func TestOverview_ByScopeCoversEveryTarget(t *testing.T) {
+	s := productFleet(t).Overview().Summary
+	if s.Scopes != 1 || len(s.ByScope) != 1 {
+		t.Fatalf("scopes = %d (%d shown), want 1", s.Scopes, len(s.ByScope))
+	}
+	got := s.ByScope[0]
+	want := ScopeTally{Scope: "prod", Targets: s.Targets, NonCompliant: s.NonCompliantTargets, Unknown: s.UnknownTargets, Stale: s.StaleTargets}
+	if got != want {
+		t.Errorf("byScope[0] = %+v, want %+v", got, want)
+	}
+}
+
+// Scopes sort worst first, and a stale target counts against its scope.
+func TestTallyScopes_WorstScopeFirst(t *testing.T) {
+	q := NewQuery(&FleetSnapshot{Targets: map[TargetKey]*TargetRecord{
+		"a": {Scope: "dev", Stale: true},
+		"b": {Scope: "prod", Compliance: StatusNonCompliant},
+		"c": {Scope: "prod"},
+	}})
+	var sum OverviewSummary
+	q.tallyScopes(&sum)
+	want := []ScopeTally{
+		{Scope: "prod", Targets: 2, NonCompliant: 1},
+		{Scope: "dev", Targets: 1, Stale: 1},
+	}
+	if !slices.Equal(sum.ByScope, want) {
+		t.Errorf("byScope = %+v, want %+v", sum.ByScope, want)
 	}
 }

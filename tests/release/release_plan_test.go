@@ -126,13 +126,19 @@ func TestReleasePlanVersionPropagation(t *testing.T) {
 	if k8sArt.Tag != wantK8sTag {
 		t.Errorf("k8s-module tag = %q, want %s", k8sArt.Tag, wantK8sTag)
 	}
-	if a, ok := artifactByUnit(k8s, "operator-image"); !ok || a.Tag != k8s.Version {
-		t.Errorf("operator-image tag = %q, want %s", a.Tag, k8s.Version)
+	// The delivery image moves with the operator chart that installs it, so one Kubernetes
+	// release always ships a matching pair.
+	for _, img := range []string{"operator-image", "delivery-image"} {
+		if a, ok := artifactByUnit(k8s, img); !ok || a.Tag != k8s.Version {
+			t.Errorf("%s tag = %q, want %s", img, a.Tag, k8s.Version)
+		}
 	}
-	if a, ok := artifactByUnit(k8s, "operator-chart"); !ok {
-		t.Error("missing operator-chart artifact")
-	} else if a.ChartVersion != k8s.Version || a.AppVersion != k8s.Version || a.DefaultImageTag != k8s.Version {
-		t.Errorf("operator-chart trio = (%q,%q,%q), want all %s", a.ChartVersion, a.AppVersion, a.DefaultImageTag, k8s.Version)
+	for _, chart := range []string{"operator-chart"} {
+		if a, ok := artifactByUnit(k8s, chart); !ok {
+			t.Errorf("missing %s artifact", chart)
+		} else if a.ChartVersion != k8s.Version || a.AppVersion != k8s.Version || a.DefaultImageTag != k8s.Version {
+			t.Errorf("%s trio = (%q,%q,%q), want all %s", chart, a.ChartVersion, a.AppVersion, a.DefaultImageTag, k8s.Version)
+		}
 	}
 	// The core Go module path carries its major (…/pacto/vN). The pin +
 	// compatibility track that PATH major — v<N>.0.0 until the first vN release is
@@ -162,7 +168,7 @@ func TestReleasePlanVersionPropagation(t *testing.T) {
 
 	// The manifest each unit records must agree with the plan's group versions.
 	m := loadManifestVersions(t, root)
-	for unit, wantVer := range map[string]string{"core": core.Version, "cli": core.Version, "k8s-module": k8s.Version, "operator-chart": k8s.Version} {
+	for unit, wantVer := range map[string]string{"core": core.Version, "cli": core.Version, "k8s-module": k8s.Version, "operator-chart": k8s.Version, "delivery-image": k8s.Version} {
 		if got := m[unit]; got != wantVer {
 			t.Errorf("manifest unit %q version = %q, want %q (plan drift)", unit, got, wantVer)
 		}

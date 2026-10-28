@@ -87,6 +87,10 @@ type RawRevision struct {
 	Digest       string
 	Lock         *lock.Lock
 	FetchedAt    *time.Time
+	// Document is optional: the bundle's document as the loader already decoded
+	// it with contract.ParseDocument. Build validates it instead of decoding the
+	// YAML again. It must be the decode of the same bytes as the Bundle.
+	Document *contract.Document
 }
 
 // RawTarget is what an observer source knows about a concrete deployed instance.

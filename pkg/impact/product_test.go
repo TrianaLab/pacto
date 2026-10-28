@@ -153,7 +153,9 @@ func boundedResult() *Result {
 		},
 		Owners:        make([]string, MaxProductOwners+1),
 		ActiveTargets: []string{"prod/k8s/api", "gone/k8s/x"},
-		Limitations:   make([]fleet.Limitation, MaxProductLimitations+1),
+		Limitations:   make([]fleet.Limitation, fleet.MaxMetaLimitations),
+		// The analysis already capped the list; the preview must keep saying so.
+		LimitationsTruncated: true,
 	}
 	for range MaxProductChanges + 1 {
 		res.NonBreakingChanges = append(res.NonBreakingChanges, diff.Change{Path: "p", Classification: diff.NonBreaking})
@@ -195,7 +197,7 @@ func TestBuildProduct_BoundsEveryList(t *testing.T) {
 	if p.ActiveTargets.Items[0].Label != "prod/k8s/api" || p.ActiveTargets.Items[1].Label != "gone/k8s/x" {
 		t.Errorf("targets = %+v", p.ActiveTargets.Items)
 	}
-	if !p.Limitations.Truncated || p.Limitations.Count != MaxProductLimitations {
+	if !p.Limitations.Truncated || p.Limitations.Count != fleet.MaxMetaLimitations {
 		t.Errorf("limitations = %+v", p.Limitations)
 	}
 	if !p.Changes.Truncated || p.Changes.Count != MaxProductChanges || p.Changes.Total != MaxProductChanges+1 {
@@ -213,5 +215,27 @@ func TestBuildProduct_SmallAnswerIsComplete(t *testing.T) {
 	}
 	if p.Owners.Truncated || p.Limitations.Truncated || p.Consumers.Truncated {
 		t.Errorf("a small answer must not be truncated: %+v", p)
+	}
+}
+
+// Regression: the preview used to re-derive Truncated from its own (equal) cap,
+// so a list Analyze had already cut at fleet.MaxMetaLimitations read as complete.
+func TestBuildProduct_LimitationsCarryTheAnalysisTruncation(t *testing.T) {
+	snap := productSnapshot()
+	rev := snap.Revisions["api@1"]
+	res := &Result{Limitations: make([]fleet.Limitation, fleet.MaxMetaLimitations), LimitationsTruncated: true}
+	if p := BuildProduct(fleet.ProductMeta{}, snap, rev.ServiceKey, rev, rev, res, 0, 0); !p.Limitations.Truncated {
+		t.Errorf("an analysis-truncated list must stay truncated in the preview: %+v", p.Limitations)
+	}
+	res.LimitationsTruncated = false
+	if p := BuildProduct(fleet.ProductMeta{}, snap, rev.ServiceKey, rev, rev, res, 0, 0); p.Limitations.Truncated {
+		t.Errorf("a complete list must not read as truncated: %+v", p.Limitations)
+	}
+}
+
+// MaxProductLimitations shipped in v4.0; it stays as an alias in a minor release.
+func TestMaxProductLimitationsDeprecatedAlias(t *testing.T) {
+	if MaxProductLimitations != fleet.MaxMetaLimitations {
+		t.Fatalf("MaxProductLimitations = %d, want %d", MaxProductLimitations, fleet.MaxMetaLimitations)
 	}
 }

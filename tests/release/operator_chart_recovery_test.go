@@ -28,20 +28,23 @@ func TestOperatorChartCrashRecoveryWiring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read release.yml: %v", err)
 	}
-	chart, ok := jobsOf(t, string(wf))["operator-chart"]
-	if !ok {
-		t.Fatal("release.yml has no operator-chart job")
-	}
-	// 2. The verify call must pass the source revision + version so `adopt` can fire.
-	if !strings.Contains(chart, "source_sha") {
-		t.Error("operator-chart verify does not pass source_sha provenance; a push-before-record crash stays unrecoverable")
-	}
-	// 3. The chart must be stamped with the revision, and an adopt step must handle
-	//    the recovery.
-	if !strings.Contains(chart, "org.opencontainers.image.revision") {
-		t.Error("operator-chart does not stamp the source revision onto the chart manifest")
-	}
-	if !strings.Contains(chart, "state == 'adopt'") {
-		t.Error("operator-chart has no adopt step to record an already-pushed chart on resume")
+	for _, job := range []string{"operator-chart"} {
+		chart, ok := jobsOf(t, string(wf))[job]
+		if !ok {
+			t.Errorf("release.yml has no %s job", job)
+			continue
+		}
+		// 2. The verify call must pass the source revision + version so `adopt` can fire.
+		if !strings.Contains(chart, "source_sha") {
+			t.Errorf("%s verify does not pass source_sha provenance; a push-before-record crash stays unrecoverable", job)
+		}
+		// 3. The chart must be stamped with the revision, and an adopt step must handle
+		//    the recovery.
+		if !strings.Contains(chart, "org.opencontainers.image.revision") {
+			t.Errorf("%s does not stamp the source revision onto the chart manifest", job)
+		}
+		if !strings.Contains(chart, "state == 'adopt'") {
+			t.Errorf("%s has no adopt step to record an already-pushed chart on resume", job)
+		}
 	}
 }

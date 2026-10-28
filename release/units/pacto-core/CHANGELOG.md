@@ -1185,7 +1185,7 @@
     defensive copy on its way to a wire it is then written to and dropped.
   - A truncated graph said only that it had been truncated. It now says how much is
     missing, and offers the next node budget — sixty, a hundred and fifty, five
-    hundred, the same rungs the backend will honour, because a control that offers a
+    hundred, the same steps the backend will honour, because a control that offers a
     step the server then clamps is a control that lies about what it just fetched.
     The budget is part of the URL, so a shared link reopens the graph being
     discussed rather than a smaller one.

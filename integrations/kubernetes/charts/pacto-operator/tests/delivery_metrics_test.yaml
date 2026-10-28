@@ -1,0 +1,49 @@
+suite: metrics tests
+templates:
+  - templates/delivery/metrics.yaml
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  # The recorder has its own Service under delivery.recorder.monitoring; selecting it
+  # here too would scrape every recorder series twice.
+  - it: serves only the promoter's metrics through a Service
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.ports[0]
+          value: {name: metrics, port: 8080, targetPort: metrics, protocol: TCP}
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: delivery-promoter
+
+  - it: creates a ServiceMonitor only when asked
+    set:
+      delivery.metrics.serviceMonitor.enabled: true
+      delivery.metrics.serviceMonitor.interval: 30s
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ServiceMonitor
+        documentIndex: 1
+      - equal:
+          path: spec.endpoints[0]
+          value: {port: metrics, scheme: http, interval: 30s}
+        documentIndex: 1
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: delivery-metrics
+        documentIndex: 1
+
+  - it: renders nothing when metrics are off
+    set:
+      delivery.metrics.enabled: false
+      delivery.metrics.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0

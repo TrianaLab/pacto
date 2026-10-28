@@ -19,7 +19,16 @@ ci-test: envtest setup-envtest
 	fi
 	@echo "    total coverage: 100.0%"
 
-ci-chart: helm-lint helm-template helm-unittest helm-schema helm-docs-check docs-generate-check
+ci-chart: crd-sync-check helm-deps-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check
+
+# The chart renders copies of the generated CRDs. helm-golden cannot see a
+# stale delivery copy, because delivery is off by default.
+CHART_CRDS := charts/pacto-operator/files/crds
+.PHONY: crd-sync-check
+crd-sync-check:
+	@echo "==> Checking the chart's CRD copies match config/crd/bases..."
+	@diff -r config/crd/bases $(CHART_CRDS) >/dev/null || \
+		{ diff -rq config/crd/bases $(CHART_CRDS); echo "$(CHART_CRDS) does not match config/crd/bases: run make sync-crds" >&2; exit 1; }
 
 ci-fmt:
 	@echo "==> Checking formatting..."
@@ -40,6 +49,16 @@ ci-lint: golangci-lint
 	@echo "==> Running linter..."
 	GOLANGCI_LINT_CACHE="$(LOCALBIN)/.golangci-lint-cache" "$(GOLANGCI_LINT)" run
 
+# zot and Dex are optional dependencies, vendored in charts/ and pinned by
+# Chart.lock so the chart lints, tests and packages offline. Refresh them with
+# `helm dependency update charts/pacto-operator` after a version bump.
+.PHONY: helm-deps-check
+helm-deps-check: ## Check the vendored dependency archives match Chart.yaml.
+	@echo "==> Checking the vendored chart dependencies..."
+	@out=$$(helm dependency list charts/pacto-operator); echo "$$out"; \
+	! echo "$$out" | awk 'NR>1 && NF && $$NF!="ok"' | grep -q . || \
+		{ echo "Error: a vendored dependency is missing or stale: run 'helm dependency update charts/pacto-operator' and commit." >&2; exit 1; }
+
 .PHONY: helm-template
 helm-template: ## Render chart templates and validate output.
 	@echo "==> Rendering chart templates..."
@@ -50,6 +69,47 @@ helm-template: ## Render chart templates and validate output.
 	helm template pacto-operator charts/pacto-operator --set dashboard.ingress.enabled=true > /dev/null
 	@echo "==> Rendering with metrics disabled..."
 	helm template pacto-operator charts/pacto-operator --set metrics.enabled=false > /dev/null
+	@echo "==> Rendering with delivery, with and without admission policies..."
+	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy --debug > /dev/null
+	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
+		--set delivery.admissionPolicies.enabled=false --set delivery.admissionPolicies.allowUnguarded=true > /dev/null
+	@echo "==> Rendering the quickstart profile (bundled zot and Dex)..."
+	helm template pacto-operator charts/pacto-operator -n pacto-operator-system -f charts/pacto-operator/values-quickstart.yaml \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null
+	@echo "==> Delivery refuses to render with no humanGroups by accident..."
+	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null 2>&1
+	@echo "==> Delivery refuses to render unguarded by accident..."
+	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy \
+		--set delivery.admissionPolicies.enabled=false > /dev/null 2>&1
+
+# The default render is byte-identical to the committed golden (versions
+# normalised, so a release bump does not move it), and turning delivery on
+# changes none of the operator's own identity or RBAC objects. Refresh the golden
+# with `make helm-golden-update` when a default-render change is intended.
+GOLDEN := charts/pacto-operator/tests/golden/default.yaml
+GOLDEN_RENDER = v=$$(awk '/^version:/{print $$2}' charts/pacto-operator/Chart.yaml); \
+	helm template pacto-operator charts/pacto-operator | sed "s/$$v/VERSION/g"
+OPERATOR_IDENTITY := -s templates/serviceaccount.yaml -s templates/clusterrole.yaml -s templates/clusterrolebinding.yaml \
+	-s templates/role.yaml -s templates/leader-election-role.yaml
+
+.PHONY: helm-golden
+helm-golden: ## Prove the default render is unchanged and delivery leaves the operator's RBAC alone.
+	@echo "==> Checking the default render against the golden..."
+	@# -B: Helm 4.3 puts a blank line before each document separator and 4.0 does not;
+	@# a blank line means nothing in YAML, and every other change still fails.
+	@$(GOLDEN_RENDER) | diff -u -B $(GOLDEN) - || \
+		{ echo "Error: the default render changed. If intended, run 'make helm-golden-update' and commit." >&2; exit 1; }
+	@echo "==> Checking delivery.enabled leaves the operator's ServiceAccount and RBAC unchanged..."
+	@diff -u <(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY)) \
+		<(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY) --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
+			--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)
+
+.PHONY: helm-golden-update
+helm-golden-update: ## Rewrite the default-render golden.
+	@$(GOLDEN_RENDER) > $(GOLDEN)
 
 .PHONY: helm-unittest
 helm-unittest: $(HELM_UNITTEST) ## Run Helm unit tests.
@@ -57,12 +117,14 @@ helm-unittest: $(HELM_UNITTEST) ## Run Helm unit tests.
 	"$(HELM_UNITTEST)" charts/pacto-operator
 
 .PHONY: helm-schema
-helm-schema: ## Validate values.yaml against values.schema.json.
-	@echo "==> Validating chart schema..."
-	@python3 -c "import json; json.load(open('charts/pacto-operator/values.schema.json'))" || \
-		{ echo "Error: values.schema.json is not valid JSON." >&2; exit 1; }
+helm-schema: ## Validate each chart's values.yaml against its values.schema.json.
+	@echo "==> Validating chart schemas..."
 	@command -v check-jsonschema >/dev/null 2>&1 || pip install check-jsonschema --quiet
-	@check-jsonschema --schemafile charts/pacto-operator/values.schema.json charts/pacto-operator/values.yaml
+	@for c in pacto-operator; do \
+		python3 -c "import json; json.load(open('charts/$$c/values.schema.json'))" || \
+			{ echo "Error: charts/$$c/values.schema.json is not valid JSON." >&2; exit 1; }; \
+		check-jsonschema --schemafile charts/$$c/values.schema.json charts/$$c/values*.yaml || exit 1; \
+	done
 
 .PHONY: helm-docs-check
 helm-docs-check: ## Check that helm-docs output matches committed README.

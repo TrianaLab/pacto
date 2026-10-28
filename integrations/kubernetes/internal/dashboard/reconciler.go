@@ -57,6 +57,14 @@ type Reconciler struct {
 // +kubebuilder:rbac:groups="",resources=serviceaccounts;secrets;services,verbs=get;create;update;patch;delete,namespace=system
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;create;update;patch;delete,namespace=system
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
+// The dashboard reads the delivery objects into one cache and asks which
+// namespaces a signed-in person may read, so the operator must hold the
+// rights it grants the dashboard's ClusterRole.
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+// +kubebuilder:rbac:groups=delivery.pacto.trianalab.io,resources=stages;operations,verbs=get;list;watch
+// The dashboard lists the namespaces to ask where a signed-in person may list
+// Stages, the same way: the operator holds the right it grants.
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=list
 
 // Sync ensures dashboard resources match the desired state.
 // When the feature is enabled, it creates/updates all dashboard resources.
@@ -171,7 +179,7 @@ func (r *Reconciler) reconcileService(ctx context.Context) error {
 func (r *Reconciler) cleanup(ctx context.Context) error {
 	ns := r.Config.Namespace
 	return component.Prune(ctx, "dashboard", r.APIReader, r.Client,
-		map[string]string{LabelManagedBy: ManagedByValue, LabelComponent: ComponentValue},
+		component.Owned(ComponentValue),
 		[]component.Resource{
 			{Kind: "Service", Obj: &corev1.Service{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},
 			{Kind: "Deployment", Obj: &appsv1.Deployment{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},

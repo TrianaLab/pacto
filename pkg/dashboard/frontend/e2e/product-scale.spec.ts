@@ -33,7 +33,7 @@ const PAGE_SIZE = 25;
  */
 function installScaleInterceptor(): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
   const w = window as unknown as { __pactoScale?: string };
   let real: Serve | null = null;
 
@@ -73,8 +73,8 @@ function installScaleInterceptor(): void {
     return out;
   };
 
-  const wrapped: Serve = (method, path, body) => {
-    const res = (real as Serve)(method, path, body);
+  const wrapped: Serve = async (method, path, body) => {
+    const res = await (real as Serve)(method, path, body);
     const mode = w.__pactoScale;
     if (!mode || res.status !== 200) return res;
     let doc: Record<string, unknown>;
@@ -197,13 +197,13 @@ test.describe('Product lists stay bounded and honest at scale', () => {
     });
 
     // Both truths, and neither standing in for the other: what exists, and what is shown.
-    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25000/)).toBeVisible();
+    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25,000/)).toBeVisible();
     // The figures on this page describe the POPULATION, not the 25 rendered rows, and they
     // say which -- a page distribution read as a fleet distribution is the exact lie
     // this file exists to prevent. The denominator is 25,000 and the legend adds up
     // to it, on a screen showing 25 services.
-    await expect(page.getByText('All 25000 services in the snapshot.').first()).toBeVisible();
-    await expect(page.getByText('(25% of 25000)').first()).toBeVisible();
+    await expect(page.getByText('All 25,000 services in the snapshot.').first()).toBeVisible();
+    await expect(page.getByText('(25% of 25,000)').first()).toBeVisible();
     // And the per-owner ranking says how much of the population it leaves out, rather
     // than reading as a complete breakdown of 900 owners.
     await page.locator('.sv-inv-more summary').click();
@@ -213,7 +213,7 @@ test.describe('Product lists stay bounded and honest at scale', () => {
 
     // Paging forward is real navigation into the same bounded page size.
     await page.getByTestId('svc-next').click();
-    await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+25000/)).toBeVisible();
+    await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+25,000/)).toBeVisible();
     await expect(page.getByTestId('service-list').locator('li')).toHaveCount(PAGE_SIZE);
 
     // The invariant that matters more than any millisecond: the document does not grow
@@ -230,20 +230,20 @@ test.describe('Product lists stay bounded and honest at scale', () => {
     });
 
     await expect(page.locator('.attn-list li')).toHaveCount(PAGE_SIZE);
-    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25000/)).toBeVisible();
+    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25,000/)).toBeVisible();
 
     // Unlike the services list, these two charts are drawn from backend tallies over EVERY
     // matched item, so they must describe the backlog, not the page -- and must therefore
     // NOT carry a page-scope note. Proportions that changed as you paged would be worse
     // than no chart at all.
     const shape = page.getByTestId('attention-shape');
-    await expect(shape).toContainText('8333');
+    await expect(shape).toContainText('8,333');
     await expect(shape).not.toContainText(/This page only/);
 
     await page.getByTestId('attn-next').click();
-    await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+25000/)).toBeVisible();
+    await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+25,000/)).toBeVisible();
     await expect(page.locator('.attn-list li')).toHaveCount(PAGE_SIZE);
-    await expect(shape).toContainText('8333');
+    await expect(shape).toContainText('8,333');
   });
 });
 
@@ -256,7 +256,7 @@ test('render baseline for every product surface, on real demo data', async ({ pa
   // number can never be a measurement of an empty page.
   //
   // Cold boot is recorded once and separately, because it is dominated by instantiating
-  // the demo's 57 MB wasm bundle and says more about the demo than about the product.
+  // the demo's 18.6 MB wasm bundle (4.6 MB gzipped) and says more about the demo than about the product.
   // Everything after it is a warm client-side route render, which is what a user
   // experiences for every navigation after the first.
   await record(page, 'cold boot (wasm instantiate + Overview)', async () => {

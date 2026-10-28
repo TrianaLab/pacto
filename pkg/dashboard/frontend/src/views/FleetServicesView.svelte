@@ -1,9 +1,10 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { joinAnd } from '../lib/answers.ts';
+  import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { statusLabel, STATUS_FILTER_OPTIONS, ownerKeyLabel, ownerKeyKind } from '../lib/format.ts';
+  import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
+  import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
+  import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
   import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityCombobox from '../components/EntityCombobox.svelte';
@@ -16,6 +17,10 @@
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import { complianceSegments, ownershipSegments, ownershipHrefs, ownerRanking, statusHrefs, bucketLabel, OWNERSHIP_STATES } from '../lib/distributions.ts';
   import PageHeader from '../components/PageHeader.svelte';
+  import Pager from '../components/Pager.svelte';
+  import ListSort from '../components/ListSort.svelte';
+  import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
+  import { formatCount } from '../lib/format.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
 
@@ -31,16 +36,20 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', offset = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
-  const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
+  const pageOffset = $derived(urlInt(offset));
+  const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
+  // Natural name order by default, so service-2 comes before service-10.
+  const order = $derived(sort || 'name');
   const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
   // (external navigation / back-forward).
-  let textDraft = $state(text);
+  // Seeded once; the effect below keeps it in step with the URL.
+  let textDraft = $state(untrack(() => text));
   // The text the last submit wrote to the URL. Its echo reaches `text` a hashchange later,
   // by when the reader may have typed on; adopting it would drop those keystrokes.
   let submittedText = null;
@@ -58,46 +67,36 @@
     status: status || undefined,
     domain: domain || undefined,
     offset: pageOffset || undefined,
-    limit: PAGE_SIZE,
+    limit: pageLimit,
+    sort: order,
   }));
   // queryIdentity is the QUESTION -- every filter and the page, and deliberately not
   // refreshTick, which only asks the same question again. requestKey adds the tick so a
   // poll still fires. Retaining rows across a refresh is stale-while-revalidate;
-  // retaining them across a filter or page change would be showing one query's answer
-  // under another query's heading, so `list` is gated on the tag matching.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${pageOffset}`);
-  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
+  // retaining them across a filter change would be showing one query's answer under
+  // another query's heading, so `list` is gated on the tag matching. A page turn is the
+  // exception: the old page stays, under a "Loading another page" line, until the next lands.
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${pageOffset}@@${pageLimit}@@${order}`);
+  // listIdentity is the same question without its page: a page turn keeps the rows.
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${order}`);
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
-  const loading = $derived(loader.loading);
-  const error = $derived(loader.error);
-  const knowledge = $derived(snapshotKnowledge(list?.meta));
-  const count = $derived(list?.entities?.length ?? 0);
-  const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
-  // Read off `loader.data`, not `list`: `list` is nulled the instant the query changes,
-  // which is exactly when the skeleton renders, and 0 rows is no shape at all. The stale
-  // page's row count is the best guess at the next page's, and a page is the fallback.
-  const skeletonRows = $derived(loader.data?.entities?.length || PAGE_SIZE);
-  // A poll that failed over rows we can still show. decideViewState keeps the rows;
-  // this is the half that keeps it honest, so a frozen list never reads as a live one.
-  const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
-  // A poll in flight over data already on screen. decideViewState has decided this on
-  // every page since stale-while-revalidate landed; the header is the first thing to
-  // actually say it, in words rather than by spinning something.
-  const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
+  const view = productListState(loader, (d) => d.entities, () => ({ tag: queryIdentity, family: listIdentity, filtered: anyFilter, pageLimit }));
+  const list = $derived(view.data);
+  const knowledge = $derived(view.knowledge);
+  const count = $derived(view.count);
+  const state = $derived(view.state);
+  const skeletonRows = $derived(view.skeletonRows);
+  const refreshError = $derived(view.refreshError);
+  const revalidating = $derived(view.revalidating);
 
   const total = $derived(list?.total ?? 0);
-  const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
-  const shownTo = $derived((list?.offset ?? pageOffset) + count);
-  const hasPrev = $derived((list?.offset ?? pageOffset) > 0);
-  const hasNext = $derived(list?.nextOffset != null);
-  const prevOffset = $derived(Math.max(0, (list?.offset ?? pageOffset) - PAGE_SIZE));
 
   // Every filter change resets the offset to page 1; a patch value of '' clears that
   // filter (`?? current` only falls back on null/undefined, never on the empty string).
-  function urlWith(patch, off = 0) {
+  function urlWith(patch, off = 0, lim = pageLimit) {
     return fleetServicesUrl({
       text: patch.text ?? text,
       owner: patch.owner ?? owner,
@@ -106,6 +105,8 @@
       status: patch.status ?? status,
       domain: patch.domain ?? domain,
       offset: off,
+      limit: limitParam(lim, limit, PAGE_SIZE),
+      sort: (patch.sort ?? sort) || undefined,
     });
   }
   function apply(patch) { location.hash = urlWith(patch); }
@@ -169,8 +170,8 @@
   const agg = $derived(list?.aggregate ?? null);
   const matched = $derived(agg?.matched ?? 0);
   const scopeNote = $derived(anyFilter
-    ? `All ${matched} matching ${matched === 1 ? 'service' : 'services'}, not just this page.`
-    : `All ${matched} ${matched === 1 ? 'service' : 'services'} in the snapshot.`);
+    ? `All ${formatCount(matched)} matching ${matched === 1 ? 'service' : 'services'}, across every page.`
+    : `All ${formatCount(matched)} ${matched === 1 ? 'service' : 'services'} in the snapshot.`);
   const complianceOfMatch = $derived(complianceSegments(agg?.serviceCompliance,
     statusHrefs((s) => urlWith({ status: s }))));
   const ownershipOfMatch = $derived(ownershipSegments(agg?.ownership,
@@ -185,12 +186,34 @@
   const distinctOwners = $derived(rank.distinct);
   const rankNote = $derived(rank.note);
 
+  // The answer line: which of these services need someone. Read off the same backend
+  // aggregate the bars draw, so it covers every match, not the page.
+  const svcAnswer = $derived.by(() => {
+    if (!agg || matched === 0) return '';
+    const c = agg.serviceCompliance ?? {};
+    const o = agg.ownership ?? {};
+    const parts = [
+      c.nonCompliant ? `${formatCount(c.nonCompliant)} not compliant` : '',
+      c.invalid ? `${formatCount(c.invalid)} with an invalid contract` : '',
+      o.conflicting ? `${formatCount(o.conflicting)} with disputed owners` : '',
+      o.unowned ? `${formatCount(o.unowned)} with no owner` : '',
+    ].filter(Boolean);
+    if (!parts.length) return '';
+    return `${joinAnd(parts)}.`;
+  });
+
   function removeChip(key) { apply({ [key]: '' }); }
 </script>
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
-  <PageHeader title="Services" count={list ? `${total} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} />
+  <PageHeader title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
+
+  {#if state.kind === 'ready' && matched > 0}
+    <p class="page-answer t-body" data-testid="services-answer">
+      {#if svcAnswer}<strong>Needs someone:</strong> {svcAnswer}{:else}<strong>Nothing failing{knowledge.incomplete ? ' found' : ''}.</strong> No service here is known to break its contract or lack a clear owner.{/if}
+    </p>
+  {/if}
 
   <div class="sv-filters">
     <!-- Suggestions come from the backend Entities query, restricted to services, so
@@ -252,6 +275,7 @@
       <input class="input" type="text" value={domain} placeholder="exact domain" aria-label="Filter by domain"
         onchange={(e) => apply({ domain: e.currentTarget.value.trim() })} />
     </label>
+    <ListSort value={order} href={(v) => urlWith({ sort: v === 'name' ? '' : v })} testid="svc-sort" />
   </div>
 
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
@@ -313,7 +337,7 @@
           <HorizontalBars
             title="Operational targets per owner"
             description="How much is actually running behind each of those owners."
-            scopeNote="Same owners, in the same service-count order as above — this is not a ranking by target count."
+            scopeNote="Same owners, in the same order as above (by service count)."
             items={rankedTargets}
             unit="targets"
             unitOne="target"
@@ -324,32 +348,23 @@
     </section>
   {/if}
 
-  {#if state.kind !== 'ready'}
+  {#if pastEnd(list, count)}
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} count={0} noun="services" testid="svc" />
+  {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="services" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <ul class="sv-list pl-list" data-testid="service-list">
+    <ul class="sv-list pl-list pl-list--facts" data-testid="service-list">
       {#each list.entities as ref (ref.kind + '::' + ref.key)}
         <li class="sv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}>
-          <EntityLink {ref} showStatus={true} showKind={false} />
+          <EntityLink {ref} showStatus={true} showKind={false}>
+            <span class="pl-owner" title={ref.owner || undefined}>{ref.owner || 'No owner declared'}</span>
+            <span class="pl-num">{formatCount(ref.targets ?? 0)} {ref.targets === 1 ? 'target' : 'targets'}</span>
+          </EntityLink>
         </li>
       {/each}
     </ul>
 
-    <nav class="sv-pager pl-pager" aria-label="Service pages">
-      <span class="sv-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="sv-pager-btns pl-pager-btns">
-        {#if hasPrev}
-          <a class="sv-page pl-page" href={urlWith({}, prevOffset)} data-testid="svc-prev" rel="prev">Previous</a>
-        {:else}
-          <span class="sv-page pl-page disabled" aria-disabled="true">Previous</span>
-        {/if}
-        {#if hasNext}
-          <a class="sv-page pl-page" href={urlWith({}, list.nextOffset)} data-testid="svc-next" rel="next">Next</a>
-        {:else}
-          <span class="sv-page pl-page disabled" aria-disabled="true">Next</span>
-        {/if}
-      </div>
-    </nav>
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} label="Service pages" noun="services" testid="svc" />
   {/if}
 </div>
 
@@ -359,7 +374,10 @@
   /* The suggestion popup is absolutely positioned inside its field, so a field that
      clips or stacks below its neighbour would hide it. */
   .sv-search, .sv-field { position: relative; }
-  .sv-field { display: flex; flex-direction: column; gap: 2px; min-width: 180px; font-size: var(--text-xs); color: var(--c-text-3); }
+  /* Fields share the row instead of each claiming 180px: at that floor, plus the
+     Ownership select sized to its longest option, Order wrapped onto a row of its own. */
+  .sv-field { display: flex; flex-direction: column; gap: 2px; flex: 1 1 8rem; min-width: 8rem; font-size: var(--text-xs); color: var(--c-text-3); }
+  .sv-field select { width: 100%; min-width: 0; }
   /* Text inputs use the shared .input from styles/components.css so the two
      comboboxes -- whose inputs live in a child component and are out of reach of this
      scoped block -- and the plain Domain field are one control, not two look-alikes. */

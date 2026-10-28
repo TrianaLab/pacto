@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../lib/format.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
   // Renders the active filters/focus as removable chips so filter state is visible
@@ -12,14 +13,14 @@
     {#each chips as c (c.key)}
       <span class="chip" animate:flip={{ duration: dur(MOTION.row) }}>
         <span class="chip-label">{c.label}:</span>
-        <span class="chip-value">{c.value}</span>
+        <span class="chip-value" title={c.value}>{c.value}</span>
         {#if onRemove}
           <button type="button" class="chip-x" aria-label={`Remove ${c.label} filter`} onclick={() => onRemove(c.key)}>×</button>
         {/if}
       </span>
     {/each}
     {#if onClear && chips.length > 1}
-      <button type="button" class="chip-clear" onclick={onClear}>Clear all ({chips.length})</button>
+      <button type="button" class="chip-clear" onclick={onClear}>Clear all ({formatCount(chips.length)})</button>
     {/if}
   </div>
 {/if}
@@ -27,12 +28,14 @@
 <style>
   .filter-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
   .chip {
-    display: inline-flex; align-items: center; gap: var(--sp-1);
+    display: inline-flex; align-items: center; gap: var(--sp-1); max-width: 100%; min-width: 0;
     font-size: var(--text-xs); padding: 2px 4px 2px 8px; border-radius: var(--radius-sm);
     background: var(--c-accent-bg); border: 1px solid var(--c-accent-border); color: var(--c-text);
   }
   .chip-label { color: var(--c-text-3); }
-  .chip-value { font-weight: 600; }
+  /* A long value ellipsizes so the chip, and its remove button, stay on screen. */
+  .chip-value { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-label, .chip-x { flex-shrink: 0; }
   .chip-x {
     background: none; border: none; cursor: pointer; color: var(--c-text-3);
     font-size: var(--text-md); line-height: 1; padding: 0 4px; border-radius: var(--radius-xs);

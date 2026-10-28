@@ -3,11 +3,13 @@ package cli
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/pactify"
 )
 
 // revealStagger is the pause between revealed lines: ~300ms in total.
@@ -43,14 +45,80 @@ func bannerStatic(color bool) string {
 	return strings.Join(bannerLines(color), "\n") + "\n"
 }
 
-// initLines returns the exact 4 current strings, in order. Pure.
+// initLines is the header and one line per file init added. Pure.
 func initLines(r *app.InitResult) []string {
-	return []string{
-		"Created " + r.Dir + "/",
-		"  " + r.Path,
-		"  " + r.Dir + "/interfaces/",
-		"  " + r.Dir + "/configuration/",
+	var lines []string
+	for _, f := range r.Files {
+		switch f.Action {
+		case pactify.Add:
+			lines = append(lines, "  "+filepath.Join(r.Dir, f.Path))
+		case pactify.Append:
+			lines = append(lines, "  "+filepath.Join(r.Dir, f.Path)+" (lines added)")
+		}
 	}
+	if len(lines) == 0 {
+		return []string{"Nothing to add in " + r.Dir + "/: every file init writes is already there"}
+	}
+	return append([]string{"Created " + r.Dir + "/"}, lines...)
+}
+
+// printInitPlan prints what init would add, content included. Pure output.
+func printInitPlan(w io.Writer, r *app.InitResult) {
+	_, _ = fmt.Fprintf(w, "Plan for %s in %s/ (nothing changed)\n", r.Service, r.Dir)
+	printInitFindings(w, r)
+	var add []string
+	for _, f := range r.Files {
+		if f.Action == pactify.Keep {
+			continue
+		}
+		head := "  + " + f.Path
+		if f.Action == pactify.Append {
+			head += " (adds these lines)"
+		}
+		add = append(add, head)
+		for _, l := range strings.Split(strings.TrimSuffix(f.Content, "\n"), "\n") {
+			add = append(add, strings.TrimRight("      "+l, " "))
+		}
+	}
+	if len(add) == 0 {
+		_, _ = fmt.Fprintln(w, "\nNothing to add: every file init writes is already there.")
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nWould add\n%s\n\nRun it again without --plan to add these.\n", strings.Join(add, "\n"))
+}
+
+// printInitFindings prints the first value: what was found, who depends on
+// whom, what is Unknown and what is left to do.
+func printInitFindings(w io.Writer, r *app.InitResult) {
+	section := func(title string, lines []string) {
+		if len(lines) > 0 {
+			_, _ = fmt.Fprintf(w, "\n%s\n  - %s\n", title, strings.Join(lines, "\n  - "))
+		}
+	}
+	findings := func(fs []pactify.Finding) []string {
+		out := []string{"none found"}
+		if len(fs) > 0 {
+			out = out[:0]
+		}
+		for _, f := range fs {
+			out = append(out, f.Name+" ("+f.Where+")")
+		}
+		return out
+	}
+	if r.Mode == "pactify" {
+		section("Found", r.Found)
+		section("Depends on", findings(r.Dependencies))
+		section("Used by", findings(r.Consumers))
+	}
+	section("Unknown", r.Unknown)
+	section("Next", r.Next)
+	var kept []string
+	for _, f := range r.Files {
+		if f.Action == pactify.Keep {
+			kept = append(kept, f.Path)
+		}
+	}
+	section("Already there, left as it is", kept)
 }
 
 // revealInit prints lines[0] as-is (header), then lines[1:] each as scaffolded

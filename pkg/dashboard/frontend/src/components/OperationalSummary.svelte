@@ -1,6 +1,7 @@
 <script>
   import { hashForHref, fleetAttentionUrl } from '../lib/router.ts';
-  import { severityTone } from '../lib/entityLabels.ts';
+  import { severityTone, splitEntryPoints } from '../lib/entityLabels.ts';
+  import { formatCount } from '../lib/format.ts';
 
   // The immediate situation: what requires action right now.
   //
@@ -15,25 +16,28 @@
   // milder is one compact line -- so the first thing seen is the worst thing true.
   let { summary = {}, entryPoints = [], attentionTotal = 0 } = $props();
 
-  // A tile has to take you somewhere you are not. Two entry points do not:
-  // the uncategorised attention one is the lead tile's own number under a second
-  // wording, and the overview one links back to this page, where the source health
-  // strip a few lines below already shows exactly what it counts.
-  const shown = $derived(entryPoints.filter(
-    (ep) => ep.view !== 'overview' && !(ep.view === 'attention' && !ep.category),
-  ));
-
-  // An entry point whose severity this build does not recognise is promoted, not
-  // demoted: a grade a newer engine spells differently must not quietly become a
-  // footnote. Only the grades we can read as milder than an error are compacted.
-  const MILDER = ['warning', 'info'];
-  const leadTiles = $derived(shown.filter((ep) => !MILDER.includes(ep.severity)));
-  const secondary = $derived(shown.filter((ep) => MILDER.includes(ep.severity)));
+  // A tile has to take you somewhere you are not, and only an error earns one; the
+  // rule lives in splitEntryPoints so the overview's answer line reads the same split.
+  const uid = $props.id();
+  const split = $derived(splitEntryPoints(entryPoints));
+  const leadTiles = $derived(split.lead);
+  const secondary = $derived(split.secondary);
 
   // A count of zero is a clean state whatever the category; above zero the backend
   // grades the category (EntryPoint.severity) exactly as it grades the attention items
   // inside it. Painting every non-zero tile amber said a confirmed drift and an
   // undeclared call were equally urgent, and the list right below it disagreed.
+  // The chips are counts with a few words after them; the backend's full label stays
+  // as the title. A label not listed here is shown as the backend wrote it.
+  const SHORT = {
+    'Operational targets with stale evidence': 'stale evidence',
+    'Operational targets with unknown compliance': 'unknown compliance',
+    'Unresolved declared dependencies': 'unresolved dependencies',
+    'Undeclared runtime dependencies observed': 'undeclared runtime calls',
+    'Uncontracted callers observed': 'uncontracted callers',
+    'Incomplete sources': 'incomplete sources',
+  };
+  const shortLabel = (label) => SHORT[label] ?? label;
   function tone(count, severity) { return count > 0 ? severityTone(severity) : 'ok'; }
   // The lead tile is not rendered from an entry point but still has one, so its grade is
   // read from the same place rather than guessed here.
@@ -45,11 +49,11 @@
 <div class="op-summary">
   <div class="tile-grid">
     <a class="tile tile-lead tone-{tone(summary.servicesNeedingAttention, leadSeverity)}" href={fleetAttentionUrl()}>
-      <span class="tile-count t-metric">{summary.servicesNeedingAttention || 0}</span>
+      <span class="tile-count t-metric">{formatCount(summary.servicesNeedingAttention || 0)}</span>
       <!-- Sentence case, like every tile beside it. A lowercase caption on the biggest
            tile and Title-leading labels on its siblings read as two kinds of thing. -->
       <span class="tile-label">Services need attention</span>
-      <span class="tile-sub">{attentionTotal} attention item{attentionTotal === 1 ? '' : 's'}</span>
+      <span class="tile-sub">{formatCount(attentionTotal)} attention item{attentionTotal === 1 ? '' : 's'}</span>
     </a>
     <!-- The observed-only tile used to be hand-written here, beside its own backend entry
          point -- so the same count reached the screen under two labels ("undeclared
@@ -57,7 +61,7 @@
          two cases, with a tone guessed locally instead of the grade its own items carry. -->
     {#each leadTiles as ep}
       <a class="tile tone-{tone(ep.count, ep.severity)}" href={hashForHref(ep.href)}>
-        <span class="tile-count t-metric">{ep.count || 0}</span>
+        <span class="tile-count t-metric">{formatCount(ep.count || 0)}</span>
         <span class="tile-label">{ep.label}</span>
       </a>
     {/each}
@@ -66,13 +70,14 @@
   {#if secondary.length}
     <!-- Present, exact and one click away, but not competing with the errors above it.
          The count is still shown: demoting the treatment must not delete the number. -->
-    <ul class="op-secondary" aria-label="Also open">
+    <h3 class="op-sec-title t-subsection-title" id="{uid}-sec">Not broken, worth a look</h3>
+    <ul class="op-secondary" aria-labelledby="{uid}-sec">
       {#each secondary as ep}
         <li>
           <a class="op-sec tone-{tone(ep.count, ep.severity)}" href={hashForHref(ep.href)}>
             <span class="op-sec-dot" aria-hidden="true"></span>
-            <span class="op-sec-count">{ep.count || 0}</span>
-            <span class="op-sec-label">{ep.label}</span>
+            <span class="op-sec-count">{formatCount(ep.count || 0)}</span>
+            <span class="op-sec-label" title={ep.label}>{shortLabel(ep.label)}</span>
           </a>
         </li>
       {/each}
@@ -101,11 +106,16 @@
   .tile-count { color: var(--tone-c, var(--c-text)); }
   .tile-label { font-size: var(--text-sm); color: var(--c-text-2); }
   .tile-sub { font-size: var(--text-xs); color: var(--c-text-3); }
-  .op-secondary { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }
+  .op-sec-title { margin: var(--sp-2) 0 0; }
+  /* Count chips: the number first, the label after, one bordered pill each. */
+  .op-secondary { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); }
   .op-sec {
     display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--touch-min);
+    padding: 0 var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-md);
+    background: var(--c-surface);
     font-size: var(--text-sm); color: var(--c-text-2); text-decoration: none;
   }
+  .op-sec:hover, .op-sec:focus-visible { border-color: var(--c-accent); }
   .op-sec:hover .op-sec-label, .op-sec:focus-visible .op-sec-label { text-decoration: underline; }
   /* Shape carries the grade too, not colour alone: the dot is a filled swatch of the
      tone beside a label that names the state in words (WCAG 1.4.1). */

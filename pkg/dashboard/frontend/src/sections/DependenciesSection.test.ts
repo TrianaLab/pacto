@@ -15,6 +15,18 @@ describe('DependenciesSection — lock and drift rendering', () => {
     document.body.appendChild(target);
   });
 
+  it('says Resolving until the fleet list arrives, then External only for what it lacks', () => {
+    const dependencies = [{ name: 'dep-a', ref: 'oci://x/dep-a:1', required: true }];
+    const c1 = mount(DependenciesSection, { target, props: { name: 's', dependencies, services: [] } });
+    expect(target.querySelector('[data-testid="dep-resolving"]')).toBeTruthy();
+    unmount(c1);
+    const c2 = mount(DependenciesSection, { target, props: { name: 's', dependencies, services: [{ name: 's' }] } });
+    expect(target.querySelector('[data-testid="dep-resolving"]')).toBeNull();
+    expect(target.textContent).toContain('External');
+    unmount(c2);
+    document.body.removeChild(target);
+  });
+
   it('renders pinned cell with both lockedVersion and lockedDigest', () => {
     const component = mount(DependenciesSection, {
       target,

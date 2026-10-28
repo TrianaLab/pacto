@@ -40,7 +40,7 @@ The final `!data/config.bin` re-includes one file that an earlier pattern exclud
 | Blank lines | Ignored |
 | `*` | Match any number of characters except `/` |
 | `?` | Match a single character except `/` |
-| `[abc]` | Character class — match `a`, `b` or `c` |
+| `[abc]` | Character class: match `a`, `b` or `c` |
 | `**` | Match zero or more directories |
 | `/` at start | Anchor to the contract root |
 | `/` at end | Match directories only |
@@ -64,7 +64,7 @@ These patterns are always applied, even when no `.pactoignore` file exists:
 
 ## Immutable files
 
-`pacto.yaml` is **never ignorable**. Listing it in `.pactoignore` is a no-op — the contract file is always included in the bundle.
+`pacto.yaml` is **never ignorable**. Listing it in `.pactoignore` has no effect, because the bundle always includes the contract file.
 
 ---
 
@@ -90,8 +90,8 @@ The same rule applies to `configurations[].schema`, `policies[].schema` and any 
 
 `.pactoignore` is applied by:
 
-- **`pacto pack`** — files matching ignore patterns are excluded from the tar.gz archive
-- **`pacto push`** — files matching ignore patterns are excluded from the OCI artifact
+- **`pacto pack`**: files matching ignore patterns are excluded from the tar.gz archive
+- **`pacto push`**: files matching ignore patterns are excluded from the OCI artifact
 
 Every command that loads a local bundle reads through the ignore filter, so ignored files are invisible to all of them. The commands that validate the bundle (`validate`, `pack`, `push`) hard-fail on a missing referenced file, while `graph`, `diff`, `doc` and `explain` do not see the file and produce incomplete output. Only `pacto pack` and `pacto push` additionally package the filtered file set into the shipped artifact.
 
@@ -99,7 +99,7 @@ Every command that loads a local bundle reads through the ignore filter, so igno
 
 ## Pattern examples
 
-- `/docs/` — anchored: matches `docs/` at the contract root, not `subdir/docs/`
-- `*.log` — unanchored: matches `build.log` and `output/build.log`
-- `tmp/` — trailing slash matches the directory `tmp/`, not a file named `tmp`
-- `!README.md` after `*.md` — re-includes `README.md`; place negations after the broader exclude
+- `/docs/`: anchored: matches `docs/` at the contract root only
+- `*.log`: unanchored: matches `build.log` and `output/build.log`
+- `tmp/`: trailing slash matches only the directory `tmp/`
+- `!README.md` after `*.md`: re-includes `README.md`; place negations after the broader exclude

@@ -3,13 +3,13 @@
   //
   // The rule this component exists to enforce: hover is
   // supplementary, never the sole access path. So this is a real <button> -- reachable
-  // by Tab, operable by Enter/Space, targetable by touch -- that hover merely
+  // by Tab, opened by Enter/Space, targetable by touch -- that hover merely
   // anticipates. Escape closes it, a click outside closes it, and it never traps focus.
   //
   // What belongs here: a definition of a term the page uses ("Revision match", "Blast
   // radius"). What does NOT: a warning, an uncertainty, or anything actionable. Those
   // are page content, and page content never hides behind a hover.
-  let { label = '', text = '' } = $props();
+  let { label = '', text = '', textClass = '' } = $props();
 
   let open = $state(false);
   let host = $state(null);
@@ -21,7 +21,11 @@
 
   function show(pointer) { open = true; byPointer = pointer; }
   function hide() { open = false; byPointer = false; }
-  function toggle() { open ? hide() : show(false); }
+  // A click only ever opens. Focus (Tab, or the focus a tap or click gives first) has
+  // usually opened it a moment earlier, so a toggle here shut it again: a click left it
+  // closed, a tap never opened it and Tab then Enter closed it. Escape, a click outside
+  // and blur close it.
+  function openByClick() { show(false); }
 
   function onPointerLeave() { if (byPointer) hide(); }
 
@@ -52,16 +56,16 @@
   <button
     type="button"
     class="help-btn"
-    aria-label={label ? `What is ${label}?` : 'What is this?'}
+    aria-label={label ? `About ${label}` : 'About this'}
     aria-expanded={open}
     aria-describedby={open ? id : undefined}
-    onclick={toggle}
+    onclick={openByClick}
     onfocus={() => show(false)}
     onblur={hide}
   >?</button>
-  {#if open}
-    <span class="help-body t-body-2" {id} role="note">{text}</span>
-  {/if}
+  <!-- Always in the DOM, hidden until opened: the definition stays part of the page's
+       text (search, copy, tests) without being on screen. -->
+  <span class="help-body t-body-2 {textClass}" {id} role="note" hidden={!open}>{text}</span>
 </span>
 
 <style>

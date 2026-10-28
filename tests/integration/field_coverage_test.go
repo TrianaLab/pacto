@@ -81,12 +81,14 @@ func warns(name, code string, ops ...fcOp) fcCase {
 const (
 	schemaViolation = "SCHEMA_VIOLATION"
 	parseError      = "PARSE_ERROR"
+	needs21         = "NEEDS_PACTO_2_1" // a 2.1-only part in a 2.0 contract
 )
 
 var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
-	valid("pactoVersion=2.0", set("pactoVersion", "2.0")),
+	valid("pactoVersion=2.1", set("pactoVersion", "2.1")),
+	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("checks")),
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
@@ -133,6 +135,10 @@ var fieldCoverageCases = []fcCase{
 	valid("interfaces[].type=openapi", set("interfaces.0.type", "openapi")),
 	valid("interfaces[].type=asyncapi", set("interfaces.0.type", "asyncapi"), set("interfaces.0.ref", "interfaces/asyncapi.yaml")),
 	valid("interfaces[].type=grpc", set("interfaces.0.type", "grpc"), set("interfaces.0.ref", "interfaces/orders.proto")),
+	valid("interfaces[].type=mcp", set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
+	invalid("interfaces[].type=mcp/no-tools", "INVALID_MCP_TOOLS", set("interfaces.0.type", "mcp")),
+	invalid("interfaces[].type=mcp/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish"), del("checks"),
+		set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
 	valid("interfaces[].ref/valid", set("interfaces.0.ref", "interfaces/asyncapi.yaml")),
 	invalid("interfaces[].ref/invalid", "FILE_NOT_FOUND", set("interfaces.0.ref", "interfaces/missing.yaml")),
 	valid("interfaces[].visibility/valid", del("interfaces.0.visibility")),
@@ -181,6 +187,11 @@ var fieldCoverageCases = []fcCase{
 	invalid("dependencies[].required/invalid", schemaViolation, del("dependencies.0.required")),
 	valid("dependencies[].compatibility/valid", set("dependencies.0.compatibility", ">=1.2.0 <3.0.0")),
 	invalid("dependencies[].compatibility/invalid", "INVALID_COMPATIBILITY", set("dependencies.0.compatibility", "not-a-range")),
+	valid("dependencies[].external/valid", set("dependencies.0.external", true)),
+	invalid("dependencies[].external/invalid", "DEPENDENCY_REF_REQUIRED", del("dependencies.0.ref")),
+	invalid("dependencies[].external/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish"), del("checks"), set("dependencies.0.external", true)),
+	valid("dependencies[].version/valid", set("dependencies.1", map[string]any{"name": "model", "required": true, "external": true, "version": "claude-sonnet-4-5"})),
+	invalid("dependencies[].version/invalid", "EXTERNAL_VERSION_REQUIRED", set("dependencies.1", map[string]any{"name": "model", "required": true, "external": true})),
 
 	valid("state/valid", del("state")),
 	invalid("state/invalid", parseError, set("state", "stateful")),
@@ -297,14 +308,81 @@ var fieldCoverageCases = []fcCase{
 	valid("readiness.claims[].description/valid", del("readiness.claims.0.description")),
 	invalid("readiness.claims[].description/invalid", "EMPTY_READINESS_DESCRIPTION", set("readiness.claims.0.description", "  ")),
 
+	valid("publish/valid"),
+	invalid("publish/invalid", parseError, set("publish", "ghcr.io")),
+	invalid("publish/invalid-2.0", needs21, set("pactoVersion", "2.0")),
+	valid("publish.bundle/valid", set("publish.bundle", "oci://registry.example.com:5000/acme/pacto/orders")),
+	invalid("publish.bundle/invalid", schemaViolation, set("publish.bundle", "oci://ghcr.io/acme/pacto/orders:1.0.0")),
+	valid("publish.deploy/valid", del("publish.deploy")),
+	invalid("publish.deploy/invalid", "PUBLISH_DEPLOY_NOT_MANIFESTS", set("publish.deploy", "api")),
+	valid("publish.artifacts/valid", del("publish.deploy"), del("publish.artifacts")),
+	invalid("publish.artifacts/invalid", parseError, set("publish.artifacts", "api")),
+	valid("publish.artifacts[]/valid"),
+	invalid("publish.artifacts[]/invalid", "DUPLICATE_PUBLISH_ARTIFACT", set("publish.artifacts.4",
+		map[string]any{"name": "api", "type": "image", "ref": "oci://ghcr.io/acme/other", "build": map[string]any{"command": []any{"make"}}})),
+	valid("publish.artifacts[].name/valid", set("publish.artifacts.0.name", "api-v2")),
+	invalid("publish.artifacts[].name/invalid", schemaViolation, set("publish.artifacts.0.name", "Api")),
+	valid("publish.artifacts[].type/valid"),
+	invalid("publish.artifacts[].type/invalid", schemaViolation, set("publish.artifacts.1.type", "binary")),
+	valid("publish.artifacts[].type=image", set("publish.artifacts.0.type", "image")),
+	valid("publish.artifacts[].type=chart", set("publish.artifacts.1.type", "chart")),
+	valid("publish.artifacts[].type=manifests", set("publish.artifacts.2.type", "manifests")),
+	valid("publish.artifacts[].ref/valid", set("publish.artifacts.0.ref", "oci://ghcr.io/acme/orders-v2")),
+	invalid("publish.artifacts[].ref/invalid", schemaViolation, set("publish.artifacts.0.ref", "ghcr.io/acme/orders")),
+	valid("publish.artifacts[].build/valid"),
+	invalid("publish.artifacts[].build/invalid", schemaViolation, set("publish.artifacts.1.build", map[string]any{})),
+	valid("publish.artifacts[].build.dockerfile/valid"),
+	invalid("publish.artifacts[].build.dockerfile/invalid", "PUBLISH_DOCKERFILE_NOT_IMAGE",
+		set("publish.artifacts.1.build", map[string]any{"dockerfile": map[string]any{"context": "."}})),
+	valid("publish.artifacts[].build.dockerfile.context/valid", set("publish.artifacts.0.build.dockerfile.context", "./src")),
+	invalid("publish.artifacts[].build.dockerfile.context/invalid", schemaViolation, del("publish.artifacts.0.build.dockerfile.context")),
+	valid("publish.artifacts[].build.dockerfile.file/valid", del("publish.artifacts.0.build.dockerfile.file")),
+	invalid("publish.artifacts[].build.dockerfile.file/invalid", schemaViolation, set("publish.artifacts.0.build.dockerfile.file", "")),
+	valid("publish.artifacts[].build.dockerfile.platforms/valid", del("publish.artifacts.0.build.dockerfile.platforms")),
+	invalid("publish.artifacts[].build.dockerfile.platforms/invalid", parseError, set("publish.artifacts.0.build.dockerfile.platforms", "linux/amd64")),
+	valid("publish.artifacts[].build.dockerfile.platforms[]/valid", set("publish.artifacts.0.build.dockerfile.platforms.0", "linux/arm64/v8")),
+	invalid("publish.artifacts[].build.dockerfile.platforms[]/invalid", schemaViolation, set("publish.artifacts.0.build.dockerfile.platforms.0", "amd64")),
+	valid("publish.artifacts[].build.command/valid", set("publish.artifacts.1.build.command", []any{"make", "chart"})),
+	invalid("publish.artifacts[].build.command/invalid", schemaViolation, set("publish.artifacts.1.build.command", []any{})),
+	valid("publish.artifacts[].build.command[]/valid", set("publish.artifacts.1.build.command.0", "./package.sh")),
+	invalid("publish.artifacts[].build.command[]/invalid", schemaViolation, set("publish.artifacts.1.build.command.0", "")),
+	valid("publish.artifacts[].sbom/valid", del("publish.artifacts.3.sbom")),
+	invalid("publish.artifacts[].sbom/invalid", "PUBLISH_SBOM_NOT_IMAGE", set("publish.artifacts.1.sbom", "sbom/chart.spdx.json")),
+	invalid("publish.artifacts[].sbom/dockerfile", "PUBLISH_SBOM_DOCKERFILE", set("publish.artifacts.0.sbom", "sbom/api.spdx.json")),
+	valid("publish.sign/valid", del("publish.sign")),
+	invalid("publish.sign/invalid", schemaViolation, set("publish.sign", map[string]any{})),
+	valid("publish.sign.keyless/valid", set("publish.sign", map[string]any{"keyless": true, "identity": "ci@acme.com", "issuer": "https://accounts.google.com"})),
+	invalid("publish.sign.keyless/invalid", schemaViolation, set("publish.sign", map[string]any{"keyless": false})),
+	valid("publish.sign.identity/valid", set("publish.sign", map[string]any{"keyless": true, "identity": "ci@acme.com", "issuer": "https://accounts.google.com"})),
+	invalid("publish.sign.identity/invalid", schemaViolation, set("publish.sign", map[string]any{"keyless": true, "issuer": "https://accounts.google.com"})),
+	valid("publish.sign.issuer/valid", set("publish.sign", map[string]any{"keyless": true, "identity": "ci@acme.com", "issuer": "https://accounts.google.com"})),
+	invalid("publish.sign.issuer/invalid", schemaViolation, set("publish.sign", map[string]any{"keyless": true, "identity": "ci@acme.com"})),
+	valid("publish.sign.key/valid", set("publish.sign.key", "keys/release.key")),
+	invalid("publish.sign.key/invalid", schemaViolation, set("publish.sign.kms", "awskms:///alias/release")),
+	valid("publish.sign.kms/valid", set("publish.sign", map[string]any{"kms": "awskms:///alias/release"})),
+	invalid("publish.sign.kms/invalid", schemaViolation, set("publish.sign", map[string]any{"kms": ""})),
+	valid("publish.sign.transparencyLog/valid", del("publish.sign.transparencyLog")),
+	invalid("publish.sign.transparencyLog/invalid", parseError, set("publish.sign.transparencyLog", 3)),
+
+	valid("checks/valid", del("checks")),
+	invalid("checks/invalid", parseError, set("checks", "evals")),
+	invalid("checks/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish")),
+	valid("checks[]/valid", set("checks.1", map[string]any{"name": "smoke", "file": "evals/suite.yaml"})),
+	invalid("checks[]/invalid", "DUPLICATE_CHECK_NAME", set("checks.1", map[string]any{"name": "evals", "file": "evals/suite.yaml"})),
+	valid("checks[].name/valid", set("checks.0.name", "refunds")),
+	invalid("checks[].name/invalid", schemaViolation, del("checks.0.name")),
+	valid("checks[].file/valid", set("checks.0.file", "interfaces/tools.json")),
+	invalid("checks[].file/invalid", "FILE_NOT_FOUND", set("checks.0.file", "evals/missing.yaml")),
+
 	valid("metadata/valid", set("metadata.runbook", "https://example.com/runbook")),
 	invalid("metadata/invalid", parseError, set("metadata", "gold")),
 	valid("extensions/valid", set("extensions.acme", map[string]any{"nested": []any{1, "two"}})),
 	invalid("extensions/invalid", parseError, set("extensions", "acme")),
 }
 
-// fieldCoverageBase declares every field of the v2.0 schema at least once.
-const fieldCoverageBase = `pactoVersion: "2.0"
+// fieldCoverageBase declares every field of the v2.1 schema at least once
+// (publish.sign declares one of its three ways; the cases cover the others).
+const fieldCoverageBase = `pactoVersion: "2.1"
 service:
   name: orders
   version: 1.0.0
@@ -367,6 +445,40 @@ readiness:
       evidence: https://example.com/d
       weight: 50
       description: dashboards exist
+publish:
+  bundle: oci://ghcr.io/acme/pacto/orders
+  deploy: manifests
+  artifacts:
+    - name: api
+      type: image
+      ref: oci://ghcr.io/acme/orders
+      build:
+        dockerfile:
+          context: .
+          file: Dockerfile
+          platforms: [linux/amd64]
+    - name: chart
+      type: chart
+      ref: oci://ghcr.io/acme/charts/orders
+      build:
+        command: [./package-chart.sh]
+    - name: manifests
+      type: manifests
+      ref: oci://ghcr.io/acme/deploy/orders
+      build:
+        command: [./render.sh]
+    - name: worker
+      type: image
+      ref: oci://ghcr.io/acme/orders-worker
+      build:
+        command: [./build-worker.sh]
+      sbom: sbom/worker.spdx.json
+  sign:
+    key: cosign.key
+    transparencyLog: false
+checks:
+  - name: evals
+    file: evals/suite.yaml
 metadata:
   tier: gold
 extensions:
@@ -378,6 +490,8 @@ var fieldCoverageFiles = map[string]string{
 	"interfaces/openapi.yaml":          "openapi: 3.0.3\ninfo: {title: orders, version: 1.0.0}\npaths: {}\n",
 	"interfaces/asyncapi.yaml":         "asyncapi: 2.6.0\ninfo: {title: orders, version: 1.0.0}\nchannels: {}\n",
 	"interfaces/orders.proto":          "syntax = \"proto3\";\npackage orders;\n",
+	"interfaces/tools.json":            `{"tools":[{"name":"refund","inputSchema":{"type":"object"}}]}`,
+	"evals/suite.yaml":                 "cases: []\n",
 	"configuration/schema.json":        `{"type":"object","properties":{"port":{"type":"integer"}}}`,
 	"policy/schema.json":               `{"type":"object","required":["service"]}`,
 	"policy-bundle/pacto.yaml":         "pactoVersion: \"2.0\"\nservice:\n  name: platform-policy\n  version: 1.0.0\n",

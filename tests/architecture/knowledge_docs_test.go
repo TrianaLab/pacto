@@ -1,8 +1,6 @@
 package architecture
 
 import (
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -45,15 +43,6 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-func readDoc(t *testing.T, parts ...string) string {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join(docsRoot(t), filepath.Join(parts...)))
-	if err != nil {
-		t.Fatalf("read %v: %v", parts, err)
-	}
-	return string(b)
-}
-
 // knowledgeSection returns the "## Knowledge" section of the graph page, so the
 // vocabulary table is compared against and not against some other table on the page
 // (`## Query semantics` carries an aggregate tally table whose readiness buckets
@@ -76,17 +65,17 @@ func knowledgeSection(t *testing.T, doc string) string {
 // knowledge table are exactly the dashboard's CompletenessLevel union, and the page
 // says which of them `meta.completeness` actually carries.
 func TestKnowledgeVocabularyIsDocumentedInFull(t *testing.T) {
-	root := docsRoot(t)
+	root := repoRoot(t)
 
 	wire := map[string]bool{}
-	for _, m := range goCompletenessRe.FindAllStringSubmatch(readDoc(t, "pkg", "fleet", "fleet.go"), -1) {
+	for _, m := range goCompletenessRe.FindAllStringSubmatch(readRepoFile(t, "pkg", "fleet", "fleet.go"), -1) {
 		wire[m[1]] = true
 	}
 	if len(wire) == 0 {
 		t.Fatal("no Completeness constants found in pkg/fleet/fleet.go — this gate lost its anchor")
 	}
 
-	ts := readDoc(t, "pkg", "dashboard", "frontend", "src", "lib", "knowledgeState.ts")
+	ts := readRepoFile(t, "pkg", "dashboard", "frontend", "src", "lib", "knowledgeState.ts")
 	union := tsLevelUnionRe.FindStringSubmatch(ts)
 	if union == nil {
 		t.Fatal("no `export type CompletenessLevel` union found in knowledgeState.ts — this gate lost its anchor")
@@ -104,7 +93,7 @@ func TestKnowledgeVocabularyIsDocumentedInFull(t *testing.T) {
 		}
 	}
 
-	section := knowledgeSection(t, readDoc(t, "docs", "operational-graph.md"))
+	section := knowledgeSection(t, readRepoFile(t, "docs", "operational-graph.md"))
 	documented := map[string]bool{}
 	for _, m := range docWordRe.FindAllStringSubmatch(section, -1) {
 		documented[m[1]] = true

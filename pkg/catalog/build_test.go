@@ -909,6 +909,18 @@ func TestEmptyReferenceIsRejectedWithoutCallingTheResolver(t *testing.T) {
 	}
 }
 
+func TestExternalDependencyWithoutRefIsNotResolved(t *testing.T) {
+	d := dep("model", "")
+	d.External, d.Version = true, "2025-01"
+	f := newFake().ok("reg/root:1", rev(at("root", "ex"), ct("root", "1.0.0", d)))
+
+	c := build(t, f, Bounds{}, "reg/root:1")
+
+	if f.count() != 1 || len(c.Unresolved()) != 0 {
+		t.Fatalf("resolver calls = %d, unresolved = %+v: an external dependency with no ref is neither fetched nor missing", f.count(), c.Unresolved())
+	}
+}
+
 func TestResolverOutputIsValidatedBeforeItBecomesIdentity(t *testing.T) {
 	good := ociID("v-good")
 	cases := []struct {

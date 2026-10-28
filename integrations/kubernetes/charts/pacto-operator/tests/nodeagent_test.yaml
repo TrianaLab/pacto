@@ -60,7 +60,8 @@ tests:
     template: templates/deployment.yaml
     set:
       nodeAgent.enabled: true
-      image.repository: localhost:5001/pacto-operator/pacto-controller
+      image.registry: localhost:5001
+      image.repository: pacto-operator/pacto-controller
       image.tag: 9.9.9
     asserts:
       - equal:
@@ -259,8 +260,11 @@ tests:
       - notExists:
           path: $.rules[?(@.resources[0]=="leases" && @.verbs[0]=="create")]
 
+  # The dashboard lists namespaces on its own account, so it is off here.
   - it: grants no node agent cluster reads when nothing needs them
     template: templates/clusterrole.yaml
+    set:
+      dashboard.enabled: false
     asserts:
       - notExists:
           path: $.rules[?(@.resources[0]=="nodes")]

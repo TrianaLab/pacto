@@ -3,8 +3,9 @@ import {
   serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl,
   fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetAttentionUrl, fleetChangesUrl, fleetEntityListUrl,
+  deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl,
 } from './router';
-import { ownerKey, ownerKeyLabel, ownerKeyKind, ownerMatchesFilter } from './format';
+import { ownerKey, ownerKeyLabel, ownerKeyKind, ownerMatchesFilter } from './owners';
 
 export type CommandKind = 'view' | 'service' | 'owner' | 'action';
 
@@ -14,6 +15,7 @@ export interface Command {
   hint?: string;       // right-aligned meta (version, service count)
   href?: string;       // router hash for view/service/owner
   action?: string;     // action id for action commands
+  query?: string;      // the text an entity search starts from
   keywords?: string[]; // searchable synonyms; never rendered
 }
 
@@ -26,10 +28,9 @@ export interface CommandGroup {
 // routes), so the command palette can't be a back door to a superseded UI (Part 1); a
 // non-Fleet host keeps the legacy destinations, which are its only UI.
 //
-// The palette AGREES with the primary nav: the four primary destinations come first, in
-// nav order, and the secondary workspaces (the dimensions the nav deliberately does not
-// promote) follow -- so every workspace stays one keystroke away without the nav
-// pretending they are all equally fundamental.
+// The palette AGREES with the primary nav: the nav's destinations come first, in nav
+// order, and the workspaces the nav does not carry as tabs follow -- so every
+// workspace stays one keystroke away.
 //
 // "Readiness" resolves to the contract revision inventory, where the whole assessed
 // population lives. It used to resolve to the Needs-attention readiness category, which
@@ -37,17 +38,26 @@ export interface CommandGroup {
 // a user typing "readiness" was shown the failures and told that was readiness.
 const FLEET_VIEWS: Command[] = [
   { kind: 'view', label: 'Overview', href: fleetOverviewUrl() },
+  { kind: 'view', label: 'Needs attention', href: fleetAttentionUrl() },
   { kind: 'view', label: 'Services', href: fleetServicesUrl() },
+  { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
   { kind: 'view', label: 'Operational graph', href: fleetUrl() },
   // "Compare revisions" is the ACTION this workspace performs, not a second place to go:
   // as its own row it listed the identical href twice, which is the same "two buttons,
   // one screen" confusion the entity pages had. It stays fully searchable as a synonym.
   { kind: 'view', label: 'Change analysis', href: fleetChangesUrl(), keywords: ['compare', 'compare revisions', 'diff'] },
-  { kind: 'view', label: 'Needs attention', href: fleetAttentionUrl() },
-  { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
   { kind: 'view', label: 'Data sources', href: fleetSourcesUrl() },
   { kind: 'view', label: 'Readiness', href: fleetEntityListUrl('revision'), keywords: ['contract revisions', 'assessment'] },
 ];
+// Where delivery is served, its five views are destinations like any other.
+const DELIVERY_VIEWS: Command[] = [
+  { kind: 'view', label: 'Delivery inbox', href: deliveryInboxUrl(), keywords: ['delivery', 'held', 'waiting'] },
+  { kind: 'view', label: 'Delivery environments', href: deliveryEnvironmentsUrl(), keywords: ['delivery', 'promote'] },
+  { kind: 'view', label: 'Delivery autonomy', href: deliveryAutonomyUrl(), keywords: ['delivery', 'level'] },
+  { kind: 'view', label: 'Delivery history', href: deliveryHistoryUrl(), keywords: ['delivery', 'records', 'audit'] },
+  { kind: 'view', label: 'Delivery published', href: deliveryPublishUrl(), keywords: ['delivery', 'versions'] },
+];
+
 const LEGACY_VIEWS: Command[] = [
   { kind: 'view', label: 'Services', href: '#/' },
   { kind: 'view', label: 'Graph', href: graphUrl() },
@@ -67,14 +77,20 @@ const ACTIONS: Command[] = [
  * (a useful default). Non-empty query → every group filtered; empty groups drop.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function buildCommands(query: string, services: any[], fleet = false): CommandGroup[] {
+export function buildCommands(query: string, services: any[], fleet = false, delivery = false): CommandGroup[] {
   const q = query.trim().toLowerCase();
   const match = (s: string) => !q || s.toLowerCase().includes(q);
   const groups: CommandGroup[] = [];
 
-  const views = (fleet ? FLEET_VIEWS : LEGACY_VIEWS)
+  const views = [...(fleet ? FLEET_VIEWS : LEGACY_VIEWS), ...(delivery ? DELIVERY_VIEWS : [])]
     .filter((v) => match(v.label) || (v.keywords || []).some(match));
   if (views.length) groups.push({ label: 'Views', items: views });
+
+  // On a Fleet host entities are found through the product search, so typed text is
+  // always one Enter away from it rather than a dead "No results".
+  if (q && fleet) {
+    groups.push({ label: 'Search', items: [{ kind: 'action', label: `Search entities for "${query.trim()}"`, action: 'search', query: query.trim() }] });
+  }
 
   // The legacy service/owner search links to legacy detail routes, which are superseded
   // on a Fleet host (the visible EntitySearch / '/' discovers entities through the

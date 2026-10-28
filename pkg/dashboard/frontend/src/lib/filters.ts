@@ -1,6 +1,7 @@
 /** Shared filter state and pure filter helpers (no runes, can be unit-tested). */
 
-import { ownerMatchesFilter, ownerKey, readinessBucket, type ReadinessBucket } from './format';
+import { ownerMatchesFilter, ownerKey } from './owners';
+import { readinessBucket, type ReadinessBucket } from './readiness';
 
 export interface FilterState {
   search: string;
@@ -74,6 +75,14 @@ export function writeFiltersToHash(hash: string, f: FilterState): string {
   if (f.source) qs.set('source', f.source);
   if (f.focus) qs.set('focus', f.focus);
   if (f.group) qs.set('group', f.group);
+
+  // A list's order and page size survive a filter change; its page does not, since
+  // page 7 of the old filter is no page of the new one.
+  const old = new URLSearchParams(qsIndex === -1 ? '' : hash.slice(qsIndex + 1));
+  for (const k of ['sort', 'dir', 'limit']) {
+    const v = old.get(k);
+    if (v) qs.set(k, v);
+  }
 
   const qsStr = qs.toString();
   return qsStr ? `${path}?${qsStr}` : path;

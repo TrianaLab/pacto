@@ -102,10 +102,7 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 		return &fleet.Collection{}, nil
 	}
 	resource := disc.ResourceName
-	if resource == "" {
-		resource = "pactos"
-	}
-	data, err := s.client.ListJSON(ctx, resource, s.namespace)
+	data, err := s.client.ListJSON(ctx, *disc, s.namespace)
 	if err != nil {
 		return nil, fmt.Errorf("listing %s: %w", resource, err)
 	}

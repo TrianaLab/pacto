@@ -2,9 +2,12 @@
   // Revision-history table for a readiness assessment. Renders nothing when there
   // are no revisions, so callers can include it unconditionally.
   import { formatDate } from '../lib/dateFormat.ts';
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
 
   let { revisions = [] } = $props();
 
+  const rows = cap(25);
   let hasRevisions = $derived((revisions?.length ?? 0) > 0);
 
   function fmtDate(d) {
@@ -27,7 +30,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each revisions as rev}
+          {#each rows.slice(revisions) as rev}
             <tr>
               <td class="text-2">{fmtDate(rev.date)}</td>
               <td>{#if rev.version}<code>{rev.version}</code>{:else}<span class="text-3">—</span>{/if}</td>
@@ -38,14 +41,14 @@
         </tbody>
       </table>
     </div>
+    <ShowAll cap={rows} total={revisions.length} noun="revisions" />
   </div>
 {/if}
 
 <style>
   .revision-history { margin-top: var(--sp-4); }
-  .revision-title {
-    font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3); margin-bottom: var(--sp-2);
+  .revision-title { color: var(--c-text-3); margin-bottom: var(--sp-2);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .revision-table { font-size: var(--text-sm); width: 100%; }
   .revision-table th { font-size: var(--text-xs); }

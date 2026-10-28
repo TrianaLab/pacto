@@ -330,6 +330,10 @@ type ServiceDetailData struct {
 	Deployments     RefPreview `json:"deployments"`
 	Dependencies    RefPreview `json:"dependencies"`
 	Dependents      RefPreview `json:"dependents"`
+	// HiddenDependencies and HiddenDependents count the neighbours the caller's
+	// Kubernetes permissions hide (see ServiceRecord), never named.
+	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
+	HiddenDependents   int `json:"hiddenDependents,omitempty"`
 	// ReferencedBy names the services whose revisions declare a configuration or
 	// policy REFERENCE to this service. A reference is not a dependency, so these
 	// services are absent from Dependents and from graph traversal; a shared
@@ -552,15 +556,17 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Summary:   summary,
 		// Newest first, in revision chronology: a version list ordered by content
 		// digest is unreadable as history.
-		Revisions:       refPreview(chronologicalRevisionRefs(view.Revisions)),
-		ActiveRevisions: refPreview(chronologicalRevisionRefs(active)),
-		Deployments:     refPreview(targetRefs(view.Targets)),
-		Dependencies:    refPreview(q.dependencyRefs(view.Dependencies)),
-		Dependents:      refPreview(q.serviceKeyRefs(view.Dependents)),
-		ReferencedBy:    refPreview(q.referencingServices(s.Key)),
-		Findings:        attributedTargetFindingsPreview(view.Targets),
-		Evidence:        evidencePreview(evidenceForTargets(view.Targets)),
-		Limitations:     attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
+		Revisions:          refPreview(chronologicalRevisionRefs(view.Revisions)),
+		ActiveRevisions:    refPreview(chronologicalRevisionRefs(active)),
+		Deployments:        refPreview(targetRefs(view.Targets)),
+		Dependencies:       refPreview(q.dependencyRefs(view.Dependencies)),
+		Dependents:         refPreview(q.serviceKeyRefs(view.Dependents)),
+		HiddenDependencies: s.HiddenDependencies,
+		HiddenDependents:   s.HiddenDependents,
+		ReferencedBy:       refPreview(q.referencingServices(s.Key)),
+		Findings:           attributedTargetFindingsPreview(view.Targets),
+		Evidence:           evidencePreview(evidenceForTargets(view.Targets)),
+		Limitations:        attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
 	}
 	if nb, e := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()}); e == nil {
 		// The neighborhood is ALREADY bounded (nodes and edges). Build the relationships
@@ -921,7 +927,9 @@ func (q *Query) revisionRefResolutions(revKey RevisionKey) (cfg, pol map[string]
 				res.Service = &ref
 			} else {
 				res.Resolved = false
-				res.Reason = "the referenced service is not present in this snapshot"
+				if !rel.Hidden { // a hidden one keeps the reason that says so
+					res.Reason = "the referenced service is not present in this snapshot"
+				}
 			}
 		}
 		into[rel.To] = res

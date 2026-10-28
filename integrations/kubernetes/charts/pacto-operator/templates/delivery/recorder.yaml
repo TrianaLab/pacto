@@ -1,0 +1,241 @@
+{{- if .Values.delivery.enabled }}
+{{- if .Values.delivery.recorder.enabled }}
+{{- $r := .Values.delivery.recorder }}
+{{- if not $r.streamsRepository }}
+{{- fail "delivery.recorder.streamsRepository is required when the recorder is enabled" }}
+{{- end }}
+{{- $signers := 0 }}
+{{- if $r.signing.ed25519.secretName }}{{ $signers = add1 $signers }}{{ end }}
+{{- if $r.signing.kms }}{{ $signers = add1 $signers }}{{ end }}
+{{- if $r.signing.keyless.enabled }}{{ $signers = add1 $signers }}{{ end }}
+{{- if ne (int $signers) 1 }}
+{{- fail "configure exactly one of delivery.recorder.signing.ed25519.secretName, delivery.recorder.signing.kms or delivery.recorder.signing.keyless" }}
+{{- end }}
+{{- $k := $r.signing.keyless }}
+{{- if and $k.enabled (or (not $k.identity) (not $k.issuer) (not $k.fulcioURL) (not $k.timestampURL) (not $k.trustedRoot)) }}
+{{- fail "delivery.recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot" }}
+{{- end }}
+{{- if and $r.signing.ed25519.secretName (not $r.signing.allowOperatorReadableKey) }}
+{{- fail "delivery.recorder.signing.ed25519.secretName puts the signing key in a Secret, and the operator reads every Secret in the cluster, so the recorder would not be the key's only holder. Use kms or keyless signing, or set delivery.recorder.signing.allowOperatorReadableKey=true to accept that (for kind and tests)" }}
+{{- end }}
+{{- if eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.delivery.serviceAccountName" .) }}
+{{- fail "the recorder and the promoter resolve to the same ServiceAccount, so the promoter could sign and write records itself: give delivery.recorder.serviceAccount and delivery.serviceAccount different names" }}
+{{- end }}
+{{- if and (eq .Values.delivery.namespace .Release.Namespace) (eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.serviceAccountName" .)) }}
+{{- fail "the recorder resolves to the operator's own ServiceAccount, so the operator could sign and write records: give delivery.recorder.serviceAccount another name" }}
+{{- end }}
+{{- $name := include "pacto-operator.delivery.recorderName" . }}
+{{- $labels := include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-recorder") }}
+{{- if $r.serviceAccount.create }}
+{{- include "pacto-operator.serviceAccount" (dict "name" (include "pacto-operator.delivery.recorderServiceAccountName" .) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" $labels "sa" $r.serviceAccount) }}
+---
+{{- end }}
+{{- with $r.signing.ed25519 }}
+{{- if and .secretName .generate }}
+{{- $ns := include "pacto-operator.delivery.namespace" $ }}
+{{- $old := (lookup "v1" "Secret" $ns .secretName).data | default dict }}
+# The recorder's Ed25519 key, generated at install and read back on every
+# upgrade so the stream keeps one signer.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .secretName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+type: Opaque
+data:
+  {{ .key }}: {{ get $old .key | default (genPrivateKey "ed25519" | b64enc) }}
+---
+{{- end }}
+{{- end }}
+# The recorder: it reads concluded operations, their Stages and approvals,
+# and writes only status.record, status.stream.{recordedSeq,head}, its own
+# RecordStoreReady condition and the record finalizer. It is the only holder
+# of the signing key and the registry push credentials; it never changes
+# what runs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages, approvals]
+    verbs: [get, list, watch]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [operations]
+    verbs: [get, list, watch, update]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages/status, operations/status]
+    verbs: [get, update]
+  {{- include "pacto-operator.delivery.rbac.pointerReadRules" . | nindent 2 }}
+  {{- include "pacto-operator.delivery.rbac.clusterIdentityRule" . | nindent 2 }}
+---
+{{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" $name "labels" $labels "serviceAccount" (include "pacto-operator.delivery.recorderServiceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
+---
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-leader-election" $name) "namespace" (include "pacto-operator.delivery.namespace" .) "roleName" (printf "%s-leader-election" (include "pacto-operator.delivery.fullname" .)) "labels" $labels "serviceAccount" (include "pacto-operator.delivery.recorderServiceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
+---
+{{- if $r.trust }}
+# Other keys whose records the recorder accepts, per stream glob: the old key
+# while a rotation runs. Public keys only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-trust
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- $labels | nindent 4 }}
+data:
+  trust.yaml: {{ $r.trust | quote }}
+---
+{{- end }}
+{{- if $r.signing.keyless.enabled }}
+# The Sigstore trusted root a keyless record must verify under. Without it a
+# self-signed certificate could name the recorder's identity.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-keyless
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- $labels | nindent 4 }}
+data:
+  trusted_root.json: {{ $r.signing.keyless.trustedRoot | quote }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  # One writer per stream: the leader writes, a second replica only waits.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-recorder") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "pacto-operator.podMetadata" (dict "ctx" . "values" .Values.delivery "labels" $labels) | trim | nindent 6 }}
+    spec:
+      {{- include "pacto-operator.podSpec" (dict "ctx" . "values" .Values.delivery "serviceAccountName" (include "pacto-operator.delivery.recorderServiceAccountName" .)) | trim | nindent 6 }}
+      containers:
+        - name: recorder
+          {{- include "pacto-operator.image" (dict "ctx" . "image" .Values.delivery.image) | nindent 10 }}
+          args:
+            - recorder
+            - --leader-elect={{ $r.leaderElect }}
+            - --poll={{ $r.poll }}
+            - {{ printf "--streams-repository=%s" $r.streamsRepository | quote }}
+            {{- if $r.signing.ed25519.secretName }}
+            - --signing-key-file=/etc/pacto/signing/{{ $r.signing.ed25519.key }}
+            {{- else if $r.signing.kms }}
+            - {{ printf "--kms-key=%s" $r.signing.kms | quote }}
+            {{- else }}
+            - --keyless
+            - {{ printf "--keyless-identity=%s" $r.signing.keyless.identity | quote }}
+            - {{ printf "--keyless-issuer=%s" $r.signing.keyless.issuer | quote }}
+            - {{ printf "--keyless-fulcio-url=%s" $r.signing.keyless.fulcioURL | quote }}
+            - {{ printf "--keyless-timestamp-url=%s" $r.signing.keyless.timestampURL | quote }}
+            - --keyless-token-file=/var/run/sigstore/token/token
+            - --keyless-trusted-root=/etc/pacto/keyless/trusted_root.json
+            {{- end }}
+            {{- if $r.trust }}
+            - --trust-config=/etc/pacto/trust/trust.yaml
+            {{- end }}
+            {{- with $r.cdeventsSink }}
+            - {{ printf "--cdevents-sink=%s" . | quote }}
+            {{- end }}
+          env:
+            - name: HOME
+              value: /tmp
+            {{- if $r.registryCredentials.secretName }}
+            - name: DOCKER_CONFIG
+              value: /etc/pacto/registry
+            {{- end }}
+            {{- with .Values.delivery.insecureRegistries }}
+            - name: PACTO_INSECURE_REGISTRIES
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with $r.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- include "pacto-operator.ports" (dict "metrics" 8080) | nindent 10 }}
+          {{- include "pacto-operator.probes" (dict "readinessPeriod" 30 "readinessTimeout" 15) | nindent 10 }}
+          {{- include "pacto-operator.securityContext" (dict "ctx" . "values" .Values.delivery) | nindent 10 }}
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if $r.signing.ed25519.secretName }}
+            - name: signing-key
+              mountPath: /etc/pacto/signing
+              readOnly: true
+            {{- end }}
+            {{- if $r.registryCredentials.secretName }}
+            - name: registry
+              mountPath: /etc/pacto/registry
+              readOnly: true
+            {{- end }}
+            {{- if $r.trust }}
+            - name: trust
+              mountPath: /etc/pacto/trust
+              readOnly: true
+            {{- end }}
+            {{- if $r.signing.keyless.enabled }}
+            - name: keyless
+              mountPath: /etc/pacto/keyless
+              readOnly: true
+            - name: sigstore-token
+              mountPath: /var/run/sigstore/token
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if $r.signing.ed25519.secretName }}
+        - name: signing-key
+          secret:
+            secretName: {{ $r.signing.ed25519.secretName }}
+            items:
+              - key: {{ $r.signing.ed25519.key }}
+                path: {{ $r.signing.ed25519.key }}
+        {{- end }}
+        {{- if $r.trust }}
+        - name: trust
+          configMap:
+            name: {{ $name }}-trust
+        {{- end }}
+        {{- if $r.signing.keyless.enabled }}
+        - name: keyless
+          configMap:
+            name: {{ $name }}-keyless
+        # The OIDC token Fulcio checks: short-lived, for the sigstore audience.
+        - name: sigstore-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: sigstore
+                  expirationSeconds: 600
+                  path: token
+        {{- end }}
+        {{- if $r.registryCredentials.secretName }}
+        - name: registry
+          secret:
+            secretName: {{ $r.registryCredentials.secretName }}
+            items:
+              - key: .dockerconfigjson
+                path: config.json
+        {{- end }}
+      {{- with include "pacto-operator.scheduling" .Values.delivery | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
+{{- end }}
+{{- end }}

@@ -71,9 +71,9 @@ func (s *Server) registerProductOperations(api huma.API) {
 type fleetOverviewOutput struct{ Body *ProductOverview }
 
 func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverviewOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	return &fleetOverviewOutput{Body: toProductOverview(q.Overview())}, nil
 }
@@ -91,6 +91,7 @@ type fleetEntitiesInput struct {
 	SourceHealth string   `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
 	Source       string   `query:"source"`
 	Service      string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
+	Sort         string   `query:"sort" enum:"name,health,services" doc:"Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key"`
 	Limit        int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
 	Offset       int      `query:"offset" minimum:"0"`
 }
@@ -98,15 +99,15 @@ type fleetEntitiesInput struct {
 type fleetEntitiesOutput struct{ Body *ProductEntityList }
 
 func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fleetEntitiesOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(in.Kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
 		Ownership: in.Ownership, Readiness: in.Readiness,
-		Service: in.Service, Limit: in.Limit, Offset: in.Offset,
+		Service: in.Service, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
 		return nil, productQueryError(err)
@@ -122,9 +123,9 @@ type fleetEntityDetailInput struct {
 type fleetEntityDetailOutput struct{ Body *ProductEntityDetail }
 
 func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInput) (*fleetEntityDetailOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	res, err := q.EntityDetail(fleet.EntityKind(in.Kind), in.Key)
 	if err != nil {
@@ -141,9 +142,9 @@ type fleetRevisionDocumentInput struct {
 type fleetRevisionDocumentOutput struct{ Body *ProductRevisionDocument }
 
 func (s *Server) fleetRevisionDocument(ctx context.Context, in *fleetRevisionDocumentInput) (*fleetRevisionDocumentOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	res, err := q.RevisionDocument(in.Key, in.Path)
 	if err != nil {
@@ -166,9 +167,9 @@ type fleetNeighborhoodInput struct {
 type fleetNeighborhoodOutput struct{ Body *ProductNeighborhood }
 
 func (s *Server) fleetNeighborhood(ctx context.Context, in *fleetNeighborhoodInput) (*fleetNeighborhoodOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	res, err := q.Neighborhood(fleet.NeighborhoodQuery{
 		Kind: fleet.EntityKind(in.Kind), Key: in.Key, Perspective: fleet.Perspective(in.Perspective),
@@ -199,9 +200,9 @@ type fleetAttentionInput struct {
 type fleetAttentionOutput struct{ Body *ProductAttentionList }
 
 func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*fleetAttentionOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	res, err := q.Attention(fleet.AttentionFilter{
 		Category: in.Category, Kind: in.Kind, Key: in.Key, Service: in.Service,
@@ -276,9 +277,9 @@ type fleetImpactPostInput struct {
 type fleetImpactPostOutput struct{ Body *ProductImpact }
 
 func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) (*fleetImpactPostOutput, error) {
-	q, err := s.opts.Fleet(ctx)
+	q, err := s.fleetQuery(ctx)
 	if err != nil {
-		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+		return nil, err
 	}
 	snap := q.Snapshot()
 	b := in.Body
@@ -306,7 +307,7 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("toRevisionKey", err)
 	}
-	res, err := s.opts.Impact(ctx, oldRef, newRef, b.IncludeObserved)
+	res, err := s.opts.Impact(ctx, q.SnapshotForSerialization(), oldRef, newRef, b.IncludeObserved)
 	if err != nil {
 		return nil, impactHTTPError(err)
 	}
@@ -353,9 +354,10 @@ func (s *Server) stubProvidersForSchemaExport() {
 	s.opts.Fleet = func(context.Context) (*fleet.Query, error) {
 		return nil, errors.New("schema export only")
 	}
-	s.opts.Impact = func(context.Context, string, string, bool) (*impact.Result, error) {
+	s.opts.Impact = func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
 		return nil, errors.New("schema export only")
 	}
+	s.opts.Delivery = func(*http.Request) (DeliveryAPI, error) { return nil, errors.New("schema export only") }
 }
 
 func parseViews(s string) []fleet.KnowledgeView {

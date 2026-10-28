@@ -9,6 +9,8 @@ package evidence
 
 import (
 	"testing"
+
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 )
 
 // testSubject is an exact, immutable contract revision — the only shape a
@@ -161,27 +163,27 @@ func TestBuildResources_AllOverrides(t *testing.T) {
 
 func TestLabels(t *testing.T) {
 	labels := Labels()
-	if labels[LabelManagedBy] != ManagedByValue {
-		t.Errorf("expected %q=%q, got %q", LabelManagedBy, ManagedByValue, labels[LabelManagedBy])
+	if labels[component.LabelManagedBy] != component.ManagedByValue {
+		t.Errorf("expected %q=%q, got %q", component.LabelManagedBy, component.ManagedByValue, labels[component.LabelManagedBy])
 	}
-	if labels[LabelComponent] != ComponentValue {
-		t.Errorf("expected %q=%q, got %q", LabelComponent, ComponentValue, labels[LabelComponent])
+	if labels[component.LabelComponent] != ComponentValue {
+		t.Errorf("expected %q=%q, got %q", component.LabelComponent, ComponentValue, labels[component.LabelComponent])
 	}
-	if labels[LabelName] != Name {
-		t.Errorf("expected %q=%q, got %q", LabelName, Name, labels[LabelName])
+	if labels[component.LabelName] != Name {
+		t.Errorf("expected %q=%q, got %q", component.LabelName, Name, labels[component.LabelName])
 	}
 }
 
 func TestSelectorLabels(t *testing.T) {
 	labels := SelectorLabels()
-	if labels[LabelComponent] != ComponentValue {
-		t.Errorf("expected %q=%q, got %q", LabelComponent, ComponentValue, labels[LabelComponent])
+	if labels[component.LabelComponent] != ComponentValue {
+		t.Errorf("expected %q=%q, got %q", component.LabelComponent, ComponentValue, labels[component.LabelComponent])
 	}
-	if labels[LabelName] != Name {
-		t.Errorf("expected %q=%q, got %q", LabelName, Name, labels[LabelName])
+	if labels[component.LabelName] != Name {
+		t.Errorf("expected %q=%q, got %q", component.LabelName, Name, labels[component.LabelName])
 	}
-	if _, ok := labels[LabelManagedBy]; ok {
-		t.Errorf("selector labels should not include %q", LabelManagedBy)
+	if _, ok := labels[component.LabelManagedBy]; ok {
+		t.Errorf("selector labels should not include %q", component.LabelManagedBy)
 	}
 }
 

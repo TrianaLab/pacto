@@ -11,6 +11,18 @@
     expanded = { ...expanded, [idx]: !expanded[idx] };
   }
 
+  // A reason that only says the path and the change again ("service.version
+  // modified") repeats the row; it shows only when it adds something.
+  function addsReason(change) {
+    const r = (change.reason || '').trim().toLowerCase();
+    return !!r && r !== `${change.path} ${change.type}`.toLowerCase();
+  }
+
+  // Two hundred changes show the first fifty and offer the rest.
+  const ROWS = 50;
+  let showAll = $state(false);
+  const shown = $derived(showAll ? changes : changes.slice(0, ROWS));
+
   function needsExpand(val) {
     const text = formatDiffValue(val);
     return text.length > COLLAPSE_THRESHOLD || text.includes('\n');
@@ -21,7 +33,7 @@
   <p class="text-2">No changes detected</p>
 {:else}
   <div class="table-wrap">
-    <table class="diff-table" class:diff-table-compact={compact}>
+    <table class="data-table diff-table" class:diff-table-compact={compact}>
       <colgroup>
         <col class="dc-path" />
         <col class="dc-change" />
@@ -36,15 +48,15 @@
            which is a real button; a restatement goes away. -->
       <thead><tr><th>Path</th><th>Change</th><th>Old</th><th>New</th><th>Breaking</th></tr></thead>
       <tbody>
-        {#each changes as change, idx}
+        {#each shown as change, idx (idx)}
           {@const oldText = formatDiffValue(change.oldValue)}
           {@const newText = formatDiffValue(change.newValue)}
           {@const canExpand = needsExpand(change.oldValue) || needsExpand(change.newValue)}
           {@const isExpanded = !!expanded[idx]}
           <tr>
-            <td><code>{@html breakableIdentifierHtml(change.path)}</code></td>
-            <td><span class={changeTypeClass(change.type)}>{change.type}</span></td>
-            <td>
+            <td data-label="Path"><code>{@html breakableIdentifierHtml(change.path)}</code></td>
+            <td data-label="Change"><span class={changeTypeClass(change.type)}>{change.type}</span></td>
+            <td data-label="Old">
               <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{@html breakableIdentifierHtml(oldText)}</pre>
               {#if canExpand}
                 <button type="button" class="expand-toggle" onclick={() => toggleExpand(idx)}>
@@ -52,7 +64,7 @@
                 </button>
               {/if}
             </td>
-            <td>
+            <td data-label="New">
               <pre class="diff-value" class:diff-value-collapsed={canExpand && !isExpanded}>{@html breakableIdentifierHtml(newText)}</pre>
               {#if canExpand}
                 <button type="button" class="expand-toggle" onclick={() => toggleExpand(idx)}>
@@ -60,29 +72,28 @@
                 </button>
               {/if}
             </td>
-            <td>
+            <td data-label="Breaking">
               <span class="badge {classificationClass(change.classification)}">{change.classification.replace(/_/g, ' ')}</span>
-              {#if change.reason}<br><span class="text-3 diff-reason" style="font-size:var(--text-xs)">{@html breakableIdentifierHtml(change.reason)}</span>{/if}
+              {#if addsReason(change)}<br><span class="text-3 diff-reason" style="font-size:var(--text-xs)">{@html breakableIdentifierHtml(change.reason)}</span>{/if}
             </td>
           </tr>
         {/each}
       </tbody>
     </table>
   </div>
+  {#if changes.length > ROWS}
+    <button type="button" class="btn btn-sm" aria-expanded={showAll} onclick={() => { showAll = !showAll; }} data-testid="diff-show-all">
+      {showAll ? 'Show fewer' : `Show all ${changes.length.toLocaleString('en-US')} changes`}
+    </button>
+  {/if}
 {/if}
 
 <style>
   /* Fixed layout so the long <code> path and <pre> value cells can't over-grow
      the table and flash a spurious horizontal scrollbar. Path is left flexible
      to absorb %-rounding; Old/New share the remaining room and wrap their pre. */
-  .diff-table { table-layout: fixed; }
-  .diff-table th { white-space: normal; }
-  .diff-table td { overflow: visible; white-space: nowrap; }
-  .diff-table td:first-child { white-space: normal; }
-  /* The Breaking column holds a long reason (a path + change type). All non-first
-     cells default to nowrap, so with overflow:visible it spilled OUTSIDE the table's
-     right edge. Let the last column wrap, and break the reason at boundaries. */
-  .diff-table td:last-child { white-space: normal; }
+  /* The shared data-table rules give it a fixed layout, wrapping cells and stacked
+     cards on a phone; nowrap + overflow:visible cells painted "removed" over Old. */
   .diff-reason { display: inline-block; overflow-wrap: break-word; word-break: normal; }
   /* PATH gets the most room (it holds long dotted identifiers); Old/New hold
      short scalar values (long ones expand), so they don't need to dominate. This
@@ -115,6 +126,7 @@
     text-overflow: ellipsis;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
   }
   .diff-table-compact { font-size: var(--text-xs); }

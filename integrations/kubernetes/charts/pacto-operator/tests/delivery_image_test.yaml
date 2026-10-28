@@ -1,0 +1,58 @@
+suite: image tests
+templates:
+  - templates/delivery/deployment.yaml
+  - templates/delivery/recorder.yaml
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: runs the promoter from the delivery image at the chart appVersion
+    template: templates/delivery/deployment.yaml
+    chart:
+      appVersion: 9.9.9
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/trianalab/pacto/delivery:9.9.9"
+
+  - it: pins the promoter image by digest when image.digest is set
+    template: templates/delivery/deployment.yaml
+    chart:
+      appVersion: 9.9.9
+    set:
+      delivery.image.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/trianalab/pacto/delivery:9.9.9@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+  - it: pins the recorder image by the same digest
+    template: templates/delivery/recorder.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    chart:
+      appVersion: 9.9.9
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
+      delivery.image.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/trianalab/pacto/delivery:9.9.9@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+  - it: refuses an image.digest that is not a sha256 digest
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.image.digest: "latest"
+    asserts:
+      - failedTemplate: {}

@@ -2,12 +2,19 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
   import { serviceUrl } from '../lib/router.ts';
-  import { shortDigest } from '../lib/format.ts';
+  import { shortDigest, formatCount } from '../lib/format.ts';
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
 
   let { configs = [], open = $bindable(false), id = '' } = $props();
 
   let hasContent = $derived(configs?.length > 0);
   let expanded = $state({});
+  // Ten cards, then the rest on request; inside a card, 25 keys of each table.
+  const cards = cap(10);
+  const KEYS = 25;
+  let allKeys = $state({});
+  const keys = (i, xs) => (allKeys[i] ? xs : xs.slice(0, KEYS));
 
   function toggle(i) {
     expanded = { ...expanded, [i]: !expanded[i] };
@@ -24,7 +31,7 @@
 
 {#if hasContent}
   <CollapsibleSection title="Configurations" count={configs.length} bind:open {id}>
-    {#each configs as config, i}
+    {#each cards.slice(configs) as config, i}
       <div class="detail-card">
         <button type="button" class="detail-card-header" class:expandable={hasDetails(config)} onclick={() => hasDetails(config) && toggle(i)}>
           <div class="detail-card-header-left">
@@ -45,7 +52,7 @@
               <span class="lock-badge" data-tip={`Locked to ${config.lockedDigest}`}>🔒 @{shortDigest(config.lockedDigest)}</span>
             {/if}
             {#if config.valuesAreCurrent}
-              <span class="current-badge" data-tip="Values shown are from the referenced service's current version — this ref is not version-pinned">current</span>
+              <span class="current-badge" data-tip="Values come from the referenced service's current version, because this ref pins no version">current</span>
             {/if}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <a href={serviceUrl(refServiceName(config.ref))} class="ref-link" onclick={(e) => e.stopPropagation()}>
@@ -60,7 +67,7 @@
               <table class="detail-card-table">
                 <thead><tr><th>Key</th><th>Value</th><th>Type</th></tr></thead>
                 <tbody>
-                  {#each config.values as v}
+                  {#each keys(i, config.values) as v}
                     <tr>
                       <td><code>{v.key}</code></td>
                       <td>{v.value === '(any)' ? '—' : v.value}</td>
@@ -73,7 +80,7 @@
               <table class="detail-card-table">
                 <thead><tr><th>Key</th></tr></thead>
                 <tbody>
-                  {#each config.valueKeys as key}
+                  {#each keys(i, config.valueKeys) as key}
                     <tr><td><code>{key}</code></td></tr>
                   {/each}
                 </tbody>
@@ -87,62 +94,29 @@
                 <table class="detail-card-table">
                   <thead><tr><th>Key</th><th>Type</th></tr></thead>
                   <tbody>
-                    {#each config.secretKeys as key}
+                    {#each keys(i, config.secretKeys) as key}
                       <tr><td><code>{key}</code></td><td><span class="pill" style="color:var(--c-warn)">secret</span></td></tr>
                     {/each}
                   </tbody>
                 </table>
               </div>
             {/if}
+            {#if Math.max(config.values?.length ?? 0, config.valueKeys?.length ?? 0, config.secretKeys?.length ?? 0) > KEYS}
+              <button type="button" class="btn btn-sm" aria-expanded={!!allKeys[i]} onclick={() => { allKeys[i] = !allKeys[i]; }}>{allKeys[i] ? 'Show fewer' : `Show all ${formatCount((config.values?.length || config.valueKeys?.length || 0) + (config.secretKeys?.length ?? 0))} keys`}</button>
+            {/if}
           </div>
         {/if}
       </div>
     {/each}
+    <ShowAll cap={cards} total={configs.length} noun="configurations" />
   </CollapsibleSection>
 {:else}
   <SectionState title="Configurations" bind:open {id} />
 {/if}
 
 <style>
-  .detail-card {
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    margin-bottom: var(--sp-2);
-  }
-  .detail-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    padding: var(--sp-3);
-    background: none;
-    border: none;
-    font: inherit;
-    color: var(--c-text);
-    text-align: left;
-    gap: var(--sp-3);
-  }
-  .detail-card-header.expandable { cursor: pointer; }
-  .detail-card-header.expandable:hover { background: var(--c-surface-hover, var(--c-surface-inset)); border-radius: var(--radius-sm); }
-  .detail-card-header-left {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    min-width: 0;
-  }
   .pill-ref { background: var(--c-accent-bg); color: var(--c-accent); font-size: var(--text-xs); flex-shrink: 0; }
   .pill-local { background: var(--c-neutral-bg); color: var(--c-text-2); font-size: var(--text-xs); flex-shrink: 0; }
-  .expand-icon {
-    display: inline-flex;
-    color: var(--c-text-3);
-    transform: rotate(-90deg);
-    flex-shrink: 0;
-  }
-  .expand-icon.open { transform: rotate(0deg); }
-  .expand-icon svg { width: 12px; height: 12px; }
-  .detail-card-title { font-weight: 600; }
-  .detail-card-sub { font-size: var(--text-sm); color: var(--c-text-2); }
   .ref-link {
     font-size: var(--text-xs);
     color: var(--c-accent);
@@ -163,11 +137,6 @@
     flex-shrink: 0;
   }
   .ref-link:hover { text-decoration: underline; }
-  .detail-card-body {
-    padding: 0 var(--sp-3) var(--sp-3);
-  }
-  .detail-card-table { font-size: var(--text-sm); }
-  .detail-card-table th { font-size: var(--text-xs); }
   .detail-card-sub-section { margin-top: var(--sp-3); }
   .detail-card-sub-section h3 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
 </style>

@@ -1,0 +1,394 @@
+package delivery
+
+import (
+	"cmp"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+)
+
+// Level is how much a Stage lets Pacto do without a person.
+type Level string
+
+// The levels, lowest first.
+const (
+	// LevelObserve plans every change and moves nothing: GitOps owns the applyRef.
+	LevelObserve Level = "observe"
+	// LevelAdvise ships only what a person proposed or approved.
+	LevelAdvise Level = "advise"
+	// LevelAutoNonBreaking auto-promotes NON_BREAKING changes only.
+	LevelAutoNonBreaking Level = "auto-nonbreaking"
+	// LevelAutonomous auto-promotes any plan that proceeds.
+	LevelAutonomous Level = "autonomous"
+)
+
+var levelOrder = []Level{LevelObserve, LevelAdvise, LevelAutoNonBreaking, LevelAutonomous}
+
+// rank is r's place on the ladder; -1 for a name that is not a level.
+func (r Level) rank() int { return slices.Index(levelOrder, r) }
+
+// Automatic reports whether Pacto promotes on r without anyone asking.
+func (r Level) Automatic() bool { return r.rank() >= LevelAutoNonBreaking.rank() }
+
+// CurrentLevel is the Stage's level: status.level, or before the stage
+// reconciler seeds it, spec.startLevel, or observe.
+func CurrentLevel(spec StageSpec, st StageStatus) Level {
+	switch {
+	case st.Level != "":
+		return st.Level
+	case spec.StartLevel.rank() >= 0:
+		return spec.StartLevel
+	}
+	return LevelObserve
+}
+
+// ApplyRefLabel marks the object a Stage applies through; admission then
+// lets only the promoter and break-glass write its pointer field.
+const ApplyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
+
+// Ready reasons on a Stage that observes. Only ObservingGuarded, the applyRef
+// labelled so admission protects the pointer, lets the Stage leave observe.
+const (
+	ReasonObserving        = "Observing"
+	ReasonObservingGuarded = "ObservingGuarded"
+)
+
+// conditionIs reports whether the Stage's condition typ is status True with
+// one of reasons (any reason when none is given).
+func conditionIs(st StageStatus, typ string, reasons ...string) bool {
+	i := slices.IndexFunc(st.Conditions, func(c Condition) bool { return c.Type == typ })
+	return i >= 0 && st.Conditions[i].Status == "True" && (len(reasons) == 0 || slices.Contains(reasons, st.Conditions[i].Reason))
+}
+
+// levelPromote applies the Stage's level to a promote that no person raised:
+// on advise a person approves it; on auto-nonbreaking a person approves any
+// change that is not NON_BREAKING. A floor already set stays. Observe
+// rejects every promote before the gates run (PlanFor).
+func levelPromote(in PlanInput, p *Plan) {
+	if in.Class == ClassHuman || p.Floor.Human {
+		return
+	}
+	switch CurrentLevel(in.Stage, in.Status) {
+	case LevelAdvise:
+		p.Floor = Floor{Human: true, Decision: Approve}
+		p.Question = "This Stage advises: a person approves every promote a person did not raise. Approve " + short(p.To) + "?"
+	case LevelAutoNonBreaking:
+		if c := classification(p); c != diff.NonBreaking.String() {
+			p.Floor = Floor{Human: true, Decision: Approve}
+			p.Question = "This Stage auto-promotes only non-breaking changes, and " + short(p.To) + " is " + cmp.Or(c, "not classified") + ". Approve it?"
+		}
+	}
+}
+
+// classification is the impact verdict's classification, "" without one.
+func classification(p *Plan) string {
+	i := slices.IndexFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateImpact })
+	if i < 0 {
+		return ""
+	}
+	return p.Verdicts[i].Citation["classification"]
+}
+
+// ClearedBreaking reports whether p is a promote of a change that is not
+// NON_BREAKING whose impact verdict passed: the case autonomous adds over
+// auto-nonbreaking.
+func ClearedBreaking(p *Plan) bool {
+	if p == nil || p.Type != TypePromote {
+		return false
+	}
+	i := slices.IndexFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateImpact })
+	return i >= 0 && p.Verdicts[i].Result == Pass && classification(p) != diff.NonBreaking.String()
+}
+
+// autonomyGate judges a change of level: one level at a time, lowering freely
+// (an agent never to observe), raising only by a person's approval from the
+// running service's team, never by the promoter. Leaving observe needs the
+// applyRef labelled and an observed digest to adopt as the pointer; an
+// automatic level needs the recorder, so every grant of autonomy is a signed
+// record. A raise passes only when Pacto proposes exactly the level above the
+// current one, both in the stored proposal and in a proposal recomputed from
+// in.Status, so a stale proposal never lets an unknown pass; anything else is
+// Unknown. The promoter may only make the automatic step-down: one level down
+// from an automatic level.
+func autonomyGate(in PlanInput, p *Plan) {
+	from, to := Level(in.Spec.Params.From), Level(in.Spec.Params.To)
+	v := Verdict{Gate: GateAutonomy, Phase: "pre", Result: Fail, Citation: map[string]string{"from": string(from), "to": string(to)}}
+	defer func() { p.Verdicts = append(p.Verdicts, v) }()
+	stage := in.Spec.Stage
+	switch {
+	case to.rank() < 0:
+		v.Message = fmt.Sprintf("%q is not a level: use observe, advise, auto-nonbreaking or autonomous", to)
+		return
+	case to == from:
+		v.Message = stage + " is already on " + string(to)
+		return
+	case to.rank() < from.rank():
+		if v.Message = lowerRefusal(in.Class, from, to); v.Message == "" {
+			v.Result, v.Message = Pass, "lowering "+stage+" from "+string(from)+" to "+string(to)+" needs no approval"
+		}
+		return
+	}
+	if v.Message = raiseRefusal(in, from, to); v.Message != "" {
+		return
+	}
+	p.Floor = Floor{Human: true, Decision: Approve, Owners: serviceTeam(in)}
+	p.Question = "Raise " + stage + " from " + string(from) + " to " + string(to) + "?"
+	prop := in.Status.Proposal
+	switch {
+	case in.From.Bundle == nil || in.From.Bundle.Contract == nil:
+		v.Result = Unknown
+		v.Message = "the contract running on " + stage + " (" + short(in.From.Digest) + ") cannot be read, so Pacto cannot tell whose team decides: " + cmp.Or(in.From.Err, "nothing is known to run")
+	case prop != nil && prop.Level == to && earned(in, to):
+		v.Result, v.Message = Pass, "Pacto proposes "+string(prop.Level)+": "+strings.Join(prop.Evidence, ", ")
+		return
+	default:
+		v.Result = Unknown
+		v.Message = "Pacto has not proposed " + string(to) + " for " + stage + blockerText(prop)
+	}
+	p.Floor.Decision = AcceptUnknown
+	p.Question = v.Message + ". Accept the unknown and raise it anyway?"
+}
+
+// lowerRefusal is why a lowering is refused, or "" when it may go ahead.
+func lowerRefusal(class ActorClass, from, to Level) string {
+	switch {
+	case class == ClassAgent && to == LevelObserve:
+		return "an agent may not lower a Stage to observe: like a freeze, it stops a Stage moving"
+	case class == ClassController && (!from.Automatic() || from.rank()-to.rank() != 1):
+		return "the promoter only steps a Stage down one level from an automatic level"
+	}
+	return ""
+}
+
+// raiseRefusal is why a raise is refused outright, or "" when it goes to a
+// person.
+func raiseRefusal(in PlanInput, from, to Level) string {
+	switch {
+	case in.Class == ClassController:
+		return "only a person can raise a level; the promoter proposes raises"
+	case to.rank() > from.rank()+1:
+		return "one level at a time: propose " + string(levelOrder[from.rank()+1]) + " first"
+	case from == LevelObserve && !conditionIs(in.Status, "Ready", ReasonObservingGuarded):
+		return "unlabelled-apply-ref: label the applyRef " + ApplyRefLabel + " and remove the pointer field from the manifest in git, so admission protects the pointer before Pacto owns it"
+	case from == LevelObserve && (in.Status.ObservedRevision == nil || !isDigest(in.Status.ObservedRevision.Digest)):
+		return "no-observed-digest: GitOps' source reports no digest yet, so Pacto does not know what runs"
+	case to.Automatic() && !conditionIs(in.Status, ConditionRecordStoreReady):
+		return "no-record-store: the recorder is not writing this Stage's records, and every grant of autonomy must be a signed record"
+	}
+	return ""
+}
+
+// earned reports whether a proposal recomputed from in.Status still proposes
+// to, the level right above the Stage's current one. The graph blockers come
+// from the newest promote's plan, which only the stored proposal read, so
+// they are left to it.
+func earned(in PlanInput, to Level) bool {
+	cur := CurrentLevel(in.Stage, in.Status)
+	if cur.rank() < 0 || cur.rank()+1 >= len(levelOrder) || levelOrder[cur.rank()+1] != to {
+		return false
+	}
+	fresh := ProposeLevel(in.Stage, in.Status, nil)
+	return !slices.ContainsFunc(fresh.Blockers, func(b Blocker) bool {
+		return !slices.Contains([]string{BlockerPartialGraph, BlockerUndeclaredRange, BlockerMissingContract}, b.Kind)
+	})
+}
+
+// blockerText lists a proposal's blockers for a message.
+func blockerText(prop *Proposal) string {
+	if prop == nil || len(prop.Blockers) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(prop.Blockers))
+	for _, b := range prop.Blockers {
+		parts = append(parts, b.Kind+": "+b.Message)
+	}
+	return " (" + strings.Join(parts, "; ") + ")"
+}
+
+func isDigest(d string) bool {
+	_, err := ParseDigest(d)
+	return err == nil
+}
+
+// Below is the level one step down, and false on observe. An automatic
+// step-down only starts from an automatic level, so it never goes below advise.
+func (r Level) Below() (Level, bool) {
+	if r.rank() < 1 {
+		return "", false
+	}
+	return levelOrder[r.rank()-1], true
+}
+
+// Caps and defaults of the ladder's status.
+const (
+	// DefaultProposeAfter is how many qualifying promotions earn a proposal
+	// when the Stage does not say.
+	DefaultProposeAfter = 10
+	// MaxShadow is how many would-have decisions a Stage keeps.
+	MaxShadow = 20
+	// MaxBlockers is how many blockers a proposal lists.
+	MaxBlockers = 32
+)
+
+// Blocker kinds a proposal lists.
+const (
+	BlockerUnlabelledApplyRef   = "unlabelled-apply-ref"
+	BlockerNoObservedDigest     = "no-observed-digest"
+	BlockerNoRecordStore        = "no-record-store"
+	BlockerNeedsVerified        = "needs-verified"
+	BlockerNeedsClearedBreaking = "needs-cleared-breaking"
+	BlockerIncident             = "incident"
+	BlockerPartialGraph         = "partial-graph"
+	BlockerUndeclaredRange      = "undeclared-range"
+	BlockerMissingContract      = "missing-contract"
+)
+
+// ProposeLevel is the next level Pacto proposes for a Stage, or the blockers
+// that keep it from proposing one. latest is the plan of the newest promote,
+// nil when there is none. Evidence is only what the Stage earned on its
+// current level: a level change (a raise or an automatic step-down) restarts the
+// count. Observe earns advise from shadow verifies of what GitOps applied;
+// the automatic levels are earned from the Stage's own verified promotes, and
+// autonomous also needs a breaking change the graph cleared and a complete
+// graph.
+// ponytail: status windows capped at 20 (Concluded, Shadow); fold signed
+// records instead when someone needs more than 20.
+func ProposeLevel(spec StageSpec, st StageStatus, latest *Plan) *Proposal {
+	cur := CurrentLevel(spec, st)
+	p := &Proposal{}
+	if cur == LevelAutonomous {
+		return p
+	}
+	n := cmp.Or(spec.Autonomy.ProposeAfter, DefaultProposeAfter)
+	block := func(kind, subject, msg string) {
+		if len(p.Blockers) < MaxBlockers {
+			p.Blockers = append(p.Blockers, Blocker{Kind: kind, Subject: subject, Message: msg})
+		}
+	}
+	next := levelOrder[cur.rank()+1]
+	var evidence []string
+	if cur == LevelObserve {
+		evidence = shadowEvidence(st, n, block)
+		if !conditionIs(st, "Ready", ReasonObservingGuarded) {
+			block(BlockerUnlabelledApplyRef, spec.ApplyRef.Name, "label the applyRef "+ApplyRefLabel+" and remove the pointer field from the manifest in git, so admission protects the pointer before Pacto owns it")
+		}
+		if st.ObservedRevision == nil {
+			block(BlockerNoObservedDigest, spec.ApplyRef.Name, "GitOps' source reports no digest yet, so Pacto does not know what runs")
+		}
+	} else {
+		var cleared bool
+		evidence, cleared = promoteEvidence(st, n, block)
+		if st.Frozen {
+			block(BlockerIncident, spec.Service.Name, "the Stage is frozen: "+st.FrozenReason)
+		}
+		if !conditionIs(st, ConditionRecordStoreReady) {
+			block(BlockerNoRecordStore, spec.Service.Name, "the recorder is not writing this Stage's records, and every grant of autonomy must be a signed record")
+		}
+		if next == LevelAutonomous {
+			graphReady(latest, cleared, spec.Service.Name, block)
+		}
+	}
+	if len(p.Blockers) == 0 {
+		p.Level, p.Evidence = next, evidence
+	}
+	return p
+}
+
+// shadowEvidence is the candidates of the newest n shadow entries GitOps'
+// source reported, when every one verified and none failed.
+func shadowEvidence(st StageStatus, n int, block func(kind, subject, msg string)) []string {
+	var ev []string
+	for _, s := range st.Shadow {
+		if s.ObservedAt == "" {
+			continue
+		}
+		switch {
+		case slices.Contains(st.FailedDigests, s.Candidate):
+			block(BlockerIncident, s.Candidate, short(s.Candidate)+" failed its verify on this Stage")
+		case s.Verification != Verified:
+			block(BlockerNeedsVerified, s.Candidate, short(s.Candidate)+" ran here but has not verified yet")
+		}
+		if ev = append(ev, s.Candidate); len(ev) == n {
+			return ev
+		}
+	}
+	block(BlockerNeedsVerified, "", fmt.Sprintf("%d of %d versions GitOps applied were observed here; Pacto proposes advise after %d verified", len(ev), n, n))
+	return ev
+}
+
+// promoteEvidence is the uids of the newest n promotes concluded since the
+// last level change, when every one succeeded and verified and no automatic
+// rollback, freeze or failure came after that change. cleared says one of
+// them was a breaking change the graph cleared.
+func promoteEvidence(st StageStatus, n int, block func(kind, subject, msg string)) (ev []string, cleared bool) {
+	cause := stepDownCause(st)
+scan:
+	for _, c := range slices.Backward(st.Stream.Concluded) {
+		switch {
+		case c.Type == TypeAutonomy && c.Outcome == Succeeded:
+			break scan
+		case explainedBy(c, cause):
+		case c.Outcome == Failed, !c.Person && (c.Type == TypeRollback || c.Type == TypeFreeze):
+			block(BlockerIncident, c.UID, "a "+c.Type+" ended "+string(c.Outcome)+": "+c.Reason)
+		case c.Type != TypePromote || len(ev) == n:
+		case c.Outcome != Succeeded || c.Verification != Verified:
+			block(BlockerNeedsVerified, c.UID, "a promote ended "+string(c.Outcome)+" and "+cmp.Or(string(c.Verification), "unverified"))
+		default:
+			ev, cleared = append(ev, c.UID), cleared || c.ClearedBreaking
+		}
+	}
+	if len(ev) < n {
+		block(BlockerNeedsVerified, "", fmt.Sprintf("%d of %d promotes verified since the level last changed", len(ev), n))
+	}
+	return ev, cleared
+}
+
+// stepDownCause is the failure the newest level change cites, or "". An
+// automatic step-down cites the failure that raised it.
+func stepDownCause(st StageStatus) string {
+	for _, c := range slices.Backward(st.Stream.Concluded) {
+		if c.Type == TypeAutonomy && c.Outcome == Succeeded {
+			return c.Cause
+		}
+	}
+	return ""
+}
+
+// explainedBy reports whether c is the failed promote a step-down cites, or
+// the rollback or freeze it raised. They can conclude after the step-down:
+// they are why the level dropped, not a new incident, unless the rollback did
+// not succeed and verify or the freeze did not succeed.
+func explainedBy(c Concluded, cause string) bool {
+	return cause != "" && (c.UID == cause || c.Cause == cause && c.Outcome == Succeeded &&
+		(c.Type == TypeFreeze || c.Type == TypeRollback && c.Verification == Verified))
+}
+
+// graphReady blocks autonomous until a breaking change the graph cleared
+// verified on this level and the newest promote saw a complete graph that
+// left nothing unknown and no runtime caller without a contract, whatever
+// the change's classification.
+func graphReady(latest *Plan, cleared bool, service string, block func(kind, subject, msg string)) {
+	if !cleared {
+		block(BlockerNeedsClearedBreaking, service, "no breaking change that every consumer accepts has verified here yet, and that is the one thing autonomous adds")
+	}
+	var v *Verdict
+	if latest != nil {
+		if i := slices.IndexFunc(latest.Verdicts, func(v Verdict) bool { return v.Gate == GateImpact }); i >= 0 {
+			v = &latest.Verdicts[i]
+		}
+	}
+	switch {
+	case v == nil:
+		block(BlockerPartialGraph, service, "no promote has projected a change onto the graph yet")
+	case v.Citation["completeness"] != string(fleet.CompletenessComplete):
+		block(BlockerPartialGraph, service, "the newest promote saw a "+cmp.Or(v.Citation["completeness"], "unknown")+" graph: "+v.Message)
+	case v.Citation["uncontracted"] != "" || v.Citation["callersUnseen"] != "":
+		block(BlockerMissingContract, service, "the newest promote saw "+countText(v.Citation["uncontracted"], "runtime caller")+
+			" with no contract and "+countText(v.Citation["callersUnseen"], "caller")+" the graph cannot see: give each a contract")
+	case v.Result != Pass:
+		block(BlockerUndeclaredRange, service, v.Message)
+	}
+}

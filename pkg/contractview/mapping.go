@@ -360,6 +360,8 @@ func depsFromContract(c *contract.Contract) []DependencyInfo {
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,
+			External:      dep.External,
+			Version:       dep.Version,
 		})
 	}
 	return out

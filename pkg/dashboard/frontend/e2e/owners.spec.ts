@@ -59,11 +59,11 @@ const attentionText = async (page: Page) =>
  */
 function installSparseOwnership(): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
   let real: Serve | null = null;
 
-  const wrapped: Serve = (method, path, body) => {
-    const res = (real as Serve)(method, path, body);
+  const wrapped: Serve = async (method, path, body) => {
+    const res = await (real as Serve)(method, path, body);
     const [route, search] = path.split('?');
     const query = new URLSearchParams(search || '');
     if (route !== '/api/fleet/entities' || query.get('kinds') !== 'service' || query.get('limit') !== '1' || res.status !== 200) return res;
@@ -89,11 +89,11 @@ function installSparseOwnership(): void {
  */
 function installOverCount(): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
   let real: Serve | null = null;
 
-  const wrapped: Serve = (method, path, body) => {
-    const res = (real as Serve)(method, path, body);
+  const wrapped: Serve = async (method, path, body) => {
+    const res = await (real as Serve)(method, path, body);
     const [route, search] = path.split('?');
     const query = new URLSearchParams(search || '');
     if (route !== '/api/fleet/entities' || query.get('kinds') !== 'service' || query.get('limit') !== '1' || res.status !== 200) return res;
@@ -341,7 +341,7 @@ test.describe('WASM demo — an owner label is not an owner identity', () => {
     // population is stated separately with the reason the difference exists.
     await expect(scope).toContainText(`of ${agg.rankedOwners} rankable owner`);
     await expect(scope).toContainText(`out of ${agg.distinctOwners} named`);
-    await expect(scope).toContainText(`the other ${disputed}`);
+    await expect(scope).toContainText(`The other ${disputed}`);
     await expect(scope).toContainText('revisions disagree');
     // No row claims them: the ranking holds only owners with a consistent service.
     await expect(ranking(page).locator('a.hb-inner').filter({ hasText: 'team/payments' })).toHaveCount(0);

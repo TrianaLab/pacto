@@ -1,0 +1,155 @@
+# Delivery
+
+Pacto delivery decides which version of each service runs in each
+environment, such as test and prod. It uses your contracts to tell a safe
+change from a risky one, asks a person only when it must and rolls back a
+version that fails its checks. [Flux](../../glossary.md#flux) does the actual switch from one
+version to the next (Argo CD can do it instead, as an experimental option).
+Words in links are defined in the [glossary](../../glossary.md).
+
+Delivery is opt-in. It is a separate install, and only with it does Pacto
+change what runs. To set it up for a service, [pactify it](../../pactify.md):
+give it a contract and connect it to delivery.
+
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
+## What happens to a change
+
+A change is a request such as "run payments 2.4.0 in prod". A
+person, your build pipeline or an [AI agent](#who-may-approve) can ask for one. Every change takes the same path:
+
+```mermaid
+flowchart LR
+  A[Request] --> B[Checks before]
+  B -->|safe| D[Apply]
+  B -->|could break someone| C[A person decides]
+  C -->|approved| D
+  D --> E[Checks after]
+  E -->|pass| F[Done]
+  E -->|fail| G{Safe to roll back?}
+  F -->|a later check fails| G
+  G -->|yes, once| R[Rolled back]
+  G -->|no| Z[Frozen until a person decides]
+```
+
+**Before it moves**, Pacto checks that this version was published with
+`pacto publish`, Pacto's release command, and signed, which proves who
+published it. It compares the new contract with the one running and looks at
+every service in that environment that uses this one. If none of them would
+break, the change goes ahead on its own on an automatic [level](../../glossary.md#level).
+
+**After Flux applies it**, Pacto checks that the running version does what its
+contract says. You can add health checks too, such as error rates from your
+monitoring. These checks keep running after release, so a problem found an
+hour later still rolls the version back once, whoever asked for it: the
+version that ran before is put back. The Stage freezes instead when there is
+nothing safe to go back to, the rollback itself fails, someone chose the
+running version by hand (a rollback, or a promote during
+[auto-hold](../../glossary.md#auto-hold)) or someone
+else already took the name of the rollback Pacto raises. It then waits for a
+person to roll back or unfreeze it, from the dashboard or the command line. A
+failure of a version Pacto shipped with no person also costs the Stage one
+level: see [Step-down](../../autonomy.md#step-down-one-failure-costs-one-level).
+None of a Stage's last 50 failed versions is tried again there.
+
+## Stages and records
+
+A version reaches prod only after it passed in the environment before it,
+such as test. Each service in each environment is called a **Stage**, and
+moving a Stage to a new version is called promoting it. A Stage can promote on its own only once a
+person has raised it up [the autonomy ladder](../../autonomy.md).
+
+**Every change that ends**, refusals included, can leave a signed
+[record](../../glossary.md#record) in your registry. The signature shows the record was not
+changed later. Anyone can check who asked for what, who approved and what each
+check said. Records are off until you turn on the [recorder](../../glossary.md#recorder), and
+they need a registry that serves [OCI Referrers](../../index.md#what-delivery-needs).
+
+## Who is asked and why
+
+Each contract lists the services it depends on and the versions of each it
+accepts (its [consumer range](../../glossary.md#consumer-range)), for example "checkout
+accepts payments 2.x". That is how Pacto knows who a change can break.
+
+Say payments 3.0.0 removes a field. In prod, checkout and orders still accept
+only payments 2.x. The change waits and Pacto asks only the checkout and
+orders teams, whose services it would break.
+
+A breaking change that no contract depends on still waits for a person, who
+can [accept the unknown](#what-unknown-means), because a service without a
+contract may call it. A
+Stage whose every consumer has a contract can say so with
+`gates.impact.declaredConsumersOnly: true`.
+
+Pacto also says what to update first. If checkout 1.9.0 accepts both payments
+2.x and 3.0.0 and already passed in test, Pacto's plan says to ship it first.
+Then only the orders team is still asked.
+
+Pacto judges by declared version ranges, per consumer. Traffic shows which
+service calls which; Pacto has no view of the fields or endpoints each call uses.
+[Why you were asked](../../pactify-decide.md#why-you-were-asked) lists every
+case in which a change waits for a person.
+
+## Who may approve
+
+AI agents can plan, ask for and cancel their own changes, but only people can
+approve. The person who asked cannot approve, and neither can the person an agent says
+it acts for (`--on-behalf-of`, which the agent claims and Pacto never checks). An agent that leaves it out
+hides who is behind it, so the two-person rule holds only for changes a person
+asks for directly or an agent asks for in their name.
+
+A person approves with the sign-in they have, and the record names them. You
+can also [ask for a recent sign-in to decide](delivery-identity.md#a-recent-sign-in-to-decide).
+That needs a cluster that trusts your company login, untested on EKS, GKE and
+AKS; [where approving works](delivery-identity.md#where-approving-works)
+says how to check and what to do without it.
+
+## What Unknown means
+
+Every check answers Pass, Fail or Unknown. Unknown means Pacto could not see
+enough to say: too little monitoring data, a registry that did not answer, a
+breaking change that no contract depends on. Pacto sees only the consumers
+that have a contract, so a service with no contract may still call the one
+that changed.
+
+An Unknown check holds the change for a person, who can reject it or accept
+the unknown. The record marks that check as accepted and
+names who accepted it.
+
+## Where you follow it
+
+- **The dashboard**, the web page `pacto dashboard` starts, gains a Delivery
+  tab once it knows who you are (you sign in, or run it on your own machine):
+  the changes waiting for your team, what each environment runs, past changes
+  with who asked and who approved, and the publishes Pacto refused.
+- **The command line**: `pacto delivery plan` shows what would happen before
+  you ask, and `pacto delivery history` what already did.
+  `kubectl get pacto-delivery -A` lists every Stage, Operation and Approval;
+  name a kind in full, such as `stages.delivery.pacto.trianalab.io`, where
+  another tool also defines a Stage.
+- **AI agents** get the same tools through `pacto mcp --delivery`. MCP is the
+  common way AI agents call tools. There is no approve tool.
+
+## Reference
+
+None of these is required reading:
+
+- [Setup and gates](delivery-setup.md): install and Stages by hand
+- [Plan, propose and approve](delivery-operations.md): what moves first and
+  who may do what
+- [Health checks](delivery-health.md): monitoring, the suites a version ships and the
+  calls a service makes
+- [Eval providers](delivery-evals.md): suite runners and their signed answers
+- [Approvals and agents](delivery-identity.md): who may approve, agents over the
+  network and the dashboard's delivery settings
+- [Signed records and history](delivery-records.md): records, blame, undo and
+  verification
+- [Record keys](delivery-record-keys.md): trust, key rotation and revocation
+- [Argo CD and several clusters](delivery-reach.md) (experimental)
+- [Ladder reference](../../autonomy-reference.md): levels, proposals and blockers
+- [Publishing details](../../publishing.md) and the contract's
+  [`publish` section](../../contract-reference/publish.md)
+
+To see all of it run on your machine,
+try the [Kubernetes demo](../../examples/kubernetes-demo.md).

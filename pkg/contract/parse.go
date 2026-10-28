@@ -1,16 +1,24 @@
 package contract
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
+// SupportedVersions are the pactoVersion values Parse accepts, oldest first.
+var SupportedVersions = []string{"2.0", "2.1"}
+
 // Parse deserializes a pacto.yaml from the given reader into a Contract.
 // It enforces syntactic correctness (field types, unknown-field rejection) and a
 // few required top-level fields (pactoVersion, service.name, service.version).
-// Only pactoVersion "2.0" is supported; other versions are rejected.
+// pactoVersion "2.0" and "2.1" are supported; other versions are rejected. 2.1
+// adds the publish and checks sections, external dependencies and the mcp
+// interface type, which validation refuses in a 2.0 contract.
 // Deeper semantic validation is a separate concern handled by the validation engine.
 func Parse(r io.Reader) (*Contract, error) {
 	var c Contract
@@ -22,36 +30,44 @@ func Parse(r io.Reader) (*Contract, error) {
 			Err:     err,
 		}
 	}
+	if err := checkRequired(&c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
 
+func parseStrict(raw []byte) (*Contract, error) { return Parse(bytes.NewReader(raw)) }
+
+// checkRequired enforces the top-level fields Parse requires.
+func checkRequired(c *Contract) error {
 	if c.PactoVersion == "" {
-		return nil, &ParseError{
+		return &ParseError{
 			Path:    "pactoVersion",
 			Message: "pactoVersion is required",
 		}
 	}
 
-	if c.PactoVersion != "2.0" {
-		return nil, &ParseError{
+	if !slices.Contains(SupportedVersions, c.PactoVersion) {
+		return &ParseError{
 			Path:    "pactoVersion",
-			Message: fmt.Sprintf("unsupported pactoVersion %q; only \"2.0\" is supported", c.PactoVersion),
+			Message: fmt.Sprintf("unsupported pactoVersion %q; supported: %s", c.PactoVersion, strings.Join(SupportedVersions, ", ")),
 		}
 	}
 
 	if c.Service.Name == "" {
-		return nil, &ParseError{
+		return &ParseError{
 			Path:    "service.name",
 			Message: "service.name is required",
 		}
 	}
 
 	if c.Service.Version == "" {
-		return nil, &ParseError{
+		return &ParseError{
 			Path:    "service.version",
 			Message: "service.version is required",
 		}
 	}
-
-	return &c, nil
+	return nil
 }
 
 // DecodeYAML unmarshals YAML into out the way Parse sees it: a scalar that

@@ -15,12 +15,41 @@ Declares dependencies on other services via their Pacto contracts.
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Non-empty identifier for the dependency |
-| `ref` | string | Yes | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
-| `required` | boolean | Yes | Whether the dependency is mandatory. Has no default — every entry must set it |
-| `compatibility` | string | Yes | Non-empty. Valid semver constraint |
+| `ref` | string | Yes, unless `external` | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
+| `required` | boolean | Yes | Whether the dependency is mandatory. Has no default, so every entry must set it |
+| `compatibility` | string | With `ref` | Non-empty. Valid semver constraint |
+| `external` | boolean | No | `true` when something outside this Pacto system delivers the dependency. Needs `pactoVersion: "2.1"` |
+| `version` | string | Only for `external` without `ref` | The version it runs against, as free text |
 
 !!! note
-    `true` means the service cannot function without the dependency; `false` means it degrades gracefully when the dependency is unavailable. This is declared *intent* that consumers read — the dashboard works out the affected consumers from it — not something Pacto checks at deployment time.
+    `true` means the service cannot function without the dependency. `false` means it degrades gracefully when the dependency is unavailable. The field is declared *intent*: consumers read it and the dashboard uses it to work out the affected consumers. Pacto checks nothing about it at deployment time.
+
+### External dependencies
+
+`external: true` marks a dependency that something outside this Pacto
+installation delivers. Your company may still run it. Pacto expects no running
+instance of it, never proposes moving it first and leaves it out of the
+unresolved list. It takes one of two forms:
+
+```yaml
+dependencies:
+  - name: ledger                 # someone wrote a contract for it
+    ref: oci://ghcr.io/acme/pacto/ledger
+    compatibility: "^4.0.0"      # compared like any other dependency
+    required: true
+    external: true
+  - name: model                  # no contract: name the version instead
+    external: true
+    version: anthropic/claude-sonnet-4-5
+    required: true
+```
+
+With `ref`, versions are compared as usual. Without it, `version` is required:
+it shows in the graph and in [`pacto diff`](diff.md), where any change is
+potentially breaking. Pacto has no contract to compare it with, so anything
+that relies on it is Unknown and never passes. A dependency with no `ref` and no
+`external: true` fails validation with `DEPENDENCY_REF_REQUIRED`. An external
+dependency with no `ref` and no `version` fails with `EXTERNAL_VERSION_REQUIRED`.
 
 ### Dependency reference schemes
 
@@ -31,13 +60,12 @@ Declares dependencies on other services via their Pacto contracts.
 | `file://` | `file://../shared-db` | Local filesystem path |
 | *(bare path)* | `../shared-db` | Local filesystem path (shorthand for `file://`) |
 
-When an `oci://` reference omits the tag, pacto queries the registry for available tags and selects the highest semver version that satisfies the `compatibility` constraint. For example, with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0`, pacto resolves to `2.3.0`. Tag listings are cached in memory for the duration of the command, so multiple dependencies pointing to the same repository only trigger a single registry query.
+When an `oci://` reference omits the tag, pacto queries the registry for available tags and selects the highest semver version that satisfies the `compatibility` constraint. For example, with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0`, pacto resolves to `2.3.0`. Pacto caches tag listings in memory for the duration of the command, so dependencies that point to the same repository share one registry query.
 
-!!! warning "`compatibility` selects a version; it does not police one"
-    The constraint is consulted **only** when the reference omits its tag. A `ref`
-    that already names a tag or a digest is taken as-is, and the resolved version
-    is never checked back against `compatibility`. So this validates clean, with
-    no warning:
+!!! warning "`compatibility` applies only to untagged references"
+    Pacto reads the constraint **only** when the reference omits its tag. A `ref`
+    that names a tag or a digest resolves to exactly that version, and validation
+    skips the `compatibility` check. This example validates with no warning:
 
     ```yaml
     dependencies:
@@ -47,15 +75,15 @@ When an `oci://` reference omits the tag, pacto queries the registry for availab
         compatibility: "^2.0.0"                    # … which this does not satisfy
     ```
 
-    Pinning and constraining are two separate decisions here. If you pin, the pin
-    wins; keep `compatibility` truthful anyway, because consumers and the
+    Pinning and constraining are separate decisions. If you pin, the pin wins.
+    Keep `compatibility` accurate anyway, because consumers and the
     [lockfile](../lockfile.md) read it as your declared range.
 
     At runtime the Kubernetes operator does check the range: when the provider
     runs under its own Pacto resource, the contract version it reports outside
     `compatibility` is `DEPENDENCY_VERSION_MISMATCH`, an error for a required
-    dependency and a warning for an optional one. An unknown version is not a
-    contradiction.
+    dependency and a warning for an optional one. An unknown version stays
+    unverified.
 
 !!! note
     Validation rejects OCI references whose tag or digest is malformed. Tags must follow the OCI tag grammar (`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`), and digests must be well-formed (`sha256:<64 hex>` or `sha512:<128 hex>`). The same check applies to config and policy refs.
@@ -73,12 +101,12 @@ Pacto uses [Masterminds/semver](https://github.com/Masterminds/semver#checking-v
 | `*` | Any version | Always resolve to the absolute latest |
 
 !!! warning
-    Local dependency references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local dependencies — all refs must use `oci://` before publishing.
+    Use local dependency references (`file://` and bare paths) during development. `pacto push` rejects contracts with local dependencies, so switch every ref to `oci://` before you publish.
 
 Practices:
 
-- **Pin by digest in production.** `oci://...@sha256:...`; a tag-based reference produces a validation warning.
-- **Give cloud-managed resources a contract.** A lightweight Pacto contract for GCP Cloud SQL, AWS SNS or Azure Service Bus, referenced as a dependency, makes that dependency explicit and version-tracked alongside your own.
+- **Pin by digest in production.** Use `oci://...@sha256:...`. A tag-based reference produces a validation warning.
+- **Give cloud-managed resources a contract when you can.** A lightweight Pacto contract for GCP Cloud SQL, AWS SNS or Azure Service Bus, referenced as an external dependency, makes it version-tracked alongside your own. When nobody writes one, name its version with `version`.
 - **Pin the whole closure with `pacto lock`.** When a `pacto.lock` file is present, every resolved dependency must match the pinned digest or the command fails. See [Lockfile](../lockfile.md).
 
 ---
@@ -91,7 +119,7 @@ Top-level string describing the execution pattern of the workload. Optional. Enu
 |-------|-------------|
 | `service` | A long-running process that serves requests continuously |
 | `job` | A one-shot task that runs to completion and then exits |
-| `scheduled` | A task that runs on a recurring schedule (e.g. cron) |
+| `scheduled` | A task that runs on a recurring schedule (for example cron) |
 
 ```yaml
 workload: service
@@ -101,7 +129,7 @@ workload: service
 
 ## `state`
 
-Top-level section declaring how the service manages state. Optional — a minimal contract (e.g. a lightweight dependency declaration) may omit it entirely. Instead of platforms guessing whether a service needs persistent storage or stable network identity, the contract declares it explicitly.
+Top-level section declaring how the service manages state. Optional: a minimal contract, such as a lightweight dependency declaration, can omit it. The contract tells the platform whether the service needs persistent storage or a stable network identity.
 
 | Field | Type | Required | Enum values |
 |-------|------|----------|-------------|
@@ -115,11 +143,11 @@ Top-level section declaring how the service manages state. Optional — a minima
 |-------|---------------|------------------|
 | `stateless` | No data retained between requests. Any instance can handle any request. Instances are interchangeable. | REST APIs, reverse proxies, API gateways |
 | `stateful` | Retains data between requests. Requires stable storage or instance affinity. | Databases, message brokers, distributed caches |
-| `hybrid` | Handles requests statelessly but keeps selective in-memory or local state that enriches behavior. Loss of that state degrades but doesn't break the service. | APIs with local caches, services with in-memory session stores |
+| `hybrid` | Handles requests statelessly but keeps selective in-memory or local state that enriches behavior. Losing that state degrades the service but leaves it running. | APIs with local caches, services with in-memory session stores |
 
 **How platforms interpret state:**
 
-The combination of `state.type`, `persistence.scope` and `persistence.durability` tells a platform exactly what infrastructure a service needs — these are platform-agnostic signals, not Kubernetes prescriptions. See [Platform engineers](../platform-engineers.md) for the full contract-field → platform-decision mapping (Deployment/StatefulSet/PVC and the equivalents on Nomad, ECS or a custom platform).
+The combination of `state.type`, `persistence.scope` and `persistence.durability` tells a platform what infrastructure a service needs. These signals are platform-agnostic. See [Platform engineers](../platform-engineers.md) for the full contract-field → platform-decision mapping (Deployment, StatefulSet, PVC and the equivalents on Nomad, ECS or a custom platform).
 
 **Data criticality:**
 
@@ -136,16 +164,16 @@ The combination of `state.type`, `persistence.scope` and `persistence.durability
 | `scope` | string | Yes | `local`, `shared` |
 | `durability` | string | Yes | `ephemeral`, `persistent` |
 
-- **`local`** — data is confined to a single instance. Not shared across replicas.
-- **`shared`** — data is shared across all instances via a common store.
-- **`ephemeral`** — data can be lost on restart without impact. Caches, temp files, reconstructible state.
-- **`persistent`** — data must survive restarts. Requires durable storage.
+- **`local`**: data stays on a single instance. Each replica has its own.
+- **`shared`**: all instances share data through a common store.
+- **`ephemeral`**: data can be lost on restart without impact. Caches, temp files and reconstructible state.
+- **`persistent`**: data must survive restarts. Requires durable storage.
 
 At runtime the Kubernetes operator reads `scope` from the workload: one
 PersistentVolumeClaim in the pod template of a workload with more than one
 replica is shared, so `local` scope with such a claim is `PERSISTENCE_MISMATCH`.
-`shared` scope with per-replica storage is not a contradiction, because the
-shared store may live outside the cluster.
+`shared` scope with per-replica storage stays unverified, because the shared
+store may live outside the cluster.
 
 ### State invariants
 
@@ -153,7 +181,7 @@ shared store may live outside the cluster.
 |---|---|
 | `type: stateless` | `durability` must be `ephemeral` |
 
-A stateless service with persistent storage is a contradiction — the JSON Schema catches it.
+The JSON Schema rejects a stateless service with persistent storage.
 
 ```yaml
 state:

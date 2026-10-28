@@ -1,0 +1,109 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: approvals.delivery.pacto.trianalab.io
+spec:
+  group: delivery.pacto.trianalab.io
+  names:
+    categories:
+    - pacto-delivery
+    kind: Approval
+    listKind: ApprovalList
+    plural: approvals
+    singular: approval
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.operation
+      name: Operation
+      type: string
+    - jsonPath: .spec.decision
+      name: Decision
+      type: string
+    - jsonPath: .spec.by
+      name: By
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Approval is a human decision on one operation. It matches only on the
+          operation's uid and intent digest, never on its name.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ApprovalSpec is a human decision bound to one operation uid
+              and intent digest.
+            properties:
+              authTime:
+                description: |-
+                  AuthTime is the login time the apiserver reported for that user
+                  (userInfo.extra["delivery.pacto.trianalab.io/auth-time"], RFC 3339 or Unix seconds).
+                type: string
+              by:
+                description: By must equal the apiserver username of whoever created
+                  the Approval.
+                type: string
+              decision:
+                description: Decision is what a human approval says.
+                enum:
+                - approve
+                - reject
+                - accept-unknown
+                type: string
+              groups:
+                description: |-
+                  Groups must equal the groups of whoever created the Approval. The
+                  promoter accepts it only when one of them names a team the question
+                  was routed to.
+                items:
+                  type: string
+                type: array
+              intentDigest:
+                type: string
+              note:
+                type: string
+              operation:
+                description: Operation is the operation's name, for people. Matching
+                  uses the uid.
+                type: string
+              operationUID:
+                type: string
+            required:
+            - by
+            - decision
+            - intentDigest
+            - operation
+            - operationUID
+            type: object
+            x-kubernetes-validations:
+            - message: an approval is immutable
+              rule: self == oldSelf
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

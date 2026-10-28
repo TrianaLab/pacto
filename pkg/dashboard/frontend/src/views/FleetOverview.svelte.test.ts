@@ -69,7 +69,7 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     overviewFn.mockResolvedValue(baseOverview(false));
     const { target, component } = mountView();
     await vi.waitFor(() => {
-      expect(target.textContent).toContain('Operational overview');
+      expect(target.textContent).toContain('Is anything wrong?');
       expect(target.textContent).toContain('Revision-match certainty');
     });
     expect(overviewFn).toHaveBeenCalledTimes(1); // consumes /api/fleet/overview, not the snapshot
@@ -304,10 +304,9 @@ describe('FleetOverview — every band draws a complete population', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  // Owners is a dimension, not a fifth primary destination, so the nav does not carry
-  // it. A reader shown a fleet-wide ownership gap has to be able to get from that fact
-  // to whose gap it is without knowing the URL.
-  it('band 3 is a door to Owners, which the primary nav deliberately does not carry', async () => {
+  // A reader shown a fleet-wide ownership gap has to be able to get from that fact to
+  // whose gap it is from right here, not only through the nav.
+  it('band 3 is a door to Owners', async () => {
     overviewFn.mockResolvedValue(baseOverview(false));
     const { target, component } = mountView();
     await vi.waitFor(() => expect(target.querySelector('section[aria-labelledby="ov-org"]')).toBeTruthy());
@@ -409,6 +408,57 @@ describe('FleetOverview — data sources are a findable section, not a caption',
     expect(text).toContain('4 data sources, all available.');
     // A healthy fleet gets a sentence, never a row of zeroes to scan.
     expect(text).not.toMatch(/0 (unavailable|stale|partial)/);
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+// The page title is a question; the line under it is the answer, and it never says
+// "no" past what the snapshot knows.
+describe('FleetOverview — the answer line', () => {
+  beforeEach(() => overviewFn.mockReset());
+  const answer = (t: HTMLElement) => (t.querySelector('[data-testid="overview-answer"]')?.textContent || '').replace(/\s+/g, ' ').trim();
+
+  it('says yes and names the error-grade counts in plain words', async () => {
+    const ov = baseOverview(false);
+    ov.entryPoints = [
+      { label: 'Operational targets not compliant', count: 229, severity: 'error', view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' },
+      { label: 'Invalid revisions', count: 1, severity: 'error', view: 'attention', category: 'invalid', href: '/fleet/attention?category=invalid' },
+      { label: 'Operational targets with stale evidence', count: 5, severity: 'warning', view: 'attention', category: 'stale', href: '/fleet/attention?category=stale' },
+    ];
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(answer(target)).not.toBe(''));
+    expect(answer(target)).toBe('Yes. 229 running targets break their contract and 1 revision is invalid.');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says where the broken targets run, breaks them down by environment and names the missing sources', async () => {
+    const ov = baseOverview(true);
+    ov.summary.byScope = [
+      { scope: 'prod', targets: 120, nonCompliant: 48, unknown: 2, stale: 1 },
+      { scope: 'staging', targets: 40, nonCompliant: 3, unknown: 0, stale: 0 },
+    ];
+    ov.summary.scopes = 2;
+    ov.entryPoints = [
+      { label: 'Operational targets not compliant', count: 51, severity: 'error', view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' },
+    ];
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(answer(target)).not.toBe(''));
+    expect(answer(target)).toBe('Yes. 51 running targets break their contract. 48 of the targets that break their contract run in prod.');
+    const rows = [...target.querySelectorAll('[data-testid="overview-by-scope"] tbody tr')].map((r) => [...r.children].map((c) => (c.textContent || '').trim()).join(' '));
+    expect(rows).toEqual(['prod 120 48 2 1', 'staging 40 3 0 0']);
+    const banner = target.querySelector('.knowledge') as HTMLElement;
+    expect(banner.className).toContain('tone-warn');
+    expect(banner.textContent).toContain('(k8s)');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('does not claim all clear when data is missing', async () => {
+    overviewFn.mockResolvedValue(baseOverview(true));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(answer(target)).not.toBe(''));
+    expect(answer(target)).toBe('Nothing broken found.');
     unmount(component); document.body.removeChild(target);
   });
 });

@@ -1,0 +1,3 @@
+The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment. Individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. Without the flag, validation checks the contract's structure and rules. It still checks the shape of readiness claims and skips the freshness gate. See the [readiness reference](contract-reference/readiness.md#readiness) for the score and gate semantics.
+
+**Exit code:** Non-zero if validation fails.

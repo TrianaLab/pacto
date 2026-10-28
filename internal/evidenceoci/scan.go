@@ -17,20 +17,12 @@ import (
 // allocate whatever size a descriptor claims.
 const maxManifestBytes = 1 << 20
 
-// scanned is one evidence record and the untagged manifest that carries it. The
-// descriptor is kept so a write can confirm its own publication came back from
-// the Referrers API.
-type scanned struct {
-	Desc   ocispec.Descriptor
-	Record evidenceingest.Record
-}
-
 // subjectScan is one subject's complete read. Enumeration either covers every
 // page of the Referrers listing or fails: there is no truncated success, because
 // replay protection and the operational graph both depend on having seen
 // everything.
 type subjectScan struct {
-	Found []scanned
+	Found []evidenceingest.Record
 	// Invalid counts artifacts the listing named that could not be read as a
 	// valid Pacto record. Any non-zero count means this subject's evidence is
 	// incomplete: the read is partial and a write must fail closed.
@@ -54,7 +46,7 @@ func scanSubject(ctx context.Context, repo *remote.Repository, subj Subject, sub
 		for _, desc := range page {
 			switch rec, state := readReferrer(ctx, repo, subj, subjectDesc, desc); state {
 			case referrerRecord:
-				out.Found = append(out.Found, scanned{Desc: desc, Record: rec})
+				out.Found = append(out.Found, rec)
 			case referrerMalformed:
 				out.Invalid++
 			}

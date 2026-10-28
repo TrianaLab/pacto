@@ -1,0 +1,18 @@
+{{- /*
+Every CRD is a template rendered from files/crds/, the copies make sync-crds
+takes from config/crd/bases. As a template, helm upgrade updates a CRD, which
+it never does for the crds/ directory. resource-policy keep leaves the CRDs,
+and every resource they hold, in place on helm uninstall. The delivery CRDs
+(group delivery.pacto.trianalab.io) follow delivery.enabled.
+*/}}
+{{- if .Values.crds.install }}
+{{- range $path, $_ := .Files.Glob "files/crds/*.yaml" }}
+{{- if or $.Values.delivery.enabled (not (hasPrefix "delivery." (base $path))) }}
+{{- $crd := $.Files.Get $path | fromYaml }}
+{{- $_ := set $crd.metadata "labels" (merge (include "pacto-operator.labels" $ | fromYaml) ($crd.metadata.labels | default dict)) }}
+{{- $_ := set $crd.metadata "annotations" (merge (dict "helm.sh/resource-policy" "keep") ($crd.metadata.annotations | default dict)) }}
+---
+{{ toYaml $crd }}
+{{- end }}
+{{- end }}
+{{- end }}

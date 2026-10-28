@@ -319,15 +319,7 @@ func TestRunCommand_EBPF(t *testing.T) {
 		session:   &fakeSession{closeErr: errors.New("cgroup busy")},
 		agent: func(ctx context.Context, c runtimewatch.Config) {
 			cfg = c
-			now := time.Now()
-			_ = c.Sink.Publish(ctx, runtimefacts.Snapshot{PublishIntervalSeconds: 1, LastPublished: now,
-				Collection: runtimefacts.Collection{State: runtimefacts.StateRunning},
-				Workloads: []runtimefacts.Workload{{
-					Identity:   runtimefacts.Identity{Kind: runtimefacts.KindSession, ID: "c/pacto-run-1", Name: fmt.Sprintf("pacto-run-%d", os.Getpid())},
-					BaselineAt: now.Add(time.Second), Listeners: []runtimefacts.Listener{{Port: 8080, Address: "0.0.0.0"}},
-					Connections: []runtimefacts.Connection{{Address: "10.0.0.5", Port: 5432, Successes: 1, LastSuccessAt: now}},
-				}}})
-			<-ctx.Done()
+			publishEvery10ms(ctx, c)
 		},
 	}
 	d := stubRun(t, s)
@@ -347,6 +339,28 @@ func TestRunCommand_EBPF(t *testing.T) {
 	if cfg.Cgroups == nil || cfg.PublishInterval != time.Second || !cfg.Keep(runtimefacts.Identity{Kind: runtimefacts.KindSession, Name: name}) ||
 		cfg.Keep(runtimefacts.Identity{Kind: runtimefacts.KindSession, Name: "pacto-run-0"}) || cfg.Keep(runtimefacts.Identity{Kind: runtimefacts.KindUnit, Name: name}) {
 		t.Fatalf("agent config = %+v", cfg)
+	}
+}
+
+// publishEvery10ms is the stub eBPF agent: like the real one it publishes on every tick, because the gate
+// opens only after the attach returns and a snapshot published before that is dropped.
+func publishEvery10ms(ctx context.Context, c runtimewatch.Config) {
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		now := time.Now()
+		_ = c.Sink.Publish(ctx, runtimefacts.Snapshot{PublishIntervalSeconds: 1, LastPublished: now,
+			Collection: runtimefacts.Collection{State: runtimefacts.StateRunning},
+			Workloads: []runtimefacts.Workload{{
+				Identity:   runtimefacts.Identity{Kind: runtimefacts.KindSession, ID: "c/pacto-run-1", Name: fmt.Sprintf("pacto-run-%d", os.Getpid())},
+				BaselineAt: now.Add(time.Second), Listeners: []runtimefacts.Listener{{Port: 8080, Address: "0.0.0.0"}},
+				Connections: []runtimefacts.Connection{{Address: "10.0.0.5", Port: 5432, Successes: 1, LastSuccessAt: now}},
+			}}})
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
 	}
 }
 

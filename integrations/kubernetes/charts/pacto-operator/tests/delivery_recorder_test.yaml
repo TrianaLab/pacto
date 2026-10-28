@@ -1,0 +1,357 @@
+suite: recorder tests
+templates:
+  - templates/delivery/recorder.yaml
+  - templates/delivery/deployment.yaml
+  - templates/delivery/monitoring.yaml
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: is off by default and leaves the promoter alone
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/recorder.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --records
+        template: templates/delivery/deployment.yaml
+
+  - it: runs the recorder with an Ed25519 key and hands the finalizer over
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
+      delivery.recorder.registryCredentials.secretName: recorder-push
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --records
+        template: templates/delivery/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - recorder
+            - --leader-elect=true
+            - --poll=30s
+            - --streams-repository=registry.example/pacto/streams
+            - --signing-key-file=/etc/pacto/signing/key.pem
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: d-pacto-operator-delivery-recorder
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: registry
+            secret:
+              secretName: recorder-push
+              items: [{key: .dockerconfigjson, path: config.json}]
+        template: templates/delivery/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+
+  - it: never gives the promoter the key or the push credentials
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
+      delivery.recorder.registryCredentials.secretName: recorder-push
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - {name: identities, configMap: {name: pacto-delivery-identities}}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
+
+  - it: grants the recorder no write on what runs
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: ClusterRole}
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get]}
+      - contains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update]}
+
+  - it: signs with a KMS key or keyless
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.keyless.enabled: true
+      delivery.recorder.signing.keyless.identity: https://kubernetes.io/namespaces/pacto-delivery/serviceaccounts/d-pacto-operator-delivery-recorder
+      delivery.recorder.signing.keyless.issuer: https://issuer.example
+      delivery.recorder.signing.keyless.fulcioURL: https://fulcio.example
+      delivery.recorder.signing.keyless.timestampURL: https://tsa.example/api/v1/timestamp
+      delivery.recorder.signing.keyless.trustedRoot: "{}"
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-issuer=https://issuer.example
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-fulcio-url=https://fulcio.example
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-timestamp-url=https://tsa.example/api/v1/timestamp
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-token-file=/var/run/sigstore/token/token
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-trusted-root=/etc/pacto/keyless/trusted_root.json
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: keyless, configMap: {name: d-pacto-operator-delivery-recorder-keyless}}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: sigstore-token, projected: {sources: [{serviceAccountToken: {audience: sigstore, expirationSeconds: 600, path: token}}]}}
+
+  - it: hands the keyless trusted root over in a ConfigMap
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.keyless.enabled: true
+      delivery.recorder.signing.keyless.identity: id
+      delivery.recorder.signing.keyless.issuer: iss
+      delivery.recorder.signing.keyless.fulcioURL: https://fulcio.example
+      delivery.recorder.signing.keyless.timestampURL: https://tsa.example
+      delivery.recorder.signing.keyless.trustedRoot: '{"mediaType":"x"}'
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: metadata.name, value: d-pacto-operator-delivery-recorder-keyless}
+    asserts:
+      - equal:
+          path: data["trusted_root.json"]
+          value: '{"mediaType":"x"}'
+
+  - it: refuses keyless without a timestamp authority
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.keyless.enabled: true
+      delivery.recorder.signing.keyless.identity: id
+      delivery.recorder.signing.keyless.issuer: iss
+      delivery.recorder.signing.keyless.fulcioURL: https://fulcio.example
+      delivery.recorder.signing.keyless.trustedRoot: "{}"
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: delivery.recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot
+
+  - it: passes the KMS key
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+      delivery.insecureRegistries: [reg:5000]
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kms-key=awskms:///alias/pacto
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PACTO_INSECURE_REGISTRIES, value: "reg:5000"}
+
+  - it: refuses no streams repository
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: k
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: streamsRepository is required
+
+  - it: refuses no signer or two
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: k
+      delivery.recorder.signing.ed25519.secretName: s
+      delivery.recorder.signing.allowOperatorReadableKey: true
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: exactly one
+
+  - it: refuses an Ed25519 key in a Secret without saying yes to the operator reading it
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.ed25519.secretName: s
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: allowOperatorReadableKey=true
+
+  - it: refuses a recorder that shares the promoter's ServiceAccount by default
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: k
+      delivery.serviceAccount.create: false
+      delivery.recorder.serviceAccount.create: false
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: same ServiceAccount
+
+  - it: refuses a recorder that shares the promoter's ServiceAccount by name
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: k
+      delivery.serviceAccount.name: delivery
+      delivery.recorder.serviceAccount.name: delivery
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: same ServiceAccount
+
+  - it: refuses a recorder that takes the operator's own ServiceAccount
+    set:
+      delivery.namespace: pacto-system
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: k
+      serviceAccount.name: pacto-operator
+      delivery.recorder.serviceAccount.name: pacto-operator
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: operator's own ServiceAccount
+
+  - it: refuses keyless without identity and issuer
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.keyless.enabled: true
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: identity, issuer, fulcioURL, timestampURL and trustedRoot
+
+  - it: refuses keyless without a trusted root
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.keyless.enabled: true
+      delivery.recorder.signing.keyless.identity: id
+      delivery.recorder.signing.keyless.issuer: iss
+      delivery.recorder.signing.keyless.fulcioURL: https://fulcio.example
+      delivery.recorder.signing.keyless.timestampURL: https://tsa.example
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: identity, issuer, fulcioURL, timestampURL and trustedRoot
+
+  - it: hands the promoter the operation TTL and the delete it needs
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+      delivery.recorder.operationTTL: 24h
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --recorded-ttl=24h
+        template: templates/delivery/deployment.yaml
+
+  - it: mounts the trust config and passes the CDEvents sink
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: awskms:///alias/pacto
+      delivery.recorder.trust: "keys: []"
+      delivery.recorder.cdeventsSink: http://events.example/cdevents
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - equal:
+          path: data["trust.yaml"]
+          value: "keys: []"
+        documentSelector: {path: kind, value: ConfigMap}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --trust-config=/etc/pacto/trust/trust.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cdevents-sink=http://events.example/cdevents
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: trust, configMap: {name: d-pacto-operator-delivery-recorder-trust}}
+        documentSelector: {path: kind, value: Deployment}
+
+  - it: ships no monitoring unless asked
+    template: templates/delivery/monitoring.yaml
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: scrapes the recorder and alerts when records fall behind
+    template: templates/delivery/monitoring.yaml
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
+      delivery.recorder.monitoring.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: spec.ports[0].targetPort
+          value: metrics
+        documentSelector: {path: kind, value: Service}
+      - equal:
+          path: spec.endpoints[0].port
+          value: metrics
+        documentSelector: {path: kind, value: ServiceMonitor}
+      - equal:
+          path: spec.groups[0].rules[0].expr
+          value: max by (stream) (pacto_delivery_records_pending) > 0
+        documentSelector: {path: kind, value: PrometheusRule}
+      - equal:
+          path: spec.groups[0].rules[1].expr
+          value: absent(up{job="d-pacto-operator-delivery-recorder-metrics"} == 1)
+        documentSelector: {path: kind, value: PrometheusRule}

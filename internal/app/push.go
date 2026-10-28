@@ -43,6 +43,8 @@ type PushResult struct {
 	Digest  string `json:"digest"`
 	Name    string `json:"name"`
 	Version string `json:"version"`
+	// Unchanged is true when the registry already held exactly this bundle.
+	Unchanged bool `json:"unchanged,omitempty"`
 }
 
 // Push validates a contract bundle, builds an OCI artifact, and pushes it to a registry.
@@ -80,11 +82,25 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		ref = ref + ":" + c.Service.Version
 	}
 
+	bundle := &contract.Bundle{Contract: c, FS: bundleFS}
+	result := &PushResult{Ref: ref, Name: c.Service.Name, Version: c.Service.Version}
+
+	// The same content again is a successful no-op; different content under
+	// an existing reference is refused unless --force.
 	if !opts.Force {
-		if _, err := s.BundleStore.Resolve(ctx, ref); err == nil {
-			logging.LoggerFromContext(ctx).Debug("artifact already exists, skipping push", "ref", ref)
-			return nil, fmt.Errorf("%w: %s (use --force to overwrite)", ErrArtifactAlreadyExists, ref)
-		} else if !isNotFound(err) {
+		remote, err := s.BundleStore.Resolve(ctx, ref)
+		switch {
+		case err == nil:
+			// A bundle that cannot be packed has no digest and reads as a
+			// conflict below: refused, never overwritten.
+			local, _ := oci.BundleDigest(bundle)
+			if remote == local {
+				logging.LoggerFromContext(ctx).Debug("identical artifact already published", "ref", ref, "digest", remote)
+				result.Digest, result.Unchanged = remote, true
+				return result, nil
+			}
+			return nil, fmt.Errorf("%w: %s holds %s, not this bundle's %s (use --force to overwrite)", ErrArtifactAlreadyExists, ref, remote, local)
+		case !isNotFound(err):
 			return nil, err
 		}
 		logging.LoggerFromContext(ctx).Debug("artifact not found, proceeding with push", "ref", ref)
@@ -92,20 +108,14 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		logging.LoggerFromContext(ctx).Debug("force flag set, skipping existence check", "ref", ref)
 	}
 
-	bundle := &contract.Bundle{Contract: c, FS: bundleFS}
-
 	logging.LoggerFromContext(ctx).Debug("pushing artifact", "ref", ref)
 	digest, err := s.BundleStore.Push(ctx, ref, bundle)
 	if err != nil {
 		return nil, err
 	}
 
-	return &PushResult{
-		Ref:     ref,
-		Digest:  digest,
-		Name:    c.Service.Name,
-		Version: c.Service.Version,
-	}, nil
+	result.Digest = digest
+	return result, nil
 }
 
 // isNotFound reports whether err indicates the artifact was not found.
@@ -117,7 +127,7 @@ func isNotFound(err error) bool {
 // rejectLocalDeps returns an error if any dependency uses a local reference.
 func rejectLocalDeps(c *contract.Contract) error {
 	for _, dep := range c.Dependencies {
-		if graph.ParseDependencyRef(dep.Ref).IsLocal() {
+		if dep.Ref != "" && graph.ParseDependencyRef(dep.Ref).IsLocal() {
 			return fmt.Errorf("local dependency detected: %s\nLocal dependencies are not allowed when publishing. All dependencies must use OCI references (oci://...)", dep.Ref)
 		}
 	}

@@ -1,0 +1,54 @@
+# Dex for the delivery kind e2e: people sign in to the dashboard here.
+# DEX_SESSIONS_ENABLED=true keeps a login session, so a second plain login is
+# single sign-on with the first login's auth_time, while prompt=login asks again.
+issuer: https://127.0.0.1:5556/dex
+storage: {type: memory}
+web:
+  https: 0.0.0.0:5556
+  tlsCert: /etc/dex/tls.crt
+  tlsKey: /etc/dex/tls.key
+oauth2:
+  skipApprovalScreen: true
+  responseTypes: [code]
+expiry:
+  # Long enough for the login made at the start of the run to still
+  # authenticate in phase 4, when it is stale.
+  idTokens: 6h
+sessions:
+  absoluteLifetime: 24h
+  validIfNotUsedFor: 12h
+enablePasswordDB: true
+# Every password is "password".
+staticPasswords:
+- {email: alice@example.com, username: alice, userID: u-alice, groups: [team-payments],
+   hash: "$2y$10$DAEyVa6nk/7.uhSBPKKcXeA7F2VBczegxEUeWj71vOQuwNmXD/61G"}
+- {email: carol@example.com, username: carol, userID: u-carol, groups: [team-checkout],
+   hash: "$2y$10$DAEyVa6nk/7.uhSBPKKcXeA7F2VBczegxEUeWj71vOQuwNmXD/61G"}
+# A person bound to nothing but one namespace's Pactos (team-viewers): the
+# dashboard shows them that namespace's services and no other.
+- {email: erin@example.com, username: erin, userID: u-erin, groups: [team-viewers],
+   hash: "$2y$10$DAEyVa6nk/7.uhSBPKKcXeA7F2VBczegxEUeWj71vOQuwNmXD/61G"}
+# An agent that signs in like a person: its group makes it an agent.
+- {email: robot@example.com, username: robot, userID: u-robot, groups: [team-checkout, "pacto:agents"],
+   hash: "$2y$10$DAEyVa6nk/7.uhSBPKKcXeA7F2VBczegxEUeWj71vOQuwNmXD/61G"}
+staticClients:
+- id: pacto-dashboard
+  secret: dashboard-secret
+  name: Pacto dashboard
+  # Trusts the CLI only so the e2e can mint a kubeconfig login with azp.
+  trustedPeers: [pacto-cli]
+  redirectURIs: [http://127.0.0.1:3300/auth/callback]
+# The CLI client trusts the dashboard and `pacto delivery approve`, so each can
+# ask for a token naming both: Dex sets azp only on a token with more than one
+# audience.
+- id: pacto-cli
+  name: Pacto CLI
+  public: true
+  trustedPeers: [pacto-dashboard, pacto-approve]
+  redirectURIs: [http://127.0.0.1:8000]
+# `pacto delivery approve` logs the person in again with this client, which no
+# kubeconfig uses.
+- id: pacto-approve
+  name: Pacto approvals
+  public: true
+  redirectURIs: [http://127.0.0.1:8001/callback]

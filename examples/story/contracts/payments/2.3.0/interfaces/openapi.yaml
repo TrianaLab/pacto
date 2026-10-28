@@ -1,0 +1,28 @@
+openapi: 3.0.3
+info:
+  title: payments
+  version: 2.3.0
+paths:
+  /payments:
+    post:
+      operationId: createPayment
+      responses:
+        "201":
+          description: The payment was created.
+  /payments/{id}:
+    get:
+      operationId: getPayment
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The payment.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: string}
+                  amount: {type: integer}
+                  currency: {type: string}
+                  status: {type: string}

@@ -28,9 +28,12 @@ releaseUnits:
     kind: helm-chart
     coordinate: ghcr.io/trianalab/pacto/charts/pacto-operator
     chartName: pacto-operator
+  - id: delivery-image
+    kind: oci-image
+    coordinate: ghcr.io/trianalab/pacto/delivery
   - id: k8s-docs
     kind: docs
     versionedWith: operator-chart
-group: kubernetes            # fixed release group (module + image + chart + docs bump together)
+group: kubernetes            # fixed release group (module + images + charts + docs bump together)
 compatibility:
   pactoCore: ">=4.0.0"       # engine module versions this integration supports

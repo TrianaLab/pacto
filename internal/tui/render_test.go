@@ -293,9 +293,13 @@ func TestRenderExplainWithCapabilitiesInterfacesDependencies(t *testing.T) {
 		},
 		Dependencies: []app.ExplainDependency{
 			{Name: "auth-svc", Ref: "oci://example.com/auth:1.0", Required: true, Compatibility: "^1.0"},
+			{Name: "model", External: true, Version: "v1"},
 		},
 	}
 	got := renderExplain(r)
+	if !strings.Contains(got, "model: external, version v1") {
+		t.Fatal("render should show an external dependency's version")
+	}
 	if !strings.Contains(got, "database") {
 		t.Fatal("render should include capabilities")
 	}

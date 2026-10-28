@@ -7,7 +7,10 @@ search:
 
 # Quickstart
 
-From zero to a validated contract that detects breaking changes: about five minutes. Everything runs locally with no account, no registry, nothing to sign up for.
+In this tutorial you write a contract, check it and use it to catch a
+breaking change. It takes about five minutes. A
+[contract](glossary.md#contract) is one file, `pacto.yaml`. Everything here
+runs on your machine, with no account and no registry.
 
 ---
 
@@ -17,13 +20,7 @@ From zero to a validated contract that detects breaking changes: about five minu
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
 ```
 
-Or via Go:
-
-```bash
-go install github.com/trianalab/pacto/v4/cmd/pacto@latest
-```
-
-See [Installation](installation.md) for other methods and for what to do if the script exits with `Failed to fetch latest version` — that is the anonymous GitHub API rate limit, not a broken release.
+[Installation](installation.md) covers the other ways to install and what to do if the script fails.
 
 ## 2. Create a contract
 
@@ -33,7 +30,7 @@ Run this from an empty directory and stay there through step 5; step 6 moves ins
 pacto init my-service
 ```
 
-This writes three files: `pacto.yaml` (the contract), `interfaces/openapi.yaml` (a placeholder API spec) and `configuration/schema.json` (a placeholder config schema). The argument is the service name, not a path. It becomes the directory and `service.name`, so `pacto init fleet/checkout` creates a bundle that fails validation.
+This writes three files: `pacto.yaml` (the contract), `interfaces/openapi.yaml` (a placeholder API spec) and `configuration/schema.json` (a placeholder config schema). The argument is the folder to write into, and its last part becomes `service.name`, so `pacto init fleet/checkout` writes a contract for `checkout` in `fleet/checkout`. Run `pacto init` in a folder that already holds a service and it reads the Dockerfile and Kubernetes files instead: see [Pactify a service](pactify.md).
 
 Edit `my-service/pacto.yaml` and set `service.version: 1.0.0`. Then replace `my-service/interfaces/openapi.yaml` with an API that has required response fields:
 
@@ -68,18 +65,21 @@ $ pacto validate my-service
 my-service is valid
 ```
 
-Validation checks three things: the file's shape, that fields agree with each other (a capability must bind to a declared interface, for example) and your policies. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
+Validation checks three things: the file's shape, that fields agree with each
+other (a field that names an interface must name one the contract declares,
+for example) and your policies, the rules your platform team may set for every
+contract. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
 
 ## 4. Add consumers
 
-Two services depend on `my-service`, each with a different compatibility range. Copy the bundle twice and declare the dependencies:
+Two services depend on `my-service`, each with a different compatibility range. Copy the folder twice and declare the dependencies:
 
 ```bash
 cp -r my-service checkout
 cp -r my-service reporting
 ```
 
-In `checkout/pacto.yaml`, set `service.name: checkout` and replace the commented-out `dependencies:` block with:
+In `checkout/pacto.yaml`, set `service.name: checkout` and replace the `dependencies:` block that `pacto init` wrote as comments with:
 
 ```yaml
 dependencies:
@@ -99,7 +99,7 @@ dependencies:
     compatibility: ">=1.0.0"
 ```
 
-`checkout` accepts `^1.0.0` (1.x only), `reporting` accepts `>=1.0.0` (1.x and above). This difference is what makes the next step interesting.
+`checkout` accepts `^1.0.0` (1.x only), `reporting` accepts `>=1.0.0` (1.x and above). Step 7 shows what that difference changes.
 
 ## 5. Introduce a breaking change
 
@@ -122,11 +122,13 @@ schema:
 
 ## 6. Diff the two versions
 
-From inside `my-service`, compare the original contract against `v2`:
+Move into `my-service` and compare the original contract against `v2`:
 
 ```console
+$ cd my-service
 $ pacto diff . ../v2
 Classification: BREAKING
+Required bump: major
 Changes (3):
   [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
   [BREAKING] openapi.paths[/orders/{id}].methods[GET].responses[200].content.application/json.schema.properties.total (removed): openapi.paths[/orders/{id}].methods[GET].responses[200].content.application/json.schema.properties.total removed [- map[type:number]]
@@ -136,7 +138,7 @@ $ echo $?
 1
 ```
 
-The classification is `BREAKING` and the exit code is 1. That is the CI gate: `pacto diff` exits non-zero when the change breaks consumers, so a branch-protection rule that requires passing checks blocks the merge.
+The classification is `BREAKING`, so the next published version must be a new major version, and the exit code is 1. That is the CI gate: `pacto diff` exits non-zero when the change is breaking for anyone who may use the service (`pacto impact` below says which consumers), so a branch-protection rule that requires passing checks blocks the merge.
 
 ## 7. Find the affected consumers
 
@@ -153,9 +155,11 @@ Affected consumers (2):
   reporting                    direct     confidence=contractual  compat=compatible   owner=my-team
 ```
 
-`checkout` and `reporting` declare the *same* edge to the *same* service and get *opposite* verdicts. `checkout` pins `^1.0.0` (1.x only) and breaks. `reporting` accepts `>=1.0.0` (any major) and survives. A catalog that records only "`checkout` depends on `my-service`" cannot tell those two apart; Pacto can, because the contract carries the compatibility range.
+`checkout` and `reporting` declare the *same* edge to the *same* service and get *opposite* verdicts. `checkout` pins `^1.0.0` (1.x only) and breaks. `reporting` accepts `>=1.0.0` (any major) and survives. Pacto tells them apart because each contract carries its compatibility range.
 
-`confidence=contractual` means the dependency is declared with a usable range and nothing observed it at runtime. `direct` means each consumer declares `my-service` itself rather than reaching it through another service.
+`owner=my-team` is the placeholder team `pacto init` wrote. `confidence=contractual`
+means the answer comes from the declared ranges alone, without a runtime
+observation of the call. `direct` means each consumer declares `my-service` itself.
 
 ---
 
@@ -188,15 +192,16 @@ Clean up:
 docker rm -f pacto-registry
 ```
 
-For a real registry like GHCR, you need `pacto login` with a personal access token. See [Installation](installation.md) for the supply-chain guarantees and [CI integration](ci.md) for what to commit to your repository.
+For a real registry like GHCR, you need `pacto login` with a personal access token. See [Installation](installation.md) for the supply-chain guarantees and [Put it in your repository](ci.md) for what to commit.
 
 ---
 
-## What to do next
+## What's next
 
 | Goal | Guide |
 |------|-------|
-| Put it in your repository | [CI integration](ci.md) |
+| Let Pacto check every release of a real service | [Pactify a service](pactify.md) |
+| Put it in your repository | [Put it in your repository](ci.md) |
 | Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | See contracts for real services | [Examples](examples/index.md) |
 | Explore contracts visually | Run `pacto dashboard` or [`pacto tui`](fleet-tools.md#the-terminal-ui) |

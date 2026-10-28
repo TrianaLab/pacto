@@ -841,3 +841,21 @@ func TestDashText_KeepsTheTableShape(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerate_ExternalDependencyWithoutRef: the diagram and the table show an
+// external dependency's version and say it cannot be checked.
+func TestGenerate_ExternalDependencyWithoutRef(t *testing.T) {
+	d := &contractview.ServiceDetails{
+		Service:      contractview.Service{Name: "agent", Version: "1.0.0"},
+		Dependencies: []contractview.DependencyInfo{{Name: "model", External: true, Version: "v1", Required: true}},
+	}
+	md, err := Generate(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`-->|"required · external v1"|`, "| `model` | external, no contract | version v1 (cannot be checked) |"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing %q\n%s", want, md)
+		}
+	}
+}

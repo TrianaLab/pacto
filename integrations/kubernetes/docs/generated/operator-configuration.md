@@ -18,11 +18,34 @@ Controller flags and their exact defaults are captured from the operator's real 
 
 | Flag | Type | Default | Via chart | Description |
 | --- | --- | --- | --- | --- |
-| `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container (e.g. 200m). Empty uses the built-in default. |
-| `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container (e.g. 50m). Empty uses the built-in default. |
-| `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container (e.g. 512Mi). Empty uses the built-in default. |
-| `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default. |
+| `-caller-coverage-ignore-namespace` | `value` |  | chart value | Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's are always ignored. |
+| `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container. Empty uses the built-in default. |
+| `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container. Empty uses the built-in default. |
+| `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; empty means pacto-delivery. |
+| `-dashboard-delivery-trust-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with, so History reads signed records. |
+| `-dashboard-delivery-trust-key` | `string` | `trust.yaml` | chart value | Key of the trust config in that ConfigMap. |
+| `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container. Empty uses the built-in default. |
+| `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container. Empty uses the built-in default. |
+| `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |
 | `-dashboard-oci-secrets` | `string` |  | chart value | Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets; later Secrets override earlier ones for the same registry. |
+| `-dashboard-oidc-ca-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the PEM bundle of the CAs that sign the issuer's certificate. |
+| `-dashboard-oidc-ca-key` | `string` | `ca.crt` | chart value | Key of the PEM bundle in that ConfigMap or Secret. |
+| `-dashboard-oidc-ca-secret` | `string` |  | chart value | Secret in the operator namespace holding that PEM bundle, instead of a ConfigMap. |
+| `-dashboard-oidc-client-id` | `string` |  | chart value | The dashboard's OpenID Connect client id. |
+| `-dashboard-oidc-client-secret-key` | `string` | `client-secret` | chart value | Key of the client secret in that Secret. |
+| `-dashboard-oidc-client-secret-name` | `string` |  | chart value | Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef. |
+| `-dashboard-oidc-display-name` | `string` |  | chart value | The identity provider's name on the dashboard's sign-in button, as in Sign in with Keycloak (empty: OIDC). |
+| `-dashboard-oidc-extra-scopes` | `string` |  | chart value | Comma-separated scopes beyond openid, profile and groups. |
+| `-dashboard-oidc-groups-claim` | `string` |  | chart value | ID token claim the API server takes the groups from; must match its claim mapping (empty: groups). |
+| `-dashboard-oidc-groups-prefix` | `string` |  | chart value | Prefix the API server puts before every group; must match its claim mapping. |
+| `-dashboard-oidc-internal-issuer-url` | `string` |  | chart value | Where the dashboard reaches the issuer when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer. |
+| `-dashboard-oidc-issuer-url` | `string` |  | chart value | OpenID Connect issuer people sign in to the dashboard with. Every view and action then runs with each person's own token and RBAC; the delivery views need sign-in. |
+| `-dashboard-oidc-redirect-url` | `string` |  | chart value | The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it. |
+| `-dashboard-oidc-username-claim` | `string` |  | chart value | ID token claim the API server takes the username from; must match its claim mapping (empty: sub). |
+| `-dashboard-oidc-username-prefix` | `string` |  | chart value | Prefix the API server puts before the username; must match its claim mapping (empty: the issuer URL and #; - for none). |
+| `-dashboard-session-idle-timeout` | `duration` |  | chart value | A dashboard session without a request for this long ends (0: 1h). |
+| `-dashboard-session-max-age` | `duration` |  | chart value | A dashboard session ends this long after sign-in, renewed or not (0: 12h). |
+| `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides. |
 | `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
@@ -36,7 +59,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-evidence-credentials-secret` | `string` |  | chart value | Optional: name of an existing kubernetes.io/dockerconfigjson Secret with contract-registry credentials, mounted read-only. Empty means anonymous or in-cluster registry access. |
 | `-evidence-memory-limit` | `string` |  | chart value | Memory limit for the Evidence Server container. Empty uses the built-in default. |
 | `-evidence-memory-request` | `string` |  | chart value | Memory request for the Evidence Server container. Empty uses the built-in default. |
-| `-evidence-subject` | `value` |  | chart value | Repeatable: an exact contract revision evidence is stored on, as oci://&lt;repo&gt;@sha256:&lt;digest&gt;. The registry holding it IS the durable evidence store — accepted records are published as OCI 1.1 referrers of that manifest. At least one is required when the Evidence Server is enabled. |
+| `-evidence-subject` | `value` |  | chart value | Repeatable: an exact contract revision evidence is stored on, as oci://&lt;repo&gt;@sha256:&lt;digest&gt;. The registry holding it is the durable evidence store: accepted records are published as OCI 1.1 referrers of that manifest. At least one is required when the Evidence Server is enabled. |
 | `-evidence-trust-secret` | `string` |  | chart value | Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled. |
 | `-health-probe-bind-address` | `string` | `:8081` | always on | The address the probe endpoint binds to. |
 | `-interface-name-match-discovery` | `bool` |  | no | Enable resolving an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never produces an absent or error result). |

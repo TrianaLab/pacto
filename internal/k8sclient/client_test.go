@@ -272,32 +272,13 @@ users:
 }
 
 // ---------------------------------------------------------------------------
-// k8sGoClient.Probe
+// fake discovery
 // ---------------------------------------------------------------------------
 
 func newFakeDiscovery() *fakediscovery.FakeDiscovery {
 	return &fakediscovery.FakeDiscovery{
 		Fake:               &k8stesting.Fake{},
 		FakedServerVersion: &version.Info{Major: "1", Minor: "28"},
-	}
-}
-
-func TestK8sGoClient_Probe_Success(t *testing.T) {
-	client := &k8sGoClient{discovery: newFakeDiscovery()}
-	if err := client.Probe(context.Background()); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestK8sGoClient_Probe_Error(t *testing.T) {
-	disc := newFakeDiscovery()
-	disc.FakedServerVersion = nil
-	disc.PrependReactor("*", "*", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		return true, nil, fmt.Errorf("connection refused")
-	})
-	client := &k8sGoClient{discovery: disc}
-	if err := client.Probe(context.Background()); err == nil {
-		t.Error("expected error from Probe")
 	}
 }
 
@@ -316,7 +297,7 @@ func TestK8sGoClient_DiscoverCRD_Found(t *testing.T) {
 		},
 	}
 
-	client := &k8sGoClient{discovery: disc, group: "pacto.trianalab.io"}
+	client := &k8sGoClient{discovery: disc}
 	result, err := client.DiscoverCRD(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -343,7 +324,7 @@ func TestK8sGoClient_DiscoverCRD_NotFound(t *testing.T) {
 		},
 	}
 
-	client := &k8sGoClient{discovery: disc, group: "pacto.trianalab.io"}
+	client := &k8sGoClient{discovery: disc}
 	result, err := client.DiscoverCRD(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -359,7 +340,7 @@ func TestK8sGoClient_DiscoverCRD_Error(t *testing.T) {
 		return true, nil, fmt.Errorf("API error")
 	})
 
-	client := &k8sGoClient{discovery: disc, group: "pacto.trianalab.io"}
+	client := &k8sGoClient{discovery: disc}
 	_, err := client.DiscoverCRD(context.Background())
 	if err == nil {
 		t.Error("expected error")
@@ -377,7 +358,7 @@ func TestK8sGoClient_DiscoverCRD_NoMatchingKind(t *testing.T) {
 		},
 	}
 
-	client := &k8sGoClient{discovery: disc, group: "pacto.trianalab.io"}
+	client := &k8sGoClient{discovery: disc}
 	result, err := client.DiscoverCRD(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -413,7 +394,7 @@ func TestK8sGoClient_DiscoverCRD_VersionFallback(t *testing.T) {
 		},
 	}
 
-	client := &k8sGoClient{discovery: mock, group: "pacto.trianalab.io"}
+	client := &k8sGoClient{discovery: mock}
 	result, err := client.DiscoverCRD(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -437,7 +418,7 @@ func TestK8sGoClient_DiscoverCRD_ResourceListError(t *testing.T) {
 		resourceErr: fmt.Errorf("resource list failed"),
 	}
 
-	client := &k8sGoClient{discovery: mock, group: "pacto.trianalab.io"}
+	client := &k8sGoClient{discovery: mock}
 	_, err := client.DiscoverCRD(context.Background())
 	if err == nil {
 		t.Error("expected error from ServerResourcesForGroupVersion")
@@ -472,27 +453,7 @@ func (m *mockDiscoveryForCRD) ServerResourcesForGroupVersion(gv string) (*metav1
 }
 
 // ---------------------------------------------------------------------------
-// k8sGoClient.gvr
-// ---------------------------------------------------------------------------
-
-func TestK8sGoClient_GVR_WithVersion(t *testing.T) {
-	client := &k8sGoClient{group: "pacto.trianalab.io", version: "v1alpha1"}
-	gvr := client.gvr("pactos")
-	if gvr.Group != "pacto.trianalab.io" || gvr.Version != "v1alpha1" || gvr.Resource != "pactos" {
-		t.Errorf("unexpected GVR: %v", gvr)
-	}
-}
-
-func TestK8sGoClient_GVR_DefaultVersion(t *testing.T) {
-	client := &k8sGoClient{group: "pacto.trianalab.io"}
-	gvr := client.gvr("pactos")
-	if gvr.Version != "v1alpha1" {
-		t.Errorf("expected default version 'v1alpha1', got %q", gvr.Version)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// k8sGoClient.ListJSON / CountResources
+// k8sGoClient.ListJSON
 // ---------------------------------------------------------------------------
 
 func newFakeDynamicClient(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
@@ -519,12 +480,15 @@ func newTestPactoObject(name, namespace string) *unstructured.Unstructured {
 	}
 }
 
+// pactos is what DiscoverCRD finds for the operator's CRD.
+var pactos = CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"}
+
 func TestK8sGoClient_ListJSON_WithNamespace(t *testing.T) {
 	obj := newTestPactoObject("svc-a", "default")
 	dyn := newFakeDynamicClient(obj)
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
+	client := &k8sGoClient{dynamic: dyn}
 
-	data, err := client.ListJSON(context.Background(), "pactos", "default")
+	data, err := client.ListJSON(context.Background(), pactos, "default")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -536,9 +500,9 @@ func TestK8sGoClient_ListJSON_WithNamespace(t *testing.T) {
 func TestK8sGoClient_ListJSON_AllNamespaces(t *testing.T) {
 	obj := newTestPactoObject("svc-a", "default")
 	dyn := newFakeDynamicClient(obj)
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
+	client := &k8sGoClient{dynamic: dyn}
 
-	data, err := client.ListJSON(context.Background(), "pactos", "")
+	data, err := client.ListJSON(context.Background(), pactos, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -552,64 +516,9 @@ func TestK8sGoClient_ListJSON_Error(t *testing.T) {
 	dyn.PrependReactor("list", "*", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, fmt.Errorf("list failed")
 	})
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
+	client := &k8sGoClient{dynamic: dyn}
 
-	_, err := client.ListJSON(context.Background(), "pactos", "default")
-	if err == nil {
-		t.Error("expected error")
-	}
-}
-
-func TestK8sGoClient_CountResources_WithNamespace(t *testing.T) {
-	obj1 := newTestPactoObject("svc-a", "default")
-	obj2 := newTestPactoObject("svc-b", "default")
-	dyn := newFakeDynamicClient(obj1, obj2)
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	count, err := client.CountResources(context.Background(), "pactos", "default")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 2 {
-		t.Errorf("expected 2, got %d", count)
-	}
-}
-
-func TestK8sGoClient_CountResources_AllNamespaces(t *testing.T) {
-	obj := newTestPactoObject("svc-a", "default")
-	dyn := newFakeDynamicClient(obj)
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	count, err := client.CountResources(context.Background(), "pactos", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("expected 1, got %d", count)
-	}
-}
-
-func TestK8sGoClient_CountResources_Error_WithNamespace(t *testing.T) {
-	dyn := newFakeDynamicClient()
-	dyn.PrependReactor("list", "*", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		return true, nil, fmt.Errorf("list failed")
-	})
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	_, err := client.CountResources(context.Background(), "pactos", "default")
-	if err == nil {
-		t.Error("expected error")
-	}
-}
-
-func TestK8sGoClient_CountResources_Error_AllNamespaces(t *testing.T) {
-	dyn := newFakeDynamicClient()
-	dyn.PrependReactor("list", "*", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		return true, nil, fmt.Errorf("list failed")
-	})
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	_, err := client.CountResources(context.Background(), "pactos", "")
+	_, err := client.ListJSON(context.Background(), pactos, "default")
 	if err == nil {
 		t.Error("expected error")
 	}
@@ -705,5 +614,36 @@ users:
 	}
 	if c, err := NewDynamic(); err != nil || c == nil {
 		t.Fatalf("NewDynamic = %v, %v", c, err)
+	}
+	c, err := Config()
+	if err != nil || c.Host != "https://test:6443" {
+		t.Fatalf("Config = %v, %v", c, err)
+	}
+	if ok, err := Served(&rest.Config{Host: "http://127.0.0.1:1"}, "delivery.pacto.trianalab.io/v1alpha1"); ok || err == nil {
+		t.Fatal("an unreachable cluster is an error, not a cluster without the API")
+	}
+}
+
+func TestServed(t *testing.T) {
+	b := defaultBuilders()
+	fake := newFakeDiscovery()
+	fake.Resources = []*metav1.APIResourceList{{GroupVersion: "delivery.pacto.trianalab.io/v1alpha1"}}
+	b.discovery = func(*rest.Config) (discovery.DiscoveryInterface, error) { return fake, nil }
+	if ok, err := b.served(&rest.Config{}, "delivery.pacto.trianalab.io/v1alpha1"); !ok || err != nil {
+		t.Fatalf("served answers from discovery: %v", err)
+	}
+	if ok, err := b.served(&rest.Config{}, "other/v1"); ok || err != nil {
+		t.Fatalf("a NotFound is not served, and no error: %v", err)
+	}
+	// Discovery failing for any other reason is an error, never "not served".
+	fake.PrependReactor("get", "resource", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("connection refused")
+	})
+	if ok, err := b.served(&rest.Config{}, "delivery.pacto.trianalab.io/v1alpha1"); ok || err == nil {
+		t.Fatal("a failed discovery call is an error")
+	}
+	b.discovery = func(*rest.Config) (discovery.DiscoveryInterface, error) { return nil, fmt.Errorf("no") }
+	if ok, err := b.served(&rest.Config{}, "x/v1"); ok || err == nil {
+		t.Fatal("no discovery client is an error")
 	}
 }

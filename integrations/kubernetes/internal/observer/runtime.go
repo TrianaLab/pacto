@@ -109,6 +109,13 @@ type CollectInput struct {
 	// KernelEvidenceStaleness bounds how old a node's heartbeat may be; zero means three times the
 	// node object's publish interval.
 	KernelEvidenceStaleness time.Duration
+	// CallerWindow is how far back a call to the target's Service counts when listing its callers, at least
+	// the dependency observation window: the time between two reconciles, so a caller that called between
+	// them is not missed.
+	CallerWindow time.Duration
+	// CallerIgnoreNamespaces are namespaces, besides the cluster's own and the node agent's, whose host-network
+	// pods are taken not to call workloads, so they leave caller coverage complete.
+	CallerIgnoreNamespaces []string
 
 	// kernel is the per-reconcile kernel view Collect loads; nil when kernel evidence is off.
 	kernel *kernelView
@@ -120,7 +127,11 @@ type RuntimeSnapshot struct {
 	WorkloadExists bool
 	WorkloadKind   string
 	ServicePorts   []int32
-	Replicas       *int32
+	// WorkloadUID and WorkloadGeneration identify the exact object and
+	// generation read.
+	WorkloadUID        string
+	WorkloadGeneration int64
+	Replicas           *int32
 
 	DeploymentStrategy      string
 	PodManagementPolicy     string
@@ -170,13 +181,30 @@ type Observer struct {
 	run *collectRun
 }
 
+// KernelCoverage is how far the node agent's view of the target's pods could be trusted in the last
+// Collect: Complete, Partial, Failed or Stale (the worst pod), empty when kernel evidence is off or
+// nothing was collected yet. Pacto delivery's claim gate reads it to tell "observed and clean" apart from
+// "not observed".
+func (o *Observer) KernelCoverage() string {
+	if o.run == nil {
+		return ""
+	}
+	return o.run.kernelCoverage
+}
+
 // collectRun is what one Collect reads once and shares: the workload, each Prometheus monitor list and
 // every collection failure the dimensions hit.
 type collectRun struct {
 	workload *workloadView
-	monitors map[string]*monitorList
-	failures []error
-	seen     map[string]bool
+	// kernelCoverage is the node agent's coverage of the target's pods (kernelView.coverage).
+	kernelCoverage string
+	// callers and callerCoverage are what observeCallers found, as of now.
+	callers        []unversioned.ObservedCaller
+	callerCoverage *unversioned.CallerCoverage
+	now            time.Time
+	monitors       map[string]*monitorList
+	failures       []error
+	seen           map[string]bool
 }
 
 func newCollectRun() *collectRun {
@@ -227,6 +255,7 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 
 	// Kernel evidence is read once per reconcile and merged into the producers below (spec section 4).
 	input.kernel = o.loadKernelView(ctx, input, now)
+	o.run.kernelCoverage = input.kernel.coverage()
 
 	// Interfaces producer (spec section 7.3 / B1 + B4).
 	if len(input.Contract.Interfaces) > 0 {
@@ -281,6 +310,8 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 
 	// Peers only the kernel sees: Pacto-managed services no declared dependency resolves to.
 	observations = append(observations, o.observeUndeclaredPeers(ctx, input, now)...)
+	o.run.now = now
+	o.run.callers, o.run.callerCoverage = o.observeCallers(ctx, input, now)
 
 	log := logf.FromContext(ctx)
 	for _, err := range o.run.failures {

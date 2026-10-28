@@ -2,11 +2,14 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // writeImpactService writes a minimal valid bundle for `name` at `version` into
@@ -191,5 +194,42 @@ func TestRevisionDomain(t *testing.T) {
 				t.Errorf("revisionDomain(%q) = %q, want %q", tt.ref, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestService_ImpactWithSnapshot_RefusesHiddenService: on a snapshot narrowed
+// to the caller, a raw-ref impact on a service the snapshot hides, on either
+// side, reads as not found instead of diffing it with the server's
+// credentials. A visible service still answers.
+func TestService_ImpactWithSnapshot_RefusesHiddenService(t *testing.T) {
+	root := t.TempDir()
+	write := func(name, version string) string {
+		dir := filepath.Join(root, name+"-"+version)
+		writeImpactService(t, dir, name, version)
+		return dir
+	}
+	ordersOld, ordersNew := write("orders", "1.0.0"), write("orders", "2.0.0")
+	ledgerOld, ledgerNew := write("ledger", "2.0.0"), write("ledger", "2.1.0")
+	fleetRoot := t.TempDir()
+	writeImpactService(t, filepath.Join(fleetRoot, "orders"), "orders", "2.0.0")
+
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{LocalRoots: []string{fleetRoot}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap.Limitations = append(snap.Limitations, fleet.Limitation{Code: fleet.LimitationHiddenByPermissions})
+
+	for name, o := range map[string]ImpactOptions{
+		"hidden new": {OldPath: ledgerOld, NewPath: ledgerNew},
+		"hidden old": {OldPath: ledgerOld, NewPath: ordersNew},
+	} {
+		var nf *oci.ArtifactNotFoundError
+		if _, err := svc.ImpactWithSnapshot(context.Background(), o, snap); !errors.As(err, &nf) {
+			t.Errorf("%s: err = %v, want not found", name, err)
+		}
+	}
+	if _, err := svc.ImpactWithSnapshot(context.Background(), ImpactOptions{OldPath: ordersOld, NewPath: ordersNew}, snap); err != nil {
+		t.Errorf("visible service: %v", err)
 	}
 }

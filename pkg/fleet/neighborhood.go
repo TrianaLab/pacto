@@ -180,6 +180,10 @@ type NeighborhoodNode struct {
 	Owner         string      `json:"owner,omitempty"`
 	RevisionState string      `json:"revisionState,omitempty"`
 	Expansions    []Direction `json:"expansions,omitempty"`
+	// HiddenDependencies and HiddenDependents count the neighbours the caller's
+	// Kubernetes permissions hide, without naming them.
+	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
+	HiddenDependents   int `json:"hiddenDependents,omitempty"`
 }
 
 // DeclaredClaim is one revision's declaration of a dependency edge. Multiple
@@ -313,6 +317,9 @@ type Neighborhood struct {
 	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`
 	Limitations            LimitationsPreview            `json:"limitations"`
 	Truncated              bool                          `json:"truncated"`
+	// TruncatedEdges says the relationship budget (MaxEdges) cut the answer, so a
+	// reader is told to ask for more relationships rather than for more entities.
+	TruncatedEdges bool `json:"truncatedEdges"`
 	// TotalNodes is how many nodes the walk reached within EffectiveDepth, before
 	// the node cap -- the denominator for Nodes. It equals len(Nodes) when the
 	// answer is not truncated, and it is what lets a reader tell a hub with
@@ -468,6 +475,7 @@ func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParam
 		UnresolvedDependencies: q.unresolvedNeighborhoodDeps(nodeDepth, wantDeclared),
 		Limitations:            limitationsPreview(nil),
 		Truncated:              truncatedNodes || truncatedEdges,
+		TruncatedEdges:         truncatedEdges,
 		TotalNodes:             totalNodes,
 	}
 	return res, nil
@@ -653,7 +661,8 @@ func (q *Query) neighborhoodNodes(root ServiceKey, depthOf map[ServiceKey]int, r
 		// which only hold resolved keys, so the service always exists.
 		s := q.snap.Services[k]
 		ref := serviceEntityRef(s)
-		n := NeighborhoodNode{Ref: ref, Depth: depthOf[k], Focus: k == root, Status: ref.Status, Owner: s.Owner.DisplayString(), Expansions: q.expansions(k, wantDeclared, wantObserved)}
+		n := NeighborhoodNode{Ref: ref, Depth: depthOf[k], Focus: k == root, Status: ref.Status, Owner: s.Owner.DisplayString(), Expansions: q.expansions(k, wantDeclared, wantObserved),
+			HiddenDependencies: s.HiddenDependencies, HiddenDependents: s.HiddenDependents}
 		if k == root {
 			n.RevisionState = rootRevState
 		}
@@ -785,7 +794,7 @@ func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDecla
 	var out []UnresolvedDependency
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" {
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" || rel.Hidden {
 			continue
 		}
 		if _, ok := depthOf[rel.FromService]; !ok {

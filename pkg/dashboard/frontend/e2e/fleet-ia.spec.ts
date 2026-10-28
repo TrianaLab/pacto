@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { appReady } from './ready';
 
 // Browser E2E for the fleet information architecture against the built WASM
 // demo (real Svelte bundle + real dashboard API compiled to wasm, serving the
@@ -7,14 +8,9 @@ import { test, expect, type Page } from '@playwright/test';
 // actionable navigation, global search, deep-link reload and browser back. No
 // physical-device testing is claimed — these run headless in CI's chromium.
 
-async function waitReady(page: Page) {
-  await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: 20_000 });
-}
-
 async function openSearch(page: Page) {
   await page.keyboard.press('/');
-  await expect(page.getByRole('textbox', { name: 'Search services, revisions and targets' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('combobox', { name: 'Search services, revisions and targets' })).toBeVisible({ timeout: 10_000 });
 }
 
 // The hash changes on click, but the overview stays mounted for the instant before the
@@ -23,15 +19,15 @@ async function openSearch(page: Page) {
 // entity's own heading instead of whatever happens to be on screen.
 async function entityHeading(page: Page): Promise<string> {
   const h1 = page.getByRole('heading', { level: 1 });
-  await expect(h1).not.toHaveText('Operational overview', { timeout: 20_000 });
+  await expect(h1).not.toHaveText('Is anything wrong?', { timeout: 20_000 });
   return (await h1.textContent()) || '';
 }
 
 test.describe('WASM demo — fleet product IA', () => {
   test('scenario 1: /fleet loads the operational overview from the product endpoint', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
     // The fleet-posture distributions prove it consumed the product overview, not a
     // graph: revision-match certainty is a whole-population aggregate that only the
     // overview endpoint reports.
@@ -41,7 +37,7 @@ test.describe('WASM demo — fleet product IA', () => {
 
   test('scenario 4: an overview summary tile navigates to its exact filtered view', async ({ page }) => {
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
     // The lead attention tile is always present and links to the attention list.
     await page.getByRole('link', { name: /need attention/ }).click();
     await expect(page).toHaveURL(/#\/fleet\/attention/);
@@ -50,7 +46,7 @@ test.describe('WASM demo — fleet product IA', () => {
 
   test('scenario 5: a degraded source on the overview is visible and navigable', async ({ page }) => {
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
     // The demo's snapshot is partial (a source is unavailable); its chip links to the
     // source detail.
     const chip = page.locator('a.sh-chip').first();
@@ -60,9 +56,9 @@ test.describe('WASM demo — fleet product IA', () => {
   });
 
   test('scenario 6/8-10: global search finds an entity and opens it by canonical identity', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await openSearch(page);
-    await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
+    await page.getByRole('combobox', { name: 'Search services, revisions and targets' }).fill('payment');
     const result = page.getByTestId('search-result').first();
     await expect(result).toBeVisible({ timeout: 20_000 });
     await result.click();
@@ -73,9 +69,9 @@ test.describe('WASM demo — fleet product IA', () => {
   });
 
   test('scenario 11 + 13: a deep-linked entity route survives a reload (encoded key round-trips)', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await openSearch(page);
-    await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
+    await page.getByRole('combobox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();
     const heading = await entityHeading(page);
     const url = page.url();
@@ -88,12 +84,12 @@ test.describe('WASM demo — fleet product IA', () => {
 
   test('scenario 12: browser back returns from an entity to the overview', async ({ page }) => {
     await page.goto('/#/fleet');
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
     await openSearch(page);
-    await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
+    await page.getByRole('combobox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();
     await entityHeading(page);
     await page.goBack();
-    await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Is anything wrong?' })).toBeVisible({ timeout: 20_000 });
   });
 });

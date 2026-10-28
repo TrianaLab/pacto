@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -13,12 +12,7 @@ import (
 // the test does not depend on the working directory.
 func scriptPath(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate test file")
-	}
-	root := filepath.Dir(filepath.Dir(filepath.Dir(thisFile))) // tests/architecture -> repo root
-	return filepath.Join(root, "scripts", "check-section-sign.sh")
+	return filepath.Join(repoRoot(t), "scripts", "check-section-sign.sh")
 }
 
 func TestCheckSection_CleanFilePasses(t *testing.T) {

@@ -442,6 +442,8 @@ describe('FleetSourcesView (G)', () => {
     ]);
     // No second population total to reconcile against the header's.
     expect(tally.textContent).not.toContain('60');
+    // The parts are a sentence: a space after each comma, never "1 unavailable,5 stale".
+    expect(tally.textContent?.replace(/\s+/g, ' ')).toContain('1 unavailable, 5 stale, 4 partial, 50 available.');
     unmount(component); document.body.removeChild(target);
   });
 

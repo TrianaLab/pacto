@@ -4,7 +4,7 @@
   import MarkdownView from '../MarkdownView.svelte';
   import DocModal from '../DocModal.svelte';
   import RevisionHistory from './RevisionHistory.svelte';
-  import { readinessGateClass, readinessGateTip, checkStatusClass, checkStatusLabel, assessmentCountdownLabel } from '../lib/format.ts';
+  import { readinessGateClass, readinessGateTip, checkStatusClass, checkStatusLabel, assessmentCountdownLabel } from '../lib/readiness.ts';
   import { formatDate } from '../lib/dateFormat.ts';
 
   let { readiness = null, docs = [], open = $bindable(false), id = '' } = $props();
@@ -167,7 +167,7 @@
     flex-wrap: wrap;
   }
   .metric { display: flex; flex-direction: column; gap: 2px; }
-  .metric-label { font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.03em; }
+  .metric-label { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .metric-value { font-size: var(--text-sm); font-weight: 600; color: var(--c-text); }
   .countdown { font-weight: 500; color: var(--c-text-3); margin-left: 6px; }
   .countdown-expired { color: var(--c-err); }

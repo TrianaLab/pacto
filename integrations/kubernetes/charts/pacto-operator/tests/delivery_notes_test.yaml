@@ -1,0 +1,27 @@
+suite: install notes
+templates:
+  - templates/NOTES.txt
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: names the Stage kind in full so Kargo's Stage cannot answer
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+    asserts:
+      - matchRegexRaw:
+          pattern: kubectl get stages\.delivery\.pacto\.trianalab\.io -A
+      - notMatchRegexRaw:
+          pattern: kubectl get stages -A
+
+  - it: says the delivery namespace is for cluster admins only
+    asserts:
+      - matchRegexRaw:
+          pattern: Keep that namespace writable by cluster admins only

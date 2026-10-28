@@ -1,0 +1,705 @@
+package app
+
+import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+	"os/exec"
+	"time"
+
+	"context"
+	"errors"
+	"io"
+	"log"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
+	"github.com/sigstore/sigstore/pkg/signature"
+	"github.com/sigstore/sigstore/pkg/signature/kms"
+
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/layout"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/signing"
+	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
+)
+
+// fakeRun stands in for docker and the declared command. Every
+// call is recorded as "name arg...".
+type fakeRun struct {
+	calls []string
+	fail  string // a call prefix that fails
+	dirty string // what git status prints
+}
+
+// preflights are the calls a plan makes to predict a refusal: no build.
+var preflights = []string{"docker buildx inspect", "git status --porcelain --untracked-files=no"}
+
+func (f *fakeRun) run(_ context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
+	call := strings.Join(append([]string{name}, args...), " ")
+	f.calls = append(f.calls, call)
+	if f.fail != "" && strings.HasPrefix(call, f.fail) {
+		return nil, errors.New("injected: " + call)
+	}
+	switch {
+	case call == preflights[0]:
+		return []byte("Driver: docker-container\n"), nil
+	case name == "git":
+		return []byte(f.dirty), nil
+	}
+	switch name {
+	case "./build-worker.sh": // an image built with its SBOM
+		_ = os.MkdirAll(filepath.Join(dir, "sbom"), 0o755)
+		if err := os.WriteFile(filepath.Join(dir, "sbom", "worker.spdx.json"), []byte(`{"spdxVersion":"SPDX-2.3"}`), 0o644); err != nil {
+			return nil, err
+		}
+		fallthrough
+	case "docker":
+		p, _ := layout.Write(outOf(env), empty.Index)
+		img, _ := random.Image(32, 1)
+		return nil, p.AppendImage(img)
+	}
+	return nil, os.WriteFile(filepath.Join(outOf(env), "deployment.yaml"), []byte("kind: Deployment\n"), 0o644)
+}
+
+func outOf(env []string) string {
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, "PACTO_OUT="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// anonymous is a keychain that never asks the machine's docker credential
+// helper: the default one runs it for every registry call, which made these
+// tests take minutes.
+var anonymous = authn.NewMultiKeychain()
+
+func publishRegistry(t *testing.T) (string, publish.Registry) {
+	t.Helper()
+	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	return host, publish.NewClient(anonymous, host)
+}
+
+func writePublishBundle(t *testing.T, host, extra string) string {
+	t.Helper()
+	dir := t.TempDir()
+	y := `pactoVersion: "2.1"
+service: {name: payments, version: 1.0.0}
+` + extra + `publish:
+  bundle: oci://` + host + `/pacto/payments
+  deploy: manifests
+  artifacts:
+    - {name: api, type: image, ref: "oci://` + host + `/payments", build: {dockerfile: {context: ., file: Dockerfile, platforms: [linux/amd64]}}}
+    - {name: worker, type: image, ref: "oci://` + host + `/worker", sbom: sbom/worker.spdx.json, build: {command: [./build-worker.sh]}}
+    - {name: manifests, type: manifests, ref: "oci://` + host + `/deploy/payments", build: {command: [./render.sh, --flag]}}
+  sign: {key: cosign.key, transparencyLog: false}
+`
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(y), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The worker build writes its SBOM into the folder, so it stays out of the bundle.
+	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("sbom/\n"), 0o644)
+	return dir
+}
+
+func publishService(f *fakeRun, reg publish.Registry) *Service {
+	return &Service{sys: sysDeps{run: f.run, lookPath: func(string) (string, error) { return "", nil },
+		publishRegistry: func() publish.Registry { return reg }}}
+}
+
+// TestPublishPlan: --plan lists what is missing, reads the revision from .git
+// and builds nothing: it only asks buildx and git what would refuse a build.
+func TestPublishPlan(t *testing.T) {
+	host, reg := publishRegistry(t)
+	f := &fakeRun{}
+	dir := writePublishBundle(t, host, "")
+	signingKey(t, dir)
+	writeGit(t, dir, map[string]string{"HEAD": "ref: refs/heads/main\n", "refs/heads/main": commitA + "\n"})
+	res, err := publishService(f, reg).Publish(context.Background(), PublishOptions{Path: dir, Plan: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Plan.Ready || res.Plan.Missing != 4 || res.Plan.Revision != commitA || !slices.Equal(f.calls, preflights) {
+		t.Fatalf("plan: %+v calls %v", res.Plan, f.calls)
+	}
+}
+
+// TestPublishPreflights: the plan predicts what would fail after the first
+// push, so a ready plan is not followed by a refusal halfway: a signing key
+// that does not open, a checkout with uncommitted changes, no buildx builder
+// and a build program that is not there.
+func TestPublishPreflights(t *testing.T) {
+	host, reg := publishRegistry(t)
+	failed := func(f *fakeRun, svc *Service, dir string, opts PublishOptions) map[string]string {
+		t.Helper()
+		opts.Path, opts.Plan = dir, true
+		res, err := svc.Publish(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]string{}
+		for _, c := range res.Plan.Checks {
+			if !c.Passed {
+				got[c.Name] = c.Message
+			}
+		}
+		return got
+	}
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
+	f := &fakeRun{dirty: " M app.py\n"}
+	got := failed(f, publishService(f, reg), dir, PublishOptions{})
+	if !strings.Contains(got["signing key"], "cosign.key: no such file") ||
+		!strings.Contains(got["clean checkout"], "uncommitted changes, so revision "+commitA) || !strings.Contains(got["clean checkout"], "M app.py") {
+		t.Fatalf("missing key and a dirty checkout: %v", got)
+	}
+	// --revision names the revision, so the checkout is not asked.
+	f = &fakeRun{dirty: " M app.py\n"}
+	if got = failed(f, publishService(f, reg), dir, PublishOptions{Revision: "r1"}); got["clean checkout"] != "" || slices.Contains(f.calls, preflights[1]) {
+		t.Fatalf("--revision: %v %v", got, f.calls)
+	}
+	f = &fakeRun{fail: "git"}
+	if got = failed(f, publishService(f, reg), dir, PublishOptions{}); !strings.Contains(got["clean checkout"], "could not tell") {
+		t.Fatalf("no git: %v", got)
+	}
+}
+
+// TestPublishPlanChecksTheBuilders: the plan says which build cannot run
+// here before anything is built or pushed.
+func TestPublishPlanChecksTheBuilders(t *testing.T) {
+	host, reg := publishRegistry(t)
+	failed := func(_ *fakeRun, svc *Service, dir string, opts PublishOptions) map[string]string {
+		t.Helper()
+		opts.Path, opts.Plan = dir, true
+		res, err := svc.Publish(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]string{}
+		for _, c := range res.Plan.Checks {
+			if !c.Passed {
+				got[c.Name] = c.Message
+			}
+		}
+		return got
+	}
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
+	f := &fakeRun{fail: preflights[0]}
+	svc := publishService(f, reg)
+	svc.sys.lookPath = func(p string) (string, error) {
+		if p == filepath.Join(dir, "render.sh") {
+			return "", errors.New("not found")
+		}
+		return p, nil
+	}
+	got := failed(f, svc, dir, PublishOptions{})
+	if b := got["builders"]; !strings.Contains(b, "api is built from a Dockerfile, but docker buildx has no usable builder") ||
+		!strings.Contains(b, "the build of manifests runs ./render.sh, which is not an executable here") || strings.Contains(b, "worker") {
+		t.Fatalf("builders: %v", got)
+	}
+	if err := builders(context.Background(), sysDeps{}, dir, &contract.Contract{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), &contract.Contract{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPublishPlanFromTheContractDirectory: from the contract directory with
+// no path (the default), a bare ./render.sh is found there, not searched for
+// in $PATH.
+func TestPublishPlanFromTheContractDirectory(t *testing.T) {
+	host, reg := publishRegistry(t)
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
+	for _, sh := range []string{"render.sh", "build-worker.sh"} {
+		_ = os.WriteFile(filepath.Join(dir, sh), []byte("#!/bin/sh\n"), 0o755)
+	}
+	t.Chdir(dir)
+	f := &fakeRun{}
+	svc := publishService(f, reg)
+	svc.sys.lookPath = exec.LookPath
+	res, err := svc.Publish(context.Background(), PublishOptions{Plan: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range res.Plan.Checks {
+		if c.Name == "builders" && !c.Passed {
+			t.Fatalf("builders from the contract directory: %s", c.Message)
+		}
+	}
+}
+
+// TestPublishPlanChecksTheKeylessToken: keyless signing reads its OIDC token
+// only when it signs, so the plan checks a token is there to read.
+func TestPublishPlanChecksTheKeylessToken(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SIGSTORE_ID_TOKEN", "")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), keyless); err == nil || !strings.Contains(err.Error(), "no OIDC token") {
+		t.Fatalf("keyless with no token: %v", err)
+	}
+	oldRoot := publicGoodRoot
+	defer func() { publicGoodRoot = oldRoot }()
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return nil, errors.New("tuf down") }
+	t.Setenv("SIGSTORE_ID_TOKEN", "tok")
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), keyless); err == nil || !strings.Contains(err.Error(), "tuf down") {
+		t.Fatalf("keyless with a token goes on to load the root: %v", err)
+	}
+}
+
+// signingKey writes a cosign key file, encrypted with COSIGN_PASSWORD, into
+// dir, keeps it out of the bundle and returns its public key.
+func signingKey(t *testing.T, dir string) crypto.PublicKey {
+	t.Helper()
+	k := keyFiles(t, dir)
+	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("sbom/\ncosign.key\ncosign.pub\n"), 0o600)
+	return k
+}
+
+// keyFiles writes cosign.key and cosign.pub into dir.
+func keyFiles(t *testing.T, dir string) crypto.PublicKey {
+	t.Helper()
+	priv, pub, err := cryptoutils.GeneratePEMEncodedECDSAKeyPair(elliptic.P256(), cryptoutils.StaticPasswordFunc([]byte("pw")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COSIGN_PASSWORD", "pw")
+	_ = os.WriteFile(filepath.Join(dir, "cosign.key"), priv, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "cosign.pub"), pub, 0o600)
+	k, _ := cryptoutils.UnmarshalPEMToPublicKey(pub)
+	return k
+}
+
+// TestPublishRunsTheTools: publish builds with docker buildx and the declared
+// command, attaches the build's SBOM and signs every digest with sigstore-go,
+// so each verifies under the public key, then a second run signs nothing.
+func TestPublishRunsTheTools(t *testing.T) {
+	host, reg := publishRegistry(t)
+	f := &fakeRun{}
+	svc := publishService(f, reg)
+	dir := writePublishBundle(t, host, "")
+	pub := signingKey(t, dir)
+	res, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Revision: "r1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := []string{host + "/payments@" + res.Digests["api"], host + "/worker@" + res.Digests["worker"], host + "/worker@" + res.SBOMs["worker"],
+		host + "/deploy/payments@" + res.Digests["manifests"], host + "/pacto/payments@" + res.Digests[publish.BundleItem]}
+	for _, ref := range refs {
+		repo, digest, _ := strings.Cut(ref, "@")
+		if err := publish.VerifyDigest(t.Context(), reg, keyPolicy(pub), repo, digest); err != nil {
+			t.Errorf("%s: %v", ref, err)
+		}
+		independentlyVerified(t, dir, ref)
+	}
+	joined := strings.Join(f.calls, "\n")
+	for _, want := range []string{
+		"docker buildx build --output type=oci,dest=",
+		"--label org.opencontainers.image.version=1.0.0 --label org.opencontainers.image.revision=r1 --file Dockerfile --platform linux/amd64 .",
+		"./render.sh --flag",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("no call with %q in:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "cosign") {
+		t.Errorf("publish ran cosign:\n%s", joined)
+	}
+	again, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Revision: "r1"})
+	if err != nil || len(again.Actions) != 0 {
+		t.Fatalf("second run: %v %v", err, again.Actions)
+	}
+}
+
+// TestPublishAgainNeedsNoBuilderSignerOrCleanCheckout: once a version is
+// published, running publish again (to --propose it, say) writes nothing, so
+// it must not be refused for a missing buildx, a missing build program, an
+// uncommitted file or a missing keyless OIDC token. Those preflights guard
+// only what is still to build, sign or stamp.
+func TestPublishAgainNeedsNoBuilderSignerOrCleanCheckout(t *testing.T) {
+	host, reg := publishRegistry(t)
+	dir := writePublishBundle(t, host, "")
+	signingKey(t, dir)
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
+	if _, err := publishService(&fakeRun{}, reg).Publish(context.Background(), PublishOptions{Path: dir}); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeRun{fail: preflights[0], dirty: " M unrelated.txt\n"}
+	svc := publishService(f, reg)
+	svc.sys.lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	for _, plan := range []bool{true, false} {
+		res, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Plan: plan})
+		if err != nil || !res.Plan.Ready || res.Plan.Missing != 0 || len(res.Actions) != 0 {
+			t.Fatalf("plan=%v: %v %+v", plan, err, res)
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("a re-run asked buildx or git: %v", f.calls)
+	}
+	// Keyless with no token: nothing to sign, so the token is not asked for.
+	t.Setenv("SIGSTORE_ID_TOKEN", "")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
+	check := preflight(context.Background(), sysDeps{}, newExecTools(dir, nil, nil), dir, keyless, os.DirFS(dir), false, "")
+	for _, c := range check(publish.Plan{}) {
+		if !c.Passed {
+			t.Fatalf("nothing to write, yet %s failed: %s", c.Name, c.Message)
+		}
+	}
+	if c := check(publish.Plan{Missing: 1}); c[0].Passed {
+		t.Fatalf("something to sign with no token passed: %+v", c)
+	}
+}
+
+func keyPolicy(pub crypto.PublicKey) publish.BundleVerifier {
+	return bundleVerifier(signing.Policy{Key: pub})
+}
+
+// TestBundleVerifierReturnsTheSignedPredicate: the predicate type comes from
+// the signed statement, so an attestation by the right key over the right
+// digest is told apart from a signature whatever its referrer says.
+func TestBundleVerifierReturnsTheSignedPredicate(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	kp, _ := signing.FromPrivateKey(key)
+	d := sha256.Sum256([]byte("artifact"))
+	st := fmt.Appendf(nil, `{"_type":"https://in-toto.io/Statement/v1","subject":[{"digest":{"sha256":%q}}],"predicateType":"https://slsa.dev/provenance/v1","predicate":{}}`,
+		hex.EncodeToString(d[:]))
+	b, err := signing.Keyed(kp, "").Sign(t.Context(), "application/vnd.in-toto+json", st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt, err := keyPolicy(key.Public())(b, d[:]); err != nil || pt != "https://slsa.dev/provenance/v1" {
+		t.Fatalf("predicate %q %v", pt, err)
+	}
+	if _, err := keyPolicy(key.Public())(b, make([]byte, 32)); err == nil {
+		t.Fatal("verified over another digest")
+	}
+}
+
+// independentlyVerified checks ref with the cosign CLI when it is installed:
+// what Pacto signs verifies with standard tooling, as Flux's does. The kind
+// e2e runs it everywhere; here it is skipped without cosign.
+func independentlyVerified(t *testing.T, dir, ref string) {
+	t.Helper()
+	if _, err := exec.LookPath("cosign"); err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "cosign", "verify", "--key", filepath.Join(dir, "cosign.pub"),
+		"--insecure-ignore-tlog", "--allow-http-registry", ref).CombinedOutput()
+	if err != nil {
+		t.Errorf("cosign does not verify %s: %v\n%s", ref, err, out)
+	}
+}
+
+func TestPublishRefusals(t *testing.T) {
+	host, reg := publishRegistry(t)
+	ctx := context.Background()
+	f := &fakeRun{}
+	if _, err := publishService(f, reg).Publish(ctx, PublishOptions{Path: writeInvalidBundle(t)}); err == nil {
+		t.Fatal("an invalid contract is refused")
+	}
+	local := "dependencies: [{name: orders, ref: ../orders, required: true, compatibility: ^1.0.0}]\n"
+	res, err := publishService(f, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, local), Plan: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Plan.Ready || !slices.ContainsFunc(res.Plan.Checks, func(c publish.Check) bool { return c.Name == "references" && !c.Passed }) {
+		t.Fatalf("a local reference is a failed check: %+v", res.Plan.Checks)
+	}
+	withKey := writePublishBundle(t, host, "")
+	_ = os.WriteFile(filepath.Join(withKey, "cosign.key"), []byte("secret"), 0o600)
+	res, _ = publishService(f, reg).Publish(ctx, PublishOptions{Path: withKey, Plan: true})
+	if res.Plan.Ready || !slices.ContainsFunc(res.Plan.Checks, func(c publish.Check) bool { return c.Name == "signing key" && !c.Passed }) {
+		t.Fatalf("a signing key inside the bundle is a failed check: %+v", res.Plan.Checks)
+	}
+	if err := keyOutsideBundle(&contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = publishService(f, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
+	if res.Plan.Revision != "" || res.Plan.Ready {
+		t.Fatalf("no git revision: %+v", res.Plan)
+	}
+	noAbs := publishService(f, reg)
+	noAbs.sys.absPath = func(string) (string, error) { return "", errors.New("no cwd") }
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": commitA})
+	if res, _ = noAbs.Publish(ctx, PublishOptions{Path: dir, Plan: true}); res.Plan.Revision != "" {
+		t.Fatalf("an unresolvable path has no revision: %+v", res.Plan)
+	}
+}
+
+// pushImage pushes a random image and returns its repo@digest.
+func pushImage(t *testing.T, reg publish.Registry, repo string) string {
+	t.Helper()
+	img, _ := random.Image(32, 1)
+	d, err := reg.Write(t.Context(), repo, img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repo + "@" + d
+}
+
+// TestExecToolsSignKeyed: a key file and a KMS key sign once, keep a valid
+// signature, and a failing key or log surfaces.
+func TestExecToolsSignKeyed(t *testing.T) {
+	ctx := t.Context()
+	host, reg := publishRegistry(t)
+	dir := t.TempDir()
+	pub := signingKey(t, dir)
+	tools := newExecTools(dir, nil, reg)
+	off := false
+	key := contract.PublishSign{Key: "cosign.key", TransparencyLog: &off}
+	ref := pushImage(t, reg, host+"/app")
+	if err := tools.Verify(ctx, key, ref); err == nil {
+		t.Fatal("an unsigned digest verified")
+	}
+	if signed, err := tools.Sign(ctx, key, ref); err != nil || !signed {
+		t.Fatalf("sign: %v %v", signed, err)
+	}
+	if err := tools.Verify(ctx, key, ref); err != nil {
+		t.Fatalf("verify after signing: %v", err)
+	}
+	independentlyVerified(t, dir, ref)
+	if signed, err := tools.Sign(ctx, key, ref); err != nil || signed {
+		t.Fatalf("an existing signature is kept: %v %v", signed, err)
+	}
+	repo, digest, _ := strings.Cut(ref, "@")
+	if err := publish.VerifyDigest(ctx, reg, keyPolicy(pub), repo, digest); err != nil {
+		t.Fatalf("the key file's signature: %v", err)
+	}
+}
+
+func TestExecToolsSignKMS(t *testing.T) {
+	ctx := t.Context()
+	host, reg := publishRegistry(t)
+	tools := newExecTools(t.TempDir(), nil, reg)
+	off := false
+	ref := pushImage(t, reg, host+"/app")
+	kmsKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	sv, _ := signature.LoadSignerVerifier(kmsKey, crypto.SHA256)
+	loads := 0
+	kms.AddProvider("apptestkms://", func(context.Context, string, crypto.Hash, ...signature.RPCOption) (kms.SignerVerifier, error) {
+		loads++
+		return testKMS{sv}, nil
+	})
+	viaKMS := contract.PublishSign{KMS: "apptestkms://k", TransparencyLog: &off}
+	if signed, err := tools.Sign(ctx, viaKMS, ref); err != nil || !signed {
+		t.Fatalf("KMS sign: %v %v", signed, err)
+	}
+	if err := tools.Verify(ctx, viaKMS, ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tools.Sign(ctx, viaKMS, pushImage(t, reg, host+"/bpp")); err != nil {
+		t.Fatal(err)
+	}
+	if loads != 1 {
+		t.Fatalf("one run loaded the KMS key %d times, not once", loads)
+	}
+	repo, digest, _ := strings.Cut(ref, "@")
+	if err := publish.VerifyDigest(ctx, reg, keyPolicy(kmsKey.Public()), repo, digest); err != nil {
+		t.Fatalf("the KMS signature: %v", err)
+	}
+}
+
+func TestExecToolsSignFailures(t *testing.T) {
+	ctx := t.Context()
+	host, reg := publishRegistry(t)
+	dir := t.TempDir()
+	signingKey(t, dir)
+	tools := newExecTools(dir, nil, reg)
+	off := false
+	key := contract.PublishSign{Key: "cosign.key", TransparencyLog: &off}
+	ref := pushImage(t, reg, host+"/app")
+	for name, s := range map[string]contract.PublishSign{
+		"missing key": {Key: "/abs/missing", TransparencyLog: &off},
+		"no KMS":      {KMS: "nokms://k", TransparencyLog: &off},
+	} {
+		if _, err := tools.Sign(ctx, s, ref); err == nil {
+			t.Errorf("%s: signed", name)
+		}
+		if err := tools.Verify(ctx, s, ref); err == nil {
+			t.Errorf("%s: verified", name)
+		}
+	}
+	// The transparency log is on by default; a log that fails stops signing.
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadRequest) }))
+	defer down.Close()
+	old := rekorURL
+	rekorURL = down.URL
+	defer func() { rekorURL = old }()
+	if _, err := tools.Sign(ctx, contract.PublishSign{Key: "cosign.key"}, pushImage(t, reg, host+"/bpp")); err == nil {
+		t.Fatal("signed with the transparency log down")
+	}
+	if _, err := tools.Sign(ctx, key, "BAD REF@sha256:1"); err == nil {
+		t.Fatal("signed a broken reference")
+	}
+}
+
+// testKMS is a KMS provider backed by a local key.
+type testKMS struct{ signature.SignerVerifier }
+
+func (testKMS) CreateKey(context.Context, string) (crypto.PublicKey, error) { return nil, nil }
+func (testKMS) CryptoSigner(context.Context, func(error)) (crypto.Signer, crypto.SignerOpts, error) {
+	return nil, nil, nil
+}
+func (testKMS) SupportedAlgorithms() []string { return nil }
+func (testKMS) DefaultAlgorithm() string      { return "" }
+
+// TestExecToolsSignKeyless: keyless signing pins the configured identity and
+// issuer: the CI identity signs and verifies, another identity fails before
+// any tag, and an unreachable trusted root fails closed.
+func TestExecToolsSignKeyless(t *testing.T) {
+	ctx := t.Context()
+	host, reg := publishRegistry(t)
+	ss := sigtest.New(t)
+	oldRoot, oldF, oldR, oldT := publicGoodRoot, fulcioURL, rekorURL, tsaURL
+	defer func() { publicGoodRoot, fulcioURL, rekorURL, tsaURL = oldRoot, oldF, oldR, oldT }()
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return ss.Root, nil }
+	fulcioURL, rekorURL, tsaURL = ss.Fulcio, "", ss.TSA
+	t.Setenv("SIGSTORE_ID_TOKEN", sigtest.Token("ci@acme.example", "https://token.actions.githubusercontent.com"))
+	tools := newExecTools(t.TempDir(), nil, reg)
+	ci := contract.PublishSign{Keyless: true, Identity: "ci@acme.example", Issuer: "https://token.actions.githubusercontent.com"}
+	ref := pushImage(t, reg, host+"/app")
+	if signed, err := tools.Sign(ctx, ci, ref); err != nil || !signed {
+		t.Fatalf("keyless sign: %v %v", signed, err)
+	}
+	if err := tools.Verify(ctx, ci, ref); err != nil {
+		t.Fatal(err)
+	}
+	for name, s := range map[string]contract.PublishSign{
+		"identity": {Keyless: true, Identity: "mallory@acme.example", Issuer: ci.Issuer},
+		"issuer":   {Keyless: true, Identity: ci.Identity, Issuer: "https://evil.example"},
+	} {
+		if err := tools.Verify(ctx, s, ref); err == nil {
+			t.Errorf("another %s verified", name)
+		}
+	}
+	// A CI token for another identity signs, but its signature fails the
+	// pinned verify before any tag is written.
+	wrong := contract.PublishSign{Keyless: true, Identity: "release@acme.example", Issuer: ci.Issuer}
+	if _, err := tools.Sign(ctx, wrong, pushImage(t, reg, host+"/bpp")); err == nil ||
+		!strings.Contains(err.Error(), `identity "release@acme.example", issuer "https://token.actions.githubusercontent.com"`) {
+		t.Errorf("a signature by the wrong identity must fail: %v", err)
+	}
+	// A root from another Sigstore does not trust this one's certificates.
+	other := sigtest.New(t)
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return other.Root, nil }
+	tools = newExecTools(t.TempDir(), nil, reg) // a run caches the root it loaded
+	if err := tools.Verify(ctx, ci, ref); err == nil {
+		t.Error("verified under an untrusted root")
+	}
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return nil, errors.New("tuf down") }
+	tools = newExecTools(t.TempDir(), nil, reg)
+	if err := tools.Verify(ctx, ci, ref); err == nil || !strings.Contains(err.Error(), "trusted root") {
+		t.Errorf("no trusted root: %v", err)
+	}
+}
+
+// TestExecToolsSBOM: an SBOM is read only when this publish built its image
+// and the build wrote the file; a file left from an earlier build is refused.
+func TestExecToolsSBOM(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	tools := newExecTools(dir, (&fakeRun{}).run, nil)
+	build := func(sbom string) {
+		t.Helper()
+		a := contract.PublishArtifact{Name: "api", Type: contract.ArtifactImage, SBOM: sbom, Build: contract.PublishBuild{Command: []string{"./render.sh"}}}
+		if err := tools.Build(ctx, a, t.TempDir(), []string{"PACTO_OUT=" + t.TempDir()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stale := filepath.Join(dir, "stale.spdx.json")
+	_ = os.WriteFile(stale, []byte("{}"), 0o644)
+	if _, err := tools.SBOM("stale.spdx.json"); err == nil || !strings.Contains(err.Error(), "this publish did not build the image") {
+		t.Fatalf("an SBOM of an image this publish did not build: %v", err)
+	}
+	old := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(stale, old, old)
+	build("stale.spdx.json")
+	if _, err := tools.SBOM("stale.spdx.json"); err == nil || !strings.Contains(err.Error(), "before the build started") {
+		t.Fatalf("a stale SBOM must be refused: %v", err)
+	}
+	build("missing.spdx.json")
+	if _, err := tools.SBOM("missing.spdx.json"); err == nil {
+		t.Fatal("a missing SBOM file must fail")
+	}
+	abs := filepath.Join(t.TempDir(), "a.spdx.json")
+	build(abs)
+	_ = os.WriteFile(abs, []byte("{}"), 0o644)
+	if b, err := tools.SBOM(abs); err != nil || string(b) != "{}" {
+		t.Fatalf("an absolute SBOM path the build wrote: %q %v", b, err)
+	}
+}
+
+// TestSBOMsIgnored: an SBOM written inside the contract directory must be
+// left out by .pactoignore, itself or by its folder.
+func TestSBOMsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("x"), 0o644)
+	c := &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{
+		{Name: "api", SBOM: "out/api.spdx.json"}, {Name: "abs", SBOM: "/tmp/a.spdx.json"}, {Name: "up", SBOM: "../a.spdx.json"}, {Name: "none"}}}}
+	if err := sbomsIgnored(c, dir); err == nil || !strings.Contains(err.Error(), "add out/api.spdx.json to .pactoignore") {
+		t.Fatalf("an SBOM in the bundle: %v", err)
+	}
+	inside := &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{{Name: "in", SBOM: filepath.Join(dir, "sbom", "api.spdx.json")}}}}
+	if err := sbomsIgnored(inside, dir); err == nil || !strings.Contains(err.Error(), "add sbom/api.spdx.json to .pactoignore") {
+		t.Fatalf("an absolute SBOM path in the bundle: %v", err)
+	}
+	for _, ig := range []string{"out/\n", "*.spdx.json\n"} {
+		_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte(ig), 0o644)
+		if err := sbomsIgnored(c, dir); err != nil {
+			t.Fatalf("%q: %v", ig, err)
+		}
+	}
+	if err := sbomsIgnored(&contract.Contract{}, dir); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(filepath.Join(dir, ".pactoignore"))
+	_ = os.Mkdir(filepath.Join(dir, ".pactoignore"), 0o755)
+	if err := sbomsIgnored(c, dir); err == nil {
+		t.Fatal("an unreadable .pactoignore must fail")
+	}
+}
+
+func TestExecRun(t *testing.T) {
+	out, err := execRun(context.Background(), t.TempDir(), []string{"X=1"}, "sh", "-c", "echo $X")
+	if err != nil || strings.TrimSpace(string(out)) != "1" {
+		t.Fatalf("%q %v", out, err)
+	}
+	_, err = execRun(context.Background(), t.TempDir(), nil, "sh", "-c", "echo nope >&2; exit 3")
+	if err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("the error carries stderr: %v", err)
+	}
+	if long := tail(strings.Repeat("x", 3000)); len(long) > 2010 || !strings.HasPrefix(long, "…") {
+		t.Fatalf("tail: %d", len(long))
+	}
+	if defaultPublishRegistry() == nil {
+		t.Fatal("the default registry")
+	}
+}

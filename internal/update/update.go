@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,13 +65,14 @@ func (u *Updater) Update(currentVersion, targetVersion string) (*UpdateResult, e
 
 	// Fetch the published checksums so the downloaded binary can be verified
 	// before it replaces the running executable (supply-chain integrity).
-	expected, err := u.expectedChecksum(u.checksumsURL("TrianaLab/pacto", targetVersion), u.binaryAssetName())
+	asset := u.assetName("pacto")
+	expected, err := u.expectedChecksum(u.releaseAssetURL(pactoRepo, targetVersion, "checksums.txt"), asset)
 	if err != nil {
 		return nil, err
 	}
 
 	// Download, verify, and replace the binary.
-	if err := u.downloadAndReplace(u.buildDownloadURL(targetVersion), expected); err != nil {
+	if err := u.downloadAndReplace(u.releaseAssetURL(pactoRepo, targetVersion, asset), expected); err != nil {
 		return nil, err
 	}
 
@@ -169,20 +171,24 @@ func verifyChecksum(path, expectedHex string) error {
 	return nil
 }
 
-// binaryAssetName returns the release asset filename for the current platform,
-// matching the names produced by the release workflow (pacto_<os>_<arch>[.exe]).
-func (u *Updater) binaryAssetName() string {
+// pactoRepo is the GitHub repository pacto itself is released from.
+const pactoRepo = "TrianaLab/pacto"
+
+// assetName returns the release asset filename of the binary named prefix for
+// the current platform, matching the names the release workflows produce
+// (<prefix>_<os>_<arch>[.exe]).
+func (u *Updater) assetName(prefix string) string {
 	goos, goarch := u.platform()
 	ext := ""
 	if goos == "windows" {
 		ext = ".exe"
 	}
-	return fmt.Sprintf("pacto_%s_%s%s", goos, goarch, ext)
+	return fmt.Sprintf("%s_%s_%s%s", prefix, goos, goarch, ext)
 }
 
-// checksumsURL returns the URL of the checksums.txt asset for a release.
-func (u *Updater) checksumsURL(repo, tag string) string {
-	return fmt.Sprintf("%s/%s/releases/download/%s/checksums.txt", u.DownloadBaseURL, repo, tag)
+// releaseAssetURL returns the download URL of asset in repo's release tag.
+func (u *Updater) releaseAssetURL(repo, tag, asset string) string {
+	return fmt.Sprintf("%s/%s/releases/download/%s/%s", u.DownloadBaseURL, repo, tag, asset)
 }
 
 // expectedChecksum fetches the release checksums and returns the expected
@@ -238,35 +244,44 @@ func parseChecksums(s string) map[string]string {
 
 // validateRelease checks that a release with the given tag exists on GitHub.
 func (u *Updater) validateRelease(tag string) error {
-	url := fmt.Sprintf("%s/repos/TrianaLab/pacto/releases/tags/%s", u.APIBaseURL, tag)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := u.Client.Do(req)
+	url := fmt.Sprintf("%s/repos/%s/releases/tags/%s", u.APIBaseURL, pactoRepo, tag)
+	status, err := u.getGitHubJSON(url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to check release: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body) // drain body
-
-	if resp.StatusCode == http.StatusNotFound {
+	if status == http.StatusNotFound {
 		return fmt.Errorf("release %s not found", tag)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	if status != http.StatusOK {
+		return fmt.Errorf("GitHub API returned status %d", status)
 	}
 	return nil
 }
 
-// buildDownloadURL constructs the download URL for the platform binary.
-func (u *Updater) buildDownloadURL(tag string) string {
-	return fmt.Sprintf(
-		"%s/TrianaLab/pacto/releases/download/%s/%s",
-		u.DownloadBaseURL, tag, u.binaryAssetName(),
-	)
+// maxGitHubJSON bounds a GitHub API response body; a release document is a
+// few kilobytes, and GitHub caps a release's notes far below this.
+const maxGitHubJSON = 1 << 20
+
+// getGitHubJSON GETs a GitHub API url and returns the response status. On a
+// 200 it decodes the body, read through maxGitHubJSON, into v; any other
+// status, or a nil v, only drains the body.
+func (u *Updater) getGitHubJSON(url string, v any) (int, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := u.Client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body := io.LimitReader(resp.Body, maxGitHubJSON)
+	if resp.StatusCode != http.StatusOK || v == nil {
+		_, _ = io.Copy(io.Discard, body)
+		return resp.StatusCode, nil
+	}
+	return resp.StatusCode, json.NewDecoder(body).Decode(v)
 }
 
 // downloadBinary downloads the binary from the given URL into the writer using

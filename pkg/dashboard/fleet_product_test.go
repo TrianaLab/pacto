@@ -185,7 +185,9 @@ func TestProductEntityDetail_Ambiguous(t *testing.T) {
 func TestProductEndpoints_ProviderError(t *testing.T) {
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) {
 		return nil, fmt.Errorf("source down")
-	}, func(context.Context, string, string, bool) (*impact.Result, error) { return &impact.Result{}, nil })
+	}, func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
+		return &impact.Result{}, nil
+	})
 	defer cancel()
 	for _, path := range []string{
 		"/api/fleet/overview",
@@ -224,7 +226,7 @@ func TestProductImpactPost(t *testing.T) {
 	}
 	var gotOld, gotNew string
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil },
-		func(_ context.Context, oldRef, newRef string, _ bool) (*impact.Result, error) {
+		func(_ context.Context, _ *fleet.FleetSnapshot, oldRef, newRef string, _ bool) (*impact.Result, error) {
 			gotOld, gotNew = oldRef, newRef
 			return want, nil
 		})
@@ -286,7 +288,9 @@ func TestProductImpactPost_Errors(t *testing.T) {
 
 	// Snapshot mismatch is rejected rather than silently analyzing another state.
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil },
-		func(context.Context, string, string, bool) (*impact.Result, error) { return &impact.Result{}, nil })
+		func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
+			return &impact.Result{}, nil
+		})
 	defer cancel()
 	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: "stale-id", FromRevisionKey: revKey, ToRevisionKey: revKey}, http.StatusConflict, nil)
 
@@ -296,7 +300,7 @@ func TestProductImpactPost_Errors(t *testing.T) {
 
 	// An impact-provider error is mapped like the raw-ref endpoint.
 	baseErr, cancelErr := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil },
-		func(context.Context, string, string, bool) (*impact.Result, error) {
+		func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
 			return nil, &oci.InvalidRefError{Ref: "bad", Err: fmt.Errorf("parse")}
 		})
 	defer cancelErr()

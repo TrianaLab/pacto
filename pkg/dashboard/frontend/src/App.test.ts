@@ -110,3 +110,32 @@ describe('App — the global load on a large fleet', () => {
     unmount(app);
   });
 });
+
+describe('App — services hidden by Kubernetes permissions', () => {
+  beforeEach(() => {
+    for (const f of [servicesFn, sourcesFn, healthFn, capabilitiesFn]) f.mockReset();
+    servicesFn.mockResolvedValue([]);
+    sourcesFn.mockResolvedValue({ sources: [], discovering: false });
+    healthFn.mockResolvedValue({ version: 'x' });
+  });
+
+  async function noteFor(hash: string, hidden: boolean): Promise<string | null> {
+    capabilitiesFn.mockResolvedValue({ fleet: false, impact: false, delivery: true, auth: { mode: 'shared', login: true, signedIn: true, hidden } });
+    location.hash = hash;
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const app = mount(App, { target });
+    await vi.waitFor(() => expect(capabilitiesFn).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    const note = target.querySelector('[data-testid="hidden-by-permissions"]')?.textContent?.trim() ?? null;
+    unmount(app);
+    document.body.removeChild(target);
+    return note;
+  }
+
+  it('says some services are hidden, without naming them, outside the delivery views', async () => {
+    expect(await noteFor('#/', true)).toBe('Some services are hidden because your Kubernetes permissions do not let you read their namespace.');
+    expect(await noteFor('#/', false)).toBeNull();
+    expect(await noteFor('#/delivery/inbox', true)).toBeNull();
+  });
+});

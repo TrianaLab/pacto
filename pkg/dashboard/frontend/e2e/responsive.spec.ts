@@ -99,11 +99,60 @@ for (const w of WIDTHS) {
     test('Change analysis with populated selectors and results stays within the body', async ({ page }) => {
       await page.goto('/#/fleet/changes/payments-service');
       await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: 20_000 });
-      await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
-      await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
+      // The pickers read "1.0.0 · <short digest>": pick by version.
+      for (const [sel, v] of [['#impact-old-rev', '1.0.0'], ['#impact-new-rev', '2.0.1']]) {
+        // The options arrive with the revision list: wait for the one named.
+        const read = () => page.locator(`${sel} option`).evaluateAll(
+          (os, ver) => (os as HTMLOptionElement[]).find((o) => (o.textContent ?? '').startsWith(`${ver} `))?.value ?? '', v);
+        await expect.poll(read, { message: `no ${v} revision in ${sel}`, timeout: 20_000 }).not.toBe('');
+        await page.locator(sel).selectOption(await read());
+      }
       await page.getByRole('button', { name: /Compare revisions/ }).click();
       await expect(page.getByText('breaking', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+      // The long paths live in the folds: open them all before measuring.
+      await page.locator('details.ca-fold').evaluateAll((ds) => ds.forEach((d) => { (d as HTMLDetailsElement).open = true; }));
       expect(await bodyHasNoHorizontalOverflow(page), 'change analysis populated results (long paths)').toBe(true);
     });
   });
 }
+
+// Every navbar control stays on screen. The bar used to collapse only at 768px while
+// its full layout needed about 1,130px, so Refresh, Theme and Search were clipped and
+// unreachable in between, and a long version string pushed the menu button off a phone.
+for (const w of [390, 800, 1024, 1280]) {
+  test(`every navbar control is within the window @${w}px`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: 800 });
+    await page.goto('/#/fleet');
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
+    const outside = await page.evaluate(() => {
+      const bad: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>('.navbar a, .navbar button')) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || getComputedStyle(el).visibility === 'hidden') continue;
+        if (r.left < 0 || r.right > window.innerWidth + 1) bad.push(el.getAttribute('aria-label') || el.textContent?.trim() || el.tagName);
+      }
+      return bad;
+    });
+    expect(outside, `navbar controls off screen at ${w}px`).toEqual([]);
+  });
+}
+
+// At 390px every copy button and every filter chip's remove button stays on screen. A
+// long identifier used to push its copy button off the edge, and a long filter value
+// pushed its chip, and the × that removes it, past the window.
+test('copy and chip-remove buttons stay within the window @390px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const long = 'a-very-long-filter-value-that-keeps-going-well-past-the-edge-of-a-phone';
+  await page.goto(`/#/fleet/services?text=${long}&domain=${long}`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible({ timeout: 20_000 });
+  await page.goto('/#/fleet/services/payments-service');
+  await expect(page.locator('.ev-body')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('entity-identifier').locator('summary').click();
+  const off = async (sel: string) => page.evaluate((s) => [...document.querySelectorAll<HTMLElement>(s)]
+    .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && (r.left < 0 || r.right > window.innerWidth + 1); })
+    .map((b) => b.getAttribute('aria-label') || b.textContent || s), sel);
+  expect(await off('.copyable-btn')).toEqual([]);
+  await page.goto(`/#/fleet/services?text=${long}&domain=${long}`);
+  await expect(page.locator('.chip').first()).toBeVisible({ timeout: 20_000 });
+  expect(await off('.chip-x')).toEqual([]);
+});

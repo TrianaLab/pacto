@@ -22,7 +22,7 @@ plan() { node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv
 K8S_TAG="$(plan '.groups.kubernetes.tags[0]')"          # integrations/kubernetes/v6.0.0
 K8S_VER="${K8S_TAG##*/v}"                                # 6.0.0
 CORE_PIN="$(plan '.groups.kubernetes.goModPin.version')" # v4.0.0
-MODULE="github.com/trianalab/pacto/integrations/kubernetes/v6"
+MODULE="$(plan '.groups.kubernetes.artifacts.find((a) => a.unit === "k8s-module").coordinate')" # .../integrations/kubernetes/v6
 echo "consume ${MODULE}@v${K8S_VER} (tag ${K8S_TAG}); core pin ${CORE_PIN}"
 
 TMPGIT="$(mktemp)"; WORK="$(mktemp -d)"; MODCACHE="$(mktemp -d)"
@@ -44,18 +44,18 @@ mkdir -p "$WORK/consumer"
 cat > "$WORK/consumer/go.mod" <<EOF
 module pacto-k8s-consumer
 
-go 1.26.9
+go 1.26.10
 EOF
-cat > "$WORK/consumer/main.go" <<'EOF'
+cat > "$WORK/consumer/main.go" <<EOF
 // External consumer of the released Kubernetes integration module. It imports a
-// stable exported symbol from the api/v1alpha1 package to prove the /v6 module
+// stable exported symbol from the api/v1alpha1 package to prove the module
 // resolves and compiles for an outside user.
 package main
 
 import (
 	"fmt"
 
-	apiv1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	apiv1alpha1 "${MODULE}/api/v1alpha1"
 )
 
 func main() {

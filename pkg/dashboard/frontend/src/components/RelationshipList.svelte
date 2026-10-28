@@ -98,8 +98,8 @@
   .rel-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .rel-item { display: flex; flex-direction: column; gap: var(--sp-1); }
   .rel { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .rel-word { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
-  .rel-prov { font-size: var(--text-xs); color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.03em; }
+  .rel-word { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+  .rel-prov { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .rel-stale { font-size: var(--text-xs); color: var(--c-warn); }
   /* The declared claim reads as label/value pairs so the meaning of "Yes" or
      "^1.2.0" survives a screen reader and a 320px viewport, where a table would
@@ -110,7 +110,7 @@
     border-left: 2px solid var(--c-border);
     font-size: var(--text-xs);
   }
-  .rel-claim dt { color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.03em; }
+  .rel-claim dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .rel-claim dd { margin: 0 var(--sp-2) 0 0; color: var(--c-text-2); word-break: break-all; }
   .rel-claim code { font-size: inherit; }
   .rel-more { margin: 0 0 0 var(--sp-3); font-size: var(--text-xs); color: var(--c-text-3); }

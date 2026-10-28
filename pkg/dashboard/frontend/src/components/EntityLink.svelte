@@ -6,7 +6,8 @@
   // href the product API already built from the exact key (ProductRef.href); only
   // when a ref lacks one does it fall back to the centralized (kind, key) builder.
   // No component assembles a /fleet/... path itself.
-  let { ref = {}, showStatus = true, showKind = true } = $props();
+  // children: extra cells a list row puts inside the same link (an owner, a count).
+  let { ref = {}, showStatus = true, showKind = true, children = undefined } = $props();
 
   const href = $derived(
     ref.href ? hashForHref(ref.href) : (ref.kind && ref.key ? fleetEntityUrl(ref.kind, ref.key) : '#/fleet'),
@@ -14,7 +15,7 @@
 </script>
 
 <a class="entity-link" {href}>
-  <EntityIdentity {ref} {showStatus} {showKind} />
+  <EntityIdentity {ref} {showStatus} {showKind} />{@render children?.()}
 </a>
 
 <style>

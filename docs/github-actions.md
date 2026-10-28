@@ -116,8 +116,8 @@ Give the step an `id` to read its outputs.
 
 `has-breaking-changes` is set from the CLI exit code. `pacto diff` exits non-zero
 on a `BREAKING` classification, so a `POTENTIAL_BREAKING` result reads `"false"`.
-A diff that fails to run — an unresolvable reference, an unparseable contract —
-also exits non-zero and so also reads `"true"`; check the step log before treating
+A diff that fails to run, for example on an unresolvable reference or an
+unparseable contract, also exits non-zero and so also reads `"true"`; check the step log before treating
 it as a contract verdict. The output is written whether or not
 `fail-on-breaking` stops the step, so you can gate on it yourself:
 

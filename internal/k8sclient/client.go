@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
@@ -20,26 +21,27 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// PactoGroup is the API group of the operator's Pacto CRD.
+const PactoGroup = "pacto.trianalab.io"
+
+// PactosGVR is the operator's Pacto resource at the version it serves, for
+// callers that read it directly rather than through DiscoverCRD.
+var PactosGVR = schema.GroupVersionResource{Group: PactoGroup, Version: "v1alpha1", Resource: "pactos"}
+
 // K8sClient abstracts the Kubernetes API operations Pacto needs to read Pacto
 // CRD status.
 type K8sClient interface {
-	// Probe checks if the Kubernetes cluster is reachable.
-	Probe(ctx context.Context) error
 	// DiscoverCRD discovers the Pacto CRD group, version, and resource name.
 	DiscoverCRD(ctx context.Context) (*CRDDiscovery, error)
-	// ListJSON returns the raw JSON of all Pacto CRD resources.
-	ListJSON(ctx context.Context, resource, namespace string) ([]byte, error)
-	// CountResources returns the number of Pacto CRD resources.
-	CountResources(ctx context.Context, resource, namespace string) (int, error)
+	// ListJSON returns the raw JSON of all resources of the CRD DiscoverCRD found.
+	ListJSON(ctx context.Context, crd CRDDiscovery, namespace string) ([]byte, error)
 }
 
 // CRDDiscovery holds the result of discovering the Pacto CRD on the cluster.
 type CRDDiscovery struct {
 	Found        bool
-	Group        string
-	Versions     []string
 	Version      string // preferred or first version
-	ResourceName string
+	ResourceName string // never empty when Found
 }
 
 // builders are the client-go constructors a client is assembled from. The
@@ -78,8 +80,6 @@ func CurrentKubeContext() string {
 type k8sGoClient struct {
 	discovery discovery.DiscoveryInterface
 	dynamic   dynamic.Interface
-	group     string
-	version   string // set after DiscoverCRD
 }
 
 // NewGoClient constructs a cluster-backed K8sClient from in-cluster config or
@@ -108,7 +108,6 @@ func (b builders) goClient() (K8sClient, error) {
 	return &k8sGoClient{
 		discovery: disc,
 		dynamic:   dyn,
-		group:     "pacto.trianalab.io",
 	}, nil
 }
 
@@ -132,13 +131,8 @@ func (b builders) config() (*rest.Config, error) {
 	return config, nil
 }
 
-func (c *k8sGoClient) Probe(ctx context.Context) error {
-	_, err := c.discovery.ServerVersion()
-	return err
-}
-
 func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
-	result := &CRDDiscovery{Group: c.group}
+	result := &CRDDiscovery{}
 
 	groups, _, err := c.discovery.ServerGroupsAndResources()
 	if err != nil {
@@ -146,17 +140,14 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 	}
 
 	for _, g := range groups {
-		if g.Name != c.group {
+		if g.Name != PactoGroup {
 			continue
 		}
 		result.Found = true
-		for _, v := range g.Versions {
-			result.Versions = append(result.Versions, v.Version)
-		}
 		if g.PreferredVersion.Version != "" {
 			result.Version = g.PreferredVersion.Version
-		} else if len(result.Versions) > 0 {
-			result.Version = result.Versions[0]
+		} else if len(g.Versions) > 0 {
+			result.Version = g.Versions[0].Version
 		}
 		break
 	}
@@ -166,7 +157,7 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 	}
 
 	// Discover the resource name for the CRD.
-	gv := c.group + "/" + result.Version
+	gv := PactoGroup + "/" + result.Version
 	resources, err := c.discovery.ServerResourcesForGroupVersion(gv)
 	if err != nil {
 		return result, fmt.Errorf("listing resources for %s: %w", gv, err)
@@ -182,24 +173,11 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 		result.ResourceName = "pactos" // fallback
 	}
 
-	c.version = result.Version
 	return result, nil
 }
 
-func (c *k8sGoClient) gvr(resource string) schema.GroupVersionResource {
-	version := c.version
-	if version == "" {
-		version = "v1alpha1"
-	}
-	return schema.GroupVersionResource{
-		Group:    c.group,
-		Version:  version,
-		Resource: resource,
-	}
-}
-
-func (c *k8sGoClient) ListJSON(ctx context.Context, resource, namespace string) ([]byte, error) {
-	gvr := c.gvr(resource)
+func (c *k8sGoClient) ListJSON(ctx context.Context, crd CRDDiscovery, namespace string) ([]byte, error) {
+	gvr := schema.GroupVersionResource{Group: PactoGroup, Version: crd.Version, Resource: crd.ResourceName}
 	var list any
 	var err error
 	if namespace != "" {
@@ -211,25 +189,6 @@ func (c *k8sGoClient) ListJSON(ctx context.Context, resource, namespace string) 
 		return nil, err
 	}
 	return json.Marshal(list)
-}
-
-func (c *k8sGoClient) CountResources(ctx context.Context, resource, namespace string) (int, error) {
-	gvr := c.gvr(resource)
-	var err error
-	if namespace != "" {
-		list, e := c.dynamic.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
-		err = e
-		if err == nil {
-			return len(list.Items), nil
-		}
-	} else {
-		list, e := c.dynamic.Resource(gvr).List(ctx, metav1.ListOptions{})
-		err = e
-		if err == nil {
-			return len(list.Items), nil
-		}
-	}
-	return 0, err
 }
 
 // NewDynamic returns a dynamic client from in-cluster config or the ambient
@@ -244,4 +203,32 @@ func (b builders) newDynamic() (dynamic.Interface, error) {
 		return nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
 	return b.dynamic(config)
+}
+
+// Config is the cluster config from in-cluster config or the ambient
+// kubeconfig, with the process's own credentials.
+func Config() (*rest.Config, error) {
+	return defaultBuilders().config()
+}
+
+// Served reports whether the cluster serves the API group version gv,
+// asked with config's own credentials through discovery. Only a NotFound
+// means not served; any other failure is an error, so an unreachable
+// cluster is never mistaken for one without the API.
+func Served(config *rest.Config, gv string) (bool, error) {
+	return defaultBuilders().served(config, gv)
+}
+
+func (b builders) served(config *rest.Config, gv string) (bool, error) {
+	d, err := b.discovery(config)
+	if err != nil {
+		return false, err
+	}
+	switch _, err = d.ServerResourcesForGroupVersion(gv); {
+	case apierrors.IsNotFound(err):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return true, nil
 }

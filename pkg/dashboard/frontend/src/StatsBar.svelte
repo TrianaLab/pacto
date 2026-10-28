@@ -1,5 +1,6 @@
 <script>
-  import { ownerMatchesFilter, countHighImpact } from './lib/format.ts';
+  import { countHighImpact, formatCount } from './lib/format.ts';
+  import { ownerMatchesFilter } from './lib/owners.ts';
 
   let { services = [], statusFilter = $bindable('all'), sourceFilter = $bindable('all'), nameFilter = $bindable('') } = $props();
 
@@ -83,8 +84,8 @@
           class:dimmed={statusFilter !== 'all' && statusFilter !== seg.status}
           style="width:{Math.max(seg.pct, 2)}%; background:{seg.color}"
           onclick={() => toggleStatus(seg.status)}
-          data-tip="{seg.label}: {seg.tip} ({seg.count})"
-          aria-label="Filter by {seg.label} ({seg.count})"
+          data-tip="{seg.label}: {seg.tip} ({formatCount(seg.count)})"
+          aria-label="Filter by {seg.label} ({formatCount(seg.count)})"
         ></button>
       {/each}
     </div>
@@ -92,12 +93,12 @@
     <!-- Status pills -->
     <div class="filter-row">
       <button type="button" class="filter-pill" class:active={statusFilter === 'all'} onclick={() => statusFilter = 'all'} data-tip="Show all services regardless of contract status">
-        All <span class="filter-count">{stats.total}</span>
+        All <span class="filter-count">{formatCount(stats.total)}</span>
       </button>
       {#each barSegments as seg}
         <button type="button" class="filter-pill" class:active={statusFilter === seg.status} onclick={() => toggleStatus(seg.status)} data-tip={seg.tip}>
           <span class="filter-dot" style="background:{seg.color}"></span>
-          {seg.label} <span class="filter-count">{seg.count}</span>
+          {seg.label} <span class="filter-count">{formatCount(seg.count)}</span>
         </button>
       {/each}
 
@@ -113,9 +114,9 @@
 
       {#if highBlastCount > 0}
         <span class="filter-sep"></span>
-        <span class="blast-summary" data-tip="{highBlastCount} service{highBlastCount !== 1 ? 's' : ''} with blast radius of 3 or more">
+        <span class="blast-summary" data-tip="{formatCount(highBlastCount)} service{highBlastCount !== 1 ? 's' : ''} with blast radius of 3 or more">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity="0.4"/><circle cx="12" cy="12" r="11" opacity="0.2"/></svg>
-          {highBlastCount} high impact
+          {formatCount(highBlastCount)} high impact
         </span>
       {/if}
       <span class="filter-sep"></span>
@@ -162,7 +163,7 @@
   .filter-sep {
     width: 1px; height: 18px; background: var(--c-border); margin: 0 var(--sp-1);
   }
-  .filter-pill-source { text-transform: uppercase; font-size: var(--text-xs); font-weight: 600; }
+  .filter-pill-source { font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .filter-search {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 4px 10px; border-radius: 100px;

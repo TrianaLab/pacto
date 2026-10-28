@@ -6,12 +6,14 @@
   import { kindLabel } from '../lib/entityLabels.ts';
   import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, hashForHref } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
+  import { postureAnswer, revisionAnswer } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import PageToc from '../components/PageToc.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ServiceEntity from './entity/ServiceEntity.svelte';
   import RevisionEntity from './entity/RevisionEntity.svelte';
@@ -57,6 +59,16 @@
   // every page since stale-while-revalidate landed; the header is the first thing to
   // actually say it, in words rather than by spinning something.
   const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
+
+  // The one-line answer under the title: is this service or owner estate broken, is
+  // this revision valid and ready. Kinds without a single question get none.
+  const entityAnswer = $derived.by(() => {
+    if (!detail) return null;
+    if (detail.service) return postureAnswer(detail.service.summary, knowledge.incomplete, detail.service.ownership?.conflicts?.total ?? 0);
+    if (detail.owner) return postureAnswer(detail.owner.summary, knowledge.incomplete);
+    if (detail.revision) return revisionAnswer(detail.revision);
+    return null;
+  });
 
   // Entity-relationship breadcrumbs from canonical DTO refs; a minimal
   // trail while loading/erroring.
@@ -125,6 +137,11 @@
     <div class="page-toc-layout">
       <PageToc />
       <div class="page-toc-main ev-body">
+      <!-- The answer heads the content column, so the contents rail starts right under
+           the page title and stays above the fold. -->
+      {#if entityAnswer}
+        <p class="page-answer t-body ev-answer tone-{entityAnswer.tone}" data-testid="entity-answer"><strong>{entityAnswer.lead}</strong> {entityAnswer.rest}</p>
+      {/if}
       <!-- Uncertainty and failed refreshes come FIRST and are never collapsible: they
            qualify everything below them, so a reader who stops after the first screen
            must still have seen them. -->
@@ -148,26 +165,37 @@
           <span class="ev-key-label">Canonical key</span>
           <CopyableIdentifier value={detail.entity.key} />
         </div>
-        <p class="ev-key-hint">The identity Pacto uses for this {kindLabel(kind).toLowerCase()} everywhere — in the API, the CLI and shared links.</p>
+        <p class="ev-key-hint">The identity Pacto uses for this {kindLabel(kind).toLowerCase()} everywhere: in the API, the CLI and shared links.</p>
       </details>
 
-      {#if detail.service}
-        <ServiceEntity {detail} />
-      {:else if detail.revision}
-        <RevisionEntity {detail} />
-      {:else if detail.target}
-        <TargetEntity {detail} />
-      {:else if detail.owner}
-        <OwnerEntity {detail} />
-      {:else if detail.source}
-        <SourceEntity {detail} />
-      {/if}
+      <!-- One malformed record (a duplicate key, a field of the wrong shape) must cost
+           this body, not the page: without a boundary it left the skeleton up for ever. -->
+      <svelte:boundary>
+        {#if detail.service}
+          <ServiceEntity {detail} />
+        {:else if detail.revision}
+          <RevisionEntity {detail} />
+        {:else if detail.target}
+          <TargetEntity {detail} />
+        {:else if detail.owner}
+          <OwnerEntity {detail} />
+        {:else if detail.source}
+          <SourceEntity {detail} />
+        {/if}
+        {#snippet failed(err, reset)}
+          <EmptyState error title={`Couldn’t show this ${kindLabel(kind).toLowerCase()}`} message="Part of its record could not be drawn. Refresh to try again." onRetry={reset} />
+        {/snippet}
+      </svelte:boundary>
       </div>
     </div>
   {/if}
 </div>
 
 <style>
+  /* The answer's lead word carries the tone; the words say it too (WCAG 1.4.1). */
+  .ev-answer.tone-err strong { color: var(--c-err); }
+  .ev-answer.tone-warn strong { color: var(--c-warn); }
+  .ev-answer.tone-ok strong { color: var(--c-ok); }
   /* The resolved page. Its own element (rather than a bare fragment) is what lets a
      test say "the entity BODY is on screen" without that also being true while the
      page header is still waiting for the request. The column layout comes from the
@@ -175,6 +203,6 @@
   .ev-body { gap: var(--sp-4); }
   /* Look and behaviour come from the shared .disclosure class in styles/components.css. */
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .ev-key-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .ev-key-label { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .ev-key-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
 </style>

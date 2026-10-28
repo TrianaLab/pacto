@@ -49,6 +49,17 @@ function targetDetail(): Record<string, any> {
  * the entity key. A test that waited for "payments" to appear therefore resolved
  * against the loading shell and then asserted on a body that did not exist yet.
  */
+/** A closed section mounts nothing: open every disclosure, as a reader looking would. */
+function openAll(target: HTMLElement) {
+  for (let pass = 0; pass < 4; pass++) {
+    target.querySelectorAll('details:not([open])').forEach((d) => {
+      (d as HTMLDetailsElement).open = true;
+      d.dispatchEvent(new Event('toggle'));
+    });
+    flushSync();
+  }
+}
+
 async function mountView(kind: string, key: string) {
   const target = document.createElement('div');
   document.body.appendChild(target);
@@ -276,6 +287,26 @@ describe('FleetEntityView — rich service page (D)', () => {
     };
   }
 
+  it('gives operational targets the full width and clips their names, but lets revision names wrap', async () => {
+    detailFn.mockResolvedValue(serviceDetail());
+    const { target, component } = await mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.textContent).toContain('Operational targets'));
+    const listUnder = (title: string) => Array.from(target.querySelectorAll('h2, h3')).find((h) => h.textContent?.trim().startsWith(title))!
+      .closest('[data-testid="preview-section"]')!.querySelector('.ref-list')!;
+    const targets = listUnder('Operational targets');
+    // Full width: outside the card grids, so a long target name is not cut into four lines.
+    expect(targets.closest('.se-grid')).toBeNull();
+    expect(targets.classList.contains('ref-clip')).toBe(true);
+    // The whole name stays in the title of the clipped label.
+    expect(targets.querySelector('.ei-label')?.getAttribute('title')).toBeTruthy();
+    // A revision's version is at the end of its name, so revision lists never clip.
+    const revisions = listUnder('All revisions');
+    expect(revisions.classList.contains('ref-clip')).toBe(false);
+    // Full width too: a long service name in a third of the page was four lines a revision.
+    expect(revisions.closest('.se-grid')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('names the other end of every relationship, never the service you are already on', async () => {
     // A service's edges run both ways. Rendering a fixed end made an inbound edge read
     // as the service depending on ITSELF, and two edges with the same counterpart became
@@ -293,6 +324,7 @@ describe('FleetEntityView — rich service page (D)', () => {
     detailFn.mockResolvedValue(d);
     const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic'));
+    openAll(target);
     const rows = Array.from(target.querySelectorAll('.rel'));
     expect(rows.map((r) => r.querySelector('.rel-word')?.textContent)).toEqual(['Depends on', 'Used by']);
     for (const r of rows) {
@@ -314,6 +346,7 @@ describe('FleetEntityView — rich service page (D)', () => {
     detailFn.mockResolvedValue(d);
     const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic'));
+    openAll(target);
     expect(target.querySelector('.rel-prov')?.textContent).toBe('Expected');
     unmount(component); document.body.removeChild(target);
   });
@@ -349,6 +382,29 @@ describe('FleetEntityView — rich service page (D)', () => {
     // a revision row links via the canonical href
     const link = Array.from(target.querySelectorAll('a.entity-link')).find((a) => a.getAttribute('href')?.includes('/fleet/revisions/')) as HTMLAnchorElement;
     expect(link).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('counts the neighbours Kubernetes permissions hide, without naming them', async () => {
+    const sd = serviceDetail();
+    sd.service.dependencies = { total: 0, count: 0, truncated: false, items: [] };
+    sd.service.dependents = { total: 1, count: 1, truncated: false, items: [ref('service', 'domain-a/web')] };
+    sd.service.hiddenDependencies = 2;
+    sd.service.hiddenDependents = 1;
+    detailFn.mockResolvedValue(sd);
+    const { target, component } = await mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.textContent).toContain('Expected dependencies'));
+    for (const d of Array.from(target.querySelectorAll('details'))) {
+      if (/Expected dependencies|Dependents/.test(d.querySelector('summary')?.textContent ?? '')) {
+        d.open = true;
+        d.dispatchEvent(new Event('toggle'));
+      }
+    }
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="hidden-dependents"]')).toBeTruthy());
+    const text = target.textContent || '';
+    expect(text).toContain('2 services hidden by your Kubernetes permissions.');
+    expect(text).not.toContain('No declared dependencies.');
+    expect(target.querySelector('[data-testid="hidden-dependents"]')?.textContent).toBe('Plus 1 service hidden by your Kubernetes permissions.');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -412,10 +468,11 @@ describe('FleetEntityView — rich revision page (E)', () => {
     await vi.waitFor(() => expect(target.textContent).toContain('2.1.0'));
     const text = target.textContent || '';
     expect(text).toContain('Readiness');
-    expect(text).toContain('Interfaces');
+    // No interfaces in this fixture: one line says so instead of an empty card.
+    expect(text).toContain('Declares no interfaces');
     expect(text).toContain('Running here (exact match)');
     // Readiness must be legible as DECLARED preparedness, never read as a runtime result.
-    expect(text).toMatch(/not a measurement of the running system/i);
+    expect(text).toMatch(/read from its contract/i);
     // parent service is a link
     expect(Array.from(target.querySelectorAll('a.entity-link')).some((a) => a.getAttribute('href') === '#/fleet/services/domain-a%2Fpayments')).toBe(true);
     unmount(component); document.body.removeChild(target);
@@ -438,7 +495,7 @@ describe('FleetEntityView — rich revision page (E)', () => {
     const text = target.textContent || '';
     expect(text).toContain('Not declared');
     // "Nothing declared" and "declared and failing" must not read as the same state.
-    expect(text).toMatch(/not the same as failing/i);
+    expect(text).toMatch(/nothing to pass or fail/i);
     expect(text).not.toMatch(/not passing/i);
     unmount(component); document.body.removeChild(target);
   });
@@ -499,7 +556,7 @@ describe('FleetEntityView — rich target page honesty (F)', () => {
     expect(text).toMatch(/more than one known revision matches/i);
     expect(text).toMatch(/cannot say which one is running/i);
     // ...and it never lets "we cannot see it" read as "nothing is there".
-    expect(text).toMatch(/Something IS running/);
+    expect(text).toMatch(/Something is running here/);
     // the "Running revision"/"Inferred revision" authoritative label must NOT appear
     expect(text).not.toContain('Running revision');
     expect(text).not.toContain('Inferred revision');
@@ -699,6 +756,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     });
     const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed runtime'));
+    openAll(target);
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     expect(text).not.toContain('200 of 400'); // scanned is NOT the total
     expect(text).not.toContain('200 of 200'); // count is NOT the total
@@ -737,6 +795,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     });
     const { target, component } = await mountView('revision', 'domain-a/app@sha256:1');
     await vi.waitFor(() => expect(target.textContent).toContain('Readiness checks'));
+    openAll(target);
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     // Ownership rendered (not just a count).
     expect(text).toContain('platform');
@@ -771,6 +830,9 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     });
     const { target, component } = await mountView('service', 'domain-a/app');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic and differences'));
+    // The section is folded on a detail page; open it as a reader would.
+    target.querySelectorAll('details:not([open])').forEach((d) => { (d as HTMLDetailsElement).open = true; d.dispatchEvent(new Event('toggle')); });
+    flushSync();
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     expect(text).not.toContain('200 of 200');
     expect(text).toContain('Showing 200. More exist; total unknown.');

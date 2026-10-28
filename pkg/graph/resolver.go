@@ -79,10 +79,13 @@ type Node struct {
 	FS           fs.FS              `json:"-"`
 }
 
-// EdgeType distinguishes dependency vs reference relationships.
+// EdgeType distinguishes dependency vs reference relationships. An external
+// edge is an external dependency with no contract (no ref): nothing to fetch,
+// only the name and free-text version it declares.
 const (
 	EdgeDependency = "dependency"
 	EdgeReference  = "reference"
+	EdgeExternal   = "external"
 )
 
 // Edge represents a dependency or reference relationship.
@@ -90,11 +93,16 @@ type Edge struct {
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility"`
-	Type          string `json:"type"` // EdgeDependency or EdgeReference
-	Node          *Node  `json:"node,omitempty"`
-	Error         string `json:"error,omitempty"`
-	Shared        bool   `json:"shared,omitempty"`
-	Local         bool   `json:"local,omitempty"`
+	Type          string `json:"type"` // EdgeDependency, EdgeReference or EdgeExternal
+	// External marks a dependency this Pacto system does not deliver. Name and
+	// Version are set on an EdgeExternal only, which has no Node.
+	External bool   `json:"external,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Version  string `json:"version,omitempty"`
+	Node     *Node  `json:"node,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Shared   bool   `json:"shared,omitempty"`
+	Local    bool   `json:"local,omitempty"`
 
 	// key identifies the node this edge points at. A Shared edge carries only a
 	// shallow copy of that node, so the cycle pass needs the identity to find the
@@ -266,6 +274,9 @@ func (r *resolver) resolveChildren(ctx context.Context, deps []contract.Dependen
 // resolveEdge resolves a single dependency edge, recursing into its dependencies.
 // base is the declaring contract's base; dep.Ref is resolved against it.
 func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, base string, path []string) Edge {
+	if dep.Ref == "" {
+		return Edge{Type: EdgeExternal, External: true, Name: dep.Name, Version: dep.Version, Required: dep.Required}
+	}
 	local := ParseDependencyRef(dep.Ref).IsLocal()
 	edge := Edge{
 		Ref:           dep.Ref,
@@ -273,6 +284,7 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, bas
 		Compatibility: dep.Compatibility,
 		Type:          EdgeDependency,
 		Local:         local,
+		External:      dep.External,
 	}
 
 	if r.fetch == nil {

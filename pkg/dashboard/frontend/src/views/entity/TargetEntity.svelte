@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../../lib/format.ts';
   import {
     linkStateLabel, linkStateTone, retrievabilityLabel, retrievabilityTone,
   } from '../../lib/entityLabels.ts';
@@ -8,7 +9,7 @@
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import FindingList from '../../components/FindingList.svelte';
-  import LimitationsList from '../../components/LimitationsList.svelte';
+  import LimitationsSection from '../../components/LimitationsSection.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
   import { fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
 
@@ -75,7 +76,7 @@
       {:else}
         Nothing we observed here ties back to a known revision, so we cannot say which one is running.
       {/if}
-      Something IS running — this is a gap in what we can see, not an empty target.
+      Something is running here. The gap is in what Pacto can see.
     </div>
   {/if}
 
@@ -144,8 +145,8 @@
         <h2 class="t-section-title">Reported readiness</h2>
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
       </div>
-      <p class="te-note t-body-2">Reported by the source observing this target — not the revision's declared gate.</p>
-      <p class="te-rr-line t-body">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.expired ? ' · expired' : ''}</p>
+      <p class="te-note t-body-2">Reported by the source observing this target. The revision page shows its declared gate.</p>
+      <p class="te-rr-line t-body">Score {r.score} / {r.minScore} required · {formatCount(r.doneCount)} done · {formatCount(r.partialCount)} partial · {formatCount(r.notDoneCount)} not done{r.expired ? ' · expired' : ''}</p>
     </section>
   {/if}
 
@@ -158,16 +159,12 @@
       viewAllHref={serviceGraphHref}
       viewAllLabel="Explore in graph"
     >
-      <p class="te-note t-body-2">Observed for the whole service. Nothing we collect attributes traffic to one target, so these edges are not evidence about this instance specifically.</p>
+      <p class="te-note t-body-2">Observed for the whole service. Nothing we collect attributes traffic to one target, so these edges describe the service as a whole.</p>
       <RelationshipList items={d.serviceRelationships?.items ?? []} selfKey={d.service?.key ?? ''} />
     </PreviewSection>
   {/if}
 
-  {#if (d.limitations?.count ?? 0) > 0}
-    <PreviewSection title="Limitations" tone="warn" collapsible open={false} summary="What Pacto could not determine" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
-      <LimitationsList items={d.limitations?.items ?? []} />
-    </PreviewSection>
-  {/if}
+  <LimitationsSection page={d.limitations} />
 </div>
 
 <style>
@@ -176,7 +173,7 @@
   .te-dim { display: flex; flex-direction: column; gap: var(--sp-1); }
   .te-facts { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .te-fact, .te-rev { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .te-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .te-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .te-rev-unresolved { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); background: var(--c-surface-inset); border: 1px solid var(--c-border); color: var(--c-text-2); font-size: var(--text-sm); }
   .te-runtime { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .te-runtime li { display: flex; gap: var(--sp-3); font-size: var(--text-sm); }

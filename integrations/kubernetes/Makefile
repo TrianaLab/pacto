@@ -98,8 +98,9 @@ help: ## Display this help.
 .PHONY: check-dashboard-image
 check-dashboard-image:
 	@if [ -z "$(PACTO_VERSION)" ]; then \
-		echo "Error: Could not resolve Pacto version from go.mod." >&2; \
-		echo "       Ensure 'github.com/trianalab/pacto' is listed in go.mod and 'go list -m' works." >&2; \
+		echo "Error: Could not resolve the dashboard image version." >&2; \
+		echo "       In the monorepo it comes from release/release-manifest.json (units.dashboard-image.version);" >&2; \
+		echo "       in a standalone checkout from 'go list -m github.com/trianalab/pacto/v4'." >&2; \
 		exit 1; \
 	fi
 	@echo "Dashboard image: $(DASHBOARD_IMG)"
@@ -114,20 +115,23 @@ run-with-dashboard: manifests generate fmt vet check-dashboard-image ## Run the 
 
 ##@ Development — Local Kubernetes
 
-# deploy-local and deploy-local-with-dashboard work with any kube context
-# (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load`
-# first so the image is available inside the cluster.
+# deploy-local and deploy-local-with-dashboard install the Helm chart (the one
+# supported install path, CRDs included) into any kube context (Docker Desktop,
+# minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image
+# is available inside the cluster.
 
 KIND_CLUSTER ?= pacto-operator-dev
 
 .PHONY: deploy-local
-deploy-local: docker-build install deploy ## Build image, install CRDs, and deploy the operator to the current kube context.
+deploy-local: docker-build ## Build image and install or upgrade the Helm chart (dashboard disabled) in the current kube context.
+	helm upgrade --install $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS) --set dashboard.enabled=false
 	@echo ""
 	@echo "Operator deployed (dashboard disabled)."
 	@echo "Image: $(IMG)"
 
 .PHONY: deploy-local-with-dashboard
-deploy-local-with-dashboard: check-dashboard-image docker-build install deploy-with-dashboard-args ## Build image, install CRDs, and deploy the operator with dashboard to the current kube context.
+deploy-local-with-dashboard: check-dashboard-image docker-build ## Build image and install or upgrade the Helm chart with the dashboard in the current kube context.
+	helm upgrade --install $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS) --set dashboard.enabled=true
 	@echo ""
 	@echo "Operator deployed (dashboard enabled)."
 	@echo "Image: $(IMG)"
@@ -138,27 +142,20 @@ kind-load: ## Load the controller image into the active Kind cluster (run before
 	$(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER)
 
 .PHONY: deploy-kind
-deploy-kind: docker-build kind-load install deploy ## Build, load into Kind, install CRDs, and deploy the operator.
+deploy-kind: docker-build kind-load ## Build, load into Kind, and install or upgrade the Helm chart (dashboard disabled).
+	helm upgrade --install $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS) --set dashboard.enabled=false
 	@echo ""
 	@echo "Operator deployed to Kind cluster '$(KIND_CLUSTER)' (dashboard disabled)."
 	@echo "Image: $(IMG)"
 
-.PHONY: deploy-with-dashboard-args
-deploy-with-dashboard-args: manifests kustomize
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	cd config/default && cp kustomization.yaml kustomization.yaml.bak && \
-		"$(KUSTOMIZE)" edit add patch --path manager_dashboard_patch.yaml --kind Deployment
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
-	cd config/default && mv kustomization.yaml.bak kustomization.yaml
-
 .PHONY: undeploy-local
-undeploy-local: undeploy ## Remove the operator from the current kube context.
+undeploy-local: helm-uninstall ## Remove the operator from the current kube context.
 
 ##@ Development — Common
 
 .PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+manifests: controller-gen ## Generate ClusterRole and CustomResourceDefinition objects.
+	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd paths="./..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -176,22 +173,6 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v /e2e) -coverprofile cover.out
 
-KIND_CLUSTER_E2E ?= pacto-operator-test-e2e
-
-.PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
-	@case "$$($(KIND) get clusters)" in \
-		*"$(KIND_CLUSTER_E2E)"*) \
-			echo "Kind cluster '$(KIND_CLUSTER_E2E)' already exists. Skipping creation." ;; \
-		*) \
-			echo "Creating Kind cluster '$(KIND_CLUSTER_E2E)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER_E2E) ;; \
-	esac
-
 .PHONY: test-integration
 test-integration: ## Run integration tests (in-process OCI registry, no cluster needed).
 	go test -tags=integration ./test/integration/ -v -timeout 120s
@@ -199,10 +180,6 @@ test-integration: ## Run integration tests (in-process OCI registry, no cluster 
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet setup-envtest ## Run the Pacto 2.0 e2e acceptance matrix against envtest.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test -tags=e2e ./test/e2e/... -count=1 -v
-
-.PHONY: cleanup-test-e2e
-cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
-	@$(KIND) delete cluster --name $(KIND_CLUSTER_E2E)
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -224,38 +201,24 @@ build: manifests generate fmt vet ## Build manager binary.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build \
+	@# The Dockerfile builds from the repository root (go.work, the engine module), as CI does.
+	$(CONTAINER_TOOL) build -f Dockerfile \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg DASHBOARD_IMAGE=$(DASHBOARD_IMG) \
-		-t ${IMG} .
+		-t ${IMG} ../..
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
-PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
-.PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
-	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name pacto-operator-builder
-	$(CONTAINER_TOOL) buildx use pacto-operator-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm pacto-operator-builder
-	rm Dockerfile.cross
-
-.PHONY: build-installer
-build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
-	mkdir -p dist
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default > dist/install.yaml
-
 ##@ Chart
 
 .PHONY: sync-crds
-sync-crds: manifests ## Copy generated CRDs into the Helm chart.
-	cp config/crd/bases/*.yaml charts/pacto-operator/crds/
+sync-crds: manifests ## Copy the generated CRDs into the operator chart, whose crds.yaml template renders them.
+	rm -f charts/pacto-operator/files/crds/*.yaml
+	cp config/crd/bases/*.yaml charts/pacto-operator/files/crds/
 
 .PHONY: helm-docs
 helm-docs: ## Generate Helm chart documentation with helm-docs.
@@ -267,8 +230,11 @@ docs-generate: ## Regenerate this integration's reference docs from real sources
 	python3 ../../release/scripts/gen_integration_docs.py --integration-dir .
 
 .PHONY: helm-lint
-helm-lint: ## Lint the Helm chart.
+helm-lint: ## Lint the Helm charts.
 	helm lint charts/pacto-operator
+	@# helm lint takes no --api-versions; allowUnguarded skips only the cluster check, the policies still render.
+	helm lint charts/pacto-operator --set delivery.enabled=true --set delivery.admissionPolicies.allowUnguarded=true --set delivery.identities.allowEmptyHumanGroups=true
+	helm lint charts/pacto-operator -f charts/pacto-operator/values-quickstart.yaml --set delivery.admissionPolicies.allowUnguarded=true
 
 HELM_RELEASE ?= pacto-operator
 HELM_NAMESPACE ?= pacto-operator-system
@@ -278,6 +244,16 @@ HELM_NAMESPACE ?= pacto-operator-system
 # default remains ClusterIP — this override only affects local installs.
 HELM_DASHBOARD_SERVICE_TYPE ?= LoadBalancer
 
+# Flags every local helm install shares: the locally built image, never pulled.
+HELM_LOCAL_FLAGS = --namespace $(HELM_NAMESPACE) \
+	--create-namespace \
+	--set global.imageRegistry= \
+	--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+	--set image.tag=$(VERSION) \
+	--set image.pullPolicy=Never \
+	--set dashboard.service.type=$(HELM_DASHBOARD_SERVICE_TYPE) \
+	--wait --timeout 5m
+
 .PHONY: helm-install
 helm-install: docker-build ## Build image and install the Helm chart to the current kube context.
 	@CURRENT_CONTEXT=$$(kubectl config current-context 2>/dev/null || echo "none"); \
@@ -286,14 +262,7 @@ helm-install: docker-build ## Build image and install the Helm chart to the curr
 	fi; \
 	echo "==> Using cluster: $$CURRENT_CONTEXT"; \
 	echo "==> Installing $(HELM_RELEASE) with image $(IMG)..."; \
-	helm install $(HELM_RELEASE) charts/pacto-operator \
-		--namespace $(HELM_NAMESPACE) \
-		--create-namespace \
-		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
-		--set image.tag=$(VERSION) \
-		--set image.pullPolicy=Never \
-		--set dashboard.service.type=$(HELM_DASHBOARD_SERVICE_TYPE) \
-		--wait --timeout 5m
+	helm install $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS)
 
 .PHONY: helm-upgrade
 helm-upgrade: docker-build ## Build image and upgrade the Helm release.
@@ -301,13 +270,7 @@ helm-upgrade: docker-build ## Build image and upgrade the Helm release.
 		echo "Error: Release $(HELM_RELEASE) not found. Use 'make helm-install' first." >&2; exit 1; \
 	fi
 	@echo "==> Upgrading $(HELM_RELEASE) with image $(IMG)..."
-	helm upgrade $(HELM_RELEASE) charts/pacto-operator \
-		--namespace $(HELM_NAMESPACE) \
-		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
-		--set image.tag=$(VERSION) \
-		--set image.pullPolicy=Never \
-		--set dashboard.service.type=$(HELM_DASHBOARD_SERVICE_TYPE) \
-		--wait --timeout 5m
+	helm upgrade $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS)
 
 .PHONY: helm-uninstall
 helm-uninstall: ## Uninstall the Helm release.
@@ -328,7 +291,7 @@ helm-history: ## Show Helm release history.
 helm-get-values: ## Get values for the deployed Helm release.
 	@helm get values $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
 
-##@ Deployment (Kustomize)
+##@ Samples
 
 ifndef ignore-not-found
   ignore-not-found = false
@@ -341,25 +304,6 @@ deploy-samples: kustomize ## Deploy sample infrastructure and Pacto CRs.
 .PHONY: undeploy-samples
 undeploy-samples: kustomize ## Remove sample Pacto CRs and infrastructure.
 	"$(KUSTOMIZE)" build config/samples/demo | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
-
-.PHONY: install
-install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
-	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" apply -f -; else echo "No CRDs to install; skipping."; fi
-
-.PHONY: uninstall
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config.
-	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
-	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
-
-.PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
-
-.PHONY: undeploy
-undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Dependencies
 
@@ -376,12 +320,10 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 HELM_UNITTEST ?= $(LOCALBIN)/helm-unittest
-CRD_REF_DOCS ?= $(LOCALBIN)/crd-ref-docs
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
-CRD_REF_DOCS_VERSION ?= v0.3.0
 
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually (controller-runtime replace has no tag)" >&2; exit 1; }; \
@@ -391,7 +333,7 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_K8S_VERSION manually (k8s.io/api replace has no tag)" >&2; exit 1; }; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
-GOLANGCI_LINT_VERSION ?= v2.8.0
+GOLANGCI_LINT_VERSION ?= v2.13.0
 HELM_UNITTEST_VERSION ?= 0.7.2
 
 # Project Go toolchain version, derived from go.mod (e.g. "1.26.0").
@@ -421,23 +363,21 @@ $(ENVTEST): $(LOCALBIN)
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
+$(GOLANGCI_LINT): export GOTOOLCHAIN = go$(GO_VERSION)
 $(GOLANGCI_LINT): $(LOCALBIN)
 	@# Force the local Go toolchain so the binary embeds runtime.Version() matching
 	@# the project's go directive. golangci-lint policy lags Go releases by one minor
 	@# version, so its module declares an older `go` directive; without this override
 	@# `go install` would download that older toolchain and the resulting binary would
-	@# refuse to lint code targeting a newer Go version.
-	GOTOOLCHAIN=go$(GO_VERSION) $(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+	@# refuse to lint code targeting a newer Go version. The override is a target-specific
+	@# export (above) because go-install-tool starts with `@[`: a prefix on that line would
+	@# turn `@[` into a command name and never reach the `go install` inside.
+	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 	@test -f .custom-gcl.yml && { \
 		echo "Building custom golangci-lint with plugins..." && \
-		GOTOOLCHAIN=go$(GO_VERSION) $(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
+		$(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
 		mv -f $(LOCALBIN)/golangci-lint-custom $(GOLANGCI_LINT); \
 	} || true
-
-.PHONY: crd-ref-docs
-crd-ref-docs: $(CRD_REF_DOCS) ## Download crd-ref-docs locally if necessary.
-$(CRD_REF_DOCS): $(LOCALBIN)
-	$(call go-install-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs,$(CRD_REF_DOCS_VERSION))
 
 .PHONY: helm-unittest-install
 helm-unittest-install: $(HELM_UNITTEST) ## Download helm-unittest locally if necessary.

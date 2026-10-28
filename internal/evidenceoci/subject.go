@@ -5,9 +5,10 @@
 // the signed envelope, so evidence lives beside the revision it describes and
 // survives any Evidence Server restart without local state.
 //
-// The package is deliberately narrow. It owns four responsibilities, one per
-// file: subject parsing and the ORAS repository/credential factory (subject.go,
-// repository.go), artifact codec and descriptor construction (artifact.go), the
+// The package is deliberately narrow. It owns what is evidence-specific, one
+// responsibility per file: subject parsing (subject.go), opening the repository through the shared
+// referrer writer in pkg/ocireferrer (repository.go), the artifact codec
+// (artifact.go), the
 // paginated Referrers scan and strict fetch (scan.go), and the
 // [evidenceingest.Store] commit/list semantics (store.go).
 package evidenceoci
@@ -18,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 )
 
 // Scheme is the only accepted subject scheme: a subject is a remote contract
@@ -121,7 +123,7 @@ func ParseSubject(raw string) (Subject, error) {
 	if !ok {
 		return Subject{}, fmt.Errorf("%w: %q has no immutable digest", ErrInvalidSubject, raw)
 	}
-	if !validSHA256Digest(digest) {
+	if !evidenceingest.ValidSHA256Digest(digest) {
 		return Subject{}, fmt.Errorf("%w: %q is not a sha256:<64 lowercase hex> digest", ErrInvalidSubject, digest)
 	}
 	registry, repository, ok := strings.Cut(path, "/")
@@ -160,22 +162,4 @@ func validRepository(repo string) error {
 		}
 	}
 	return nil
-}
-
-// validSHA256Digest reports whether d is a complete "sha256:<64 lowercase hex>"
-// digest. Only sha256 is accepted: the contract digest is the identity every
-// other Pacto surface compares against, so a second algorithm would create a
-// second spelling of the same revision.
-func validSHA256Digest(d string) bool {
-	hex, ok := strings.CutPrefix(d, "sha256:")
-	if !ok || len(hex) != 64 {
-		return false
-	}
-	for i := 0; i < len(hex); i++ {
-		c := hex[i]
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return true
 }

@@ -7,13 +7,26 @@
 # emulation for the non-native arch — the arm64 build was the multi-arch release
 # pole. The distroless/static runtime stage has no RUN, so nothing executes under the
 # target platform. Matches the root Dockerfile's cross-compile pattern.
-FROM --platform=$BUILDPLATFORM golang:1.26.9 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.10 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG DASHBOARD_IMAGE=
+# CMD picks the entrypoint package: cmd is the observing operator, cmd/delivery
+# the opt-in pacto-delivery image (built with --target delivery). One
+# Dockerfile, two images.
+ARG CMD=cmd
+# GO_TAGS=kms links the cloud KMS signing providers (AWS, GCP, Azure, Vault)
+# that the default pacto CLI leaves out: the delivery recorder often signs with
+# a cloud KMS key (--kms-key). The operator image does not link the signing
+# package, so the tag changes nothing there. Pass --build-arg GO_TAGS= for a
+# delivery image without KMS (key file and keyless signing only) or, say,
+# GO_TAGS=kms_aws for one provider. security.yml scans this default (Trivy on
+# the built delivery image, govulncheck with -tags kms), so the SDKs it links
+# are checked as shipped; change the default there too if it ever changes here.
+ARG GO_TAGS=kms
 # RELEASE_BUILD=1 (set by the release publisher) builds the operator module
 # STANDALONE with GOWORK=off, so it resolves the engine core from the PUBLISHED
 # version pinned in integrations/kubernetes/go.mod — the same dependency graph an
@@ -72,16 +85,27 @@ RUN set -eu; \
       cd integrations/kubernetes; \
       retry env GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' go mod download; \
       CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' \
-        go build -ldflags "${LDFLAGS}" -o /workspace/manager ./cmd; \
+        go build -tags "${GO_TAGS}" -ldflags "${LDFLAGS}" -o /workspace/manager "./${CMD}"; \
     else \
       echo "workspace build: go.work resolves the local core"; \
       retry go mod download all; \
       CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-        go build -ldflags "${LDFLAGS}" -o /workspace/manager ./integrations/kubernetes/cmd; \
+        go build -tags "${GO_TAGS}" -ldflags "${LDFLAGS}" -o /workspace/manager "./integrations/kubernetes/${CMD}"; \
     fi
 
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot AS operator
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
 ENTRYPOINT ["/manager"]
+
+# The delivery image (`--target delivery`, with CMD=cmd/delivery) is the same
+# single binary: the recorder signs with sigstore-go, so it needs no cosign.
+# It carries the license text and source location of every module the
+# binary links with GO_TAGS=kms, MPL-2.0 ones included; internal/guards keeps
+# the file current.
+FROM operator AS delivery
+COPY integrations/kubernetes/cmd/delivery/THIRD_PARTY_NOTICES /THIRD_PARTY_NOTICES
+
+# The default target stays the operator image.
+FROM operator

@@ -1,14 +1,14 @@
 <script>
   import { buildCommands, flattenCommands } from './lib/commands.ts';
 
-  let { open = false, services = [], fleet = false, onClose, onAction } = $props();
+  let { open = false, services = [], fleet = false, delivery = false, onClose, onAction } = $props();
 
   let query = $state('');
   let selectedIdx = $state(0);
   let inputEl = $state(null);
   let prevFocus = null;
 
-  let groups = $derived(buildCommands(query, services, fleet));
+  let groups = $derived(buildCommands(query, services, fleet, delivery));
   let flat = $derived(flattenCommands(groups));
 
   // Reset + focus each time the palette opens; restore focus on close.
@@ -24,13 +24,18 @@
     }
   });
 
+  // The selected row stays in view as the arrows move it, so Enter never opens a
+  // result the reader cannot see.
+  let resultsEl = $state(null);
+  $effect(() => { resultsEl?.querySelector(`#cp-opt-${selectedIdx}`)?.scrollIntoView?.({ block: 'nearest' }); });
+
   // Keep the selection in range as results shrink.
   $effect(() => { if (selectedIdx > flat.length - 1) selectedIdx = Math.max(0, flat.length - 1); });
 
   function activate(cmd) {
     if (!cmd) return;
     onClose?.();
-    if (cmd.action) onAction?.(cmd.action);
+    if (cmd.action) onAction?.(cmd.action, cmd);
     else if (cmd.href) location.hash = cmd.href;
   }
 
@@ -62,7 +67,8 @@
 </script>
 
 {#if open}
-  <div class="cp-backdrop" data-motion onclick={onClose} role="presentation">
+  <!-- Only a click on the backdrop itself closes: one inside the panel targets the panel. -->
+  <div class="cp-backdrop" data-motion onclick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="presentation">
     <div
       class="cp-panel"
       data-motion
@@ -70,7 +76,6 @@
       aria-modal="true"
       aria-label="Command palette"
       tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
     >
       <div class="cp-input-row">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -78,13 +83,19 @@
           bind:this={inputEl}
           bind:value={query}
           type="text"
-          placeholder="Jump to a service, owner, view or action..."
+          placeholder="Jump to a page, service or action…"
           aria-label="Command palette search"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="cp-list"
+          aria-autocomplete="list"
+          aria-activedescendant={flat.length ? `cp-opt-${selectedIdx}` : undefined}
           onkeydown={onKeydown}
         />
         <kbd>Esc</kbd>
       </div>
-      <div class="cp-results" role="listbox">
+      <div class="cp-results" role="listbox" id="cp-list" bind:this={resultsEl}>
+        <!-- The group heading names the kind once; no per-row kind label repeating it. -->
         {#if flat.length === 0}
           <div class="cp-empty">No results for "{query}"</div>
         {:else}
@@ -94,6 +105,7 @@
               {@const idx = baseIndex(gi) + ii}
               <button
                 type="button"
+                id={`cp-opt-${idx}`}
                 class="cp-item"
                 class:selected={idx === selectedIdx}
                 role="option"
@@ -103,7 +115,6 @@
               >
                 <span class="cp-item-label">{cmd.label}</span>
                 {#if cmd.hint}<span class="cp-item-hint">{cmd.hint}</span>{/if}
-                <span class="cp-item-kind">{cmd.kind}</span>
               </button>
             {/each}
           {/each}
@@ -148,8 +159,8 @@
   .cp-results { max-height: 52vh; overflow-y: auto; padding: var(--sp-2); }
   .cp-empty { padding: var(--sp-4); color: var(--c-text-3); font-size: var(--text-sm); }
   .cp-group-label {
-    padding: 8px var(--sp-3) 4px; font-size: 10px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-text-3);
+    padding: 8px var(--sp-3) 4px; color: var(--c-text-3);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .cp-item {
     display: flex; align-items: center; gap: var(--sp-2); width: 100%;
@@ -160,10 +171,6 @@
   .cp-item.selected { background: var(--c-surface-hover); }
   .cp-item-label { font-weight: 500; }
   .cp-item-hint { color: var(--c-text-3); font-size: var(--text-xs); }
-  .cp-item-kind {
-    margin-left: auto; font-size: 10px; text-transform: uppercase;
-    letter-spacing: 0.04em; color: var(--c-text-3);
-  }
   @keyframes cp-fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes cp-rise { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 </style>

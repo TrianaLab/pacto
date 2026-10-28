@@ -1,9 +1,7 @@
 package evidenceoci
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -12,6 +10,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
 
 // Store persists accepted evidence records as OCI 1.1 Referrers of the contract
@@ -125,7 +124,7 @@ func (s *Store) Ready(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := enumerate(ctx, sr.repo, desc); err != nil {
+		if err := ocireferrer.Enumerate(ctx, sr.repo, desc); err != nil {
 			return err
 		}
 	}
@@ -212,13 +211,13 @@ func (s *Store) Commit(ctx context.Context, rec evidenceingest.Record) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", evidenceingest.ErrStoreWrite, err)
 	}
-	if err := pushArtifact(ctx, sr.repo, art); err != nil {
+	if err := ocireferrer.Push(ctx, sr.repo, art); err != nil {
 		return fmt.Errorf("%w: %w", evidenceingest.ErrStoreWrite, err)
 	}
 	// The push is the registry's commit point, but a record no later scan can
 	// discover is not accepted evidence. Confirming through the same API those
 	// scans use is what makes "202 Accepted" mean it.
-	if err := confirmDiscoverable(ctx, sr.repo, sr.descriptor(), art.ManifestDesc); err != nil {
+	if err := ocireferrer.Confirm(ctx, sr.repo, sr.descriptor(), art.ManifestDesc); err != nil {
 		return fmt.Errorf("%w: %w", evidenceingest.ErrStoreWrite, err)
 	}
 	return nil
@@ -247,9 +246,7 @@ func (s *Store) scan(ctx context.Context) registryScan {
 			continue
 		}
 		out.invalid += found.Invalid
-		for _, f := range found.Found {
-			out.records = append(out.records, f.Record)
-		}
+		out.records = append(out.records, found.Found...)
 	}
 	return out
 }
@@ -294,45 +291,4 @@ func checkReplay(rec evidenceingest.Record, history []evidenceingest.Record) err
 		return evidenceingest.ErrReplay
 	}
 	return nil
-}
-
-// pushArtifact writes one evidence artifact: blobs first, then the manifest that
-// references them and the contract revision it is a referrer of.
-func pushArtifact(ctx context.Context, repo *remote.Repository, art Artifact) error {
-	blobs := []struct {
-		desc ocispec.Descriptor
-		data []byte
-	}{{art.ConfigDesc, art.Config}, {art.PayloadDesc, art.Payload}}
-	for _, b := range blobs {
-		if err := repo.Push(ctx, b.desc, bytes.NewReader(b.data)); err != nil {
-			return err
-		}
-	}
-	return repo.Push(ctx, art.ManifestDesc, bytes.NewReader(art.Manifest))
-}
-
-// confirmDiscoverable checks that the Referrers API already lists want among the
-// referrers of subjectDesc. A listing that cannot be enumerated and a listing
-// that omits the record are the same answer: it is not discoverable.
-func confirmDiscoverable(ctx context.Context, repo *remote.Repository, subjectDesc, want ocispec.Descriptor) error {
-	found := false
-	err := repo.Referrers(ctx, subjectDesc, "", func(page []ocispec.Descriptor) error {
-		for _, d := range page {
-			found = found || d.Digest == want.Digest
-		}
-		return nil
-	})
-	if err == nil && !found {
-		err = errors.New("the Referrers API did not list it")
-	}
-	if err != nil {
-		return fmt.Errorf("the published record %s is not discoverable: %w", want.Digest, err)
-	}
-	return nil
-}
-
-// enumerate walks a subject's Referrers listing without fetching anything: the
-// cheapest proof that native discovery works, which is all readiness needs.
-func enumerate(ctx context.Context, repo *remote.Repository, subjectDesc ocispec.Descriptor) error {
-	return repo.Referrers(ctx, subjectDesc, "", func([]ocispec.Descriptor) error { return nil })
 }

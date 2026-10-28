@@ -125,6 +125,7 @@ func Compare(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	changes = append(changes, diffConfiguration(old, new, oldFS, newFS)...)
 	changes = append(changes, diffPolicy(old, new, oldFS, newFS)...)
 	changes = append(changes, diffReadiness(old.Readiness, new.Readiness)...)
+	changes = append(changes, diffChecks(old.Checks, new.Checks, oldFS, newFS)...)
 
 	overall := NonBreaking
 	for i := range changes {

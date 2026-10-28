@@ -28,7 +28,7 @@ export interface EntityRefLike {
  * a separator) so a target whose own name genuinely differs from its service still
  * says which service it belongs to.
  */
-export function spelledOut(label: string, bit: string): boolean {
+function spelledOut(label: string, bit: string): boolean {
   const i = label.indexOf(bit);
   if (i < 0) return false;
   const sep = (c: string | undefined) => c === undefined || '/ @:·,'.includes(c);
@@ -58,4 +58,27 @@ export function identityContext(ref: EntityRefLike | null | undefined): string[]
   ]
     .filter((b) => b.raw && !spelledOut(label, b.raw))
     .map((b) => b.text as string);
+}
+
+/**
+ * dropService removes a service's own name from a label shown on that service's page:
+ * "prod/Deployment/orders" reads "prod/Deployment", "orders 1.2.0" reads "1.2.0" and
+ * "orders@sha256:..." reads "sha256:...". Labels that do not spell the name at the
+ * start or end come back whole, and so does a label that is only the name.
+ */
+export function dropService(label: string, service: string): string {
+  if (!service || label === service) return label;
+  if (label.endsWith(`/${service}`)) return label.slice(0, -service.length - 1);
+  for (const sep of [' ', '@']) if (label.startsWith(service + sep)) return label.slice(service.length + 1);
+  return label;
+}
+
+/**
+ * inService is dropService for an entity reference. The parent service is the page's
+ * own service, so it is dropped from the context too rather than printed beside the
+ * shortened label.
+ */
+export function inService<T extends EntityRefLike>(ref: T, service: string): T {
+  const label = dropService(primaryLabel(ref), service);
+  return label === primaryLabel(ref) ? ref : { ...ref, label, parentService: undefined };
 }

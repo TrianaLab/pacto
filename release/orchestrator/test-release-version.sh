@@ -44,13 +44,14 @@ else
   echo "  A: feature PR / post-release (unchanged committed transaction) publishes nothing"
 fi
 
-# stage_changeset <dir> <bump> — replace the repo's pending changesets with one
-# controlled entry, so the bump is deterministic (config.json + README.md stay).
+# stage_changeset <dir> <bump> [package] — replace the repo's pending changesets
+# with one controlled entry, so the bump is deterministic (config.json + README.md
+# stay). The package defaults to @pacto/core.
 stage_changeset() {
   find "$1/.changeset" -name '*.md' ! -name 'README.md' -delete
   cat > "$1/.changeset/test-bump.md" <<MD
 ---
-"@pacto/core": $2
+"${3:-@pacto/core}": $2
 ---
 
 Test: exercise the real release:version transaction path.
@@ -139,5 +140,27 @@ grep -q "Rename it to github.com/trianalab/pacto/v$(( path_major + 1 ))" "$WORK/
 git -C "$C3" diff --quiet -- integrations/kubernetes/go.mod \
   || fail "operator go.mod was modified by a refused major bump"
 echo "  D: major core bump past /v$path_major refused, module-path rename named, operator go.mod untouched"
+
+# --- E: a Kubernetes changeset moves the delivery image with the operator chart.
+# The operator chart installs delivery behind delivery.enabled, so its Artifact Hub
+# images must name the delivery image at the new appVersion, the delivery image tag
+# must stay empty (it defaults to appVersion), and the transaction must publish the
+# delivery image alongside the operator's units.
+C4="$WORK/clone4"; git clone -q "$ROOT" "$C4"; ln -s "$ROOT/node_modules" "$C4/node_modules"
+stage_changeset "$C4" minor "@pacto/k8s-module"
+( cd "$C4" && npm run release:version >/dev/null 2>&1 ) || fail "k8s release:version errored"
+want_k8s="${prev_k8s%%.*}.$(( $(echo "$prev_k8s" | cut -d. -f2) + 1 )).0"
+eq "$(jq -rc '.changedUnits | sort' "$C4/release/release-transaction.json")" \
+  '["delivery-image","k8s-docs","k8s-module","operator-chart","operator-image"]' "k8s changedUnits"
+for u in operator-image operator-chart delivery-image; do
+  eq "$(jq -r --arg u "$u" '.units[$u].version' "$C4/release/release-manifest.json")" "$want_k8s" "$u version"
+done
+op="$C4/integrations/kubernetes/charts/pacto-operator"
+eq "$(yq '.appVersion' "$op/Chart.yaml")" "$want_k8s" "operator chart appVersion"
+grep -q "image: ghcr.io/trianalab/pacto/delivery:$want_k8s$" "$op/Chart.yaml" \
+  || fail "operator chart artifacthub.io/images does not name ghcr.io/trianalab/pacto/delivery:$want_k8s"
+eq "$(yq '.global.imageRegistry + "/" + .delivery.image.repository' "$op/values.yaml")" "ghcr.io/trianalab/pacto/delivery" "delivery default image"
+eq "$(yq '.delivery.image.tag' "$op/values.yaml")" "" "delivery image tag (empty, so it defaults to appVersion)"
+echo "  E: k8s changeset -> delivery image moves to $want_k8s with the operator chart"
 
 echo "RELEASE-VERSION-TEST OK"

@@ -25,7 +25,9 @@ func revKeyForDomain(t *testing.T, q *fleet.Query, domain string) string {
 // staticImpact returns a mock provider that yields res (with its SnapshotID set
 // to the current snapshot so the parity check passes).
 func staticImpact(res *impact.Result) impactProviderFunc {
-	return func(context.Context, string, string, bool) (*impact.Result, error) { return res, nil }
+	return func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
+		return res, nil
+	}
 }
 
 // Cross-domain identity: the changed service and every consumer/path step keep
@@ -155,7 +157,7 @@ func TestProductImpact_ExactDigestSucceeds(t *testing.T) {
 
 // countingImpact records whether the provider was invoked.
 func countingImpact(called *bool, res *impact.Result) impactProviderFunc {
-	return func(context.Context, string, string, bool) (*impact.Result, error) {
+	return func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
 		*called = true
 		return res, nil
 	}

@@ -29,6 +29,8 @@ function requestFor(call = 0): Request {
 function urlFor(call = 0): URL {
   return new URL(requestFor(call).url);
 }
+/** last is the index of the latest call: a mutating call reads the session first. */
+const last = () => mockFetch.mock.calls.length - 1;
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -78,9 +80,9 @@ describe('legacy endpoint serialization (generated client owns the URL)', () => 
   });
 
   it('POSTs fleet impact with a JSON body', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ meta: { schemaVersion: PRODUCT_SCHEMA_VERSION } }));
+    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse({ meta: { schemaVersion: PRODUCT_SCHEMA_VERSION } })));
     await api.fleetImpactByIdentity({ snapshotId: 's1', fromRevisionKey: 'a', toRevisionKey: 'b' });
-    const req = requestFor();
+    const req = requestFor(last());
     expect(req.method).toBe('POST');
     expect(req.headers.get('content-type')).toContain('application/json');
     expect(await req.clone().json()).toEqual({ snapshotId: 's1', fromRevisionKey: 'a', toRevisionKey: 'b' });
@@ -90,59 +92,10 @@ describe('legacy endpoint serialization (generated client owns the URL)', () => 
     // The Huma refresh operation returns 200 with a JSON body {"status":"ok"}, and
     // the generated SDK types the response as { status: string }. Exercise the real
     // server/SDK contract, not a 204/null the endpoint never emits.
-    mockFetch.mockResolvedValue(jsonResponse({ status: 'ok' }));
+    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse({ status: 'ok' })));
     expect(await api.refresh()).toEqual({ status: 'ok' });
-    expect(requestFor().method).toBe('POST');
-    expect(urlFor().pathname).toBe('/api/refresh');
-  });
-});
-
-describe('fleet legacy endpoint serialization', () => {
-  it('omits the query string when no params are given', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ services: [] }));
-    await api.fleetServices();
-    expect(urlFor().search).toBe('');
-    expect(urlFor().pathname).toBe('/api/fleet/services');
-  });
-
-  it('serializes fleetServices params, including limit/offset of 0', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ services: [] }));
-    await api.fleetServices({ text: 'pay', owner: 'core', scope: 'prod', status: 'Compliant', source: 'k8s', limit: 0, offset: 0 });
-    const q = urlFor().searchParams;
-    expect(q.get('text')).toBe('pay');
-    expect(q.get('status')).toBe('Compliant');
-    expect(q.get('limit')).toBe('0');
-    expect(q.get('offset')).toBe('0');
-  });
-
-  it('serializes fleetServiceGraph path + options', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ nodes: [] }));
-    await api.fleetServiceGraph('my service', { direction: 'dependents', transitive: true, maxDepth: 3 });
-    expect(urlFor().pathname).toBe('/api/fleet/services/my%20service/graph');
-    const q = urlFor().searchParams;
-    expect(q.get('direction')).toBe('dependents');
-    expect(q.get('transitive')).toBe('true');
-    expect(q.get('maxDepth')).toBe('3');
-  });
-
-  it('serializes fleetImpact refs and includeObserved', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ classification: 'NON_BREAKING' }));
-    await api.fleetImpact('oci://ghcr.io/org/svc:1.0.0', 'oci://ghcr.io/org/svc:2.0.0', true);
-    const q = urlFor().searchParams;
-    expect(q.get('old')).toBe('oci://ghcr.io/org/svc:1.0.0');
-    expect(q.get('new')).toBe('oci://ghcr.io/org/svc:2.0.0');
-    expect(q.get('includeObserved')).toBe('true');
-    mockFetch.mockReset();
-    mockFetch.mockResolvedValue(jsonResponse({}));
-    await api.fleetImpact('a', 'b');
-    expect(urlFor().searchParams.get('includeObserved')).toBe('false');
-  });
-
-  it('passes a slash-bearing key as a query param', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({}));
-    await api.fleetService('eu/pay');
-    expect(urlFor().pathname).toBe('/api/fleet/service');
-    expect(urlFor().searchParams.get('key')).toBe('eu/pay');
+    expect(requestFor(last()).method).toBe('POST');
+    expect(urlFor(last()).pathname).toBe('/api/refresh');
   });
 });
 
@@ -205,10 +158,10 @@ describe('product endpoint serialization + schema validation', () => {
   });
 
   it('fleetImpactByIdentity POSTs canonical identities in the body', async () => {
-    mockFetch.mockResolvedValue(productResponse({ classification: 'BREAKING' }));
+    mockFetch.mockImplementation(() => Promise.resolve(productResponse({ classification: 'BREAKING' })));
     await api.fleetImpactByIdentity({ snapshotId: 'snap-1', fromRevisionKey: 'svc@a', toRevisionKey: 'svc@b', includeObserved: true });
-    const req = requestFor();
-    expect(urlFor().pathname).toBe('/api/fleet/impact');
+    const req = requestFor(last());
+    expect(urlFor(last()).pathname).toBe('/api/fleet/impact');
     expect(req.method).toBe('POST');
     expect(await req.clone().json()).toEqual({ snapshotId: 'snap-1', fromRevisionKey: 'svc@a', toRevisionKey: 'svc@b', includeObserved: true });
   });
@@ -372,5 +325,144 @@ describe('static / WASM transport seam (request-semantic fixtures)', () => {
     expect(await api.dependents('svc')).toEqual([]);
     expect(await api.crossRefs('svc')).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('delivery endpoints', () => {
+  it('reads every delivery list and one change', async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
+    await api.deliveryInbox();
+    await api.deliveryEnvironments();
+    await api.deliveryPublished();
+    await api.deliveryHistory();
+    await api.deliveryHistory('prod', 'pay');
+    await api.deliveryOperation('prod', 'op 1');
+    expect([0, 1, 2, 3].map((i) => urlFor(i).pathname)).toEqual([
+      '/api/delivery/inbox', '/api/delivery/environments', '/api/delivery/published', '/api/delivery/history']);
+    expect(urlFor(3).search).toBe('');
+    expect(urlFor(4).search).toBe('?namespace=prod&stage=pay');
+    expect(urlFor(5).pathname).toBe('/api/delivery/operations/prod/op%201');
+  });
+
+  it('sends the session CSRF token on every mutating call, reading the session once', async () => {
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(
+      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: true, csrf: 'tok' })
+        : jsonResponse({ intentDigest: 'sha256:i' }, req.method === 'POST' && !req.url.endsWith('/plan') ? 201 : 200)));
+    await api.deliveryPlan({ namespace: 'prod', stage: 'pay' });
+    await api.deliveryPropose({ namespace: 'prod', stage: 'pay', intentDigest: 'sha256:i' });
+    await api.deliveryDecide('prod', 'op1', 'approve', 'ok');
+    await api.deliveryDecide('prod', 'op1', 'reject');
+    await api.deliveryCancel('prod', 'op1');
+    // The fleet's own mutating calls too: the server asks for the token on any
+    // POST that carries the session cookie.
+    await api.refresh();
+    await api.fleetImpactByIdentity({ snapshotId: 's1', fromRevisionKey: 'a', toRevisionKey: 'b' }).catch(() => {});
+    const calls = mockFetch.mock.calls.map((c) => c[0] as Request);
+    expect(calls.filter((r) => new URL(r.url).pathname === '/api/session')).toHaveLength(1);
+    const mutating = calls.filter((r) => r.method !== 'GET');
+    expect(mutating.map((r) => r.headers.get('X-Pacto-CSRF'))).toEqual(['tok', 'tok', 'tok', 'tok', 'tok', 'tok', 'tok']);
+    expect(mutating.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      'POST /api/delivery/plan', 'POST /api/delivery/operations', 'POST /api/delivery/operations/prod/op1/decision',
+      'POST /api/delivery/operations/prod/op1/decision', 'DELETE /api/delivery/operations/prod/op1', 'POST /api/refresh',
+      'POST /api/fleet/impact']);
+    expect(await mutating[2].json()).toEqual({ decision: 'approve', note: 'ok' });
+    expect(await mutating[3].json()).toEqual({ decision: 'reject' });
+  });
+
+  it('shares one session read between the session store and a mutating call made while it is in flight', async () => {
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(new URL(req.url).pathname === '/api/session'
+      ? jsonResponse({ mode: 'shared', login: true, signedIn: true, csrf: 'shared' }) : jsonResponse({ status: 'ok' })));
+    await api.signOut().catch(() => {}); // forget any token an earlier test left
+    mockFetch.mockClear();
+    await Promise.all([api.session(), api.refresh()]);
+    const calls = mockFetch.mock.calls.map((c) => c[0] as Request);
+    expect(calls.filter((r) => new URL(r.url).pathname === '/api/session')).toHaveLength(1);
+    expect(calls.find((r) => r.method === 'POST')?.headers.get('X-Pacto-CSRF')).toBe('shared');
+  });
+
+  it('reads the session again and retries once when a new sign-in replaced the token', async () => {
+    let token = 'old';
+    mockFetch.mockImplementation((req: Request) => {
+      const path = new URL(req.url).pathname;
+      if (path === '/api/session') return Promise.resolve(jsonResponse({ mode: 'shared', login: true, signedIn: true, csrf: token }));
+      return Promise.resolve(req.headers.get('X-Pacto-CSRF') === token
+        ? jsonResponse({ approval: 'a1' }, 201) : new Response('missing or wrong X-Pacto-CSRF header', { status: 403 }));
+    });
+    await api.session();
+    token = 'new'; // signed in again in another tab
+    expect(await api.deliveryDecide('prod', 'op1', 'approve', 'ok')).toEqual({ approval: 'a1' });
+    const posts = mockFetch.mock.calls.map((c) => c[0] as Request).filter((r) => r.method === 'POST');
+    expect(posts.map((r) => r.headers.get('X-Pacto-CSRF'))).toEqual(['old', 'new']);
+    expect(await posts[1].json()).toEqual({ decision: 'approve', note: 'ok' });
+    // A 403 that a fresh token does not explain is not retried.
+    mockFetch.mockClear();
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(new URL(req.url).pathname === '/api/session'
+      ? jsonResponse({ csrf: 'new' }) : jsonResponse({ status: 403, code: 'NotYourTeam', detail: 'only team-a' }, 403)));
+    await expect(api.deliveryDecide('prod', 'op1', 'approve')).rejects.toMatchObject({ status: 403, code: 'NotYourTeam' });
+    expect(mockFetch.mock.calls.map((c) => (c[0] as Request).method)).toEqual(['POST', 'GET']);
+  });
+
+  it('sends a mutating call without the token when the session cannot be read', async () => {
+    mockFetch.mockImplementationOnce(() => Promise.resolve(jsonResponse({})));
+    await api.session(); // forget any token an earlier test left
+    mockFetch.mockReset();
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(
+      new URL(req.url).pathname === '/api/session' ? new Response('', { status: 501 }) : jsonResponse({ status: 'ok' })));
+    expect(await api.refresh()).toEqual({ status: 'ok' });
+    expect(requestFor(last()).headers.get('X-Pacto-CSRF')).toBeNull();
+  });
+
+  it('carries the refusal code and the fresh plan of a PlanStale answer', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 409, code: 'PlanStale', detail: 'moved', plan: { intentDigest: 'sha256:new' } }, 409));
+    const err = await api.deliveryOperation('prod', 'op1').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect([err.status, err.code, err.message, err.plan.intentDigest]).toEqual([409, 'PlanStale', 'moved', 'sha256:new']);
+    mockFetch.mockResolvedValue(new Response('missing or wrong X-Pacto-CSRF header', { status: 403 }));
+    const plain = await api.deliveryInbox().catch((e) => e);
+    expect([plain.status, plain.code, plain.message]).toEqual([403, '', 'missing or wrong X-Pacto-CSRF header']);
+  });
+
+  it('sends every 401 but the session read to the sign-in gate', async () => {
+    const seen = vi.fn();
+    window.addEventListener('pacto:unauthorized', seen);
+    try {
+      mockFetch.mockImplementation(() => Promise.resolve(jsonResponse({ status: 401, code: 'LoginRequired', detail: 'sign in to use this dashboard' }, 401)));
+      await expect(api.deliveryInbox()).rejects.toMatchObject({ status: 401, code: 'LoginRequired' });
+      expect(seen).toHaveBeenCalledTimes(1);
+      await expect(api.session()).rejects.toMatchObject({ status: 401 });
+      expect(seen).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('pacto:unauthorized', seen);
+    }
+  });
+
+  it('reads the session and who delivery says the caller is, each from its own endpoint', async () => {
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(new URL(req.url).pathname === '/api/session'
+      ? jsonResponse({ mode: 'shared', login: true, signedIn: true, user: 'u' })
+      : jsonResponse({ user: 'u', class: 'human', requireOwnerTeam: true })));
+    expect(await api.session()).toEqual({ mode: 'shared', login: true, signedIn: true, user: 'u' });
+    expect(await api.deliveryCaller()).toEqual({ user: 'u', class: 'human', requireOwnerTeam: true });
+    expect(new URL(requestFor(1).url).pathname).toBe('/api/delivery/caller');
+  });
+
+  it('signs out with the CSRF token and returns the provider logout page', async () => {
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(
+      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: true, csrf: 'tok2' })
+        : jsonResponse({ logoutURL: 'https://idp/logout?client_id=x' })));
+    await api.session();
+    expect(await api.signOut()).toBe('https://idp/logout?client_id=x');
+    const req = requestFor(1);
+    expect([req.method, new URL(req.url).pathname, req.headers.get('X-Pacto-CSRF')]).toEqual(['POST', '/auth/logout', 'tok2']);
+    // No logout page, a body that is not JSON, a refusal, and no CSRF token to send.
+    mockFetch.mockReset();
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(
+      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: false })
+        : new Response('', { status: 200 })));
+    expect(await api.signOut()).toBe('');
+    expect(requestFor(1).headers.get('X-Pacto-CSRF')).toBeNull();
+    mockFetch.mockReset();
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(
+      new URL(req.url).pathname === '/api/session' ? jsonResponse({ csrf: '' }) : new Response('', { status: 403, statusText: 'Forbidden' })));
+    await expect(api.signOut()).rejects.toMatchObject({ status: 403, message: 'Forbidden' });
   });
 });

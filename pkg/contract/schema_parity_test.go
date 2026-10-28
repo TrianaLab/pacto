@@ -41,7 +41,7 @@ func sortedKeys(m map[string]bool) []string {
 // would turn this gate green while every contract using that field is rejected.
 func schemaTopLevelFields(t *testing.T, root string) map[string]bool {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.0.schema.json"))
+	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.1.schema.json"))
 	if err != nil {
 		t.Fatalf("read schema: %v", err)
 	}
@@ -73,13 +73,13 @@ func modelTopLevelFields() map[string]bool {
 
 // sectionCatalogue is every contract-reference page that documents top-level
 // contract sections as H2s. It outgrew one page under the documentation word
-// budget, so all four are read together: a field documented on the wrong one of
-// them would otherwise read as undocumented. readiness.md is the newest split —
-// it carries the single H2 `## readiness` and nothing else, because the second
+// budget, so all of them are read together: a field documented on the wrong one
+// of them would otherwise read as undocumented. publish.md and checks.md each
+// carry a single H2 (`## publish`, `## checks`) and nothing else, because the second
 // half of the parity check rejects any H2 on these pages that is not a field.
 // The other pages in that directory (index, validation, overrides, diff) are
 // excluded deliberately — their H2s are concepts.
-var sectionCatalogue = []string{"sections.md", "configuration-and-policy.md", "dependencies-and-state.md", "readiness.md"}
+var sectionCatalogue = []string{"sections.md", "configuration-and-policy.md", "dependencies-and-state.md", "readiness.md", "publish.md", "checks.md"}
 
 var h2Pattern = regexp.MustCompile(`(?m)^## (.+)$`)
 
@@ -151,7 +151,7 @@ func vocabKey(vals []string) string {
 // set and mapping to the JSON pointers that spell it.
 func schemaEnums(t *testing.T, root string) map[string][]string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.0.schema.json"))
+	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.1.schema.json"))
 	if err != nil {
 		t.Fatalf("read schema: %v", err)
 	}

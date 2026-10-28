@@ -6,8 +6,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
+
+	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contractview"
@@ -15,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
 // Service is the application service container. It holds injected dependencies
@@ -48,6 +52,14 @@ type sysDeps struct {
 	readinessTimeout time.Duration
 	// httpClient posts evidence envelopes.
 	httpClient *http.Client
+	// run runs the program publish hands work to (docker buildx).
+	run runner
+	// lookPath finds the program a publish build runs.
+	lookPath func(file string) (string, error)
+	// publishRegistry is the registry publish reads and writes.
+	publishRegistry func() publish.Registry
+	// refusalRepo opens the repository a publish refusal is kept in.
+	refusalRepo func(path string) (*remote.Repository, error)
 }
 
 // env is sys with every unset field at its production default.
@@ -86,7 +98,25 @@ func (s *Service) env() sysDeps {
 	if d.httpClient == nil {
 		d.httpClient = evidenceClient
 	}
+	publishDefaults(&d)
 	return d
+}
+
+// publishDefaults sets the publish path's unset fields of d to their
+// production defaults.
+func publishDefaults(d *sysDeps) {
+	if d.run == nil {
+		d.run = execRun
+	}
+	if d.lookPath == nil {
+		d.lookPath = exec.LookPath
+	}
+	if d.publishRegistry == nil {
+		d.publishRegistry = defaultPublishRegistry
+	}
+	if d.refusalRepo == nil {
+		d.refusalRepo = defaultRefusalRepo
+	}
 }
 
 // NewService creates a new application service with the given dependencies.

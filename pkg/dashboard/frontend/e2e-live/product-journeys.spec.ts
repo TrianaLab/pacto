@@ -98,7 +98,7 @@ function revisionLabel(service: string, version: string): string {
 // A — the overview states where its knowledge came from, and routes to the sources.
 test('A: the overview reports every live data source and its health', async ({ page }) => {
   await page.goto('/#/fleet');
-  await expect(page.getByRole('heading', { level: 1, name: 'Operational overview' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Is anything wrong?' })).toBeVisible();
 
   // The fleet is seeded, so the overview must never claim there is nothing to track:
   // that is the one knowledge posture the fixture rules out.
@@ -108,11 +108,18 @@ test('A: the overview reports every live data source and its health', async ({ p
   const band = page.getByRole('region', { name: 'Data sources' });
   await expect(band).toBeVisible();
   const chips = band.getByRole('navigation', { name: 'Data sources by health' }).getByRole('link');
-  // The two sources productready proved usable are named AND healthy here; the
-  // Evidence Server is named (its health is its own to report).
-  await expect(chips.filter({ hasText: fixture.ociSource })).toContainText('Available');
-  await expect(chips.filter({ hasText: fixture.observationSource })).toContainText('Available');
-  await expect(chips.filter({ hasText: fixture.evidenceSource })).toHaveCount(1);
+  // Every source is accounted for here: an unhealthy one keeps its own chip, and once
+  // more than three are healthy they fold into one "N available" chip (SourceHealth).
+  // The two sources productready proved usable must never read as degraded; the
+  // Evidence Server's health is its own to report.
+  const folded = band.getByTestId('sources-healthy');
+  for (const id of [fixture.ociSource, fixture.observationSource, fixture.evidenceSource]) {
+    await expect(chips.filter({ hasText: id }).or(folded).first()).toBeVisible();
+  }
+  for (const id of [fixture.ociSource, fixture.observationSource]) {
+    const chip = chips.filter({ hasText: id });
+    if ((await chip.count()) > 0) await expect(chip).toContainText('Available');
+  }
 
   await band.getByRole('link', { name: 'View all data sources' }).click();
   await expect(page).toHaveURL(/#\/fleet\/sources/);
@@ -120,6 +127,9 @@ test('A: the overview reports every live data source and its health', async ({ p
   const list = page.getByTestId('source-list');
   for (const id of [fixture.ociSource, fixture.observationSource, fixture.evidenceSource]) {
     await expect(list.getByRole('listitem').filter({ hasText: id })).toHaveCount(1);
+  }
+  for (const id of [fixture.ociSource, fixture.observationSource]) {
+    await expect(list.getByRole('listitem').filter({ hasText: id })).toContainText('Available');
   }
 });
 
@@ -184,6 +194,7 @@ test('C: the orders revision carries real OCI content identity and its declarati
   );
 
   const declared = section(page, 'Declared dependencies');
+  await expandSection(declared, 'Declared dependencies'); // folded under the one-line answer
   const dep = declared.getByRole('listitem').filter({ hasText: fixture.checkoutName });
   await expect(dep).toHaveCount(1);
   await expect(factValue(dep, 'Ref')).toHaveText(`oci://${fixture.domain}/${fixture.checkoutName}`);
@@ -325,6 +336,7 @@ test('G: change analysis compares the two published checkout revisions', async (
 
   const affects = page.getByTestId('changes-what-it-affects');
   await expect(affects.getByRole('heading', { name: /^Affected consumers/ })).toBeVisible();
+  await page.getByTestId('changes-consumers').locator('summary').click();
   await expect(affects.getByRole('row').filter({ hasText: fixture.ordersName })).toHaveCount(1);
 });
 
@@ -342,4 +354,16 @@ test('H: the external payments target is reachable and attributed to the Evidenc
       .locator('xpath=following-sibling::*[1]')
       .filter({ hasText: fixture.evidenceSource }),
   ).not.toHaveCount(0);
+});
+
+// I — delivery stays out of sight: neither deployment installs delivery or signs anyone
+// in, so its URL says why instead of showing an empty view, and there is no Delivery
+// tab. The page comes first because it renders only once the host has answered the
+// capability probe; checking the tab before that would pass on a pending probe.
+test('I: delivery stays out of sight without sign-in', async ({ page }) => {
+  await page.goto('/#/delivery/inbox');
+  await expect(page.getByTestId('delivery-unavailable')).toBeVisible();
+  const primary = page.getByRole('navigation', { name: 'Primary' });
+  await expect(primary.getByRole('link', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(primary.getByRole('link', { name: 'Delivery' })).toHaveCount(0);
 });

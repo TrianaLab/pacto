@@ -1,6 +1,7 @@
 <script>
   import { knowledgeTone } from '../lib/entityLabels.ts';
   import { degradedSourceSummary } from '../lib/knowledgeState.ts';
+  import { joinAnd } from '../lib/answers.ts';
 
   // "What we could not see" is the same caveat on every product surface, and it was
   // written out five times: four class names, four copies of the same CSS and three
@@ -15,7 +16,15 @@
   // the page. The snapshot's knowledge and the health of the thing being looked at are
   // two different facts, so the banner says which one it is talking about and then says
   // how many OTHER sources are behind it.
-  let { knowledge = {}, noun = 'view', testid = undefined } = $props();
+  // sources, when given, names the sources behind the caveat ("edge-cluster and
+  // registry-mirror"); tone overrides the colour a page wants for it (the overview
+  // keeps it a caution: the answer above it already says what is broken).
+  let { knowledge = {}, noun = 'view', testid = undefined, sources = [], tone = '' } = $props();
+
+  const names = $derived.by(() => {
+    const ids = (sources ?? []).filter((s) => s?.status && s.status !== 'available').map((s) => s.id);
+    return ids.length > 4 ? [...ids.slice(0, 3), `${ids.length - 3} more`] : ids;
+  });
 
   // Why the snapshot is short. A per-source count where there is one; otherwise the
   // reason is not in the source list at all -- either the snapshot declared itself
@@ -29,9 +38,9 @@
 </script>
 
 {#if knowledge.incomplete}
-  <div class="knowledge tone-{knowledgeTone(knowledge.level)}" role="status" data-testid={testid}>
+  <div class="knowledge tone-{tone || knowledgeTone(knowledge.level)}" role="status" data-testid={testid}>
     <strong>The fleet snapshot is missing data.</strong>
-    {cause}, so this {noun} may be incomplete.
+    {cause}{#if names.length}{' '}({joinAnd(names)}){/if}, so this {noun} may be incomplete.
   </div>
 {/if}
 

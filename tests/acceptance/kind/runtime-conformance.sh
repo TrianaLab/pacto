@@ -45,7 +45,7 @@ AGENT_NS=pacto-node-agent
 APP=conf
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5597
-AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53"
+AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
 NRO=noderuntimeobservations.pacto.trianalab.io
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
@@ -141,7 +141,7 @@ echo "== package the chart =="
 CHART="$(package_chart "$PACTO_CHART")"
 
 ensure_cluster
-docker pull "$AGNHOST" >/dev/null
+pull_pinned "$AGNHOST"; AGNHOST="${AGNHOST%@*}"
 load_images "$OP_IMG" "$DASH_IMG" "$AGNHOST"
 
 # The node agent needs hostPID and BPF capabilities, which only the privileged Pod
@@ -304,7 +304,7 @@ interfaces: [$API]
 YAML
 
 echo "== install the operator with the node agent (publish every 5s, 20s stabilization window) =="
-SETS=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
+SETS=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
       --set dashboard.enabled=false
       --set "insecureRegistries[0]=${REG_HOST}"
       --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s
@@ -386,6 +386,8 @@ workload conforming 1 "[$NETEXEC, $(loop client backend)]"; service conforming
 workload deaf 1 "[$DEAF]"; service deaf
 workload caller 1 "[$(loop client backend conforming)]"
 workload deaf-caller 1 "[$(loop client deaf)]"
+# No Pacto describes curl: the backend Pacto lists it as an uncontracted caller.
+workload curl 1 "[$(loop client backend)]"
 workload probe-target 1 "[{name: server, image: $AGNHOST, imagePullPolicy: Never, args: [test-webserver, --port=8080], ports: [{containerPort: 8080}]}]"
 service probe-target NodePort
 # The same pods behind a LoadBalancer whose status carries a public address. Kind
@@ -422,7 +424,7 @@ spec:
       template:
         spec: {restartPolicy: Never, containers: [$PAUSE]}
 YAML
-for d in backend conforming deaf caller deaf-caller probe-target metrics scratch shared durable; do
+for d in backend conforming deaf caller deaf-caller curl probe-target metrics scratch shared durable; do
   rollout "deploy/$d" || fail "deployment $d never rolled out"
 done
 
@@ -520,6 +522,10 @@ expect_pacto version-client "$R" -status NonCompliant -expect DEPENDENCY_VERSION
 
 scenario "dependency-undeclared" "the caller also reaches the Pacto-managed conforming service it never declared"
 expect_pacto undeclared-client "$R" -status Warning -expect DEPENDENCY_UNDECLARED:warning:dependency/conforming -collector DEPENDENCY_UNDECLARED=ebpf
+
+scenario "uncontracted-caller" "a workload no Pacto describes calls the backend; callers a Pacto targets stay off the list"
+expect_pacto backend "$R" -caller Deployment/curl -no-caller Deployment/caller -no-caller Deployment/conforming
+echo "  backend caller coverage: $(kubectl -n "$APP" get pacto backend -o jsonpath='{.status.observedCallersCoverage}')"
 
 scenario "workload-mismatch" "contract says job, the explicit workload is a Deployment"
 expect_pacto wl-mismatch "$R" -status NonCompliant -expect WORKLOAD_MISMATCH:error

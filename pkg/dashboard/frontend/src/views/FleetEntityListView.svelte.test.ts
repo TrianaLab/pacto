@@ -89,21 +89,21 @@ describe('FleetEntityListView', () => {
   it('pages with the backend nextOffset, and disables Previous on page one', async () => {
     entitiesFn.mockResolvedValue(listResp([rev('a')], { total: 47, offset: 0, nextOffset: 25 }));
     const { target, component } = mountView({ kind: 'revision', service: 'domain-a/payments' });
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="entity-list-next"]')).not.toBeNull());
-    expect(target.querySelector('[data-testid="entity-list-next"]')?.getAttribute('href'))
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="entity-next"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="entity-next"]')?.getAttribute('href'))
       .toBe('#/fleet/revisions?service=domain-a%2Fpayments&offset=25');
-    expect(target.querySelector('[data-testid="entity-list-prev"]')).toBeNull();
-    expect(target.querySelector('.lv-range')?.textContent).toContain('of 47');
+    expect(target.querySelector('[data-testid="entity-prev"]')).toBeNull();
+    expect(target.querySelector('[data-testid="entity-range"]')?.textContent).toContain('of 47');
     unmount(component);
   });
 
   it('walks back a page from a non-zero offset', async () => {
     entitiesFn.mockResolvedValue(listResp([rev('a')], { total: 47, offset: 25 }));
     const { target, component } = mountView({ kind: 'revision', service: 'domain-a/payments', offset: '25' });
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="entity-list-prev"]')).not.toBeNull());
-    expect(target.querySelector('[data-testid="entity-list-prev"]')?.getAttribute('href'))
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="entity-prev"]')).not.toBeNull());
+    expect(target.querySelector('[data-testid="entity-prev"]')?.getAttribute('href'))
       .toBe('#/fleet/revisions?service=domain-a%2Fpayments');
-    expect(target.querySelector('[data-testid="entity-list-next"]')).toBeNull();
+    expect(target.querySelector('[data-testid="entity-next"]')).toBeNull();
     unmount(component);
   });
 
@@ -114,7 +114,7 @@ describe('FleetEntityListView', () => {
     const { target, component } = mountView({ kind: 'target', service: 'domain-a/payments', scope: 'prod' });
     await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['target'], scope: 'prod' }));
-    expect(target.textContent).toContain('A target is a runtime observation, not a contract.');
+    expect(target.textContent).toContain('Pacto learns about targets by observing them at run time.');
     unmount(component);
   });
 
@@ -189,7 +189,7 @@ describe('FleetEntityListView', () => {
     ])).toEqual([['Passing', '20'], ['Below its own threshold', '5'], ['Assessment expired', '2'], ['Not assessed', '20']]);
     // 47 revisions, one on screen: the denominator is the population, not the page.
     expect(target.querySelector('.lv-inventory .dist-scope')?.textContent).toBe('All 47 contract revisions in the snapshot.');
-    expect(target.querySelector('.lv-inventory .dist-desc')?.textContent).toContain('This is not compliance');
+    expect(target.querySelector('.lv-inventory .dist-desc')?.textContent).toContain('Readiness is separate from compliance');
     expect(target.querySelector('.lv-inventory .dist-legend a')?.getAttribute('href'))
       .toBe('#/fleet/revisions?readiness=passing');
     unmount(component);

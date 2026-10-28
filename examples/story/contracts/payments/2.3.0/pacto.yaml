@@ -1,0 +1,25 @@
+pactoVersion: "2.1"
+service:
+  name: payments
+  version: 2.3.0
+  owner:
+    team: payments
+workload: service
+interfaces:
+  - name: http
+    type: openapi
+    ref: interfaces/openapi.yaml
+publish:
+  bundle: oci://registry.example/story/payments
+  deploy: manifests
+  artifacts:
+    - name: manifests
+      type: manifests
+      ref: oci://registry.example/story/deploy/payments
+      build:
+        command: [sh, -c, 'cp deploy/*.yaml "$PACTO_OUT"/']
+  sign:
+    key: cosign.key
+    transparencyLog: false
+metadata:
+  summary: "Takes payments."

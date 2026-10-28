@@ -10,34 +10,27 @@ package controller
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io/fs"
-	"maps"
-	"slices"
-	"sort"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	"gopkg.in/yaml.v3"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
@@ -47,7 +40,6 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/oci"
-	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -82,6 +74,8 @@ type PactoReconciler struct {
 	KernelEvidence          bool
 	KernelEvidenceNamespace string
 	KernelEvidenceStaleness time.Duration
+	// CallerIgnoreNamespaces are extra namespaces whose host-network pods leave caller coverage complete.
+	CallerIgnoreNamespaces []string
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -118,11 +112,12 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	prevReadiness := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
 	readinessWasUnmet := prevReadiness != nil && prevReadiness.Status == metav1.ConditionFalse
 
-	// Same for the contract status, which resetDerivedStatus clears below: the
-	// value read from the API server is the one the previous reconciliation
-	// persisted, and every terminal path threads it back to
-	// emitContractStatusEvent. Empty means never reconciled.
-	prevContractStatus := pacto.Status.ContractStatus
+	// Same for the whole status, which resetDerivedStatus clears below: the value
+	// read from the API server is the one the previous reconciliation persisted.
+	// Every terminal path threads it back, so the contract status event fires and
+	// the status is written only on a change. An empty contract status means
+	// never reconciled.
+	prev := pacto.Status.DeepCopy()
 
 	// 2. Reset all derived status fields so no stale data survives.
 	//    Fields will be repopulated by each step below.
@@ -131,7 +126,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// 3-5. Load the contract, apply overrides and validate the effective contract.
 	ec, failure := r.loadEffectiveContract(ctx, pacto)
 	if failure != nil {
-		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prevContractStatus, failure.status)
+		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prev, failure.status)
 	}
 	effectiveContract := ec.effective.Contract
 
@@ -172,12 +167,12 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			fmt.Sprintf("Reference contract %s v%s is valid", effectiveContract.Service.Name, effectiveContract.Service.Version))
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusReference
 		pacto.Status.Summary = &pactov1alpha1.Summary{}
-		return r.finishReconciliation(ctx, pacto, prevContractStatus)
+		return r.finishReconciliation(ctx, pacto, prev)
 	}
 
 	// 9-15. Observe the target and judge the contract against what was observed.
 	r.evaluateRuntime(ctx, pacto, ec)
-	return r.finishReconciliation(ctx, pacto, prevContractStatus)
+	return r.finishReconciliation(ctx, pacto, prev)
 }
 
 // effectiveContract is the loaded contract with the CR's overrides applied and validated.
@@ -220,6 +215,8 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 	if err != nil {
 		return nil, &loadFailure{msg: err.Error(), validation: invalidAt("", err), status: classifyLoadError(err)}
 	}
+	// Recorded before validation, so an Invalid verdict is tied to its contract too.
+	pacto.Status.EvaluatedRevision = &pactov1alpha1.EvaluatedRevision{ContractDigest: loadResult.ResolvedDigest}
 
 	// 4b. Apply configuration overrides (if specified)
 	effectiveLR, overriddenKeys, overrideErr := applyOverrides(loadResult, pacto.Spec.Overrides)
@@ -261,6 +258,13 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 
 	// 10. Collect runtime evidence (spec section 9.1).
 	evidenceSet, windowUpdates, collectErr := obs.Collect(ctx, r.buildCollectInput(pacto, ec))
+	if e := pacto.Status.EvaluatedRevision; e != nil {
+		e.KernelCoverage = obs.KernelCoverage()
+	}
+	pacto.Status.ObservedCallers, pacto.Status.ObservedCallersCoverage = obs.ObservedCallers(pacto.Status.ObservedCallers)
+	if c := pacto.Status.ObservedCallersCoverage; c != nil {
+		c.RefreshSeconds = int32(r.requeueInterval(pacto) / time.Second)
+	}
 
 	// Apply window updates (spec section 9.5): upsert by (Kind, Subject); nil resets the entry; windows for
 	// assertions no longer declared by the effective contract are pruned.
@@ -330,6 +334,8 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		KernelEvidence:                    r.KernelEvidence,
 		KernelEvidenceNamespace:           r.KernelEvidenceNamespace,
 		KernelEvidenceStaleness:           r.KernelEvidenceStaleness,
+		CallerWindow:                      r.requeueInterval(pacto),
+		CallerIgnoreNamespaces:            r.CallerIgnoreNamespaces,
 	}
 }
 
@@ -341,6 +347,11 @@ func (r *PactoReconciler) observeBackCompat(ctx context.Context, obs *observer.O
 	snapshot, obsErr := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
 	if snapshot == nil {
 		snapshot = &observer.RuntimeSnapshot{}
+	}
+	if snapshot.WorkloadExists && pacto.Status.EvaluatedRevision != nil {
+		pacto.Status.EvaluatedRevision.Workload = &pactov1alpha1.EvaluatedWorkload{
+			Kind: workloadKind, Name: workloadName, UID: snapshot.WorkloadUID, Generation: snapshot.WorkloadGeneration,
+		}
 	}
 	if snapshot.WorkloadExists {
 		pacto.Status.ObservedRuntime = &pactov1alpha1.ObservedRuntime{
@@ -408,6 +419,7 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Dependencies = nil
 	pacto.Status.Policies = nil
 	pacto.Status.ObservedRuntime = nil
+	pacto.Status.EvaluatedRevision = nil
 	pacto.Status.Readiness = nil
 	pacto.Status.Metadata = nil
 	// Conditions are intentionally NOT wiped: they are sticky observations managed
@@ -418,14 +430,20 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Findings = nil
 	pacto.Status.Capabilities = nil
 	pacto.Status.EvaluationCoverage = nil
+	// Callers are kept for their FirstSeen; until a runtime evaluation rewrites them, a coverage that was
+	// reported reads unavailable, never as the complete list of an older evaluation. It keeps the refresh
+	// interval, so delivery reads it as not evaluated rather than as a status the operator stopped writing.
+	if c := pacto.Status.ObservedCallersCoverage; c != nil {
+		pacto.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds}
+	}
 	// Preserve: CurrentRevision (set in step 7), ObservationWindows (temporal state, spec 9.5), LastReconciledAt/ObservedGeneration (set in finish)
 }
 
 // failReconciliation handles the common pattern for contract-level failures with phase-classified status
 // (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary.
-// prevContractStatus is the contract status persisted by the previous reconciliation; it gates the
-// transition event (see emitContractStatusEvent).
-func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prevContractStatus, status string) (ctrl.Result, error) {
+// prev is the status persisted by the previous reconciliation; its contract status gates the
+// transition event (see emitContractStatusEvent) and the whole of it gates the write (see writeStatus).
+func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	switch status {
@@ -452,11 +470,7 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 
 	pacto.Status.ContractStatus = status
 
-	now := metav1.Now()
-	pacto.Status.LastReconciledAt = &now
-	pacto.Status.ObservedGeneration = pacto.Generation
-
-	if statusErr := r.Status().Update(ctx, pacto); statusErr != nil {
+	if statusErr := r.writeStatus(ctx, pacto, prev); statusErr != nil {
 		log.Error(statusErr, "Failed to update status")
 		return ctrl.Result{}, statusErr
 	}
@@ -465,7 +479,7 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 	if status == pactov1alpha1.ContractStatusUnknown {
 		eventReason = pactov1alpha1.EventContractUnavailable
 	}
-	r.emitContractStatusEvent(pacto, prevContractStatus, eventReason, msg)
+	r.emitContractStatusEvent(pacto, prev.ContractStatus, eventReason, msg)
 
 	// Emit metrics
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
@@ -603,21 +617,18 @@ func (r *PactoReconciler) emitContractStatusEvent(pacto *pactov1alpha1.Pacto, pr
 }
 
 // finishReconciliation sets final metadata, persists status, and emits metrics.
-// prevContractStatus is the contract status persisted by the previous
-// reconciliation; it gates the transition event (see emitContractStatusEvent).
-func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, prevContractStatus string) (ctrl.Result, error) {
+// prev is the status persisted by the previous reconciliation; its contract
+// status gates the transition event (see emitContractStatusEvent) and the whole
+// of it gates the write (see writeStatus).
+func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, prev *pactov1alpha1.PactoStatus) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	now := metav1.Now()
-	pacto.Status.LastReconciledAt = &now
-	pacto.Status.ObservedGeneration = pacto.Generation
-
-	if statusErr := r.Status().Update(ctx, pacto); statusErr != nil {
+	if statusErr := r.writeStatus(ctx, pacto, prev); statusErr != nil {
 		log.Error(statusErr, "Failed to update status")
 		return ctrl.Result{}, statusErr
 	}
 
-	r.emitContractStatusEvent(pacto, prevContractStatus,
+	r.emitContractStatusEvent(pacto, prev.ContractStatus,
 		pactov1alpha1.EventValidationFailed, contractStatusMessage(pacto))
 
 	// Emit Prometheus metrics
@@ -627,158 +638,23 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 	return ctrl.Result{RequeueAfter: r.requeueInterval(pacto)}, nil
 }
 
-// populateContractStatus extracts structured data from the parsed contract into status fields.
-// Policy sources are surfaced as metadata only — the operator does not resolve or enforce
-// ref-based policies. Local policy schemas bundled in the contract are enforced by
-// validation.Validate() during contract loading.
-func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr *loader.LoadResult) {
-	c := lr.Contract
-
-	// Initialize slices so JSON output is [] instead of null when empty.
-	pacto.Status.Configurations = []pactov1alpha1.ConfigurationInfo{}
-	pacto.Status.Policies = []pactov1alpha1.PolicyInfo{}
-	pacto.Status.Capabilities = []pactov1alpha1.CapabilityInfo{}
-
-	// Contract info
-	info := &pactov1alpha1.ContractInfo{
-		ServiceName: c.Service.Name,
-		Version:     c.Service.Version,
-		ResolvedRef: lr.ResolvedRef,
-	}
-	if !c.Service.Owner.IsEmpty() {
-		info.Owner = mapOwnerToInfo(c.Service.Owner)
-		info.OwnerDisplay = c.Service.Owner.DisplayString()
-	}
-	pacto.Status.Contract = info
-
-	// Interfaces (v2: Type is openapi/asyncapi/grpc, Ref not Contract, no Port)
-	for _, iface := range c.Interfaces {
-		ii := pactov1alpha1.InterfaceInfo{
-			Name:       iface.Name,
-			Type:       iface.Type,
-			Ref:        iface.Ref,
-			Visibility: iface.Visibility,
-		}
-		pacto.Status.Interfaces = append(pacto.Status.Interfaces, ii)
-	}
-
-	// Capabilities (v2)
-	for _, cap := range c.Capabilities {
-		pacto.Status.Capabilities = append(pacto.Status.Capabilities, pactov1alpha1.CapabilityInfo{
-			Type: cap.Type,
-			Ref:  cap.Ref,
-		})
-	}
-
-	// Configurations
-	for _, cfg := range c.Configurations {
-		ci := pactov1alpha1.ConfigurationInfo{
-			Name:      cfg.Name,
-			HasSchema: cfg.Schema != "",
-			Ref:       cfg.Ref,
-		}
-		for k, v := range cfg.Values {
-			ci.ValueKeys = append(ci.ValueKeys, k)
-			if s, ok := v.(string); ok && strings.HasPrefix(s, "secret://") {
-				ci.SecretKeys = append(ci.SecretKeys, k)
-			}
-		}
-		sort.Strings(ci.ValueKeys)
-		sort.Strings(ci.SecretKeys)
-		// Surface configuration content (declared keys + types) so consumers can
-		// render it without re-reading the bundle. Literal values win; otherwise
-		// extract from the bundled schema.
-		if len(cfg.Values) > 0 {
-			ci.Properties = toSchemaProps(schemax.Values(cfg.Values))
-		} else if cfg.Schema != "" {
-			ci.Properties = schemaPropsFromBundle(lr.BundleFS, cfg.Schema)
-		}
-		pacto.Status.Configurations = append(pacto.Status.Configurations, ci)
-	}
-
-	// Dependencies
-	for _, dep := range c.Dependencies {
-		pacto.Status.Dependencies = append(pacto.Status.Dependencies, pactov1alpha1.DependencyInfo{
-			Name:          dep.Name,
-			Ref:           dep.Ref,
-			Required:      dep.Required,
-			Compatibility: dep.Compatibility,
-		})
-	}
-
-	// Policies
-	for _, pol := range c.Policies {
-		pi := pactov1alpha1.PolicyInfo{
-			Name:      pol.Name,
-			HasSchema: pol.Schema != "",
-			Schema:    pol.Schema,
-			Ref:       pol.Ref,
-		}
-		// Surface policy schema content (title/description + keys) for local
-		// schemas so consumers can render it without re-reading the bundle.
-		if pol.Schema != "" {
-			pi.Properties = schemaPropsFromBundle(lr.BundleFS, pol.Schema)
-			pi.Title, pi.Description = schemaMetaFromBundle(lr.BundleFS, pol.Schema)
-		}
-		pacto.Status.Policies = append(pacto.Status.Policies, pi)
-	}
-
-	// Metadata
-	if len(c.Metadata) > 0 {
-		pacto.Status.Metadata = make(map[string]string, len(c.Metadata))
-		for k, v := range c.Metadata {
-			pacto.Status.Metadata[k] = fmt.Sprintf("%v", v)
+// writeStatus persists the status only when it differs from prev, the status the
+// previous reconciliation persisted, or when lastReconciledAt is older than half
+// the check interval. Reconcile is re-entered on every write to every watched
+// workload, so stamping lastReconciledAt unconditionally wrote the status on each
+// of those events. The heartbeat keeps lastReconciledAt within one check interval
+// of now, which is what delivery and the fleet read as a live operator.
+func (r *PactoReconciler) writeStatus(ctx context.Context, pacto *pactov1alpha1.Pacto, prev *pactov1alpha1.PactoStatus) error {
+	pacto.Status.ObservedGeneration = pacto.Generation
+	now := metav1.Now()
+	if prev != nil && prev.LastReconciledAt != nil && now.Sub(prev.LastReconciledAt.Time) < r.requeueInterval(pacto)/2 {
+		pacto.Status.LastReconciledAt = prev.LastReconciledAt
+		if equality.Semantic.DeepEqual(&pacto.Status, prev) {
+			return nil
 		}
 	}
-}
-
-// schemaPropsFromBundle reads a JSON Schema file from the bundle FS and returns
-// its flattened properties as status entries. Returns nil when the bundle, file,
-// or properties are unavailable (the dashboard then falls back to metadata only).
-func schemaPropsFromBundle(fsys fs.FS, path string) []pactov1alpha1.SchemaProperty {
-	if fsys == nil || path == "" {
-		return nil
-	}
-	data, err := fs.ReadFile(fsys, path)
-	if err != nil {
-		return nil
-	}
-	return toSchemaProps(schemax.Properties(data, path))
-}
-
-// schemaMetaFromBundle reads the title and description from a JSON Schema file
-// in the bundle FS.
-func schemaMetaFromBundle(fsys fs.FS, path string) (title, description string) {
-	if fsys == nil || path == "" {
-		return "", ""
-	}
-	data, err := fs.ReadFile(fsys, path)
-	if err != nil {
-		return "", ""
-	}
-	return schemax.Meta(data, path)
-}
-
-// toSchemaProps converts shared schemax properties into CRD status properties.
-func toSchemaProps(ps []schemax.Property) []pactov1alpha1.SchemaProperty {
-	if len(ps) == 0 {
-		return nil
-	}
-	out := make([]pactov1alpha1.SchemaProperty, 0, len(ps))
-	for _, p := range ps {
-		out = append(out, pactov1alpha1.SchemaProperty{Key: p.Key, Value: p.Value, Type: p.Type})
-	}
-	return out
-}
-
-func (r *PactoReconciler) setCondition(pacto *pactov1alpha1.Pacto, condType string, status metav1.ConditionStatus, reason, message string) {
-	meta.SetStatusCondition(&pacto.Status.Conditions, metav1.Condition{
-		Type:               condType,
-		Status:             status,
-		ObservedGeneration: pacto.Generation,
-		Reason:             reason,
-		Message:            message,
-	})
+	pacto.Status.LastReconciledAt = &now
+	return r.Status().Update(ctx, pacto)
 }
 
 func (r *PactoReconciler) requeueInterval(pacto *pactov1alpha1.Pacto) time.Duration {
@@ -805,518 +681,6 @@ func resolutionPolicy(ociRef string) string {
 
 // --- Override application ---
 
-// applyConfigurationOverrides creates a shallow copy of the contract with configuration
-// overrides merged in. The original contract is never mutated (important for loader cache safety).
-// Returns the effective contract, a map of overridden key names per configuration, and any error.
-//
-// This implements name-based configuration matching rather than reusing the pacto library's
-// override.Apply (which operates on raw YAML with index-based --set paths). Name-based matching
-// is more appropriate for a declarative CRD where array ordering should not affect behavior.
-// The merge semantics (override values win) are aligned with the CLI model.
-func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1alpha1.ContractOverrides) (*contract.Contract, map[string][]string, error) {
-	if overrides == nil || len(overrides.Configurations) == 0 {
-		return c, nil, nil
-	}
-
-	// Build lookup of existing configurations by name.
-	configByName := make(map[string]int, len(c.Configurations))
-	for i, cfg := range c.Configurations {
-		configByName[cfg.Name] = i
-	}
-
-	// Validate all override names exist before applying any.
-	for _, ov := range overrides.Configurations {
-		if _, ok := configByName[ov.Name]; !ok {
-			return nil, nil, fmt.Errorf("configuration %q not found in contract", ov.Name)
-		}
-	}
-
-	// Shallow-copy the contract and deep-copy the Configurations slice + Values maps.
-	effective := *c
-	effective.Configurations = make([]contract.Configuration, len(c.Configurations))
-	for i, cfg := range c.Configurations {
-		effective.Configurations[i] = cfg
-		if cfg.Values != nil {
-			effective.Configurations[i].Values = make(map[string]any, len(cfg.Values))
-			maps.Copy(effective.Configurations[i].Values, cfg.Values)
-		}
-	}
-
-	// Merge override values (override wins).
-	overriddenKeys := make(map[string][]string, len(overrides.Configurations))
-	for _, ov := range overrides.Configurations {
-		idx := configByName[ov.Name]
-		if effective.Configurations[idx].Values == nil {
-			effective.Configurations[idx].Values = make(map[string]any, len(ov.Values))
-		}
-		keys := make([]string, 0, len(ov.Values))
-		for k, v := range ov.Values {
-			effective.Configurations[idx].Values[k] = v
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		overriddenKeys[ov.Name] = keys
-	}
-
-	return &effective, overriddenKeys, nil
-}
-
-// applyOverrides returns the load result the rest of the reconcile should use: the
-// contract with spec.overrides merged into BOTH halves -- the parsed struct and the
-// bytes -- or an error if either half cannot be produced.
-//
-// Both halves, because the two are read by different consumers and the loader does not
-// guarantee they came from the same place: the OCI path takes Contract from the bundle
-// and RawYAML from the bundle FS, and can leave the bytes empty entirely. Merging only
-// the struct is what let an override reach the status while validation still read the
-// original document.
-func applyOverrides(loadResult *loader.LoadResult, overrides *pactov1alpha1.ContractOverrides) (loader.LoadResult, map[string][]string, error) {
-	effective := *loadResult
-	if overrides == nil || len(overrides.Configurations) == 0 {
-		return effective, nil, nil
-	}
-	merged, keys, err := applyConfigurationOverrides(loadResult.Contract, overrides)
-	if err != nil {
-		return effective, nil, err
-	}
-	// Validation layers 1 and 3 read the BYTES, not the struct, so the merged contract
-	// has to reach them as bytes -- otherwise policy enforcement never sees
-	// spec.overrides and an override that violates a policy still reports
-	// ContractValid=True.
-	mergedYAML, err := patchConfigurationValues(loadResult.RawYAML, overrides)
-	if err != nil {
-		return effective, nil, err
-	}
-	effective.Contract, effective.RawYAML = merged, mergedYAML
-	return effective, keys, nil
-}
-
-// patchConfigurationValues rewrites ONLY the overridden configuration values inside
-// the loader's own YAML document and returns the result. Every other byte -- every
-// unrelated key, every explicitly-empty value -- survives exactly as the file wrote it.
-//
-// The obvious alternative, re-marshalling the merged struct, is a fail-open:
-// contract.Configuration tags Schema, Ref and Values `omitempty`, so a key that was
-// present-but-empty in the file (`values: {}` beside a `ref:`, say) disappears from
-// the round trip and layer 1 stops seeing the structural violation it was written to
-// catch. A bare `overrides: {}` on the CR was enough to turn Invalid into valid, and
-// the GitOps promotion gate reads that verdict.
-//
-// Every failure here is an error, never a fall back to the unpatched bytes: bytes
-// that do not carry the override are exactly the state the audit reported.
-func patchConfigurationValues(raw []byte, overrides *pactov1alpha1.ContractOverrides) ([]byte, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("re-reading the contract document: %w", err)
-	}
-	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
-		return nil, errors.New("contract document is empty")
-	}
-	configs := mappingValue(doc.Content[0], "configurations")
-	if configs == nil || configs.Kind != yaml.SequenceNode {
-		return nil, errors.New("contract declares no configurations to override")
-	}
-
-	for _, ov := range overrides.Configurations {
-		entry := configurationNamed(configs, ov.Name)
-		if entry == nil {
-			return nil, fmt.Errorf("configuration %q not found in the contract document", ov.Name)
-		}
-		values := mappingValue(entry, "values")
-		switch {
-		case values == nil:
-			values = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			entry.Content = append(entry.Content,
-				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "values"}, values)
-		case values.Tag == "!!null":
-			// `values:` with nothing under it. The override is what gives it content.
-			values.Kind, values.Tag, values.Value, values.Style = yaml.MappingNode, "!!map", "", 0
-		case values.Kind != yaml.MappingNode:
-			return nil, fmt.Errorf("configuration %q declares a non-mapping values block", ov.Name)
-		}
-		// Sorted so the patched document is byte-identical run to run; Go map order
-		// would otherwise reshuffle newly inserted keys on every reconcile.
-		for _, k := range slices.Sorted(maps.Keys(ov.Values)) {
-			setMappingValue(values, k, ov.Values[k])
-		}
-	}
-	return yaml.Marshal(&doc)
-}
-
-// mappingValue returns the value node for key in a mapping node, or nil. A yaml.v3
-// mapping stores Content as alternating key, value pairs.
-func mappingValue(n *yaml.Node, key string) *yaml.Node {
-	if n == nil || n.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		if n.Content[i].Value == key {
-			return n.Content[i+1]
-		}
-	}
-	return nil
-}
-
-// setMappingValue sets key to a string scalar, replacing any existing value. The
-// override CRD types values as map[string]string, and applyConfigurationOverrides
-// merges those same strings into the struct, so both halves agree on the type: a
-// numeric-looking override is a string in the document exactly as it is in the
-// struct, and a schema expecting a number rejects both.
-func setMappingValue(mapping *yaml.Node, key, value string) {
-	scalar := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content[i+1] = scalar
-			return
-		}
-	}
-	mapping.Content = append(mapping.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, scalar)
-}
-
-// configurationNamed returns the configurations[] entry whose name is name, or nil.
-func configurationNamed(configs *yaml.Node, name string) *yaml.Node {
-	for _, entry := range configs.Content {
-		if n := mappingValue(entry, "name"); n != nil && n.Value == name {
-			return entry
-		}
-	}
-	return nil
-}
-
-// --- Helpers ---
-
-func mapValidationResult(vr validation.ValidationResult) *pactov1alpha1.ValidationResult {
-	result := &pactov1alpha1.ValidationResult{Valid: len(vr.Errors) == 0}
-	for _, e := range vr.Errors {
-		result.Errors = append(result.Errors, pactov1alpha1.ValidationIssue{
-			Code: e.Code, Path: e.Path, Message: e.Message,
-		})
-	}
-	for _, w := range vr.Warnings {
-		result.Warnings = append(result.Warnings, pactov1alpha1.ValidationIssue{
-			Code: w.Code, Path: w.Path, Message: w.Message,
-		})
-	}
-	return result
-}
-
-// summarizeFindings counts findings by severity. It does NOT rank them: the compliance
-// ladder has one producer, validation.DeriveStatus (spec section 1.4).
-func summarizeFindings(findings []finding.Finding) pactov1alpha1.Summary {
-	var summary pactov1alpha1.Summary
-	for _, f := range findings {
-		switch f.Severity {
-		case finding.SeverityError:
-			summary.ErrorCount++
-		case finding.SeverityUnknown:
-			summary.UnknownCount++
-		case finding.SeverityWarning:
-			summary.WarningCount++
-		case finding.SeverityInfo:
-			summary.InfoCount++
-		}
-	}
-	return summary
-}
-
-func formatValidationErrors(validationErrors []contract.ValidationError) string {
-	var details []string
-	for _, e := range validationErrors {
-		if e.Path != "" {
-			details = append(details, fmt.Sprintf("%s: %s", e.Path, e.Message))
-		} else {
-			details = append(details, e.Message)
-		}
-	}
-	return fmt.Sprintf("Contract validation failed: %s", strings.Join(details, "; "))
-}
-
-// --- PactoRevision management ---
-
-func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alpha1.Pacto, loadResult *loader.LoadResult) (string, error) {
-	log := logf.FromContext(ctx)
-
-	hash := fmt.Sprintf("%x", sha256.Sum256(loadResult.RawYAML))
-	shortHash := hash[:7]
-
-	version := loadResult.Contract.Service.Version
-	if version == "" {
-		version = "unknown"
-	}
-
-	revisionName := revisionNameFor(pacto.Name, version, shortHash)
-
-	existing := &pactov1alpha1.PactoRevision{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: pacto.Namespace, Name: revisionName}, existing)
-	if err == nil {
-		if existing.Status.ContractHash == "" || existing.Status.CreatedAt == nil {
-			now := metav1.Now()
-			existing.Status.Resolved = true
-			existing.Status.ContractHash = hash
-			if existing.Status.CreatedAt == nil {
-				existing.Status.CreatedAt = &now
-			}
-			if statusErr := r.Status().Update(ctx, existing); statusErr != nil {
-				log.V(1).Info("Failed to backfill revision status", "revision", revisionName, "error", statusErr)
-			}
-		}
-		return revisionName, nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return "", fmt.Errorf("failed to check for existing revision: %w", err)
-	}
-
-	source := pactov1alpha1.RevisionSource{}
-	if loadResult.ResolvedRef != "" {
-		source.OCI = loadResult.ResolvedRef
-		source.Digest = loadResult.ResolvedDigest
-	} else if pacto.Spec.ContractRef.OCI != "" {
-		source.OCI = pacto.Spec.ContractRef.OCI
-		source.Digest = loadResult.ResolvedDigest
-	} else {
-		source.Inline = true
-	}
-
-	now := metav1.Now()
-	revision := &pactov1alpha1.PactoRevision{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      revisionName,
-			Namespace: pacto.Namespace,
-			Labels: map[string]string{
-				pactov1alpha1.LabelPactoName:       pacto.Name,
-				pactov1alpha1.LabelRevisionVersion: versionLabelValue(version),
-			},
-		},
-		Spec: pactov1alpha1.PactoRevisionSpec{
-			Version:     version,
-			Source:      source,
-			PactoRef:    pacto.Name,
-			ServiceName: loadResult.Contract.Service.Name,
-		},
-	}
-
-	if err := ctrl.SetControllerReference(pacto, revision, r.Scheme); err != nil {
-		return "", fmt.Errorf("failed to set owner reference: %w", err)
-	}
-
-	if err := r.Create(ctx, revision); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			return revisionName, nil
-		}
-		return "", fmt.Errorf("failed to create PactoRevision: %w", err)
-	}
-
-	revision.Status = pactov1alpha1.PactoRevisionStatus{
-		Resolved:     true,
-		ContractHash: hash,
-		CreatedAt:    &now,
-	}
-	if statusErr := r.Status().Update(ctx, revision); statusErr != nil {
-		log.Error(statusErr, "Failed to update PactoRevision status", "revision", revisionName)
-	}
-
-	log.Info("Created PactoRevision", "revision", revisionName, "version", version, "hash", shortHash)
-	r.Recorder.Eventf(pacto, corev1.EventTypeNormal, "RevisionCreated", "Created revision %s for contract v%s", revisionName, version)
-
-	return revisionName, nil
-}
-
-// revisionNameFor names the PactoRevision of one contract version. The legacy
-// form (dots to dashes) is kept whenever it is already a valid object name, so
-// no existing revision is renamed; anything else (build metadata, upper case,
-// a version too long for the hash to survive) gets a sanitised version segment
-// and keeps the content hash at the end, where truncation cannot reach it.
-func revisionNameFor(pactoName, version, shortHash string) string {
-	legacy := fmt.Sprintf("%s-%s-%s", pactoName, strings.ReplaceAll(version, ".", "-"), shortHash)
-	if len(k8svalidation.IsDNS1123Subdomain(legacy)) == 0 {
-		return legacy
-	}
-	suffix := "-" + shortHash
-	head := pactoName
-	if v := dnsSegment(version); v != "" {
-		head += "-" + v
-	}
-	if maxHead := k8svalidation.DNS1123SubdomainMaxLength - len(suffix); len(head) > maxHead {
-		head = strings.TrimRight(head[:maxHead], "-.")
-	}
-	return head + suffix
-}
-
-// dnsSegment lowercases s, maps every rune outside [a-z0-9-] to '-', collapses
-// runs of '-' and trims them from both ends.
-func dnsSegment(s string) string {
-	var b strings.Builder
-	for _, c := range strings.ToLower(s) {
-		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
-			c = '-'
-		}
-		if c == '-' && strings.HasSuffix(b.String(), "-") {
-			continue
-		}
-		b.WriteRune(c)
-	}
-	return strings.Trim(b.String(), "-")
-}
-
-// versionLabelValue makes a contract version usable as a label value: a valid
-// version is returned unchanged; otherwise runes outside [A-Za-z0-9._-] become
-// '-', and a result over 63 characters is cut and suffixed with a short hash
-// of the full version so distinct long versions stay distinct.
-func versionLabelValue(version string) string {
-	if len(k8svalidation.IsValidLabelValue(version)) == 0 {
-		return version
-	}
-	out := strings.Map(func(c rune) rune {
-		if c < utf8.RuneSelf && (c == '.' || c == '_' || c == '-' || unicode.IsLetter(c) || unicode.IsDigit(c)) {
-			return c
-		}
-		return '-'
-	}, version)
-	if len(out) > k8svalidation.LabelValueMaxLength {
-		sum := fmt.Sprintf("%x", sha256.Sum256([]byte(version)))[:8]
-		out = out[:k8svalidation.LabelValueMaxLength-len(sum)-1] + "-" + sum
-	}
-	return strings.Trim(out, "-._")
-}
-
-// setRuntimeObservedCondition records whether runtime evidence was collected. When
-// any read failed (obsErr may join several, one per line) it reports False
-// (ReasonObservationFailed) with every failure in the message, rather than
-// claiming success: True means the collection fully succeeded.
-func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1alpha1.Pacto, obsErr error) {
-	if obsErr != nil {
-		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
-			pactov1alpha1.ReasonObservationFailed, "Runtime observation failed: "+strings.ReplaceAll(obsErr.Error(), "\n", "; "))
-		return
-	}
-	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
-		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully")
-}
-
-// shortDigest returns the first 12 characters of a digest for display, or the
-// whole string when it is shorter. A digest can be empty or malformed (e.g. a
-// registry that omits it), so slicing [:12] unconditionally would panic.
-func shortDigest(d string) string {
-	if len(d) > 12 {
-		return d[:12]
-	}
-	return d
-}
-
-// revisionsBySourceRef indexes this Pacto's revisions by spec.source.oci. A force-push
-// leaves TWO revisions on the same ref, so the newest wins: comparing the registry against
-// the superseded one would re-raise TagOverwritten on every reconcile.
-// ponytail: creationTimestamp ordering, ties go to List order. Revisions are created
-// seconds apart, so a tie needs a same-second double force-push to even be observable.
-func (r *PactoReconciler) revisionsBySourceRef(ctx context.Context, pacto *pactov1alpha1.Pacto) (map[string]*pactov1alpha1.PactoRevision, error) {
-	revList := &pactov1alpha1.PactoRevisionList{}
-	if err := r.List(ctx, revList,
-		client.InNamespace(pacto.Namespace),
-		client.MatchingLabels{pactov1alpha1.LabelPactoName: pacto.Name},
-	); err != nil {
-		return nil, fmt.Errorf("failed to list revisions: %w", err)
-	}
-
-	byRef := make(map[string]*pactov1alpha1.PactoRevision, len(revList.Items))
-	for i := range revList.Items {
-		rev := &revList.Items[i]
-		// An inline revision has an empty ref; taggedRef never is, so it is simply never hit.
-		ref := rev.Spec.Source.OCI
-		if cur, ok := byRef[ref]; ok && rev.CreationTimestamp.Before(&cur.CreationTimestamp) {
-			continue
-		}
-		byRef[ref] = rev
-	}
-	return byRef, nil
-}
-
-// syncAllRevisions mirrors every registry tag of baseRef into a PactoRevision and
-// raises TagOverwritten when a tag's digest moved. Called by RevisionMirror, never
-// from Reconcile.
-//
-// A per-tag failure does not abort the pass -- one unreadable tag must not stop the
-// rest being mirrored -- but it is no longer swallowed into a V(1) line either: the
-// failures are joined into the returned error, and RevisionMirror turns that into
-// the same event vocabulary the main load path uses.
-func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1alpha1.Pacto, baseRef string, ociAuth *authn.AuthConfig) error {
-	log := logf.FromContext(ctx)
-
-	tags, err := r.Loader.ListTags(ctx, baseRef, ociAuth)
-	if err != nil {
-		return fmt.Errorf("failed to list tags: %w", err)
-	}
-
-	// Index the existing revisions by the ref ensureRevision actually WRITES
-	// (spec.source.oci). Keying on the version label instead compared a registry tag
-	// against service.version from inside the contract, so the everyday "v1.2.0" tag on
-	// a "1.2.0" version never matched and the force-push check below never ran.
-	byRef, err := r.revisionsBySourceRef(ctx, pacto)
-	if err != nil {
-		return err
-	}
-
-	var failures []error
-	for _, tag := range tags {
-		taggedRef := strings.TrimPrefix(baseRef, "oci://")
-		if idx := strings.LastIndex(taggedRef, ":"); idx > strings.LastIndex(taggedRef, "/") {
-			taggedRef = taggedRef[:idx]
-		}
-		taggedRef = taggedRef + ":" + tag
-
-		// If a revision exists for this tag, check whether the digest still matches.
-		// A mismatch means the tag was force-pushed (overwritten) on the registry.
-		if existing, ok := byRef[taggedRef]; ok {
-			storedDigest := existing.Spec.Source.Digest
-			if storedDigest == "" {
-				// Revision predates digest tracking — skip drift check.
-				continue
-			}
-
-			loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "", ociAuth)
-			if loadErr != nil {
-				failures = append(failures, fmt.Errorf("digest check for tag %s: %w", tag, loadErr))
-				continue
-			}
-
-			if loadResult.ResolvedDigest == storedDigest {
-				continue // Digest matches — tag was not overwritten.
-			}
-
-			log.Info("Detected force-push: OCI digest changed for tag",
-				"tag", tag,
-				"oldDigest", storedDigest,
-				"newDigest", loadResult.ResolvedDigest,
-				"oldRevision", existing.Name)
-			r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "TagOverwritten",
-				"Tag %s was force-pushed (digest changed from %s to %s)", tag, shortDigest(storedDigest), shortDigest(loadResult.ResolvedDigest))
-
-			revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
-			if revErr != nil {
-				failures = append(failures, fmt.Errorf("revision for force-pushed tag %s: %w", tag, revErr))
-				continue
-			}
-			log.Info("Created new revision for force-pushed tag", "tag", tag, "revision", revName)
-			continue
-		}
-
-		loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "", ociAuth)
-		if loadErr != nil {
-			failures = append(failures, fmt.Errorf("tag %s: %w", tag, loadErr))
-			continue
-		}
-
-		revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
-		if revErr != nil {
-			failures = append(failures, fmt.Errorf("revision for tag %s: %w", tag, revErr))
-			continue
-		}
-		log.V(1).Info("Synced revision for tag", "tag", tag, "revision", revName)
-	}
-
-	return errors.Join(failures...)
-}
-
 // resolveOCIAuth reads a Secret and extracts OCI registry credentials.
 // Supports opaque secrets (token or username+password) and kubernetes.io/dockerconfigjson secrets.
 // For dockerconfigjson secrets, the registry is extracted from the OCI reference to select the
@@ -1338,7 +702,10 @@ func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretN
 func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&pactov1alpha1.Pacto{}).
+		// Generation only: a status write, the operator's own included, is not a
+		// reason to reconcile again. Without the filter every write re-entered
+		// Reconcile at once, which is why statuses were written in pairs.
+		For(&pactov1alpha1.Pacto{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&pactov1alpha1.PactoRevision{}).
 		Watches(&corev1.Service{}, enqueueForTarget(mgr.GetClient())).
 		// Metadata-only: the mapper reads name/namespace, and a typed watch would park
@@ -1352,36 +719,4 @@ func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&batchv1.CronJob{}, enqueueForTarget(mgr.GetClient())).
 		Named("pacto").
 		Complete(r)
-}
-
-// mapOwnerToInfo converts a contract.Owner to the CRD OwnerInfo representation.
-// Owner is object-only (team, DRI, contacts); fields are mapped directly.
-func mapOwnerToInfo(o contract.Owner) *pactov1alpha1.OwnerInfo {
-	if o.IsEmpty() {
-		return nil
-	}
-	result := &pactov1alpha1.OwnerInfo{
-		Team: o.Team,
-		DRI:  o.DRI,
-	}
-	for _, c := range o.Contacts {
-		result.Contacts = append(result.Contacts, pactov1alpha1.OwnerContact{
-			Type:    c.Type,
-			Value:   c.Value,
-			Purpose: c.Purpose,
-		})
-	}
-	return result
-}
-
-// maxUnverified is the CRD's MaxItems on status.evaluationCoverage.unverified: a longer list would make
-// the API server reject the whole status write.
-const maxUnverified = 256
-
-// capUnverified keeps the first maxUnverified of the engine's sorted paths, so the list stays sorted.
-func capUnverified(paths []string) []string {
-	if len(paths) > maxUnverified {
-		return paths[:maxUnverified]
-	}
-	return paths
 }

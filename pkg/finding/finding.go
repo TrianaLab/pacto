@@ -14,7 +14,7 @@ const (
 	SeverityUnknown Severity = "unknown" // required assertion could not be evaluated
 )
 
-// The compliance ladder's rungs, worst first. Untyped so every producer can use
+// The compliance ladder's levels, worst first. Untyped so every producer can use
 // them against its own string-kind status field: pkg/fleet's Status* and the
 // operator's ContractStatus* are the same strings and are ranked against each
 // other, so a rename on one side silently sorts wrong on the other.
@@ -24,7 +24,7 @@ const (
 // admits contract, evidence, finding and graph, so pkg/validation cannot reach
 // pkg/fleet, and neither may reach the operator.
 //
-// Only the rungs a finding set can be ranked onto are declared here. Invalid,
+// Only the levels a finding set can be ranked onto are declared here. Invalid,
 // Reference and NotEvaluated are decided before any finding exists and belong to
 // whichever producer decides them, until one moves here.
 const (

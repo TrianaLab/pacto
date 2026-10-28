@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"maps"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -729,8 +731,12 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	// validated" state consumers already distinguish from "validated and invalid".
 	// It is not a limitation: a source that ships a parsed contract rather than a
 	// document is a normal source, not a degraded one.
-	if raw, err := b.Raw(); err == nil {
-		res := validation.Validate(c, raw, b.FS)
+	if yml, err := b.Raw(); err == nil {
+		doc := raw.Document // decoded by the loader already, when it says so
+		if doc == nil {
+			doc = contract.DecodeDocument(yml)
+		}
+		res := validation.ValidateDocument(c, doc, b.FS)
 		rev.Valid = res.IsValid()
 		rev.Validation = res.Findings()
 		rev.validated = true
@@ -1520,6 +1526,30 @@ type observedInput struct {
 	source string
 }
 
+// callerKey is one caller with no contract of a service with one.
+type callerKey struct {
+	caller    string
+	to        ServiceKey
+	ambiguous bool
+}
+
+// setUncontractedCallers lists the callers with no contract, sorted by the
+// service they call.
+func setUncontractedCallers(snap *FleetSnapshot, uncontracted map[callerKey]map[string]bool) {
+	for k, sources := range uncontracted {
+		snap.UncontractedCallers = append(snap.UncontractedCallers, UncontractedCaller{
+			Caller: k.caller, ToService: k.to, Sources: slices.Sorted(maps.Keys(sources)), Ambiguous: k.ambiguous,
+		})
+	}
+	sort.Slice(snap.UncontractedCallers, func(i, j int) bool {
+		a, b := snap.UncontractedCallers[i], snap.UncontractedCallers[j]
+		if a.ToService != b.ToService {
+			return a.ToService < b.ToService
+		}
+		return a.Caller < b.Caller
+	})
+}
+
 // foldObservedRelationships resolves runtime-observed edges to UNIQUE
 // domain-qualified services and folds resolved edges into the snapshot as observed
 // dependency relationships, summing counts for duplicate edges. An endpoint that
@@ -1544,11 +1574,22 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	}
 	edges := map[edgeKey]*edgeAgg{}
 	var order []edgeKey
+	uncontracted := map[callerKey]map[string]bool{}
 	for _, oi := range observed {
 		fromKey, fromRes := resolve(oi.edge.From)
 		toKey, toRes := resolve(oi.edge.To)
-		addObservedLimitation(snap, seenLim, oi.edge.From, fromRes, oi.source)
 		addObservedLimitation(snap, seenLim, oi.edge.To, toRes, oi.source)
+		if toRes == ObservedResolved && fromRes != ObservedResolved {
+			// A caller with no contract of a service with one is kept, not dropped:
+			// it is exactly the consumer a breaking change cannot rule out.
+			k := callerKey{oi.edge.From, toKey, fromRes == ObservedAmbiguous}
+			if uncontracted[k] == nil {
+				uncontracted[k] = map[string]bool{}
+			}
+			uncontracted[k][oi.source] = true
+			continue
+		}
+		addObservedLimitation(snap, seenLim, oi.edge.From, fromRes, oi.source)
 		if fromRes != ObservedResolved || toRes != ObservedResolved {
 			continue
 		}
@@ -1569,6 +1610,7 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 		st.Count += oi.edge.Count
 		mergeWindow(&st.FirstSeen, &st.LastSeen, oi.edge.FirstSeen, oi.edge.LastSeen)
 	}
+	setUncontractedCallers(snap, uncontracted)
 	sort.Slice(order, func(i, j int) bool {
 		if order[i].from != order[j].from {
 			return order[i].from < order[j].from
@@ -1628,6 +1670,8 @@ func reconcileDeclared(snap *FleetSnapshot) {
 			rel.Reconciliation = ReconciliationInsufficient
 		case observed[edge{rel.FromService, rel.ToService}]:
 			rel.Reconciliation = ReconciliationMatched
+		case rel.External:
+			// Not expected to run where Pacto observes, so not seeing it is no finding.
 		default:
 			rel.Reconciliation = ReconciliationDeclaredNotObserved
 		}
@@ -1687,12 +1731,19 @@ func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name strin
 func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
 	var out []Relationship
 	for _, dep := range rev.Contract.Dependencies {
-		toSvc, ok := resolveDepService(snap, rev.Domain, dep)
+		var toSvc ServiceKey
+		ok := false
+		// An external dependency with no contract has only a local name, which
+		// may be any unrelated fleet service's: it never resolves.
+		if dep.Ref != "" || !dep.External {
+			toSvc, ok = resolveDepService(snap, rev.Domain, dep)
+		}
 		rel := Relationship{
 			FromService: rev.ServiceKey, FromRevision: rk, To: dep.Name,
 			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
 			Required: dep.Required, Compatibility: dep.Compatibility,
 			RequestedRef: dep.Ref, Resolved: ok, ToService: toSvc,
+			External: dep.External, Version: dep.Version,
 		}
 		if rev.Lock != nil {
 			if e, found := rev.Lock.Dependency(dep.Name); found {
@@ -1700,9 +1751,12 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 				rel.LockedVersion = e.Version
 			}
 		}
-		if !ok {
+		switch {
+		case !ok && dep.External:
+			rel.Reason = "an external dependency: this Pacto system does not deliver it"
+		case !ok:
 			rel.Reason = "no service in the fleet resolves this dependency ref"
-		} else {
+		default:
 			snap.forwardDepsByRevision[rk] = appendUnique(snap.forwardDepsByRevision[rk], toSvc)
 			snap.forwardDeps[rev.ServiceKey] = appendUnique(snap.forwardDeps[rev.ServiceKey], toSvc)
 			snap.reverseDeps[toSvc] = appendUnique(snap.reverseDeps[toSvc], rev.ServiceKey)
@@ -1990,18 +2044,7 @@ func sortSnapshot(snap *FleetSnapshot) {
 		return a.RequestedRef < b.RequestedRef
 	})
 	sort.Slice(snap.Sources, func(i, j int) bool { return snap.Sources[i].ID < snap.Sources[j].ID })
-	sort.Slice(snap.Limitations, func(i, j int) bool {
-		a, b := snap.Limitations[i], snap.Limitations[j]
-		if a.Code != b.Code {
-			return a.Code < b.Code
-		}
-		if a.Source != b.Source {
-			return a.Source < b.Source
-		}
-		// Message is the tertiary key so limitations with the same code+source but
-		// different subjects order deterministically (permutation-invariant).
-		return a.Message < b.Message
-	})
+	sortSnapshotLimitations(snap)
 	for _, s := range snap.Services {
 		sort.Slice(s.Revisions, func(i, j int) bool { return s.Revisions[i] < s.Revisions[j] })
 		sort.Slice(s.Targets, func(i, j int) bool { return s.Targets[i] < s.Targets[j] })
@@ -2036,6 +2079,23 @@ func sortSnapshot(snap *FleetSnapshot) {
 	for k := range snap.forwardDepsByRevision {
 		sortKeys(snap.forwardDepsByRevision[k])
 	}
+}
+
+// sortSnapshotLimitations orders the snapshot's limitations by code, source
+// and message.
+func sortSnapshotLimitations(snap *FleetSnapshot) {
+	sort.Slice(snap.Limitations, func(i, j int) bool {
+		a, b := snap.Limitations[i], snap.Limitations[j]
+		if a.Code != b.Code {
+			return a.Code < b.Code
+		}
+		if a.Source != b.Source {
+			return a.Source < b.Source
+		}
+		// Message is the tertiary key so limitations with the same code+source but
+		// different subjects order deterministically (permutation-invariant).
+		return a.Message < b.Message
+	})
 }
 
 // sortKeys sorts service keys lexicographically in place.

@@ -4,7 +4,7 @@
   import { fleetSourcesUrl } from '../../lib/router.ts';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
-  import LimitationsList from '../../components/LimitationsList.svelte';
+  import LimitationsSection from '../../components/LimitationsSection.svelte';
 
   // The data source page: a product inspector, in the order the questions get asked.
   //
@@ -79,7 +79,7 @@
     total={d.entities?.total ?? 0}
     count={d.entities?.count ?? 0}
     truncated={d.entities?.truncated}
-    help="What the product can attribute to this source. It is not the record count above: services are derived from the revisions a source sends rather than sent by anyone, and an entity two sources both reported is attributable to both. So the two numbers are counted differently and are expected to differ."
+    help="What Pacto can attribute to this source. It is counted differently from the record count above: services come from the revisions a source sends, and an entity two sources both reported counts for both. The two numbers usually differ."
     empty="Nothing in the product is attributable to this data source."
   >
     <p class="se-breakdown t-body-2">
@@ -105,11 +105,7 @@
     </section>
   {/if}
 
-  {#if (d.limitations?.count ?? 0) > 0}
-    <PreviewSection title="Limitations" tone="warn" collapsible open={false} summary="What Pacto could not determine" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
-      <LimitationsList items={d.limitations?.items ?? []} />
-    </PreviewSection>
-  {/if}
+  <LimitationsSection page={d.limitations} />
 </div>
 
 <style>
@@ -132,7 +128,7 @@
      how the last version lost its Records label off the right edge on a phone. */
   .se-facts { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--sp-3) var(--sp-5); }
   .se-fact { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .se-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .se-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .se-v { margin: 0; color: var(--c-text); font-size: var(--text-sm); overflow-wrap: anywhere; }
   .se-breakdown { margin: 0 0 var(--sp-3); }
   /* The comparison is the point of the line, so it is on the line -- quietly, because
