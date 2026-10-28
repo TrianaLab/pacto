@@ -25,7 +25,7 @@ vi.mock('./lib/api.ts', async (importOriginal) => {
   };
 });
 
-import { deliverySession } from './lib/deliverySession.svelte.ts';
+import { session as auth } from './lib/session.svelte.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import App from './App.svelte';
 
@@ -35,7 +35,7 @@ let app: ReturnType<typeof mount> | null = null;
 
 beforeEach(() => {
   for (const f of Object.values(fns)) f.mockReset();
-  deliverySession.data = null; deliverySession.error = null; deliverySession.loaded = false;
+  auth.data = null; auth.error = null; auth.loaded = false;
   fns.capabilities.mockResolvedValue({ fleet: true, impact: true, auth: { mode: 'shared', login: true, signedIn: true, hidden: false } });
   fns.sources.mockResolvedValue({ sources: [], discovering: false });
   fns.health.mockResolvedValue({ version: 'x' });
@@ -91,7 +91,7 @@ describe('App — the sign-in gate', () => {
     expect(target.querySelector('[data-testid="sign-in"]')).toBeNull();
     unmount(app);
 
-    deliverySession.data = null; deliverySession.loaded = false;
+    auth.data = null; auth.loaded = false;
     fns.session.mockRejectedValue(new Error('no session here'));
     app = mount(App, { target });
     await vi.waitFor(() => expect(target.querySelector('.navbar')).not.toBeNull());
@@ -109,7 +109,7 @@ describe('App — the sign-in gate', () => {
     expect(target.querySelector('[data-testid="hidden-by-permissions"]')).toBeNull();
 
     unmount(app);
-    deliverySession.data = null; deliverySession.loaded = false;
+    auth.data = null; auth.loaded = false;
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#erin' });
     app = mount(App, { target });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="nothing-visible"]')?.textContent).toContain('in no groups'));

@@ -4,8 +4,8 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl, deliveryInboxUrl } from '../lib/router.ts';
   import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
-  import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { typeLabel, shortDigest, shortDigests, andList, APPROVING_DOCS, cannotApproveHere, teamGroups } from '../lib/delivery.ts';
+  import { session, teamGroups } from '../lib/session.svelte.ts';
+  import { typeLabel, shortDigest, shortDigests, andList, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -50,7 +50,7 @@
   const mine = $derived(held.filter((it) => (it.owners?.length ?? 0) <= 1));
   const shared = $derived(held.filter((it) => (it.owners?.length ?? 0) > 1));
   // The other teams a shared question names: the reader's own groups are left out.
-  const myGroups = $derived(teamGroups(deliverySession.data?.caller?.groups));
+  const myGroups = $derived(teamGroups(session.caller?.groups));
   const sharedWith = $derived.by(() => {
     const all = [...new Set(shared.flatMap((it) => it.owners ?? []))];
     const others = all.filter((t) => !myGroups.includes(t));
@@ -109,7 +109,7 @@
         {:else if it.question}
           <span class="dl-question">{firstSentence(it.question)}</span>
         {/if}
-        <span class="dl-who">{#if it.owners?.length}{andList(it.owners, 3)} may answer{:else if deliverySession.data?.requireOwnerTeam}Nobody may answer: no team is declared, so only break-glass can override{:else}Any person may answer{/if}</span>
+        <span class="dl-who">{#if it.owners?.length}{andList(it.owners, 3)} may answer{:else if session.caller?.requireOwnerTeam}Nobody may answer: no team is declared, so only break-glass can override{:else}Any person may answer{/if}</span>
       </p>
     </div>
     <a class="btn btn-primary btn-sm dl-decide" href={deliveryChangeUrl(it.namespace, it.name)} aria-label={`Decide: ${typeLabel(it.type)} on ${it.namespace}/${it.stage}`}>Decide</a>
@@ -152,7 +152,7 @@
       {:else}
       <section aria-labelledby="inbox-held">
         <h2 id="inbox-held" class="t-section-title">Waiting for your decision</h2>
-        {#if held.length && cannotApproveHere(deliverySession.data?.caller)}
+        {#if held.length && cannotApproveHere(session.caller)}
           <p class="t-body-2" data-testid="inbox-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in. <a href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
         {/if}
         {#if held.length === 0}

@@ -10,7 +10,7 @@
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import CappedList from '../components/CappedList.svelte';
   import { formatCount } from '../lib/format.ts';
-  import { deliverySession } from '../lib/deliverySession.svelte.ts';
+  import { session } from '../lib/session.svelte.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
@@ -38,7 +38,7 @@
   const st = $derived(op?.status);
   const actions = $derived(data?.actions ?? []);
   const consumers = $derived(st?.plan?.floor?.consumers ?? []);
-  const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
+  const me = $derived({ user: session.caller?.user, name: session.data?.name });
   const asker = $derived(actorBadge(e?.status?.actorClass));
   // What Pacto saw after the change only exists once it applied; before that
   // it is the plan's checks again, so it stays hidden.

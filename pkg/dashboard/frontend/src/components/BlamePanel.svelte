@@ -4,7 +4,7 @@
   import { api } from '../lib/api.ts';
   import { deliveryChangeUrl } from '../lib/router.ts';
   import { typeLabel, decisionLabel, authTimeText, versionLabel, sentence, timeLabel, actorBadge } from '../lib/delivery.ts';
-  import { deliverySession } from '../lib/deliverySession.svelte.ts';
+  import { session } from '../lib/session.svelte.ts';
   import VerdictList from './VerdictList.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
 
@@ -16,7 +16,7 @@
   let blame = $state(null);
   let error = $state(null);
   let headingEl = $state(null);
-  const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
+  const me = $derived({ user: session.caller?.user, name: session.data?.name });
   const c = $derived(blame?.change);
 
   onMount(async () => {

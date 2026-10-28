@@ -13,10 +13,11 @@ const fns = vi.hoisted(() => ({
 }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
+  const { sessionApi } = await import('../testkit.svelte.ts');
   return {
     ...actual,
     api: {
-      session: () => fns.session(), deliveryInbox: () => fns.inbox(), deliveryEnvironments: (...a: unknown[]) => fns.environments(...a),
+      ...sessionApi(() => fns.session(), actual.ApiError), deliveryInbox: () => fns.inbox(), deliveryEnvironments: (...a: unknown[]) => fns.environments(...a),
       deliveryPublished: () => fns.published(), deliveryHistory: (...a: unknown[]) => fns.history(...a),
       deliveryOperation: (...a: unknown[]) => fns.operation(...a), deliveryPlan: (...a: unknown[]) => fns.plan(...a),
       deliveryPropose: (...a: unknown[]) => fns.propose(...a), deliveryDecide: (...a: unknown[]) => fns.decide(...a),
@@ -28,7 +29,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 });
 
 import { ApiError } from '../lib/api.ts';
-import { deliverySession } from '../lib/deliverySession.svelte.ts';
+import { session as auth } from '../lib/session.svelte.ts';
 import { keepPending } from '../lib/delivery.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryInboxView from './DeliveryInboxView.svelte';
@@ -71,7 +72,7 @@ const text = (t: HTMLElement) => {
 
 beforeEach(() => {
   for (const f of Object.values(fns)) f.mockReset();
-  deliverySession.data = null; deliverySession.error = null; deliverySession.loaded = false;
+  auth.data = null; auth.error = null; auth.loaded = false;
   fns.session.mockResolvedValue(shared());
   fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: false, completeness: "partial", refusals: [] });
   sessionStorage.clear();
@@ -778,7 +779,7 @@ describe('change detail', () => {
       .toBe('Deciding needs a sign-in in the last 10 minutes. You signed in 40 minutes ago.');
     r.destroy();
 
-    deliverySession.loaded = false;
+    auth.loaded = false;
     fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: String(now - 60) } }));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
@@ -912,7 +913,7 @@ describe('change detail', () => {
     expect(panel.querySelector('a[href*="/auth/login"]')?.getAttribute('href')).toContain('fresh=1');
     r.destroy();
 
-    deliverySession.loaded = false;
+    auth.loaded = false;
     fns.session.mockResolvedValue(shared({ method: 'token', login: false, tokenLogin: true, caller: human(['team-checkout']) }));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
@@ -929,7 +930,7 @@ describe('change detail', () => {
     expect(text(r.target.querySelector('[data-testid="decide-not-team"]') as HTMLElement)).toContain('Only team-checkout may answer this question; you are in team-payments');
     r.destroy();
 
-    deliverySession.loaded = false;
+    auth.loaded = false;
     fns.session.mockResolvedValue(shared({ caller: { user: 'robot', class: 'agent', groups: ['pacto:agents'] } }));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
@@ -938,7 +939,7 @@ describe('change detail', () => {
 
     // Where the Stage asks for a recent sign-in, a person on a cluster that
     // reports no login time is offered nothing and told why.
-    deliverySession.loaded = false;
+    auth.loaded = false;
     fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: '' } }));
     fns.operation.mockResolvedValueOnce(heldOperation({ actions: ['cancel'], decisionFreshness: 600 }));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
@@ -955,7 +956,7 @@ describe('change detail', () => {
     const own = heldOperation({ actions: ['cancel'] });
     own.operation.spec = { ...own.operation.spec, actor: { user: 'agent-bot' }, onBehalfOf: { user: 'https://idp#carol' } } as typeof own.operation.spec;
     fns.operation.mockResolvedValueOnce(own);
-    deliverySession.loaded = false;
+    auth.loaded = false;
     fns.session.mockResolvedValue(shared({ caller: human(['team-checkout']) }));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
@@ -1008,7 +1009,7 @@ describe('change detail', () => {
     expect(text(r.target.querySelector('[data-testid="decide-no-owner"]') as HTMLElement)).toContain('only break-glass can override');
     r.destroy();
 
-    deliverySession.loaded = false;
+    auth.loaded = false;
     fns.operation.mockResolvedValue({ ...ownerless(), actions: ['approve', 'reject'] });
     fns.session.mockResolvedValue(shared());
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
@@ -1016,7 +1017,7 @@ describe('change detail', () => {
     expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('Any person may answer.');
     r.destroy();
 
-    deliverySession.loaded = false;
+    auth.loaded = false;
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false });
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
@@ -1025,7 +1026,7 @@ describe('change detail', () => {
     expect(panel).not.toContain('Any person');
     r.destroy();
 
-    deliverySession.loaded = false;
+    auth.loaded = false;
     fns.session.mockResolvedValue(shared());
     fns.operation.mockResolvedValue({ ...ownerless(), actions: ['approve', 'reject'] });
     fns.decide.mockRejectedValue(new ApiError(403, 'no team is declared for this service, so only break-glass can override; declare service.owner', 'NoOwnerTeam'));
@@ -1045,8 +1046,8 @@ describe('change detail', () => {
     await settle();
     expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('Nobody may answer: no team is declared, so only break-glass can override');
     r.destroy();
-    deliverySession.loaded = false;
-    deliverySession.data = null;
+    auth.loaded = false;
+    auth.data = null;
     fns.session.mockResolvedValue(shared());
     r = render(DeliveryInboxView);
     await settle();

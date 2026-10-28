@@ -9,12 +9,13 @@ import { mount, unmount, tick, flushSync } from 'svelte';
 const fns = vi.hoisted(() => ({ capabilities: vi.fn(), inbox: vi.fn(), session: vi.fn() }));
 vi.mock('./lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./lib/api.ts')>();
+  const { sessionApi } = await import('./testkit.svelte.ts');
   return {
     ...actual,
     api: {
       services: vi.fn().mockResolvedValue([]), sources: vi.fn().mockResolvedValue({ sources: [] }),
       health: vi.fn().mockResolvedValue({ version: 'x' }), refresh: vi.fn().mockResolvedValue({}),
-      capabilities: () => fns.capabilities(), deliveryInbox: () => fns.inbox(), session: () => fns.session(),
+      capabilities: () => fns.capabilities(), deliveryInbox: () => fns.inbox(), ...sessionApi(() => fns.session(), actual.ApiError),
     },
   };
 });

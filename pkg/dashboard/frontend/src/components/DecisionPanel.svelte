@@ -1,9 +1,9 @@
 <script>
   import { untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, hostSignsIn, keepPending, pendingFor, dropPending,
-    versionLabel, personLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere, teamGroups } from '../lib/delivery.ts';
+  import { session, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
+  import { decisionAsked, decisionLabel, cliDecision, keepPending, pendingFor, dropPending,
+    versionLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import { formatCount } from '../lib/format.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
@@ -27,12 +27,12 @@
   const asked = $derived(decisionAsked(op));
   const owners = $derived(op.status?.plan?.floor?.owners ?? []);
   const canDecide = $derived(actions.includes('approve') || actions.includes('accept-unknown'));
-  const s = $derived(deliverySession.data);
-  const caller = $derived(s?.caller);
+  const s = $derived(session.data);
+  const caller = $derived(session.caller);
   // Who may answer a question that names no team depends on the published
   // policy, which the session carries with the caller.
   const ownerless = $derived(!caller ? 'No team is declared.'
-    : s?.requireOwnerTeam ? 'No team is declared, so nobody may answer; only break-glass can override.'
+    : caller.requireOwnerTeam ? 'No team is declared, so nobody may answer; only break-glass can override.'
     : 'Any person may answer.');
 
   const st = $derived(op.status ?? {});

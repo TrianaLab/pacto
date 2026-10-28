@@ -4,10 +4,11 @@ import { mount, unmount, flushSync, tick } from 'svelte';
 const { signOutFn, sessionFn } = vi.hoisted(() => ({ signOutFn: vi.fn(), sessionFn: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
-  return { ...actual, api: { signOut: () => signOutFn(), session: () => sessionFn() } };
+  const { sessionApi } = await import('../testkit.svelte.ts');
+  return { ...actual, api: { signOut: () => signOutFn(), ...sessionApi(() => sessionFn(), actual.ApiError) } };
 });
 
-import { deliverySession } from '../lib/deliverySession.svelte.ts';
+import { session as auth } from '../lib/session.svelte.ts';
 // @ts-expect-error — Svelte components have no declaration files
 import IdentityBar from './IdentityBar.svelte';
 // @ts-expect-error — Svelte components have no declaration files
@@ -22,13 +23,20 @@ afterEach(() => {
 });
 beforeEach(() => {
   signOutFn.mockReset(); sessionFn.mockReset();
-  deliverySession.error = null; deliverySession.loaded = true;
+  auth.error = null; auth.loaded = true;
   location.hash = '#/fleet/services';
 });
 
+// The store holds the session and delivery's caller apart; a fixture names both.
+function setSession(fixture: unknown) {
+  const { caller = null, callerError = '', ...data } = (fixture ?? {}) as Record<string, unknown>;
+  auth.data = fixture ? (data as typeof auth.data) : null;
+  auth.caller = caller as typeof auth.caller;
+  auth.callerError = callerError as string;
+}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- component handle
 function show(session: unknown, C: any = IdentityBar) {
-  deliverySession.data = session as typeof deliverySession.data;
+  setSession(session);
   app = mount(C, { target: document.body });
   flushSync();
   const c = document.body.cloneNode(true) as Element;
@@ -74,7 +82,7 @@ describe('IdentityBar', () => {
     const t = show({ mode: 'shared', login: true, signedIn: true, name: 'Release Bot', callerError: 'whoami: forbidden' });
     expect(t).not.toContain('Release Bot');
     expect(t).toContain('The cluster did not say who you are: whoami: forbidden');
-    deliverySession.data = { mode: 'shared', login: true, signedIn: true } as typeof deliverySession.data;
+    setSession({ mode: 'shared', login: true, signedIn: true });
     flushSync();
     expect(bar()?.textContent).toContain('The cluster did not say who you are.');
   });
@@ -95,7 +103,7 @@ describe('IdentityBar', () => {
     expect(bar()).toBeNull();
     show({ mode: 'shared', login: false, signedIn: false });
     expect(bar()).toBeNull();
-    deliverySession.data = null;
+    setSession(null);
     flushSync();
     expect(bar()).toBeNull();
   });
@@ -113,7 +121,7 @@ describe('IdentityBar', () => {
     Object.defineProperty(window, 'location', { configurable: true, value: { ...orig, hash: orig.hash, assign } });
     try {
       signOutFn.mockResolvedValue('https://idp/logout');
-      deliverySession.data = { mode: 'shared', login: true, signedIn: true, caller: human } as typeof deliverySession.data;
+      setSession({ mode: 'shared', login: true, signedIn: true, caller: human });
       flushSync();
       (bar()?.querySelector('[data-testid="sign-out"]') as HTMLButtonElement).click();
       await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('https://idp/logout'));
@@ -137,7 +145,7 @@ describe('IdentityBar', () => {
     expect(trigger.getAttribute('popovertarget')).toBe('navbar-identity');
     expect(document.body.querySelector('#navbar-identity')?.hasAttribute('popover')).toBe(true);
     unmount(app!); app = null; document.body.innerHTML = '';
-    deliverySession.data = { mode: 'shared', login: true, signedIn: true, caller: human } as typeof deliverySession.data;
+    setSession({ mode: 'shared', login: true, signedIn: true, caller: human });
     app = mount(IdentityBar, { target: document.body, props: { drawer: true } });
     flushSync();
     const panel = document.body.querySelector('[data-testid="identity-drawer"]') as HTMLElement;

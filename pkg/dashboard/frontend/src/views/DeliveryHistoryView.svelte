@@ -8,7 +8,7 @@
     verificationLabel, outcomeTone, reasonAfter, andList, levelLabel, AUTONOMY_TYPE, UNKNOWN_DOCS } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
-  import { deliverySession } from '../lib/deliverySession.svelte.ts';
+  import { session } from '../lib/session.svelte.ts';
   import BlamePanel from '../components/BlamePanel.svelte';
   import UndoPanel from '../components/UndoPanel.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -47,7 +47,7 @@
   // One Stage pages its changes; every Stage pages the Stages.
   const page = $derived(one ? histories[0]?.entriesPage : data?.page);
   const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
-  const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
+  const me = $derived({ user: session.caller?.user, name: session.data?.name });
   const version = (d) => versionLabel(d, data?.versions);
   // A level change moves between levels, named as Autonomy names them.
   const side = (en, d) => (en.type === AUTONOMY_TYPE ? (d ? levelLabel(d) : '') : version(d));

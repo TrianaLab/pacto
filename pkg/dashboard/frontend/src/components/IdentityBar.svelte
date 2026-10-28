@@ -1,8 +1,7 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { deliverySession, loadSession } from '../lib/deliverySession.svelte.ts';
+  import { session, loadSession, loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
   import { fleetOverviewUrl } from '../lib/router.ts';
-  import { loginUrl, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/delivery.ts';
   import Person from './Person.svelte';
   import CappedList from './CappedList.svelte';
   import HelpTip from './HelpTip.svelte';
@@ -15,12 +14,13 @@
   // (drawer) the details show in place.
   let { drawer = false } = $props();
 
-  const s = $derived(deliverySession.data);
+  const s = $derived(session.data);
+  const caller = $derived(session.caller);
   // The apiserver's answer when delivery could ask it, else what the session
   // says the cluster calls the person.
-  const user = $derived(s?.caller?.user || s?.user || '');
+  const user = $derived(caller?.user || s?.user || '');
   // A system: group (system:authenticated) names no team, so it is left out.
-  const groups = $derived(teamGroups(s?.caller?.groups?.length ? s.caller.groups : s?.groups));
+  const groups = $derived(teamGroups(caller?.groups?.length ? caller.groups : s?.groups));
   // Person names them by the name the identity provider gave and keeps the
   // cluster's username in its copy button.
   const me = $derived({ user, name: s?.name });
@@ -54,7 +54,7 @@
         Signed in{#if s.method === 'token'}{' with a token'}{/if} as <strong><Person {user} {me} /></strong>{#if groups.length}{'\u2060, in '}<CappedList items={groups} max={3} inline label="Your groups" testid="identity-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{/if}{'\u2060.'}
       {:else}
         <!-- The ID token's name alone is self-asserted, so it is never shown as who you are. -->
-        Signed in. <span class="who-err">The cluster did not say who you are{#if s.callerError}: {s.callerError}{:else}.{/if}</span>
+        Signed in. <span class="who-err">The cluster did not say who you are{#if session.callerError}: {session.callerError}{:else}.{/if}</span>
       {/if}
     </p>
     <button type="button" class="btn btn-sm" data-testid="sign-out" onclick={signOut}>{hostSignsIn() ? 'Switch person' : 'Sign out'}</button>

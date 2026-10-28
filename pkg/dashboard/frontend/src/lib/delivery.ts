@@ -1,7 +1,7 @@
 /**
- * Plain helpers the delivery views share: labels, digests, Mira links, the
- * sign-in URLs and the decision a person left behind when a fresh login took
- * them to the identity provider.
+ * Plain helpers the delivery views share: labels, digests, Mira links and the
+ * decision a person left behind when a fresh login took them to the identity
+ * provider.
  */
 import type { DeliveryDecision, DeliveryOperation } from './api.ts';
 import { formatCount } from './format.ts';
@@ -29,8 +29,6 @@ const DECISION_LABELS: Record<string, string> = {
 
 /** Where the docs say what Unknown means and how a person resolves it. */
 export const UNKNOWN_DOCS = 'https://pacto.run/latest/integrations/kubernetes/delivery/#what-unknown-means';
-/** How to get a Kubernetes token to sign in with. */
-export const TOKEN_DOCS = 'https://pacto.run/latest/integrations/kubernetes/dashboard-authentication/#token-sign-in';
 /** Where approving works: a cluster must map the login time for anyone to decide. */
 export const APPROVING_DOCS = 'https://pacto.run/latest/integrations/kubernetes/delivery-identity/#where-approving-works';
 /** The caller is a person on a cluster that reports no login time, so nobody's decision counts here. */
@@ -120,36 +118,6 @@ export function sentence(text: string | undefined): string {
   return lead + (/[.!?]$/.test(t) ? '' : '.');
 }
 
-/** Who the signed-in person is, as personLabel reads it. */
-export interface Me {
-  user?: string;
-  name?: string;
-}
-
-/**
- * personLabel names a cluster username for a reader: the name of a person who
- * signed in to this dashboard, a service account by its own name and an
- * `issuer#subject` username by its subject. Person prints the full username
- * next to it, never only in a tooltip.
- */
-export function personLabel(user: string | undefined, people?: Record<string, string> | null, me?: Me | null): string {
-  if (!user) return '';
-  if (people?.[user]) return people[user];
-  if (me?.name && me.user === user) return me.name;
-  const sa = /^system:serviceaccount:[^:]+:(.+)$/.exec(user);
-  if (sa) return sa[1];
-  const hash = user.lastIndexOf('#');
-  return hash > 0 && hash < user.length - 1 ? user.slice(hash + 1) : user;
-}
-
-/**
- * teamGroups are the groups that can name a team. A Kubernetes system: group
- * (system:authenticated) names no team, as the promoter's team rule says.
- */
-export function teamGroups(groups: string[] | undefined | null): string[] {
-  return (groups ?? []).filter((g) => !g.startsWith('system:'));
-}
-
 /**
  * shortDigest keeps the first 12 hex characters of an OCI digest. Anything that
  * is not one (a level name like auto-nonbreaking) is kept whole: cutting it
@@ -176,29 +144,6 @@ export function decisionAsked(op: DeliveryOperation['operation'] | undefined): D
 /** cliDecision is the command that takes a decision a dashboard cannot. */
 export function cliDecision(namespace: string, name: string, decision: string): string {
   return `pacto delivery approve -n ${namespace} ${name} --decision ${decision}`;
-}
-
-/**
- * signIn sends the person to sign in and back to `hash`; fresh makes them log
- * in again. A host with no /auth routes handles it itself: the browser demo
- * sets window.__pactoSignIn (beside __pactoServe) to its simulated sign-in,
- * because leaving the page would lose everything the tab simulated.
- */
-export function signIn(hash: string, fresh = false): void {
-  const hook = (window as unknown as { __pactoSignIn?: (hash: string, fresh: boolean) => void }).__pactoSignIn;
-  if (typeof hook === 'function') hook(hash, fresh);
-  else location.assign(loginUrl(hash, fresh));
-}
-
-/** hostSignsIn: the host handles sign-in itself (see signIn). */
-export function hostSignsIn(): boolean {
-  return typeof (window as unknown as { __pactoSignIn?: unknown }).__pactoSignIn === 'function';
-}
-
-/** loginUrl signs in and comes back to `hash`; fresh makes the person log in again. */
-export function loginUrl(hash: string, fresh = false): string {
-  const ret = '/' + (hash.startsWith('#') ? hash : `#${hash}`);
-  return `/auth/login?return=${encodeURIComponent(ret)}${fresh ? '&fresh=1' : ''}`;
 }
 
 // ── the decision kept across a fresh login ──────────────────────────────────

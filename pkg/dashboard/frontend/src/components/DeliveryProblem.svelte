@@ -1,6 +1,6 @@
 <script>
   import EmptyState from './EmptyState.svelte';
-  import { loginUrl } from '../lib/delivery.ts';
+  import { loginUrl } from '../lib/session.svelte.ts';
 
   // Why a delivery read gave nothing, said as what it is: not signed in, not
   // installed or a failure. Never an empty list.

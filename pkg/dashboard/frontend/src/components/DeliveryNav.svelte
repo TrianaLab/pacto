@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { loadSession } from '../lib/deliverySession.svelte.ts';
+  import { loadSession } from '../lib/session.svelte.ts';
   import { deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl } from '../lib/router.ts';
 
   // The delivery section's own navigation. Who the views act as is in the

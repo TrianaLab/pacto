@@ -4,7 +4,7 @@
   // issuer#subject username by its subject. The username itself, often an
   // opaque identity provider subject, is in the copy button's tooltip and
   // copied whole. The name wraps after @ . / # and never inside a word.
-  import { personLabel } from '../lib/delivery.ts';
+  import { personLabel } from '../lib/session.svelte.ts';
   import { breakableIdentifierHtml } from '../lib/format.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
 

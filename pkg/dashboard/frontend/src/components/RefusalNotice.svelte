@@ -1,5 +1,5 @@
 <script>
-  import { loginUrl } from '../lib/delivery.ts';
+  import { loginUrl } from '../lib/session.svelte.ts';
 
   // A refused action, said plainly: the dashboard's own words for the refusals
   // it knows, then the reason exactly as the server or the apiserver gave it.

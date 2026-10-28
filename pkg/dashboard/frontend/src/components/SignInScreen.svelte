@@ -1,7 +1,6 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { loginUrl, TOKEN_DOCS } from '../lib/delivery.ts';
+  import { session, loginUrl, TOKEN_DOCS } from '../lib/session.svelte.ts';
   import { fleetOverviewUrl } from '../lib/router.ts';
 
   // The one screen a dashboard people sign in to shows before they do: the
@@ -10,7 +9,7 @@
   // Where token sign-in is on, a field takes a Kubernetes bearer token too.
   let hash = $state(location.hash);
   const href = $derived(loginUrl(hash || fleetOverviewUrl()));
-  const s = $derived(deliverySession.data);
+  const s = $derived(session.data);
   let token = $state('');
   let busy = $state(false);
   let error = $state('');

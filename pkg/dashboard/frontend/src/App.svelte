@@ -7,8 +7,7 @@
   import { syncPageTitle } from './lib/pageTitle.ts';
   import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
-  import { deliverySession, loadSession } from './lib/deliverySession.svelte.ts';
-  import { hostSignsIn, teamGroups } from './lib/delivery.ts';
+  import { session as auth, loadSession, hostSignsIn, teamGroups } from './lib/session.svelte.ts';
   import Person from './components/Person.svelte';
   import SignInScreen from './components/SignInScreen.svelte';
   import CappedList from './components/CappedList.svelte';
@@ -69,7 +68,7 @@
   // A dashboard people sign in to shows nothing but its sign-in screen until
   // they do; the server answers no API call before that. A failed session read
   // (the offline export has none) is no sign-in to wait for.
-  const session = $derived(deliverySession.data);
+  const session = $derived(auth.data);
   const gated = $derived(!!session && session.mode === 'shared' && (session.login || session.tokenLogin) && !session.signedIn && !hostSignsIn());
   const nothingVisible = $derived(!!capabilities?.auth?.nothingVisible);
 
@@ -279,7 +278,7 @@
   });
 </script>
 
-{#if deliverySession.loaded && !gated}
+{#if auth.loaded && !gated}
 <Navbar
   {services}
   {sourcesInfo}
@@ -338,7 +337,7 @@
 <main class="container" bind:this={mainEl}>
   {#if gated}
     <SignInScreen />
-  {:else if !deliverySession.loaded}
+  {:else if !auth.loaded}
     <!-- Who is asking comes first; the browser demo answers only once its engine is up. -->
     <EmptyState loading />
   {:else if nothingVisible && !route.view.startsWith('delivery-')}
