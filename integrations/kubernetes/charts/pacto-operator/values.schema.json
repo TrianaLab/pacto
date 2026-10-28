@@ -3,6 +3,11 @@
   "type": "object",
   "additionalProperties": false,
   "$defs": {
+    "optionalDuration": {
+      "type": "string",
+      "description": "A Go duration such as 15m; empty or 0 keeps the default or turns the setting off, as each setting says.",
+      "pattern": "^(0|([0-9]+(\\.[0-9]+)?(ns|us|\u00b5s|ms|s|m|h))+)?$"
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,
@@ -497,8 +502,8 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "idleTimeout": { "type": "string", "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$" },
-                "maxAge": { "type": "string", "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$" }
+                "idleTimeout": { "$ref": "#/$defs/optionalDuration" },
+                "maxAge": { "$ref": "#/$defs/optionalDuration" }
               }
             },
             "tokenLogin": {
@@ -507,22 +512,26 @@
               "properties": {
                 "enabled": { "type": "boolean" }
               }
-            },
-            "required": { "type": "boolean" },
-            "deliveryNamespace": { "type": "string" }
+            }
           }
         },
-        "deliveryTrust": {
+        "delivery": {
           "type": "object",
           "additionalProperties": false,
-          "description": "The trust config the dashboard verifies delivery records with, so History reads signed records.",
+          "description": "What the dashboard's delivery views read: where delivery runs, how its records are verified and where Mira answers.",
           "properties": {
-            "configMap": { "type": "string" },
-            "key": { "type": "string", "minLength": 1 }
+            "namespace": { "type": "string" },
+            "trust": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The trust config the dashboard verifies delivery records with, so History reads signed records.",
+              "properties": {
+                "configMap": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 }
+              }
+            },
+            "miraURL": { "type": "string" }
           }
-        },
-        "miraURL": {
-          "type": "string"
         },
         "observation": {
           "type": "object",
@@ -773,8 +782,7 @@
               "minimum": 1
             },
             "authFreshness": {
-              "type": "string",
-              "pattern": "^(0|([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+)?$"
+              "$ref": "#/$defs/optionalDuration"
             },
             "leaderElect": {
               "type": "boolean"

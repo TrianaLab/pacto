@@ -97,7 +97,8 @@ dashboard:
       usernameClaim: email
       groupsClaim: groups
     # Kubernetes trusts only an https issuer it is configured for, which no
-    # chart can set. Until it trusts one, sign in with a bearer token.
+    # chart can set. Until it trusts one, sign in with a bearer token. A token
+    # session decides on no held change: approve with `pacto delivery approve`.
     tokenLogin:
       enabled: true
 

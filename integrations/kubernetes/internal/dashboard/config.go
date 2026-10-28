@@ -73,10 +73,14 @@ type Config struct {
 	// input only — Pacto ships no OTLP receiver and no collector.
 	Observation []ObservationSource
 
-	// Auth is how people sign in to the dashboard. Without an issuer the
-	// shared dashboard identifies nobody, so it serves no delivery data and no
-	// actions; its fleet views are unchanged.
+	// Auth is how people sign in to the dashboard. With it, every view and
+	// action runs with the signed-in person's RBAC; the delivery views need it.
 	Auth AuthConfig
+
+	// DeliveryNamespace is the namespace Pacto delivery runs in, where it
+	// publishes the promoter's identity policy, which the dashboard reads;
+	// empty means pacto-delivery.
+	DeliveryNamespace string
 
 	// MiraURL, when set, turns the dashboard's Mira citations into links.
 	MiraURL string
@@ -93,9 +97,10 @@ type KeyRef struct {
 	Key  string
 }
 
-// AuthConfig is the dashboard's OpenID Connect client. Delivery actions then
-// run with the signed-in person's own token: the dashboard's ServiceAccount
-// gains no right for it.
+// AuthConfig is how people sign in to the dashboard: its OpenID Connect
+// client, claim mapping, session lifetime and token sign-in. Reads and actions
+// then run with the signed-in person's own token; the dashboard's
+// ServiceAccount gains no right for them.
 type AuthConfig struct {
 	IssuerURL string
 	// InternalIssuerURL is where the dashboard reaches the issuer when it
@@ -132,10 +137,6 @@ type AuthConfig struct {
 	SessionMaxAge      time.Duration
 	// TokenLogin lets people sign in by pasting a Kubernetes bearer token.
 	TokenLogin bool
-	// DeliveryNamespace is the namespace Pacto delivery runs in, where it publishes the
-	// promoter's identity policy, which the dashboard reads; empty means
-	// pacto-delivery.
-	DeliveryNamespace string
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.

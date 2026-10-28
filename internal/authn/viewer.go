@@ -35,7 +35,7 @@ var Anonymous = Person{User: "system:anonymous", Groups: []string{"system:unauth
 // structured authentication configuration names them (claimMappings). The
 // dashboard asks Kubernetes RBAC about a signed-in person as this mapping
 // names them, so it must match the API server's. The zero value is the
-// mapping delivery-identity.md configures: issuer#sub and the groups claim
+// mapping dashboard-authentication.md describes: issuer#sub and the groups claim
 // as it is.
 type Claims struct {
 	// UsernameClaim is the claim the username comes from; empty is "sub".

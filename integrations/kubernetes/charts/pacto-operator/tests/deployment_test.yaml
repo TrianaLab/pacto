@@ -213,6 +213,22 @@ tests:
           # Helm 3 and Helm 4 word the schema refusal differently.
           errorPattern: "(?i)additional propert(y|ies) '?ociSecret'? (is )?not allowed"
 
+  - it: rejects dashboard.auth.required, which nothing reads (sign-in turns on with an issuer or token sign-in)
+    set:
+      dashboard.enabled: true
+      dashboard.auth.required: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)additional propert(y|ies) '?required'? (is )?not allowed"
+
+  - it: rejects dashboard.auth.deliveryNamespace, which moved to dashboard.delivery.namespace
+    set:
+      dashboard.enabled: true
+      dashboard.auth.deliveryNamespace: delivery
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)additional propert(y|ies) '?deliveryNamespace'? (is )?not allowed"
+
   - it: should include dashboard OCI secrets arg when list is set
     set:
       dashboard.enabled: true
@@ -230,13 +246,13 @@ tests:
     asserts:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
-          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-delivery|--dashboard-auth|--dashboard-session|--dashboard-token"
+          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-delivery|--dashboard-session|--dashboard-token"
 
   - it: should pass the dashboard sign-in, the client secret by reference only
     set:
       dashboard.enabled: true
-      dashboard.miraURL: http://mira.observability:4318
-      dashboard.auth.deliveryNamespace: delivery
+      dashboard.delivery.miraURL: http://mira.observability:4318
+      dashboard.delivery.namespace: delivery
       dashboard.auth.oidc:
         issuerURL: https://idp.example
         clientID: pacto-dashboard
@@ -357,7 +373,7 @@ tests:
   - it: should pass the delivery trust config the dashboard verifies History with
     set:
       dashboard.enabled: true
-      dashboard.deliveryTrust: {configMap: delivery-trust}
+      dashboard.delivery.trust: {configMap: delivery-trust}
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args

@@ -100,8 +100,8 @@ func TestDeploymentAC_Auth(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "ns", MiraURL: "http://mira:8080",
 		Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "pacto-dashboard", RedirectURL: "https://dash/auth/callback",
 			ExtraScopes: []string{"a", "b"}, ClientSecretName: "oidc", UsernameClaim: "email", UsernamePrefix: "-",
-			GroupsClaim: "roles", GroupsPrefix: "oidc:", SessionIdleTimeout: 30 * time.Minute, SessionMaxAge: 8 * time.Hour, TokenLogin: true,
-			DeliveryNamespace: "delivery"}}
+			GroupsClaim: "roles", GroupsPrefix: "oidc:", SessionIdleTimeout: 30 * time.Minute, SessionMaxAge: 8 * time.Hour, TokenLogin: true},
+		DeliveryNamespace: "delivery"}
 	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
 	// Sessions live in one process's memory, so a signed-in dashboard must stay
 	// one replica: a second replica would sign people out at random.

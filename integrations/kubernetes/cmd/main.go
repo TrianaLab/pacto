@@ -89,6 +89,7 @@ type options struct {
 	dashboardAuth          dashboard.AuthConfig
 	dashboardExtraScopes   string
 	dashboardMiraURL       string
+	dashboardDeliveryNS    string
 	dashboardDeliveryTrust dashboard.KeyRef
 
 	enableEvidence            bool
@@ -155,8 +156,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			return nil
 		})
 	fs.StringVar(&o.dashboardAuth.IssuerURL, "dashboard-oidc-issuer-url", "",
-		"OpenID Connect issuer people sign in to the dashboard with. Delivery actions then run with each person's own "+
-			"token; without it the dashboard serves no delivery data and no actions.")
+		"OpenID Connect issuer people sign in to the dashboard with. Every view and action then runs with each "+
+			"person's own token and RBAC; the delivery views need sign-in.")
 	fs.StringVar(&o.dashboardAuth.InternalIssuerURL, "dashboard-oidc-internal-issuer-url", "",
 		"Where the dashboard reaches the issuer when it differs from the public issuer URL browsers use, such as an "+
 			"in-cluster Service; ID tokens must still name the public issuer.")
@@ -197,7 +198,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"A dashboard session ends this long after sign-in, renewed or not (0: 12h).")
 	fs.BoolVar(&o.dashboardAuth.TokenLogin, "dashboard-token-login", false,
 		"Let people sign in to the dashboard by pasting a Kubernetes bearer token; a token session never decides.")
-	fs.StringVar(&o.dashboardAuth.DeliveryNamespace, "dashboard-delivery-namespace", "",
+	fs.StringVar(&o.dashboardDeliveryNS, "dashboard-delivery-namespace", "",
 		"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; "+
 			"empty means pacto-delivery.")
 	fs.StringVar(&o.dashboardMiraURL, "dashboard-mira-url", "",
@@ -523,6 +524,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Observation:        o.dashboardObservation,
 		Resources:          o.dashboardResources,
 		Auth:               o.dashboardAuth,
+		DeliveryNamespace:  o.dashboardDeliveryNS,
 		MiraURL:            o.dashboardMiraURL,
 		DeliveryTrust:      o.dashboardDeliveryTrust,
 	}

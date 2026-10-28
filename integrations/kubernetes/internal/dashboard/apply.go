@@ -98,9 +98,6 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	if a.CAConfigMap != "" || a.CASecret != "" {
 		add("PACTO_DASHBOARD_OIDC_CA_FILE", oidcCADir+"/"+keyOr(a.CAKey, "ca.crt"))
 	}
-	if cfg.DeliveryTrust.Name != "" {
-		add("PACTO_DASHBOARD_DELIVERY_TRUST", deliveryTrustDir+"/"+keyOr(cfg.DeliveryTrust.Key, "trust.yaml"))
-	}
 	add("PACTO_DASHBOARD_OIDC_CLIENT_ID", a.ClientID)
 	add("PACTO_DASHBOARD_OIDC_REDIRECT_URL", a.RedirectURL)
 	add("PACTO_DASHBOARD_OIDC_EXTRA_SCOPES", strings.Join(a.ExtraScopes, " "))
@@ -117,12 +114,27 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	if a.TokenLogin {
 		add("PACTO_DASHBOARD_TOKEN_LOGIN", "true")
 	}
-	add("PACTO_DASHBOARD_DELIVERY_NAMESPACE", a.DeliveryNamespace)
-	add("PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL)
 	if a.ClientSecretName != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_OIDC_CLIENT_SECRET").WithValueFrom(
 			corev1ac.EnvVarSource().WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.ClientSecretName).
 				WithKey(keyOr(a.ClientSecretKey, "client-secret")))))
+	}
+	return env
+}
+
+// deliveryEnv passes what the delivery views read: the namespace delivery runs
+// in, the trust config its records are verified with and Mira's address.
+func deliveryEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
+	trust := ""
+	if cfg.DeliveryTrust.Name != "" {
+		trust = deliveryTrustDir + "/" + keyOr(cfg.DeliveryTrust.Key, "trust.yaml")
+	}
+	var env []*corev1ac.EnvVarApplyConfiguration
+	for _, kv := range [][2]string{{"PACTO_DASHBOARD_DELIVERY_NAMESPACE", cfg.DeliveryNamespace},
+		{"PACTO_DASHBOARD_DELIVERY_TRUST", trust}, {"PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL}} {
+		if kv[1] != "" {
+			env = append(env, corev1ac.EnvVar().WithName(kv[0]).WithValue(kv[1]))
+		}
 	}
 	return env
 }
@@ -174,7 +186,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	if cfg.WatchNamespace != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_NAMESPACE").WithValue(cfg.WatchNamespace))
 	}
-	env = append(env, authEnv(cfg)...)
+	env = append(append(env, authEnv(cfg)...), deliveryEnv(cfg)...)
 	if cfg.EvidenceSourceURL != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_EVIDENCE_SOURCE_URL").WithValue(cfg.EvidenceSourceURL))
 	}
