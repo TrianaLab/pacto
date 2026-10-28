@@ -147,7 +147,7 @@ led() { bash "$ROOT/release/orchestrator/ledger.sh" "$@"; }
 vfy() { bash "$ROOT/release/orchestrator/verify-oci.sh" "$@"; }
 TXN="dryrun-$(git -C "$ROOT" rev-parse --short HEAD)"
 export PACTO_RELEASE_TXN="$TXN"
-MSHA="$(node -e 'const c=require("crypto"),fs=require("fs");const m=JSON.parse(fs.readFileSync("'"$ROOT"'/release/release-manifest.json"));const nv=Object.fromEntries(Object.entries(m.units).map(([u,v])=>[u,v.version]));const st=v=>Array.isArray(v)?v.map(st):(v&&typeof v=="object"?Object.fromEntries(Object.keys(v).sort().map(k=>[k,st(v[k])])):v);process.stdout.write(c.createHash("sha256").update(JSON.stringify(st(nv))).digest("hex"))')"
+MSHA="$(ROOT="$ROOT" node --input-type=module -e 'import { manifestSha } from "'"$ROOT"'/release/orchestrator/canonical.mjs"; import { readFileSync } from "node:fs"; const m = JSON.parse(readFileSync(process.env.ROOT + "/release/release-manifest.json")); process.stdout.write(manifestSha(Object.fromEntries(Object.entries(m.units).map(([u, v]) => [u, v.version]))))')"
 led init "$TXN" "$SHA" "$MSHA" >/dev/null
 
 # Publish EACH unit through the EXACT shared adapter release.yml uses

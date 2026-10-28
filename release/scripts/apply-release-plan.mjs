@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { stable } from '../orchestrator/canonical.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const R = (...p) => join(root, ...p);
@@ -184,11 +185,6 @@ assert(pathMajor >= 2 ? majorOf(pin.version) === pathMajor : majorOf(pin.version
 }
 
 // ---- 7. release-manifest.json: every unit -> {version, coordinate, tag, artifactKind} ----
-function stable(v) {
-  if (Array.isArray(v)) return v.map(stable);
-  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])]));
-  return v;
-}
 {
   const unitsDir = R('release', 'units');
   const unitCoord = {};
