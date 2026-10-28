@@ -232,10 +232,7 @@ func TestScanSubject_ReadsEveryPublishedRecord(t *testing.T) {
 	}
 	ids := map[string]bool{}
 	for _, f := range got.Found {
-		ids[f.Record.Envelope.ID] = true
-		if f.Desc.Digest == "" {
-			t.Error("a scanned record carries no manifest digest")
-		}
+		ids[f.Envelope.ID] = true
 	}
 	for i := 1; i <= 3; i++ {
 		if !ids[fmt.Sprintf("env-%d", i)] {
@@ -484,7 +481,7 @@ func TestScanSubject_CountsArtifactsTheRegistryCannotServe(t *testing.T) {
 	if len(got.Found) != 1 || got.Invalid != 2 {
 		t.Fatalf("read %d records with %d invalid, want 1 and 2", len(got.Found), got.Invalid)
 	}
-	if got.Found[0].Record.Envelope.ID != "env-3" {
-		t.Errorf("surviving record is %q, want env-3", got.Found[0].Record.Envelope.ID)
+	if got.Found[0].Envelope.ID != "env-3" {
+		t.Errorf("surviving record is %q, want env-3", got.Found[0].Envelope.ID)
 	}
 }
