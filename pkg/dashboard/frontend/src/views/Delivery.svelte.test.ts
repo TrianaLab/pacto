@@ -29,7 +29,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 });
 
 import { ApiError } from '../lib/api.ts';
-import { session as auth } from '../lib/session.svelte.ts';
+import { session as auth, loadSession } from '../lib/session.svelte.ts';
 import { keepPending } from '../lib/delivery.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryInboxView from './DeliveryInboxView.svelte';
@@ -55,6 +55,8 @@ async function settle() {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- component handle
 function render(C: any, props: Record<string, unknown> = {}) {
+  // The app reads the session once at start; a view on its own reads it here.
+  loadSession();
   const target = document.createElement('div');
   document.body.appendChild(target);
   const c = mount(C, { target, props });
