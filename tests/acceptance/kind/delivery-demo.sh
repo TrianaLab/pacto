@@ -1055,11 +1055,16 @@ YAML
     || fail "the rollback does not cite the eval run signed by the demo runner: $cause"
   [ "$(jq -r '.citation.runnerBundle | fromjson | .dsseEnvelope.payloadType' <<<"$cause")" = "application/vnd.in-toto+json" ] \
     || fail "the eval verdict does not keep the runner's signed answer: $cause"
-  wait_concluded test "${op}-rollback" Succeeded/Verified
+  # The rollback returns to 1.0.0, whose external model Pacto cannot see: its
+  # contract check after release says Unknown again, and alice accepts it.
+  rollback_unknown() { held test "${op}-rollback" && [ "$(field test "${op}-rollback" applied)" = true ]; }
+  eventually 150 rollback_unknown || fail "the pay-agent rollback never waited on its check: $(field test "${op}-rollback" phase) $(field test "${op}-rollback" message)"
+  accept_unknown_as alice@example.com team-payments test "${op}-rollback" "back on 1.0.0, whose model runs at its vendor"
+  wait_concluded test "${op}-rollback" Succeeded/AcceptedUnknown
   # prod is a manual Stage, so the gate's effect is what test offers it.
   not_offered() { ! offered pay-agent "$d"; }
   always 5 not_offered || fail "test offers pay-agent 1.1.0 to prod though it failed its evals"
-  pass "pay-agent shipped like a service: 1.0.0 passed its evals and runs in test as an accepted unknown, 1.1.0 got 1 of 2 from the stand-in runner (signed by its own key), rolled back in test and is never offered"
+  pass "pay-agent shipped like a service: 1.0.0 passed its evals and runs in test as an accepted unknown, 1.1.0 got 1 of 2 from the stand-in runner (signed by its own key), rolled back in test to 1.0.0 as an accepted unknown and is never offered"
   # An auditor checks both signatures: the recorder's on each record and the
   # runner's on each eval verdict, with a trust config that names both keys.
   local both="$KEYS/trust-with-runner.yaml"
