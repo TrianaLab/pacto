@@ -80,9 +80,7 @@ type Auth struct {
 // AuthState is one request's caller as the identity layer sees it.
 type AuthState struct {
 	SignedIn bool
-	// Fresh: the session came from a login the person had to repeat.
-	Fresh bool
-	CSRF  string
+	CSRF     string
 	// Name is the person's name from their ID token (name, else email).
 	Name string
 	// User and Groups are the person as the cluster names them: the identity
@@ -167,7 +165,6 @@ type sessionOutput struct {
 		TokenLogin bool     `json:"tokenLogin,omitempty" doc:"People may sign in by pasting a Kubernetes bearer token"`
 		SignedIn   bool     `json:"signedIn" doc:"The caller has a live session (shared) or the launch cookie (local)"`
 		Method     string   `json:"method,omitempty" enum:"oidc,token" doc:"How the caller signed in: with the identity provider or with a pasted token, which never decides"`
-		Fresh      bool     `json:"fresh" doc:"The session came from a login the person had to repeat; decisions need one"`
 		Name       string   `json:"name,omitempty" doc:"The signed-in person's name from their ID token (name, else email)"`
 		User       string   `json:"user,omitempty" doc:"The signed-in person's username as the cluster names them; the fleet views show what its Kubernetes RBAC lets this user read"`
 		Groups     []string `json:"groups,omitempty" doc:"The signed-in person's groups as the cluster names them"`
@@ -193,7 +190,7 @@ func (s *Server) session(ctx context.Context, _ *struct{}) (*sessionOutput, erro
 		}
 	}
 	st := s.authState(ctx)
-	out.Body.SignedIn, out.Body.Fresh, out.Body.CSRF, out.Body.Name = st.SignedIn, st.Fresh, st.CSRF, st.Name
+	out.Body.SignedIn, out.Body.CSRF, out.Body.Name = st.SignedIn, st.CSRF, st.Name
 	out.Body.User, out.Body.Groups, out.Body.Method = st.User, st.Groups, st.Method
 	if !st.SignedIn || s.opts.Delivery == nil {
 		return out, nil
@@ -221,7 +218,7 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "session", Method: http.MethodGet, Path: "/api/session", Tags: []string{"Delivery"},
 		Summary:     "Who is signed in",
-		Description: "The identity mode, whether the caller is signed in and with a fresh login, the CSRF token for mutating requests and who the apiserver says the caller is.",
+		Description: "The identity mode, whether the caller is signed in, the CSRF token for mutating requests and who the apiserver says the caller is.",
 	}, s.session)
 	if s.opts.Delivery == nil {
 		return
@@ -273,7 +270,7 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Description: "Promote, roll back (with undoes), freeze or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass."}), s.deliveryPropose)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-decide", Method: http.MethodPost, Path: "/api/delivery/operations/{namespace}/{name}/decision",
 		DefaultStatus: http.StatusCreated, Summary: "Decide on a held change",
-		Description: "Approve, reject or accept an unknown, as the signed-in person, with a login made fresh for it. Only the teams the question names may decide. Never served in local mode or to agents."}), s.deliveryDecide)
+		Description: "Approve, reject or accept an unknown, as the signed-in person; where the Stage publishes a login freshness, with a login that recent. Only the teams the question names may decide. Never served in local mode or to agents."}), s.deliveryDecide)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-cancel", Method: http.MethodDelete, Path: "/api/delivery/operations/{namespace}/{name}",
 		Summary: "Cancel a change", Description: "Cancel an operation that has not moved the pointer yet."}), s.deliveryCancel)
 }

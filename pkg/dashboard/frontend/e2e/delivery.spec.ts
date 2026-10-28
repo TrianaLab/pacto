@@ -10,10 +10,11 @@ import { DOC_ORIGIN } from './ports';
 // story, demo-delivery.spec.ts); every other test here wraps the
 // engine's serve function (the one seam every API call passes, see swr.spec.ts) with a
 // small delivery backend that behaves like the dashboard's: who the caller is comes from
-// a persona, a decision needs a fresh sign-in and only the named team may decide. A
-// mutating call without the session's X-Pacto-CSRF token is refused, as the real guard
-// does. The sign-in itself is a stand-in identity provider at /auth/login that marks the
-// next session fresh and sends the browser back, exactly like the real redirect does.
+// a persona, its Stage asks for a sign-in in the last ten minutes and only the named
+// team may decide. A mutating call without the session's X-Pacto-CSRF token is refused,
+// as the real guard does. The sign-in itself is a stand-in identity provider at
+// /auth/login that dates the next session now and sends the browser back, exactly like
+// the real redirect does.
 
 const T = 30_000;
 
@@ -33,8 +34,10 @@ function installDelivery(persona: Persona): void {
   const decided = () => S.getItem('mock.decided');
   const D1 = 'sha256:' + '1'.repeat(64);
   const D2 = 'sha256:' + '2'.repeat(64);
+  // A fresh sign-in is dated when it came back; every other one long ago.
+  const signedAt = fresh() ? S.getItem('mock.fresh.at')! : '1792560000';
   const callers: Record<string, unknown> = {
-    carol: { user: 'https://idp#carol', class: 'human', groups: ['team-checkout', 'system:authenticated'], authTime: '1792560000' },
+    carol: { user: 'https://idp#carol', class: 'human', groups: ['team-checkout', 'system:authenticated'], authTime: signedAt },
     alice: { user: 'https://idp#alice', class: 'human', groups: ['team-payments'], authTime: '1792560000' },
     robot: { user: 'https://idp#robot', class: 'agent', groups: ['pacto:agents'] },
     local: { user: 'kind-admin', class: 'human', groups: ['system:masters'] },
@@ -66,12 +69,12 @@ function installDelivery(persona: Persona): void {
   const delivery = (method: string, route: string, body: string | null = null): ServeResult => {
     if (route === '/api/session') {
       if (persona === 'token') {
-        return json(200, { mode: 'shared', login: false, tokenLogin: true, signedIn: !signedOut(), fresh: false,
+        return json(200, { mode: 'shared', login: false, tokenLogin: true, signedIn: !signedOut(),
           ...(signedOut() ? {} : { method: 'token', csrf: 't', caller, user: 'system:serviceaccount:shop:viewer' }) });
       }
-      if (persona === 'signed-out') return json(200, { mode: 'shared', login: true, signedIn: false, fresh: false });
+      if (persona === 'signed-out') return json(200, { mode: 'shared', login: true, signedIn: false });
       return json(200, { mode: persona === 'local' ? 'local' : 'shared', login: persona !== 'local', signedIn: true,
-        fresh: fresh(), csrf: 't', caller });
+        csrf: 't', caller });
     }
     if (signedOut()) return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to see delivery' });
     if (route === '/api/delivery/inbox') {
@@ -105,7 +108,7 @@ function installDelivery(persona: Persona): void {
       const actions = o.status.phase === 'Held' && mayDecide ? ['approve', 'reject', 'cancel'] : ['cancel'];
       return json(200, { explanation: { operation: 'prod/op1', summary: 'promote payments-prod from 1.4.0 to 2.0.0', spec: o.spec,
         status: { phase: o.status.phase, reason: o.status.reason, actorClass: 'agent' }, verdicts: plan.verdicts.map((v) => ({ ...v, rerun: 'pacto delivery explain -n prod op1' })),
-        stage: { name: 'payments-prod', pointer: D1 } }, operation: o, actions });
+        stage: { name: 'payments-prod', pointer: D1 } }, operation: o, actions, decisionFreshness: 600 });
     }
     if (route === '/api/delivery/history') {
       const rec = (c: string) => 'sha256:' + c.repeat(64);
@@ -155,7 +158,7 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/delivery/plan' && method === 'POST') return json(200, plan);
     if (route === '/api/delivery/operations/prod/op1/decision' && method === 'POST') {
       if (persona === 'local') return json(403, { status: 403, code: 'ApproveFromCLI', detail: 'a local dashboard never decides' });
-      if (!fresh()) return json(401, { status: 401, code: 'FreshLoginRequired', detail: 'deciding needs a fresh login: sign in again' });
+      if (!fresh()) return json(401, { status: 401, code: 'FreshLoginRequired', detail: 'your login is older than 10m0s: sign in again' });
       if (!mayDecide) return json(403, { status: 403, code: 'NotYourTeam', detail: 'only [team-checkout] may answer this question' });
       S.setItem('mock.decided', 'op1-approve-x7k2');
       return json(201, { approval: 'op1-approve-x7k2' });
@@ -193,14 +196,14 @@ function installDelivery(persona: Persona): void {
   });
 }
 
-/** A stand-in identity provider: a fresh login marks the next session fresh. */
+/** A stand-in identity provider: a fresh login dates the next session now. */
 async function fakeIdP(page: Page) {
   await page.route('**/auth/login?**', (route) => {
     const u = new URL(route.request().url());
     const ret = u.searchParams.get('return') || '/';
     const fresh = u.searchParams.get('fresh') === '1';
     return route.fulfill({ status: 200, contentType: 'text/html', body:
-      `<script>${fresh ? "sessionStorage.setItem('mock.fresh','1');" : ''}location.replace(${JSON.stringify(ret)});</script>` });
+      `<script>${fresh ? "sessionStorage.setItem('mock.fresh','1');sessionStorage.setItem('mock.fresh.at',String(Math.floor(Date.now()/1000)));" : ''}location.replace(${JSON.stringify(ret)});</script>` });
   });
 }
 
@@ -278,15 +281,25 @@ test.describe('Delivery views', () => {
     }
   });
 
-  test('a decision asks for a fresh sign-in, keeps the choice and sends it on a click', async ({ page }) => {
+  test('an old sign-in is said next to the buttons, and a refused decision asks in a dialog to sign in again', async ({ page }) => {
     await as(page, 'carol');
     await page.goto('/#/delivery/changes/prod/op1');
     const panel = page.getByTestId('decision-panel');
     await expect(panel).toBeVisible({ timeout: T });
-    // Said before anything is pressed: pressing a button is choosing to leave and sign in.
-    await expect(page.getByTestId('decision-stale')).toContainText('takes you to sign in again');
+    // Said before anything is pressed.
+    await expect(page.getByTestId('decision-stale')).toContainText('Deciding needs a sign-in in the last 10 minutes. You signed in');
     await panel.getByLabel('Note (kept with the decision)').fill('checkout 3.1 reads the new field');
     await panel.getByRole('button', { name: 'Approve' }).click();
+    // Nothing leaves the page on its own: the dialog says why and offers the way.
+    const dialog = page.getByRole('dialog', { name: 'Sign in again to decide' });
+    await expect(dialog).toBeVisible({ timeout: T });
+    await expect(page).toHaveURL(/#\/delivery\/changes\/prod\/op1$/);
+    await audit(page, 'the sign-in-again dialog');
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Approve' })).toBeFocused();
+    await panel.getByRole('button', { name: 'Approve' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Sign in again to approve' }).click();
     await expect(page).toHaveURL(/#\/delivery\/changes\/prod\/op1$/, { timeout: T });
     await expect(page.getByTestId('decision-kept')).toContainText('Your choice was Approve', { timeout: T });
     await expect(panel.getByLabel('Note (kept with the decision)')).toHaveValue('checkout 3.1 reads the new field');

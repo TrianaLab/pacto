@@ -123,7 +123,7 @@ func TestSharedMode(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://dash.example/api/session", nil)
 	r.AddCookie(c)
 	serve(h, r)
-	if !got.SignedIn || got.Fresh || got.CSRF != sess.CSRF || got.Token != sess.idToken {
+	if !got.SignedIn || got.CSRF != sess.CSRF || got.Token != sess.idToken {
 		t.Fatalf("shared state %+v", got)
 	}
 	act := func(path string, cookie bool, csrf, origin string) int {

@@ -187,7 +187,7 @@ check("attention spans more than one severity", sevs.size >= 2, [...sevs].join("
 // The real dashboard handlers over the tab's simulated delivery: the session is
 // signed in, a breaking change is held for the two teams whose ranges it breaks,
 // the consumer that moves first shrinks the question to one team and only a
-// freshly signed-in person on that team may decide.
+// person on that team may decide.
 check("capabilities: delivery enabled", json(call("GET", "/api/capabilities")).delivery === true);
 const sess = json(call("GET", "/api/session"));
 check("session: signed in as pay-agent", sess.signedIn === true && sess.caller?.user === "system:serviceaccount:agents:pay-agent", JSON.stringify(sess.caller));
@@ -206,9 +206,7 @@ for (let i = 0; i < 40 && !/Asked of: orders$/.test(question); i++) {
 check("after checkout moves first, only orders is asked", /Asked of: orders$/.test(question), question);
 check("pay-agent may not decide", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 403);
 globalThis.__pactoPersona("carol", false);
-check("carol must sign in again", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 401);
-globalThis.__pactoPersona("carol", true);
-check("freshly signed-in carol approves", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 201);
+check("carol approves with the sign-in she has", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 201);
 const hist = json(call("GET", "/api/delivery/history")).histories || [];
 check("history has a verified stream and one with problems",
   hist.some((h) => h.verified && h.completeness === "complete")

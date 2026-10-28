@@ -34,7 +34,7 @@ async function renderAt(hash: string) {
 
 beforeEach(() => {
   fns.inbox.mockReset();
-  fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, fresh: false, caller: { user: 'u', class: 'human', groups: [] } });
+  fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, caller: { user: 'u', class: 'human', groups: [] } });
   fns.inbox.mockResolvedValue({ asOf: 'x', completeness: 'complete', held: [], frozen: [], errored: [] });
 });
 

@@ -395,7 +395,7 @@ describe('delivery endpoints', () => {
 
   it('sends the session CSRF token on every mutating call, reading the session once', async () => {
     mockFetch.mockImplementation((req: Request) => Promise.resolve(
-      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: true, fresh: true, csrf: 'tok' })
+      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: true, csrf: 'tok' })
         : jsonResponse({ intentDigest: 'sha256:i' }, req.method === 'POST' && !req.url.endsWith('/plan') ? 201 : 200)));
     await api.deliveryPlan({ namespace: 'prod', stage: 'pay' });
     await api.deliveryPropose({ namespace: 'prod', stage: 'pay', intentDigest: 'sha256:i' });
@@ -422,7 +422,7 @@ describe('delivery endpoints', () => {
     let token = 'old';
     mockFetch.mockImplementation((req: Request) => {
       const path = new URL(req.url).pathname;
-      if (path === '/api/session') return Promise.resolve(jsonResponse({ mode: 'shared', login: true, signedIn: true, fresh: true, csrf: token }));
+      if (path === '/api/session') return Promise.resolve(jsonResponse({ mode: 'shared', login: true, signedIn: true, csrf: token }));
       return Promise.resolve(req.headers.get('X-Pacto-CSRF') === token
         ? jsonResponse({ approval: 'a1' }, 201) : new Response('missing or wrong X-Pacto-CSRF header', { status: 403 }));
     });
@@ -462,7 +462,7 @@ describe('delivery endpoints', () => {
 
   it('signs out with the CSRF token and returns the provider logout page', async () => {
     mockFetch.mockImplementation((req: Request) => Promise.resolve(
-      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: true, fresh: false, csrf: 'tok2' })
+      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: true, csrf: 'tok2' })
         : jsonResponse({ logoutURL: 'https://idp/logout?client_id=x' })));
     await api.session();
     expect(await api.signOut()).toBe('https://idp/logout?client_id=x');
@@ -471,7 +471,7 @@ describe('delivery endpoints', () => {
     // No logout page, a body that is not JSON, a refusal, and no CSRF token to send.
     mockFetch.mockReset();
     mockFetch.mockImplementation((req: Request) => Promise.resolve(
-      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: false, fresh: false })
+      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: false })
         : new Response('', { status: 200 })));
     expect(await api.signOut()).toBe('');
     expect(requestFor(1).headers.get('X-Pacto-CSRF')).toBeNull();

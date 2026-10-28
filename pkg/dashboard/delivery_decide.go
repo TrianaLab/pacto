@@ -77,8 +77,8 @@ type decideOutput struct {
 }
 
 // decisionSession refuses a decision this dashboard's sign-in cannot carry:
-// a local or sign-in-free dashboard, no session, a pasted token or a stale
-// login. cli is the command that decides instead.
+// a local or sign-in-free dashboard, no session or a pasted token. cli is the
+// command that decides instead.
 func (s *Server) decisionSession(ctx context.Context, cli string) error {
 	a := s.opts.Auth
 	switch {
@@ -98,15 +98,13 @@ func (s *Server) decisionSession(ctx context.Context, cli string) error {
 	case st.Method == "token":
 		return Refuse(http.StatusForbidden, "TokenCannotDecide",
 			"a pasted token never decides, and this dashboard offers no identity provider sign-in. Run: "+cli)
-	case !st.Fresh:
-		return Refuse(http.StatusUnauthorized, "FreshLoginRequired", "deciding needs a fresh login: sign in again")
 	}
 	return nil
 }
 
-// deliveryDecide is the fresh-login decision flow: local mode never decides,
-// a decision needs a session from a login the person repeated with an
-// auth-time under DecisionFreshnessFor the Stage's published freshness, and
+// deliveryDecide is the decision flow: local mode never decides; on a Stage
+// that publishes a login freshness a decision needs an auth-time under
+// DecisionFreshnessFor it; and
 // the decision must be one the promoter counts (delivery.ApprovalRefusal):
 // never the asker's, never an agent's, only from the teams the question
 // names. The promoter checks it all again.
@@ -161,20 +159,23 @@ func approvalOf(op *delivery.OperationObject, caller delivery.Caller, decision d
 		Decision: decision, By: caller.User, Groups: caller.Groups, AuthTime: caller.AuthTime}
 }
 
-// mayDecide refuses a caller the apiserver names an agent, or whose login is
-// unknown or older than two thirds of the login freshness the Stage
-// publishes (delivery.DecisionFreshnessFor), so the promoter still counts it.
+// mayDecide refuses a caller the apiserver names an agent. On a Stage that
+// publishes a login freshness it also refuses a login that is unknown or
+// older than two thirds of that freshness (delivery.DecisionFreshnessFor), so
+// the promoter still counts it.
 func (s *Server) mayDecide(caller delivery.Caller, published string) error {
 	at, ok := delivery.ParseAuthTime(caller.AuthTime)
+	window := delivery.DecisionFreshnessFor(published)
 	switch {
 	case !caller.Policy.IsHuman(caller.Identity):
 		return Refuse(http.StatusForbidden, "AgentsMayNotApprove", "the apiserver says "+caller.User+" is an agent; agents may not decide")
+	case window == 0:
+		return nil
 	case caller.AuthTime == "":
 		return Refuse(http.StatusForbidden, "AuthTimeUnavailable",
 			"this cluster does not map auth_time to userInfo.extra[delivery.pacto.trianalab.io/auth-time]; nobody can approve here")
-	case !ok || time.Since(at) > delivery.DecisionFreshnessFor(published):
-		return Refuse(http.StatusUnauthorized, "FreshLoginRequired",
-			fmt.Sprintf("your login is older than %s: sign in again", delivery.DecisionFreshnessFor(published)))
+	case !ok || time.Since(at) > window:
+		return Refuse(http.StatusUnauthorized, "FreshLoginRequired", fmt.Sprintf("your login is older than %s: sign in again", window))
 	}
 	return nil
 }

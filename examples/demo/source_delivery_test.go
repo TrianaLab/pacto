@@ -216,7 +216,8 @@ func storyApproved(t *testing.T, d *demoDelivery, h http.Handler, decide string)
 		t.Fatalf("B6 inbox: %+v", items)
 	}
 
-	// B7: alice is not on the asked team; carol must sign in again first.
+	// B7: alice is not on the asked team; carol is, and her sign-in of half
+	// an hour ago decides: the simulated Stages ask for no recent sign-in.
 	if err := d.SetPersona("alice", true); err != nil {
 		t.Fatal(err)
 	}
@@ -224,12 +225,8 @@ func storyApproved(t *testing.T, d *demoDelivery, h http.Handler, decide string)
 		t.Fatalf("alice decided: %d", code)
 	}
 	_ = d.SetPersona("carol", false)
-	if code := call(t, h, "POST", decide, `{"decision":"approve"}`, nil); code != 401 {
-		t.Fatalf("stale carol decided: %d", code)
-	}
-	_ = d.SetPersona("carol", true)
 	if code := call(t, h, "POST", decide, `{"decision":"approve"}`, nil); code != 201 {
-		t.Fatalf("fresh carol: %d", code)
+		t.Fatalf("carol: %d", code)
 	}
 	prod, _ := d.Stage(t.Context(), story.Prod, "payments")
 	if prod.Status.Pointer != digest("payments", "3.0.0") {

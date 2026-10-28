@@ -166,7 +166,7 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 		State: func(r *http.Request) dashboard.AuthState {
 			st := id.state(r.Context())
 			// User and Groups: who the fleet views are narrowed for.
-			return dashboard.AuthState{SignedIn: st.SignedIn, Fresh: st.Fresh, CSRF: st.CSRF, Name: tokenName(st.Token),
+			return dashboard.AuthState{SignedIn: st.SignedIn, CSRF: st.CSRF, Name: tokenName(st.Token),
 				User: st.Person.User, Groups: st.Person.Groups, Method: st.Method}
 		}}
 	if id.viewer != nil {

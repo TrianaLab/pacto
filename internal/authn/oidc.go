@@ -90,17 +90,13 @@ type Session struct {
 	seen    time.Time
 	// CSRF is the token mutating requests must carry in CSRFHeader.
 	CSRF string
-	// Fresh is true when the session was created by a login the identity
-	// provider made the person repeat (prompt=login). Only such a session may
-	// decide on an operation.
-	Fresh bool
 	// refreshing lets one request at a time refresh the session, so a
 	// provider that rotates refresh tokens never sees one used twice.
 	refreshing *sync.Mutex
 }
 
-// LogValue keeps every token out of logs: only whether the session is fresh.
-func (s *Session) LogValue() slog.Value { return slog.GroupValue(slog.Bool("fresh", s.Fresh)) }
+// LogValue keeps every token out of logs.
+func (s *Session) LogValue() slog.Value { return slog.StringValue("session") }
 
 // IDToken is the session's current ID token, the bearer of its requests.
 func (s *Session) IDToken() string { return s.idToken }
@@ -314,7 +310,7 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	now := o.now()
 	s := &Session{id: random(32), idToken: raw, refresh: tok.RefreshToken, expiry: id.Expiry, created: now, seen: now,
-		CSRF: random(32), Fresh: st.Fresh, refreshing: &sync.Mutex{}}
+		CSRF: random(32), refreshing: &sync.Mutex{}}
 	o.mu.Lock()
 	o.sessions[s.id] = s
 	o.mu.Unlock()

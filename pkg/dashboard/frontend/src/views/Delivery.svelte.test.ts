@@ -45,7 +45,7 @@ const D1 = 'sha256:' + '1'.repeat(64);
 const D2 = 'sha256:' + '2'.repeat(64);
 const listing = { asOf: '2026-10-21T10:00:00Z', completeness: 'complete' };
 const human = (groups: string[]) => ({ user: 'https://idp#carol', class: 'human', groups, authTime: '1792560000' });
-const shared = (over = {}) => ({ mode: 'shared', login: true, signedIn: true, fresh: true, csrf: 'c', caller: human(['team-checkout']), ...over });
+const shared = (over = {}) => ({ mode: 'shared', login: true, signedIn: true, csrf: 'c', caller: human(['team-checkout']), ...over });
 
 async function settle() {
   for (let i = 0; i < 6; i++) { await tick(); await Promise.resolve(); }
@@ -240,7 +240,7 @@ describe('inbox', () => {
   });
 
   it('asks to sign in on a 401, and tells a failure apart from an empty inbox', async () => {
-    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false, fresh: false });
+    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false });
     fns.inbox.mockRejectedValue(new ApiError(401, 'sign in to see delivery', 'LoginRequired'));
     let r = render(DeliveryInboxView);
     await settle();
@@ -754,9 +754,43 @@ describe('change detail', () => {
     destroy();
   });
 
-  it('sends a decision, and after a refused stale login keeps it for a fresh sign-in', async () => {
+  it('says nothing about signing in when the Stage asks for no recent sign-in', async () => {
+    // A sign-in from long ago, and no freshness on the change.
     fns.operation.mockResolvedValue(heldOperation());
-    fns.decide.mockRejectedValueOnce(new ApiError(401, 'your login is older than ten minutes: sign in again', 'FreshLoginRequired'));
+    fns.decide.mockResolvedValue({ approval: 'op1-abc' });
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(target.querySelector('[data-testid="decision-stale"]')).toBeNull();
+    target.querySelector<HTMLButtonElement>('[data-testid="decide-approve"]')!.click();
+    await settle();
+    expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'approve', '');
+    expect(target.querySelector('[data-testid="fresh-login"]')).toBeNull();
+    destroy();
+  });
+
+  it('says when a sign-in is too old to decide, and only then', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    fns.operation.mockResolvedValue(heldOperation({ decisionFreshness: 600 }));
+    fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: String(now - 40 * 60) } }));
+    let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decision-stale"]') as HTMLElement))
+      .toBe('Deciding needs a sign-in in the last 10 minutes. You signed in 40 minutes ago.');
+    r.destroy();
+
+    deliverySession.loaded = false;
+    fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: String(now - 60) } }));
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(r.target.querySelector('[data-testid="decision-stale"]')).toBeNull();
+    r.destroy();
+  });
+
+  it('asks in a dialog to sign in again when the server refuses an old sign-in, keeping the choice and the note', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    fns.operation.mockResolvedValue(heldOperation({ decisionFreshness: 600 }));
+    fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: String(now - 40 * 60) } }));
+    fns.decide.mockRejectedValue(new ApiError(401, 'your login is older than 10m0s: sign in again', 'FreshLoginRequired'));
     const assign = vi.fn();
     const orig = window.location;
     // jsdom cannot navigate; capture the fresh-login redirect instead.
@@ -767,13 +801,29 @@ describe('change detail', () => {
       const panel = target.querySelector('[data-testid="decision-panel"]')!;
       (panel.querySelector('textarea') as HTMLTextAreaElement).value = 'checkout is ready';
       panel.querySelector('textarea')!.dispatchEvent(new Event('input'));
+      (panel.querySelector('[data-testid="decide-reject"]') as HTMLButtonElement).click();
+      await settle();
+      // The server decides; its refusal opens the dialog, and nothing leaves the page on its own.
+      expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'reject', 'checkout is ready');
+      expect(assign).not.toHaveBeenCalled();
+      const dialog = target.querySelector('[data-testid="fresh-login"]') as HTMLDialogElement;
+      expect(dialog.tagName).toBe('DIALOG');
+      expect(dialog.open).toBe(true);
+      expect(text(dialog.querySelector('#' + dialog.getAttribute('aria-labelledby')) as HTMLElement)).toBe('Sign in again to decide');
+      expect(text(dialog.querySelector('#' + dialog.getAttribute('aria-describedby')) as HTMLElement))
+        .toContain('You signed in 40 minutes ago. Your choice and note are kept');
+      // Cancel closes it and keeps the page as it was.
+      [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!.click();
+      await settle();
+      expect(target.querySelector('[data-testid="fresh-login"]')).toBeNull();
+      expect(document.activeElement).toBe(panel.querySelector('[data-testid="decide-reject"]'));
+      expect(assign).not.toHaveBeenCalled();
+      // Approving opens it again; its button names the choice and starts the fresh sign-in.
       (panel.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement).click();
       await settle();
-      expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'approve', 'checkout is ready');
-      const fresh = target.querySelector('[data-testid="fresh-login"]')!;
-      expect(text(fresh as HTMLElement)).toContain('older than ten minutes');
-      expect(assign).not.toHaveBeenCalled(); // the person decides when to leave
-      (fresh.querySelector('button') as HTMLButtonElement).click();
+      const go = target.querySelector('[data-testid="fresh-login-go"]') as HTMLButtonElement;
+      expect(go.textContent).toBe('Sign in again to approve');
+      go.click();
       expect(assign).toHaveBeenCalledWith('/auth/login?return=%2F%23%2Fdelivery%2Fchanges%2Fprod%2Fop1&fresh=1');
       expect(JSON.parse(sessionStorage.getItem('pacto.delivery.pending')!)).toEqual({ namespace: 'prod', name: 'op1', decision: 'approve', note: 'checkout is ready' });
       destroy();
@@ -783,7 +833,6 @@ describe('change detail', () => {
   });
 
   it('shows the kept decision after the fresh sign-in and sends it only on a click', async () => {
-    fns.session.mockResolvedValue(shared({ fresh: true }));
     fns.operation.mockResolvedValue(heldOperation());
     fns.decide.mockResolvedValue({ approval: 'op1-abc' });
     keepPending({ namespace: 'prod', name: 'op1', decision: 'approve', note: 'kept note' });
@@ -887,13 +936,20 @@ describe('change detail', () => {
     expect(text(r.target.querySelector('[data-testid="decide-agent"]') as HTMLElement)).toContain('agents may not decide');
     r.destroy();
 
-    // A person on a cluster that reports no login time is offered nothing and told why.
+    // Where the Stage asks for a recent sign-in, a person on a cluster that
+    // reports no login time is offered nothing and told why.
     deliverySession.loaded = false;
     fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: '' } }));
+    fns.operation.mockResolvedValueOnce(heldOperation({ actions: ['cancel'], decisionFreshness: 600 }));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(text(r.target.querySelector('[data-testid="decide-no-auth-time"]') as HTMLElement)).toContain('Approving is not possible on this cluster');
     expect(r.target.querySelector('[data-testid="decide-approve"]')).toBeNull();
+    r.destroy();
+    // Where it does not, a missing login time is no reason given.
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(r.target.querySelector('[data-testid="decide-no-auth-time"]')).toBeNull();
     r.destroy();
 
     const own = heldOperation({ actions: ['cancel'] });
@@ -906,13 +962,13 @@ describe('change detail', () => {
     expect(text(r.target.querySelector('[data-testid="decide-own"]') as HTMLElement)).toContain('someone else must decide it');
     r.destroy();
 
-    fns.session.mockResolvedValue({ mode: 'local', login: false, signedIn: true, fresh: false, caller: human([]) });
+    fns.session.mockResolvedValue({ mode: 'local', login: false, signedIn: true, caller: human([]) });
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('pacto delivery approve -n prod op1 --decision approve');
     r.destroy();
 
-    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false, fresh: false });
+    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false });
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('Sign in to decide');
@@ -961,7 +1017,7 @@ describe('change detail', () => {
     r.destroy();
 
     deliverySession.loaded = false;
-    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false, fresh: false });
+    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false });
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     panel = text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement);
@@ -1791,37 +1847,16 @@ describe('Unknown, proof, undo and autonomy', () => {
     r.destroy();
   });
 
-  it('sends a stale sign-in to sign in first, then offers one confirm button', async () => {
-    fns.session.mockResolvedValue(shared({ fresh: false }));
-    fns.operation.mockResolvedValue(heldOperation());
-    const assign = vi.fn();
-    const orig = window.location;
-    Object.defineProperty(window, 'location', { configurable: true, value: { ...orig, hash: '#/delivery/changes/prod/op1', assign } });
-    try {
-      const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
-      await settle();
-      expect(text(target.querySelector('[data-testid="decision-stale"]') as HTMLElement)).toContain('takes you to sign in again');
-      (target.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement).click();
-      await settle();
-      // No press that only says to sign in: it goes there at once, keeping the choice.
-      expect(fns.decide).not.toHaveBeenCalled();
-      expect(assign).toHaveBeenCalledWith('/auth/login?return=%2F%23%2Fdelivery%2Fchanges%2Fprod%2Fop1&fresh=1');
-      expect(JSON.parse(sessionStorage.getItem('pacto.delivery.pending')!).decision).toBe('approve');
-      destroy();
-    } finally {
-      Object.defineProperty(window, 'location', { configurable: true, value: orig });
-    }
-
-    deliverySession.loaded = false;
-    fns.session.mockResolvedValue(shared({ fresh: true }));
+  it('back from signing in again, offers one confirm button for the kept choice', async () => {
     keepPending({ namespace: 'prod', name: 'op1', decision: 'reject', note: '' });
+    fns.operation.mockResolvedValue(heldOperation({ decisionFreshness: 600 }));
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     const reject = target.querySelector('[data-testid="decide-reject"]') as HTMLButtonElement;
     expect(reject.textContent).toBe(`Confirm: Reject: nothing moves (signed in at ${new Date(1792560000 * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC)`);
     expect(target.querySelector('[data-testid="decide-approve"]')?.textContent).toBe('Approve shipping this change');
     expect(document.activeElement).toBe(reject);
-    expect(target.querySelector('[data-testid="decision-stale"]')).toBeNull();
+    expect(fns.decide).not.toHaveBeenCalled();
     destroy();
   });
 

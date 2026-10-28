@@ -179,7 +179,7 @@ export interface paths {
         put?: never;
         /**
          * Decide on a held change
-         * @description Approve, reject or accept an unknown, as the signed-in person, with a login made fresh for it. Only the teams the question names may decide. Never served in local mode or to agents.
+         * @description Approve, reject or accept an unknown, as the signed-in person; where the Stage publishes a login freshness, with a login that recent. Only the teams the question names may decide. Never served in local mode or to agents.
          */
         post: operations["delivery-decide"];
         delete?: never;
@@ -741,7 +741,7 @@ export interface paths {
         };
         /**
          * Who is signed in
-         * @description The identity mode, whether the caller is signed in and with a fresh login, the CSRF token for mutating requests and who the apiserver says the caller is.
+         * @description The identity mode, whether the caller is signed in, the CSRF token for mutating requests and who the apiserver says the caller is.
          */
         get: operations["session"];
         put?: never;
@@ -2661,6 +2661,11 @@ export interface components {
         OperationOutputBody: {
             /** @description What the caller may ask for: approve, reject, accept-unknown, cancel, rollback */
             actions: string[] | null;
+            /**
+             * Format: int64
+             * @description How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides
+             */
+            decisionFreshness?: number;
             explanation: components["schemas"]["Delivery.Explanation"];
             /** @description The Stage's level now: observe, advise, auto-nonbreaking or autonomous */
             level?: string;
@@ -3415,8 +3420,6 @@ export interface components {
             callerError?: string;
             /** @description Send it in the X-Pacto-CSRF header of every mutating request */
             csrf?: string;
-            /** @description The session came from a login the person had to repeat; decisions need one */
-            fresh: boolean;
             /** @description The signed-in person's groups as the cluster names them */
             groups?: string[] | null;
             /** @description People sign in with the identity provider */

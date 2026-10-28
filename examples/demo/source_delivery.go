@@ -133,13 +133,11 @@ func (d *demoDelivery) SetPersona(name string, fresh bool) error {
 	return nil
 }
 
-// State is the simulated session: always signed in, fresh while the
-// persona's sign-in is younger than the decision freshness.
+// State is the simulated session: always signed in.
 func (d *demoDelivery) State(*http.Request) dashboard.AuthState {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return dashboard.AuthState{SignedIn: true, CSRF: "browser-demo", Name: displayNames[d.persona],
-		Fresh: d.now().Sub(d.authAt[d.persona]) < delivery.DecisionFreshness}
+	return dashboard.AuthState{SignedIn: true, CSRF: "browser-demo", Name: displayNames[d.persona]}
 }
 
 // ── the world ───────────────────────────────────────────────────────────

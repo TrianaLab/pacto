@@ -23,7 +23,10 @@ type operationOutput struct {
 		Operation   *delivery.OperationObject `json:"operation"`
 		Actions     []string                  `json:"actions" doc:"What the caller may ask for: approve, reject, accept-unknown, cancel, rollback"`
 		Level       string                    `json:"level,omitempty" doc:"The Stage's level now: observe, advise, auto-nonbreaking or autonomous"`
-		UndoneBy    *delivery.HistoryEntry    `json:"undoneBy,omitempty" doc:"The rollback that undid this change, read from its Stage's history"`
+		// DecisionFreshness is how old a login may be to decide on this
+		// change, in seconds; zero or absent when the Stage asks no fresh login.
+		DecisionFreshness int                    `json:"decisionFreshness,omitempty" doc:"How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides"`
+		UndoneBy          *delivery.HistoryEntry `json:"undoneBy,omitempty" doc:"The rollback that undid this change, read from its Stage's history"`
 		Labels
 	}
 }
@@ -50,13 +53,15 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	}
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
-	out.Body.Actions = s.actions(ctx, api, op, e.Stage, caller)
+	published := ""
 	stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage)
 	if err == nil {
-		out.Body.Level = ladderOf(*stage).Level
+		out.Body.Level, published = ladderOf(*stage).Level, stage.Status.AuthFreshness
 	} else {
 		stage = nil
 	}
+	out.Body.DecisionFreshness = int(delivery.DecisionFreshnessFor(published).Seconds())
+	out.Body.Actions = s.actions(ctx, api, op, e.Stage, caller, published)
 	if st := op.Status; st.Phase == delivery.PhaseConcluded && st.Pointer.After != "" {
 		// ponytail: one history read per concluded change shown; the live
 		// host's record stream read is what it costs.
@@ -102,11 +107,11 @@ func undoneBy(entries []delivery.HistoryEntry, name, after, finished string) *de
 // actions are what the UI offers on an operation. They only hide what the
 // caller cannot do, as the promoter's rules and the caller's own RBAC say;
 // the apiserver and the promoter still decide.
-func (s *Server) actions(ctx context.Context, api DeliveryAPI, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller) []string {
+func (s *Server) actions(ctx context.Context, api DeliveryAPI, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller, published string) []string {
 	acts := []string{}
 	st := op.Status
 	may := func(verb, resource string) bool { return mayIn(ctx, api, verb, resource)(op.Metadata.Namespace) }
-	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) && may("create", "approvals") {
+	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d, published) && may("create", "approvals") {
 		acts = append(acts, string(d), string(delivery.Reject))
 	}
 	if cancellable(op, caller) && may("delete", "operations") {
@@ -182,20 +187,19 @@ func mayRaise(ctx context.Context, api DeliveryAPI, rows []EnvironmentRow) {
 }
 
 // mayOffer: the promoter would count caller's decision on op, apart from how
-// old their login is (deciding asks for a fresh one). A cluster that reports
-// no login time (userInfo.extra[delivery.pacto.trianalab.io/auth-time]) counts nobody's, so it
-// offers nothing.
-func mayOffer(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision) bool {
-	return caller.AuthTime != "" && answerRefusal(op, caller, decision) == ""
+// old their login is (deciding asks for a fresh one). Where the Stage
+// publishes a login freshness, a cluster that reports no login time
+// (userInfo.extra[delivery.pacto.trianalab.io/auth-time]) counts nobody's, so
+// it offers nothing.
+func mayOffer(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision, published string) bool {
+	return (caller.AuthTime != "" || delivery.PublishedFreshness(published) == 0) && answerRefusal(op, caller, decision) == ""
 }
 
 // answerRefusal is why the promoter would not count caller's decision on op
 // as a code, apart from how old their login is; "" when it would.
 func answerRefusal(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision) string {
-	now := time.Now()
-	a := approvalOf(op, caller, decision)
-	a.AuthTime = now.UTC().Format(time.RFC3339)
-	code, _ := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, a, now, caller.Policy, delivery.AuthFreshness)
+	// Freshness zero: how old the login is does not count here.
+	code, _ := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, approvalOf(op, caller, decision), time.Now(), caller.Policy, 0)
 	return code
 }
 

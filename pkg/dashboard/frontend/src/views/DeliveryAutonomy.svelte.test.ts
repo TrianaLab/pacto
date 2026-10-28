@@ -74,7 +74,7 @@ const page = {
 beforeEach(() => {
   for (const f of Object.values(fns)) f.mockReset();
   deliverySession.data = null; deliverySession.error = null; deliverySession.loaded = false;
-  fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, fresh: true, csrf: 'c', caller: { user: 'https://idp#carol', class: 'human', groups: [] } });
+  fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, csrf: 'c', caller: { user: 'https://idp#carol', class: 'human', groups: [] } });
   location.hash = '#/delivery/autonomy';
 });
 

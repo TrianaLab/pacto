@@ -102,8 +102,6 @@ func (d *Dashboard) endToken(r *http.Request) {
 type State struct {
 	// SignedIn is a live OIDC session (shared) or the launch cookie (local).
 	SignedIn bool
-	// Fresh: the session came from a login the person repeated.
-	Fresh bool
 	// CSRF is the token to send in CSRFHeader; empty when not signed in.
 	CSRF string
 	// Token is the bearer for the caller's own cluster requests (shared only).
@@ -251,7 +249,7 @@ func refuseShared(r *http.Request, st State, hasCookie bool) string {
 func (d *Dashboard) sessionState(r *http.Request) State {
 	if d.oidc != nil {
 		if s := d.oidc.Session(r); s != nil {
-			return State{SignedIn: true, Fresh: s.Fresh, CSRF: s.CSRF, Token: s.IDToken(), Person: d.oidc.Person(s), Method: "oidc"}
+			return State{SignedIn: true, CSRF: s.CSRF, Token: s.IDToken(), Person: d.oidc.Person(s), Method: "oidc"}
 		}
 	}
 	if d.tokens != nil {

@@ -132,7 +132,7 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(strip).not.toContainText('Simulated delivery');
   });
 
-  test('a breaking change asks only the affected teams, and only a freshly signed-in person on them decides', async ({ page }) => {
+  test('a breaking change asks only the affected teams, and only a person on them decides', async ({ page }) => {
     test.setTimeout(120_000);
     await ready(page, '#/delivery/environments');
     await promote(page, 'payments', '3.0.0');
@@ -154,24 +154,16 @@ test.describe('Browser demo: the delivery story', () => {
     await switchTo(page, 'alice');
     await expect(page.getByTestId('decide-not-team')).toBeVisible({ timeout: T });
 
-    // carol signed in half an hour ago: the panel says so before she presses
-    // anything, and Approve takes her straight to the simulated sign-in rather
-    // than a page load that would lose the tab.
+    // carol signed in half an hour ago, and the simulated Stages ask for no
+    // recent sign-in: she decides with the sign-in she has, and nothing says otherwise.
     await switchTo(page, 'carol');
-    await expect(page.getByTestId('decision-stale')).toBeVisible({ timeout: T });
     // 3.0.0 is breaking: it ships only with a note saying why.
     await expect(panel.getByRole('button', { name: 'Approve' })).toBeDisabled({ timeout: T });
+    await expect(page.getByTestId('decision-stale')).toHaveCount(0);
     await panel.getByLabel('Note (kept with the decision)').fill('orders 1.4 is ready for payments 3');
     await panel.getByRole('button', { name: 'Approve' }).click({ timeout: T });
-    const dlg = page.getByTestId('demo-signin');
-    await expect(dlg).toContainText('Simulated sign-in');
-    await dlg.getByTestId('demo-signin-submit').click();
-    await expect(page.getByTestId('decision-kept')).toBeVisible({ timeout: T });
-    // Back from signing in, one button says it confirms, and it has focus.
-    const confirm = panel.getByRole('button', { name: /^Confirm: Approve/ });
-    await expect(confirm).toBeFocused();
-    await confirm.click();
     await expect(page.getByTestId('decision-recorded')).toBeVisible({ timeout: T });
+    await expect(page.getByTestId('demo-signin')).toHaveCount(0);
 
     // B8: too little telemetry leaves 3.0.0 Unknown after it ships. The page
     // says what Pacto could not see and how to fix it, and carol accepts it.
@@ -236,7 +228,7 @@ test.describe('Browser demo: the delivery story', () => {
   });
 
   // The report this came from: the step said "press Switch person, pick Carol, write
-  // why and approve, after she signs in again" while the light sat on the decision card
+  // why and approve" while the light sat on the decision card
   // and Switch person stayed dimmed. Now each action is its own step, the light is on
   // the control it names, and doing it moves the tour on.
   test('the tour lights the control each step asks for, one action at a time', async ({ page }) => {
@@ -275,10 +267,6 @@ test.describe('Browser demo: the delivery story', () => {
     await step('Write in the note why 3.0.0 should ship', '[data-testid="decision-panel"] textarea');
     await page.getByTestId('decision-panel').locator('textarea').fill('orders 1.4 is ready for payments 3');
     await step('Press Approve shipping 3.0.0', '[data-testid="decide-approve"]');
-    await page.getByTestId('decide-approve').click();
-    await step('sign in again as Carol', '[data-testid="demo-signin-submit"]');
-    await page.getByTestId('demo-signin-submit').click();
-    await step('Press Confirm', '[data-testid="decide-approve"]');
     await page.getByTestId('decide-approve').click();
     // 3.0.0 ships, then the checks end Unknown: a screen worth reading, so it holds.
     await expect(text).toContainText('Then Pacto could not see', { timeout: T });

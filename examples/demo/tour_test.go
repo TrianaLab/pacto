@@ -80,9 +80,7 @@ func TestTourLightsTheControlEachStepNames(t *testing.T) {
 		{"Pick Carol", "demo-persona-carol"},
 		{"Write in the note", `decision-panel"] textarea`},
 		{"Press Approve", "decide-approve"},
-		{"Press Confirm", "decide-approve"},
 		{"Press Accept the unknown", "decide-approve"},
-		{"sign in again as Carol", "demo-signin-submit"},
 		{"Propose promote", `propose-panel"] button[type=submit]`},
 		{"Propose roll back", `propose-panel"] button[type=submit]`},
 		{"press Propose on fraud", "Propose Advise for fraud in test"},
@@ -109,8 +107,8 @@ func TestTourLightsTheControlEachStepNames(t *testing.T) {
 }
 
 // TestTourStepsAskOneThing: a step that waits for an action asks for exactly
-// one, so the light can sit on it; switch person, pick Carol, write the note,
-// approve and sign in again are five steps, never one.
+// one, so the light can sit on it; switch person, pick Carol, write the note
+// and approve are four steps, never one.
 func TestTourStepsAskOneThing(t *testing.T) {
 	verbs := regexp.MustCompile(`(?i)\b(press|pick|write|type|typing|set|open|sign in|choose)\b`)
 	for _, tour := range []string{"FLEET_TOUR", "DELIVERY_TOUR"} {
