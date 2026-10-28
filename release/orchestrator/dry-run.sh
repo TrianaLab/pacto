@@ -91,7 +91,7 @@ echo "   OK recovery-refused: mismatched transactionId rejected (no second relea
 echo "== build + push the operator image (production root context) =="
 docker build -f "$ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$DV" -t "$OPIMG" "$ROOT"
 docker push "$OPIMG" >/dev/null
-digest() { crane digest --insecure "$1" 2>/dev/null || crane digest "$1"; }
+digest() { bash "$ROOT/release/orchestrator/verify-oci.sh" --digest "$1"; }
 OPDIGEST="$(digest "$OPIMG")"
 echo "   operator image digest: $OPDIGEST"
 
