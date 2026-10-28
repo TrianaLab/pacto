@@ -234,6 +234,47 @@ func TestSharedReadsSelectsOperations(t *testing.T) {
 	expect(t, !ok, "a selector the cache cannot read goes to the apiserver, which refuses it")
 }
 
+func TestSharedReadsTypedLists(t *testing.T) {
+	w := newSharedWorld(t)
+	ctx := context.Background()
+	alice := sharedClient{Interface: person(t, "alice", nil), s: w.s, token: "alice"}
+	root := sharedClient{Interface: person(t, "root", nil), s: w.s, token: "root"}
+	stageNames := func(c sharedClient, ns string) string {
+		t.Helper()
+		sts, ok, err := typedIn(ctx, c, sharedStages, w.s.stages, ns)
+		expect(t, ok && err == nil, "the cache answers %q: %v", ns, err)
+		var out []string
+		for _, st := range sts {
+			out = append(out, st.Metadata.Namespace+"/"+st.Metadata.Name)
+		}
+		return strings.Join(out, ",")
+	}
+	expect(t, stageNames(alice, "a") == "a/s0,a/s1", "alice's namespace, in the apiserver's order: %s", stageNames(alice, "a"))
+	expect(t, stageNames(root, "") == "a/s0,a/s1,b/s2", "every namespace")
+	ops, ok, err := typedIn(ctx, alice, sharedOps, w.s.ops, "a")
+	expect(t, ok && err == nil && len(ops) == 2 && ops[0].Metadata.Name == "bad" && ops[1].Metadata.Name == "other",
+		"only what did not succeed: %+v %v", ops, err)
+	_, ok, err = typedIn(ctx, alice, sharedStages, w.s.stages, "")
+	expect(t, ok && apierrors.IsForbidden(err), "alice may not list every namespace: %v", err)
+	_, ok, err = typedIn(ctx, alice, sharedStages, w.s.stages, "b")
+	expect(t, ok && apierrors.IsForbidden(err), "nor b: %v", err)
+
+	// A change reaches the lists once the informer holds it.
+	_, err = w.sa.Resource(gvrTestStages).Namespace("a").Create(ctx, deliveryObj("Stage", "a", "s3", nil), metav1.CreateOptions{})
+	expect(t, err == nil, "creating a Stage: %v", err)
+	deadline := time.Now().Add(10 * time.Second)
+	for stageNames(alice, "a") != "a/s0,a/s1,a/s3" {
+		if time.Now().After(deadline) {
+			t.Fatalf("the new Stage never showed: %s", stageNames(alice, "a"))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	w.wrote.Store(true)
+	_, ok, _ = typedIn(ctx, alice, sharedStages, w.s.stages, "a")
+	expect(t, !ok, "a person who just wrote reads the apiserver")
+}
+
 func TestSharedReadsFallsBack(t *testing.T) {
 	names := namesOf(t)
 	w := newSharedWorld(t)

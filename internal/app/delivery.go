@@ -83,6 +83,14 @@ type Caller = delivery.Caller
 // WhoAmI asks the apiserver who the caller is (a SelfSubjectReview), so an
 // operation's actor is exactly what admission will compare it with.
 func (d *Delivery) WhoAmI(ctx context.Context) (Caller, error) {
+	// The policy is read while the apiserver says who the caller is: a new
+	// person's first view waited on the two one after the other.
+	type read struct {
+		p   delivery.ClassPolicy
+		err error
+	}
+	policy := make(chan read, 1)
+	go func() { p, err := d.classPolicy(ctx); policy <- read{p, err} }()
 	review := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview",
 	}}
@@ -102,7 +110,12 @@ func (d *Delivery) WhoAmI(ctx context.Context) (Caller, error) {
 	b, _ := out.MarshalJSON()
 	_ = json.Unmarshal(b, &r)
 	ui := r.Status.UserInfo
-	c := Caller{Identity: delivery.Identity{User: ui.Username, Groups: ui.Groups}, Policy: d.classPolicy(ctx)}
+	pr := <-policy
+	if pr.err != nil {
+		logging.LoggerFromContext(ctx).Warn("the delivery identity policy is not readable; classifying with the defaults",
+			"namespace", d.PolicyNamespace, "configMap", delivery.PolicyConfigMap, "error", pr.err)
+	}
+	c := Caller{Identity: delivery.Identity{User: ui.Username, Groups: ui.Groups}, Policy: pr.p}
 	c.Class = c.Policy.Classify(c.Identity)
 	if v := ui.Extra[authTimeExtra]; len(v) > 0 {
 		c.AuthTime = v[0]
@@ -127,12 +140,12 @@ func (d *Delivery) Can(ctx context.Context, verb, resource, ns string) (bool, er
 }
 
 // classPolicy is the promoter's published ClassPolicy, or Policy when it is
-// not published or cannot be read. Admission and the promoter decide anyway;
-// this only shapes what a client offers.
+// not published or, with the reason, cannot be read. Admission and the
+// promoter decide anyway; this only shapes what a client offers.
 // ponytail: read on every WhoAmI; cache it if the extra GET ever shows up.
-func (d *Delivery) classPolicy(ctx context.Context) delivery.ClassPolicy {
+func (d *Delivery) classPolicy(ctx context.Context) (delivery.ClassPolicy, error) {
 	if d.PolicyNamespace == "" {
-		return d.Policy
+		return d.Policy, nil
 	}
 	var cm struct {
 		Data map[string]string `json:"data"`
@@ -141,12 +154,10 @@ func (d *Delivery) classPolicy(ctx context.Context) delivery.ClassPolicy {
 	if err == nil {
 		var p delivery.ClassPolicy
 		if p, err = delivery.ParseClassPolicy([]byte(cm.Data[delivery.PolicyKey])); err == nil {
-			return p
+			return p, nil
 		}
 	}
-	logging.LoggerFromContext(ctx).Warn("the delivery identity policy is not readable; classifying with the defaults",
-		"namespace", d.PolicyNamespace, "configMap", delivery.PolicyConfigMap, "error", err)
-	return d.Policy
+	return d.Policy, err
 }
 
 func anySlice(ss []string) []any {

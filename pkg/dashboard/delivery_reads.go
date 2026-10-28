@@ -43,12 +43,20 @@ func (s *Server) lists(ctx context.Context, api DeliveryAPI, withOps bool) ([]de
 	l := Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}
 	namespaces := []string{s.opts.DeliveryNamespace}
 	if namespaces[0] == "" {
-		stages, err := api.Stages(ctx, "")
+		// Both at once: for a new person each waits on a permission check.
+		var stages []delivery.StageObject
 		var ops []delivery.OperationObject
+		var serr, oerr error
+		var g errgroup.Group
+		g.Go(func() error { stages, serr = api.Stages(ctx, ""); return nil })
+		g.Go(func() error { ops, oerr = operations(ctx, api, "", withOps); return nil })
+		_ = g.Wait()
+		err := serr
 		if err == nil {
-			if ops, err = operations(ctx, api, "", withOps); err == nil {
-				return stages, ops, l, nil
-			}
+			err = oerr
+		}
+		if err == nil {
+			return stages, ops, l, nil
 		}
 		if !forbidden(err) {
 			return nil, nil, l, err

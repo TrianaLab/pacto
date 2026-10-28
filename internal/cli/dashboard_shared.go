@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -16,10 +18,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/tools/cache"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
 // sharedReads is the dashboard's one copy of the delivery objects every view
@@ -47,6 +52,10 @@ type sharedReads struct {
 	wrote func(bearer string) bool
 	ttl   time.Duration
 	now   func() time.Time
+	// stages and ops (those that did not conclude Succeeded) are the cache
+	// in delivery's types, for the views that list them (see typedList).
+	stages *typedList[delivery.StageObject]
+	ops    *typedList[delivery.OperationObject]
 
 	mu       sync.Mutex
 	subjects map[string]subjectVerdict
@@ -75,18 +84,33 @@ type verdict struct {
 // sharedGVRs are the delivery objects the dashboard keeps, and the fields of
 // each a list may select on: the ones the CRD declares selectable.
 var sharedGVRs = map[schema.GroupVersionResource][]string{
-	{Group: deliveryGroup, Version: "v1alpha1", Resource: "stages"}:     nil,
-	{Group: deliveryGroup, Version: "v1alpha1", Resource: "operations"}: {"spec.stage", "status.outcome"},
+	sharedStages: nil,
+	sharedOps:    {"spec.stage", "status.outcome"},
 }
+
+var (
+	sharedStages = schema.GroupVersionResource{Group: deliveryGroup, Version: "v1alpha1", Resource: "stages"}
+	sharedOps    = schema.GroupVersionResource{Group: deliveryGroup, Version: "v1alpha1", Resource: "operations"}
+)
+
+// stageIndex indexes Operations by namespace/spec.stage: a Stage's history
+// lists only its own, not every Operation of its namespace.
+const stageIndex = "stage"
 
 const deliveryGroup = "delivery.pacto.trianalab.io"
 
 // Bounds. A permission answer is kept 10 seconds, so a revoked RoleBinding
 // stops showing a namespace within that; ponytail: past maxAnswers the
 // answers start over, an LRU if a dashboard serves more people than that.
+// sarQPS and sarBurst bound the dashboard's own requests: a new person's
+// board asks a review for each namespace it shows, so fifty people opening it
+// at once ask about 1,400, which 100 a second made wait thirteen seconds. The
+// apiserver answers a review from memory, and its priority and fairness
+// bounds the dashboard's share.
 const (
 	sharedTTL = 10 * time.Second
-	sarQPS    = 100
+	sarQPS    = 1000
+	sarBurst  = 2000
 )
 
 var sarGVR = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "subjectaccessreviews"}
@@ -98,8 +122,15 @@ func newSharedReads(ctx context.Context, sa dynamic.Interface, wrote func(string
 	s := &sharedReads{informers: map[schema.GroupVersionResource]cache.SharedIndexInformer{}, sa: sa, wrote: wrote,
 		ttl: sharedTTL, now: time.Now, subjects: map[string]subjectVerdict{}, answers: map[string]verdict{}}
 	for gvr := range sharedGVRs {
-		inf := dynamicinformer.NewFilteredDynamicInformer(sa, gvr, metav1.NamespaceAll, 0,
-			cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, nil).Informer()
+		indexers := cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}
+		if gvr == sharedOps {
+			indexers[stageIndex] = func(o any) ([]string, error) {
+				u := o.(*unstructured.Unstructured)
+				stage, _, _ := unstructured.NestedString(u.Object, "spec", "stage")
+				return []string{u.GetNamespace() + "/" + stage}, nil
+			}
+		}
+		inf := dynamicinformer.NewFilteredDynamicInformer(sa, gvr, metav1.NamespaceAll, 0, indexers, nil).Informer()
 		// Nobody reads who last wrote which field; on 10,000 Operations it is most of the memory.
 		_ = inf.SetTransform(func(o any) (any, error) {
 			if m, ok := o.(metav1.Object); ok {
@@ -108,9 +139,97 @@ func newSharedReads(ctx context.Context, sa dynamic.Interface, wrote func(string
 			return o, nil
 		}) // only fails once started
 		s.informers[gvr] = inf
+	}
+	s.stages = newTypedList[delivery.StageObject](s.informers[sharedStages], nil,
+		func(st *delivery.StageObject) string { return st.Metadata.Namespace })
+	s.ops = newTypedList(s.informers[sharedOps], func(u *unstructured.Unstructured) bool {
+		outcome, _, _ := unstructured.NestedString(u.Object, "status", "outcome")
+		return outcome != string(delivery.Succeeded)
+	}, func(o *delivery.OperationObject) string { return o.Metadata.Namespace })
+	for _, inf := range s.informers {
 		go inf.RunWithContext(ctx)
 	}
 	return s
+}
+
+// typedList is one kind of the shared cache read into delivery's types once,
+// in the apiserver's order (namespace, then name), and read again only when
+// the cache changed: copying and converting thousands of objects on every
+// request was most of what a view cost. Every request shares what it returns,
+// so nothing may change it.
+type typedList[T any] struct {
+	inf  cache.SharedIndexInformer
+	keep func(*unstructured.Unstructured) bool // nil keeps every object
+	ns   func(*T) string
+	// changed counts the informer's changes; it counts one only once the
+	// store holds it, so a list built after reading it holds the change.
+	changed atomic.Uint64
+
+	mu    sync.Mutex
+	built uint64
+	items []T // nil until built
+	// memo: an informer replaces an object it updates, so a pointer is one
+	// version of one object, and a rebuild converts only what changed.
+	memo map[*unstructured.Unstructured]T
+}
+
+func newTypedList[T any](inf cache.SharedIndexInformer, keep func(*unstructured.Unstructured) bool, ns func(*T) string) *typedList[T] {
+	l := &typedList[T]{inf: inf, keep: keep, ns: ns}
+	bump := func(any) { l.changed.Add(1) }
+	_, _ = inf.AddEventHandler(cache.ResourceEventHandlerFuncs{AddFunc: bump, DeleteFunc: bump,
+		UpdateFunc: func(_, o any) { bump(o) }}) // fails only once stopped
+	return l
+}
+
+// in is the objects in ns, or in every namespace for "".
+func (l *typedList[T]) in(ns string) []T {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if g := l.changed.Load(); l.items == nil || g != l.built {
+		l.rebuild()
+		l.built = g
+	}
+	items := l.items
+	if ns == metav1.NamespaceAll {
+		return slices.Clip(items)
+	}
+	lo := sort.Search(len(items), func(i int) bool { return l.ns(&items[i]) >= ns })
+	hi := sort.Search(len(items), func(i int) bool { return l.ns(&items[i]) > ns })
+	return items[lo:hi:hi]
+}
+
+func (l *typedList[T]) rebuild() {
+	var us []*unstructured.Unstructured
+	for _, o := range l.inf.GetStore().List() {
+		if u := o.(*unstructured.Unstructured); l.keep == nil || l.keep(u) {
+			us = append(us, u)
+		}
+	}
+	slices.SortFunc(us, func(a, b *unstructured.Unstructured) int {
+		return cmp.Or(cmp.Compare(a.GetNamespace(), b.GetNamespace()), cmp.Compare(a.GetName(), b.GetName()))
+	})
+	items, memo := make([]T, len(us)), make(map[*unstructured.Unstructured]T, len(us))
+	for i, u := range us {
+		t, ok := l.memo[u]
+		if !ok {
+			_ = runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, &t) // a malformed object stays partly read, as a list reads it
+		}
+		items[i], memo[u] = t, t
+	}
+	l.items, l.memo = items, memo
+}
+
+// typedIn is l's objects in ns ("" for every namespace) when c's person may
+// list them there, read as sharedResource.list reads them; ok is false when
+// the cache cannot answer now, so the caller reads the apiserver.
+func typedIn[T any](ctx context.Context, c sharedClient, gvr schema.GroupVersionResource, l *typedList[T], ns string) (items []T, ok bool, err error) {
+	if l == nil || (sharedResource{c: c, gvr: gvr}).usable() == nil {
+		return nil, false, nil
+	}
+	if err := c.s.allow(ctx, c, "list", gvr, ns, ""); err != nil {
+		return nil, true, fmt.Errorf("listing %s in %s: %w", gvr.Resource, cmp.Or(ns, "every namespace"), err)
+	}
+	return l.in(ns), true, nil
 }
 
 // client is dyn, a person's own client, with the delivery objects' lists and
@@ -235,9 +354,13 @@ func (r sharedResource) list(ctx context.Context, ns string, o metav1.ListOption
 		return nil, err
 	}
 	var objs []any
-	if ns == metav1.NamespaceAll {
+	stage, byStage := sel.RequiresExactMatch("spec.stage")
+	switch {
+	case ns == metav1.NamespaceAll:
 		objs = inf.GetStore().List()
-	} else {
+	case byStage && r.gvr == sharedOps:
+		objs, _ = inf.GetIndexer().ByIndex(stageIndex, ns+"/"+stage) // the index is registered above
+	default:
 		objs, _ = inf.GetIndexer().ByIndex(cache.NamespaceIndex, ns) // the index is registered above
 	}
 	out := &unstructured.UnstructuredList{Object: map[string]any{"apiVersion": r.gvr.GroupVersion().String(), "kind": "List"}}

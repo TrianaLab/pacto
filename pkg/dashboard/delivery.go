@@ -20,7 +20,8 @@ type DeliveryAPI interface {
 	// Stages and Operations list one namespace, or all of them for "".
 	// Operations may leave out those that concluded Succeeded: no view reads
 	// them, and on a cluster that has run delivery a while they are nearly
-	// all of them.
+	// all of them. A host may share what they return with other requests,
+	// so a view reads it and never changes it.
 	Stages(ctx context.Context, namespace string) ([]delivery.StageObject, error)
 	Operations(ctx context.Context, namespace string) ([]delivery.OperationObject, error)
 	Get(ctx context.Context, namespace, name string) (*delivery.OperationObject, error)

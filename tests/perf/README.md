@@ -28,7 +28,7 @@ PERF_CPUPROFILE=/tmp/cpu.prof go test -tags perfenvtest -run TestPerfEnvtest -v 
 cd integrations/kubernetes && go test -tags perfenvtest -run TestPerfPromoter -v ./internal/delivery/
 ```
 
-The full dashboard run takes about 12 minutes; the promoter about 2.
+The full dashboard run takes about a minute; the promoter about 1.
 
 CI runs `make ci-perf-envtest`, the 500-Stage pass and the promoter, on every
 pull request that touches the dashboard, delivery or the operator. Its result
@@ -44,8 +44,9 @@ gates the merge through the `required` check.
 - Three people, authenticated with bearer tokens shaped like the ID tokens the
   dashboard passes through, so the apiserver and the dashboard name the same
   person: alice reads 3 namespaces, bob 40 and audrey (an auditor, read-only)
-  all of them. 49 more auditors make the concurrent runs 50 distinct people,
-  whom no per-person cache helps.
+  all of them. Each run of 1, 10 or 50 callers is by 50 new auditors, so the
+  concurrent runs are 50 distinct people whom no per-person cache helps,
+  however soon one view follows another.
 - The dashboard runs as `pacto dashboard` does in shared mode (its own
   `dashboardIdentity`, `dashDelivery`, the shared cache of Stages and
   Operations, the RBAC viewer with SubjectAccessReview) on loopback, with its
@@ -65,12 +66,35 @@ process (dashboard and test client).
 ## Budgets
 
 The tests fail when a request fails, when the auditors' apiserver requests per
-dashboard request exceed the budget, or when the p95 at 10 callers does; the
-promoter when a promote costs more than 25 apiserver requests, when it makes
-more than 5 apiserver requests per second at rest or when the burst of 200
-takes longer than 45 seconds. The budgets are about twice the apiserver
-counts and five times the latencies below, which a heavily loaded laptop
-measured.
+dashboard request exceed the budget (about one and a half times the counts
+below) or when the p95 of any view exceeds 1 second, at either size and any
+number of callers; the promoter when a promote costs more than 25 apiserver
+requests, when it makes more than 5 apiserver requests per second at rest or
+when the burst of 200 takes longer than 45 seconds.
+
+## Every view under a second
+
+Full size (2,000 Stages, 10,000 Operations), 50 new auditors at once, on a
+heavily loaded laptop (load average above 30 on 12 cores). Before is the
+shared cache as described below; after adds fixes 8 to 11.
+
+| view | p50 before | p50 after | p95 before | p95 after | apiserver req/request before | after | allocations per request before | after |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| inbox | 1.0s | 51ms | 1.2s | 59ms | 4.9 | 4.9 | 472k | 7k |
+| environments | 13.0s | 206ms | 13.2s | 214ms | 29.1 | 28.4 | 478k | 12k |
+| environments, filtered | 5.4s | 32ms | 5.8s | 34ms | 13.7 | 13.7 | 472k | 6k |
+| history, all Stages | 1.5s | 166ms | 1.5s | 213ms | 3.9 | 4.0 | 659k | 83k |
+| history, hot Stage | 225ms | 129ms | 321ms | 192ms | 2.9 | 2.9 | 74k | 73k |
+| published | 539ms | 42ms | 644ms | 60ms | 2.0 | 2.0 | 356k | 34k |
+| autonomy | 508ms | 38ms | 693ms | 59ms | 2.9 | 2.9 | 335k | 13k |
+| fleet overview | 39ms | 38ms | 45ms | 43ms | 1.0 | 1.0 | 7k | 7k |
+| fleet entities | 9ms | 8ms | 81ms | 11ms | 1.0 | 1.0 | 4k | 4k |
+
+Before, the CPU profile of these views was 23% converting listed objects to
+delivery's types, 26% copying them out of the shared cache and most of the
+rest the garbage collector and allocator; after, the dashboard process is
+mostly idle and what is left is waiting on the apiserver's answers to each new
+person's reviews.
 
 ## The shared cache
 
@@ -204,6 +228,27 @@ Each was found here, and its effect is in the table above.
    the history read, as is the Stage the change view reads, and the fleet
    audit's walk. One auditor, 500 Stages: 41.6 apiserver requests per request
    to 21.6, 52 cold to 25.
+8. **Every request copied and converted every Stage and Operation.** A view
+   took a deep copy of each of the 2,000 Stages and of the 1,500 Operations
+   that did not succeed from the shared cache, then converted each copy to
+   delivery's types. The shared cache now keeps both lists already converted, in the
+   apiserver's order, and converts again only the objects that changed since
+   the last request; every request reads the one copy, after its own
+   SubjectAccessReview. Allocations per inbox request: 472k to 7k.
+9. **A Stage's history scanned every Operation of its namespace.** The shared
+   cache indexes Operations by Stage, so a list for `spec.stage=<name>` reads
+   only that Stage's.
+10. **A new person's first questions waited on each other.** Who they are and
+    the identity policy are now asked at once, as are the permission to list
+    Stages and to list Operations.
+11. **The environments board waited on the dashboard's own limiter.** Each new
+    person's board asks one access review per namespace shown, about 1,400
+    for fifty people at once, and the dashboard allowed itself 100 a second:
+    13s. It now allows 1,000 a second, bursting to 2,000; the apiserver
+    answers a review from memory, and its priority and fairness bounds the
+    dashboard's share. The measurement before this fix hid it: the auditors
+    were the same fifty people in every view, and once the views were fast
+    their answers from the view before were still kept.
 
 ## What is left
 
@@ -211,6 +256,9 @@ Each was found here, and its effect is in the table above.
   Kustomization events as well would remove that poll if it becomes a cost.
 - **The environments board asks one access review per namespace shown** for
   each new person, so it offers promote and unfreeze only where their RBAC
-  allows. Fifty new auditors at once at full size: 21 apiserver requests per
-  request and 9.6s p50, bound by the dashboard's 100 reviews per second. A
-  person's answers are then kept 10 seconds.
+  allows: 28 apiserver requests per request for fifty new auditors at once,
+  214ms p95. A person's answers are then kept 10 seconds.
+- **A Stage's history still copies and converts its Operations** on each
+  request: the hot Stage's 1,000 are 73k allocations per request, 192ms p95
+  for fifty new auditors. Keeping every Operation converted, as the views
+  keep those that did not succeed, would remove that if it shows.

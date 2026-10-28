@@ -196,9 +196,9 @@ func clusterReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.I
 	var dyn dynamic.Interface
 	err := errNoClusterToAsk
 	if cluster != nil {
-		// client-go's default 5 a second made fifty people signing in at once wait ten seconds.
+		// client-go's default 5 a second made fifty people signing in at once wait ten seconds (see sarQPS).
 		cfg := rest.CopyConfig(cluster)
-		cfg.QPS, cfg.Burst = sarQPS, sarQPS
+		cfg.QPS, cfg.Burst = sarQPS, sarBurst
 		dyn, err = newClient(cfg)
 	}
 	if err != nil {
@@ -279,12 +279,13 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 	}
 	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
 		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}
-	read := act
+	read, out := act, dashDelivery{act: act, id: id, who: who}
 	if s := id.sharedReads(); s != nil && token != "" {
-		c := *act
-		c.Dynamic, read = s.client(dyn, token), &c
+		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}
+		c.Dynamic, read, out.shared = sc, &c, &sc
 	}
-	return dashDelivery{d: read, act: act, id: id, who: who}, nil
+	out.d = read
+	return out, nil
 }
 
 // sharedReads starts the shared cache with the dashboard's own credentials
@@ -296,7 +297,7 @@ func (id *dashboardIdentity) sharedReads() *sharedReads {
 	}
 	id.sharedOnce.Do(func() {
 		cfg := rest.CopyConfig(id.cluster)
-		cfg.QPS, cfg.Burst = sarQPS, sarQPS
+		cfg.QPS, cfg.Burst = sarQPS, sarBurst
 		if sa, err := id.newClient(cfg); err == nil { // a config that fails here fails every person's client too
 			id.shared = newSharedReads(context.Background(), sa, id.reads.wrote)
 		}
@@ -344,6 +345,9 @@ type dashDelivery struct {
 	id     *dashboardIdentity
 	// who keys the caller's cached answers: their token's hash, "" in local mode.
 	who string
+	// shared lists Stages and Operations in delivery's types; nil outside
+	// shared mode.
+	shared *sharedClient
 }
 
 func refusal(err error) error {
@@ -372,12 +376,24 @@ func (a dashDelivery) WhoAmI(ctx context.Context) (delivery.Caller, error) {
 	return c, refusal(err)
 }
 
+// Stages and Operations are read from the shared cache's typed lists when it
+// can answer, which every request shares: the views only read them.
 func (a dashDelivery) Stages(ctx context.Context, ns string) ([]delivery.StageObject, error) {
+	if a.shared != nil {
+		if s, ok, err := typedIn(ctx, *a.shared, sharedStages, a.shared.s.stages, ns); ok {
+			return s, refusal(err)
+		}
+	}
 	s, err := a.d.Stages(ctx, ns)
 	return s, refusal(err)
 }
 
 func (a dashDelivery) Operations(ctx context.Context, ns string) ([]delivery.OperationObject, error) {
+	if a.shared != nil {
+		if o, ok, err := typedIn(ctx, *a.shared, sharedOps, a.shared.s.ops, ns); ok {
+			return o, refusal(err)
+		}
+	}
 	o, err := a.d.OperationsNotSucceeded(ctx, ns)
 	return o, refusal(err)
 }

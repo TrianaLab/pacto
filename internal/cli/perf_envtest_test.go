@@ -84,15 +84,18 @@ var people = []perfPerson{
 	{name: "audrey", groups: []string{"auditors"}, token: idToken("audrey", []string{"auditors"})},
 }
 
-// auditors are audrey and 49 colleagues in the same group: fifty distinct
-// people asking at once, so nothing one person's requests share helps.
-var auditors = func() []perfPerson {
-	out := []perfPerson{people[2]}
-	for i := 1; i < 50; i++ {
-		name := fmt.Sprintf("auditor-%02d", i)
-		out = append(out, perfPerson{name: name, groups: []string{"auditors"}, token: idToken(name, []string{"auditors"})})
+// auditorSets are fifty of audrey's colleagues for each measurement, new
+// people every time: fifty distinct people asking at once whom nothing the
+// dashboard keeps per person helps, however soon after the last view.
+var auditorSets = func() [][]perfPerson {
+	sets := make([][]perfPerson, 2*len(perfViews)*3) // sizes × views × caller counts
+	for s := range sets {
+		for i := range 50 {
+			name := fmt.Sprintf("auditor-%02d-%02d", s, i)
+			sets[s] = append(sets[s], perfPerson{name: name, groups: []string{"auditors"}, token: idToken(name, []string{"auditors"})})
+		}
 	}
-	return out
+	return sets
 }()
 
 func readable(who string) []string {
@@ -583,7 +586,7 @@ func seenStages(t testing.TB, base string, p perfPerson, nss []string) int {
 }
 
 func TestPerfEnvtest(t *testing.T) {
-	cp := startControlPlane(t, append(people[:2:2], auditors...))
+	cp := startControlPlane(t, append(slices.Clone(people), slices.Concat(auditorSets...)...))
 	ctx := context.Background()
 	adm, err := dynamic.NewForConfig(cp.config(cp.admin, -1))
 	must(t, err)
@@ -617,7 +620,8 @@ func TestPerfEnvtest(t *testing.T) {
 		q.Store(perfFleet(t, sc.services))
 		t.Logf("seeded %s in %s", sc.name, time.Since(start).Round(time.Second))
 		checkRBAC(t, base, w)
-		if path := os.Getenv("PERF_CPUPROFILE"); path != "" {
+		// The profiles cover the views at the last size only.
+		if path := os.Getenv("PERF_CPUPROFILE"); path != "" && sc.name == scales[len(scales)-1].name {
 			f, err := os.Create(path)
 			must(t, err)
 			must(t, pprof.StartCPUProfile(f))
@@ -631,11 +635,18 @@ func TestPerfEnvtest(t *testing.T) {
 				results = append(results, measure(t, base, cnt, sc.name, v, []perfPerson{p}, 1, requests(1)))
 			}
 			for _, c := range []int{1, 10, 50} {
-				r := measure(t, base, cnt, sc.name, v, auditors, c, requests(c))
+				r := measure(t, base, cnt, sc.name, v, auditorSets[0], c, requests(c))
+				auditorSets = auditorSets[1:]
 				results = append(results, r)
 				t.Logf("%-24s %-20s %-6s c=%-2d p50=%-8s p95=%-8s api/req=%.1f", r.scale, r.view, r.who, c, r.p50.Round(time.Millisecond), r.p95.Round(time.Millisecond), r.apiPerReq)
 			}
 		}
+	}
+	if path := os.Getenv("PERF_MEMPROFILE"); path != "" {
+		f, err := os.Create(path)
+		must(t, err)
+		must(t, pprof.Lookup("allocs").WriteTo(f, 0))
+		_ = f.Close()
 	}
 	report := perfTable(results)
 	t.Log("\n" + report)
@@ -656,28 +667,25 @@ func perfTable(rs []perfResult) string {
 	return b.String()
 }
 
-// perfBudget is a regression tripwire, generous on purpose: about twice the
-// apiserver counts and five times the latencies in tests/perf/README.md,
-// which a loaded laptop measured, as its load moves latency that much. The
-// apiserver count is checked on the auditors' rows, fifty distinct people
-// whom no per-person cache helps, so it is the same on any machine; the p95
-// at 10 callers, at both sizes.
-type perfBudget struct {
-	maxAPI float64       // apiserver requests per dashboard request
-	maxP95 time.Duration // at 10 callers
-}
+// perfP95 is what every view answers within at the 95th percentile, at both
+// sizes and every caller count: fifty new people at once included. The
+// apiserver count is checked on the auditors' rows, new people whom no
+// per-person cache helps, so it is the same on any machine; perfMaxAPI is
+// about one and a half times what tests/perf/README.md measured.
+const perfP95 = time.Second
 
-var perfBudgetTable = map[string]perfBudget{
-	"inbox": {6, time.Second},
+// perfMaxAPI is apiserver requests per dashboard request, by view.
+var perfMaxAPI = map[string]float64{
+	"inbox": 8,
 	// Each new person asks once per namespace shown whether they may promote there.
-	"environments":        {50, 6 * time.Second},
-	"environments?env&q":  {25, 3 * time.Second},
-	"history (all)":       {10, 1500 * time.Millisecond},
-	"history (hot Stage)": {1, 500 * time.Millisecond},
-	"published":           {1, time.Second},
-	"autonomy":            {3, time.Second},
-	"fleet overview":      {2, 2 * time.Second},
-	"fleet entities":      {2, 2 * time.Second},
+	"environments":        45,
+	"environments?env&q":  21,
+	"history (all)":       9,
+	"history (hot Stage)": 5,
+	"published":           3,
+	"autonomy":            5,
+	"fleet overview":      2,
+	"fleet entities":      2,
 }
 
 func perfBudgets(t testing.TB, rs []perfResult) {
@@ -685,12 +693,11 @@ func perfBudgets(t testing.TB, rs []perfResult) {
 		if r.failed > 0 {
 			t.Errorf("%s %s for %s: %d of %d requests failed", r.scale, r.view, r.who, r.failed, r.requests)
 		}
-		b := perfBudgetTable[r.view]
-		if strings.HasSuffix(r.who, "auditors") && r.apiPerReq > b.maxAPI {
-			t.Errorf("%s %s for %s: %.1f apiserver requests per request, budget %.0f", r.scale, r.view, r.who, r.apiPerReq, b.maxAPI)
+		if limit := perfMaxAPI[r.view]; strings.HasSuffix(r.who, "auditors") && r.apiPerReq > limit {
+			t.Errorf("%s %s for %s: %.1f apiserver requests per request, budget %.0f", r.scale, r.view, r.who, r.apiPerReq, limit)
 		}
-		if r.callers == 10 && r.p95 > b.maxP95 {
-			t.Errorf("%s %s at 10 callers: p95 %s, budget %s", r.scale, r.view, r.p95, b.maxP95)
+		if r.p95 > perfP95 {
+			t.Errorf("%s %s for %s at %d callers: p95 %s, budget %s", r.scale, r.view, r.who, r.callers, r.p95, perfP95)
 		}
 	}
 }
