@@ -98,8 +98,9 @@ cluster, and checks it against `examples/story`:
   witnessed record and freezes the Stage again.
 - pay-agent ships as a service of its own, with its eval suite as the check:
   1.0.0 passes its evals, but Pacto cannot see its external model, so alice
-  accepts the unknown. 1.1.0 swaps its model, passes 1 of its 2 evals and rolls
-  back in test. The runner signs each count with its own key, the rollback
+  accepts the unknown. 1.1.0 swaps its model; a rollback would return to a
+  version never verified in test, so alice accepts that unknown too. 1.1.0
+  passes 1 of its 2 evals and rolls back in test. The runner signs each count with its own key, the rollback
   cites that signed count, and `pacto delivery record verify` checks the
   runner's signature beside the recorder's.
 

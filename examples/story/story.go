@@ -120,8 +120,9 @@ type Beat struct {
 	Verified map[string][]string
 	// Failed marks To as already failed on this Stage; Unpublished makes To a
 	// copy pushed with plain oras, so pacto publish never published it;
-	// Frozen freezes the Stage.
-	Failed, Unpublished, Frozen bool
+	// Frozen freezes the Stage; Accepted means From shipped on an accepted
+	// unknown, so it was never verified here.
+	Failed, Unpublished, Frozen, Accepted bool
 
 	Expect Outcome
 }
@@ -310,13 +311,16 @@ var Beats = []Beat{
 	// tools (an mcp interface), its model (an external dependency named by its
 	// version) and its eval suite (a check), and its test Stage runs that suite
 	// through a suite runner. 1.1.0 swaps the model, which Pacto cannot check,
-	// so it needs at least a minor version.
+	// so it needs at least a minor version. 1.0.0 shipped on an accepted
+	// unknown, so a rollback would return to a version never verified here and
+	// payments accepts that unknown before 1.1.0 ships.
 	{
 		ID:      "agent",
 		Says:    "pay-agent 1.1.0 swaps its model, passes only 1 of its 2 evals in test, and rolls back without reaching prod.",
 		Why:     "An agent ships like any other service, and the eval suite it ships is the check after release.",
-		Service: "pay-agent", Environment: Test, Actor: PayAgent, From: "1.0.0", To: "1.1.0",
-		Expect: Outcome{Classification: "POTENTIAL_BREAKING", RequiredBump: diff.BumpMinor, Predicted: delivery.PredictProceeds, Verify: delivery.Fail},
+		Service: "pay-agent", Environment: Test, Actor: PayAgent, From: "1.0.0", To: "1.1.0", Accepted: true,
+		Expect: Outcome{Classification: "POTENTIAL_BREAKING", RequiredBump: diff.BumpMinor, Predicted: delivery.PredictHeld,
+			Decision: delivery.AcceptUnknown, Asked: []string{"payments"}, Verify: delivery.Fail},
 	},
 }
 
@@ -426,7 +430,7 @@ func (b Beat) history(in *delivery.PlanInput, from, to delivery.Revision) {
 	if b.Frozen {
 		in.Status.FrozenReason = "a record of this Stage does not verify"
 	}
-	if from.Digest != "" {
+	if from.Digest != "" && !b.Accepted {
 		in.Status.Verified = []string{from.Digest}
 	}
 	if b.Failed {

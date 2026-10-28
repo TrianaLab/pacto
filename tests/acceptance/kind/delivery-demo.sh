@@ -912,6 +912,24 @@ person() {
     '.users[0].user += {as: $u, "as-groups": [$g], "as-user-extra": {"delivery.pacto.trianalab.io/auth-time": [$t]}}' > "$f"
   echo "$f"
 }
+# accept_unknown_as USER GROUP NS OP NOTE — USER, signed in just now, accepts
+# the unknown on OP: the Approval a fresh dashboard decision creates.
+accept_unknown_as() {
+  local kc at uid digest groups
+  kc="$(person "$1" "$2")"
+  at="$(jq -r '.users[0].user["as-user-extra"]["delivery.pacto.trianalab.io/auth-time"][0]' "$kc")"
+  uid="$(kubectl -n "$3" get operation "$4" -o jsonpath='{.metadata.uid}')"
+  digest="$(kubectl -n "$3" get operation "$4" -o jsonpath='{.spec.intentDigest}')"
+  groups="$(KUBECONFIG="$kc" kubectl auth whoami -o json | jq -c '.status.userInfo.groups')"
+  KUBECONFIG="$kc" kubectl -n "$3" create -f - >/dev/null <<YAML || fail "$1 could not accept the unknown on $3/$4"
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Approval
+metadata:
+  generateName: $4-
+  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1alpha1, kind: Operation, name: "$4", uid: "$uid"}]
+spec: {operation: "$4", operationUID: "$uid", intentDigest: "$digest", decision: accept-unknown, note: "$5", by: "$1", authTime: "$at", groups: $groups}
+YAML
+}
 rec() { reg "$PACTO" delivery "$@" --trust "$KEYS/recorder.pub"; }
 condition() { kubectl -n prod get stage payments -o jsonpath="{.status.conditions[?(@.type==\"RecordStoreReady\")].$1}"; }
 frozen() { [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}')" = true ]; }
@@ -1025,6 +1043,11 @@ YAML
   local d op cause; d="$(publish pay-agent 1.1.0)"; remember pay-agent 1.1.0 "$d"
   op="$(wait_op test pay-agent "$d")"
   predicted agent test "$op"
+  # 1.0.0 shipped on an accepted unknown, so a rollback would return to a
+  # version never verified here: payments' team accepts that unknown too.
+  same agent "the decision" "$(field test "$op" plan.floor.decision)" "$(expect agent Decision | jq -r .)"
+  accept_unknown_as alice@example.com team-payments test "$op" "1.0.0 runs here on an accepted unknown"
+  echo "  1.0.0 was never verified in test, so alice accepts the unknown a rollback to it leaves"
   eventually 150 failed_on test pay-agent "$d" || fail "pay-agent 1.1.0 never failed in test: $(field test "$op" phase) $(field test "$op" message)"
   cause="$(op_json test "${op}-rollback" | jq -c .spec.cause.verdict)"
   same agent "the eval check" "$(jq -r .result <<<"$cause")" "$(expect agent Verify | jq -r .)"
