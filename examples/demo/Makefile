@@ -83,7 +83,10 @@ wasm:
 ## (engine.js) loads it; the page itself never runs Go.
 wasmexec:
 	@mkdir -p $(DIST)
+	@# GOROOT ships it read-only; replace it and make the copy writable so a rebuild can overwrite it.
+	@rm -f $(DIST)/wasm_exec.js
 	@cp "$(GOROOT)/lib/wasm/wasm_exec.js" $(DIST)/wasm_exec.js
+	@chmod 0644 $(DIST)/wasm_exec.js
 	@echo "==> Copied wasm_exec.js"
 
 ## Inject the wasm loader before the app's module script, add the no-JavaScript
