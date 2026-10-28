@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -95,10 +96,20 @@ func deliveryDeps(user string, dynErr error) deps {
 	return d
 }
 
-// approveDeps is deliveryDeps for `approve`, which never uses the ambient
-// credentials: it logs in again and builds its client from that token alone.
+// approveDeps is deliveryDeps for `approve` on a Stage that asks for a fresh
+// login, where it never uses the ambient credentials: it logs in again and
+// builds its client from that token alone.
 func approveDeps(user string, dynErr error) deps {
 	d := deliveryDeps(user, dynErr)
+	plain := d.newDynamic
+	d.newDynamic = func() (dynamic.Interface, error) {
+		c, err := plain()
+		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}).Namespace("prod")
+		s, _ := stages.Get(context.Background(), "payments-prod", metav1.GetOptions{})
+		_ = unstructured.SetNestedField(s.Object, "15m0s", "status", "authFreshness")
+		_, _ = stages.Update(context.Background(), s, metav1.UpdateOptions{})
+		return c, err
+	}
 	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k8s", BearerToken: "ambient"}, dynErr }
 	d.freshLogin = func(_ context.Context, c authn.FreshConfig) (string, error) {
 		c.Prompt("https://idp/auth?prompt=login")
@@ -207,8 +218,38 @@ func TestDeliveryCommandWriteVerbs(t *testing.T) {
 		{"text", []string{"approve", "-n", "prod", "held", "--decision", "accept-unknown", "--note", "ok", "--oidc-issuer-url", "https://idp"}, false,
 			[]string{"recorded accept-unknown on prod/held as Approval held-1"}},
 		{"text", []string{"approve", "-n", "prod", "held", "--decision", "maybe"}, true, []string{"--decision must be one of"}},
-		{"text", []string{"approve", "-n", "prod", "held"}, true, []string{"approving needs a fresh login of your own", "--oidc-issuer-url"}},
+		{"text", []string{"approve", "-n", "prod", "held"}, true, []string{"this Stage asks for a fresh login to approve", "--oidc-issuer-url"}},
 	})
+}
+
+// With no login freshness published, approve decides with the kubeconfig's
+// credentials and never asks for a new login.
+func TestDeliveryApproveWithoutFreshness(t *testing.T) {
+	d := deliveryDeps("alice", nil)
+	d.freshLogin = func(context.Context, authn.FreshConfig) (string, error) { return "", errors.New("asked for a login") }
+	checkDeliveryRuns(t, d, []deliveryRun{
+		{"text", []string{"approve", "-n", "prod", "held", "--decision", "accept-unknown"}, false,
+			[]string{"recorded accept-unknown on prod/held as Approval held-1"}},
+		{"text", []string{"approve", "-n", "prod", "gone"}, true, []string{"gone"}},
+	})
+	// A Stage the kubeconfig cannot read gets the fresh login.
+	d = approveDeps("alice", nil)
+	plain := d.newDynamic
+	d.newDynamic = func() (dynamic.Interface, error) {
+		c, err := plain()
+		c.(*dynamicfake.FakeDynamicClient).PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("forbidden")
+		})
+		return c, err
+	}
+	login := d.freshLogin
+	logins := 0
+	d.freshLogin = func(ctx context.Context, c authn.FreshConfig) (string, error) { logins++; return login(ctx, c) }
+	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return deliveryDeps("alice", nil).newDynamic() }
+	if out, err := runDelivery(t, d, "text", "approve", "-n", "prod", "held", "--decision", "accept-unknown", "--oidc-issuer-url", "https://idp"); err != nil ||
+		logins != 1 || !strings.Contains(out, "as Approval held-1") {
+		t.Fatalf("unreadable Stage: %d logins, %q %v", logins, out, err)
+	}
 }
 
 // approve logs the person in again with its own client and sends the
@@ -235,7 +276,7 @@ func TestDeliveryApproveFreshLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.IssuerURL != "https://idp" || got.ClientID != "pacto-approve" || got.ClientSecret != "s3cret" ||
-		strings.Join(got.ExtraScopes, ",") != "a,b" || got.Port != 8000 {
+		strings.Join(got.ExtraScopes, ",") != "a,b" || got.Port != 8000 || got.HTTPClient == nil {
 		t.Fatalf("login config %+v", got)
 	}
 	if !strings.Contains(errOut.String(), "To record approve on prod/held, log in again in your browser") ||
@@ -261,6 +302,12 @@ func TestDeliveryApproveFreshLogin(t *testing.T) {
 		d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
 	}, "no kubeconfig")
 	fail(func(d *deps) { t.Setenv(trustEnv, "/nonexistent/trust.pem") }, "trust")
+	// The issuer's CA bundle is read before the login starts.
+	t.Setenv(trustEnv, "")
+	if _, err := runDelivery(t, approveDeps("alice", nil), "text", "approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp",
+		"--oidc-ca-file", "/nonexistent/ca.crt"); err == nil || !strings.Contains(err.Error(), "CA bundle") {
+		t.Fatalf("an unreadable CA bundle: %v", err)
+	}
 }
 
 func TestPrintPlanQuestion(t *testing.T) {

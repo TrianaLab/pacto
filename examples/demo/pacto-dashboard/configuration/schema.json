@@ -35,6 +35,10 @@
       "description": "OpenID Connect client secret of the dashboard",
       "type": "string"
     },
+    "PACTO_DASHBOARD_OIDC_DISPLAY_NAME": {
+      "description": "The identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC)",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_OIDC_EXTRA_SCOPES": {
       "description": "Space-separated scopes beyond openid, profile and groups",
       "type": "string"

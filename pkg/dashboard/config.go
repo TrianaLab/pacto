@@ -25,6 +25,7 @@ type DashboardConfig struct {
 	OIDCClientID       string `json:"PACTO_DASHBOARD_OIDC_CLIENT_ID,omitempty" doc:"OpenID Connect client id of the dashboard"`
 	OIDCClientSecret   string `json:"PACTO_DASHBOARD_OIDC_CLIENT_SECRET,omitempty" doc:"OpenID Connect client secret of the dashboard"`
 	OIDCRedirectURL    string `json:"PACTO_DASHBOARD_OIDC_REDIRECT_URL,omitempty" doc:"The dashboard's /auth/callback as browsers reach it"`
+	OIDCDisplayName    string `json:"PACTO_DASHBOARD_OIDC_DISPLAY_NAME,omitempty" doc:"The identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC)"`
 	OIDCExtraScopes    string `json:"PACTO_DASHBOARD_OIDC_EXTRA_SCOPES,omitempty" doc:"Space-separated scopes beyond openid, profile and groups"`
 	OIDCUsernameClaim  string `json:"PACTO_DASHBOARD_OIDC_USERNAME_CLAIM,omitempty" doc:"ID token claim the API server takes the username from (default sub); must match its claim mapping"`
 	OIDCUsernamePrefix string `json:"PACTO_DASHBOARD_OIDC_USERNAME_PREFIX,omitempty" doc:"Prefix the API server puts before the username (default the issuer URL and #, none for the email claim; - for none); must match its claim mapping"`

@@ -120,7 +120,7 @@ tests:
     template: templates/deployment.yaml
     set:
       delivery.enabled: true
-      dashboard.auth.deliveryNamespace: elsewhere
+      dashboard.delivery.namespace: elsewhere
     capabilities:
       majorVersion: 1
       minorVersion: 30

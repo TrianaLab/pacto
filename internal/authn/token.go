@@ -21,6 +21,34 @@ type TokenReview func(ctx context.Context, token string) (Person, error)
 
 var ssrResource = schema.GroupVersionResource{Group: "authentication.k8s.io", Version: "v1", Resource: "selfsubjectreviews"}
 
+// AuthTimeExtra is the userInfo.extra key structured authentication maps the
+// OIDC auth_time claim to.
+const AuthTimeExtra = "delivery.pacto.trianalab.io/auth-time"
+
+// ReviewSelf asks the API server who dyn's credentials are (a
+// SelfSubjectReview): the person and the extra their authenticator added. It
+// is the one place Pacto learns who a caller is from the cluster.
+func ReviewSelf(ctx context.Context, dyn dynamic.Interface) (Person, map[string][]string, error) {
+	out, err := dyn.Resource(ssrResource).Create(ctx, &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"}}, metav1.CreateOptions{})
+	if err != nil {
+		return Person{}, nil, err
+	}
+	var r struct {
+		Status struct {
+			UserInfo struct {
+				Username string              `json:"username"`
+				Groups   []string            `json:"groups"`
+				Extra    map[string][]string `json:"extra"`
+			} `json:"userInfo"`
+		} `json:"status"`
+	}
+	b, _ := out.MarshalJSON()
+	_ = json.Unmarshal(b, &r) // an answer without userInfo names nobody
+	ui := r.Status.UserInfo
+	return Person{User: ui.Username, Groups: ui.Groups}, ui.Extra, nil
+}
+
 // SelfSubjectReview asks the API server, with the token itself as the only
 // credential, who the token is.
 func SelfSubjectReview(cluster *rest.Config, newClient func(*rest.Config) (dynamic.Interface, error)) TokenReview {
@@ -34,14 +62,8 @@ func SelfSubjectReview(cluster *rest.Config, newClient func(*rest.Config) (dynam
 		}
 		ctx, cancel := context.WithTimeout(ctx, reviewTimeout)
 		defer cancel()
-		out, err := dyn.Resource(ssrResource).Create(ctx, &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"}}, metav1.CreateOptions{})
-		if err != nil {
-			return Person{}, err
-		}
-		user, _, _ := unstructured.NestedString(out.Object, "status", "userInfo", "username")
-		groups, _, _ := unstructured.NestedStringSlice(out.Object, "status", "userInfo", "groups")
-		return Person{User: user, Groups: groups}, nil
+		p, _, err := ReviewSelf(ctx, dyn)
+		return p, err
 	}
 }
 

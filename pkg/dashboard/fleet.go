@@ -30,16 +30,12 @@ type capabilitiesOutput struct {
 		// the delivery API group and the caller can be identified (local mode,
 		// or a dashboard people sign in to).
 		Delivery bool           `json:"delivery" doc:"The delivery views and actions are served"`
-		Auth     capabilityAuth `json:"auth" doc:"How callers are identified"`
+		Auth     capabilityAuth `json:"auth" doc:"What this caller's Kubernetes permissions leave out of the fleet views"`
 		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations"`
 	}
 }
 
 type capabilityAuth struct {
-	Mode       string `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user; shared: people sign in; none: no identity layer"`
-	Login      bool   `json:"login" doc:"People sign in with the identity provider"`
-	TokenLogin bool   `json:"tokenLogin,omitempty" doc:"People may sign in by pasting a Kubernetes bearer token"`
-	SignedIn   bool   `json:"signedIn" doc:"This caller is signed in"`
 	// Hidden: the fleet views leave out services this caller's Kubernetes
 	// permissions do not let them read. Which ones is never said.
 	Hidden bool `json:"hidden" doc:"Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace"`
@@ -71,18 +67,13 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	// is published, observed is reported false (we cannot confirm it).
 	q := s.publishedQuery(ctx)
 	out.Body.Observed = q != nil && q.HasObserved()
-	out.Body.Auth.Mode = "none"
-	if a := s.opts.Auth; a != nil {
+	if a := s.authSummary(ctx); a.Mode != "none" {
 		hidden := hiddenByPermissions(q)
-		out.Body.Auth = capabilityAuth{Mode: "shared", Login: a.Login, TokenLogin: a.TokenLogin, SignedIn: s.authState(ctx).SignedIn, Hidden: hidden,
-			NothingVisible: hidden && len(q.SnapshotForSerialization().Services) == 0}
-		if a.Local {
-			out.Body.Auth.Mode = "local"
-		}
+		out.Body.Auth = capabilityAuth{Hidden: hidden, NothingVisible: hidden && len(q.SnapshotForSerialization().Services) == 0}
 		// A cluster that cannot be asked keeps the tab: its views then say
 		// the cluster is unreachable instead of hiding delivery. Where delivery
 		// is never served, the cluster is not asked at all.
-		if s.opts.Delivery != nil && (a.Local || a.Login || a.TokenLogin) {
+		if s.opts.Delivery != nil && a.Mode != "open" {
 			installed, err := s.deliveryInstalled(ctx)
 			out.Body.Delivery = installed || err != nil
 		}

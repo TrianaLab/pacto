@@ -16,7 +16,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
@@ -187,9 +189,10 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
-	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and delivery actions run as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
+	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
 	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
 	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
+	cmd.Flags().String("oidc-display-name", "", "the identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC; also PACTO_DASHBOARD_OIDC_DISPLAY_NAME)")
 	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
 	cmd.Flags().String("oidc-ca-file", "", "PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)")
 	cmd.Flags().String("oidc-internal-issuer-url", "", "address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)")
@@ -209,7 +212,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
-	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
+	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
 		"session-idle-timeout", "session-max-age", "token-login", "mira-url", "delivery-namespace", "delivery-trust"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
@@ -231,6 +234,19 @@ func addClaimFlags(cmd *cobra.Command) {
 	cmd.Flags().String("oidc-username-prefix", "", "prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)")
 	cmd.Flags().String("oidc-groups-claim", "", "ID token claim the API server takes the groups from; must match its claim mapping (default groups)")
 	cmd.Flags().String("oidc-groups-prefix", "", "prefix the API server puts before every group; must match its claim mapping")
+}
+
+// claimsFlags is the claim mapping addClaimFlags registers, each setting read
+// by its flag name from get: the dashboard's viper, which also reads
+// PACTO_DASHBOARD_*, or the MCP server's flags.
+func claimsFlags(get func(name string) string) authn.Claims {
+	return authn.Claims{UsernameClaim: get("oidc-username-claim"), UsernamePrefix: get("oidc-username-prefix"),
+		GroupsClaim: get("oidc-groups-claim"), GroupsPrefix: get("oidc-groups-prefix")}
+}
+
+// flagString reads a string flag of cmd by name.
+func flagString(cmd *cobra.Command) func(string) string {
+	return func(name string) string { v, _ := cmd.Flags().GetString(name); return v }
 }
 
 // parseDashboardArgs splits positional arguments into a local directory and

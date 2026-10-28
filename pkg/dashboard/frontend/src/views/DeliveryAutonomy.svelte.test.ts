@@ -8,10 +8,11 @@ import { mount, unmount, flushSync, tick } from 'svelte';
 const fns = vi.hoisted(() => ({ session: vi.fn(), autonomy: vi.fn(), environments: vi.fn(), operation: vi.fn(), plan: vi.fn(), propose: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
+  const { sessionApi } = await import('../testkit.svelte.ts');
   return {
     ...actual,
     api: {
-      session: () => fns.session(), deliveryAutonomy: () => fns.autonomy(), deliveryEnvironments: () => fns.environments(),
+      ...sessionApi(() => fns.session(), actual.ApiError), deliveryAutonomy: () => fns.autonomy(), deliveryEnvironments: () => fns.environments(),
       deliveryOperation: (...a: unknown[]) => fns.operation(...a), deliveryPlan: (...a: unknown[]) => fns.plan(...a),
       deliveryPropose: (...a: unknown[]) => fns.propose(...a),
     },
@@ -19,7 +20,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 });
 
 import { ApiError } from '../lib/api.ts';
-import { deliverySession } from '../lib/deliverySession.svelte.ts';
+import { session as auth, loadSession } from '../lib/session.svelte.ts';
 import { shadowLabel, heldButRan, levelLabel, levelHelp, proposalText, blockerLabel, blockerService, changeSummary, typeLabel } from '../lib/delivery.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryAutonomyView from './DeliveryAutonomyView.svelte';
@@ -39,6 +40,8 @@ async function settle() {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- component handle
 function render(C: any, props: Record<string, unknown> = {}) {
+  // The app reads the session once at start; a view on its own reads it here.
+  loadSession();
   const target = document.createElement('div');
   document.body.appendChild(target);
   const c = mount(C, { target, props });
@@ -73,8 +76,8 @@ const page = {
 
 beforeEach(() => {
   for (const f of Object.values(fns)) f.mockReset();
-  deliverySession.data = null; deliverySession.error = null; deliverySession.loaded = false;
-  fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, fresh: true, csrf: 'c', caller: { user: 'https://idp#carol', class: 'human', groups: [] } });
+  auth.data = null; auth.error = null; auth.loaded = false;
+  fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, csrf: 'c', caller: { user: 'https://idp#carol', class: 'human', groups: [] } });
   location.hash = '#/delivery/autonomy';
 });
 

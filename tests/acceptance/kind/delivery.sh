@@ -301,9 +301,10 @@ phase_runs identity && for img in "$DEX_IMG" "$KC_IMG"; do infra "pull $img" doc
 PACTO="$(build_pacto)"
 OP_CHART="$(package_chart "$PACTO_CHART")"
 # Phase 4 proves the promoter ignores an approval on a login older than its
-# login freshness (15 minutes by default), so one login has to get that old.
-# Where the chart lets the run set the freshness, it is 3 minutes here: the
-# same check, without a quarter of an hour of waiting.
+# login freshness (off by default; 15 minutes on charts that had no setting),
+# so the run turns it on and one login has to get that old. Where the chart
+# lets the run set the freshness, it is 3 minutes here: the same check,
+# without a quarter of an hour of waiting.
 # shellcheck disable=SC2034  # read by delivery-identity.sh
 AUTH_FRESHNESS=900 DL_FRESH=()
 if helm show values "$OP_CHART" | grep -q '^    authFreshness:'; then

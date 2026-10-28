@@ -24,10 +24,19 @@ tests:
             - --poll=3s
             - --resync=1m
             - --workers=4
-            - --auth-freshness=15m
+            - --auth-freshness=0
             - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-operator-delivery
             - --identities=/etc/pacto/identities/policy.json
             - --admission-policies=d-pacto-operator-delivery-operation,d-pacto-operator-delivery-cancel,d-pacto-operator-delivery-approval,d-pacto-operator-delivery-pointer,d-pacto-operator-delivery-applier,d-pacto-operator-delivery-promoter-writes,d-pacto-operator-delivery-status
+
+  - it: passes a login freshness to the promoter when one is set
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.promoter.authFreshness: 15m
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --auth-freshness=15m
 
   - it: names every rendered admission policy, so the self-check covers them all
     template: templates/delivery/deployment.yaml

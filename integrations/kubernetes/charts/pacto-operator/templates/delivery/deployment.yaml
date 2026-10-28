@@ -42,7 +42,7 @@ spec:
             - --poll={{ .Values.delivery.promoter.poll }}
             - --resync={{ .Values.delivery.promoter.resync }}
             - --workers={{ .Values.delivery.promoter.workers }}
-            - --auth-freshness={{ .Values.delivery.promoter.authFreshness }}
+            - --auth-freshness={{ .Values.delivery.promoter.authFreshness | default "0" }}
             - --controller-user={{ include "pacto-operator.delivery.controllerUser" . }}
             - --identities=/etc/pacto/identities/policy.json
             {{- if .Values.delivery.argocd.enabled }}

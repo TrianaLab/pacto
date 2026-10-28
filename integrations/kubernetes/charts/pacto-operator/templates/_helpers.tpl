@@ -204,6 +204,9 @@ Controller arguments derived from values
 {{- with .internalIssuerURL }}
 - --dashboard-oidc-internal-issuer-url={{ . }}
 {{- end }}
+{{- with .displayName }}
+- {{ printf "--dashboard-oidc-display-name=%s" . | quote }}
+{{- end }}
 {{- with .caBundle }}
 {{- if and .configMap .secret }}
 {{- fail "dashboard.auth.oidc.caBundle takes a configMap or a secret, not both" }}
@@ -252,18 +255,20 @@ Controller arguments derived from values
 {{- if (.tokenLogin | default dict).enabled }}
 - --dashboard-token-login
 {{- end }}
-{{- with (.deliveryNamespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled)) }}
+{{- end }}
+{{- with .Values.dashboard.delivery }}
+{{- with (.namespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled)) }}
 - --dashboard-delivery-namespace={{ . }}
 {{- end }}
-{{- end }}
-{{- with .Values.dashboard.deliveryTrust }}
+{{- with .trust }}
 {{- if .configMap }}
 - --dashboard-delivery-trust-configmap={{ .configMap }}
 - --dashboard-delivery-trust-key={{ .key | default "trust.yaml" }}
 {{- end }}
 {{- end }}
-{{- with .Values.dashboard.miraURL }}
+{{- with .miraURL }}
 - --dashboard-mira-url={{ . }}
+{{- end }}
 {{- end }}
 {{- with .Values.dashboard.observation }}
 {{- range .sources }}

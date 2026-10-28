@@ -66,8 +66,12 @@ type CreatedResponse<P extends keyof paths> =
 type DeleteResponse<P extends keyof paths> =
   paths[P] extends { delete: { responses: { 200: infer R } } } ? JSONBody<R> : never;
 
+/** Who the dashboard acts as: the identity mode and the signed-in person. */
+export type Session = GetResponse<'/api/session'>;
+
 // ── delivery wire types ──────────────────────────────────────────────────────
-export type DeliverySession = GetResponse<'/api/session'>;
+/** Who delivery classifies the caller as, with the published team rule. */
+export type DeliveryCaller = GetResponse<'/api/delivery/caller'>;
 export type DeliveryInbox = GetResponse<'/api/delivery/inbox'>;
 export type DeliveryEnvironments = GetResponse<'/api/delivery/environments'>;
 export type DeliveryAutonomy = GetResponse<'/api/delivery/autonomy'>;
@@ -303,8 +307,18 @@ async function productGet<T extends { meta?: ProductMeta }>(p: Promise<FetchResu
 // token on every POST, PUT, PATCH and DELETE, not only on delivery ones.
 let csrf = '';
 async function csrfHeaders(): Promise<Record<string, string>> {
-  if (!csrf) csrf = (await api.session().catch(() => null))?.csrf ?? '';
+  if (!csrf) csrf = (await readSession().catch(() => null))?.csrf ?? '';
   return csrf ? { 'X-Pacto-CSRF': csrf } : {};
+}
+
+// One /api/session read at a time: the session store and a mutating call that
+// needs the token while the store's read is in flight share the same request.
+let reading: Promise<Session> | null = null;
+function readSession(): Promise<Session> {
+  reading ??= unwrap(client.GET('/api/session'))
+    .then((s) => { csrf = s?.csrf ?? ''; return s; })
+    .finally(() => { reading = null; });
+  return reading;
 }
 
 // A mutating request kept unsent, so a refusal for a stale token can be retried.
@@ -397,13 +411,9 @@ export const api = {
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>
     productGet(client.GET('/api/fleet/revisions/document', { params: { query: { key, path } } })),
 
-  // ── Delivery. Every call runs as the caller: the signed-in person, or the
-  // kubeconfig user of a local dashboard. The apiserver decides. ──
-  session: async (): Promise<DeliverySession> => {
-    const s = await unwrap(client.GET('/api/session'));
-    csrf = s?.csrf ?? '';
-    return s;
-  },
+  // ── Session: who the dashboard acts as and how people sign in. ──
+  /** The identity mode and the signed-in person, as the API server names them. */
+  session: (): Promise<Session> => readSession(),
   /** Signs in with a pasted Kubernetes bearer token (POST /auth/token, outside the
    *  API). The server checks it with the cluster and keeps it in the session. */
   signInWithToken: async (token: string): Promise<void> => {
@@ -423,6 +433,11 @@ export const api = {
     const body = (await res.json().catch(() => ({}))) as { logoutURL?: string };
     return body.logoutURL ?? '';
   },
+
+  // ── Delivery. Every call runs as the caller: the signed-in person, or the
+  // kubeconfig user of a local dashboard. The apiserver decides. ──
+  /** Who delivery classifies the caller as, and the published team rule. */
+  deliveryCaller: (): Promise<DeliveryCaller> => unwrap(client.GET('/api/delivery/caller')),
   deliveryInbox: (query: DeliveryQuery<'/api/delivery/inbox'> = {}): Promise<DeliveryInbox> =>
     unwrap(client.GET('/api/delivery/inbox', { params: { query } })),
   deliveryEnvironments: (query: DeliveryQuery<'/api/delivery/environments'> = {}): Promise<DeliveryEnvironments> =>

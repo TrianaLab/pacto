@@ -1,4 +1,4 @@
-# Delivery reference: sign-in, approvals and agents
+# Delivery reference: approvals and agents
 
 People decide in the dashboard and agents reach Pacto over the network, each
 under their own Kubernetes identity. The dashboard and the MCP server pass the
@@ -7,8 +7,9 @@ audit log names the person. There is no impersonation.
 
 ## The cluster trusts your identity provider
 
-Approving needs the login time, read by the apiserver itself. Structured
-authentication maps the OIDC `auth_time` claim to
+A person decides with the sign-in they have. If you also ask for
+[a recent sign-in to decide](#a-recent-sign-in-to-decide), approving needs the
+login time, read by the apiserver itself. Structured authentication maps the OIDC `auth_time` claim to
 `userInfo.extra["delivery.pacto.trianalab.io/auth-time"]`, only for tokens issued to the two
 clients that make a person log in again: the dashboard and `pacto delivery
 approve`'s own client, `pacto-approve`. A client-credentials or exchanged
@@ -35,13 +36,12 @@ token with two audiences, so give the dashboard and `pacto delivery approve`
 the extra scope `audience:server:client_id:pacto-cli` and make `pacto-cli`
 trust `pacto-dashboard` and `pacto-approve`. Register `pacto-approve` as a
 public client (PKCE, no secret) whose redirect is the loopback address
-`http://127.0.0.1:<port>/callback`, and use it for nothing else. A cluster that
-cannot trust your identity provider keeps the read-only dashboard and the CLI,
-and nobody can approve there.
+`http://127.0.0.1:<port>/callback`, and use it for nothing else. Without that
+trust, people decide from the terminal with their own kubeconfig.
 
 ## Where approving works
 
-The apiserver must load this file (flag `--authentication-config`), and its
+Only a recent sign-in needs the login time. The apiserver must load this file (flag `--authentication-config`), and its
 `claimMappings` must be able to set `extra`. That is in your hands wherever you
 set the apiserver's flags, as with kind, kubeadm or k3s; Pacto's own tests run
 it on kind. Managed clusters mostly decide it for you:
@@ -53,7 +53,8 @@ it on kind. Managed clusters mostly decide it for you:
 | EKS, GKE | Not verified |
 
 To check a cluster, sign in again and run `kubectl auth whoami -o yaml`. If
-`extra` holds no `delivery.pacto.trianalab.io/auth-time`, nobody can approve there. Delivery
+`extra` holds no `delivery.pacto.trianalab.io/auth-time`, nobody can approve
+there with a recent sign-in required. Delivery
 still promotes every change that needs no decision. People can still freeze,
 unfreeze, roll back and cancel. The dashboard and the CLI still read
 everything. [What you need to be allowed](../../pactify-decide.md#what-you-need-to-be-allowed)
@@ -96,32 +97,28 @@ keyboard and get a login time. Set `humanGroups` to the groups your people are
 in, and anyone outside them is an agent. The chart refuses delivery with
 `humanGroups` empty unless you set `allowEmptyHumanGroups: true`.
 
-## Sign in to the dashboard
+## The dashboard's delivery settings
 
-[Dashboard authentication](dashboard-authentication.md) sets up the sign-in:
-the chart values, the claim mapping, sessions, token sign-in and recipes per
-identity provider. With sign-in configured, people sign in before the
-dashboard shows anything and see only
-[what their RBAC lets them read](dashboard-access.md). For approvals, add the
-extra scope `audience:server:client_id:pacto-cli` (see above) and tell the
-dashboard where delivery publishes its identity policy:
+The delivery views need [dashboard sign-in](dashboard-authentication.md). For
+approvals, add the extra scope `audience:server:client_id:pacto-cli` (see
+above). The delivery settings sit under `dashboard.delivery`:
 
 ```yaml
 dashboard:
   auth:
     oidc:
       extraScopes: [audience:server:client_id:pacto-cli]
-    deliveryNamespace: ""      # empty means delivery.namespace when delivery.enabled
-  miraURL: http://mira.observability:4318
+  delivery:
+    namespace: ""      # where the identity policy is; empty means delivery.namespace when delivery.enabled
+    trust: {configMap: delivery-trust, key: trust.yaml}   # verifies History
+    miraURL: http://mira.observability:4318
 ```
 
+`trust` is the trust config the CLI reads
+([trust and key rotation](delivery-record-keys.md#trust-and-key-rotation)).
 The dashboard's ServiceAccount gains nothing in delivery and cannot
-impersonate.
-
-Without sign-in, a dashboard bound beyond loopback shows no delivery data and
-offers no actions. On loopback it acts as your kubeconfig user and prints a URL
-with a launch token that its delivery reads and actions need. It never decides there, because any
-process on your machine could do it as you; it shows the
+impersonate. A dashboard on loopback without sign-in never decides, because
+any process on your machine could do it as you; it shows the
 `pacto delivery approve` command instead.
 
 ## Follow delivery in the dashboard
@@ -136,19 +133,31 @@ views say they may be incomplete.
 
 A held change asks one question of the teams that own the affected services.
 Only their members may answer. A contract owner team `T` is the group `T`, or
-`teamGroupPrefix` followed by `T`. The promoter ignores an approval given
-more than its login freshness (`delivery.promoter.authFreshness`, fifteen minutes by
-default) after its author's login, and every Stage publishes that freshness in
-`status.authFreshness`. To decide, a person whose login is older than two
-thirds of it (ten of fifteen minutes by default) signs in again
-(`prompt=login`). The decision takes one more click, never sent on its own.
-The dashboard and `pacto delivery approve` check a decision with the
+`teamGroupPrefix` followed by `T`. A person decides with the sign-in they
+have. The dashboard and `pacto delivery approve` check a decision with the
 promoter's own rule before they record it, and refuse one it would not count,
-saying why. Agents are refused, and so is a token with no login time: on a
-cluster that reports none, the dashboard says approving is not possible there
-and offers no decision.
+saying why. Agents are refused, and so is a pasted token in the dashboard.
+
+### A recent sign-in to decide
+
+Set `delivery.promoter.authFreshness` to a duration such as `15m` to make
+deciding need a recent sign-in. The promoter then ignores an approval given
+more than that long after its author's login, and every Stage publishes the
+setting in `status.authFreshness` for the dashboard and `pacto delivery
+approve` to follow. Once a login is older than two thirds of it, the dashboard
+says so next to the decision buttons, and a decision opens a dialog that sends
+the person to sign in again (`prompt=login`), keeping their choice and note
+for one more click. A token with no login time cannot approve.
 
 ## Approve from the terminal
+
+```bash
+pacto delivery approve -n prod <operation> --decision approve
+```
+
+It decides as your kubeconfig signs you in. Where the Stage asks for
+[a recent sign-in](#a-recent-sign-in-to-decide) or cannot be read, it never
+sends your kubeconfig's credentials:
 
 ```bash
 export PACTO_DELIVERY_OIDC_ISSUER_URL=https://idp.example.com
@@ -156,8 +165,7 @@ pacto delivery approve -n prod <operation> --decision approve \
   --oidc-extra-scopes audience:server:client_id:pacto-cli --oidc-redirect-port 8001
 ```
 
-The command never sends your kubeconfig's credentials. It prints an address
-with `prompt=login` and `max_age=0`, waits up to ten minutes on the loopback
+It prints an address with `prompt=login` and `max_age=0`, waits up to ten minutes on the loopback
 port for you to log in again in your browser, refuses a token whose
 `auth_time` is older than the command, and sends the Approval with that token
 alone. The token is not stored. `--oidc-client-id` defaults to
@@ -191,16 +199,15 @@ tools.
 ## Limits
 
 - An agent holding a person's credentials, session or refresh token is that
-  person to the cluster. Fresh sign-in raises the bar; it does not close the
-  gap. `pacto delivery approve` asks for the login with `prompt=login`, but
+  person to the cluster, and by default it can approve as them. A recent
+  sign-in raises the bar; it does not close the gap. `pacto delivery approve` asks for the login with `prompt=login`, but
   the cluster cannot see what a login asked for: a process that drives your
   browser could run the `pacto-approve` login itself and ride your identity
   provider's session, and it gets a login time only as old as your last real
   login there. An identity provider that ignores `prompt=login` widens this.
-- A stolen dashboard session can approve only in the first two thirds of the
-  promoter's login freshness (`delivery.promoter.authFreshness`, ten of fifteen minutes
-  by default) after that person signed in again, and can take their other
-  actions until it ends.
+- A stolen dashboard session can take that person's actions until it ends. With
+  a recent sign-in required, it approves only in the first two thirds of
+  `delivery.promoter.authFreshness` after they signed in again.
 - Sessions live in the dashboard's memory: it runs as one replica and a restart
   signs everyone out ([sessions](dashboard-authentication.md#sessions)).
 - A change's timeline shows only the Operation's own times, not Kubernetes

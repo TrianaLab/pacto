@@ -257,19 +257,18 @@
   var SWITCH_BTN = '#navbar-identity:popover-open [data-testid="sign-out"]';
   var NOTE = '[data-testid="decision-panel"] textarea';
   var APPROVE = '[data-testid="decide-approve"]';
-  var SIGNIN_BTN = '[data-testid="demo-signin-submit"]';
   var RAISE_FRAUD = '[aria-label="Propose Advise for fraud in test"]';
   // A plan is open for this Stage ("prod/payments"), as Promote opens it.
   function planOpen(stage) { var h = q("#pp-title"); return !!h && h.textContent.indexOf(stage) >= 0; }
   function noteText() { var t = q(NOTE); return t ? t.value.trim() : ""; }
   function shipped(version) { return row("prod", "payments").version === version; }
   function clickOn(sel) { var b = q(sel); if (b) { b.click(); } }
-  // A decision on the held change as a freshly signed-in Carol: what a skipped
-  // approve or accept does in one go.
+  // A decision on the held change as Carol: what a skipped approve or accept
+  // does in one go.
   function decide(decision, note) {
     var name = fact().held;
     if (!name) { return; }
-    setPersona("carol", true).then(function () {
+    setPersona("carol", false).then(function () {
       return serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: decision, note: note });
     }).then(function () { resetFacts(); refreshViews(); });
   }
@@ -305,7 +304,7 @@
 
   // One action per step, and the light on the control that action uses. A moment
   // that needs several actions (promote then propose; switch person, pick Carol,
-  // write the note, approve, sign in again, confirm) is several steps, each moving on
+  // write the note, approve) is several steps, each moving on
   // by itself when the tour sees it done. Only a step whose result is worth reading
   // holds for Continue, so nobody is moved off a screen they are still reading.
   var NOTE_APPROVE = "orders 1.4 is ready for payments 3";
@@ -399,26 +398,7 @@
     gate: function () { return noteText().length >= 3 || shipped("3.0.0"); },
     skip: function () { var t = q(NOTE); if (t) { setValue(t, NOTE_APPROVE); } }
   }, {
-    text: "Press Approve shipping 3.0.0.",
-    hash: changeHash,
-    target: APPROVE,
-    wait: "Waiting for the approval to be pressed.",
-    gate: function () { return !!q(SIGNIN_BTN) || !!q('[data-testid="decision-kept"]') || shipped("3.0.0"); },
-    // Done in one go, as a fresh Carol, so a skipped step never leaves the sign-in open.
-    skip: function () { decide("approve", NOTE_APPROVE); }
-  }, {
-    text: "A decision needs a fresh login, so sign in again as Carol.",
-    hash: changeHash,
-    // Back to Approve if the sign-in was cancelled.
-    target: [APPROVE, SIGNIN_BTN],
-    wait: "Waiting for Carol to sign in again.",
-    gate: function () { return !!q('[data-testid="decision-kept"]') || shipped("3.0.0"); },
-    skip: function () {
-      var b = q(SIGNIN_BTN);
-      if (b) { b.click(); } else { setPersona("carol", true); }
-    }
-  }, {
-    text: "Press Confirm to send Carol's approval, and 3.0.0 ships.",
+    text: "Press Approve shipping 3.0.0 to send Carol's approval, and 3.0.0 ships.",
     hash: changeHash,
     target: APPROVE,
     wait: "Waiting for 3.0.0 to ship.",
@@ -444,9 +424,7 @@
   }, {
     text: "Press Accept the unknown and keep 3.0.0: the record says a person accepted it, and the check stays Unknown.",
     hash: changeHash,
-    // Carol signed in moments ago, so this sends at once; if her login has gone stale
-    // the light moves to the sign-in, whose dialog says what to do, and then back.
-    target: [APPROVE, SIGNIN_BTN],
+    target: APPROVE,
     wait: "Waiting for Carol to accept the unknown.",
     gate: function () { var f = fact(); return !f.held && f.accepted; },
     skip: function accept() {
@@ -533,7 +511,7 @@
   }
 
   // The dashboard calls this instead of leaving for /auth/login (see signIn in
-  // the frontend's delivery.ts): leaving would reload the page and lose the tab's
+  // the frontend's lib/session.svelte.ts): leaving would reload the page and lose the tab's
   // whole simulation. fresh is a decision asking for a new login: the same person
   // signs in again. Otherwise it is a switch to another person's existing session.
   window.__pactoSignIn = function (hash, fresh) {
@@ -545,7 +523,7 @@
     var html = '<h2 id="pacto-signin-title">' + (fresh ? "Simulated sign-in" : "Switch person") + "</h2>" +
       "<p>" + (fresh
         ? "A real install sends you to your company login, and the cluster reads the sign-in time from it."
-        : "Each person here is already signed in. Carol signed in half an hour ago, so a decision asks her to sign in again.") + "</p>";
+        : "Each person here is already signed in, and a person on the asked team decides with that sign-in.") + "</p>";
     if (fresh) {
       html += '<p><button type="submit" value="' + who[0] + '" data-testid="demo-signin-submit">Sign in again as ' + who[1] + "</button></p>";
     } else {

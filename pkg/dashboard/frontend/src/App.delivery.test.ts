@@ -9,12 +9,13 @@ import { mount, unmount, tick, flushSync } from 'svelte';
 const fns = vi.hoisted(() => ({ capabilities: vi.fn(), inbox: vi.fn(), session: vi.fn() }));
 vi.mock('./lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./lib/api.ts')>();
+  const { sessionApi } = await import('./testkit.svelte.ts');
   return {
     ...actual,
     api: {
       services: vi.fn().mockResolvedValue([]), sources: vi.fn().mockResolvedValue({ sources: [] }),
       health: vi.fn().mockResolvedValue({ version: 'x' }), refresh: vi.fn().mockResolvedValue({}),
-      capabilities: () => fns.capabilities(), deliveryInbox: () => fns.inbox(), session: () => fns.session(),
+      capabilities: () => fns.capabilities(), deliveryInbox: () => fns.inbox(), ...sessionApi(() => fns.session(), actual.ApiError),
     },
   };
 });
@@ -34,13 +35,14 @@ async function renderAt(hash: string) {
 
 beforeEach(() => {
   fns.inbox.mockReset();
-  fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, fresh: false, caller: { user: 'u', class: 'human', groups: [] } });
+  fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, caller: { user: 'u', class: 'human', groups: [] } });
   fns.inbox.mockResolvedValue({ asOf: 'x', completeness: 'complete', held: [], frozen: [], errored: [] });
 });
 
 describe('App — delivery gate', () => {
   it('says delivery is not available where the host does not serve it', async () => {
-    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { mode: 'none', login: false, signedIn: false } });
+    fns.session.mockResolvedValue({ mode: 'none', login: false, signedIn: false });
+    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { hidden: false } });
     const { target, destroy } = await renderAt('#/delivery/inbox');
     expect(target.querySelector('[data-testid="delivery-unavailable"]')).not.toBeNull();
     expect(target.querySelector('[data-testid="delivery-unavailable-reason"]')?.textContent).toContain('has no signed-in user');
@@ -49,7 +51,8 @@ describe('App — delivery gate', () => {
   });
 
   it('says the cluster lacks delivery when the caller is known', async () => {
-    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { mode: 'local', login: false, signedIn: true } });
+    fns.session.mockResolvedValue({ mode: 'local', login: false, signedIn: true });
+    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { hidden: false } });
     const { target, destroy } = await renderAt('#/delivery/inbox');
     expect(target.querySelector('[data-testid="delivery-unavailable-reason"]')?.textContent).toContain('does not serve the delivery API');
     destroy();
@@ -57,7 +60,7 @@ describe('App — delivery gate', () => {
 
   it('offers a retry when the capabilities probe fails, instead of loading for ever', async () => {
     fns.capabilities.mockRejectedValueOnce(new Error('down'))
-      .mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { mode: 'shared', login: true, signedIn: true } });
+      .mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { hidden: false } });
     const { target, destroy } = await renderAt('#/delivery/inbox');
     const err = target.querySelector('[data-testid="capabilities-error"]');
     expect(err).not.toBeNull();
@@ -67,8 +70,8 @@ describe('App — delivery gate', () => {
   }, 15_000);
 
   it('asks again on a refresh, and mounts the inbox once delivery is served', async () => {
-    fns.capabilities.mockResolvedValueOnce({ fleet: true, impact: true, observed: false, delivery: false, auth: { mode: 'shared', login: true, signedIn: true } })
-      .mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { mode: 'shared', login: true, signedIn: true } });
+    fns.capabilities.mockResolvedValueOnce({ fleet: true, impact: true, observed: false, delivery: false, auth: { hidden: false } })
+      .mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { hidden: false } });
     const { target, destroy } = await renderAt('#/delivery/inbox');
     expect(target.querySelector('[data-testid="delivery-unavailable"]')).not.toBeNull();
     (target.querySelector('button[aria-label="Refresh"]') as HTMLButtonElement).click();
@@ -78,7 +81,7 @@ describe('App — delivery gate', () => {
   }, 15_000);
 
   it('mounts the inbox where it does', async () => {
-    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { mode: 'shared', login: true, signedIn: true } });
+    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { hidden: false } });
     const { target, destroy } = await renderAt('#/delivery/inbox');
     await vi.waitFor(() => expect(target.querySelector('[data-testid="inbox-empty"]')).not.toBeNull(), { timeout: 10_000 });
     expect(fns.inbox).toHaveBeenCalled();

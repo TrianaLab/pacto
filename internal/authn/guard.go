@@ -102,18 +102,20 @@ func (d *Dashboard) endToken(r *http.Request) {
 type State struct {
 	// SignedIn is a live OIDC session (shared) or the launch cookie (local).
 	SignedIn bool
-	// Fresh: the session came from a login the person repeated.
-	Fresh bool
 	// CSRF is the token to send in CSRFHeader; empty when not signed in.
 	CSRF string
 	// Token is the bearer for the caller's own cluster requests (shared only).
 	Token string
-	// Person is who the cluster says the caller is (shared only): the ID
-	// token as the claim mapping names it, or what the API server answered
-	// for a pasted token.
+	// Person is who the cluster says the caller is: what the API server
+	// answered for the session's token, or for the kubeconfig in local mode.
+	// Only an OIDC session the API server cannot be asked about is named
+	// with the claim mapping.
 	Person Person
 	// Method is how the caller signed in: "oidc" or "token" (shared only).
 	Method string
+	// AuthTime is when the caller last logged in at the identity provider,
+	// as Unix seconds or RFC 3339, when known.
+	AuthTime string
 }
 
 type stateKey struct{}
@@ -251,7 +253,7 @@ func refuseShared(r *http.Request, st State, hasCookie bool) string {
 func (d *Dashboard) sessionState(r *http.Request) State {
 	if d.oidc != nil {
 		if s := d.oidc.Session(r); s != nil {
-			return State{SignedIn: true, Fresh: s.Fresh, CSRF: s.CSRF, Token: s.IDToken(), Person: d.oidc.Person(s), Method: "oidc"}
+			return State{SignedIn: true, CSRF: s.CSRF, Token: s.IDToken(), Person: s.Person(), Method: "oidc", AuthTime: s.AuthTime()}
 		}
 	}
 	if d.tokens != nil {
@@ -262,11 +264,20 @@ func (d *Dashboard) sessionState(r *http.Request) State {
 	return State{}
 }
 
+// loginRequired answers 401 in the dashboard's refusal shape (status, code,
+// detail), so every view reads the same LoginRequired.
+func loginRequired(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = w.Write([]byte(`{"status":401,"code":"LoginRequired","detail":"sign in to use this dashboard"}` + "\n"))
+}
+
 func (d *Dashboard) shared(w http.ResponseWriter, r *http.Request) (State, bool) {
 	_, hasCookie := r.Cookie(SessionCookie)
 	st := d.sessionState(r)
 	if !st.SignedIn && needsSession(r.URL.Path) {
-		http.Error(w, "sign in to use this dashboard", http.StatusUnauthorized)
+		loginRequired(w)
 		return State{}, false
 	}
 	if why := refuseShared(r, st, hasCookie == nil); why != "" {

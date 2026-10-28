@@ -64,6 +64,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/delivery/caller": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who delivery says I am
+         * @description The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in and whether a question that names no team has nobody who may answer it.
+         */
+        get: operations["delivery-caller"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/delivery/environments": {
         parameters: {
             query?: never;
@@ -179,7 +199,7 @@ export interface paths {
         put?: never;
         /**
          * Decide on a held change
-         * @description Approve, reject or accept an unknown, as the signed-in person, with a login made fresh for it. Only the teams the question names may decide. Never served in local mode or to agents.
+         * @description Approve, reject or accept an unknown, as the signed-in person; where the Stage publishes a login freshness, with a login that recent. Only the teams the question names may decide. Never served in local mode or to agents.
          */
         post: operations["delivery-decide"];
         delete?: never;
@@ -741,7 +761,7 @@ export interface paths {
         };
         /**
          * Who is signed in
-         * @description The identity mode, whether the caller is signed in and with a fresh login, the CSRF token for mutating requests and who the apiserver says the caller is.
+         * @description The identity mode, whether the caller is signed in, who the API server says they are, when they last logged in and the CSRF token for mutating requests.
          */
         get: operations["session"];
         put?: never;
@@ -904,11 +924,19 @@ export interface components {
             count: number;
             kind: string;
         };
+        CallerOutputBody: {
+            authTime?: string;
+            class: string;
+            groups?: string[] | null;
+            /** @description A question that names no team has nobody who may answer it; only break-glass can override */
+            requireOwnerTeam: boolean;
+            user: string;
+        };
         CancelOutputBody: {
             cancelled: string;
         };
         CapabilitiesOutputBody: {
-            /** @description How callers are identified */
+            /** @description What this caller's Kubernetes permissions leave out of the fleet views */
             auth: components["schemas"]["CapabilityAuth"];
             /** @description The delivery views and actions are served */
             delivery: boolean;
@@ -924,19 +952,8 @@ export interface components {
         CapabilityAuth: {
             /** @description Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace */
             hidden: boolean;
-            /** @description People sign in with the identity provider */
-            login: boolean;
-            /**
-             * @description local: the kubeconfig user; shared: people sign in; none: no identity layer
-             * @enum {string}
-             */
-            mode: "local" | "shared" | "none";
             /** @description Every service is hidden because this caller's Kubernetes permissions let them read none of their namespaces */
             nothingVisible?: boolean;
-            /** @description This caller is signed in */
-            signedIn: boolean;
-            /** @description People may sign in by pasting a Kubernetes bearer token */
-            tokenLogin?: boolean;
         };
         CapabilityInfo: {
             ref?: string;
@@ -1158,12 +1175,6 @@ export interface components {
         "Delivery.AutonomyPolicy": {
             /** Format: int64 */
             proposeAfter?: number;
-        };
-        "Delivery.Caller": {
-            authTime?: string;
-            class: string;
-            groups?: string[] | null;
-            user: string;
         };
         "Delivery.Candidate": {
             accepts?: string;
@@ -2661,6 +2672,11 @@ export interface components {
         OperationOutputBody: {
             /** @description What the caller may ask for: approve, reject, accept-unknown, cancel, rollback */
             actions: string[] | null;
+            /**
+             * Format: int64
+             * @description How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides
+             */
+            decisionFreshness?: number;
             explanation: components["schemas"]["Delivery.Explanation"];
             /** @description The Stage's level now: observe, advise, auto-nonbreaking or autonomous */
             level?: string;
@@ -3411,35 +3427,33 @@ export interface components {
             sourceType: string;
         };
         SessionOutputBody: {
-            caller?: components["schemas"]["Delivery.Caller"];
-            callerError?: string;
+            /** @description When the signed-in person last logged in at the identity provider, as Unix seconds or RFC 3339, when known */
+            authTime?: string;
             /** @description Send it in the X-Pacto-CSRF header of every mutating request */
             csrf?: string;
-            /** @description The session came from a login the person had to repeat; decisions need one */
-            fresh: boolean;
-            /** @description The signed-in person's groups as the cluster names them */
+            /** @description The signed-in person's groups as the API server names them */
             groups?: string[] | null;
             /** @description People sign in with the identity provider */
             login: boolean;
+            /** @description The identity provider's name on the sign-in button; empty says OIDC */
+            loginName?: string;
             /**
              * @description How the caller signed in: with the identity provider or with a pasted token, which never decides
              * @enum {string}
              */
             method?: "oidc" | "token";
             /**
-             * @description local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; none: no identity layer
+             * @description local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; open: shared without sign-in, so nobody is identified; none: no identity layer
              * @enum {string}
              */
-            mode: "local" | "shared" | "none";
+            mode: "local" | "shared" | "open" | "none";
             /** @description The signed-in person's name from their ID token (name, else email) */
             name?: string;
-            /** @description A question that names no team has nobody who may answer it; only break-glass can override */
-            requireOwnerTeam?: boolean;
             /** @description The caller has a live session (shared) or the launch cookie (local) */
             signedIn: boolean;
             /** @description People may sign in by pasting a Kubernetes bearer token */
             tokenLogin?: boolean;
-            /** @description The signed-in person's username as the cluster names them; the fleet views show what its Kubernetes RBAC lets this user read */
+            /** @description The signed-in person's username as the API server names them; every view shows what its Kubernetes RBAC lets this user read */
             user?: string;
         };
         ShadowDecision: {
@@ -3771,6 +3785,71 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-caller": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

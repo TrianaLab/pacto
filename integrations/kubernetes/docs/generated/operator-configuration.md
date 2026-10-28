@@ -34,11 +34,12 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-oidc-client-id` | `string` |  | chart value | The dashboard's OpenID Connect client id. |
 | `-dashboard-oidc-client-secret-key` | `string` | `client-secret` | chart value | Key of the client secret in that Secret. |
 | `-dashboard-oidc-client-secret-name` | `string` |  | chart value | Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef. |
+| `-dashboard-oidc-display-name` | `string` |  | chart value | The identity provider's name on the dashboard's sign-in button, as in Sign in with Keycloak (empty: OIDC). |
 | `-dashboard-oidc-extra-scopes` | `string` |  | chart value | Comma-separated scopes beyond openid, profile and groups. |
 | `-dashboard-oidc-groups-claim` | `string` |  | chart value | ID token claim the API server takes the groups from; must match its claim mapping (empty: groups). |
 | `-dashboard-oidc-groups-prefix` | `string` |  | chart value | Prefix the API server puts before every group; must match its claim mapping. |
 | `-dashboard-oidc-internal-issuer-url` | `string` |  | chart value | Where the dashboard reaches the issuer when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer. |
-| `-dashboard-oidc-issuer-url` | `string` |  | chart value | OpenID Connect issuer people sign in to the dashboard with. Delivery actions then run with each person's own token; without it the dashboard serves no delivery data and no actions. |
+| `-dashboard-oidc-issuer-url` | `string` |  | chart value | OpenID Connect issuer people sign in to the dashboard with. Every view and action then runs with each person's own token and RBAC; the delivery views need sign-in. |
 | `-dashboard-oidc-redirect-url` | `string` |  | chart value | The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it. |
 | `-dashboard-oidc-username-claim` | `string` |  | chart value | ID token claim the API server takes the username from; must match its claim mapping (empty: sub). |
 | `-dashboard-oidc-username-prefix` | `string` |  | chart value | Prefix the API server puts before the username; must match its claim mapping (empty: the issuer URL and #; - for none). |

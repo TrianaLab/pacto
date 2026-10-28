@@ -25,7 +25,7 @@ vi.mock('./lib/api.ts', async (importOriginal) => {
   };
 });
 
-import { deliverySession } from './lib/deliverySession.svelte.ts';
+import { session as auth } from './lib/session.svelte.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import App from './App.svelte';
 
@@ -35,8 +35,8 @@ let app: ReturnType<typeof mount> | null = null;
 
 beforeEach(() => {
   for (const f of Object.values(fns)) f.mockReset();
-  deliverySession.data = null; deliverySession.error = null; deliverySession.loaded = false;
-  fns.capabilities.mockResolvedValue({ fleet: true, impact: true, auth: { mode: 'shared', login: true, signedIn: true, hidden: false } });
+  auth.data = null; auth.error = null; auth.loaded = false;
+  fns.capabilities.mockResolvedValue({ fleet: true, impact: true, auth: { hidden: false } });
   fns.sources.mockResolvedValue({ sources: [], discovering: false });
   fns.health.mockResolvedValue({ version: 'x' });
   fns.overview.mockResolvedValue({ meta, summary: { services: 1 }, attention: { total: 0, count: 0, truncated: false, items: [] },
@@ -91,7 +91,7 @@ describe('App — the sign-in gate', () => {
     expect(target.querySelector('[data-testid="sign-in"]')).toBeNull();
     unmount(app);
 
-    deliverySession.data = null; deliverySession.loaded = false;
+    auth.data = null; auth.loaded = false;
     fns.session.mockRejectedValue(new Error('no session here'));
     app = mount(App, { target });
     await vi.waitFor(() => expect(target.querySelector('.navbar')).not.toBeNull());
@@ -100,7 +100,7 @@ describe('App — the sign-in gate', () => {
 
   it('tells a person whose RBAC reads no namespace that they see nothing, with their groups', async () => {
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#erin', name: 'Erin', groups: ['team-a', 'system:authenticated', 'team-b'] });
-    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, auth: { mode: 'shared', login: true, signedIn: true, hidden: true, nothingVisible: true } });
+    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, auth: { hidden: true, nothingVisible: true } });
     app = mount(App, { target });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="nothing-visible"]')).not.toBeNull());
     const t = target.querySelector('[data-testid="nothing-visible"]')?.textContent?.replace(/\s+/g, ' ');
@@ -109,7 +109,7 @@ describe('App — the sign-in gate', () => {
     expect(target.querySelector('[data-testid="hidden-by-permissions"]')).toBeNull();
 
     unmount(app);
-    deliverySession.data = null; deliverySession.loaded = false;
+    auth.data = null; auth.loaded = false;
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: true, user: 'https://idp#erin' });
     app = mount(App, { target });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="nothing-visible"]')?.textContent).toContain('in no groups'));

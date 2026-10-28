@@ -7,8 +7,7 @@
   import { syncPageTitle } from './lib/pageTitle.ts';
   import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
-  import { deliverySession, loadSession } from './lib/deliverySession.svelte.ts';
-  import { hostSignsIn, teamGroups } from './lib/delivery.ts';
+  import { session as auth, me, loadSession, hostSignsIn, teamGroups } from './lib/session.svelte.ts';
   import Person from './components/Person.svelte';
   import SignInScreen from './components/SignInScreen.svelte';
   import CappedList from './components/CappedList.svelte';
@@ -69,7 +68,7 @@
   // A dashboard people sign in to shows nothing but its sign-in screen until
   // they do; the server answers no API call before that. A failed session read
   // (the offline export has none) is no sign-in to wait for.
-  const session = $derived(deliverySession.data);
+  const session = $derived(auth.data);
   const gated = $derived(!!session && session.mode === 'shared' && (session.login || session.tokenLogin) && !session.signedIn && !hostSignsIn());
   const nothingVisible = $derived(!!capabilities?.auth?.nothingVisible);
 
@@ -279,7 +278,7 @@
   });
 </script>
 
-{#if deliverySession.loaded && !gated}
+{#if auth.loaded && !gated}
 <Navbar
   {services}
   {sourcesInfo}
@@ -338,7 +337,7 @@
 <main class="container" bind:this={mainEl}>
   {#if gated}
     <SignInScreen />
-  {:else if !deliverySession.loaded}
+  {:else if !auth.loaded}
     <!-- Who is asking comes first; the browser demo answers only once its engine is up. -->
     <EmptyState loading />
   {:else if nothingVisible && !route.view.startsWith('delivery-')}
@@ -347,7 +346,7 @@
       <h1 class="t-page-title">You can see no services</h1>
       <p class="t-body">
         Your Kubernetes permissions let you read none of the namespaces this dashboard's services run in.
-        You are signed in as <strong>{#if session?.user}<Person user={session.user} me={{ user: session.user, name: session.name }} />{:else}{session?.name || 'an unnamed user'}{/if}</strong>{#if teamGroups(session?.groups).length}, in <CappedList items={teamGroups(session.groups)} max={5} inline label="Your groups" testid="nothing-visible-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{:else}, in no groups{/if}.
+        You are signed in as <strong>{#if me().user}<Person user={me().user} />{:else}a person the cluster did not name{/if}</strong>{#if teamGroups(me().groups).length}, in <CappedList items={teamGroups(me().groups)} max={5} inline label="Your groups" testid="nothing-visible-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{:else}, in no groups{/if}.
       </p>
       <p class="t-body">To see a team's services, ask a cluster administrator for <code>list</code> on <code>pactos.pacto.trianalab.io</code> in that team's namespace.</p>
     </div>
@@ -487,7 +486,7 @@
     {:else if capabilities}
       <div class="product-page" data-testid="delivery-unavailable">
         <h1 class="t-page-title">Delivery is not available here</h1>
-        {#if capabilities.auth?.mode !== 'local' && !capabilities.auth?.login && !capabilities.auth?.tokenLogin}
+        {#if !session || session.mode === 'open' || session.mode === 'none'}
           <p class="t-body" data-testid="delivery-unavailable-reason">Every delivery action is signed by a person, and this dashboard has no signed-in user. Delivery views appear in <code>pacto dashboard</code> on your own machine, or in a shared dashboard people sign in to.</p>
         {:else}
           <p class="t-body" data-testid="delivery-unavailable-reason">The cluster this dashboard reads does not serve the delivery API. Install pacto-operator with <code>delivery.enabled=true</code>.</p>

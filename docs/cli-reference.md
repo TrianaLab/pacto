@@ -225,11 +225,12 @@ pacto dashboard [sources...] [flags]
       --namespace string                  Kubernetes namespace (empty = all namespaces)
       --oidc-ca-file string               PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)
       --oidc-client-id string             OpenID Connect client id of the dashboard
+      --oidc-display-name string          the identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC; also PACTO_DASHBOARD_OIDC_DISPLAY_NAME)
       --oidc-extra-scopes strings         scopes to ask for beyond openid, profile and groups
       --oidc-groups-claim string          ID token claim the API server takes the groups from; must match its claim mapping (default groups)
       --oidc-groups-prefix string         prefix the API server puts before every group; must match its claim mapping
       --oidc-internal-issuer-url string   address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)
-      --oidc-issuer-url string            OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and delivery actions run as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
+      --oidc-issuer-url string            OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
       --oidc-redirect-url string          the dashboard's /auth/callback as browsers reach it (https)
       --oidc-username-claim string        ID token claim the API server takes the username from; must match its claim mapping (default sub)
       --oidc-username-prefix string       prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
@@ -251,7 +252,7 @@ For a tour of what the dashboard surfaces, see [For platform engineers](platform
 
 Pacto delivery decides which version each environment (a Stage) runs. Every change is an Operation: plan it to see what the promoter will do and who must agree, propose it, and a person approves only when the contracts say a consumer would break, Pacto cannot see enough or the Stage asks for approval on every promote.
 
-There is no approve tool for agents. `approve` is for people, with a fresh login.
+There is no approve tool for agents. `approve` is for people.
 
 ```
 pacto delivery [flags]
@@ -268,7 +269,7 @@ pacto delivery [flags]
 
 ### `pacto delivery approve`
 
-Record your decision on a held operation. The command makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
+Record your decision on a held operation, as the person your kubeconfig signs you in as. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
 
 ```
 pacto delivery approve <operation> [flags]
@@ -280,6 +281,7 @@ pacto delivery approve <operation> [flags]
       --decision string             approve, reject or accept-unknown (default "approve")
   -h, --help                        help for approve
       --note string                 why, for the record
+      --oidc-ca-file string         PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DELIVERY_OIDC_CA_FILE)
       --oidc-client-id string       OpenID Connect client used only for approvals, never by a kubeconfig (a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET) (default "pacto-approve")
       --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
       --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
@@ -1173,7 +1175,7 @@ With --fleet, the server exposes the read-only operational-graph query tools ove
 
 With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
-Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools.
+Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools. With --fleet the server names each caller with the claim mapping (--oidc-username-claim, --oidc-username-prefix, --oidc-groups-claim and --oidc-groups-prefix) and asks Kubernetes RBAC about that user; the API server does not confirm it, so the mapping must match its claimMappings.
 
 With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish a contract's version exactly as `pacto publish` does, with this process's registry credentials.
 

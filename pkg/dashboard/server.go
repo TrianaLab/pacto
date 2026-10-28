@@ -312,6 +312,7 @@ func (s *Server) RegisterOperations(api huma.API) {
 	s.registerCapabilitiesOperation(api)
 	s.registerFleetOperations(api)
 	s.registerProductOperations(api)
+	s.registerAuthOperations(api)
 	s.registerDeliveryOperations(api)
 }
 

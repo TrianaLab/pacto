@@ -77,20 +77,20 @@ type decideOutput struct {
 }
 
 // decisionSession refuses a decision this dashboard's sign-in cannot carry:
-// a local or sign-in-free dashboard, no session, a pasted token or a stale
-// login. cli is the command that decides instead.
+// a local or sign-in-free dashboard, no session or a pasted token. cli is the
+// command that decides instead.
 func (s *Server) decisionSession(ctx context.Context, cli string) error {
-	a := s.opts.Auth
-	switch {
-	case a == nil || a.Local:
+	a := s.authSummary(ctx)
+	switch a.Mode {
+	case "none", "local":
 		return Refuse(http.StatusForbidden, "ApproveFromCLI",
 			"a local dashboard never decides: any process on this machine could do it as you. Run: "+cli)
-	case !a.Login && !a.TokenLogin:
+	case "open":
 		return Refuse(http.StatusForbidden, "LoginNotConfigured", "this dashboard has no sign-in, so it serves no decisions")
 	}
-	st := s.authState(ctx)
+	st := a.State
 	switch {
-	case !st.SignedIn:
+	case !st.SignedIn: // defence in depth: the sign-in gate turns a signed-out request away first
 		return Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to decide")
 	case st.Method == "token" && a.Login:
 		return Refuse(http.StatusForbidden, "TokenCannotDecide",
@@ -98,15 +98,13 @@ func (s *Server) decisionSession(ctx context.Context, cli string) error {
 	case st.Method == "token":
 		return Refuse(http.StatusForbidden, "TokenCannotDecide",
 			"a pasted token never decides, and this dashboard offers no identity provider sign-in. Run: "+cli)
-	case !st.Fresh:
-		return Refuse(http.StatusUnauthorized, "FreshLoginRequired", "deciding needs a fresh login: sign in again")
 	}
 	return nil
 }
 
-// deliveryDecide is the fresh-login decision flow: local mode never decides,
-// a decision needs a session from a login the person repeated with an
-// auth-time under DecisionFreshnessFor the Stage's published freshness, and
+// deliveryDecide is the decision flow: local mode never decides; on a Stage
+// that publishes a login freshness a decision needs an auth-time under
+// DecisionFreshnessFor it; and
 // the decision must be one the promoter counts (delivery.ApprovalRefusal):
 // never the asker's, never an agent's, only from the teams the question
 // names. The promoter checks it all again.
@@ -130,10 +128,14 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	if err != nil {
 		return nil, err
 	}
-	published := "" // the promoter's login freshness, as the Stage publishes it
-	if stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
-		published = stage.Status.AuthFreshness
+	// The promoter's login freshness, as the Stage publishes it. A Stage the
+	// caller cannot read leaves it unknown, so the decision is refused rather
+	// than recorded and then not counted.
+	stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage)
+	if err != nil {
+		return nil, err
 	}
+	published := stage.Status.AuthFreshness
 	if err := s.mayDecide(caller, published); err != nil {
 		return nil, err
 	}
@@ -161,20 +163,23 @@ func approvalOf(op *delivery.OperationObject, caller delivery.Caller, decision d
 		Decision: decision, By: caller.User, Groups: caller.Groups, AuthTime: caller.AuthTime}
 }
 
-// mayDecide refuses a caller the apiserver names an agent, or whose login is
-// unknown or older than two thirds of the login freshness the Stage
-// publishes (delivery.DecisionFreshnessFor), so the promoter still counts it.
+// mayDecide refuses a caller the apiserver names an agent. On a Stage that
+// publishes a login freshness it also refuses a login that is unknown or
+// older than two thirds of that freshness (delivery.DecisionFreshnessFor), so
+// the promoter still counts it.
 func (s *Server) mayDecide(caller delivery.Caller, published string) error {
 	at, ok := delivery.ParseAuthTime(caller.AuthTime)
+	window := delivery.DecisionFreshnessFor(published)
 	switch {
 	case !caller.Policy.IsHuman(caller.Identity):
 		return Refuse(http.StatusForbidden, "AgentsMayNotApprove", "the apiserver says "+caller.User+" is an agent; agents may not decide")
+	case window == 0:
+		return nil
 	case caller.AuthTime == "":
 		return Refuse(http.StatusForbidden, "AuthTimeUnavailable",
 			"this cluster does not map auth_time to userInfo.extra[delivery.pacto.trianalab.io/auth-time]; nobody can approve here")
-	case !ok || time.Since(at) > delivery.DecisionFreshnessFor(published):
-		return Refuse(http.StatusUnauthorized, "FreshLoginRequired",
-			fmt.Sprintf("your login is older than %s: sign in again", delivery.DecisionFreshnessFor(published)))
+	case !ok || time.Since(at) > window:
+		return Refuse(http.StatusUnauthorized, "FreshLoginRequired", fmt.Sprintf("your login is older than %s: sign in again", window))
 	}
 	return nil
 }

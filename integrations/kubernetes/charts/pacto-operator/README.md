@@ -213,13 +213,13 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | controller.stabilizationWindow | string | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
 | controller.watchNamespace | string | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
 | crds.install | bool | `true` | Install and upgrade the CRDs with the chart, the delivery CRDs too when `delivery.enabled`. They are kept on helm uninstall. Only one release in a cluster can own them: every other release, for example one per watched namespace, sets false. Set false to manage them yourself, for example from a separate GitOps source; the operator and delivery need them before they start |
-| dashboard.auth.deliveryNamespace | string | `""` | Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`) |
 | dashboard.auth.oidc.caBundle.configMap | string | `""` | A ConfigMap in the operator namespace holding the PEM certificates of the CAs that sign the issuer's certificate (corporate or self-signed), trusted on top of the image's public roots |
 | dashboard.auth.oidc.caBundle.key | string | `"ca.crt"` | The key of the bundle in that ConfigMap or Secret |
 | dashboard.auth.oidc.caBundle.secret | string | `""` | A Secret in the operator namespace holding that bundle, instead of a ConfigMap |
 | dashboard.auth.oidc.clientID | string | `""` | The dashboard's client id at the issuer |
 | dashboard.auth.oidc.clientSecretRef.key | string | `"client-secret"` | Key of the client secret in that Secret |
 | dashboard.auth.oidc.clientSecretRef.name | string | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |
+| dashboard.auth.oidc.displayName | string | `""` | The identity provider's name on the sign-in button, as in "Sign in with Keycloak" (empty: "Sign in with OIDC") |
 | dashboard.auth.oidc.extraScopes | list | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
 | dashboard.auth.oidc.groupsClaim | string | `""` | ID token claim the API server takes the groups from; must match its `claimMappings.groups` (empty: `groups`) |
 | dashboard.auth.oidc.groupsPrefix | string | `""` | Prefix the API server puts before every group; must match its `claimMappings.groups.prefix` |
@@ -231,8 +231,10 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | dashboard.auth.session.idleTimeout | string | `""` | A session without a request for this long ends, as a Go duration such as `30m` (empty: `1h`). The ID token renews with the refresh token in between |
 | dashboard.auth.session.maxAge | string | `""` | A session ends this long after sign-in, renewed or not, as a Go duration such as `8h` (empty: `12h`) |
 | dashboard.auth.tokenLogin.enabled | bool | `false` | Let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider. The token stays in the server-side session and every request runs with it; a token session never decides on a held change |
-| dashboard.deliveryTrust.configMap | string | `""` | A ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with (the recorder's PEM public key or a YAML trust config), so History verifies signed records. Empty: History shows records unverified |
-| dashboard.deliveryTrust.key | string | `"trust.yaml"` | The key of the trust config in that ConfigMap |
+| dashboard.delivery.miraURL | string | `""` | Mira's address, to link the health-check citations in delivery views |
+| dashboard.delivery.namespace | string | `""` | Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`) |
+| dashboard.delivery.trust.configMap | string | `""` | A ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with (the recorder's PEM public key or a YAML trust config), so History verifies signed records. Empty: History shows records unverified |
+| dashboard.delivery.trust.key | string | `"trust.yaml"` | The key of the trust config in that ConfigMap |
 | dashboard.enabled | bool | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | dashboard.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | dashboard.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute |
@@ -243,7 +245,6 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | dashboard.ingress.enabled | bool | `false` | Enable Ingress for the dashboard |
 | dashboard.ingress.hosts | list | `[{"host":"pacto-dashboard.local","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress hosts |
 | dashboard.ingress.tls | list | `[]` | Ingress TLS configuration |
-| dashboard.miraURL | string | `""` | Mira's address, to link the health-check citations in delivery views |
 | dashboard.observation.sources | list | `[]` | Offline OTLP/JSON trace exports to mount read-only into the dashboard, so its Operational Graph can reconcile declared dependencies against observed ones. Each entry is one named data source: `name` is its stable Data Source identity (a DNS-1123 label). Reordering this list keeps every name, and each name must be unique across all the dashboard's data sources (the live cluster, OCI, the disk cache, local bundles, an Evidence Server). `file` is the trace file's name directly inside that source's mount, as a single path segment, so mount a claim whose export sits at the top of its own directory. Exactly one of `existingClaim` (an existing PVC, for real exports) or `configMap` (small static exports only, ~1 MiB cap) supplies it. Pacto reads only the declared files, through a root that blocks symlinks out of the mount, and never writes to them or scans the mount. Whoever owns that storage produces and rotates the exports. This configures OFFLINE input only: Pacto ships no OTLP receiver and no trace collector. The optional node agent observes sockets with eBPF and handles no traces. |
 | dashboard.ociSecrets | list | `[]` | List of Secret names for OCI registry credentials. Supports Opaque (keys: registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets. When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry. |
 | dashboard.resources.limits.memory | string | `"512Mi"` | Memory limit for the dashboard container. The earlier default of 128Mi was OOMKilled while monitoring several OCI repositories and CRs at once; raise it further if the dashboard tracks a large fleet. |
@@ -284,7 +285,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.podAnnotations | object | `{}` | Annotations to add to the promoter and recorder pods |
 | delivery.podLabels | object | `{}` | Labels to add to the promoter and recorder pods |
 | delivery.podSecurityContext | object | `{}` | Pod securityContext of the promoter and the recorder (defaults to `global.podSecurityContext`) |
-| delivery.promoter.authFreshness | string | `"15m"` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration). Every Stage publishes it in `status.authFreshness` |
+| delivery.promoter.authFreshness | string | `""` | How old a person's login may be when their approval is given, as a Go duration such as `15m`; an older one is ignored, so deciding needs a fresh sign-in. Empty or a zero duration (`0`, `0s`): any signed-in person decides with the session they have. Every Stage publishes it in `status.authFreshness` |
 | delivery.promoter.leaderElect | bool | `true` | Elect one active promoter |
 | delivery.promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
 | delivery.promoter.registryCredentials.secretName | string | `""` | A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy repositories, for a private registry. Without it the promoter reads only public ones. |

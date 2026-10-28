@@ -116,16 +116,18 @@ Three things, all set up once by your cluster admin:
 2. **The people group.** If your admin named the groups people are in when
    turning delivery on (`humanGroups`), your login must be in one. Anyone
    outside them is treated like an AI agent and can never approve.
-3. **A fresh company login.** The cluster must trust your company sign-in,
-   and you must have signed in recently: within 15 minutes by default, which
-   your admin sets with `delivery.promoter.authFreshness`.
-   `pacto delivery approve` prints an address, you sign in
-   again in your browser and it sends your answer with that login. The
-   dashboard asks you to sign in again in the same way. Before the first
-   time, set your company's sign-in address, which your admin gives you, in
-   your shell: `export PACTO_DELIVERY_OIDC_ISSUER_URL=https://login.example.com`.
+3. **A recent company login, if your admin asks for one.** By default you
+   decide with the sign-in you have. If your admin sets
+   `delivery.promoter.authFreshness`
+   ([a recent sign-in to decide](integrations/kubernetes/delivery-identity.md#a-recent-sign-in-to-decide)),
+   the cluster must trust your company sign-in and you must have signed in
+   within that time. Then `pacto delivery approve` prints an address, you
+   sign in again in your browser and it sends your answer with that login,
+   and the dashboard asks you to sign in again in the same way. Before the
+   first time, set your company's sign-in address, which your admin gives
+   you, in your shell: `export PACTO_DELIVERY_OIDC_ISSUER_URL=https://login.example.com`.
 
-Where the fresh-login check does not work
+Where a recent sign-in is required but the cluster cannot check it
 ([where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works)),
 nobody can give any of the three answers, reject included. A held change then
 has three ways out: the person who asked cancels it and

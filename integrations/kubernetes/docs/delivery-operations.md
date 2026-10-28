@@ -7,13 +7,13 @@ How a change is planned, proposed and approved, for
 ```bash
 pacto delivery plan -n prod --stage payments --to sha256:...
 pacto delivery propose -n prod --stage payments --to sha256:... --intent-digest sha256:...
-PACTO_DELIVERY_OIDC_ISSUER_URL=https://idp.example.com \
-  pacto delivery approve -n prod <operation> --decision approve
+pacto delivery approve -n prod <operation> --decision approve
 ```
 
-`approve` never uses your kubeconfig: it makes you log in again in your
-browser through its own `pacto-approve` client, so it needs the issuer the
-cluster trusts (`--oidc-issuer-url` or `PACTO_DELIVERY_OIDC_ISSUER_URL`). See
+`approve` decides as your kubeconfig signs you in. Where the Stage asks for a
+recent sign-in, it makes you log in again in your browser through its own
+`pacto-approve` client instead, so it needs the issuer the cluster trusts
+(`--oidc-issuer-url` or `PACTO_DELIVERY_OIDC_ISSUER_URL`). See
 [approve from the terminal](delivery-identity.md#approve-from-the-terminal).
 
 `plan` predicts each gate's verdict and the one question a person would be
@@ -72,10 +72,11 @@ placed counts everywhere and, as a consumer, asks a person.
 | Promoter | write status and raise its own operations | sign or push |
 | Recorder | write the record fields and finalizer; sign and push records | anything else |
 
-Admission requires an Approval's `spec.by`, `spec.groups` and `spec.authTime`
-to match the requesting user and its login time. The promoter does not count
-a login older than its login freshness (`delivery.promoter.authFreshness`, 15 minutes
-by default), an approval from the operation's own actor or
+Admission requires an Approval's `spec.by` and `spec.groups` to match the
+requesting user, and a `spec.authTime` to match its login time. The promoter
+does not count a login older than `delivery.promoter.authFreshness` when you
+[set one](delivery-identity.md#a-recent-sign-in-to-decide), an approval from
+the operation's own actor or
 whoever it acts for, one from outside the teams asked, one given before the
 question was last asked, an accepted unknown where an approval is needed or an
 approval once the version shipped. The operation's `status.message` says why

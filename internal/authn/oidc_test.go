@@ -109,7 +109,7 @@ func TestCallbackCreatesASession(t *testing.T) {
 	expect(t, c.Secure && c.HttpOnly && c.SameSite == http.SameSiteLaxMode, "session cookie %+v", c)
 	expect(t, c.Path == "/" && len(c.Value) == 64, "session cookie %+v", c)
 	s := o.Session(withCookie(c))
-	expect(t, s != nil && !s.Fresh, "session %+v", s)
+	expect(t, s != nil, "session %+v", s)
 	expect(t, s.IDToken() != "" && s.CSRF != "", "session %+v", s)
 	var buf bytes.Buffer
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("x", "session", s)
@@ -126,7 +126,7 @@ func TestFreshLoginRotatesTheSession(t *testing.T) {
 	expect(t, nc.Value != c.Value, "a fresh login must rotate the session id")
 	expect(t, o.Session(withCookie(c)) == nil, "the old session must be invalidated")
 	s := o.Session(withCookie(nc))
-	expect(t, s != nil && s.Fresh, "the fresh session %+v", s)
+	expect(t, s != nil, "the fresh session %+v", s)
 	expect(t, len(f.revoked) == 1 && f.revoked[0] != "", "the old session's refresh token must be revoked: %v", f.revoked)
 }
 
@@ -179,7 +179,7 @@ func TestCallbackRefusals(t *testing.T) {
 	g.nonce = "other"
 	f.codes["c"+st] = g
 	f.mu.Unlock()
-	if r := call(c, "code=c"+st+"&state="+st); r.Code != http.StatusUnauthorized || !strings.Contains(r.Body.String(), "not for this sign-in") {
+	if r := call(c, "code=c"+st+"&state="+st); r.Code != http.StatusUnauthorized || !strings.Contains(r.Body.String(), "not for this login") {
 		t.Fatalf("nonce: %d %s", r.Code, r.Body)
 	}
 	// No auth_time.

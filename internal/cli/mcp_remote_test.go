@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net/http"
@@ -34,7 +35,9 @@ func (f *fakeMCPAuth) Verify(_ context.Context, token string, _ *http.Request) (
 	if token != "good" {
 		return nil, auth.ErrInvalidToken
 	}
-	return &auth.TokenInfo{UserID: "https://idp#agent", Expiration: time.Now().Add(time.Hour), Extra: map[string]any{"token": token}}, nil
+	// The verified token as authn.MCP keeps it: an ID token naming the agent.
+	jwt := "h." + base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"https://idp","sub":"agent","email":"agent@example.com"}`)) + ".s"
+	return &auth.TokenInfo{UserID: "https://idp#agent", Expiration: time.Now().Add(time.Hour), Extra: map[string]any{"token": jwt}}, nil
 }
 
 func (f *fakeMCPAuth) CanExchange() bool { return f.exchange }
@@ -158,7 +161,9 @@ func newRemoteWorld(t *testing.T) *remoteWorld {
 		return dyn, nil
 	}
 	s := mcpServe{auth: w.fa, issuer: "https://idp", resource: "https://mcp.example/mcp"}
-	err := remoteDeliveryFor(newMCPCommand(app.NewService(nil, nil), "v", d), app.NewService(nil, nil), "v", d, &s)
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+	_ = cmd.Flags().Set("oidc-username-claim", "email")
+	err := remoteDeliveryFor(cmd, app.NewService(nil, nil), "v", d, &s)
 	expect(t, err == nil, "remote delivery: %v", err)
 	w.h = mcpHandler(s)
 	return w
@@ -212,7 +217,7 @@ func TestRemoteMCPFailuresSayWhy(t *testing.T) {
 	expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), "token rejected"), "whoami refused: %d %s", rec.Code, rec.Body)
 	// Every refusal is logged with the caller and the reason, never the token.
 	for _, want := range []string{"could not exchange a caller's token", "could not build a caller's client", "did not say who a caller is",
-		"user=https://idp#agent", "refused the exchange", "bad config", "token rejected", "path=/mcp"} {
+		"claimed=agent@example.com", "refused the exchange", "bad config", "token rejected", "path=/mcp"} {
 		expect(t, strings.Contains(logs.String(), want), "the log lacks %q:\n%s", want, logs)
 	}
 	expect(t, !strings.Contains(logs.String(), "good"), "the log carries the token:\n%s", logs)
@@ -220,7 +225,8 @@ func TestRemoteMCPFailuresSayWhy(t *testing.T) {
 	w.whoAmIFails = false
 	logs.Reset()
 	postLogged(t, w.h, "good", listTools, logs)
-	expect(t, strings.Contains(logs.String(), "remote MCP delivery request") && strings.Contains(logs.String(), "class=agent") &&
+	expect(t, strings.Contains(logs.String(), "remote MCP delivery request") && strings.Contains(logs.String(), "user=system:serviceaccount:agents:bot") &&
+		!strings.Contains(logs.String(), "agent@example.com") && strings.Contains(logs.String(), "class=agent") &&
 		strings.Contains(logs.String(), "writeTools=true"), "the grant is not logged:\n%s", logs)
 }
 

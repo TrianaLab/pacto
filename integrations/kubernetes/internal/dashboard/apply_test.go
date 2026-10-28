@@ -100,8 +100,8 @@ func TestDeploymentAC_Auth(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "ns", MiraURL: "http://mira:8080",
 		Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "pacto-dashboard", RedirectURL: "https://dash/auth/callback",
 			ExtraScopes: []string{"a", "b"}, ClientSecretName: "oidc", UsernameClaim: "email", UsernamePrefix: "-",
-			GroupsClaim: "roles", GroupsPrefix: "oidc:", SessionIdleTimeout: 30 * time.Minute, SessionMaxAge: 8 * time.Hour, TokenLogin: true,
-			DeliveryNamespace: "delivery"}}
+			GroupsClaim: "roles", GroupsPrefix: "oidc:", SessionIdleTimeout: 30 * time.Minute, SessionMaxAge: 8 * time.Hour, TokenLogin: true},
+		DeliveryNamespace: "delivery"}
 	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
 	// Sessions live in one process's memory, so a signed-in dashboard must stay
 	// one replica: a second replica would sign people out at random.
@@ -163,9 +163,9 @@ func TestDeploymentAC_AuthVolumes(t *testing.T) {
 		return env, vols
 	}
 	cfg := Config{Image: "i", Namespace: "n", Auth: AuthConfig{IssuerURL: "https://idp", InternalIssuerURL: "http://idp.idp:5556",
-		CAConfigMap: "corp-ca"}, DeliveryTrust: KeyRef{Name: "trust"}}
+		DisplayName: "Keycloak", CAConfigMap: "corp-ca"}, DeliveryTrust: KeyRef{Name: "trust"}}
 	env, vols := spec(cfg)
-	for name, want := range map[string]string{"PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL": "http://idp.idp:5556",
+	for name, want := range map[string]string{"PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL": "http://idp.idp:5556", "PACTO_DASHBOARD_OIDC_DISPLAY_NAME": "Keycloak",
 		"PACTO_DASHBOARD_OIDC_CA_FILE": "/etc/pacto/oidc-ca/ca.crt", "PACTO_DASHBOARD_DELIVERY_TRUST": "/etc/pacto/delivery-trust/trust.yaml"} {
 		if env[name] != want {
 			t.Errorf("%s: want %q, got %q", name, want, env[name])

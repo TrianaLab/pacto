@@ -83,7 +83,10 @@ exports `pacto_delivery_operations_total`, `pacto_delivery_verdicts_total`,
 `delivery.metrics.*`). Each Stage says in `Watched` whether its running version passed
 its latest re-check and in `Mediated` whether its pointer alone decides what
 runs, gives every condition an observed generation and publishes the
-promoter's login freshness in `status.authFreshness`. An approval the promoter
+promoter's login freshness in `status.authFreshness`. The freshness is off by
+default, so a person decides with the sign-in they have; set
+`delivery.promoter.authFreshness` (a duration such as `15m`) to make deciding
+need a recent sign-in. An approval the promoter
 passes over is named on the operation with the reason.
 A Stage reconciles when its operations, its upstream Stage, its
 OCIRepositories, the Kustomizations that apply them or its Application change,
@@ -130,8 +133,9 @@ release namespace) with the
 Stage, Operation and Approval CRDs, their own ServiceAccounts and RBAC, the
 `<release>-delivery-agent` and `<release>-delivery-approver` roles and
 ValidatingAdmissionPolicies that bind an operation's actor to the requesting
-user, keep approvals to people with a login time (the apiserver maps the login
-time to `userInfo.extra["delivery.pacto.trianalab.io/auth-time"]`), keep the
+user, keep approvals to people (with `delivery.promoter.authFreshness` set,
+people with a login time, which the apiserver maps to
+`userInfo.extra["delivery.pacto.trianalab.io/auth-time"]`), keep the
 pointer to the promoter or break-glass, keep the promoter itself to the pointer
 field and keep the record fields to the recorder. Every delivery object is
 named `<release>-delivery[-part]`. It refuses to render below Kubernetes 1.30,
@@ -148,12 +152,9 @@ published, signed and versioned with the operator.
 one to a `sha256:` digest and that image is pulled as `tag@digest`, so the pod
 runs exactly that image whatever the tag later points at.
 
-**The `pacto-operator` chart** gains `dashboard.auth.oidc` (`issuerURL`,
-`clientID`, `clientSecretRef`, `redirectURL`, `extraScopes` and the claim
-mapping `usernameClaim`, `usernamePrefix`, `groupsClaim`, `groupsPrefix`),
-`dashboard.auth.session` (`idleTimeout`, `maxAge`),
-`dashboard.auth.tokenLogin.enabled`, `dashboard.auth.deliveryNamespace` and
-`dashboard.miraURL` for the managed dashboard's sign-in, which then gates the
-whole dashboard. The dashboard's role gains no delivery right and no
-impersonation. The operator now passes the managed dashboard its namespace
+**The `pacto-operator` chart** gains `dashboard.delivery` for the managed
+dashboard's delivery views: `namespace` (where delivery publishes its identity
+policy), `trust` (the ConfigMap holding the trust config History verifies
+records with) and `miraURL`. The dashboard's role gains no delivery right and
+no impersonation. The operator now passes the managed dashboard its namespace
 scope in `PACTO_DASHBOARD_NAMESPACE`, the variable the dashboard reads.

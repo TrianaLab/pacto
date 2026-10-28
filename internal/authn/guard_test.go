@@ -123,7 +123,7 @@ func TestSharedMode(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://dash.example/api/session", nil)
 	r.AddCookie(c)
 	serve(h, r)
-	if !got.SignedIn || got.Fresh || got.CSRF != sess.CSRF || got.Token != sess.idToken {
+	if !got.SignedIn || got.CSRF != sess.CSRF || got.Token != sess.idToken {
 		t.Fatalf("shared state %+v", got)
 	}
 	act := func(path string, cookie bool, csrf, origin string) int {
@@ -195,8 +195,13 @@ func TestSharedModeGatesTheAPI(t *testing.T) {
 		"/health": http.StatusTeapot, "/api/session": http.StatusTeapot, "/auth/login": http.StatusTeapot,
 		"/": http.StatusTeapot, "/assets/index.js": http.StatusTeapot,
 	} {
-		if got := get(path, false).Code; got != want {
-			t.Errorf("signed out %s: %d, want %d", path, got, want)
+		out := get(path, false)
+		if out.Code != want {
+			t.Errorf("signed out %s: %d, want %d", path, out.Code, want)
+		}
+		if want == http.StatusUnauthorized && (out.Header().Get("Content-Type") != "application/json" ||
+			out.Body.String() != `{"status":401,"code":"LoginRequired","detail":"sign in to use this dashboard"}`+"\n") {
+			t.Errorf("signed out %s: every 401 is the LoginRequired refusal: %s %q", path, out.Header(), out.Body)
 		}
 		if got := get(path, true).Code; got != http.StatusTeapot {
 			t.Errorf("signed in %s: %d, want through", path, got)

@@ -323,70 +323,6 @@ func expect(t *testing.T, ok bool, format string, args ...any) {
 	}
 }
 
-func TestCapabilitiesAndSessionSignedIn(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true, Fresh: true, CSRF: "c"}}
-	f := &fakeDelivery{caller: person("acme:team-payments")}
-	base := startDelivery(t, f, a.auth(false, true), true, nil)
-	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
-	auth, _ := caps["auth"].(map[string]any)
-	expect(t, caps["delivery"] == true && caps["miraURL"] == "http://mira", "capabilities %v", caps)
-	expect(t, auth["mode"] == "shared" && auth["login"] == true && auth["signedIn"] == true, "capabilities %v", caps)
-	_, sess := call(t, http.MethodGet, base+"/api/session", nil)
-	caller, _ := sess["caller"].(map[string]any)
-	expect(t, sess["mode"] == "shared" && sess["fresh"] == true, "session %v", sess)
-	expect(t, sess["csrf"] == "c" && caller["user"] == "https://idp#carol", "session %v", sess)
-	expect(t, sess["requireOwnerTeam"] == nil, "an ownerless question is anyone's without the rule: %v", sess)
-	f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true}
-	_, sess = call(t, http.MethodGet, base+"/api/session", nil)
-	expect(t, sess["requireOwnerTeam"] == true, "the session says when an ownerless question is nobody's: %v", sess)
-	f.policy = nil
-	code, _ := call(t, http.MethodGet, base+"/auth/login", nil)
-	expect(t, code == http.StatusTeapot, "/auth/* goes to the identity layer: %d", code)
-	f.callerErr = errors.New("apiserver down")
-	_, sess = call(t, http.MethodGet, base+"/api/session", nil)
-	expect(t, sess["callerError"] == "apiserver down", "a WhoAmI failure is reported: %v", sess)
-}
-
-func TestCapabilitiesAndSessionWithTokenSignIn(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true, CSRF: "c", Method: "token", User: "system:serviceaccount:shop:viewer", Groups: []string{"system:serviceaccounts"}}}
-	f := &fakeDelivery{caller: person()}
-	au := a.auth(false, false)
-	au.TokenLogin = true
-	base := startDelivery(t, f, au, true, nil)
-	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
-	auth, _ := caps["auth"].(map[string]any)
-	expect(t, caps["delivery"] == true && auth["mode"] == "shared" && auth["login"] == false && auth["tokenLogin"] == true, "capabilities %v", caps)
-	_, sess := call(t, http.MethodGet, base+"/api/session", nil)
-	expect(t, sess["tokenLogin"] == true && sess["method"] == "token" && sess["user"] == "system:serviceaccount:shop:viewer", "session %v", sess)
-}
-
-func TestCapabilitiesAndSessionWithoutDelivery(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true}}
-	f := &fakeDelivery{caller: person()}
-	// Shared without sign-in: no delivery.
-	base := startDelivery(t, f, a.auth(false, false), true, nil)
-	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
-	expect(t, caps["delivery"] == false, "a shared dashboard without sign-in has no delivery: %v", caps)
-	// Local mode, delivery not installed.
-	base = startDelivery(t, f, a.auth(true, false), false, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in"))
-	_, caps = call(t, http.MethodGet, base+"/api/capabilities", nil)
-	expect(t, caps["delivery"] == false && caps["auth"].(map[string]any)["mode"] == "local", "delivery not installed: %v", caps)
-	_, sess := call(t, http.MethodGet, base+"/api/session", nil)
-	expect(t, sess["mode"] == "local" && sess["caller"] == nil, "no caller when delivery is not installed: %v", sess)
-	// A factory that refuses is reported.
-	base = startDelivery(t, f, a.auth(true, false), true, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in"))
-	_, sess = call(t, http.MethodGet, base+"/api/session", nil)
-	expect(t, strings.Contains(sess["callerError"].(string), "LoginRequired"), "a factory refusal is reported: %v", sess)
-	// No identity layer at all.
-	srv := startServer(t, NewServer(Options{UI: testUI()}))
-	_, sess = call(t, http.MethodGet, srv+"/api/session", nil)
-	expect(t, sess["mode"] == "none", "no auth: %v", sess)
-	_, caps = call(t, http.MethodGet, srv+"/api/capabilities", nil)
-	expect(t, caps["delivery"] == false && caps["auth"].(map[string]any)["mode"] == "none", "no auth: %v", caps)
-	code, _ := call(t, http.MethodGet, srv+"/api/delivery/inbox", nil)
-	expect(t, code == http.StatusNotFound, "no delivery provider registers no delivery route: %d", code)
-}
-
 func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
 	f := &fakeDelivery{caller: person()}
@@ -405,8 +341,8 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 	}
 	_, caps := call(t, http.MethodGet, down+"/api/capabilities", nil)
 	expect(t, caps["delivery"] == true, "an unreachable cluster keeps the delivery tab: %v", caps)
-	_, sess := call(t, http.MethodGet, down+"/api/session", nil)
-	expect(t, strings.Contains(fmt.Sprint(sess["callerError"]), "ClusterUnreachable"), "the session names the failure: %v", sess)
+	code, body = call(t, http.MethodGet, down+"/api/delivery/caller", nil)
+	expect(t, code == http.StatusServiceUnavailable && body["code"] == "ClusterUnreachable", "the caller names the failure: %d %v", code, body)
 	// Where delivery is never served, capabilities do not ask the cluster.
 	asked := false
 	open := startServer(t, NewServer(Options{UI: testUI(), Auth: a.auth(false, false),
@@ -677,6 +613,30 @@ func checkHistory(t *testing.T, base string, f *fakeDelivery) {
 	}
 }
 
+// checkOfferFollowsFreshness: the decisions offered, and the decisionFreshness
+// a change carries, follow the login freshness its Stage publishes.
+func checkOfferFollowsFreshness(t *testing.T, base string, f *fakeDelivery, actions func(string) string) {
+	t.Helper()
+	// With no login freshness published, a login the cluster cannot date
+	// decides, and the change says no login is too old.
+	f.caller.AuthTime = ""
+	if got := actions("held"); got != "approve,reject,cancel" {
+		t.Fatalf("no login time, no freshness: %s", got)
+	}
+	_, out := call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil)
+	expect(t, out["decisionFreshness"] == nil, "no freshness published: %v", out["decisionFreshness"])
+	// Where the Stage asks for a fresh login, a cluster that reports no login
+	// time counts nobody's decision, so it offers none (the UI says approving
+	// is not possible here), and the change says how old a login may be.
+	f.stages[0].Status.AuthFreshness = "15m0s"
+	if got := actions("held"); got != "cancel" {
+		t.Fatalf("no login time on this cluster: %s", got)
+	}
+	_, out = call(t, http.MethodGet, base+"/api/delivery/operations/prod/held", nil)
+	expect(t, out["decisionFreshness"] == float64(600), "two thirds of 15 minutes, in seconds: %v", out["decisionFreshness"])
+	f.stages[0].Status.AuthFreshness = ""
+}
+
 func TestHistoryAndOperation(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
 	succeeded := delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Succeeded, Applied: true,
@@ -727,12 +687,13 @@ func TestHistoryAndOperation(t *testing.T) {
 		t.Fatalf("a change made on my behalf: %s", got)
 	}
 	f.ops[0].Spec.OnBehalfOf = nil
-	// A cluster that reports no login time counts nobody's decision, so it
-	// offers none (the UI says approving is not possible here).
-	f.caller.AuthTime = ""
+	// A pasted token is offered no decision, since the decision would be refused.
+	a.state = AuthState{SignedIn: true, Method: "token"}
 	if got := actions("held"); got != "cancel" {
-		t.Fatalf("no login time on this cluster: %s", got)
+		t.Fatalf("a token session: %s", got)
 	}
+	a.state = AuthState{SignedIn: true}
+	checkOfferFollowsFreshness(t, base, f, actions)
 	f.caller = person("acme:team-ledger")
 	if got := actions("held"); got != "cancel" {
 		t.Fatalf("not my team: %s", got)
@@ -809,10 +770,18 @@ func TestPlanProposeCancel(t *testing.T) {
 }
 
 // checkDecideFollowsThePromoter: a decision the promoter would not count is
-// refused with its reason, and the sign-in margin follows the login freshness
-// the Stage publishes.
+// refused with its reason, a Stage the caller cannot read refuses it, and the
+// sign-in margin follows the login freshness the Stage publishes.
 func checkDecideFollowsThePromoter(t *testing.T, base string, f *fakeDelivery, decide func(string) (int, map[string]any)) {
 	t.Helper()
+	// A Stage the caller cannot read leaves its login freshness unknown: no
+	// decision is recorded that the promoter might not count.
+	recorded := len(f.approved)
+	f.stageErr = Refuse(http.StatusForbidden, "Forbidden", "stages is forbidden")
+	if code, out := decide(base); code != http.StatusForbidden || out["detail"] != "stages is forbidden" || len(f.approved) != recorded {
+		t.Fatalf("an unreadable Stage refuses the decision: %d %v", code, out)
+	}
+	f.stageErr = nil
 	// accept-unknown on a change that needs an approval is refused with the
 	// promoter's own reason: it would never count.
 	if code, out := call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "accept-unknown"}); code != http.StatusForbidden ||
@@ -833,12 +802,13 @@ func checkDecideFollowsThePromoter(t *testing.T, base string, f *fakeDelivery, d
 	if code, out := decide(base); code != http.StatusCreated {
 		t.Fatalf("a login inside the published freshness decides: %d %v", code, out)
 	}
-	f.stages, f.caller = nil, person("acme:team-checkout")
+	f.stages[0].Status.AuthFreshness, f.caller = "", person("acme:team-checkout")
 }
 
 func TestDecide(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true, Fresh: true}}
-	f := &fakeDelivery{caller: person("acme:team-checkout"), ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout"))}}
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := &fakeDelivery{caller: person("acme:team-checkout"), ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout"))},
+		stages: []delivery.StageObject{{Metadata: delivery.ObjectMeta{Namespace: "prod", Name: "payments"}}}}
 	decide := func(base string) (int, map[string]any) {
 		return call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "approve", "note": "ok"})
 	}
@@ -847,6 +817,14 @@ func TestDecide(t *testing.T) {
 		t.Fatalf("a fresh member of the named team decides: %d %v", code, out)
 	}
 	checkDecideFollowsThePromoter(t, base, f, decide)
+	// With no login freshness published, a login the cluster cannot date decides.
+	f.caller.AuthTime = ""
+	if code, out := decide(base); code != http.StatusCreated {
+		t.Fatalf("no freshness, any signed-in session decides: %d %v", code, out)
+	}
+	// Every case below is on a Stage that asks for a fresh login.
+	f.caller = person("acme:team-checkout")
+	f.stages = []delivery.StageObject{{Metadata: delivery.ObjectMeta{Namespace: "prod", Name: "payments"}, Status: delivery.StageStatus{AuthFreshness: "15m0s"}}}
 	cases := []struct {
 		name  string
 		setup func() string
@@ -859,15 +837,14 @@ func TestDecide(t *testing.T) {
 		}, http.StatusForbidden, "ApproveFromCLI"},
 		{"shared without login", func() string { return startDelivery(t, f, a.auth(false, false), true, nil) }, http.StatusForbidden, "LoginNotConfigured"},
 		{"signed out", func() string { a.state = AuthState{}; return base }, http.StatusUnauthorized, "LoginRequired"},
-		{"not fresh", func() string { a.state = AuthState{SignedIn: true}; return base }, http.StatusUnauthorized, "FreshLoginRequired"},
-		{"a pasted token", func() string { a.state = AuthState{SignedIn: true, Fresh: true, Method: "token"}; return base }, http.StatusForbidden, "TokenCannotDecide"},
+		{"a pasted token", func() string { a.state = AuthState{SignedIn: true, Method: "token"}; return base }, http.StatusForbidden, "TokenCannotDecide"},
 		{"a pasted token where only tokens sign in", func() string {
 			au := a.auth(false, false)
 			au.TokenLogin = true
 			return startDelivery(t, f, au, true, nil)
 		}, http.StatusForbidden, "TokenCannotDecide"},
 		{"agent", func() string {
-			a.state = AuthState{SignedIn: true, Fresh: true}
+			a.state = AuthState{SignedIn: true}
 			f.caller = person("acme:team-checkout", "pacto:agents")
 			return base
 		}, http.StatusForbidden, "AgentsMayNotApprove"},
@@ -945,7 +922,7 @@ func TestCompareVersions(t *testing.T) {
 func TestDeliveryNamespaceScope(t *testing.T) {
 	f := sampleCluster("acme:team-checkout")
 	f.policy = &delivery.ClassPolicy{} // no team prefix: acme:team-checkout is no team here
-	a := &authed{state: AuthState{SignedIn: true, Fresh: true}}
+	a := &authed{state: AuthState{SignedIn: true}}
 	base := startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: a.auth(false, true), DeliveryNamespace: "prod",
 		Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }}))
 	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
@@ -981,7 +958,7 @@ func TestDeliveryNamespaceScope(t *testing.T) {
 }
 
 func TestPeopleAndVersionLabels(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz"}}
+	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz", User: person().User}}
 	f := sampleCluster("acme:team-checkout")
 	f.known = map[string]string{dNext: "2.0.0"}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
@@ -1043,7 +1020,7 @@ func TestRememberIsBounded(t *testing.T) {
 }
 
 func TestBlame(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz"}}
+	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz", User: person().User}}
 	f := sampleCluster("acme:team-checkout")
 	f.known = map[string]string{dNext: "2.0.0"}
 	f.blame = &delivery.Blame{Stage: delivery.StageNow{Name: "payments", Pointer: dNext}, Digest: dNext, Completeness: "complete",

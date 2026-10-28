@@ -1,34 +1,39 @@
 <script>
   import { untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, hostSignsIn, keepPending, pendingFor, dropPending,
-    versionLabel, personLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere, teamGroups } from '../lib/delivery.ts';
+  import { session, me, signIn, hostSignsIn, personLabel, teamGroups } from '../lib/session.svelte.ts';
+  import { decisionAsked, decisionLabel, cliDecision, keepPending, pendingFor, dropPending,
+    versionLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import { formatCount } from '../lib/format.ts';
+  import { formatRelative } from '../lib/dateFormat.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
+  import SignInLink from './SignInLink.svelte';
   import MoveFirstList from './MoveFirstList.svelte';
 
   // The decision on a held change. The dashboard offers it only to a person
   // in a team the question names, in a shared dashboard; everyone else is told
-  // why and, on a local dashboard, given the command that decides instead. A
-  // decision needs a fresh sign-in: the person's choice is kept while they sign
-  // in again and shown back to them, never sent on its own. Before the
-  // buttons it says what each answer does, and the safer way out when there
-  // is one; approving a breaking change needs a note saying why.
-  let { op, actions = [], onDecided, versions = null, people = null, stage = null } = $props();
+  // why and, on a local dashboard, given the command that decides instead.
+  // Where the Stage asks for a recent sign-in (freshness, in seconds; zero when
+  // any signed-in person decides), the panel says so once the person's sign-in
+  // is too old, and a refused decision opens a dialog that sends them to sign
+  // in again: their choice and note are kept and shown back to them, never
+  // sent on their own. Before the buttons it says what each answer does, and
+  // the safer way out when there is one; approving a breaking change needs a
+  // note saying why.
+  let { op, actions = [], onDecided, versions = null, people = null, stage = null, freshness = 0 } = $props();
 
   const ns = $derived(op.metadata.namespace || '');
   const name = $derived(op.metadata.name);
   const asked = $derived(decisionAsked(op));
   const owners = $derived(op.status?.plan?.floor?.owners ?? []);
   const canDecide = $derived(actions.includes('approve') || actions.includes('accept-unknown'));
-  const s = $derived(deliverySession.data);
-  const caller = $derived(s?.caller);
+  const s = $derived(session.data);
+  const caller = $derived(session.caller);
   // Who may answer a question that names no team depends on the published
-  // policy, which the session carries with the caller.
+  // policy, which delivery's caller read carries.
   const ownerless = $derived(!caller ? 'No team is declared.'
-    : s?.requireOwnerTeam ? 'No team is declared, so nobody may answer; only break-glass can override.'
+    : caller.requireOwnerTeam ? 'No team is declared, so nobody may answer; only break-glass can override.'
     : 'Any person may answer.');
 
   const st = $derived(op.status ?? {});
@@ -71,7 +76,7 @@
   // The team that lets this person answer, named back to them. The cluster maps a team
   // to a group by a prefix the session does not carry, so a group that ends in the team
   // name is taken as that team; failing a match the line still says they can answer.
-  const myTeam = $derived(owners.find((t) => teamGroups(caller?.groups).some((g) => g === t || g.endsWith(t))) ?? '');
+  const myTeam = $derived(owners.find((t) => teamGroups(me().groups).some((g) => g === t || g.endsWith(t))) ?? '');
   // The page lists every affected service in a fold below the panel: open it, then go there.
   function toAffected() {
     const h = document.getElementById('cd-affected');
@@ -99,17 +104,29 @@
   let note = $state(untrack(() => kept?.note ?? ''));
   let busy = $state(false);
   let refusal = $state(null);
+  // The decision the server refused for an old sign-in: the dialog is open while set.
   let needsFresh = $state(null);
   let decided = $state('');
   const noteMissing = $derived(breaking && !note.trim());
   // The note and a button per answer are offered only to a signed-in person in a shared dashboard who may decide.
   const offer = $derived(!!s && s.mode !== 'local' && s.signedIn && s.method !== 'token' && canDecide);
-  // A session the server already calls stale goes to sign in first, instead of
-  // pressing a button only to be told to; back here, the kept choice is the
-  // one button to press, and it says so.
-  const stale = $derived(s?.fresh === false);
-  const confirming = $derived(!!kept && !!s?.fresh);
+  // Back from signing in again, the kept choice is the one button to press, and it says so.
+  const confirming = $derived(!!kept);
   const signedInAt = $derived(caller?.authTime ? timeLabel(authTimeText(caller.authTime)) : '');
+  // How old the sign-in is, read again every half minute while the Stage asks
+  // for a recent one, so the line appears when it goes stale on an open page.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!freshness) return;
+    const t = setInterval(() => { now = Date.now(); }, 30_000);
+    return () => clearInterval(t);
+  });
+  const signedIso = $derived(caller?.authTime ? authTimeText(caller.authTime) : '');
+  const windowMinutes = $derived(Math.max(1, Math.round(freshness / 60)));
+  const needs = $derived(`Deciding needs a sign-in in the last ${windowMinutes} minute${windowMinutes === 1 ? '' : 's'}.`);
+  const tooOld = $derived(freshness > 0 && !!signedIso && (now - Date.parse(signedIso)) / 1000 > freshness);
+  const staleLine = $derived(tooOld ? `${needs} You signed in ${formatRelative(signedIso, now)}.` : '');
+  const verb = (decision) => (decision === 'reject' ? 'reject' : decision === 'accept-unknown' ? 'accept the unknown' : 'approve');
   const label = (decision, text) => (confirming && kept.decision === decision
     ? `Confirm: ${text}${signedInAt ? ` (signed in at ${signedInAt})` : ''}` : text);
 
@@ -119,11 +136,6 @@
   $effect(() => { if (confirming) (kept.decision === 'reject' ? rejectBtn : approveBtn)?.focus(); });
 
   async function decide(decision) {
-    if (stale) {
-      needsFresh = { decision, message: '' };
-      signInAgain();
-      return;
-    }
     busy = true;
     refusal = null;
     needsFresh = null;
@@ -134,7 +146,7 @@
       onDecided?.(decided);
     } catch (e) {
       if (e?.code === 'FreshLoginRequired') {
-        needsFresh = { decision, message: e.message };
+        needsFresh = { decision };
       } else {
         refusal = e;
       }
@@ -148,9 +160,28 @@
     keepPending(pending);
     // A host that signs people in itself never reloads this page, so the kept
     // choice is shown back from here once the session is fresh.
-    if (hostSignsIn()) { kept = pending; needsFresh = null; }
+    if (hostSignsIn()) { kept = pending; closeDialog(); }
     signIn(location.hash, true);
   }
+
+  // The dialog opens modal once rendered (a host without showModal shows it in
+  // place). Closing it returns focus to the button that opened it, which was
+  // disabled while the decision was sent and so lost it.
+  let dialog = $state(null);
+  function closeDialog() {
+    if (typeof dialog?.close === 'function') dialog.close();
+    else dialogClosed();
+  }
+  function dialogClosed() {
+    const btn = needsFresh?.decision === 'reject' ? rejectBtn : approveBtn;
+    needsFresh = null;
+    btn?.focus();
+  }
+  $effect(() => {
+    if (!dialog || dialog.open) return;
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+  });
 </script>
 
 <section class="dp" aria-labelledby="dp-title" data-testid="decision-panel">
@@ -164,22 +195,27 @@
     <p class="dp-ok" role="status">{decided}</p>
   {:else}
     {#if offer}
-      {#if kept && s?.fresh}
+      {#if kept}
         <p class="dp-kept t-body-2" role="status" data-testid="decision-kept">Your choice was <strong>{decisionLabel(kept.decision)}</strong>. Nothing is sent until you confirm it below.</p>
       {/if}
       {#if needsFresh}
-        <div class="dp-fresh" role="alert" data-testid="fresh-login">
-          <p><strong>Deciding needs a fresh sign-in.</strong> {needsFresh.message}</p>
-          <p class="t-body-2">Your choice and note are kept.</p>
-          <button type="button" class="btn btn-primary btn-sm" onclick={signInAgain}>Sign in again</button>
-        </div>
+        <dialog class="dp-fresh" bind:this={dialog} aria-labelledby="dp-fresh-title" aria-describedby="dp-fresh-why" data-testid="fresh-login"
+          onclose={dialogClosed}>
+          <h2 id="dp-fresh-title" class="t-section-title">Sign in again to decide</h2>
+          <p id="dp-fresh-why">{staleLine || needs} Your choice and note are kept, and nothing is sent until you confirm it when you come back.</p>
+          <div class="dp-fresh-actions">
+            <button type="button" class="btn btn-primary" data-testid="fresh-login-go" onclick={signInAgain}>Sign in again to {verb(needsFresh.decision)}</button>
+            <button type="button" class="btn" onclick={closeDialog}>Cancel</button>
+          </div>
+        </dialog>
       {/if}
-      {#if stale && !needsFresh}<p class="t-body-2" data-testid="decision-stale">Your sign-in is too old to decide. A button below takes you to sign in again; your choice and note are kept.</p>{/if}
       <label class="dp-field">
         <span><strong>Note</strong> (kept with the decision){#if breaking}{' · required to approve'}{/if}</span>
         <textarea class="input" rows="2" maxlength="500" bind:value={note} placeholder={breaking ? 'Why should it ship anyway?' : ''} aria-describedby={noteMissing ? 'dp-note-why' : undefined}></textarea>
       </label>
       {#if noteMissing}<p id="dp-note-why" class="visually-hidden" data-testid="decision-note-required">A breaking change needs a note to be approved.</p>{/if}
+      <!-- Next to the buttons: deciding would ask this person to sign in again first. -->
+      {#if staleLine}<p class="t-body-2" data-testid="decision-stale">{staleLine}</p>{/if}
     {/if}
     <!-- One card per answer: what it does, then its button. Approve is the primary one; it
          looks disabled while a required note is empty. -->
@@ -209,24 +245,24 @@
       <!-- A pasted token proves no recent sign-in, so it never decides. -->
       {#if s.login}
         <p class="t-body-2" data-testid="decide-token">You signed in with a token, and a token never decides. Sign in with your identity provider to decide.</p>
-        <a class="btn btn-sm btn-primary" href={loginUrl(location.hash, true)}>Sign in</a>
+        <SignInLink hash={location.hash} fresh class="btn btn-sm btn-primary">Sign in</SignInLink>
       {:else}
         <p class="t-body-2" data-testid="decide-token">You signed in with a token, and a token never decides. Decide from the command line:</p>
         <CopyableIdentifier value={cliDecision(ns, name, asked)} label="command" />
       {/if}
     {:else if s && !s.signedIn}
       <p class="t-body-2">Sign in to decide.</p>
-      <a class="btn btn-sm btn-primary" href={loginUrl(location.hash)}>Sign in</a>
-    {:else if caller?.user && (caller.user === op.spec?.actor?.user || caller.user === op.spec?.onBehalfOf?.user)}
+      <SignInLink hash={location.hash} class="btn btn-sm btn-primary">Sign in</SignInLink>
+    {:else if me().user && (me().user === op.spec?.actor?.user || me().user === op.spec?.onBehalfOf?.user)}
       <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
     {:else if caller?.class === 'agent' || caller?.class === 'controller'}
-      <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({caller.user}), and agents may not decide.</p>
-    {:else if cannotApproveHere(caller)}
+      <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({me().user}), and agents may not decide.</p>
+    {:else if freshness > 0 && cannotApproveHere(caller)}
       <p class="t-body-2" data-testid="decide-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in. <a class="dp-link" href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
     {:else if !owners.length}
       <p class="t-body-2" data-testid="decide-no-owner">No team is declared for this service, so only break-glass can override, from the command line. Declare service.owner so a team can answer.</p>
     {:else}
-      <p class="t-body-2" data-testid="decide-not-team">Only {ownerList} may answer this question{#if caller?.groups?.length}; you are in {andList(caller.groups, 3)}{/if}.</p>
+      <p class="t-body-2" data-testid="decide-not-team">Only {ownerList} may answer this question{#if me().groups?.length}; you are in {andList(me().groups, 3)}{/if}.</p>
     {/if}
   {/if}
   {#if refusal}<RefusalNotice error={refusal} />{/if}
@@ -250,5 +286,9 @@
   .dp .badge-warn { background: linear-gradient(var(--c-warn-bg), var(--c-warn-bg)), var(--c-surface); }
   .dp-link { color: var(--c-accent); text-decoration: underline; }
   .dp-ok { color: var(--c-ok); font-weight: 600; }
-  .dp-fresh { border: 1px solid var(--c-accent-border); background: var(--c-surface); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; }
+  .dp-fresh { border: 1px solid var(--c-accent-border); background: var(--c-surface); color: var(--c-text); border-radius: var(--radius-md); padding: var(--sp-4); max-width: min(28rem, calc(100vw - 2 * var(--sp-4))); }
+  .dp-fresh[open] { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .dp-fresh::backdrop { background: rgb(0 0 0 / 0.4); }
+  .dp-fresh h2 { margin: 0; }
+  .dp-fresh-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 </style>

@@ -22,8 +22,9 @@
 #     sign-in shows no delivery data and offers no actions
 #   - a person sees what waits on their team and decides from the dashboard
 #     under their own identity (the audit log shows their username)
-#   - a decision needs a fresh login; the promoter ignores an approval whose
-#     login is older than its login freshness (15 minutes unless set); a token
+#   - with a login freshness set (delivery.sh sets one; it is off by default),
+#     the promoter ignores an approval whose login is older than it, and the
+#     dashboard refuses a decision on such a login until a fresh one; a token
 #     without the interactive azp gets no auth-time and admission refuses its
 #     approval; a kubeconfig login has none either, so an agent in the
 #     person's shell cannot approve with it
@@ -524,14 +525,12 @@ identity_scenario() {
   out="$(dash "$carol" GET /api/delivery/operations/prod/idp-f)"
   jq -e '.actions | index("approve")' <<<"${out#* }" >/dev/null || fail "carol is not offered the decision: $out"
   pass "carol (team-checkout) sees F in her inbox with the question and the decision"
-  out="$(dash "$carol" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$cs")"
-  [ "${out%% *}" = 401 ] && grep -q FreshLoginRequired <<<"$out" || fail "a decision without a fresh login: $out"
   out="$(dash "$carol" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}')"
   [ "${out%% *}" = 403 ] || fail "a decision without the CSRF header: $out"
   out="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Cookie: __Host-pacto-session=$carol" -H "X-Pacto-CSRF: $cs" \
     -H 'Content-Type: application/json' -d '{"decision":"approve"}' "$DASH_URL/api/delivery/operations/prod/idp-f/decision")"
   [ "$out" = 403 ] || fail "a decision without an Origin: $out"
-  pass "a decision needs a fresh login, the CSRF header and the dashboard's own origin"
+  pass "a decision needs the CSRF header and the dashboard's own origin"
 
   # Only the named team: alice (team-payments) is refused by the dashboard and
   # ignored by the promoter.

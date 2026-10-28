@@ -1,14 +1,9 @@
 <script>
-  import { onMount } from 'svelte';
-  import { loadSession } from '../lib/deliverySession.svelte.ts';
   import { deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl } from '../lib/router.ts';
 
   // The delivery section's own navigation. Who the views act as is in the
-  // identity bar under the header, on every page; the session is read again
-  // here so the views know what the apiserver says about the caller now.
+  // identity bar under the header, on every page.
   let { current = '' } = $props();
-
-  onMount(() => { loadSession(); });
 
   const tabs = [
     { view: 'delivery-inbox', label: 'Inbox', href: deliveryInboxUrl() },

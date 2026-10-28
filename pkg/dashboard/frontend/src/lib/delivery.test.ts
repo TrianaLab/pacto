@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
+  typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
-  versionLabel, shortDigests, digestParts, sentence, timeLabel, personLabel, signIn, hostSignsIn,
-  verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS, teamGroups,
+  versionLabel, shortDigests, digestParts, sentence, timeLabel,
+  verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -50,32 +50,11 @@ describe('decisionAsked', () => {
   });
 });
 
-describe('sign-in and the CLI', () => {
-  it('builds the decide command and the login URLs', () => {
+describe('the CLI and the decision kept across a fresh login', () => {
+  it('builds the decide command', () => {
     expect(cliDecision('prod', 'op1', 'approve')).toBe('pacto delivery approve -n prod op1 --decision approve');
-    expect(loginUrl('#/delivery/inbox')).toBe('/auth/login?return=%2F%23%2Fdelivery%2Finbox');
-    expect(loginUrl('/delivery/inbox', true)).toBe('/auth/login?return=%2F%23%2Fdelivery%2Finbox&fresh=1');
   });
 
-  it('signs in through the host when it handles sign-in itself, else through /auth/login', () => {
-    const w = window as unknown as { __pactoSignIn?: (h: string, f: boolean) => void };
-    const assign = vi.fn();
-    vi.stubGlobal('location', { assign });
-    try {
-      expect(hostSignsIn()).toBe(false);
-      signIn('#/delivery/inbox', true);
-      expect(assign).toHaveBeenCalledWith('/auth/login?return=%2F%23%2Fdelivery%2Finbox&fresh=1');
-      const hook = vi.fn();
-      w.__pactoSignIn = hook;
-      expect(hostSignsIn()).toBe(true);
-      signIn('#/delivery/inbox');
-      expect(hook).toHaveBeenCalledWith('#/delivery/inbox', false);
-      expect(assign).toHaveBeenCalledTimes(1);
-    } finally {
-      delete w.__pactoSignIn;
-      vi.unstubAllGlobals();
-    }
-  });
 
   describe('the decision kept across a fresh login', () => {
     beforeEach(() => sessionStorage.clear());
@@ -194,17 +173,6 @@ describe('names and versions', () => {
     expect(timeLabel(undefined)).toBe('');
   });
 
-  it('names people: a known name, the signed-in person, a service account, a subject', () => {
-    expect(personLabel('https://idp#u1', { 'https://idp#u1': 'Ann' })).toBe('Ann');
-    expect(personLabel('https://idp#u1', null, { user: 'https://idp#u1', name: 'Me' })).toBe('Me');
-    expect(personLabel('https://idp#u1', null, { user: 'other', name: 'Me' })).toBe('u1');
-    expect(personLabel('https://idp#u1', null, { user: 'https://idp#u1' })).toBe('u1');
-    expect(personLabel('system:serviceaccount:agents:pay-agent')).toBe('pay-agent');
-    expect(personLabel('kind-admin')).toBe('kind-admin');
-    expect(personLabel('#x')).toBe('#x');
-    expect(personLabel('weird#')).toBe('weird#');
-    expect(personLabel(undefined)).toBe('');
-  });
 });
 
 describe('what a check concluded', () => {
@@ -308,12 +276,5 @@ describe('blockerReason', () => {
     expect(blockerReason('simulated: incident for aml-media.', 'aml-media')).toBe('simulated: incident.');
     expect(blockerReason('a release failed here', 'orders')).toBe('a release failed here');
     expect(blockerReason('incident for orders-api', 'orders')).toBe('incident for orders-api');
-  });
-});
-
-describe('teamGroups', () => {
-  it('leaves out Kubernetes system: groups, which name no team', () => {
-    expect(teamGroups(['team-orders', 'system:authenticated', 'system:masters'])).toEqual(['team-orders']);
-    expect(teamGroups(undefined)).toEqual([]);
   });
 });

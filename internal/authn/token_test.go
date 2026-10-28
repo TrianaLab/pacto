@@ -121,7 +121,7 @@ func TestTokenLogin(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/services", nil)
 	r.AddCookie(c)
 	expect(t, serve(h, r).Code == http.StatusTeapot, "a token session passes the gate")
-	expect(t, got.SignedIn && !got.Fresh && got.Method == "token" && got.Token == "good-token" &&
+	expect(t, got.SignedIn && got.Method == "token" && got.Token == "good-token" &&
 		got.Person.User == "system:serviceaccount:shop:viewer" && got.CSRF != "", "token state %+v", got)
 
 	// Signing in again replaces the session; expired ones are dropped.

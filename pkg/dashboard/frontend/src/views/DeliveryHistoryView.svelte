@@ -8,7 +8,6 @@
     verificationLabel, outcomeTone, reasonAfter, andList, levelLabel, AUTONOMY_TYPE, UNKNOWN_DOCS } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
-  import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import BlamePanel from '../components/BlamePanel.svelte';
   import UndoPanel from '../components/UndoPanel.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -47,7 +46,6 @@
   // One Stage pages its changes; every Stage pages the Stages.
   const page = $derived(one ? histories[0]?.entriesPage : data?.page);
   const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
-  const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
   const version = (d) => versionLabel(d, data?.versions);
   // A level change moves between levels, named as Autonomy names them.
   const side = (en, d) => (en.type === AUTONOMY_TYPE ? (d ? levelLabel(d) : '') : version(d));
@@ -311,8 +309,8 @@
                         </div>
                       </td>
                       <td data-label="Version"><span class="cell-clip" title={moveTitle(en)}>{move(en)}</span></td>
-                      <td data-label="Asked by"><div class="hv-asked">{#if en.actor}<Person user={en.actor} people={data.people} {me} />{:else}–{/if}{#if actorBadge(en.actorClass)}{@const ab = actorBadge(en.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{/if}</div></td>
-                      <td data-label="Decided by" data-testid="history-decided">{#if en.kind === 'gap' || en.kind === 'unrecordable'}–{:else if deciders(en).length}<ul class="hv-deciders">{#each deciders(en) as a, j (j)}<li><Person user={a.by} people={data.people} {me} /> <span class="badge badge-neutral">{decisionLabel(a.decision)}</span></li>{/each}</ul>{:else if en.phase === 'Held'}<span class="hv-class">Waiting for a person</span>{:else if en.actorClass === 'human'}<span class="hv-class">The person who asked</span>{:else if en.approvals === undefined}<span class="hv-class">Not recorded</span>{:else}<span class="hv-class">No person</span>{/if}</td>
+                      <td data-label="Asked by"><div class="hv-asked">{#if en.actor}<Person user={en.actor} people={data.people} />{:else}–{/if}{#if actorBadge(en.actorClass)}{@const ab = actorBadge(en.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{/if}</div></td>
+                      <td data-label="Decided by" data-testid="history-decided">{#if en.kind === 'gap' || en.kind === 'unrecordable'}–{:else if deciders(en).length}<ul class="hv-deciders">{#each deciders(en) as a, j (j)}<li><Person user={a.by} people={data.people} /> <span class="badge badge-neutral">{decisionLabel(a.decision)}</span></li>{/each}</ul>{:else if en.phase === 'Held'}<span class="hv-class">Waiting for a person</span>{:else if en.actorClass === 'human'}<span class="hv-class">The person who asked</span>{:else if en.approvals === undefined}<span class="hv-class">Not recorded</span>{:else}<span class="hv-class">No person</span>{/if}</td>
                       <td data-label="How it ended" data-testid="history-end">
                         <div class="cell-stack">
                           <span class="badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>

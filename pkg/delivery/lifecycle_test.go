@@ -48,19 +48,25 @@ func TestApprovalEligible(t *testing.T) {
 		{"no login time", held, with(func(a *ApprovalSpec) { a.AuthTime = "nope" }), at, "sign in again"},
 		{"a login from the future", held, with(func(a *ApprovalSpec) { a.AuthTime = at.Add(time.Hour).Format(time.RFC3339) }), at, "sign in again"},
 	} {
-		ok, why := ApprovalEligible(spec, c.st, "u1", c.a, c.created, policy, AuthFreshness)
+		ok, why := ApprovalEligible(spec, c.st, "u1", c.a, c.created, policy, 15*time.Minute)
 		if ok != (c.why == "") || !strings.Contains(why, c.why) || ok && why != "" {
 			t.Errorf("%s: got %v %q, want %q", c.name, ok, why, c.why)
 		}
 	}
-	if ok, _ := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, AuthFreshness); !ok {
+	if ok, _ := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, 15*time.Minute); !ok {
 		t.Error("a held operation with no plan asks no team in particular")
 	}
-	if code, _ := ApprovalRefusal(spec, held, "u1", with(func(a *ApprovalSpec) { a.Groups = []string{"team-ledger"} }), at, policy, AuthFreshness); code != "NotYourTeam" {
+	if code, _ := ApprovalRefusal(spec, held, "u1", with(func(a *ApprovalSpec) { a.Groups = []string{"team-ledger"} }), at, policy, 15*time.Minute); code != "NotYourTeam" {
 		t.Errorf("a refusal carries its code: %q", code)
 	}
+	// With login freshness off, no login is too old and none is needed.
+	for _, auth := range []string{"990000", ""} {
+		if ok, why := ApprovalEligible(spec, held, "u1", with(func(a *ApprovalSpec) { a.AuthTime = auth }), at, policy, 0); !ok {
+			t.Errorf("freshness off, login %q: %q", auth, why)
+		}
+	}
 	policy.RequireOwnerTeam = true
-	if ok, why := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, AuthFreshness); ok || !strings.Contains(why, "only break-glass can override") {
+	if ok, why := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, 15*time.Minute); ok || !strings.Contains(why, "only break-glass can override") {
 		t.Errorf("with an owner team required, an ownerless question has nobody to answer it: %v %q", ok, why)
 	}
 }
@@ -91,12 +97,12 @@ func TestSetCondition(t *testing.T) {
 }
 
 func TestDecisionFreshnessFor(t *testing.T) {
-	for in, want := range map[string]time.Duration{"": DecisionFreshness, "15m0s": DecisionFreshness, "6m": 4 * time.Minute, "nonsense": DecisionFreshness, "-1m": DecisionFreshness} {
+	for in, want := range map[string]time.Duration{"": 0, "0s": 0, "15m0s": 10 * time.Minute, "6m": 4 * time.Minute, "nonsense": 0, "-1m": 0} {
 		if got := DecisionFreshnessFor(in); got != want {
 			t.Errorf("%q: %s, want %s", in, got, want)
 		}
 	}
-	if PublishedFreshness("6m") != 6*time.Minute || PublishedFreshness("") != AuthFreshness {
+	if PublishedFreshness("6m") != 6*time.Minute || PublishedFreshness("") != 0 {
 		t.Error("PublishedFreshness")
 	}
 }
