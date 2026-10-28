@@ -383,6 +383,8 @@ github.com/transparency-dev/merkle v0.0.2 h1:Q9nBoQcZcgPamMkGn7ghV8XiTZ/kRxn1yCG
 github.com/transparency-dev/merkle v0.0.2/go.mod h1:pqSy+OXefQ1EDUVmAJ8MUhHB9TXGuzVAT58PqBoHz1A=
 github.com/trianalab/pacto/v4 v4.0.0 h1:XtqoPxJHvWC6KEzTzk4GKdB1qzgjO2raCQ3fpzKlhcA=
 github.com/trianalab/pacto/v4 v4.0.0/go.mod h1:4ElUbzuAQAIrm8MqXSYUQCXirvbhfVOlqJAC1oruVwI=
+github.com/trianalab/pacto/v4 v4.1.0 h1:RX/pfeacYWlqlMrB+BI2iKtwFZBL3r2lScRkp1I4mRI=
+github.com/trianalab/pacto/v4 v4.1.0/go.mod h1:hzy0NWK+eofawixz4jrwvelfwqKVkOS3Fd5PuZy/7rg=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 h1:ilQV1hzziu+LLM3zUTJ0trRztfwgjqKnBWNtSRkbmwM=

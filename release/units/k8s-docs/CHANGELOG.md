@@ -1,5 +1,9 @@
 # @pacto/k8s-docs
 
+## 6.1.0
+
+No changes in this release.
+
 ## 6.0.1
 
 ## 6.0.0
