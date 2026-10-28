@@ -84,35 +84,9 @@
   .skills { margin-top: var(--sp-3); }
   .skills h3 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
 
-  .detail-card {
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface);
-    margin-bottom: var(--sp-2);
-  }
-  .detail-card-header {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    width: 100%;
-    padding: var(--sp-3);
-    background: none;
-    border: none;
-    font: inherit;
-    color: var(--c-text);
-    text-align: left;
-    cursor: pointer;
-  }
+  /* A skill header lines its parts up from the left and always opens. */
+  .detail-card-header { justify-content: flex-start; gap: var(--sp-2); cursor: pointer; }
   .detail-card-header:hover { background: var(--c-surface-hover, var(--c-surface-inset)); border-radius: var(--radius-sm); }
-  .expand-icon {
-    display: inline-flex;
-    color: var(--c-text-3);
-    transform: rotate(-90deg);
-    flex-shrink: 0;
-  }
-  .expand-icon.open { transform: rotate(0deg); }
-  .expand-icon svg { width: 12px; height: 12px; }
   .pill-skill { background: var(--c-accent-bg); color: var(--c-accent); font-size: var(--text-xs); flex-shrink: 0; }
   .skill-name { font-weight: 600; }
-  .detail-card-body { padding: 0 var(--sp-3) var(--sp-3); }
 </style>
