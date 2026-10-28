@@ -316,7 +316,6 @@ make lint           # golangci-lint
 Deploy to a local cluster:
 
 ```bash
-make install        # install CRDs via kustomize
 make run            # run the controller against your current kube context
 make helm-install   # build image + helm install (CRDs included)
 make helm-upgrade   # rebuild + upgrade the existing release

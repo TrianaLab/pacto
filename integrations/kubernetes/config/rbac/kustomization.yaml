@@ -29,8 +29,8 @@ resources:
 - pacto_editor_role.yaml
 - pacto_viewer_role.yaml
 # The node agent's namespace and its half of manager-role are the Helm chart's:
-# this kustomize install never enables the agent, and the namespace override in
-# config/default would otherwise fold that Role onto the operator namespace's.
+# a kustomize build never enables the agent, and a namespace override would
+# otherwise fold that Role onto the operator namespace's.
 patches:
 - patch: |-
     $patch: delete

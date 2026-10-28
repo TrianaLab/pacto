@@ -394,7 +394,7 @@ func newManager(o *options) (ctrl.Manager, error) {
 		})
 	}
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+	// The Metrics options configure the metrics server.
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
@@ -407,16 +407,15 @@ func newManager(o *options) (ctrl.Manager, error) {
 	if o.secureMetrics {
 		// FilterProvider is used to protect the metrics endpoint with authn/authz.
 		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// can access the metrics endpoint. The chart grants the RBAC they need. More info:
 		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
 	// If the certificate is not specified, controller-runtime will automatically
 	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production: with cert-manager, the [METRICS-WITH-CERTS] section of
-	// config/default/kustomization.yaml and [PROMETHEUS-WITH-CERTS] of config/prometheus/kustomization.yaml
-	// provide managed certificates.
+	// this setup is not recommended for production: mount managed certificates (cert-manager, for one)
+	// and point --metrics-cert-path at them.
 	if len(o.metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", o.metricsCertPath, "metrics-cert-name", o.metricsCertName, "metrics-cert-key", o.metricsCertKey)

@@ -56,7 +56,7 @@ kubectl get pactos                 # STATUS: one of Compliant, Warning, NonCompl
 kubectl describe pacto my-service  # conditions + findings
 ```
 
-Full install options (Helm values, Kustomize) are in [Installation](#installation).
+Full install options (Helm values) are in [Installation](#installation).
 
 ---
 
@@ -217,7 +217,7 @@ ContractStatus reflects **contract validation/compliance**, not runtime health. 
 
 ## Installation
 
-### Helm (recommended)
+### Helm
 
 ```bash
 helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
@@ -225,13 +225,6 @@ helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator 
 ```
 
 The dashboard is enabled by default. See the [chart README](charts/pacto-operator/) for all configuration options including Service type, Ingress, and Gateway API HTTPRoute.
-
-### Kustomize
-
-```bash
-make install   # Install CRDs
-make deploy    # Deploy the controller
-```
 
 ---
 
@@ -387,9 +380,9 @@ make run-with-dashboard     # Operator with dashboard enabled
 **Local Kubernetes** (operator runs inside a local cluster as a container):
 
 ```bash
-make deploy-local                  # Build, install CRDs, deploy (any kube context)
-make deploy-local-with-dashboard   # Build, install CRDs, deploy with dashboard
-make undeploy-local                # Remove from current kube context
+make deploy-local                  # Build, then helm upgrade --install (any kube context)
+make deploy-local-with-dashboard   # The same with the dashboard enabled
+make undeploy-local                # helm uninstall from the current kube context
 ```
 
 These targets work with any local Kubernetes distribution (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image is available inside the cluster, or use `make deploy-kind` which combines both steps.

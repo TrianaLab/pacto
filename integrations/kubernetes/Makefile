@@ -115,20 +115,23 @@ run-with-dashboard: manifests generate fmt vet check-dashboard-image ## Run the 
 
 ##@ Development — Local Kubernetes
 
-# deploy-local and deploy-local-with-dashboard work with any kube context
-# (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load`
-# first so the image is available inside the cluster.
+# deploy-local and deploy-local-with-dashboard install the Helm chart (the one
+# supported install path, CRDs included) into any kube context (Docker Desktop,
+# minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image
+# is available inside the cluster.
 
 KIND_CLUSTER ?= pacto-operator-dev
 
 .PHONY: deploy-local
-deploy-local: docker-build install deploy ## Build image, install CRDs, and deploy the operator to the current kube context.
+deploy-local: docker-build ## Build image and install or upgrade the Helm chart (dashboard disabled) in the current kube context.
+	helm upgrade --install $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS) --set dashboard.enabled=false
 	@echo ""
 	@echo "Operator deployed (dashboard disabled)."
 	@echo "Image: $(IMG)"
 
 .PHONY: deploy-local-with-dashboard
-deploy-local-with-dashboard: check-dashboard-image docker-build install deploy-with-dashboard-args ## Build image, install CRDs, and deploy the operator with dashboard to the current kube context.
+deploy-local-with-dashboard: check-dashboard-image docker-build ## Build image and install or upgrade the Helm chart with the dashboard in the current kube context.
+	helm upgrade --install $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS) --set dashboard.enabled=true
 	@echo ""
 	@echo "Operator deployed (dashboard enabled)."
 	@echo "Image: $(IMG)"
@@ -139,27 +142,20 @@ kind-load: ## Load the controller image into the active Kind cluster (run before
 	$(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER)
 
 .PHONY: deploy-kind
-deploy-kind: docker-build kind-load install deploy ## Build, load into Kind, install CRDs, and deploy the operator.
+deploy-kind: docker-build kind-load ## Build, load into Kind, and install or upgrade the Helm chart (dashboard disabled).
+	helm upgrade --install $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS) --set dashboard.enabled=false
 	@echo ""
 	@echo "Operator deployed to Kind cluster '$(KIND_CLUSTER)' (dashboard disabled)."
 	@echo "Image: $(IMG)"
 
-.PHONY: deploy-with-dashboard-args
-deploy-with-dashboard-args: manifests kustomize
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	cd config/default && cp kustomization.yaml kustomization.yaml.bak && \
-		"$(KUSTOMIZE)" edit add patch --path manager_dashboard_patch.yaml --kind Deployment
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
-	cd config/default && mv kustomization.yaml.bak kustomization.yaml
-
 .PHONY: undeploy-local
-undeploy-local: undeploy ## Remove the operator from the current kube context.
+undeploy-local: helm-uninstall ## Remove the operator from the current kube context.
 
 ##@ Development — Common
 
 .PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+manifests: controller-gen ## Generate ClusterRole and CustomResourceDefinition objects.
+	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd paths="./..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -248,6 +244,16 @@ HELM_NAMESPACE ?= pacto-operator-system
 # default remains ClusterIP — this override only affects local installs.
 HELM_DASHBOARD_SERVICE_TYPE ?= LoadBalancer
 
+# Flags every local helm install shares: the locally built image, never pulled.
+HELM_LOCAL_FLAGS = --namespace $(HELM_NAMESPACE) \
+	--create-namespace \
+	--set global.imageRegistry= \
+	--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+	--set image.tag=$(VERSION) \
+	--set image.pullPolicy=Never \
+	--set dashboard.service.type=$(HELM_DASHBOARD_SERVICE_TYPE) \
+	--wait --timeout 5m
+
 .PHONY: helm-install
 helm-install: docker-build ## Build image and install the Helm chart to the current kube context.
 	@CURRENT_CONTEXT=$$(kubectl config current-context 2>/dev/null || echo "none"); \
@@ -256,15 +262,7 @@ helm-install: docker-build ## Build image and install the Helm chart to the curr
 	fi; \
 	echo "==> Using cluster: $$CURRENT_CONTEXT"; \
 	echo "==> Installing $(HELM_RELEASE) with image $(IMG)..."; \
-	helm install $(HELM_RELEASE) charts/pacto-operator \
-		--namespace $(HELM_NAMESPACE) \
-		--create-namespace \
-		--set global.imageRegistry= \
-		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
-		--set image.tag=$(VERSION) \
-		--set image.pullPolicy=Never \
-		--set dashboard.service.type=$(HELM_DASHBOARD_SERVICE_TYPE) \
-		--wait --timeout 5m
+	helm install $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS)
 
 .PHONY: helm-upgrade
 helm-upgrade: docker-build ## Build image and upgrade the Helm release.
@@ -272,14 +270,7 @@ helm-upgrade: docker-build ## Build image and upgrade the Helm release.
 		echo "Error: Release $(HELM_RELEASE) not found. Use 'make helm-install' first." >&2; exit 1; \
 	fi
 	@echo "==> Upgrading $(HELM_RELEASE) with image $(IMG)..."
-	helm upgrade $(HELM_RELEASE) charts/pacto-operator \
-		--namespace $(HELM_NAMESPACE) \
-		--set global.imageRegistry= \
-		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
-		--set image.tag=$(VERSION) \
-		--set image.pullPolicy=Never \
-		--set dashboard.service.type=$(HELM_DASHBOARD_SERVICE_TYPE) \
-		--wait --timeout 5m
+	helm upgrade $(HELM_RELEASE) charts/pacto-operator $(HELM_LOCAL_FLAGS)
 
 .PHONY: helm-uninstall
 helm-uninstall: ## Uninstall the Helm release.
@@ -300,7 +291,7 @@ helm-history: ## Show Helm release history.
 helm-get-values: ## Get values for the deployed Helm release.
 	@helm get values $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
 
-##@ Deployment (Kustomize)
+##@ Samples
 
 ifndef ignore-not-found
   ignore-not-found = false
@@ -313,25 +304,6 @@ deploy-samples: kustomize ## Deploy sample infrastructure and Pacto CRs.
 .PHONY: undeploy-samples
 undeploy-samples: kustomize ## Remove sample Pacto CRs and infrastructure.
 	"$(KUSTOMIZE)" build config/samples/demo | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
-
-.PHONY: install
-install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
-	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" apply -f -; else echo "No CRDs to install; skipping."; fi
-
-.PHONY: uninstall
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config.
-	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
-	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
-
-.PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
-
-.PHONY: undeploy
-undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Dependencies
 
