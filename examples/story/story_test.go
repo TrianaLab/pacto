@@ -510,7 +510,7 @@ func TestRaiseIsDecidedByTheServiceTeam(t *testing.T) {
 	answer := func(by string, groups ...string) (bool, string) {
 		a := delivery.ApprovalSpec{OperationUID: "op-advise", IntentDigest: p.IntentDigest, Decision: delivery.Approve,
 			By: by, Groups: groups, AuthTime: Now.Format(time.RFC3339)}
-		return delivery.ApprovalEligible(spec, st, "op-advise", a, Now, Policy, delivery.AuthFreshness)
+		return delivery.ApprovalEligible(spec, st, "op-advise", a, Now, Policy, 15*time.Minute)
 	}
 	if ok, _ := answer(PayAgent.User, PayAgent.Groups...); ok {
 		t.Error("pay-agent decided its own raise")

@@ -175,11 +175,12 @@ spec:
   validationActions: [Deny]
 ---
 # Approvals come from people: not a service account, not an agent group, with
-# by and groups equal to the requesting user's and authTime equal to the login time the
+# by and groups equal to the requesting user's. An authTime is the login time the
 # apiserver reports (structured authentication maps the OIDC auth_time claim to
-# userInfo.extra["delivery.pacto.trianalab.io/auth-time"]). The promoter refuses a login older
-# than 15 minutes, which forces a fresh interactive login to approve. An agent
-# holding a person's credentials still cannot be told apart from that person.
+# userInfo.extra["delivery.pacto.trianalab.io/auth-time"]); with
+# delivery.promoter.authFreshness set it is required, and the promoter refuses a
+# login older than that, which forces a fresh interactive login to approve. An
+# agent holding a person's credentials still cannot be told apart from that person.
 # Once given, an Approval's spec never changes (a CRD rule); the promoter only
 # adds its operation as owner.
 apiVersion: admissionregistration.k8s.io/v1
@@ -208,11 +209,19 @@ spec:
         request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }})
       message: "agents and service accounts may not approve"
       reason: Forbidden
+    {{- if .Values.delivery.promoter.authFreshness | default "0" | ne "0" }}
     - expression: >-
         'delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
         has(object.spec.authTime) && object.spec.authTime == request.userInfo.extra['delivery.pacto.trianalab.io/auth-time'][0]
       message: "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
       reason: Forbidden
+    {{- else }}
+    - expression: >-
+        !has(object.spec.authTime) || ('delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
+        object.spec.authTime == request.userInfo.extra['delivery.pacto.trianalab.io/auth-time'][0])
+      message: "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
+      reason: Forbidden
+    {{- end }}
     - expression: >-
         variables.groups.all(g, g in request.userInfo.groups) &&
         request.userInfo.groups.all(g, g in variables.groups)

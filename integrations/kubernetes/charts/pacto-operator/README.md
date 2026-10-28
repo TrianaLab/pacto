@@ -285,7 +285,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.podAnnotations | object | `{}` | Annotations to add to the promoter and recorder pods |
 | delivery.podLabels | object | `{}` | Labels to add to the promoter and recorder pods |
 | delivery.podSecurityContext | object | `{}` | Pod securityContext of the promoter and the recorder (defaults to `global.podSecurityContext`) |
-| delivery.promoter.authFreshness | string | `"15m"` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration). Every Stage publishes it in `status.authFreshness` |
+| delivery.promoter.authFreshness | string | `""` | How old a person's login may be when their approval is given, as a Go duration such as `15m`; an older one is ignored, so deciding needs a fresh sign-in. Empty or `0`: any signed-in person decides with the session they have. Every Stage publishes it in `status.authFreshness` |
 | delivery.promoter.leaderElect | bool | `true` | Elect one active promoter |
 | delivery.promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
 | delivery.promoter.registryCredentials.secretName | string | `""` | A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy repositories, for a private registry. Without it the promoter reads only public ones. |

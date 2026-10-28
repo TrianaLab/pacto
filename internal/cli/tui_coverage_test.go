@@ -52,7 +52,7 @@ var excludedFromTUI = map[string]string{
 	"version":         "reports the running binary's own version; there is no fleet entity a row could name",
 	// Delivery changes what runs. The TUI is a read-only screen over the fleet, and a keystroke that
 	// proposes, cancels or approves would be the one place it acts; these stay explicit shell commands.
-	"delivery approve":       "a person's decision, made deliberately at a prompt with a fresh login",
+	"delivery approve":       "a person's decision, made deliberately at a prompt",
 	"delivery blame":         "reads a Stage's records, which are not a fleet entity",
 	"delivery cancel":        "changes what runs; the TUI never acts",
 	"delivery describe":      "describes an operation type, not a fleet entity a row could name",

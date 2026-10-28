@@ -361,7 +361,6 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	s := stageObj(dA)
 	s.Status.Published = nil
 	s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready", Message: "the Stage can promote published versions"}}
-	s.Status.AuthFreshness = "15m0s"
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
 	a, _ := e.st.Cluster.applier(context.Background(), ns, e.getStage().Spec.ApplyRef)
 	med, _ := e.st.Cluster.mediated(context.Background(), ns, a)
@@ -501,7 +500,7 @@ func TestReadyObservesTheGeneration(t *testing.T) {
 	s := e.getStage()
 	c := *conditionOf(s.Status.Conditions, "Ready")
 	if s.Generation != 3 || s.Status.ObservedGeneration != 3 || c.ObservedGeneration != 3 || c.LastTransitionTime != ts(e.now) || c.Status != "True" ||
-		s.Status.AuthFreshness != "15m0s" {
+		s.Status.AuthFreshness != "" {
 		t.Fatalf("status %d, condition %+v, generation %d", s.Status.ObservedGeneration, c, s.Generation)
 	}
 	// A spec change: the apiserver bumps the generation (the fake client

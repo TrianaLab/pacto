@@ -774,7 +774,7 @@
             },
             "authFreshness": {
               "type": "string",
-              "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"
+              "pattern": "^(0|([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+)?$"
             },
             "leaderElect": {
               "type": "boolean"

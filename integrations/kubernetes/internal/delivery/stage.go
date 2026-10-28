@@ -58,8 +58,8 @@ type StageReconciler struct {
 	// Stage is not Ready.
 	AdmissionPolicies []string
 	// Freshness is the operation reconciler's login freshness, published on
-	// every Stage so clients ask for a login it will still count; zero means
-	// delivery.AuthFreshness.
+	// every Stage so clients ask for a login it will still count; zero
+	// publishes none: no login is too old.
 	Freshness time.Duration
 	// Events receives the Events it emits when a Stage freezes, stops being
 	// watched or raises a rollback; nil emits none.
@@ -371,7 +371,10 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 		cur, c = delivery.SetCondition(cur, conds[i], r.Now())
 		changed = changed || c
 	}
-	fresh := cmp.Or(r.Freshness, delivery.AuthFreshness).String()
+	fresh := ""
+	if r.Freshness > 0 {
+		fresh = r.Freshness.String()
+	}
 	seen := up != nil && up.Stream.ID != "" && (up.Stream.ID != stage.Status.UpstreamSeen.Stream || up.Stream.Seq > stage.Status.UpstreamSeen.Seq)
 	if !changed && !seen && stage.Status.ObservedGeneration == stage.Generation && stage.Status.AuthFreshness == fresh {
 		return cand, up, nil

@@ -252,7 +252,7 @@ For a tour of what the dashboard surfaces, see [For platform engineers](platform
 
 Pacto delivery decides which version each environment (a Stage) runs. Every change is an Operation: plan it to see what the promoter will do and who must agree, propose it, and a person approves only when the contracts say a consumer would break, Pacto cannot see enough or the Stage asks for approval on every promote.
 
-There is no approve tool for agents. `approve` is for people, with a fresh login.
+There is no approve tool for agents. `approve` is for people.
 
 ```
 pacto delivery [flags]
@@ -269,7 +269,7 @@ pacto delivery [flags]
 
 ### `pacto delivery approve`
 
-Record your decision on a held operation. The command makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
+Record your decision on a held operation, as the person your kubeconfig signs you in as. When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
 
 ```
 pacto delivery approve <operation> [flags]

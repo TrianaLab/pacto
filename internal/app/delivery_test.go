@@ -406,6 +406,30 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 	if _, err := d.Approve(ctx, "prod", "gone", delivery.Approve, ""); err == nil {
 		t.Fatal("approving a missing operation")
 	}
+	// With no login freshness published, a login the cluster cannot date
+	// decides too, and the Approval carries no authTime.
+	d, c, _ = deliveryFixture(t, "alice", []string{"devs"}, nil, op)
+	c.PrependReactor("create", "approvals", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		u := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
+		if _, dated := u.Object["spec"].(map[string]any)["authTime"]; dated {
+			t.Errorf("an undated login got an authTime: %+v", u.Object["spec"])
+		}
+		u.SetName("p1-y")
+		return true, u, nil
+	})
+	if name, err := d.Approve(ctx, "prod", "p1", delivery.Approve, ""); err != nil || name != "p1-y" {
+		t.Fatalf("approve without freshness: %q %v", name, err)
+	}
+	if f, err := d.Freshness(ctx, "prod", "p1"); err != nil || f != 0 {
+		t.Fatalf("a Stage that publishes none: %s %v", f, err)
+	}
+	if _, err := d.Freshness(ctx, "prod", "gone"); err == nil {
+		t.Fatal("freshness of a missing operation")
+	}
+	c.PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("forbidden") })
+	if _, err := d.Freshness(ctx, "prod", "p1"); err == nil {
+		t.Fatal("freshness of an unreadable Stage")
+	}
 }
 
 // TestDeliveryReadsThePublishedPolicy: the caller is classified with the
@@ -442,15 +466,29 @@ func TestDeliveryApproveRefusals(t *testing.T) {
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
 	})
 	ctx := context.Background()
+	// Every fixture below is a Stage that asks for a fresh login.
+	fixture := func(user string, extra map[string]any, objs ...runtime.Object) (*Delivery, *dynamicfake.FakeDynamicClient) {
+		d, c, _ := deliveryFixture(t, user, nil, extra, objs...)
+		stages := c.Resource(gvrStages).Namespace("prod")
+		s, _ := stages.Get(ctx, "payments-prod", metav1.GetOptions{})
+		_ = unstructured.SetNestedField(s.Object, "15m0s", "status", "authFreshness")
+		if _, err := stages.Update(ctx, s, metav1.UpdateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		return d, c
+	}
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil, op)
 	_, err := d.Approve(ctx, "prod", "p1", delivery.Approve, "")
 	wantErrContaining(t, err, "agents may not approve")
-	d, _, _ = deliveryFixture(t, "bob", nil, nil, op)
+	d, _ = fixture("bob", nil, op)
+	if f, err := d.Freshness(ctx, "prod", "p1"); err != nil || f != 15*time.Minute {
+		t.Fatalf("freshness: %s %v", f, err)
+	}
 	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
 	wantErrContaining(t, err, "fresh interactive login")
 	// The promoter's own rule decides before anything is created: a login
 	// too old, the asker deciding their own change, an operation not held.
-	d, _, _ = deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1"}}, op)
+	d, _ = fixture("bob", map[string]any{authTimeExtra: []any{"1"}}, op)
 	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
 	wantErrContaining(t, err, "would not count this decision, so none was recorded: bob's login was not within 15m0s")
 	d, _, _ = deliveryFixture(t, "bot", nil, map[string]any{authTimeExtra: []any{"1800000000"}}, op)

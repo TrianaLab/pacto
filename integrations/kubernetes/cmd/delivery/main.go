@@ -80,8 +80,8 @@ func runPromoter(args []string) error {
 	argocd := fs.Bool("argocd", false, "Stages may apply through Argo CD Applications: watch and cache them.")
 	qps := fs.Float64("kube-api-qps", 50, "The apiserver requests per second the promoter's client may make.")
 	burst := fs.Int("kube-api-burst", 100, "The apiserver requests the promoter's client may burst above kube-api-qps.")
-	authFreshness := fs.Duration("auth-freshness", core.AuthFreshness,
-		"How old a person's login may be when their approval is given; an older one is ignored.")
+	authFreshness := fs.Duration("auth-freshness", 0,
+		"How old a person's login may be when their approval is given; an older one is ignored. Zero: no login is too old.")
 	records := fs.Bool("records", false,
 		"The recorder runs: leave the record finalizer of every operation that got a seq to it.")
 	recordedTTL := fs.Duration("recorded-ttl", 0,

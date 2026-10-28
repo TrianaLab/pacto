@@ -262,6 +262,7 @@ func TestBreakingChangeWaitsForTheConsumersTeam(t *testing.T) {
 	}
 	// Approvals that do not count: the actor itself, an agent, an unbound uid,
 	// a stale login, and accept-unknown where an approval is needed.
+	e.op.Freshness = 15 * time.Minute // a stale login counts only when freshness is on
 	e.approve(o, "self", bot, delivery.Approve)
 	e.approve(o, "agent", "system:serviceaccount:agents:other", delivery.Approve)
 	stale := &dv1Approval{}

@@ -516,9 +516,24 @@ func (d *Delivery) Cancel(ctx context.Context, ns, name string) error {
 	return nil
 }
 
+// Freshness is the login freshness the Stage of operation name publishes:
+// how old a login the promoter counts an approval from, zero when any login
+// does.
+func (d *Delivery) Freshness(ctx context.Context, ns, name string) (time.Duration, error) {
+	op, err := d.Get(ctx, ns, name)
+	if err != nil {
+		return 0, err
+	}
+	st, err := d.Stage(ctx, ns, op.Spec.Stage)
+	if err != nil {
+		return 0, err
+	}
+	return delivery.PublishedFreshness(st.Status.AuthFreshness), nil
+}
+
 // Approve records a person's decision on one operation, bound to its uid and
-// intent digest. Only a person with a fresh login may: admission refuses agents
-// and the promoter refuses a login older than 15 minutes.
+// intent digest. Only a person may: admission refuses agents. Where the Stage
+// publishes a login freshness, the login must be that recent too.
 func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delivery.Decision, note string) (string, error) {
 	op, err := d.Get(ctx, ns, name)
 	if err != nil {
@@ -531,16 +546,16 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 	if caller.Class == delivery.ClassAgent {
 		return "", errors.New("agents may not approve: Pacto delivery asks a person, and there is no approve tool for agents")
 	}
-	if caller.AuthTime == "" {
+	var freshness time.Duration
+	if st, err := d.Stage(ctx, ns, op.Spec.Stage); err == nil {
+		freshness = delivery.PublishedFreshness(st.Status.AuthFreshness)
+	}
+	if freshness > 0 && caller.AuthTime == "" {
 		return "", errors.New("approving needs a fresh interactive login, and the apiserver reports no login time " +
 			"(userInfo.extra[" + authTimeExtra + "]); log in again through your identity provider")
 	}
 	spec := delivery.ApprovalSpec{Operation: name, OperationUID: op.Metadata.UID, IntentDigest: op.Spec.IntentDigest,
 		Decision: decision, Note: note, By: caller.User, AuthTime: caller.AuthTime, Groups: caller.Groups}
-	freshness := delivery.AuthFreshness
-	if st, err := d.Stage(ctx, ns, op.Spec.Stage); err == nil {
-		freshness = delivery.PublishedFreshness(st.Status.AuthFreshness)
-	}
 	if ok, why := delivery.ApprovalEligible(op.Spec, op.Status, op.Metadata.UID, spec, d.Now(), caller.Policy, freshness); !ok {
 		return "", errors.New("the promoter would not count this decision, so none was recorded: " + why)
 	}
@@ -550,8 +565,11 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 			"ownerReferences": []any{map[string]any{"apiVersion": "delivery.pacto.trianalab.io/v1alpha1", "kind": "Operation",
 				"name": name, "uid": op.Metadata.UID}}},
 		"spec": map[string]any{"operation": name, "operationUID": op.Metadata.UID, "intentDigest": op.Spec.IntentDigest,
-			"decision": string(decision), "note": note, "by": caller.User, "authTime": caller.AuthTime, "groups": anySlice(caller.Groups)},
+			"decision": string(decision), "note": note, "by": caller.User, "groups": anySlice(caller.Groups)},
 	}}
+	if caller.AuthTime != "" { // a login the cluster cannot date is not dated
+		obj.Object["spec"].(map[string]any)["authTime"] = caller.AuthTime
+	}
 	created, err := d.Dynamic.Resource(gvrApprovals).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("creating the Approval: %w", err)

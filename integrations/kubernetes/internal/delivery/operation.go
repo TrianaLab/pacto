@@ -68,7 +68,7 @@ type OperationReconciler struct {
 	// zero keeps every operation.
 	RecordedTTL time.Duration
 	// Freshness is how old a login may be when its approval is given; zero
-	// means delivery.AuthFreshness.
+	// means no login is too old.
 	Freshness time.Duration
 	// AdmissionPolicies names the ValidatingAdmissionPolicies (each bound by a
 	// binding of the same name) that check an operation's actor and an

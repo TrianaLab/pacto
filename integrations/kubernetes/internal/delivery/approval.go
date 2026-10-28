@@ -8,7 +8,6 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
-	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -127,8 +126,7 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) (
 		if slices.ContainsFunc(op.Status.Approvals, func(x delivery.ApprovalRecord) bool { return x.Name == a.Name }) {
 			continue
 		}
-		ok, why := delivery.ApprovalEligible(op.Spec, op.Status, string(op.UID), s, a.CreationTimestamp.Time, r.Policy,
-			cmp.Or(r.Freshness, delivery.AuthFreshness))
+		ok, why := delivery.ApprovalEligible(op.Spec, op.Status, string(op.UID), s, a.CreationTimestamp.Time, r.Policy, r.Freshness)
 		if !ok {
 			skipped = "Approval " + a.Name + " by " + s.By + " does not count: " + why
 			continue

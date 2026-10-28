@@ -388,3 +388,33 @@ tests:
       - matchRegex:
           path: 'spec.validations[?(@.message == "the status of a Stage or an Operation is written only by the Pacto delivery promoter; a person may only clear a Stage''s status.upstreamSeen")].expression'
           pattern: "request.userInfo.username in \\['system:serviceaccount:pacto-delivery:d-pacto-operator-delivery', 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery-recorder'\\]"
+
+  - it: dates an approval's login only when it gives one, by default
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].message'
+      value: "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
+    asserts:
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].expression'
+          pattern: "^!has\\(object\\.spec\\.authTime\\) \\|\\|"
+      - notExists:
+          path: 'spec.validations[?(@.message == "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")]'
+
+  - it: requires a dated login on every approval with authFreshness set
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      delivery.promoter.authFreshness: 15m
+    documentSelector:
+      path: 'spec.validations[?(@.message == "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].message'
+      value: "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
+    asserts:
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")].expression'
+          pattern: "^'delivery\\.pacto\\.trianalab\\.io/auth-time' in request\\.userInfo\\.extra &&"
+      - notExists:
+          path: 'spec.validations[?(@.message == "spec.authTime, when given, must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]")]'

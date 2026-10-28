@@ -540,7 +540,8 @@ type StageStatus struct {
 	LastCheck *Recheck `json:"lastCheck,omitempty"`
 	// AuthFreshness is how old a login the promoter accepts on an approval
 	// (a Go duration). Clients ask for a fresh login with a margin under it
-	// (DecisionFreshnessFor).
+	// (DecisionFreshnessFor). Empty: no login is too old, and a person
+	// decides with the session they have.
 	// +optional
 	AuthFreshness string `json:"authFreshness,omitempty"`
 	// ObservedGeneration is the Stage generation the stage reconciler last

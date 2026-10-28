@@ -8,29 +8,26 @@ import (
 	"time"
 )
 
-// Login freshness. The promoter ignores an approval given more than
-// AuthFreshness (or its --auth-freshness) after its author's login; the
-// dashboard asks for a new login once one is older than DecisionFreshness,
-// leaving a margin under it.
-const (
-	AuthFreshness     = 15 * time.Minute
-	DecisionFreshness = 10 * time.Minute
-)
+// Login freshness is off unless the promoter runs with --auth-freshness:
+// then it ignores an approval given more than that long after its author's
+// login, and every client asks for a new login once one is older than
+// DecisionFreshnessFor, leaving a margin under it. Off, a person decides with
+// the session they have.
 
-// DecisionFreshnessFor is DecisionFreshness for the login freshness a Stage
-// publishes in status.authFreshness: two thirds of it, so a login a person
-// approves with is still fresh when the promoter counts it. An empty or
-// unreadable one is AuthFreshness.
+// DecisionFreshnessFor is how old a login a client lets a person decide with,
+// for the login freshness a Stage publishes in status.authFreshness: two
+// thirds of it, so a login a person approves with is still fresh when the
+// promoter counts it. Zero when the Stage publishes none: no login is too old.
 func DecisionFreshnessFor(published string) time.Duration {
 	return PublishedFreshness(published) * 2 / 3
 }
 
 // PublishedFreshness is the promoter's login freshness as a Stage publishes
-// it in status.authFreshness; AuthFreshness when empty or unreadable.
+// it in status.authFreshness; zero (off) when empty, zero or unreadable.
 func PublishedFreshness(published string) time.Duration {
 	d, err := time.ParseDuration(published)
 	if err != nil || d <= 0 {
-		return AuthFreshness
+		return 0
 	}
 	return d
 }
@@ -54,8 +51,9 @@ func ParseAuthTime(v string) (time.Time, bool) {
 //
 // It counts only on a held operation, for its uid and intent, from a person
 // who neither asked for the change nor is whoever the asker acts for, in a
-// team the question was routed to (floor.owners), given within freshness of
-// that person's login and no earlier than the operation was last held. Its
+// team the question was routed to (floor.owners), no earlier than the
+// operation was last held and, when freshness is not zero, within freshness
+// of that person's login. Its
 // decision answers the question asked: once the version shipped only an
 // accept or a reject, and a change that needs an approval is not cleared by
 // an accepted unknown.
@@ -134,7 +132,7 @@ func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created
 		return "NotYourTeam", fmt.Sprintf("%s is not in a team this question is asked of (%s)", a.By, strings.Join(owners, ", "))
 	case created.Before(held):
 		return "AskedAgain", "it was given before the question was last asked"
-	case !ok || age < -time.Minute || age > freshness:
+	case freshness > 0 && (!ok || age < -time.Minute || age > freshness):
 		return "FreshLoginRequired", fmt.Sprintf("%s's login was not within %s of the decision; sign in again", a.By, freshness)
 	}
 	return "", ""

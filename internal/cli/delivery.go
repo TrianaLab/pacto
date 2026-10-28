@@ -75,7 +75,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 			"Operation: plan it to see what the promoter will do and who must agree, propose it, and a person " +
 			"approves only when the contracts say a consumer would break, Pacto cannot see enough or the Stage " +
 			"asks for approval on every promote.\n\n" +
-			"There is no approve tool for agents. `approve` is for people, with a fresh login.",
+			"There is no approve tool for agents. `approve` is for people.",
 	}
 	cmd.PersistentFlags().StringP("namespace", "n", "default", "namespace of the Stage and its Operations")
 	cmd.PersistentFlags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
@@ -377,52 +377,72 @@ func newDeliveryCancelCommand(d deps) *cobra.Command {
 	}
 }
 
+// freshClient logs the person in again in their browser and returns a
+// delivery client that acts with that login's token alone.
+func freshClient(cmd *cobra.Command, v *viper.Viper, d deps, decision, ns, name string) (*app.Delivery, error) {
+	issuer := v.GetString("delivery.oidc-issuer-url")
+	if issuer == "" {
+		return nil, errors.New("this Stage asks for a fresh login to approve: set --oidc-issuer-url (or " +
+			"PACTO_DELIVERY_OIDC_ISSUER_URL) to the identity provider the cluster trusts")
+	}
+	cluster, err := d.clusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	token, err := d.freshLogin(cmd.Context(), authn.FreshConfig{IssuerURL: issuer,
+		ClientID: v.GetString("delivery.oidc-client-id"), ClientSecret: v.GetString("delivery.oidc-client-secret"),
+		ExtraScopes: v.GetStringSlice("delivery.oidc-extra-scopes"), Port: v.GetInt("delivery.oidc-redirect-port"),
+		Prompt: func(u string) {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "To record %s on %s/%s, log in again in your browser:\n\n  %s\n\n", decision, ns, name, u)
+		}})
+	if err != nil {
+		return nil, err
+	}
+	dyn, err := d.dynamicFor(authn.RESTConfig(cluster, token))
+	if err != nil {
+		return nil, err
+	}
+	c, _, err := deliveryClientFor(cmd, d, dyn)
+	return c, err
+}
+
 var deliveryDecisions = []string{string(delivery.Approve), string(delivery.Reject), string(delivery.AcceptUnknown)}
 
-// newDeliveryApproveCommand records a person's decision. It never uses the
-// kubeconfig's credentials, which any process in the person's shell (an agent
-// included) can reuse: it logs the person in again in their browser and sends
-// the Approval with that login's token, then drops it.
+// newDeliveryApproveCommand records a person's decision with their
+// kubeconfig's credentials. On a Stage that publishes a login freshness, or
+// one it cannot read, it never uses them to decide, since any process in the
+// person's shell (an agent included) can reuse them: it logs the person in
+// again in their browser and sends the Approval with that login's token, then
+// drops it.
 func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "approve <operation>",
-		Short: "Record your decision on a held operation (people only, with a fresh login)",
-		Long: "Record your decision on a held operation. The command makes you log in again in your browser " +
-			"(prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's " +
-			"token, never your kubeconfig's: an agent running in your shell cannot approve as you without you " +
-			"typing your password at that moment. The token is not stored.",
+		Short: "Record your decision on a held operation (people only)",
+		Long: "Record your decision on a held operation, as the person your kubeconfig signs you in as. " +
+			"When the promoter asks for a fresh login (delivery.promoter.authFreshness), the command instead makes " +
+			"you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends " +
+			"the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot " +
+			"approve as you without you typing your password at that moment. The token is not stored.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			decision, _ := cmd.Flags().GetString("decision")
 			if !slices.Contains(deliveryDecisions, decision) {
 				return fmt.Errorf("--decision must be one of %s", strings.Join(deliveryDecisions, ", "))
 			}
-			issuer := v.GetString("delivery.oidc-issuer-url")
-			if issuer == "" {
-				return errors.New("approving needs a fresh login of your own: set --oidc-issuer-url (or " +
-					"PACTO_DELIVERY_OIDC_ISSUER_URL) to the identity provider the cluster trusts")
-			}
-			cluster, err := d.clusterConfig()
+			c, ns, err := deliveryClient(cmd, d)
 			if err != nil {
 				return err
 			}
-			ns, _ := cmd.Flags().GetString("namespace")
-			token, err := d.freshLogin(cmd.Context(), authn.FreshConfig{IssuerURL: issuer,
-				ClientID: v.GetString("delivery.oidc-client-id"), ClientSecret: v.GetString("delivery.oidc-client-secret"),
-				ExtraScopes: v.GetStringSlice("delivery.oidc-extra-scopes"), Port: v.GetInt("delivery.oidc-redirect-port"),
-				Prompt: func(u string) {
-					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "To record %s on %s/%s, log in again in your browser:\n\n  %s\n\n", decision, ns, args[0], u)
-				}})
-			if err != nil {
+			// A Stage the kubeconfig cannot read (one with no credentials at
+			// all, say) gets the fresh login: the safe way when in doubt.
+			freshness, err := c.Freshness(cmd.Context(), ns, args[0])
+			if err != nil && v.GetString("delivery.oidc-issuer-url") == "" {
 				return err
 			}
-			dyn, err := d.dynamicFor(authn.RESTConfig(cluster, token))
-			if err != nil {
-				return err
-			}
-			c, ns, err := deliveryClientFor(cmd, d, dyn)
-			if err != nil {
-				return err
+			if err != nil || freshness > 0 {
+				if c, err = freshClient(cmd, v, d, decision, ns, args[0]); err != nil {
+					return err
+				}
 			}
 			note, _ := cmd.Flags().GetString("note")
 			name, err := c.Approve(cmd.Context(), ns, args[0], delivery.Decision(decision), note)
