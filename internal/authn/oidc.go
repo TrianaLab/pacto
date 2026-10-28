@@ -70,8 +70,12 @@ type Config struct {
 	// ExtraScopes are added to openid, profile and groups (for example a
 	// cross-client audience scope, so the ID token names the CLI client too).
 	ExtraScopes []string
-	// Claims is how the cluster maps the ID token to a user; the fleet views
-	// ask Kubernetes RBAC about the person it names.
+	// Review asks the API server who an ID token is, at sign-in and on every
+	// refresh, so the session names the person as the cluster does. Nil (no
+	// cluster) or a review that fails names them with Claims instead.
+	Review TokenReview
+	// Claims is the cluster's claim mapping: who the ID token names when the
+	// API server cannot be asked.
 	Claims Claims
 	// Lifetime bounds every session.
 	Lifetime Lifetime
@@ -88,6 +92,11 @@ type Session struct {
 	expiry  time.Time
 	created time.Time
 	seen    time.Time
+	// person is who the cluster says the ID token is, resolved at sign-in
+	// and on every refresh.
+	person Person
+	// authTime is the ID token's auth_time, in Unix seconds.
+	authTime string
 	// CSRF is the token mutating requests must carry in CSRFHeader.
 	CSRF string
 	// refreshing lets one request at a time refresh the session, so a
@@ -101,8 +110,25 @@ func (s *Session) LogValue() slog.Value { return slog.StringValue("session") }
 // IDToken is the session's current ID token, the bearer of its requests.
 func (s *Session) IDToken() string { return s.idToken }
 
-// Person is who the cluster maps the session's ID token to.
-func (o *OIDC) Person(s *Session) Person { return o.cfg.Claims.Person(s.idToken) }
+// Person is who the cluster says the session's ID token is.
+func (s *Session) Person() Person { return s.person }
+
+// AuthTime is when the person last logged in at the identity provider, in
+// Unix seconds.
+func (s *Session) AuthTime() string { return s.authTime }
+
+// person asks the API server who raw is; without a cluster to ask, or when it
+// does not answer, the claim mapping names them.
+func (o *OIDC) person(ctx context.Context, raw string) Person {
+	if o.cfg.Review != nil {
+		p, err := o.cfg.Review(ctx, raw)
+		if err == nil && p.User != "" {
+			return p
+		}
+		slog.WarnContext(ctx, "the cluster did not say who a signed-in person is; naming them with the claim mapping", "error", err)
+	}
+	return o.cfg.Claims.Person(raw)
+}
 
 type provider struct {
 	oauth    oauth2.Config
@@ -310,7 +336,7 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	now := o.now()
 	s := &Session{id: random(32), idToken: raw, refresh: tok.RefreshToken, expiry: id.Expiry, created: now, seen: now,
-		CSRF: random(32), refreshing: &sync.Mutex{}}
+		person: o.person(r.Context(), raw), authTime: strconv.FormatInt(at.Unix(), 10), CSRF: random(32), refreshing: &sync.Mutex{}}
 	o.mu.Lock()
 	o.sessions[s.id] = s
 	o.mu.Unlock()
@@ -448,7 +474,7 @@ func (o *OIDC) renew(r *http.Request, s *Session, now time.Time) (Session, bool)
 		return cp, true
 	}
 	o.mu.Lock()
-	s.idToken, s.refresh, s.expiry = cp.idToken, cp.refresh, cp.expiry
+	s.idToken, s.refresh, s.expiry, s.person = cp.idToken, cp.refresh, cp.expiry, cp.person
 	o.mu.Unlock()
 	return cp, true
 }
@@ -471,7 +497,7 @@ func (o *OIDC) refreshSession(r *http.Request, s *Session) error {
 	if err != nil {
 		return fmt.Errorf("the refreshed ID token does not verify: %w", err)
 	}
-	s.idToken, s.expiry = raw, id.Expiry
+	s.idToken, s.expiry, s.person = raw, id.Expiry, o.person(r.Context(), raw)
 	if tok.RefreshToken != "" {
 		s.refresh = tok.RefreshToken
 	}

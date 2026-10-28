@@ -106,12 +106,16 @@ type State struct {
 	CSRF string
 	// Token is the bearer for the caller's own cluster requests (shared only).
 	Token string
-	// Person is who the cluster says the caller is (shared only): the ID
-	// token as the claim mapping names it, or what the API server answered
-	// for a pasted token.
+	// Person is who the cluster says the caller is: what the API server
+	// answered for the session's token, or for the kubeconfig in local mode.
+	// Only an OIDC session the API server cannot be asked about is named
+	// with the claim mapping.
 	Person Person
 	// Method is how the caller signed in: "oidc" or "token" (shared only).
 	Method string
+	// AuthTime is when the caller last logged in at the identity provider,
+	// in Unix seconds, when known.
+	AuthTime string
 }
 
 type stateKey struct{}
@@ -249,7 +253,7 @@ func refuseShared(r *http.Request, st State, hasCookie bool) string {
 func (d *Dashboard) sessionState(r *http.Request) State {
 	if d.oidc != nil {
 		if s := d.oidc.Session(r); s != nil {
-			return State{SignedIn: true, CSRF: s.CSRF, Token: s.IDToken(), Person: d.oidc.Person(s), Method: "oidc"}
+			return State{SignedIn: true, CSRF: s.CSRF, Token: s.IDToken(), Person: s.Person(), Method: "oidc", AuthTime: s.AuthTime()}
 		}
 	}
 	if d.tokens != nil {

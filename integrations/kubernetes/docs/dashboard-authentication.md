@@ -132,9 +132,11 @@ records unverified and every answer says it is partial.
 
 ## Match the API server's claim mapping
 
-The API server decides who a token is. The dashboard asks RBAC about the same
-person, so its claim mapping must equal the API server's. With the defaults
-above, the API server's
+The API server decides who a token is. At sign-in and on every renewal the
+dashboard asks it (SelfSubjectReview) with the person's ID token, and every
+view uses the answer. The claim mapping names the person only while the API
+server does not accept the ID token, for example before it trusts the issuer,
+so it must equal the API server's. With the defaults above, the API server's
 [structured authentication](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#using-authentication-configuration)
 reads:
 
@@ -148,8 +150,8 @@ jwt:
     groups: {claim: groups, prefix: ""}
 ```
 
-A mismatch shows as the wrong fleet: the views ask about a user the API server
-never sees. To check, sign in and compare the header with `kubectl auth whoami`
+Then a mismatch shows as the wrong fleet: the views ask about a user the API
+server never sees. To check, sign in and compare the header with `kubectl auth whoami`
 run with a token from the same issuer. The dashboard drops any group starting
 with `system:` from a token, as the API server does.
 

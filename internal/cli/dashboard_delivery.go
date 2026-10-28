@@ -48,6 +48,12 @@ type dashboardIdentity struct {
 	viewer *authn.Viewer
 	// loginName is the identity provider's name on the sign-in button.
 	loginName string
+	// selfMu guards the kubeconfig user a local dashboard acts as (see
+	// localSelf) and when it was last asked.
+	selfMu       sync.Mutex
+	self         authn.Person
+	selfAuthTime string
+	selfAt       time.Time
 
 	// probe guards the discovery answer; mu guards revisions. A slow cluster
 	// never holds up describe.

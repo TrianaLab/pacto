@@ -44,6 +44,9 @@ type AuthState struct {
 	Groups []string
 	// Method is how the caller signed in: "oidc" or "token".
 	Method string
+	// AuthTime is when the caller last logged in at the identity provider,
+	// in Unix seconds, when known.
+	AuthTime string
 }
 
 type requestKey struct{}

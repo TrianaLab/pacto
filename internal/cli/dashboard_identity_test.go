@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -123,16 +124,20 @@ func TestTokenName(t *testing.T) {
 	} {
 		expect(t, tokenName(c.token) == c.want, "tokenName(%q) = %q, want %q", c.token, tokenName(c.token), c.want)
 	}
-	id, _ := localAPI(t)
+	v := viper.New()
+	v.Set("dashboard.oidc-issuer-url", "https://idp.example")
+	v.Set("dashboard.oidc-client-id", "pacto-dashboard")
+	v.Set("dashboard.oidc-redirect-url", "https://dash.example/auth/callback")
+	id := identityFor(t, v, "0.0.0.0", nil)
 	id.state = func(context.Context) authn.State {
-		return authn.State{SignedIn: true, Token: tok(`{"name":"Carol"}`), Method: "oidc",
+		return authn.State{SignedIn: true, Token: tok(`{"name":"Carol"}`), Method: "oidc", AuthTime: "1800000000",
 			Person: authn.Person{User: "https://idp#carol", Groups: []string{"orders"}}}
 	}
 	o := &dashboard.Options{}
 	id.options(o)
 	st := o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil))
 	expect(t, st.Name == "Carol", "the session carries the token's name")
-	expect(t, st.User == "https://idp#carol" && len(st.Groups) == 1 && st.Groups[0] == "orders" && st.Method == "oidc",
+	expect(t, st.User == "https://idp#carol" && len(st.Groups) == 1 && st.Groups[0] == "orders" && st.Method == "oidc" && st.AuthTime == "1800000000",
 		"the session names the person as the cluster does: %+v", st)
 }
 
@@ -212,4 +217,40 @@ func TestClusterReview(t *testing.T) {
 	if err != nil || !ok {
 		t.Errorf("review through the cluster: %v %v", ok, err)
 	}
+}
+
+// A local dashboard names the kubeconfig user as the API server does, asked
+// once; a failure is asked again after failureTTL.
+func TestLocalDashboardNamesTheKubeconfigUser(t *testing.T) {
+	id := identityFor(t, viper.New(), "127.0.0.1", &rest.Config{Host: "https://k"})
+	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, CSRF: "c"} }
+	base := time.Now()
+	id.now = func() time.Time { return base }
+	next := id.newClient
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("bad config") }
+	var o dashboard.Options
+	id.options(&o)
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	expect(t, o.Auth.State(r).User == "", "a client that cannot be built names nobody")
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) {
+		c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("connection refused")
+		})
+		return c, nil
+	}
+	id.now = func() time.Time { return base.Add(failureTTL + time.Second) }
+	expect(t, o.Auth.State(r).User == "", "a review that fails names nobody")
+	id.newClient = next
+	expect(t, o.Auth.State(r).User == "", "a failure is not asked again at once")
+	id.now = func() time.Time { return base.Add(2 * (failureTTL + time.Second)) }
+	st := o.Auth.State(r)
+	expect(t, st.User == "alice" && st.Groups[0] == "team-payments" && st.AuthTime != "", "then the kubeconfig user: %+v", st)
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) { t.Fatal("asked again"); return nil, nil }
+	expect(t, o.Auth.State(r).User == "alice", "the answer is kept")
+	none := identityFor(t, viper.New(), "127.0.0.1", nil)
+	none.state = id.state
+	o = dashboard.Options{}
+	none.options(&o)
+	expect(t, o.Auth.State(r).User == "", "no cluster names nobody")
 }

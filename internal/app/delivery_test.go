@@ -16,6 +16,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
@@ -385,7 +386,7 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
 	})
 	ctx := context.Background()
-	d, c, _ := deliveryFixture(t, "alice", []string{"devs"}, map[string]any{authTimeExtra: []any{"2027-01-15T07:55:00Z"}}, op)
+	d, c, _ := deliveryFixture(t, "alice", []string{"devs"}, map[string]any{authn.AuthTimeExtra: []any{"2027-01-15T07:55:00Z"}}, op)
 	who, err := d.WhoAmI(ctx)
 	if err != nil || who.User != "alice" || who.Class != delivery.ClassHuman || who.AuthTime != "2027-01-15T07:55:00Z" {
 		t.Fatalf("whoami: %+v %v", who, err)
@@ -488,18 +489,18 @@ func TestDeliveryApproveRefusals(t *testing.T) {
 	wantErrContaining(t, err, "fresh interactive login")
 	// The promoter's own rule decides before anything is created: a login
 	// too old, the asker deciding their own change, an operation not held.
-	d, _ = fixture("bob", map[string]any{authTimeExtra: []any{"1"}}, op)
+	d, _ = fixture("bob", map[string]any{authn.AuthTimeExtra: []any{"1"}}, op)
 	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
 	wantErrContaining(t, err, "would not count this decision, so none was recorded: bob's login was not within 15m0s")
-	d, _, _ = deliveryFixture(t, "bot", nil, map[string]any{authTimeExtra: []any{"1800000000"}}, op)
+	d, _, _ = deliveryFixture(t, "bot", nil, map[string]any{authn.AuthTimeExtra: []any{"1800000000"}}, op)
 	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
 	wantErrContaining(t, err, "bot asked for this change")
 	running := op.DeepCopy()
 	_ = unstructured.SetNestedField(running.Object, "Running", "status", "phase")
-	d, _, _ = deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1800000000"}}, running)
+	d, _, _ = deliveryFixture(t, "bob", nil, map[string]any{authn.AuthTimeExtra: []any{"1800000000"}}, running)
 	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
 	wantErrContaining(t, err, "not waiting for a decision")
-	d, c, _ := deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1800000000"}}, op)
+	d, c, _ := deliveryFixture(t, "bob", nil, map[string]any{authn.AuthTimeExtra: []any{"1800000000"}}, op)
 	c.PrependReactor("create", "approvals", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("denied")
 	})
