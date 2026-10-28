@@ -141,7 +141,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. "+
 			"Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson "+
 			"secrets; later Secrets override earlier ones for the same registry.")
-	bindResourceFlags(fs, &o.dashboardResources, "dashboard", "dashboard", "50m", "200m", "128Mi", "512Mi")
+	bindResourceFlags(fs, &o.dashboardResources, "dashboard", "dashboard")
 	fs.Func("dashboard-trace-source",
 		"Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as "+
 			"name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source "+
@@ -267,10 +267,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	o.zap.BindFlags(fs)
 }
 
-// bindResourceFlags registers --<prefix>-{cpu,memory}-{request,limit} for one component's container. examples,
-// when given, are the cpu-request, cpu-limit, memory-request and memory-limit values the help shows.
-func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, container string, examples ...string) {
-	for i, f := range []struct {
+// bindResourceFlags registers --<prefix>-{cpu,memory}-{request,limit} for one component's container.
+func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, container string) {
+	for _, f := range []struct {
 		name, resource, kind string
 		into                 *string
 	}{
@@ -279,11 +278,7 @@ func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, contai
 		{"memory-request", "Memory", "request", &rc.MemoryRequest},
 		{"memory-limit", "Memory", "limit", &rc.MemoryLimit},
 	} {
-		example := ""
-		if i < len(examples) {
-			example = " (e.g. " + examples[i] + ")"
-		}
-		help := fmt.Sprintf("%s %s for the %s container%s.", f.resource, f.kind, container, example)
+		help := fmt.Sprintf("%s %s for the %s container.", f.resource, f.kind, container)
 		fs.StringVar(f.into, prefix+"-"+f.name, "", help+" Empty uses the built-in default.")
 	}
 }
