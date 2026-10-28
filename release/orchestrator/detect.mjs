@@ -14,13 +14,9 @@
 //     transaction and rejects anything that would publish something new.
 import { readFileSync, appendFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { manifestSha } from './canonical.mjs';
 
 const SCHEMA = 'pacto-release-transaction/v1';
-
-const stable = (v) => Array.isArray(v) ? v.map(stable)
-  : (v && typeof v === 'object'
-    ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])])) : v);
 
 function valid(txn) {
   return !!txn && txn.schema === SCHEMA && Array.isArray(txn.changedUnits);
@@ -66,7 +62,7 @@ export function decideRecovery(txn, input, manifestVersions) {
   }
   // manifest must match the transaction's recorded shape (poisoned/rolled manifest).
   if (manifestVersions) {
-    const got = createHash('sha256').update(JSON.stringify(stable(manifestVersions))).digest('hex');
+    const got = manifestSha(manifestVersions);
     if (got !== txn.manifestSha) {
       return { ok: false, reason: 'manifestSha mismatch: manifest does not match the transaction' };
     }

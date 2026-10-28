@@ -64,7 +64,7 @@ To build and test the Go engine:
    ```bash
    make test              # unit tests
    make test-integration  # in-process CLI integration suite (build tag `integration`)
-   make lint              # gofmt + go vet
+   make lint              # gofmt, go vet and the U+00A7 gate, failing as CI does
    make coverage          # coverage report with HTML output
    ```
 

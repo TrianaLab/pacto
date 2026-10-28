@@ -91,7 +91,7 @@ echo "   OK recovery-refused: mismatched transactionId rejected (no second relea
 echo "== build + push the operator image (production root context) =="
 docker build -f "$ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$DV" -t "$OPIMG" "$ROOT"
 docker push "$OPIMG" >/dev/null
-digest() { crane digest --insecure "$1" 2>/dev/null || crane digest "$1"; }
+digest() { bash "$ROOT/release/orchestrator/verify-oci.sh" --digest "$1"; }
 OPDIGEST="$(digest "$OPIMG")"
 echo "   operator image digest: $OPDIGEST"
 
@@ -147,7 +147,7 @@ led() { bash "$ROOT/release/orchestrator/ledger.sh" "$@"; }
 vfy() { bash "$ROOT/release/orchestrator/verify-oci.sh" "$@"; }
 TXN="dryrun-$(git -C "$ROOT" rev-parse --short HEAD)"
 export PACTO_RELEASE_TXN="$TXN"
-MSHA="$(node -e 'const c=require("crypto"),fs=require("fs");const m=JSON.parse(fs.readFileSync("'"$ROOT"'/release/release-manifest.json"));const nv=Object.fromEntries(Object.entries(m.units).map(([u,v])=>[u,v.version]));const st=v=>Array.isArray(v)?v.map(st):(v&&typeof v=="object"?Object.fromEntries(Object.keys(v).sort().map(k=>[k,st(v[k])])):v);process.stdout.write(c.createHash("sha256").update(JSON.stringify(st(nv))).digest("hex"))')"
+MSHA="$(node --input-type=module -e 'import { readFileSync } from "node:fs"; const root = process.argv[1]; const { manifestSha } = await import(root + "/release/orchestrator/canonical.mjs"); const m = JSON.parse(readFileSync(root + "/release/release-manifest.json")); process.stdout.write(manifestSha(Object.fromEntries(Object.entries(m.units).map(([u, v]) => [u, v.version]))))' "$ROOT")"
 led init "$TXN" "$SHA" "$MSHA" >/dev/null
 
 # Publish EACH unit through the EXACT shared adapter release.yml uses

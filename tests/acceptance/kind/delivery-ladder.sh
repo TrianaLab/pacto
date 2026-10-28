@@ -44,7 +44,7 @@ phase_ladder() {
   proposes() { [ "$(st '.status.proposal.level // ""')" = "$1" ]; }
   ready_reason() { [ "$(st '.status.conditions[] | select(.type == "Ready") | .reason')" = "$1" ]; }
   no_ops() { [ "$(ops "$L" | jq '.items | length')" = 0 ]; }
-  no_promote_of() { [ -z "$(op_to "$L" "$1")" ]; }
+  no_promote_of() { [ -z "$(op_to "$L" wallet "$1")" ]; }
 
   W1="$(publish W1 "$W100" wallet)"; candidate W1 wallet; applied W1
   kubectl -n "$L" apply -f - >/dev/null <<YAML
@@ -96,7 +96,7 @@ YAML
 
   section "GitOps bumps the version: no freeze, a shadow entry, a verify"
   W2="$(publish W2 "$W110" wallet)"; candidate W2 wallet
-  eventually 60 published_in "$L" "$W2" wallet || fail "W2 was never verified as published"
+  eventually 60 published_in "$L" wallet "$W2" || fail "W2 was never verified as published"
   applied W2
   eventually 60 observed_is "$W2" || fail "the Stage never observed W2"
   eventually 30 seen_at "$W2" || fail "no shadow entry for W2 with observedAt: $(st .status.shadow)"
@@ -135,7 +135,7 @@ YAML
 
   section "a person's verified promote on advise earns auto-nonbreaking, which a person confirms"
   W3="$(publish W3 "$W130" wallet)"; candidate W3 wallet
-  eventually 60 published_in "$L" "$W3" wallet || fail "W3 was never verified as published"
+  eventually 60 published_in "$L" wallet "$W3" || fail "W3 was never verified as published"
   always 3 no_promote_of "$W3" || fail "an advise Stage promoted W3 by itself"
   as_person alice "$T" propose -n "$L" --stage wallet --to "$W3" --name wallet-w3 --reason "phase 7" >/dev/null
   wait_concluded "$L" wallet-w3 Succeeded/Verified
@@ -152,7 +152,7 @@ YAML
   [ "$(field "$L" "$up" plan.floor.decision)" = accept-unknown ] || fail "an unearned raise did not ask to accept the unknown"
   W4="$(publish W4 "$W200" wallet)"; candidate W4 wallet
   local OP4 SD
-  OP4="$(wait_op "$L" "$W4")"
+  OP4="$(wait_op "$L" wallet "$W4")"
   wait_concluded "$L" "$OP4" Failed/
   [ "$(field "$L" "$OP4" actorClass)" = controller ] || fail "W4 was not promoted by the promoter"
   SD="$OP4-stepdown"

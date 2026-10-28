@@ -46,8 +46,12 @@ updates:
     # Majors outside the two pinned sets arrive one PR at a time, on purpose:
     # each one is a read of a changelog, not a merge button.
 
+  # "/" covers .github/workflows only; the composite actions under
+  # .github/actions/* pin their own actions and drift unless listed too.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: "weekly"
     rebase-strategy: "auto"

@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { stable, sha256Stable, manifestSha as manifestShaOf } from '../orchestrator/canonical.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const unitsDir = join(root, 'release', 'units');
@@ -149,15 +149,6 @@ function buildPlan(u) {
   return plan;
 }
 
-// Stable stringify (sorted keys) for byte-identical output.
-function stable(v) {
-  if (Array.isArray(v)) return v.map(stable);
-  if (v && typeof v === 'object') {
-    return Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])]));
-  }
-  return v;
-}
-
 // buildTransaction — the release-ready plan.
 // It is the ONLY source of release intent: publishing keys off `ready` +
 // `changedUnits`, never off a file diff. `changedUnits` is every unit whose
@@ -196,10 +187,8 @@ function buildTransaction(plan, units, prev) {
   const previousVersions = {};
   for (const u of Object.keys(newVersions)) previousVersions[u] = prev[u] ?? null;
 
-  const sha16 = (obj) => createHash('sha256')
-    .update(JSON.stringify(stable(obj))).digest('hex').slice(0, 16);
-  const manifestSha = createHash('sha256')
-    .update(JSON.stringify(stable(newVersions))).digest('hex');
+  const sha16 = (obj) => sha256Stable(obj).slice(0, 16);
+  const manifestSha = manifestShaOf(newVersions);
   const transactionId = changedUnits.length
     ? sha16({ changedUnits, newVersions, previousVersions }) : '';
 

@@ -49,7 +49,14 @@ UNIT="${1:?unit}"; REF="${2:?ref}"; VER="${3:?version}"; shift 3
 TXN="$PACTO_RELEASE_TXN"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 led() { "$DIR/ledger.sh" "$@"; }
-digest() { crane digest "$1" 2>/dev/null || crane digest --insecure "$1" 2>/dev/null; }
+# digest <ref>: the remote digest, read the strict way verify-oci.sh reads it (an
+# unreadable registry fails with crane's error). Something we just pushed or just
+# verified is there, so an empty answer is a failure too, never a digest to record.
+digest() {
+  local d; d="$("$DIR/verify-oci.sh" --digest "$1")"
+  [ -n "$d" ] || { echo "::error::$UNIT: no manifest at $1 to record" >&2; exit 1; }
+  printf '%s' "$d"
+}
 # is_expected_content <ref>: does what is at <ref> RIGHT NOW have the native Compose
 # identity this unit says it published? Answered by verify-oci.sh — the one place the
 # identity is defined — rather than by a second, inevitably weaker, copy here.

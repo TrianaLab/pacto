@@ -516,10 +516,8 @@ def controller_help(repo_root: str) -> str:
 def parse_flags(help_text: str) -> list[dict]:
     """Parse `flag`-style --help output into {name, type, default, description}."""
     flags: list[dict] = []
-    lines = help_text.splitlines()
-    i = 0
     cur = None
-    for line in lines:
+    for line in help_text.splitlines():
         m = re.match(r"^  -(\S+)(?:\s+(\S.*))?$", line)
         if m:
             if cur:

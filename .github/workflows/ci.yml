@@ -199,11 +199,12 @@ jobs:
               - 'pkg/dashboard/ui/**'
               - 'pkg/dashboard/frontend/e2e-live/**'
               - 'examples/story/**'
-              # delivery-demo.sh sources lib.sh and delivery-identity.sh, and
-              # delivery-demo.yml runs it through kind-run.sh.
+              # delivery-demo.sh sources lib.sh, delivery-identity.sh and
+              # delivery-lib.sh, and delivery-demo.yml runs it through kind-run.sh.
               - 'tests/acceptance/kind/lib.sh'
               - 'tests/acceptance/kind/delivery-demo.sh'
               - 'tests/acceptance/kind/delivery-identity.sh'
+              - 'tests/acceptance/kind/delivery-lib.sh'
               - 'scripts/ci/kind-run.sh'
               - 'tests/acceptance/kind/fixtures/delivery-demo/**'
               - '.github/workflows/delivery-demo.yml'
@@ -437,7 +438,7 @@ jobs:
         uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
       - name: Install kind (checksum-verified via GOSUMDB)
         timeout-minutes: 5
-        run: bash release/scripts/retry.sh go install sigs.k8s.io/kind@v0.30.0
+        run: make kind-install
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Run the scenario
@@ -507,7 +508,7 @@ jobs:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Install kind (checksum-verified via GOSUMDB)
         timeout-minutes: 5
-        run: bash release/scripts/retry.sh go install sigs.k8s.io/kind@v0.30.0
+        run: make kind-install
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
