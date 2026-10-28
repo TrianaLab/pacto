@@ -207,6 +207,12 @@ func TestPlanRollbackAConsumerDoesNotAccept(t *testing.T) {
 		Snapshot: snap, Class: ClassAgent}); p.Predicted != PredictProceeds {
 		t.Fatalf("an accepted rollback: %+v", p)
 	}
+	// A rollback that stays Unknown after it shipped is held for the team of
+	// the service running now, so the promoter's own rollback names it too.
+	if p := PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: from, To: to,
+		Snapshot: snap, Class: ClassController}); p.Floor.Human || strings.Join(p.Floor.Owners, ",") != "team-payments" {
+		t.Fatalf("a rollback routes to the service's team: %+v", p.Floor)
+	}
 	if p := PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: Revision{Digest: dB},
 		To: to, Snapshot: snap, Class: ClassAgent}); p.Predicted != PredictProceeds {
 		t.Fatalf("an unreadable side: %+v", p)

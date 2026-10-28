@@ -134,6 +134,7 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 		routeToServiceTeam(in, &p)
 	case TypeRollback:
 		rollbackImpact(ctx, in, &p)
+		routeToServiceTeam(in, &p)
 	}
 	holdForRecords(in, &p)
 	p.Predicted = predict(in, &p)
