@@ -803,6 +803,11 @@ function entityNodes(cy: Core): cytoscape.NodeCollection {
   return cy.nodes('[lane = 0]');
 }
 
+// hasLanes reports whether the graph is laid out in lanes (it carries lane boxes).
+function hasLanes(cy: Core): boolean {
+  return cy.nodes('[lane = 1]').nonempty();
+}
+
 // snapshotSpatial is the graph's presentation geometry: where each entity sits and how
 // the viewport looks at them.
 function snapshotSpatial(cy: Core): SpatialState {
@@ -826,6 +831,85 @@ function restoreSavedPositions(cy: Core, saved: Record<string, { x: number; y: n
     });
   });
   return restored;
+}
+
+// How far a brand-new node sits from the neighbor it attaches to.
+const NEW_NODE_OFFSET = 150;
+
+// placeNewNodes gives nodes that have no position yet a deterministic spot beside the
+// neighbors they connect to, WITHOUT touching anything already placed. Running a full
+// layout instead would be less code and would also move every surviving node -- which
+// is the exact regression this exists to prevent.
+function placeNewNodes(cy: Core, fresh: Set<string>): void {
+  if (!fresh.size) return;
+  if (hasLanes(cy)) { placeInLanes(cy, fresh); return; }
+  const settled = cy.nodes().filter((n) => !fresh.has(n.id()));
+  const bb = settled.nonempty() ? settled.boundingBox() : null;
+  const center = bb ? { x: bb.x1 + bb.w / 2, y: bb.y1 + bb.h / 2 } : { x: 0, y: 0 };
+  const radius = bb ? Math.max(200, bb.w / 2 + 140) : 200;
+  const ids = [...fresh].sort(); // stable: the same new set always lands the same way
+  cy.batch(() => {
+    ids.forEach((id, i) => {
+      const n = cy.getElementById(id);
+      if (n.empty()) return;
+      const angle = (i * 2 * Math.PI) / ids.length;
+      const anchors = n.neighborhood('node').filter((m) => !fresh.has(m.id()));
+      if (anchors.nonempty()) {
+        let sx = 0;
+        let sy = 0;
+        anchors.forEach((m) => { sx += m.position('x'); sy += m.position('y'); });
+        const ax = sx / anchors.size();
+        const ay = sy / anchors.size();
+        n.position({ x: ax + Math.cos(angle) * NEW_NODE_OFFSET, y: ay + Math.sin(angle) * NEW_NODE_OFFSET });
+      } else {
+        // Nothing to attach to: park it on a ring outside the settled graph, where it
+        // is visible as an arrival rather than buried under the existing arrangement.
+        n.position({ x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius });
+      }
+    });
+  });
+}
+
+// alignLaneEdges makes the one edge a group draws to its lane run straight across: it
+// leaves the lane's outer side at the group's height (clamped to the lane), instead of
+// every group's line converging on the lane's centre where their labels would pile up.
+function alignLaneEdges(cy: Core): void {
+  cy.edges('[elabel]').forEach((e) => {
+    const laneIsSource = !!e.source().data('lane');
+    const lane = laneIsSource ? e.source() : e.target();
+    if (!lane.data('lane')) return;
+    const other = laneIsSource ? e.target() : e.source();
+    // An endpoint is measured from the lane's own centre, which is not the middle of its
+    // bounding box: that one also wraps the lane's name.
+    const half = Math.max(0, lane.height() / 2 - 12);
+    const dy = Math.round(Math.max(-half, Math.min(half, other.position('y') - lane.position('y'))));
+    // Both ends: left alone, the group's end aims at the lane's centre and the line slants.
+    const out = lane.data('side') < 0 ? '-50%' : '50%';
+    const into = lane.data('side') < 0 ? '50%' : '-50%';
+    e.style(laneIsSource ? 'source-endpoint' : 'target-endpoint', `${out} ${dy}px`);
+    e.style(laneIsSource ? 'target-endpoint' : 'source-endpoint', `${into} ${Math.round(Math.max(-14, Math.min(14, lane.position('y') + dy - other.position('y'))))}px`);
+  });
+}
+
+// placeInLanes puts each arrival in its own lane column, under the lowest node already
+// there; an arrival with no column yet opens one outside that side's outermost column.
+function placeInLanes(cy: Core, fresh: Set<string>): void {
+  const settled = entityNodes(cy).filter((n) => !fresh.has(n.id()));
+  cy.batch(() => {
+    for (const id of [...fresh].sort()) {
+      const n = cy.getElementById(id);
+      const side = n.data('side') || 1;
+      const peers = settled.filter((m) => m.data('side') === n.data('side') && m.data('depth') === n.data('depth'));
+      if (peers.nonempty()) {
+        const low = peers.max((m) => (m as NodeSingular).position('y')).ele as NodeSingular;
+        n.position({ x: low.position('x'), y: low.position('y') + LANE_ROW });
+      } else {
+        const outer = Math.max(0, ...settled.filter((m) => (m.data('side') || 0) === side).map((m) => Math.abs((m as NodeSingular).position('x'))));
+        n.position({ x: side * (outer + LANE_GAP + LANE_COL), y: 0 });
+      }
+      settled.merge(n);
+    }
+  });
 }
 
 export function renderGraph(
@@ -872,7 +956,7 @@ export function renderGraph(
 
   // A focused neighborhood arrives with lane boxes (see laneGraph) and is laid out in
   // lanes. The boxes are scaffolding: never counted, saved, hovered or selected.
-  const lanes = (): boolean => cy.nodes('[lane = 1]').nonempty();
+  const lanes = (): boolean => hasLanes(cy);
   const entities = () => entityNodes(cy);
 
   // ── Dimming state ────────────────────────────────────────────────────────
@@ -1103,84 +1187,8 @@ export function renderGraph(
     spatialTimer = setTimeout(() => onSpatialChange(snapshotSpatial(cy)), 250);
   }
 
-  // How far a brand-new node sits from the neighbor it attaches to.
-  const NEW_NODE_OFFSET = 150;
 
-  // placeNewNodes gives nodes that have no position yet a deterministic spot beside the
-  // neighbors they connect to, WITHOUT touching anything already placed. Running a full
-  // layout instead would be less code and would also move every surviving node -- which
-  // is the exact regression this exists to prevent.
-  function placeNewNodes(fresh: Set<string>): void {
-    if (!fresh.size) return;
-    if (lanes()) { placeInLanes(fresh); return; }
-    const settled = cy.nodes().filter((n) => !fresh.has(n.id()));
-    const bb = settled.nonempty() ? settled.boundingBox() : null;
-    const center = bb ? { x: bb.x1 + bb.w / 2, y: bb.y1 + bb.h / 2 } : { x: 0, y: 0 };
-    const radius = bb ? Math.max(200, bb.w / 2 + 140) : 200;
-    const ids = [...fresh].sort(); // stable: the same new set always lands the same way
-    cy.batch(() => {
-      ids.forEach((id, i) => {
-        const n = cy.getElementById(id);
-        if (n.empty()) return;
-        const angle = (i * 2 * Math.PI) / ids.length;
-        const anchors = n.neighborhood('node').filter((m) => !fresh.has(m.id()));
-        if (anchors.nonempty()) {
-          let sx = 0;
-          let sy = 0;
-          anchors.forEach((m) => { sx += m.position('x'); sy += m.position('y'); });
-          const ax = sx / anchors.size();
-          const ay = sy / anchors.size();
-          n.position({ x: ax + Math.cos(angle) * NEW_NODE_OFFSET, y: ay + Math.sin(angle) * NEW_NODE_OFFSET });
-        } else {
-          // Nothing to attach to: park it on a ring outside the settled graph, where it
-          // is visible as an arrival rather than buried under the existing arrangement.
-          n.position({ x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius });
-        }
-      });
-    });
-  }
 
-  // alignLaneEdges makes the one edge a group draws to its lane run straight across: it
-  // leaves the lane's outer side at the group's height (clamped to the lane), instead of
-  // every group's line converging on the lane's centre where their labels would pile up.
-  function alignLaneEdges(): void {
-    cy.edges('[elabel]').forEach((e) => {
-      const laneIsSource = !!e.source().data('lane');
-      const lane = laneIsSource ? e.source() : e.target();
-      if (!lane.data('lane')) return;
-      const other = laneIsSource ? e.target() : e.source();
-      // An endpoint is measured from the lane's own centre, which is not the middle of its
-      // bounding box: that one also wraps the lane's name.
-      const half = Math.max(0, lane.height() / 2 - 12);
-      const dy = Math.round(Math.max(-half, Math.min(half, other.position('y') - lane.position('y'))));
-      // Both ends: left alone, the group's end aims at the lane's centre and the line slants.
-      const out = lane.data('side') < 0 ? '-50%' : '50%';
-      const into = lane.data('side') < 0 ? '50%' : '-50%';
-      e.style(laneIsSource ? 'source-endpoint' : 'target-endpoint', `${out} ${dy}px`);
-      e.style(laneIsSource ? 'target-endpoint' : 'source-endpoint', `${into} ${Math.round(Math.max(-14, Math.min(14, lane.position('y') + dy - other.position('y'))))}px`);
-    });
-  }
-
-  // placeInLanes puts each arrival in its own lane column, under the lowest node already
-  // there; an arrival with no column yet opens one outside that side's outermost column.
-  function placeInLanes(fresh: Set<string>): void {
-    const settled = entities().filter((n) => !fresh.has(n.id()));
-    cy.batch(() => {
-      for (const id of [...fresh].sort()) {
-        const n = cy.getElementById(id);
-        const side = n.data('side') || 1;
-        const peers = settled.filter((m) => m.data('side') === n.data('side') && m.data('depth') === n.data('depth'));
-        if (peers.nonempty()) {
-          const low = peers.max((m) => (m as NodeSingular).position('y')).ele as NodeSingular;
-          n.position({ x: low.position('x'), y: low.position('y') + LANE_ROW });
-        } else {
-          const outer = Math.max(0, ...settled.filter((m) => (m.data('side') || 0) === side).map((m) => Math.abs((m as NodeSingular).position('x'))));
-          n.position({ x: side * (outer + LANE_GAP + LANE_COL), y: 0 });
-        }
-        settled.merge(n);
-      }
-    });
-  }
 
   // A fit is allowed to zoom OUT until the whole graph is in frame, and on a wide fleet
   // or a phone that lands somewhere around 0.15 -- node labels stop being text and the
@@ -1228,7 +1236,7 @@ export function renderGraph(
         cy.nodes().forEach((n) => { const p = rows.get(n.id()); if (p) n.position(p); });
         if (cy.edges().length > 80) cy.edges().addClass('pacto-dense');
       });
-      alignLaneEdges(); // after the batch: a lane's box is only measured once its nodes moved
+      alignLaneEdges(cy); // after the batch: a lane's box is only measured once its nodes moved
       fitView(0);
       settle();
       emitSpatial();
@@ -1272,8 +1280,8 @@ export function renderGraph(
     // and the saved viewport (if any) is restored rather than re-fitted.
     const fresh = new Set<string>();
     entities().forEach((n) => { if (!restored.has(n.id())) fresh.add(n.id()); });
-    placeNewNodes(fresh);
-    alignLaneEdges();
+    placeNewNodes(cy, fresh);
+    alignLaneEdges(cy);
     if (savedViewport && Number.isFinite(savedViewport.zoom) && savedViewport.zoom > 0) {
       suppressViewport(150);
       cy.zoom(savedViewport.zoom);
@@ -1410,7 +1418,7 @@ export function renderGraph(
       runLayout();
       return;
     }
-    placeNewNodes(fresh);
+    placeNewNodes(cy, fresh);
     fresh.forEach((id) => restored.add(id)); // now arranged; a later refresh must keep it
     if (filterFn) applyFilter(filterFn);
     else applyDimming();
