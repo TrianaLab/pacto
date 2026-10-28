@@ -1,5 +1,267 @@
 # @pacto/k8s-module
 
+## 6.1.0
+
+### Minor Changes
+
+- 407c06e: The `pacto-operator` chart renders every CRD as a template from
+  `files/crds/`, which `make sync-crds` fills from `config/crd/bases`. `helm
+  upgrade` now updates the `Pacto`, `PactoRevision` and `NodeRuntimeObservation`
+  CRDs and adds new ones, and `helm uninstall` keeps every CRD
+  (`helm.sh/resource-policy: keep`). The delivery CRDs still follow
+  `delivery.enabled`. Set `crds.install=false` to manage the CRDs yourself.
+  
+  **Upgrading:** CRDs an older chart installed from its `crds/` directory are not
+  part of the release, so `helm upgrade` stops with `invalid ownership metadata`.
+  Label and annotate them for your release once, as
+  [Upgrade the operator](https://pacto.run/latest/integrations/kubernetes/upgrade/#hand-older-crds-to-helm)
+  shows, then upgrade.
+- 407c06e: The `pacto-operator` chart has a `global` block shared by every workload it
+  runs (the controller, the delivery promoter and the recorder):
+  `global.imageRegistry` (default `ghcr.io`), `global.imagePullSecrets`,
+  `global.commonLabels`, `global.podSecurityContext` and
+  `global.securityContext`. A component's own `podSecurityContext` or
+  `securityContext` replaces the global one, and its `imagePullSecrets` follow
+  the global ones. The delivery pods take `delivery.podAnnotations` and
+  `delivery.podLabels`.
+  
+  **Changed values:** `image.repository` and `delivery.image.repository` no
+  longer carry the registry (`trianalab/pacto/operator`,
+  `trianalab/pacto/delivery`). Set `image.registry` or
+  `delivery.image.registry` for one image, `global.imageRegistry` for all, or
+  `global.imageRegistry=""` to give each repository as a whole reference. A
+  repository that already starts with a registry host (`ghcr.io/...`,
+  `localhost:5001/...`) stays the whole reference, so older values keep working. The
+  top-level `podSecurityContext` and `securityContext`, and their `delivery.`
+  counterparts, default to empty and fall back to the global ones.
+- 407c06e: The `pacto-operator` chart can install [zot](https://zotregistry.dev) and
+  [Dex](https://dexidp.io) from their official charts (`zot.enabled`,
+  `dex.enabled`, both off by default). The chart ships the profile
+  `values-quickstart.yaml`, which turns both on for an evaluation cluster: zot
+  holds the delivery record streams, Dex signs people in to the dashboard and
+  the chart generates the dashboard's client secret, the first sign-in password
+  and the recorder's signing key (`delivery.recorder.signing.ed25519.generate`)
+  at install. See
+  [Quickstart with a bundled registry and sign-in](https://pacto.run/latest/integrations/kubernetes/quickstart/).
+- 407c06e: A dashboard people sign in to now reads delivery Stages and Operations from one
+  shared cache, which its ServiceAccount lists and watches, instead of listing
+  them again with every person's token. Each person sees only what their own
+  RBAC allows: the dashboard asks the API server who their token is and, with a
+  SubjectAccessReview, whether they may make the same list or get, keeping each
+  answer 10 seconds; a list across every namespace needs a cluster-wide allow.
+  Every action (propose, approve, cancel, roll back, unfreeze) and every read it
+  is built on still uses the person's own token, and the dashboard reads with
+  that token until the cache has loaded and for a moment after the person
+  changes something. With 2,000 Stages and 10,000 Operations, fifty people
+  opening the inbox at once wait about a second instead of 12. The operator
+  grants the dashboard's ServiceAccount get, list and watch on Stages and
+  Operations, nothing more in the delivery group, and holds that right itself
+  while the dashboard is enabled.
+- 407c06e: A shared dashboard can sign people in, and then shows nothing until they do.
+  `pacto dashboard` takes an OpenID Connect issuer (`--oidc-*`, the client secret
+  in `PACTO_DASHBOARD_OIDC_CLIENT_SECRET`), a private issuer CA
+  (`--oidc-ca-file`), an internal issuer address (`--oidc-internal-issuer-url`),
+  the API server's claim mapping, session lifetimes (`--session-idle-timeout`,
+  `--session-max-age`) and `--token-login`, which takes a pasted Kubernetes token
+  for clusters that trust no identity provider. The API server names each
+  signed-in person (SelfSubjectReview), and every view and action runs with
+  their token and RBAC. `/api/session` says who is signed in and how; every
+  other endpoint answers `401` with the code `LoginRequired` until they sign in.
+  The header names who they are, and the sign-in button says Sign in with OIDC
+  or names the provider (`--oidc-display-name`). A remote `pacto mcp` reads the
+  same claim mapping flags and logs each caller as the mapping names them.
+  
+  The `pacto-operator` chart gains `dashboard.auth`: `oidc` (`issuerURL`,
+  `internalIssuerURL`, `caBundle`, `clientID`, `clientSecretRef`, `redirectURL`,
+  `extraScopes`, `displayName` and the claim mapping `usernameClaim`,
+  `usernamePrefix`, `groupsClaim`, `groupsPrefix`), `session` (`idleTimeout`,
+  `maxAge`) and `tokenLogin.enabled`. See
+  [Dashboard authentication](https://pacto.run/latest/integrations/kubernetes/dashboard-authentication/).
+- 407c06e: A dashboard people sign in to now shows each person only what Kubernetes RBAC
+  lets them read. A namespace's services, revisions, targets, edges and evidence
+  appear only if the person may list Pactos there, checked with a
+  SubjectAccessReview for their username and groups, as the API server names
+  them, and kept a minute. One filter covers every fleet view, counts, search, the graph, change
+  analysis and a remote `pacto mcp --fleet` with `--auth-issuer`. The dashboard
+  says when services are hidden without naming them, and a service page counts
+  the hidden services on each side. A service known only from a registry, with no
+  namespace, shows only to people who may list Pactos in every namespace. Local
+  and sign-in-free dashboards are unchanged.
+  The operator grants the dashboard's ServiceAccount create on
+  `subjectaccessreviews` and holds that right itself while the dashboard is enabled.
+- 407c06e: Add the Pacto delivery promoter and recorder, an opt-in component with its own
+  image and API group, installed by the `pacto-operator` chart under
+  `delivery.enabled` into its own namespace, and tie every Pacto check result to
+  the version it evaluated. The operator holds no role in the delivery namespace,
+  so it cannot run a pod as the promoter or the recorder or mint their tokens.
+  
+  **Pacto status.** `Pacto.status.evaluatedRevision` names the contract digest
+  and the workload object and generation an evaluation read, and its
+  `kernelCoverage` says how far the node agent's view could be trusted
+  (`Complete`, `Partial`, `Failed` or `Stale`). A consumer acting on
+  `contractStatus` must check `evaluatedRevision` first, as the promoter does.
+  The Pacto status also accepts `mcp` interfaces, so a service that exposes tools reconciles.
+  `status.observedCallers` lists the workloads the node agent saw calling the
+  target's Service that no Pacto describes, and `status.observedCallersCoverage`
+  says whether that list is complete, partial (with a reason such as
+  `shared-netns` or `stale-node`) or unavailable; delivery holds a breaking
+  change on either. Host-network pods in kube-system and the other cluster
+  namespaces and in the node agent's own namespace do not make that coverage
+  partial; `controller.kernelEvidence.callerIgnoreNamespaces` adds more.
+  
+  **Check results change for every operator user**, delivery on or off. A
+  dependency that resolves to the same service in several namespaces now
+  resolves to the one in the consumer's own namespace when there is one (a
+  service in test calls the provider in test), where before the match was
+  ambiguous (Insufficient) unless exactly one of them satisfied the declared
+  range. The node agent's evidence leaves out pods being deleted, so a
+  pod still shutting down no longer counts toward kernel coverage or findings,
+  and a workload with no running pod has `Partial` kernel coverage.
+  
+  **The API.** `delivery.pacto.trianalab.io/v1alpha1` (Alpha, in the kubectl
+  category `pacto-delivery`) adds `Stage` (one service
+  in one environment, whose pointer is the artifact digest it runs), `Operation`
+  (one decision, with an immutable spec) and `Approval` (a person's decision
+  bound to an operation's uid and intent digest and to the approver's groups).
+  
+  **The promoter** (`ghcr.io/trianalab/pacto/delivery`, subcommand `promoter`)
+  admits each operation and promotes only a version `pacto publish` published:
+  the Stage's candidate `OCIRepository` must set `spec.verify` naming the
+  publisher, and a downstream Stage takes only what its upstream Stage verified
+  and offered (`status.published`, `status.offered`). Anything else is refused as
+  `NotPublished`, and a Stage that cannot check its candidates says why in its
+  `Ready` condition. It then compares the contracts, checks every consumer's
+  declared range, holds for a person when a consumer in the Stage's environment
+  would break or Pacto cannot see enough and writes to `status.plan.order` which
+  consumer must move first, planned again while the change waits. It accepts an
+  approval only from a person in a team the question names (chart
+  `delivery.identities.teamGroupPrefix`); a question that names no team is answered by
+  nobody unless `delivery.identities.requireOwnerTeam` is false, and with
+  `delivery.identities.humanGroups` set only those groups count as people. The chart
+  publishes these identities in the ConfigMap `pacto-delivery-identities`, which
+  the promoter runs with and the CLI, the MCP server and the dashboard read, with
+  the name and type of each gate provider (never its URL or signers) so a
+  client's plan predicts an eval check's hold as the promoter does. It takes the Stage lock with one
+  compare-and-swap, moves the pointer, waits for the apply and runs the verify
+  checks the Stage lists in `spec.gates.verify.checks`: the Pacto contract check,
+  providers from `delivery.gates.providers` (`mira`, `http` or `eval`, whose
+  check names the contract suite it runs in `suite`) and the built-in
+  `pacto.runtime`. Checks run again every `spec.gates.verify.recheck` after
+  release. Unknown never passes and never rolls back. A confirmed failure is
+  never promoted again (the Stage keeps its last 50) and gets one bound rollback;
+  a second failure, a version a person chose, nothing safe to go back to, a
+  refused automatic rollback, an outcome
+  that cannot be established or an edit of the pointer the promoter did not make
+  freezes the Stage. A Stage starts on `spec.startLevel` (`observe` by default;
+  an admin creating a Stage may pick any level) and only an `autonomy` operation moves `status.level` after that;
+  on `auto-nonbreaking` and `autonomous` the promoter promotes the newest
+  eligible candidate itself. It records what an observe Stage would have done in
+  `status.shadow` (the newest 20), proposes the next level in `status.proposal`
+  after `spec.autonomy.proposeAfter` verified changes (10 by default) and, after
+  an automatic rollback of a version it shipped on its own, lowers the Stage one
+  level through an operation named `<failed operation>-stepdown`. `kubectl get
+  stages` shows the level. `spec.auto` is gone. A breaking change no contract depends on also waits for a person,
+  since a service without a contract may call it, unless the Stage sets
+  `gates.impact.declaredConsumersOnly`.
+  
+  The promoter emits Events when it holds, concludes, rolls back or freezes and
+  exports `pacto_delivery_operations_total`, `pacto_delivery_verdicts_total`,
+  `pacto_delivery_stage_frozen` and `pacto_delivery_stage_watched` (chart
+  `delivery.metrics.*`). Each Stage says in `Watched` whether its running version passed
+  its latest re-check and in `Mediated` whether its pointer alone decides what
+  runs, gives every condition an observed generation and publishes the
+  promoter's login freshness in `status.authFreshness`. The freshness is off by
+  default, so a person decides with the sign-in they have; set
+  `delivery.promoter.authFreshness` (a duration such as `15m`) to make deciding
+  need a recent sign-in. An approval the promoter
+  passes over is named on the operation with the reason.
+  A Stage reconciles when its operations, its upstream Stage, its
+  OCIRepositories, the Kustomizations that apply them or its Application change,
+  and every `delivery.promoter.resync` (a minute) otherwise. The promoter reads
+  the apply OCIRepository's digest from the apiserver wherever it decides on it,
+  and its client allows 50 requests per second, bursting to 100
+  (`--kube-api-qps`, `--kube-api-burst`).
+  
+  **Reach (experimental).** A Stage applies through a Flux `OCIRepository` by
+  default, or, as an experimental option, through an Argo CD Application with an
+  OCI source (`applyRef.kind: Application`, chart `delivery.argocd.enabled`). `candidates.upstreamRecords` lets a
+  Stage follow a Stage in another cluster from that cluster's signed records,
+  read with `delivery.promoter.upstreamTrust`; without it the Stage is not Ready
+  (`UpstreamUntrusted`), and while those records cannot be read or lost their
+  newest entries it is not Ready either (`UpstreamUnreadable`). An unrecordable
+  stand-in upstream stops the follower too, until a person of the service's team
+  checks it and raises an `acknowledge` naming its record id with a reason
+  (`status.upstreamAcknowledged`), or break-glass overrides. Ready also names
+  an applier the promoter cannot write through. Only a Flux `OCIRepository` with
+  `spec.verify` admits a new version, so the first Stage of a service needs Flux
+  even when Argo CD applies it. A freeze is local: it does not stop followers. Argo CD and cross-cluster reach
+  may change more than the rest of delivery.
+  
+  **The recorder** (subcommand `recorder`, chart `delivery.recorder.*`, off by default)
+  is the only delivery component that holds the signing key and the registry
+  push credentials. With an Ed25519 key the operator, which reads every Secret,
+  can read the key too, so prefer a KMS key or keyless signing. It
+  writes a signed record of every operation that ends, in order per Stage,
+  attaches it to the versions and contract involved, confirms the Referrers API
+  lists it and only then advances the Stage's stream. A record can be late, and every
+  operation that ends gets one. It signs with an Ed25519 key, a KMS key or keyless through a projected
+  service account token, verifies each stream against its trust config before
+  extending it, freezes a Stage whose stream is in conflict and can post a
+  CDEvent per record. A record of an autonomy operation carries `outcome.level`
+  (`from` and `to`). `RecordStoreReady` says whether records are being written,
+  and `pacto_delivery_records_pending` shows the lag. With the recorder on, the
+  promoter deletes recorded operations after `delivery.recorder.operationTTL` (a week),
+  never the one a Stage runs.
+  
+  **The `delivery` section of the `pacto-operator` chart** (`delivery.enabled`,
+  off by default; the default render is unchanged) installs both in
+  `delivery.namespace` (`pacto-delivery`, created by the chart and never the
+  release namespace) with the
+  Stage, Operation and Approval CRDs, their own ServiceAccounts and RBAC, the
+  `<release>-delivery-agent` and `<release>-delivery-approver` roles and
+  ValidatingAdmissionPolicies that bind an operation's actor to the requesting
+  user, keep approvals to people (with `delivery.promoter.authFreshness` set,
+  people with a login time, which the apiserver maps to
+  `userInfo.extra["delivery.pacto.trianalab.io/auth-time"]`), keep the
+  pointer to the promoter or break-glass, keep the promoter itself to the pointer
+  field and keep the record fields to the recorder. Every delivery object is
+  named `<release>-delivery[-part]`. It refuses to render below Kubernetes 1.30,
+  without the ValidatingAdmissionPolicy API or without the policies unless
+  `delivery.admissionPolicies.allowUnguarded` is set; the promoter admits no
+  operation and counts no approval while they are missing.
+  `delivery.promoter.registryCredentials.secretName` lets the promoter read a
+  private contract or deploy repository. The delivery CRDs are chart templates
+  with `helm.sh/resource-policy: keep`: `helm upgrade` updates them and
+  `helm uninstall` leaves them and their history in place. The delivery image is
+  published, signed and versioned with the operator.
+  
+  **The chart's images** gain `image.digest` and `delivery.image.digest`: set
+  one to a `sha256:` digest and that image is pulled as `tag@digest`, so the pod
+  runs exactly that image whatever the tag later points at.
+  
+  **The `pacto-operator` chart** gains `dashboard.delivery` for the managed
+  dashboard's delivery views: `namespace` (where delivery publishes its identity
+  policy), `trust` (the ConfigMap holding the trust config History verifies
+  records with) and `miraURL`. The dashboard's role gains no delivery right and
+  no impersonation. The operator now passes the managed dashboard its namespace
+  scope in `PACTO_DASHBOARD_NAMESPACE`, the variable the dashboard reads.
+
+### Patch Changes
+
+- 9f5f638: Update `github.com/go-jose/go-jose/v4` to v4.1.6 to fix CVE-2026-116587, a
+  denial of service when parsing JWKs that contain RSA keys. It reaches the
+  `pacto` binary and the operator through OIDC sign-in and Sigstore signing.
+  
+  `golang.org/x/net` moves to v0.62.0 (GO-2026-6860, GO-2026-6866) and the
+  operator's `github.com/google/cel-go` to v0.30.0 (GO-2026-6094). govulncheck
+  finds none of the three reachable, so this is hygiene rather than an exposure fix.
+  
+  The dashboard frontend's dependencies are updated too, which fixes the known
+  advisories in the bundle the `pacto` binary and the dashboard image serve:
+  DOMPurify 3.4.17, KaTeX 0.18 (used by Mermaid diagrams), devalue 5.9.4 and
+  source-map-js 1.2.2. The build and test tooling moves to Vite 8.3 and Vitest
+  4.1.12.
+
 ## 6.0.1
 
 ### Patch Changes

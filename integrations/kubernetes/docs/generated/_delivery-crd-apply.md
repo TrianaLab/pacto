@@ -6,9 +6,9 @@
 
 ```bash
 kubectl apply --server-side --force-conflicts \
-  -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v6.0.1/integrations/kubernetes/config/crd/bases/delivery.pacto.trianalab.io_approvals.yaml
+  -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v6.1.0/integrations/kubernetes/config/crd/bases/delivery.pacto.trianalab.io_approvals.yaml
 kubectl apply --server-side --force-conflicts \
-  -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v6.0.1/integrations/kubernetes/config/crd/bases/delivery.pacto.trianalab.io_operations.yaml
+  -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v6.1.0/integrations/kubernetes/config/crd/bases/delivery.pacto.trianalab.io_operations.yaml
 kubectl apply --server-side --force-conflicts \
-  -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v6.0.1/integrations/kubernetes/config/crd/bases/delivery.pacto.trianalab.io_stages.yaml
+  -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v6.1.0/integrations/kubernetes/config/crd/bases/delivery.pacto.trianalab.io_stages.yaml
 ```
