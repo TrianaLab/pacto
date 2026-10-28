@@ -17,17 +17,13 @@ See LICENSE file in the project root for full license text.
 // cluster loss because the registry holds it.
 package evidence
 
+import "github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+
 const (
 	// Name is the resource name for all managed Evidence Server resources.
 	Name = "pacto-evidence"
 
-	// Labels
-	LabelManagedBy = "app.kubernetes.io/managed-by"
-	LabelComponent = "app.kubernetes.io/component"
-	LabelName      = "app.kubernetes.io/name"
-
-	// ManagedByValue and ComponentValue tag every resource this component owns.
-	ManagedByValue = "pacto-operator"
+	// ComponentValue tags every resource this component owns.
 	ComponentValue = "evidence"
 
 	// FieldManager is the server-side apply field manager for evidence resources.
@@ -57,18 +53,7 @@ const (
 )
 
 // Labels returns the standard labels applied to all evidence resources.
-func Labels() map[string]string {
-	return map[string]string{
-		LabelManagedBy: ManagedByValue,
-		LabelComponent: ComponentValue,
-		LabelName:      Name,
-	}
-}
+func Labels() map[string]string { return component.Labels(ComponentValue, Name) }
 
 // SelectorLabels returns the labels used for pod selection.
-func SelectorLabels() map[string]string {
-	return map[string]string{
-		LabelComponent: ComponentValue,
-		LabelName:      Name,
-	}
-}
+func SelectorLabels() map[string]string { return component.SelectorLabels(ComponentValue, Name) }

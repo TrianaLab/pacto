@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -238,7 +239,7 @@ func TestReconcile_PreservesExternalLabelsAndAnnotations(t *testing.T) {
 		t.Error("expected external annotation to be preserved on deployment")
 	}
 	// Operator labels should still be present
-	if got.Labels[LabelManagedBy] != ManagedByValue {
+	if got.Labels[component.LabelManagedBy] != component.ManagedByValue {
 		t.Error("expected operator label to still be present")
 	}
 
