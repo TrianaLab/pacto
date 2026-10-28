@@ -12,8 +12,8 @@
 # means its EXIT traps, its fixtures and its own assertions.
 #
 # This file covers the CLUSTER scenarios only. tests/acceptance/local/ has no
-# cluster to manage and keeps its own small helpers; integrations/kubernetes/
-# test/utils serves the operator module. Three toolboxes, no shared base.
+# cluster to manage and keeps its own small helpers. Two toolboxes, no shared
+# base.
 #
 # Functions that operate "in the current run" read the caller's $NS and $CLUSTER
 # globals (every scenario sets both before using them); everything else is an
