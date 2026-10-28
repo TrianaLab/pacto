@@ -44,7 +44,7 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Install kind (checksum-verified via GOSUMDB)
         timeout-minutes: 5
-        run: bash release/scripts/retry.sh go install sigs.k8s.io/kind@v0.30.0
+        run: make kind-install
       - name: Run the demo
         timeout-minutes: 75
         run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make e2e-delivery-demo

@@ -8,7 +8,7 @@ BUNDLE_DIR := pactos/pacto-dashboard
 REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-perf-envtest ci-e2e-compose ci-release-version docs-serve docs-deploy \
+       ci-e2e-envtest ci-perf-envtest ci-e2e-compose ci-release-version kind-install docs-serve docs-deploy \
        test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
@@ -207,6 +207,12 @@ test-acceptance-kind-delivery:
 test-acceptance-kind-delivery-demo:
 	bash tests/acceptance/kind/delivery-demo.sh all
 
+# KIND_VERSION is the one kind pin; the kind jobs in ci.yml and delivery-demo.yml
+# install it through this target.
+KIND_VERSION = v0.30.0
+kind-install:
+	bash release/scripts/retry.sh go install sigs.k8s.io/kind@$(KIND_VERSION)
+
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:
 	go test ./pkg/oci/...
@@ -360,9 +366,13 @@ ci-test:
 	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
 	@$(MAKE) -C examples/demo validate
 
+# NPM_CI is the frontend install every CI leg uses, with npm's own fetch retries
+# (the npm side of what release/scripts/retry.sh does for Go).
+NPM_CI = npm ci --ignore-scripts --prefer-offline --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+
 ci-ui:
 	@echo "==> Running frontend lint & tests..."
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts --prefer-offline --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 && npm run lint && npm test
+	cd pkg/dashboard/frontend && $(NPM_CI) && npm run lint && npm test
 
 ci-fmt:
 	@echo "==> Checking formatting..."
@@ -406,7 +416,7 @@ ci-docs:
 # for the build incantation — reused by ci-ui-drift and the ui-rebuild workflow.
 ui-build:
 	@echo "==> Building dashboard UI..."
-	cd pkg/dashboard/frontend && npm ci --ignore-scripts --prefer-offline --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 && npm run build
+	cd pkg/dashboard/frontend && $(NPM_CI) && npm run build
 
 ci-ui-drift: ui-build
 	@echo "==> Checking committed dashboard UI build is up to date..."

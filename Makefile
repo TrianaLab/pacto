@@ -373,11 +373,7 @@ bpf-generate: ## Regenerate the agent's eBPF object and Go bindings (needs Docke
 	docker run --rm -v "$(CURDIR):/src" -w /src/$(RUNTIMEWATCH_EBPF_DIR) \
 		$(BPF_BUILDER_IMAGE) bash -ec 'export DEBIAN_FRONTEND=noninteractive; \
 		apt-get update -qq && apt-get install -y -qq --no-install-recommends clang llvm libbpf-dev >/dev/null; \
-		for attempt in 1 2 3 4 5; do \
-		  if GOFLAGS= GOWORK=off go install github.com/cilium/ebpf/cmd/bpf2go@$(BPF2GO_VERSION); then break; fi; \
-		  if [ "$$attempt" = 5 ]; then echo "go install bpf2go failed after 5 attempts" >&2; exit 1; fi; \
-		  sleep $$((attempt * 5)); \
-		done; \
+		bash /src/release/scripts/retry.sh env GOFLAGS= GOWORK=off go install github.com/cilium/ebpf/cmd/bpf2go@$(BPF2GO_VERSION); \
 		bpf2go -target bpfel -go-package ebpf -tags linux sockstate bpf/sockstate.c -- -O2 -g -Wall -Werror -I/usr/include/$$(uname -m)-linux-gnu; \
 		chown $(shell id -u):$(shell id -g) sockstate_bpfel.go sockstate_bpfel.o'
 
