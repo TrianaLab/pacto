@@ -16,6 +16,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
@@ -92,7 +93,7 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 	})
 	all := append([]runtime.Object{stage, upstream, repo}, objs...)
 	lists := map[schema.GroupVersionResource]string{gvrStages: "StageList", gvrOperations: "OperationList", gvrApprovals: "ApprovalList",
-		gvrPactos: "PactoList", gvrOCIRepository: "OCIRepositoryList", gvrKustomization: "KustomizationList", gvrNamespaces: "NamespaceList"}
+		k8sclient.PactosGVR: "PactoList", gvrOCIRepository: "OCIRepositoryList", gvrKustomization: "KustomizationList", gvrNamespaces: "NamespaceList"}
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, all...)
 	c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		gs := make([]any, 0, len(groups))

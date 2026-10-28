@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch/kubesink"
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
@@ -62,7 +63,6 @@ var (
 	gvrReplicaSets    = gvr("apps", "v1", "replicasets")
 	gvrJobs           = gvr("batch", "v1", "jobs")
 	gvrEndpointSlices = gvr("discovery.k8s.io", "v1", "endpointslices")
-	gvrPactos         = gvr("pacto.trianalab.io", "v1alpha1", "pactos")
 )
 
 // cluster is what was read from the API server.
@@ -234,7 +234,7 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 		r        schema.GroupVersionResource
 		to       *[]unstructured.Unstructured
 		optional bool
-	}{{gvrServices, &cl.services, false}, {gvrEndpointSlices, &cl.slices, false}, {gvrPactos, &cl.pactos, true}} {
+	}{{gvrServices, &cl.services, false}, {gvrEndpointSlices, &cl.slices, false}, {k8sclient.PactosGVR, &cl.pactos, true}} {
 		items, err := list(into.r, metav1.NamespaceAll, into.optional)
 		if err != nil {
 			return nil, err

@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -28,7 +29,6 @@ var (
 	gvrStages        = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}
 	gvrOperations    = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}
 	gvrApprovals     = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "approvals"}
-	gvrPactos        = schema.GroupVersionResource{Group: "pacto.trianalab.io", Version: "v1alpha1", Resource: "pactos"}
 	gvrOCIRepository = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
 	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
 	gvrSelfReview    = schema.GroupVersionResource{Group: "authentication.k8s.io", Version: "v1", Resource: "selfsubjectreviews"}
@@ -452,7 +452,7 @@ func (d *Delivery) applyRepo(ctx context.Context, stage *delivery.StageObject) (
 }
 
 func (d *Delivery) pactos(ctx context.Context) ([]delivery.PactoView, error) {
-	list, err := d.Dynamic.Resource(gvrPactos).List(ctx, metav1.ListOptions{})
+	list, err := d.Dynamic.Resource(k8sclient.PactosGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}

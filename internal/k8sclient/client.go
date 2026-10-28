@@ -21,6 +21,13 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// PactoGroup is the API group of the operator's Pacto CRD.
+const PactoGroup = "pacto.trianalab.io"
+
+// PactosGVR is the operator's Pacto resource at the version it serves, for
+// callers that read it directly rather than through DiscoverCRD.
+var PactosGVR = schema.GroupVersionResource{Group: PactoGroup, Version: "v1alpha1", Resource: "pactos"}
+
 // K8sClient abstracts the Kubernetes API operations Pacto needs to read Pacto
 // CRD status.
 type K8sClient interface {
@@ -73,7 +80,6 @@ func CurrentKubeContext() string {
 type k8sGoClient struct {
 	discovery discovery.DiscoveryInterface
 	dynamic   dynamic.Interface
-	group     string
 }
 
 // NewGoClient constructs a cluster-backed K8sClient from in-cluster config or
@@ -102,7 +108,6 @@ func (b builders) goClient() (K8sClient, error) {
 	return &k8sGoClient{
 		discovery: disc,
 		dynamic:   dyn,
-		group:     "pacto.trianalab.io",
 	}, nil
 }
 
@@ -135,7 +140,7 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 	}
 
 	for _, g := range groups {
-		if g.Name != c.group {
+		if g.Name != PactoGroup {
 			continue
 		}
 		result.Found = true
@@ -152,7 +157,7 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 	}
 
 	// Discover the resource name for the CRD.
-	gv := c.group + "/" + result.Version
+	gv := PactoGroup + "/" + result.Version
 	resources, err := c.discovery.ServerResourcesForGroupVersion(gv)
 	if err != nil {
 		return result, fmt.Errorf("listing resources for %s: %w", gv, err)
@@ -172,7 +177,7 @@ func (c *k8sGoClient) DiscoverCRD(ctx context.Context) (*CRDDiscovery, error) {
 }
 
 func (c *k8sGoClient) ListJSON(ctx context.Context, crd CRDDiscovery, namespace string) ([]byte, error) {
-	gvr := schema.GroupVersionResource{Group: c.group, Version: crd.Version, Resource: crd.ResourceName}
+	gvr := schema.GroupVersionResource{Group: PactoGroup, Version: crd.Version, Resource: crd.ResourceName}
 	var list any
 	var err error
 	if namespace != "" {
