@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -53,9 +54,10 @@ func TestAssemblePlanInput(t *testing.T) {
 	}
 }
 
-// TestAssemblePlanInputOtherTypes: the promoter's rollback reads only its To
-// side, a person's or agent's reads the graph too, and an operation that
-// moves no pointer reads nothing.
+// TestAssemblePlanInputOtherTypes: the promoter's rollback reads both
+// versions and no graph (the running one names the team asked after release),
+// a person's or agent's reads the graph too, and an operation that moves no
+// pointer reads nothing.
 func TestAssemblePlanInputOtherTypes(t *testing.T) {
 	stage := StageObject{Metadata: ObjectMeta{Namespace: "prod", Name: "payments"}, Spec: stageSpec(), Status: StageStatus{Pointer: dA}}
 	src := &fakeSources{from: rev(dA, c1, bundle("payments", "1.0.0")), to: rev(dA, c1, bundle("payments", "1.0.0")),
@@ -63,8 +65,13 @@ func TestAssemblePlanInputOtherTypes(t *testing.T) {
 	rollback := promote(dB, dA)
 	rollback.Type = TypeRollback
 	in, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassController, now)
-	if err != nil || in.To.Bundle == nil || in.From.Bundle != nil || in.Snapshot != nil || in.Upstream != nil {
-		t.Fatalf("the promoter's rollback reads only its To side: %v %+v", err, in)
+	if err != nil || in.To.Bundle == nil || in.From.Bundle == nil || in.Snapshot != nil || in.Upstream != nil {
+		t.Fatalf("the promoter's rollback reads both versions and no graph: %v %+v", err, in)
+	}
+	back := promote(dA, dB) // from the running pointer
+	back.Type = TypeRollback
+	if in, _ = AssemblePlanInput(context.Background(), src, back, stage, ClassController, now); strings.Join(PlanFor(context.Background(), in).Floor.Owners, ",") != "team-payments" {
+		t.Fatalf("the promoter's rollback is held for the running service's team: %+v", PlanFor(context.Background(), in))
 	}
 	agent, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassAgent, now)
 	if err != nil || agent.From.Bundle == nil || agent.Snapshot == nil || agent.Upstream != nil {

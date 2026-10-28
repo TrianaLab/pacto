@@ -49,11 +49,12 @@ func AssemblePlanInput(ctx context.Context, src PlanSources, spec OperationSpec,
 		return in, nil
 	}
 	// A rollback a person or agent raised is projected onto the graph too
-	// (rollbackImpact); the promoter's own rollbacks read nothing more.
+	// (rollbackImpact); the promoter's own rollbacks read only both versions,
+	// the running one naming the team a question after release is asked of.
 	graph := spec.Type == TypePromote || spec.Type == TypeRollback && class != ClassController
 	if !graph {
 		if spec.Facet == FacetPointer && spec.Params.To != "" {
-			_, in.To = src.Revisions(ctx, stage, spec.Params.From, spec.Params.To)
+			in.From, in.To = src.Revisions(ctx, stage, spec.Params.From, spec.Params.To)
 		}
 		return in, nil
 	}
