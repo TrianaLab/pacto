@@ -1,0 +1,8843 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Continuous delivery for the GitlessOps era — describe your services once as contracts, and Pacto decides what ships, asking only the teams a change affects.">
+      
+      
+      
+        <link rel="canonical" href="https://pacto.run/4.1.0/integrations/kubernetes/crd-reference/">
+      
+      
+        <link rel="prev" href="../gitops/">
+      
+      
+        <link rel="next" href="../helm-reference/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>CRD reference - Pacto</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#crd-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="Pacto" class="md-header__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../../../assets/images/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Pacto
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CRD reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../autonomy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../developers/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../delivery/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  How Pacto decides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../../autonomy-reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../changelog/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Changelog
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="Pacto" class="md-nav__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../../../assets/images/logo.svg" alt="logo">
+
+    </a>
+    Pacto
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What Pacto is
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    What Pacto is
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../autonomy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The autonomy ladder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../manifesto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manifesto and GitlessOps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Try it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Try it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../examples/dashboard-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live dashboard demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../examples/demo-tour/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guided tour
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../examples/compose-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run it locally
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../examples/kubernetes-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Try it on Kubernetes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pactify your first service
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Pactify your first service
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../pactify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pactify a service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../ci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Put it in your repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../pactify-decide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approve or unblock a change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../verify-a-record/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify a record
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../mcp-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drive Pacto from an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../developers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    For developers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../platform-engineers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    For platform engineers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composition patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../github-actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI with GitHub Actions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Pacto decides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How Pacto decides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delivery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How delivery works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../operational-graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operational graph
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../fleet-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fleet views
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../impact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Impact analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../runtime-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What runtime conformance checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../runtime-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a command under Pacto
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../runtime-agent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Watch a host with pacto agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../autonomy-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ladder reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../operational-graph-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operational graph reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../mcp-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publish reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Dashboard reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-access/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Who sees what in the dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../dashboard-docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard container
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delivery reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Delivery reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delivery-identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approvals and agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delivery-records/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Signed records and history
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delivery-record-keys/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Record keys
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delivery-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup and gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delivery-operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plan, propose and approve
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delivery-health/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Health checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delivery-evals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Eval providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delivery-reach/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Argo CD and several clusters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../contract-reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contract reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_7" id="__nav_5_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contract reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../contract-reference/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contract sections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../contract-reference/configuration-and-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration and policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../contract-reference/dependencies-and-state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies and state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../contract-reference/readiness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../contract-reference/publish/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publish
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../contract-reference/checks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../contract-reference/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation layers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../contract-reference/overrides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overrides
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../contract-reference/diff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change classification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../lockfile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lockfile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../pactoignore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging ignore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../evidence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_13" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5_13" id="__nav_5_13_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kubernetes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_13_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Kubernetes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install the operator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart profile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kubernetes overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limitations and opt-in features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../evidence-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evidence Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrade the operator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gitops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitOps promotion gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CRD reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CRD reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#approval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approval
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Approval">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Operation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#noderuntimeobservation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NodeRuntimeObservation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="NodeRuntimeObservation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pactorevision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PactoRevision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PactoRevision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pacto" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pacto
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pacto">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../helm-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Helm reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RBAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operator-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-bindings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contract bindings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime-observations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime observations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../field-coverage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Field coverage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../artifact-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Published artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Changelog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../maintainers/releases-abandoned/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Abandoned releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#approval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approval
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Approval">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Operation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#noderuntimeobservation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NodeRuntimeObservation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="NodeRuntimeObservation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pactorevision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PactoRevision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PactoRevision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pacto" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pacto
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pacto">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#additional-printer-columns_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional printer columns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fields_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../../../autonomy-reference/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Reference
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../installation/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Kubernetes
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<!--
+  GENERATED FILE -- DO NOT EDIT.
+  Produced by release/scripts/gen_integration_docs.py from config/crd/bases/*.yaml.
+  Regenerate with `make docs-generate`; drift is a CI failure (`make docs-check`).
+-->
+
+<h1 id="crd-reference">CRD reference<a class="headerlink" href="#crd-reference" title="Anchor link">&para;</a></h1>
+<p>Custom Resource Definitions installed by the operator. Field lists below are generated from the authoritative OpenAPI v3 schema in <code>config/crd/bases/</code>.</p>
+<h2 id="approval">Approval<a class="headerlink" href="#approval" title="Anchor link">&para;</a></h2>
+<ul>
+<li><strong>API group</strong>: <code>delivery.pacto.trianalab.io</code></li>
+<li><strong>Version</strong>: <code>v1alpha1</code></li>
+<li><strong>Kind</strong>: <code>Approval</code></li>
+<li><strong>Plural</strong>: <code>approvals</code></li>
+<li><strong>Scope</strong>: Namespaced</li>
+</ul>
+<h3 id="additional-printer-columns">Additional printer columns<a class="headerlink" href="#additional-printer-columns" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>JSONPath</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Operation</td>
+<td>string</td>
+<td><code>.spec.operation</code></td>
+</tr>
+<tr>
+<td>Decision</td>
+<td>string</td>
+<td><code>.spec.decision</code></td>
+</tr>
+<tr>
+<td>By</td>
+<td>string</td>
+<td><code>.spec.by</code></td>
+</tr>
+<tr>
+<td>Age</td>
+<td>date</td>
+<td><code>.metadata.creationTimestamp</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="fields">Fields<a class="headerlink" href="#fields" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Enum</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spec</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ApprovalSpec is a human decision bound to one operation uid and intent digest.</td>
+</tr>
+<tr>
+<td><code>spec.authTime</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>AuthTime is the login time the apiserver reported for that user (userInfo.extra["delivery.pacto.trianalab.io/auth-time"], RFC 3339 or Unix seconds).</td>
+</tr>
+<tr>
+<td><code>spec.by</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>By must equal the apiserver username of whoever created the Approval.</td>
+</tr>
+<tr>
+<td><code>spec.decision</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>approve</code>, <code>reject</code>, <code>accept-unknown</code></td>
+<td>Decision is what a human approval says.</td>
+</tr>
+<tr>
+<td><code>spec.groups</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Groups must equal the groups of whoever created the Approval. The promoter accepts it only when one of them names a team the question was routed to.</td>
+</tr>
+<tr>
+<td><code>spec.intentDigest</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.note</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.operation</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Operation is the operation's name, for people. Matching uses the uid.</td>
+</tr>
+<tr>
+<td><code>spec.operationUID</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="operation">Operation<a class="headerlink" href="#operation" title="Anchor link">&para;</a></h2>
+<ul>
+<li><strong>API group</strong>: <code>delivery.pacto.trianalab.io</code></li>
+<li><strong>Version</strong>: <code>v1alpha1</code></li>
+<li><strong>Kind</strong>: <code>Operation</code></li>
+<li><strong>Plural</strong>: <code>operations</code></li>
+<li><strong>Scope</strong>: Namespaced</li>
+</ul>
+<h3 id="additional-printer-columns_1">Additional printer columns<a class="headerlink" href="#additional-printer-columns_1" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>JSONPath</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Type</td>
+<td>string</td>
+<td><code>.spec.type</code></td>
+</tr>
+<tr>
+<td>Stage</td>
+<td>string</td>
+<td><code>.spec.stage</code></td>
+</tr>
+<tr>
+<td>Phase</td>
+<td>string</td>
+<td><code>.status.phase</code></td>
+</tr>
+<tr>
+<td>Outcome</td>
+<td>string</td>
+<td><code>.status.outcome</code></td>
+</tr>
+<tr>
+<td>Reason</td>
+<td>string</td>
+<td><code>.status.reason</code></td>
+</tr>
+<tr>
+<td>Age</td>
+<td>date</td>
+<td><code>.metadata.creationTimestamp</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="fields_1">Fields<a class="headerlink" href="#fields_1" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Enum</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spec</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>OperationSpec is the intent. It is frozen at admission.</td>
+</tr>
+<tr>
+<td><code>spec.actor</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Actor is the apiserver identity that created the operation.</td>
+</tr>
+<tr>
+<td><code>spec.actor.groups</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.actor.user</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.cause</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Cause is why an operation was raised. A person or an agent sets one field; a verdict they cite is re-run when the operation is admitted. An automatic rollback names the failed operation and, when a gate failed it, the verdict.</td>
+</tr>
+<tr>
+<td><code>spec.cause.operation</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Operation is the uid of the operation that caused this one.</td>
+</tr>
+<tr>
+<td><code>spec.cause.reason</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.cause.verdict</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Verdict is one gate's answer plus a citation that can be re-run.</td>
+</tr>
+<tr>
+<td><code>spec.cause.verdict.citation</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.cause.verdict.gate</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.cause.verdict.message</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.cause.verdict.phase</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>pre</code>, <code>verify</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.cause.verdict.result</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>Pass</code>, <code>Fail</code>, <code>Unknown</code></td>
+<td>Result is a gate verdict.</td>
+</tr>
+<tr>
+<td><code>spec.correlationID</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.facet</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>pointer</code>, <code>freeze</code>, <code>level</code>, <code>upstream</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.intentDigest</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>IntentDigest is what plan() returned; the promoter recomputes it.</td>
+</tr>
+<tr>
+<td><code>spec.onBehalfOf</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Principal is a person an agent says it acts for. It is asserted, never verified.</td>
+</tr>
+<tr>
+<td><code>spec.onBehalfOf.user</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.params</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Params are the operation parameters. On the pointer facet From and To are OCI manifest digests; on the level facet they are level names.</td>
+</tr>
+<tr>
+<td><code>spec.params.from</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.params.record</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Record is the id of the upstream stand-in an acknowledge accepts.</td>
+</tr>
+<tr>
+<td><code>spec.params.to</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.params.undoes</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Undoes is the uid of the operation a rollback undoes.</td>
+</tr>
+<tr>
+<td><code>spec.reason</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.stage</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Stage is the name of a Stage in the operation's namespace.</td>
+</tr>
+<tr>
+<td><code>spec.type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>delivery.pacto.trianalab.io/promote</code>, <code>delivery.pacto.trianalab.io/rollback</code>, <code>delivery.pacto.trianalab.io/override</code>, <code>delivery.pacto.trianalab.io/unfreeze</code>, <code>delivery.pacto.trianalab.io/freeze</code>, <code>delivery.pacto.trianalab.io/autonomy</code>, <code>delivery.pacto.trianalab.io/acknowledge</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.witnessed</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Witnessed marks an override the promoter raised for an edit it saw but did not make. Only the promoter may set it.</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>OperationStatus is written only by the promoter.</td>
+</tr>
+<tr>
+<td><code>status.actorClass</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client.</td>
+</tr>
+<tr>
+<td><code>status.applied</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Applied is true once the pointer moved for this operation.</td>
+</tr>
+<tr>
+<td><code>status.approvals</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.approvals[].authTime</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.approvals[].by</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.approvals[].decision</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Decision is what a human approval says.</td>
+</tr>
+<tr>
+<td><code>status.approvals[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.approvals[].note</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.approvedTeams</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ApprovedTeams are the teams the question is asked of (plan.floor.owners) that an approval counted for since the operation was last held. A change asked of several teams goes ahead only once every one of them answered.</td>
+</tr>
+<tr>
+<td><code>status.guarded</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Guarded says the promoter checked its admission policies guarded the cluster when it admitted this operation. False when the chart runs without them (delivery.admissionPolicies.allowUnguarded): the actor and the approvers are then only what their writers claimed.</td>
+</tr>
+<tr>
+<td><code>status.message</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.outcome</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Outcome is how a concluded operation ended.</td>
+</tr>
+<tr>
+<td><code>status.phase</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Phase is where an operation is in its lifecycle.</td>
+</tr>
+<tr>
+<td><code>status.plan</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Plan is plan()'s answer. It binds to the intent digest.</td>
+</tr>
+<tr>
+<td><code>status.plan.conflicts</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.floor</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Floor is the approval floor plan() computed: whether a human must decide, which decision is asked for and whose.</td>
+</tr>
+<tr>
+<td><code>status.plan.floor.consumers</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Consumers are the services that made the floor.</td>
+</tr>
+<tr>
+<td><code>status.plan.floor.decision</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Decision is what a human approval says.</td>
+</tr>
+<tr>
+<td><code>status.plan.floor.human</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.floor.owners</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Owners are the teams the question is routed to and the only ones whose members may answer it: the owners of the consumers that made the floor, or else the team of the Stage's own service. Empty means no team is declared: nobody may answer when identities.requireOwnerTeam is true (the default), else any person.</td>
+</tr>
+<tr>
+<td><code>status.plan.from</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.impactDigest</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ImpactDigest is the sha256 of the pkg/impact answer the floor came from.</td>
+</tr>
+<tr>
+<td><code>status.plan.intentDigest</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.order</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Order says what must move first when a consumer running in this environment does not accept the new version. Pacto only says it: it never moves another service itself.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst</code></td>
+<td><code>[]object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>MoveFirst names every consumer running in this environment whose declared range does not accept the new version.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].accepts</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Accepts is the range that version declares on the provider.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].candidate</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Candidate is the newest version of the consumer its upstream Stage offered and verified that is newer than the one running here, accepts both the provider version running here and the new one, accepts what its other dependencies run here and is accepted by the range every Pacto here declares on it, so it can move first without breaking a range Pacto can see. Absent when there is none or Pacto cannot tell.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].candidate.accepts</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Accepts is the range it declares on the provider; empty when it no longer depends on it.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].candidate.digest</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].candidate.verifiedOn</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>VerifiedOn is the upstream Stage that verified it.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].candidate.verifiedOn.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].candidate.verifiedOn.namespace</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].candidate.version</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].domain</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].message</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Message says all of the above in plain words.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].service</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Service is the consumer.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].stage</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Stage is the consumer's Stage in this environment, the one to promote.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].stage.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].stage.namespace</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].unknown</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Unknown says why Pacto cannot tell whether such a version exists.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.moveFirst[].version</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Version is the consumer version running here that does not accept the new provider version.</td>
+</tr>
+<tr>
+<td><code>status.plan.order.unknown</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Unknown says why the list may be incomplete: a partial graph, a range Pacto cannot read or a consumer it cannot place. Empty means Pacto saw every consumer running here.</td>
+</tr>
+<tr>
+<td><code>status.plan.precedent</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Precedent is what happened the last times this version was the target of a recorded operation, on any Stage. Clients fill it from records; the promoter leaves it empty.</td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.completeness</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.entries</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.entries[].finished</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.entries[].outcome</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Outcome is how a concluded operation ended.</td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.entries[].reason</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.entries[].record</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.entries[].seq</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.entries[].stream</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.entries[].type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.entries[].verification</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Verification qualifies a Succeeded outcome.</td>
+</tr>
+<tr>
+<td><code>status.plan.precedent.note</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.predicted</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Prediction is what plan() expects the promoter to do.</td>
+</tr>
+<tr>
+<td><code>status.plan.question</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Question is the one question a human would be asked.</td>
+</tr>
+<tr>
+<td><code>status.plan.to</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.toVersion</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ToVersion is the contract service.version of To, when it could be read.</td>
+</tr>
+<tr>
+<td><code>status.plan.type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.verdicts</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.verdicts[].citation</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.verdicts[].gate</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.verdicts[].message</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.verdicts[].phase</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>pre</code>, <code>verify</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.plan.verdicts[].result</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>Pass</code>, <code>Fail</code>, <code>Unknown</code></td>
+<td>Result is a gate verdict.</td>
+</tr>
+<tr>
+<td><code>status.pointer</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>PointerChange is the pointer before and after an operation.</td>
+</tr>
+<tr>
+<td><code>status.pointer.after</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.pointer.before</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.policy</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Policy is the Stage spec the operation concluded under, taken when it concluded, so its record says what governed it however late it is written.</td>
+</tr>
+<tr>
+<td><code>status.policy.applyRef</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ApplyRef is the object the promoter points at a version: a Flux OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it sets spec.source.targetRevision). Nothing else is ever written on it.</td>
+</tr>
+<tr>
+<td><code>status.policy.applyRef.kind</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td><code>OCIRepository</code>, <code>Application</code></td>
+<td>Kind is OCIRepository (Flux, the default) or Application (Argo CD, with an OCI source and automated sync).</td>
+</tr>
+<tr>
+<td><code>status.policy.applyRef.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.policy.approval</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ApprovalPolicy can only raise the approval floor, never lower it.</td>
+</tr>
+<tr>
+<td><code>status.policy.approval.always</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Always holds every promote for a human, whatever the contracts say.</td>
+</tr>
+<tr>
+<td><code>status.policy.autonomy</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>AutonomyPolicy tunes when Pacto proposes the next level.</td>
+</tr>
+<tr>
+<td><code>status.policy.autonomy.proposeAfter</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td><code>10</code></td>
+<td></td>
+<td>ProposeAfter is how many qualifying promotions earn a proposal.</td>
+</tr>
+<tr>
+<td><code>status.policy.candidates</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Candidates says where new versions come from. At most one is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes.</td>
+</tr>
+<tr>
+<td><code>status.policy.candidates.ociRepositoryRef</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision.</td>
+</tr>
+<tr>
+<td><code>status.policy.candidates.ociRepositoryRef.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.policy.candidates.upstreamRecords</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>UpstreamRecords offers what a Stage in another cluster verified, read from its signed records: the promoter must trust the key that signs that stream (promoter.upstreamTrust), or it offers nothing.</td>
+</tr>
+<tr>
+<td><code>status.policy.candidates.upstreamRecords.repository</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Repository (host/path) is the upstream recorder's streams repository.</td>
+</tr>
+<tr>
+<td><code>status.policy.candidates.upstreamRecords.stream</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Stream is the upstream Stage's stream id, &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;: its status.stream.id.</td>
+</tr>
+<tr>
+<td><code>status.policy.candidates.upstreamStage</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>UpstreamStage offers that Stage's verified digests minus its failed ones.</td>
+</tr>
+<tr>
+<td><code>status.policy.candidates.upstreamStage.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.policy.candidates.upstreamStage.namespace</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.policy.deadlines</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Deadlines override the operation type's defaults (Go durations).</td>
+</tr>
+<tr>
+<td><code>status.policy.deadlines.approval</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.policy.deadlines.execution</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.policy.environment</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.policy.gates</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.impact</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ImpactGate tunes pacto.impact.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.impact.declaredConsumersOnly</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>VerifyGates configures what runs after a version is applied.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify.checks</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider set in delivery.gates.providers, or the built-in pacto.runtime claim gate.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify.checks[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name is the gate id its verdicts carry, unique on the Stage.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify.checks[].params</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Params are the provider's settings (thresholds, filters).</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify.checks[].provider</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Provider is a gate provider set in delivery.gates.providers, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify.checks[].requireObservedModel</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>RequireObservedModel makes an eval check Unknown unless its runner says which model answered (observedModel) and the contract declares an external dependency with a version to compare it with. A model the runner names that no such version matches fails the check either way.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify.checks[].suite</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Suite names a check the version's contract ships (its checks[].name) for an eval provider to run; without it the provider runs the only check the version ships. A version whose contract ships no check of that name, or with no suite ships none or more than one, is held for a person before it ships.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify.checks[].suiteDigest</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>SuiteDigest pins the suite's bytes ("sha256:" and 64 hex digits). A version whose suite has another digest changed its own exam: it is held for a person before it ships, and an eval check of it is Unknown.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify.recheck</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does.</td>
+</tr>
+<tr>
+<td><code>status.policy.gates.verify.window</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time.</td>
+</tr>
+<tr>
+<td><code>status.policy.records</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>RecordsPolicy says whether automation may move the Stage while its records cannot be written.</td>
+</tr>
+<tr>
+<td><code>status.policy.records.required</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Required holds every promote or rollback an agent or the promoter raises for a person to approve while the recorder is not writing this Stage's records (RecordStoreReady is not True) or more than five of its operations wait for a record (MaxRecordsPending).</td>
+</tr>
+<tr>
+<td><code>status.policy.service</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare.</td>
+</tr>
+<tr>
+<td><code>status.policy.service.domain</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Domain is the registry and organisation scope (empty for the default).</td>
+</tr>
+<tr>
+<td><code>status.policy.service.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name is the contract's service.name.</td>
+</tr>
+<tr>
+<td><code>status.policy.startLevel</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td><code>"observe"</code></td>
+<td><code>observe</code>, <code>advise</code>, <code>auto-nonbreaking</code>, <code>autonomous</code></td>
+<td>StartLevel is where a new Stage begins. It is read once, when status.level is empty; after that only an autonomy operation moves the level. Creating a Stage is an admin action, so any level is accepted, and a Stage whose status is lost seeds back to this level. Only observe and advise keep Pacto from shipping without a person.</td>
+</tr>
+<tr>
+<td><code>status.policy.workload</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Workload is the workload the service runs as, in the Stage's namespace: the one object pacto.contract and pacto.runtime may judge. The Pacto resource ships inside every version and names its own target, so without this a version could point its own check at a decoy. Empty is the Deployment named spec.service.name.</td>
+</tr>
+<tr>
+<td><code>status.policy.workload.kind</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Kind is the workload kind, such as Deployment or StatefulSet.</td>
+</tr>
+<tr>
+<td><code>status.policy.workload.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.question</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Question is what a human is asked while the operation is Held.</td>
+</tr>
+<tr>
+<td><code>status.reason</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Reason is the machine reason for the outcome or the hold (PlanStale, PointerMoved, NoStage, ...).</td>
+</tr>
+<tr>
+<td><code>status.record</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Record is the signed record of this operation, once the recorder wrote it. Only the recorder writes it.</td>
+</tr>
+<tr>
+<td><code>status.record.digest</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Digest is the record id: the sha256 of its signed payload.</td>
+</tr>
+<tr>
+<td><code>status.record.kind</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Kind is operation, or unrecordable when a pre-sign check refused it.</td>
+</tr>
+<tr>
+<td><code>status.record.refused</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Refused names the check and why, for an unrecordable record.</td>
+</tr>
+<tr>
+<td><code>status.record.seq</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Seq is the record's place in the stream.</td>
+</tr>
+<tr>
+<td><code>status.seq</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.stageUID</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>StageUID is the uid of the Stage that gave the operation its seq. A Stage deleted and recreated with the same name starts its seqs over, and an operation left over from the old one is not part of the new one.</td>
+</tr>
+<tr>
+<td><code>status.times</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Times are RFC 3339 timestamps.</td>
+</tr>
+<tr>
+<td><code>status.times.admitted</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.times.applied</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.times.approvalDeadline</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.times.executionDeadline</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.times.finished</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.times.held</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Held is when the operation was last held for a person. An approval created before it answered an earlier question and does not count.</td>
+</tr>
+<tr>
+<td><code>status.times.started</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.times.verifyDeadline</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.verdicts</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.verdicts[].citation</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.verdicts[].gate</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.verdicts[].message</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.verdicts[].phase</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>pre</code>, <code>verify</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.verdicts[].result</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>Pass</code>, <code>Fail</code>, <code>Unknown</code></td>
+<td>Result is a gate verdict.</td>
+</tr>
+<tr>
+<td><code>status.verification</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Verification qualifies a Succeeded outcome.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="stage">Stage<a class="headerlink" href="#stage" title="Anchor link">&para;</a></h2>
+<ul>
+<li><strong>API group</strong>: <code>delivery.pacto.trianalab.io</code></li>
+<li><strong>Version</strong>: <code>v1alpha1</code></li>
+<li><strong>Kind</strong>: <code>Stage</code></li>
+<li><strong>Plural</strong>: <code>stages</code></li>
+<li><strong>Scope</strong>: Namespaced</li>
+</ul>
+<h3 id="additional-printer-columns_2">Additional printer columns<a class="headerlink" href="#additional-printer-columns_2" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>JSONPath</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Service</td>
+<td>string</td>
+<td><code>.spec.service.name</code></td>
+</tr>
+<tr>
+<td>Env</td>
+<td>string</td>
+<td><code>.spec.environment</code></td>
+</tr>
+<tr>
+<td>Ready</td>
+<td>string</td>
+<td><code>.status.conditions[?(@.type=="Ready")].status</code></td>
+</tr>
+<tr>
+<td>Level</td>
+<td>string</td>
+<td><code>.status.level</code></td>
+</tr>
+<tr>
+<td>Pointer</td>
+<td>string</td>
+<td><code>.status.pointer</code></td>
+</tr>
+<tr>
+<td>Frozen</td>
+<td>boolean</td>
+<td><code>.status.frozen</code></td>
+</tr>
+<tr>
+<td>Hold</td>
+<td>boolean</td>
+<td><code>.status.autoHold</code></td>
+</tr>
+<tr>
+<td>Age</td>
+<td>date</td>
+<td><code>.metadata.creationTimestamp</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="fields_2">Fields<a class="headerlink" href="#fields_2" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Enum</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spec</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>StageSpec is one service in one environment.</td>
+</tr>
+<tr>
+<td><code>spec.applyRef</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ApplyRef is the object the promoter points at a version: a Flux OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it sets spec.source.targetRevision). Nothing else is ever written on it.</td>
+</tr>
+<tr>
+<td><code>spec.applyRef.kind</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td><code>OCIRepository</code>, <code>Application</code></td>
+<td>Kind is OCIRepository (Flux, the default) or Application (Argo CD, with an OCI source and automated sync).</td>
+</tr>
+<tr>
+<td><code>spec.applyRef.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.approval</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ApprovalPolicy can only raise the approval floor, never lower it.</td>
+</tr>
+<tr>
+<td><code>spec.approval.always</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Always holds every promote for a human, whatever the contracts say.</td>
+</tr>
+<tr>
+<td><code>spec.autonomy</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>AutonomyPolicy tunes when Pacto proposes the next level.</td>
+</tr>
+<tr>
+<td><code>spec.autonomy.proposeAfter</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td><code>10</code></td>
+<td></td>
+<td>ProposeAfter is how many qualifying promotions earn a proposal.</td>
+</tr>
+<tr>
+<td><code>spec.candidates</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Candidates says where new versions come from. At most one is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes.</td>
+</tr>
+<tr>
+<td><code>spec.candidates.ociRepositoryRef</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision.</td>
+</tr>
+<tr>
+<td><code>spec.candidates.ociRepositoryRef.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.candidates.upstreamRecords</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>UpstreamRecords offers what a Stage in another cluster verified, read from its signed records: the promoter must trust the key that signs that stream (promoter.upstreamTrust), or it offers nothing.</td>
+</tr>
+<tr>
+<td><code>spec.candidates.upstreamRecords.repository</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Repository (host/path) is the upstream recorder's streams repository.</td>
+</tr>
+<tr>
+<td><code>spec.candidates.upstreamRecords.stream</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Stream is the upstream Stage's stream id, &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;: its status.stream.id.</td>
+</tr>
+<tr>
+<td><code>spec.candidates.upstreamStage</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>UpstreamStage offers that Stage's verified digests minus its failed ones.</td>
+</tr>
+<tr>
+<td><code>spec.candidates.upstreamStage.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.candidates.upstreamStage.namespace</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.deadlines</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Deadlines override the operation type's defaults (Go durations).</td>
+</tr>
+<tr>
+<td><code>spec.deadlines.approval</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.deadlines.execution</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.environment</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>spec.gates</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks.</td>
+</tr>
+<tr>
+<td><code>spec.gates.impact</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ImpactGate tunes pacto.impact.</td>
+</tr>
+<tr>
+<td><code>spec.gates.impact.declaredConsumersOnly</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown.</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>VerifyGates configures what runs after a version is applied.</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify.checks</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider set in delivery.gates.providers, or the built-in pacto.runtime claim gate.</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify.checks[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name is the gate id its verdicts carry, unique on the Stage.</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify.checks[].params</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Params are the provider's settings (thresholds, filters).</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify.checks[].provider</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Provider is a gate provider set in delivery.gates.providers, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration.</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify.checks[].requireObservedModel</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>RequireObservedModel makes an eval check Unknown unless its runner says which model answered (observedModel) and the contract declares an external dependency with a version to compare it with. A model the runner names that no such version matches fails the check either way.</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify.checks[].suite</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Suite names a check the version's contract ships (its checks[].name) for an eval provider to run; without it the provider runs the only check the version ships. A version whose contract ships no check of that name, or with no suite ships none or more than one, is held for a person before it ships.</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify.checks[].suiteDigest</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>SuiteDigest pins the suite's bytes ("sha256:" and 64 hex digits). A version whose suite has another digest changed its own exam: it is held for a person before it ships, and an eval check of it is Unknown.</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify.recheck</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does.</td>
+</tr>
+<tr>
+<td><code>spec.gates.verify.window</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time.</td>
+</tr>
+<tr>
+<td><code>spec.records</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>RecordsPolicy says whether automation may move the Stage while its records cannot be written.</td>
+</tr>
+<tr>
+<td><code>spec.records.required</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Required holds every promote or rollback an agent or the promoter raises for a person to approve while the recorder is not writing this Stage's records (RecordStoreReady is not True) or more than five of its operations wait for a record (MaxRecordsPending).</td>
+</tr>
+<tr>
+<td><code>spec.service</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare.</td>
+</tr>
+<tr>
+<td><code>spec.service.domain</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Domain is the registry and organisation scope (empty for the default).</td>
+</tr>
+<tr>
+<td><code>spec.service.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name is the contract's service.name.</td>
+</tr>
+<tr>
+<td><code>spec.startLevel</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td><code>"observe"</code></td>
+<td><code>observe</code>, <code>advise</code>, <code>auto-nonbreaking</code>, <code>autonomous</code></td>
+<td>StartLevel is where a new Stage begins. It is read once, when status.level is empty; after that only an autonomy operation moves the level. Creating a Stage is an admin action, so any level is accepted, and a Stage whose status is lost seeds back to this level. Only observe and advise keep Pacto from shipping without a person.</td>
+</tr>
+<tr>
+<td><code>spec.workload</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Workload is the workload the service runs as, in the Stage's namespace: the one object pacto.contract and pacto.runtime may judge. The Pacto resource ships inside every version and names its own target, so without this a version could point its own check at a decoy. Empty is the Deployment named spec.service.name.</td>
+</tr>
+<tr>
+<td><code>spec.workload.kind</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Kind is the workload kind, such as Deployment or StatefulSet.</td>
+</tr>
+<tr>
+<td><code>spec.workload.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion.</td>
+</tr>
+<tr>
+<td><code>status.authFreshness</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). Empty: no login is too old, and a person decides with the session they have.</td>
+</tr>
+<tr>
+<td><code>status.autoHold</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>AutoHold stops auto-promotion after a person or agent rolled back or promoted back to a version the Stage already verified.</td>
+</tr>
+<tr>
+<td><code>status.candidate</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Candidate is the newest eligible candidate the stage reconciler saw.</td>
+</tr>
+<tr>
+<td><code>status.conditions</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Conditions holds Ready. It is False, naming what is missing, when the Stage cannot promote: its applier cannot be read, lacks the apply-ref label or (on Argo CD) has no single OCI source or no automated sync; its candidate OCIRepository does not exist or sets no spec.verify naming the publisher; the records of its upstream in another cluster are not trusted or cannot be read; or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry has no Referrers API, cannot be reached or holds a stream it refuses to fork.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].lastTransitionTime</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>LastTransitionTime is when Status last changed (RFC 3339).</td>
+</tr>
+<tr>
+<td><code>status.conditions[].message</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.conditions[].observedGeneration</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservedGeneration is the Stage generation the condition was set from.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].reason</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.conditions[].status</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>True</code>, <code>False</code>, <code>Unknown</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.conditions[].type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.failedDigests</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>FailedDigests are the last 50 versions that failed here; none of them is promoted again. An older failure drops out.</td>
+</tr>
+<tr>
+<td><code>status.frozen</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.frozenReason</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.lastCheck</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>LastCheck is the newest re-check of the running version after it shipped.</td>
+</tr>
+<tr>
+<td><code>status.lastCheck.at</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>At is when the gates ran (RFC 3339).</td>
+</tr>
+<tr>
+<td><code>status.lastCheck.digest</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.lastCheck.operation</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Operation is the uid of the operation that shipped the version.</td>
+</tr>
+<tr>
+<td><code>status.lastCheck.verdicts</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.lastCheck.verdicts[].citation</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.lastCheck.verdicts[].gate</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.lastCheck.verdicts[].message</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.lastCheck.verdicts[].phase</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>pre</code>, <code>verify</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.lastCheck.verdicts[].result</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>Pass</code>, <code>Fail</code>, <code>Unknown</code></td>
+<td>Result is a gate verdict.</td>
+</tr>
+<tr>
+<td><code>status.lastOp</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>LastOp is the uid of the operation that last moved the pointer.</td>
+</tr>
+<tr>
+<td><code>status.level</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Level is the Stage's autonomy level. The stage reconciler seeds it from spec.startLevel; after that only an autonomy operation writes it.</td>
+</tr>
+<tr>
+<td><code>status.locks</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Locks maps a facet to the uid of the operation holding it.</td>
+</tr>
+<tr>
+<td><code>status.observedGeneration</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservedGeneration is the Stage generation the stage reconciler last judged Ready from.</td>
+</tr>
+<tr>
+<td><code>status.observedRevision</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservedRevision is what GitOps' source reports while the Stage observes.</td>
+</tr>
+<tr>
+<td><code>status.observedRevision.digest</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.observedRevision.since</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.offered</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Offered holds the digests a promote carried through pacto.published with a pass (not an accepted unknown) and that then verified here, oldest first (cap 50). Only these are offered to a downstream Stage.</td>
+</tr>
+<tr>
+<td><code>status.pointer</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Pointer is the digest the Stage moved the environment to. It is set when an operation holding the pointer lock starts to apply, before Flux or Argo CD runs it: Applied on that operation says when they did.</td>
+</tr>
+<tr>
+<td><code>status.proposal</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Proposal is the next level Pacto proposes, or why not yet.</td>
+</tr>
+<tr>
+<td><code>status.proposal.blockers</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.proposal.blockers[].kind</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Kind is missing-contract, undeclared-range, unlabelled-apply-ref, no-observed-digest, no-record-store, needs-verified, needs-cleared-breaking, incident or partial-graph.</td>
+</tr>
+<tr>
+<td><code>status.proposal.blockers[].message</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.proposal.blockers[].subject</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Subject is the service, consumer or caller identity.</td>
+</tr>
+<tr>
+<td><code>status.proposal.evidence</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Evidence names the digests or operation uids that earned it.</td>
+</tr>
+<tr>
+<td><code>status.proposal.level</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Level is empty while nothing is proposed.</td>
+</tr>
+<tr>
+<td><code>status.published</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), oldest first (cap 50). Only these are promoted from the OCIRepository.</td>
+</tr>
+<tr>
+<td><code>status.rolledBack</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>RolledBack holds the uids of the failed operations the promoter raised its one automatic rollback for, oldest first (cap 50). A failure listed here never gets a second one.</td>
+</tr>
+<tr>
+<td><code>status.shadow</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Shadow holds the newest would-have decisions while the Stage observes, newest first.</td>
+</tr>
+<tr>
+<td><code>status.shadow[].candidate</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.shadow[].decision</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Decision is the floor's decision: approve or accept-unknown.</td>
+</tr>
+<tr>
+<td><code>status.shadow[].from</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.shadow[].impactDigest</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.shadow[].intentDigest</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.shadow[].observedAt</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservedAt is when GitOps' source reported this candidate (RFC 3339): not proof of rollout.</td>
+</tr>
+<tr>
+<td><code>status.shadow[].owners</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.shadow[].plannedAt</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>PlannedAt is when Pacto planned it (RFC 3339).</td>
+</tr>
+<tr>
+<td><code>status.shadow[].predicted</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Prediction is what plan() expects the promoter to do.</td>
+</tr>
+<tr>
+<td><code>status.shadow[].question</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.shadow[].verification</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Verification is the shadow verify on the observed digest.</td>
+</tr>
+<tr>
+<td><code>status.stream</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Stream numbers a Stage's concluded operations.</td>
+</tr>
+<tr>
+<td><code>status.stream.anchor</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Anchor is where the stream's records are listed: &lt;repository&gt;@<anchor digest>. Only the recorder writes it.</td>
+</tr>
+<tr>
+<td><code>status.stream.concluded</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Concluded are the newest operations given a seq, each with how it concluded, written in the compare-and-swap that took the seq. An operation whose own status write then failed concludes again from here: the same seq and outcome, never a second seq.</td>
+</tr>
+<tr>
+<td><code>status.stream.concluded[].cause</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Cause is the uid of the operation whose failure made the promoter raise this one: an automatic rollback, freeze or step-down.</td>
+</tr>
+<tr>
+<td><code>status.stream.concluded[].clearedBreaking</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ClearedBreaking is a promote of a change that is not NON_BREAKING whose impact verdict passed: every consumer accepts it.</td>
+</tr>
+<tr>
+<td><code>status.stream.concluded[].outcome</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Outcome is how a concluded operation ended.</td>
+</tr>
+<tr>
+<td><code>status.stream.concluded[].person</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Person is true when the operation carried an approval or a person raised it.</td>
+</tr>
+<tr>
+<td><code>status.stream.concluded[].reason</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Reason is "Code: message".</td>
+</tr>
+<tr>
+<td><code>status.stream.concluded[].seq</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.stream.concluded[].type</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Type is the operation type.</td>
+</tr>
+<tr>
+<td><code>status.stream.concluded[].uid</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.stream.concluded[].verification</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Verification qualifies a Succeeded outcome.</td>
+</tr>
+<tr>
+<td><code>status.stream.head</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Head is the digest of the newest record in the stream. Only the recorder writes it.</td>
+</tr>
+<tr>
+<td><code>status.stream.id</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid.</td>
+</tr>
+<tr>
+<td><code>status.stream.recordedSeq</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>RecordedSeq is the newest local seq the recorder wrote or adopted a record for. Only the recorder writes it.</td>
+</tr>
+<tr>
+<td><code>status.stream.seq</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.upstreamAcknowledged</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>UpstreamAcknowledged holds the ids of the unrecordable stand-ins in the upstream stream that a person on this Stage checked and acknowledged, oldest first (cap 50). They no longer stop the Stage offering.</td>
+</tr>
+<tr>
+<td><code>status.upstreamSeen</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>UpstreamSeen is the newest record this Stage read from the upstream stream it follows (candidates.upstreamRecords). A later read that ends before it, or holds another record at its seq, offers nothing, so records removed from the upstream's tail never go unseen.</td>
+</tr>
+<tr>
+<td><code>status.upstreamSeen.record</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Record is the record's id, the digest of its signed payload.</td>
+</tr>
+<tr>
+<td><code>status.upstreamSeen.seq</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.upstreamSeen.stream</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Stream is the stream id.</td>
+</tr>
+<tr>
+<td><code>status.verified</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Verified holds the newest verified digests, oldest first (cap 10).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="noderuntimeobservation">NodeRuntimeObservation<a class="headerlink" href="#noderuntimeobservation" title="Anchor link">&para;</a></h2>
+<ul>
+<li><strong>API group</strong>: <code>pacto.trianalab.io</code></li>
+<li><strong>Version</strong>: <code>v1alpha1</code></li>
+<li><strong>Kind</strong>: <code>NodeRuntimeObservation</code></li>
+<li><strong>Plural</strong>: <code>noderuntimeobservations</code></li>
+<li><strong>Scope</strong>: Namespaced</li>
+</ul>
+<h3 id="additional-printer-columns_3">Additional printer columns<a class="headerlink" href="#additional-printer-columns_3" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>JSONPath</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node</td>
+<td>string</td>
+<td><code>.status.nodeName</code></td>
+</tr>
+<tr>
+<td>State</td>
+<td>string</td>
+<td><code>.status.collection.state</code></td>
+</tr>
+<tr>
+<td>Last Published</td>
+<td>date</td>
+<td><code>.status.lastPublished</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="fields_3">Fields<a class="headerlink" href="#fields_3" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Enum</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>status</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>status is the agent's published observation.</td>
+</tr>
+<tr>
+<td><code>status.agentVersion</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>AgentVersion is the node agent build version.</td>
+</tr>
+<tr>
+<td><code>status.collection</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Collection is the health of the kernel collection.</td>
+</tr>
+<tr>
+<td><code>status.collection.droppedEvents</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>DroppedEvents is the cumulative number of kernel events lost because the ring buffer was full, since the agent started.</td>
+</tr>
+<tr>
+<td><code>status.collection.lastDropAt</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>LastDropAt is when the agent last saw DroppedEvents increase.</td>
+</tr>
+<tr>
+<td><code>status.collection.lastResyncAt</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>LastResyncAt is when the agent last completed a /proc baseline scan.</td>
+</tr>
+<tr>
+<td><code>status.collection.message</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Message is a human-readable explanation of a non-Running state.</td>
+</tr>
+<tr>
+<td><code>status.collection.reason</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Reason is a CamelCase machine-readable cause for a non-Running state.</td>
+</tr>
+<tr>
+<td><code>status.collection.state</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>Running</code>, <code>Degraded</code>, <code>Failed</code></td>
+<td>State is Running, Degraded or Failed.</td>
+</tr>
+<tr>
+<td><code>status.kernelRelease</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>KernelRelease is the node's kernel release (uname -r).</td>
+</tr>
+<tr>
+<td><code>status.lastPublished</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>LastPublished is the heartbeat: the time of the most recent publish.</td>
+</tr>
+<tr>
+<td><code>status.nodeName</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>NodeName is the Kubernetes node this object describes.</td>
+</tr>
+<tr>
+<td><code>status.observingSince</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservingSince is when this agent process started.</td>
+</tr>
+<tr>
+<td><code>status.pods</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Pods are the pods running on the node, sorted by UID.</td>
+</tr>
+<tr>
+<td><code>status.pods[].baselineAt</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>BaselineAt is the last /proc scan that saw the pod.</td>
+</tr>
+<tr>
+<td><code>status.pods[].connections</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Connections are the pod's outbound TCP peers within the retention window.</td>
+</tr>
+<tr>
+<td><code>status.pods[].connections[].address</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Address is the peer IP address.</td>
+</tr>
+<tr>
+<td><code>status.pods[].connections[].failures</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Failures counts handshakes that went from SYN_SENT straight to CLOSE (refused, reset or timed out).</td>
+</tr>
+<tr>
+<td><code>status.pods[].connections[].lastFailureAt</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>LastFailureAt is the time of the most recent failure.</td>
+</tr>
+<tr>
+<td><code>status.pods[].connections[].lastSuccessAt</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>LastSuccessAt is the time of the most recent success.</td>
+</tr>
+<tr>
+<td><code>status.pods[].connections[].port</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Port is the peer port.</td>
+</tr>
+<tr>
+<td><code>status.pods[].connections[].successes</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Successes counts handshakes that reached ESTABLISHED.</td>
+</tr>
+<tr>
+<td><code>status.pods[].listeners</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Listeners are the pod's TCP listening sockets.</td>
+</tr>
+<tr>
+<td><code>status.pods[].listeners[].address</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Address is the bound local address (0.0.0.0 or :: for all addresses). A loopback-only listener does not serve traffic sent to the pod IP.</td>
+</tr>
+<tr>
+<td><code>status.pods[].listeners[].family</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>IPv4</code>, <code>IPv6</code></td>
+<td>Family is the socket address family.</td>
+</tr>
+<tr>
+<td><code>status.pods[].listeners[].port</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Port is the local (container) port.</td>
+</tr>
+<tr>
+<td><code>status.pods[].listeners[].process</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Process is the command name of the process that opened the listener, when the agent saw it happen (empty when only the /proc baseline knows it).</td>
+</tr>
+<tr>
+<td><code>status.pods[].netnsShared</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>NetnsShared is true when the pod's network namespace is not its own (the host namespace for hostNetwork pods). Socket events in it cannot be attributed to the pod, so listeners and connections stay empty.</td>
+</tr>
+<tr>
+<td><code>status.pods[].observedSince</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservedSince is when the agent first mapped the pod's network namespace.</td>
+</tr>
+<tr>
+<td><code>status.pods[].truncated</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Truncated is true when a per-pod or per-node bound was hit, so listeners or connections may be missing entries.</td>
+</tr>
+<tr>
+<td><code>status.pods[].uid</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>UID is the pod UID, read from the pod's cgroup path.</td>
+</tr>
+<tr>
+<td><code>status.publishIntervalSeconds</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>PublishIntervalSeconds is how often the agent publishes; readers derive staleness from it.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="pactorevision">PactoRevision<a class="headerlink" href="#pactorevision" title="Anchor link">&para;</a></h2>
+<ul>
+<li><strong>API group</strong>: <code>pacto.trianalab.io</code></li>
+<li><strong>Version</strong>: <code>v1alpha1</code></li>
+<li><strong>Kind</strong>: <code>PactoRevision</code></li>
+<li><strong>Plural</strong>: <code>pactorevisions</code></li>
+<li><strong>Scope</strong>: Namespaced</li>
+</ul>
+<h3 id="additional-printer-columns_4">Additional printer columns<a class="headerlink" href="#additional-printer-columns_4" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>JSONPath</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Version</td>
+<td>string</td>
+<td><code>.spec.version</code></td>
+</tr>
+<tr>
+<td>Pacto</td>
+<td>string</td>
+<td><code>.spec.pactoRef</code></td>
+</tr>
+<tr>
+<td>Resolved</td>
+<td>boolean</td>
+<td><code>.status.resolved</code></td>
+</tr>
+<tr>
+<td>Age</td>
+<td>date</td>
+<td><code>.metadata.creationTimestamp</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="fields_4">Fields<a class="headerlink" href="#fields_4" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Enum</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spec</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>spec defines the desired state of PactoRevision.</td>
+</tr>
+<tr>
+<td><code>spec.pactoRef</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>PactoRef is the name of the parent Pacto resource that owns this revision.</td>
+</tr>
+<tr>
+<td><code>spec.serviceName</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ServiceName is the service name from the contract.</td>
+</tr>
+<tr>
+<td><code>spec.source</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Source specifies where this revision's contract was loaded from.</td>
+</tr>
+<tr>
+<td><code>spec.source.digest</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Digest is the OCI manifest digest (sha256:...) at the time of resolution. Used to detect force-pushes (tag overwrites) on the registry.</td>
+</tr>
+<tr>
+<td><code>spec.source.inline</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Inline indicates the contract was provided inline (no external source).</td>
+</tr>
+<tr>
+<td><code>spec.source.oci</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>OCI is the fully resolved OCI reference (including tag/digest). Example: ghcr.io/org/service-pacto:1.2.0</td>
+</tr>
+<tr>
+<td><code>spec.version</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Version is the contract version (from contract.service.version).</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>status defines the observed state of PactoRevision.</td>
+</tr>
+<tr>
+<td><code>status.conditions</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>conditions represent the current state of the PactoRevision resource.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].lastTransitionTime</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed. If that is not known, then using the time when the API field changed is acceptable.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].message</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>message is a human readable message indicating details about the transition. This may be an empty string.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].observedGeneration</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].reason</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].status</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>True</code>, <code>False</code>, <code>Unknown</code></td>
+<td>status of the condition, one of True, False, Unknown.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>type of condition in CamelCase or in foo.example.com/CamelCase.</td>
+</tr>
+<tr>
+<td><code>status.contractHash</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ContractHash is the SHA-256 hash of the raw contract YAML. Used to detect content changes across versions.</td>
+</tr>
+<tr>
+<td><code>status.createdAt</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>CreatedAt is the timestamp when this revision was first resolved.</td>
+</tr>
+<tr>
+<td><code>status.resolved</code></td>
+<td><code>boolean</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Resolved indicates whether this revision has been successfully resolved and parsed.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="pacto">Pacto<a class="headerlink" href="#pacto" title="Anchor link">&para;</a></h2>
+<ul>
+<li><strong>API group</strong>: <code>pacto.trianalab.io</code></li>
+<li><strong>Version</strong>: <code>v1alpha1</code></li>
+<li><strong>Kind</strong>: <code>Pacto</code></li>
+<li><strong>Plural</strong>: <code>pactos</code></li>
+<li><strong>Scope</strong>: Namespaced</li>
+</ul>
+<h3 id="additional-printer-columns_5">Additional printer columns<a class="headerlink" href="#additional-printer-columns_5" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Type</th>
+<th>JSONPath</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Status</td>
+<td>string</td>
+<td><code>.status.contractStatus</code></td>
+</tr>
+<tr>
+<td>Service</td>
+<td>string</td>
+<td><code>.spec.target.serviceName</code></td>
+</tr>
+<tr>
+<td>Version</td>
+<td>string</td>
+<td><code>.status.contractVersion</code></td>
+</tr>
+<tr>
+<td>Errors</td>
+<td>integer</td>
+<td><code>.status.summary.errorCount</code></td>
+</tr>
+<tr>
+<td>Warnings</td>
+<td>integer</td>
+<td><code>.status.summary.warningCount</code></td>
+</tr>
+<tr>
+<td>Last Reconciled</td>
+<td>date</td>
+<td><code>.status.lastReconciledAt</code></td>
+</tr>
+<tr>
+<td>Age</td>
+<td>date</td>
+<td><code>.metadata.creationTimestamp</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="fields_5">Fields<a class="headerlink" href="#fields_5" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Enum</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spec</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>spec defines the desired state of Pacto.</td>
+</tr>
+<tr>
+<td><code>spec.checkIntervalSeconds</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td><code>300</code></td>
+<td></td>
+<td>CheckIntervalSeconds controls how often the reconciler re-checks compliance. Defaults to 300 (5 minutes).</td>
+</tr>
+<tr>
+<td><code>spec.contractRef</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ContractRef specifies where to find the Pacto contract.</td>
+</tr>
+<tr>
+<td><code>spec.contractRef.inline</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Inline allows specifying the contract YAML directly (for testing/dev).</td>
+</tr>
+<tr>
+<td><code>spec.contractRef.oci</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>OCI is the OCI registry reference for the contract bundle. Three forms are supported: - Unversioned (ghcr.io/org/service-pacto): tracks the latest semver tag. - Tagged (ghcr.io/org/service-pacto:1.2.3): pinned to that exact tag. - Digest (ghcr.io/org/service-pacto@sha256:...): immutable, exact reference.</td>
+</tr>
+<tr>
+<td><code>spec.contractRef.pullSecretRef</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>PullSecretRef is the name of a Secret in the same namespace containing OCI registry credentials. Supported secret types: - Opaque with "token" key (bearer token) - Opaque with "username"+"password" keys (basic auth) - kubernetes.io/dockerconfigjson (standard Docker registry auth) For Opaque secrets, add a "registry" key (e.g. "ghcr.io") to bind the credentials to that host; the operator then refuses to send them to any other registry. Recommended to prevent a contract from redirecting a referenced secret to an attacker-controlled registry.</td>
+</tr>
+<tr>
+<td><code>spec.overrides</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Overrides specifies partial configuration overrides to apply on top of the resolved contract. This enables environment-specific tuning without duplicating the entire contract inline. Semantics mirror the Pacto CLI --set / -f override model.</td>
+</tr>
+<tr>
+<td><code>spec.overrides.configurations</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Configurations lists per-scope configuration value overrides. Each entry is matched by name to a configurations[] entry in the resolved contract.</td>
+</tr>
+<tr>
+<td><code>spec.overrides.configurations[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name identifies the configuration scope to override (must match a configurations[] entry in the contract).</td>
+</tr>
+<tr>
+<td><code>spec.overrides.configurations[].values</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Values contains the configuration key-value pairs to merge into the resolved contract. These values take precedence over the values declared in the contract.</td>
+</tr>
+<tr>
+<td><code>spec.target</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Target specifies which Kubernetes resources to observe. When omitted, the Pacto acts as a reference-only contract (no runtime validation).</td>
+</tr>
+<tr>
+<td><code>spec.target.configBindings</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ConfigBindings maps contract configurations to the concrete ConfigMap/Secret backing each (B7).</td>
+</tr>
+<tr>
+<td><code>spec.target.configBindings[].configuration</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Configuration is the contract configurations[].name this binding backs.</td>
+</tr>
+<tr>
+<td><code>spec.target.configBindings[].format</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td><code>yaml</code>, <code>json</code></td>
+<td>Format of the value at Key. Required with Key for ConfigMap conformance.</td>
+</tr>
+<tr>
+<td><code>spec.target.configBindings[].key</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Key names the single ConfigMap/Secret key to decode and validate. Omit for existence-only.</td>
+</tr>
+<tr>
+<td><code>spec.target.configBindings[].kind</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>ConfigMap</code>, <code>Secret</code></td>
+<td>Kind of the backing object.</td>
+</tr>
+<tr>
+<td><code>spec.target.configBindings[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name of the backing ConfigMap/Secret in the Pacto's namespace.</td>
+</tr>
+<tr>
+<td><code>spec.target.interfaceBindings</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes deployment knowledge, so it lives on the CR and the contract stays platform-agnostic.</td>
+</tr>
+<tr>
+<td><code>spec.target.interfaceBindings[].interface</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Interface is the contract interfaces[].name this binding resolves.</td>
+</tr>
+<tr>
+<td><code>spec.target.interfaceBindings[].servicePort</code></td>
+<td><code>object</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ServicePort is the Service port name or number that serves the interface.</td>
+</tr>
+<tr>
+<td><code>spec.target.serviceName</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ServiceName is the name of the Kubernetes Service to observe.</td>
+</tr>
+<tr>
+<td><code>spec.target.workloadRef</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>WorkloadRef identifies the workload (Deployment, StatefulSet, ReplicaSet, Job, or CronJob). If omitted, defaults to name=serviceName, kind=Deployment.</td>
+</tr>
+<tr>
+<td><code>spec.target.workloadRef.kind</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td><code>Deployment</code>, <code>StatefulSet</code>, <code>ReplicaSet</code>, <code>Job</code>, <code>CronJob</code></td>
+<td>Kind of the workload resource. Left unspecified (empty) unless the author sets it explicitly; WORKLOAD_MISMATCH only fires when BOTH name AND kind were explicit (AR7). No default is applied here so the collector can distinguish "author asserted kind X" from "kind was defaulted for the GET".</td>
+</tr>
+<tr>
+<td><code>spec.target.workloadRef.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name of the workload resource.</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>status defines the observed state of Pacto.</td>
+</tr>
+<tr>
+<td><code>status.capabilities</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Capabilities lists the declared capabilities from the contract.</td>
+</tr>
+<tr>
+<td><code>status.capabilities[].ref</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Ref is the capability reference (OCI URI or local path).</td>
+</tr>
+<tr>
+<td><code>status.capabilities[].type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Type is the capability type (e.g. "database", "cache").</td>
+</tr>
+<tr>
+<td><code>status.conditions</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Conditions represent aggregated state (ContractValid, RuntimeObserved, etc.).</td>
+</tr>
+<tr>
+<td><code>status.conditions[].lastTransitionTime</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed. If that is not known, then using the time when the API field changed is acceptable.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].message</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>message is a human readable message indicating details about the transition. This may be an empty string.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].observedGeneration</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].reason</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].status</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>True</code>, <code>False</code>, <code>Unknown</code></td>
+<td>status of the condition, one of True, False, Unknown.</td>
+</tr>
+<tr>
+<td><code>status.conditions[].type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>type of condition in CamelCase or in foo.example.com/CamelCase.</td>
+</tr>
+<tr>
+<td><code>status.configurations</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Configurations lists the contract's named configuration scopes. Each entry corresponds to one configurations[] entry in the contract.</td>
+</tr>
+<tr>
+<td><code>status.configurations[].hasSchema</code></td>
+<td><code>boolean</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>HasSchema indicates whether a JSON Schema file is bundled.</td>
+</tr>
+<tr>
+<td><code>status.configurations[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name is the configuration scope name (required, unique within contract).</td>
+</tr>
+<tr>
+<td><code>status.configurations[].overriddenKeys</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>OverriddenKeys lists configuration keys whose values were overridden by spec.overrides.configurations. Empty when no overrides apply.</td>
+</tr>
+<tr>
+<td><code>status.configurations[].properties</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Properties lists the configuration's declared keys with their type and default/value, extracted from the bundled schema (or literal values), so consumers can render configuration content without re-reading the bundle.</td>
+</tr>
+<tr>
+<td><code>status.configurations[].properties[].key</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Key is the property name (dot-notation for nested objects).</td>
+</tr>
+<tr>
+<td><code>status.configurations[].properties[].type</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Type is the JSON Schema type of the property.</td>
+</tr>
+<tr>
+<td><code>status.configurations[].properties[].value</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Value is the default (for schema properties) or the literal value.</td>
+</tr>
+<tr>
+<td><code>status.configurations[].ref</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Ref is the external OCI reference for the configuration schema, if used.</td>
+</tr>
+<tr>
+<td><code>status.configurations[].secretKeys</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>SecretKeys lists configuration keys whose values reference secrets.</td>
+</tr>
+<tr>
+<td><code>status.configurations[].valueKeys</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ValueKeys lists the declared configuration value keys.</td>
+</tr>
+<tr>
+<td><code>status.contract</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Contract exposes parsed contract metadata.</td>
+</tr>
+<tr>
+<td><code>status.contract.owner</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Owner contains the structured ownership metadata from the contract (team, DRI, and contacts).</td>
+</tr>
+<tr>
+<td><code>status.contract.owner.contacts</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Contacts lists provider-neutral contact points.</td>
+</tr>
+<tr>
+<td><code>status.contract.owner.contacts[].purpose</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Purpose describes what this contact is used for (e.g. escalation, support, oncall).</td>
+</tr>
+<tr>
+<td><code>status.contract.owner.contacts[].type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Type is the contact channel type (e.g. email, chat, oncall).</td>
+</tr>
+<tr>
+<td><code>status.contract.owner.contacts[].value</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Value is the contact address or identifier.</td>
+</tr>
+<tr>
+<td><code>status.contract.owner.dri</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>DRI is the directly responsible individual.</td>
+</tr>
+<tr>
+<td><code>status.contract.owner.team</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Team is the owning team name.</td>
+</tr>
+<tr>
+<td><code>status.contract.ownerDisplay</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>OwnerDisplay is the canonical display string derived from owner metadata. Precedence: team &gt; DRI. Useful for printer columns, dashboards, and backward-compatible consumers.</td>
+</tr>
+<tr>
+<td><code>status.contract.resolvedRef</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ResolvedRef is the fully-resolved OCI reference (with tag/digest). Empty for inline contracts.</td>
+</tr>
+<tr>
+<td><code>status.contract.serviceName</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ServiceName is the service name declared in the contract.</td>
+</tr>
+<tr>
+<td><code>status.contract.version</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Version is the semver version from the contract.</td>
+</tr>
+<tr>
+<td><code>status.contractStatus</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td><code>Compliant</code>, <code>Warning</code>, <code>NonCompliant</code>, <code>Reference</code>, <code>Unknown</code>, <code>Invalid</code>, <code>NotEvaluated</code></td>
+<td>ContractStatus is the high-level contract compliance state. This reflects contract validation/compliance and is NOT runtime health.</td>
+</tr>
+<tr>
+<td><code>status.contractVersion</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ContractVersion is the version from the parsed contract. Kept for backward compatibility and simple access via JSONPath.</td>
+</tr>
+<tr>
+<td><code>status.currentRevision</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>CurrentRevision is the name of the active PactoRevision.</td>
+</tr>
+<tr>
+<td><code>status.dependencies</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Dependencies lists the declared dependencies from the contract.</td>
+</tr>
+<tr>
+<td><code>status.dependencies[].compatibility</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Compatibility is the semver constraint for the dependency.</td>
+</tr>
+<tr>
+<td><code>status.dependencies[].external</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>External marks a dependency this Pacto system does not run, such as a managed database or a hosted model.</td>
+</tr>
+<tr>
+<td><code>status.dependencies[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name is the dependency name (required, unique within contract).</td>
+</tr>
+<tr>
+<td><code>status.dependencies[].ref</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Ref is the dependency reference (OCI URI). Empty for an external dependency that has no contract.</td>
+</tr>
+<tr>
+<td><code>status.dependencies[].required</code></td>
+<td><code>boolean</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Required indicates whether this dependency is mandatory.</td>
+</tr>
+<tr>
+<td><code>status.dependencies[].version</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Version is the free-text version an external dependency without a ref declares.</td>
+</tr>
+<tr>
+<td><code>status.evaluatedRevision</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>EvaluatedRevision ties this status to the exact contract and workload generation it was computed from, so a result for an old version is never read as the answer for a new one. A consumer acting on contractStatus (the opt-in Pacto delivery promoter) must check it first.</td>
+</tr>
+<tr>
+<td><code>status.evaluatedRevision.contractDigest</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ContractDigest is the OCI manifest digest of the evaluated contract bundle. Empty for inline contracts.</td>
+</tr>
+<tr>
+<td><code>status.evaluatedRevision.kernelCoverage</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td><code>Complete</code>, <code>Partial</code>, <code>Failed</code>, <code>Stale</code></td>
+<td>KernelCoverage is how far the node agent's view of the workload's pods could be trusted in this evaluation, the worst pod first: Complete, Partial, Failed or Stale. Empty when kernel evidence is off. Complete is what lets a reader tell "observed and clean" from "not observed".</td>
+</tr>
+<tr>
+<td><code>status.evaluatedRevision.workload</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Workload is the workload object and generation the evaluation read. Absent for a reference-only contract or a workload that does not exist.</td>
+</tr>
+<tr>
+<td><code>status.evaluatedRevision.workload.generation</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.evaluatedRevision.workload.kind</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.evaluatedRevision.workload.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.evaluatedRevision.workload.uid</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.evaluationCoverage</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects ContractStatus).</td>
+</tr>
+<tr>
+<td><code>status.evaluationCoverage.evaluated</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Evaluated is the number of required assertions with a conclusive (Observed) observation.</td>
+</tr>
+<tr>
+<td><code>status.evaluationCoverage.required</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Required is the total number of required assertions the contract declares.</td>
+</tr>
+<tr>
+<td><code>status.evaluationCoverage.unverified</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Unverified lists, sorted, the contract paths of declared facets that have a runtime check but no usable fact this time (for example interfaces[name=api].type with probing off). Metadata only: it never changes the contract status.</td>
+</tr>
+<tr>
+<td><code>status.findings</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Findings is the list of typed conclusions from the Pacto engine. Includes both contract-only findings (structural/semantic) and evidence-based findings (runtime drift).</td>
+</tr>
+<tr>
+<td><code>status.findings[].category</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Category groups related codes (e.g. RuntimeDrift, PolicyViolation).</td>
+</tr>
+<tr>
+<td><code>status.findings[].code</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Code is the stable finding identifier (e.g. WORKLOAD_MISMATCH).</td>
+</tr>
+<tr>
+<td><code>status.findings[].contractPath</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ContractPath is the YAML path to the relevant contract field.</td>
+</tr>
+<tr>
+<td><code>status.findings[].evidenceRefs</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>EvidenceRefs links the finding to supporting evidence.</td>
+</tr>
+<tr>
+<td><code>status.findings[].evidenceRefs[].collector</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Collector names the producer of the matched observation: k8s-observer for the Kubernetes API alone, k8s-observer+ebpf when kernel evidence was merged in, ebpf when only the kernel saw it.</td>
+</tr>
+<tr>
+<td><code>status.findings[].evidenceRefs[].detectedAt</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>DetectedAt is the RFC 3339 time the matched observation was made.</td>
+</tr>
+<tr>
+<td><code>status.findings[].evidenceRefs[].observedAt</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ObservedAt is the ISO8601 timestamp when the evidence was collected.</td>
+</tr>
+<tr>
+<td><code>status.findings[].evidenceRefs[].source</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Source is the evidence source (e.g. "k8s").</td>
+</tr>
+<tr>
+<td><code>status.findings[].message</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Message is a human-readable description.</td>
+</tr>
+<tr>
+<td><code>status.findings[].severity</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>error</code>, <code>warning</code>, <code>info</code>, <code>unknown</code></td>
+<td>Severity is error, warning, info, or unknown.</td>
+</tr>
+<tr>
+<td><code>status.findings[].subject</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Subject identifies what the finding is about.</td>
+</tr>
+<tr>
+<td><code>status.interfaces</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Interfaces lists the parsed interfaces from the contract.</td>
+</tr>
+<tr>
+<td><code>status.interfaces[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name is the interface name.</td>
+</tr>
+<tr>
+<td><code>status.interfaces[].ref</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Ref is the bundle-relative path to the interface specification file.</td>
+</tr>
+<tr>
+<td><code>status.interfaces[].type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>openapi</code>, <code>asyncapi</code>, <code>grpc</code>, <code>mcp</code></td>
+<td>Type is the interface type: openapi, asyncapi, grpc or mcp.</td>
+</tr>
+<tr>
+<td><code>status.interfaces[].visibility</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Visibility is the declared visibility: public or internal.</td>
+</tr>
+<tr>
+<td><code>status.lastReconciledAt</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>LastReconciledAt is when the status was last written: on a change, and at least every half check interval while nothing changes.</td>
+</tr>
+<tr>
+<td><code>status.metadata</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Metadata contains arbitrary key-value pairs from the contract's metadata section.</td>
+</tr>
+<tr>
+<td><code>status.observationWindows</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservationWindows tracks per-assertion negative-observation streaks for time-based stabilization (B5). Operator-owned temporal state; the pure engine never sees it.</td>
+</tr>
+<tr>
+<td><code>status.observationWindows[].firstObservedNegativeAt</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>FirstObservedNegativeAt is when the current negative streak began.</td>
+</tr>
+<tr>
+<td><code>status.observationWindows[].kind</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Kind is the assertion dimension: interface | dependency | configuration | capability.</td>
+</tr>
+<tr>
+<td><code>status.observationWindows[].subject</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Subject is the assertion identity (interface/dependency/configuration name, or capability key).</td>
+</tr>
+<tr>
+<td><code>status.observedCallers</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservedCallers are workloads the node agent saw calling this target's Service, inside the dependency observation window, that no Pacto describes. Capped at 32, sorted by namespace, kind and name.</td>
+</tr>
+<tr>
+<td><code>status.observedCallers[].firstSeen</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>FirstSeen is set once, when the caller first appears, so the status does not change on every reconcile.</td>
+</tr>
+<tr>
+<td><code>status.observedCallers[].kind</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Kind is the owning controller: Deployment, StatefulSet, DaemonSet, Job, CronJob, another controller kind, or Pod for a pod no controller owns.</td>
+</tr>
+<tr>
+<td><code>status.observedCallers[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.observedCallers[].namespace</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.observedCallers[].source</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>ebpf</code></td>
+<td>Source is the collector that saw the calls.</td>
+</tr>
+<tr>
+<td><code>status.observedCallersCoverage</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservedCallersCoverage says whether observedCallers can be trusted as complete. Absent when runtime observation is not configured for this Pacto.</td>
+</tr>
+<tr>
+<td><code>status.observedCallersCoverage.reason</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.observedCallersCoverage.refreshSeconds</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>RefreshSeconds is how often the operator rewrites this status. A reader treats a status not reconciled within twice that as stale, so an operator that stopped never leaves a complete coverage in place.</td>
+</tr>
+<tr>
+<td><code>status.observedCallersCoverage.state</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>complete</code>, <code>partial</code>, <code>unavailable</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>status.observedGeneration</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservedGeneration is the most recent generation observed by the controller.</td>
+</tr>
+<tr>
+<td><code>status.observedRuntime</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ObservedRuntime describes the actual runtime state observed from the cluster. Only populated when a target workload exists. This is a lean evidence view.</td>
+</tr>
+<tr>
+<td><code>status.observedRuntime.containerImages</code></td>
+<td><code>[]string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>ContainerImages lists the container images from the pod spec.</td>
+</tr>
+<tr>
+<td><code>status.observedRuntime.deploymentStrategy</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>DeploymentStrategy is the observed strategy (RollingUpdate, Recreate). Empty for non-Deployments.</td>
+</tr>
+<tr>
+<td><code>status.observedRuntime.hasEmptyDir</code></td>
+<td><code>boolean</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>HasEmptyDir indicates whether the workload uses emptyDir volumes.</td>
+</tr>
+<tr>
+<td><code>status.observedRuntime.hasPVC</code></td>
+<td><code>boolean</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>HasPVC indicates whether the workload uses PersistentVolumeClaims.</td>
+</tr>
+<tr>
+<td><code>status.observedRuntime.healthProbeInitialDelaySeconds</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>HealthProbeInitialDelaySeconds is the observed initialDelaySeconds from the first container's probe.</td>
+</tr>
+<tr>
+<td><code>status.observedRuntime.podManagementPolicy</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>PodManagementPolicy is the observed pod management policy (OrderedReady, Parallel). Empty for non-StatefulSets.</td>
+</tr>
+<tr>
+<td><code>status.observedRuntime.terminationGracePeriodSeconds</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>TerminationGracePeriodSeconds is the observed terminationGracePeriodSeconds from the pod spec.</td>
+</tr>
+<tr>
+<td><code>status.observedRuntime.workloadKind</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>WorkloadKind is the actual Kubernetes resource kind (Deployment, StatefulSet, ReplicaSet, Job, CronJob).</td>
+</tr>
+<tr>
+<td><code>status.policies</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Policies lists the contract's declared policy sources (metadata only). Each entry describes a local schema or external ref; the operator does not resolve or enforce ref-based policies at runtime.</td>
+</tr>
+<tr>
+<td><code>status.policies[].description</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Description is the policy schema's declared description, if any.</td>
+</tr>
+<tr>
+<td><code>status.policies[].hasSchema</code></td>
+<td><code>boolean</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>HasSchema indicates whether a policy schema file is bundled.</td>
+</tr>
+<tr>
+<td><code>status.policies[].name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name is the policy name (required, unique within contract).</td>
+</tr>
+<tr>
+<td><code>status.policies[].properties</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Properties lists the policy schema's keys with their type and default, so consumers can render policy content without re-reading the bundle.</td>
+</tr>
+<tr>
+<td><code>status.policies[].properties[].key</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Key is the property name (dot-notation for nested objects).</td>
+</tr>
+<tr>
+<td><code>status.policies[].properties[].type</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Type is the JSON Schema type of the property.</td>
+</tr>
+<tr>
+<td><code>status.policies[].properties[].value</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Value is the default (for schema properties) or the literal value.</td>
+</tr>
+<tr>
+<td><code>status.policies[].ref</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Ref is the external OCI reference for the policy schema, if used.</td>
+</tr>
+<tr>
+<td><code>status.policies[].schema</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Schema is the bundle-relative path to the policy schema file, if local.</td>
+</tr>
+<tr>
+<td><code>status.policies[].title</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Title is the policy schema's declared title, if any.</td>
+</tr>
+<tr>
+<td><code>status.readiness</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Readiness is the derived operational readiness assessment of the contract. It is computed from the contract's declared readiness claims and the current time. It is a separate dimension from contract compliance and does NOT affect ContractStatus. Absent when the contract declares no readiness.</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Claims is the derived per-claim readiness status.</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims[].category</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Category is the software-domain category (security, documentation, observability, etc.).</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims[].description</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Description is the optional human-readable explanation.</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims[].earnedWeight</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>EarnedWeight is the weight this check contributed toward the score.</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims[].evidence</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Evidence is the declared pointer to the evidence.</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims[].excluded</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Excluded reports whether the check is excluded from scoring (deferred).</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims[].id</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ID is the readiness requirement identifier (e.g. dashboard, runbook).</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims[].status</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td><code>done</code>, <code>partial</code>, <code>not-done</code>, <code>deferred</code></td>
+<td>Status is the declared completion status.</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims[].type</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Type classifies the evidence pointer (url, document, ticket, report, artifact, identifier, other).</td>
+</tr>
+<tr>
+<td><code>status.readiness.claims[].weight</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Weight is the declared contribution to the readiness score (0-100).</td>
+</tr>
+<tr>
+<td><code>status.readiness.daysRemaining</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>DaysRemaining is the number of whole days until expiry (nil when expired).</td>
+</tr>
+<tr>
+<td><code>status.readiness.deferredCount</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>DeferredCount is the number of checks declared deferred (excluded from scoring).</td>
+</tr>
+<tr>
+<td><code>status.readiness.doneCount</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>DoneCount is the number of checks declared done.</td>
+</tr>
+<tr>
+<td><code>status.readiness.earnedWeight</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>EarnedWeight is the weight earned toward the score.</td>
+</tr>
+<tr>
+<td><code>status.readiness.expired</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Expired reports whether the assessment has expired; when true every in-scope check earns 0.</td>
+</tr>
+<tr>
+<td><code>status.readiness.expires</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Expires is the assessment-level expiry boundary (YYYY-MM-DD).</td>
+</tr>
+<tr>
+<td><code>status.readiness.minScore</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>MinScore is the gate threshold (the declared readiness.minScore, or 100 when omitted).</td>
+</tr>
+<tr>
+<td><code>status.readiness.notDoneCount</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>NotDoneCount is the number of checks declared not-done.</td>
+</tr>
+<tr>
+<td><code>status.readiness.partialCount</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>PartialCount is the number of checks declared partial.</td>
+</tr>
+<tr>
+<td><code>status.readiness.passing</code></td>
+<td><code>boolean</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Passing reports whether the gate is met (not expired and Score &gt;= MinScore).</td>
+</tr>
+<tr>
+<td><code>status.readiness.revisions</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Revisions is the declared readiness revision history.</td>
+</tr>
+<tr>
+<td><code>status.readiness.revisions[].author</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Author is who performed the assessment.</td>
+</tr>
+<tr>
+<td><code>status.readiness.revisions[].date</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Date is the date the revision was assessed (YYYY-MM-DD).</td>
+</tr>
+<tr>
+<td><code>status.readiness.revisions[].description</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Description summarizes what changed or was observed.</td>
+</tr>
+<tr>
+<td><code>status.readiness.revisions[].version</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Version is the service version assessed in this revision.</td>
+</tr>
+<tr>
+<td><code>status.readiness.score</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Score is the percentage of in-scope weight earned (0-100).</td>
+</tr>
+<tr>
+<td><code>status.readiness.totalWeight</code></td>
+<td><code>integer</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>TotalWeight is the sum of in-scope (non-deferred) check weights.</td>
+</tr>
+<tr>
+<td><code>status.resolutionPolicy</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td><code>Latest</code>, <code>PinnedTag</code>, <code>PinnedDigest</code></td>
+<td>ResolutionPolicy describes how the OCI reference was resolved. Latest: unversioned ref, operator tracks the highest semver tag. PinnedTag: ref includes an explicit tag, used as-is. PinnedDigest: ref includes a digest, used as-is (immutable). Empty for inline contracts.</td>
+</tr>
+<tr>
+<td><code>status.resources</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Resources describes the existence of target Kubernetes resources.</td>
+</tr>
+<tr>
+<td><code>status.resources.service</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Service describes the target Service.</td>
+</tr>
+<tr>
+<td><code>status.resources.service.exists</code></td>
+<td><code>boolean</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Exists indicates whether the resource was found in the cluster.</td>
+</tr>
+<tr>
+<td><code>status.resources.service.kind</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Kind of the resource (only set for workloads).</td>
+</tr>
+<tr>
+<td><code>status.resources.service.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name of the resource.</td>
+</tr>
+<tr>
+<td><code>status.resources.workload</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Workload describes the target workload (Deployment/StatefulSet/ReplicaSet).</td>
+</tr>
+<tr>
+<td><code>status.resources.workload.exists</code></td>
+<td><code>boolean</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Exists indicates whether the resource was found in the cluster.</td>
+</tr>
+<tr>
+<td><code>status.resources.workload.kind</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Kind of the resource (only set for workloads).</td>
+</tr>
+<tr>
+<td><code>status.resources.workload.name</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Name of the resource.</td>
+</tr>
+<tr>
+<td><code>status.summary</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Summary provides severity-based finding counts.</td>
+</tr>
+<tr>
+<td><code>status.summary.errorCount</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>ErrorCount is the number of error-severity findings.</td>
+</tr>
+<tr>
+<td><code>status.summary.infoCount</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>InfoCount is the number of info-severity findings.</td>
+</tr>
+<tr>
+<td><code>status.summary.unknownCount</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>UnknownCount is the number of unknown-severity findings (a required assertion could not be evaluated).</td>
+</tr>
+<tr>
+<td><code>status.summary.warningCount</code></td>
+<td><code>integer</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>WarningCount is the number of warning-severity findings.</td>
+</tr>
+<tr>
+<td><code>status.validation</code></td>
+<td><code>object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Validation describes the structural validation outcome of the contract.</td>
+</tr>
+<tr>
+<td><code>status.validation.errors</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Errors lists structural validation errors.</td>
+</tr>
+<tr>
+<td><code>status.validation.errors[].code</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Code is a machine-readable error code.</td>
+</tr>
+<tr>
+<td><code>status.validation.errors[].message</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Message is a human-readable description of the issue.</td>
+</tr>
+<tr>
+<td><code>status.validation.errors[].path</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Path is the JSON path to the invalid field.</td>
+</tr>
+<tr>
+<td><code>status.validation.valid</code></td>
+<td><code>boolean</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Valid indicates whether the contract passed structural validation.</td>
+</tr>
+<tr>
+<td><code>status.validation.warnings</code></td>
+<td><code>[]object</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Warnings lists structural validation warnings.</td>
+</tr>
+<tr>
+<td><code>status.validation.warnings[].code</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Code is a machine-readable error code.</td>
+</tr>
+<tr>
+<td><code>status.validation.warnings[].message</code></td>
+<td><code>string</code></td>
+<td>yes</td>
+<td></td>
+<td></td>
+<td>Message is a human-readable description of the issue.</td>
+</tr>
+<tr>
+<td><code>status.validation.warnings[].path</code></td>
+<td><code>string</code></td>
+<td>no</td>
+<td></td>
+<td></td>
+<td>Path is the JSON path to the invalid field.</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../gitops/" class="md-footer__link md-footer__link--prev" aria-label="Previous: GitOps promotion gates">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                GitOps promotion gates
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../helm-reference/" class="md-footer__link md-footer__link--next" aria-label="Next: Helm reference">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Helm reference
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      MIT licensed — <a href="https://github.com/TrianaLab/pacto/blob/main/LICENSE">Copyright &copy; 2026 TrianaLab</a>
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/TrianaLab/pacto" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["announce.dismiss", "content.action.edit", "content.code.annotate", "content.code.copy", "content.tabs.link", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "navigation.path", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../../javascripts/logo-spin.js"></script>
+      
+        <script src="../../../javascripts/version-selector.js"></script>
+      
+        <script src="../../../javascripts/skip-link.js"></script>
+      
+        <script src="../../../javascripts/aria-labels.js"></script>
+      
+        <script src="../../../javascripts/scrollable-focus.js"></script>
+      
+        <script src="../../../javascripts/mermaid.min.js" defer></script>
+      
+    
+  </body>
+</html>
