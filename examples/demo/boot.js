@@ -52,7 +52,6 @@
   // __pactoServe is installed. API calls made before then queue on this promise.
   var resolveReady;
   window.__pactoReady = new Promise(function (resolve) { resolveReady = resolve; });
-  window.__pactoOnReady = function () { resolveReady(); };
 
   // Status strip. The Svelte shell paints in about a second, but app.wasm is tens
   // of megabytes and every API call queues behind it, so on an ordinary connection
@@ -1430,7 +1429,7 @@
       // __pactoServe(method, path, body?, headers?) resolves to { status, body,
       // contentType }. A test may wrap it; the fetch shim reads it at call time.
       window.__pactoServe = function (method, path, body, headers) { return call("serve", [method, path, body, headers || {}]); };
-      window.__pactoOnReady();
+      resolveReady();
     } else if (m.type === "failed") {
       failed();
     }
