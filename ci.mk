@@ -202,8 +202,9 @@ test-acceptance-kind-delivery:
 # The Kubernetes delivery demo: the payments story (examples/story) on a real
 # cluster, up, story, the dashboard journeys, B10, the agent beat, a second
 # cluster applied by Argo CD (reach) and down. It checks every beat
-# against examples/story and fails on drift. Nightly and on demand only
-# (.github/workflows/delivery-demo.yml), never per PR.
+# against examples/story and fails on drift. CI runs it nightly, on demand and
+# on pull requests that change delivery (.github/workflows/delivery-demo.yml),
+# one shard per job: DELIVERY_DEMO_SHARD=<shard> (SHARDS in the script).
 test-acceptance-kind-delivery-demo:
 	bash tests/acceptance/kind/delivery-demo.sh all
 

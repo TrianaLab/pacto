@@ -22,7 +22,15 @@
 #   status   what runs where.
 #   logs     diagnostics of the cluster.
 #   down     delete the cluster and the containers beside it.
-#   all      up, story, browser, reach and down (CI's nightly run).
+#   all      up, story, browser, reach and down: the whole demo, in order.
+#   play BEAT...  play the named beats on the running cluster (see SHARDS).
+#
+# DELIVERY_DEMO_SHARD=NAME makes `all` run one CI shard instead: up, seeded
+# only as far as the shard needs (DEMO_SEED: none, payments or all), then the
+# shard's beats, then down. Each shard runs on its own runner and cluster, and
+# no shard reads another's state; CI runs them all at once (delivery-demo.yml).
+# DELIVERY_LOAD_IMAGES=FILE loads the three Pacto images delivery.sh saved
+# (DELIVERY_SAVE_IMAGES) instead of building them.
 #
 # Keys and kubeconfigs live in tmp/delivery-demo/ (ignored by git), so every
 # subcommand finds them. Host ports 3300, 8585, 5556, 8443 and 5602 must be
@@ -84,7 +92,7 @@ admin() { [ -s "$ADMIN_KC" ] || { echo "no demo cluster: run 'make e2e-delivery-
 # reg CMD... — a host command that reaches the in-cluster registry by its
 # in-cluster name, through the port-forward (plain HTTP goes through HTTP_PROXY).
 reg() { HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" "$@"; }
-registry_pf() { PF_PIDS+=" $(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"; }
+registry_pf() { [ -n "$PF_PIDS" ] || PF_PIDS=" $(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"; }
 PF_PIDS=""
 stop_pf() { local p; for p in $PF_PIDS; do kill "$p" 2>/dev/null || true; done; PF_PIDS=""; }
 
@@ -382,19 +390,27 @@ cmd_up() {
   section "create the cluster and build the images while the rest is pulled"
   local cfg; cfg="$(kind_config)"
   cluster_start_bg "$cfg"
-  infra "build the Pacto images" build_images & local build=$!
+  local build="" img
+  if [ -n "${DELIVERY_LOAD_IMAGES:-}" ]; then
+    docker load -i "$DELIVERY_LOAD_IMAGES" >/dev/null || fail "could not load $DELIVERY_LOAD_IMAGES"
+    for img in "$OP_IMG" "$DL_IMG" "$DASH_IMG"; do
+      docker image inspect "$img" >/dev/null 2>&1 || fail "$DELIVERY_LOAD_IMAGES has no $img: it was built from another tree"
+    done
+  else
+    infra "build the Pacto images" build_images & build=$!
+  fi
+  ( go build -o "$PACTO" "$ROOT/cmd/pacto" && cd "$ROOT" && go build -o "$OIDC_BIN" ./tests/acceptance/kind/oidclogin ) > "$DEMO/go-build.log" 2>&1 &
+  local gobuild=$!
   local flux; flux="$(mktemp)"
   infra "download the Flux $FLUX_VERSION install manifest" \
     curl -fsSL --retry 2 --max-time 60 -o "$flux" "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
   [ "$(shasum -a 256 "$flux" | cut -d' ' -f1)" = "$FLUX_INSTALL_SHA256" ] || fail "the Flux install manifest changed upstream"
-  local img
   for img in "$DEX_IMG" "$KC_IMG"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
   for img in "${FLUX_IMAGES[@]}" "$MIRA_IMG" "$PODINFO_IMG" "$PYTHON_IMG"; do pull_pinned "$img"; done
-  go build -o "$PACTO" "$ROOT/cmd/pacto" || fail "pacto did not build"
-  ( cd "$ROOT" && go build -o "$OIDC_BIN" ./tests/acceptance/kind/oidclogin ) || fail "the login helper did not build"
+  wait "$gobuild" || { cat "$DEMO/go-build.log" >&2; fail "pacto or the login helper did not build"; }
   local op_chart
   op_chart="$(package_chart "$PACTO_CHART")"
-  wait "$build" || exit 1
+  [ -z "$build" ] || wait "$build" || exit 1
 
   timed "wait for the cluster" ensure_cluster "$cfg"
   cp "$KUBECONFIG" "$ADMIN_KC"; export KUBECONFIG="$ADMIN_KC"
@@ -622,23 +638,37 @@ ship_prod() {
   wait_concluded prod "$op" Succeeded/Verified
 }
 
+# bootstrap — the story's starting point, as far as DEMO_SEED goes: none (no
+# service yet: the agent shard), payments (2.3.0 in test and prod) or all (the
+# default: checkout and orders too).
 bootstrap() {
+  [ "${DEMO_SEED:-all}" != none ] || return 0
   environment payments test candidates true "$(payments_gates test)"
   environment payments prod upstream true "$(payments_gates prod 10s)"
-  environment checkout test candidates true
-  environment checkout prod upstream false
-  # orders ships to prod only: nothing in test depends on it.
-  environment orders prod candidates false
   ship_test payments 2.3.0; ship_prod payments 2.3.0
   pass "payments 2.3.0 runs in test and prod"
+  [ "${DEMO_SEED:-all}" != payments ] || return 0
+  # checkout and orders depend on payments, not on each other: they ship at once.
+  bootstrap_checkout & local checkout=$!
+  bootstrap_orders & local orders=$!
+  wait "$checkout" || exit 1
+  wait "$orders" || exit 1
+  pass "checkout 1.8.0 and orders 1.4.0 run in prod, both accepting payments ^2"
+  pass "checkout 1.9.0 (accepts payments ^2 || ^3) is verified in test; prod waits for someone to promote it"
+}
+bootstrap_checkout() {
+  environment checkout test candidates true
+  environment checkout prod upstream false
   ship_test checkout 1.8.0; ship_prod checkout 1.8.0
+  ship_test checkout 1.9.0
+}
+bootstrap_orders() {
+  # orders ships to prod only: nothing in test depends on it.
+  environment orders prod candidates false
   local d; d="$(publish orders 1.4.0)"; remember orders 1.4.0 "$d"
   eventually 60 published_in prod orders "$d" || fail "prod never offered orders 1.4.0"
   owner_propose orders -n prod --stage orders --to "$d" --name orders-1-4-0 --reason "the demo's starting point"
   wait_concluded prod orders-1-4-0 Succeeded/Verified
-  pass "checkout 1.8.0 and orders 1.4.0 run in prod, both accepting payments ^2"
-  ship_test checkout 1.9.0
-  pass "checkout 1.9.0 (accepts payments ^2 || ^3) is verified in test; prod waits for someone to promote it"
 }
 
 # --- story -------------------------------------------------------------------
@@ -734,6 +764,18 @@ story_b3() {
   pass "the node agent saw payments 2.4.2 call fraud, which its contract never names: failed in test, never in prod"
 }
 
+# oras_copy VERSION — a copy of payments VERSION pushed with plain oras: the
+# same layer and contract, never signed by pacto publish; prints its digest.
+oras_copy() {
+  local r="127.0.0.1:${LOCAL_REG_PORT}/story/deploy/payments" tmp man
+  tmp="$(mktemp -d)"
+  man="$(oras manifest fetch --plain-http "$r:$1")" || fail "oras could not read payments $1"
+  oras blob fetch --plain-http "$r@$(jq -r '.layers[0].digest' <<<"$man")" --output "$tmp/layer" || fail "oras could not read its layer"
+  (cd "$tmp" && oras push --plain-http --disable-path-validation --format go-template='{{.digest}}' \
+    --annotation "delivery.pacto.trianalab.io/contract=$(jq -r '.annotations["delivery.pacto.trianalab.io/contract"]' <<<"$man")" \
+    "$r:oras-copy" "layer:$(jq -r '.layers[0].mediaType' <<<"$man")") || fail "oras could not push the copy"
+}
+
 story_b4() {
   beat B4
   local out
@@ -755,15 +797,7 @@ story_b4() {
   owner_propose payments -n test --stage payments --to "$d3" --name payments-3-0-0-test --reason "B4: a breaking change after the step-down"
   wait_concluded test payments-3-0-0-test Succeeded/Verified
   kubectl -n test delete operation "$auto" --wait=false >/dev/null || fail "could not cancel the held promote of 3.0.0 in test"
-  # A copy pushed with plain oras: the same layer and contract, never signed by
-  # pacto publish.
-  local r="127.0.0.1:${LOCAL_REG_PORT}/story/deploy/payments" tmp man copy
-  tmp="$(mktemp -d)"
-  man="$(oras manifest fetch --plain-http "$r:3.0.0")" || fail "oras could not read payments 3.0.0"
-  oras blob fetch --plain-http "$r@$(jq -r '.layers[0].digest' <<<"$man")" --output "$tmp/layer" || fail "oras could not read its layer"
-  copy="$(cd "$tmp" && oras push --plain-http --disable-path-validation --format go-template='{{.digest}}' \
-    --annotation "delivery.pacto.trianalab.io/contract=$(jq -r '.annotations["delivery.pacto.trianalab.io/contract"]' <<<"$man")" \
-    "$r:oras-copy" "layer:$(jq -r '.layers[0].mediaType' <<<"$man")")" || fail "oras could not push the copy"
+  local copy; copy="$(oras_copy 3.0.0)"
   remember payments oras-copy "$copy"
   propose -n test --stage payments --to "$copy" --name payments-oras-copy --reason "B4: a copy pushed with plain oras"
   wait_concluded test payments-oras-copy Rejected/
@@ -838,10 +872,40 @@ b6() {
 # journeys BEAT — the dashboard journeys whose titles start with "BEAT: ", against
 # the live demo; the team they expect to be asked comes from examples/story.
 journeys() {
-  ( cd "$ROOT/pkg/dashboard/frontend" && PW_BASE_URL="$DASH_URL/" PW_DELIVERY_DEMO=1 PW_CHANGE="$(prod_op 3.0.0)" PW_ASKED="$(expect B7 Asked | jq -r 'join(" or ")')" \
+  browser_ready
+  local change=""
+  [ ! -s "$DEMO/digests/payments-3.0.0" ] || change="$(prod_op 3.0.0)"
+  ( cd "$ROOT/pkg/dashboard/frontend" && PW_BASE_URL="$DASH_URL/" PW_DELIVERY_DEMO=1 PW_CHANGE="$change" PW_ASKED="$(expect B7 Asked | jq -r 'join(" or ")')" \
     timeout 600 npx playwright test --config playwright.live.config.ts e2e-live/delivery-journeys.spec.ts --grep "$1: " ) \
     || fail "the dashboard journeys failed: $1"
 }
+# browser_ready — Chromium for the journeys, installed once per run.
+browser_ready() {
+  [ -z "${BROWSER_READY:-}" ] || return 0
+  ( cd "$ROOT/pkg/dashboard/frontend" \
+    && { [ -d node_modules ] || npm ci --ignore-scripts >/dev/null 2>&1; } \
+    && timeout 300 npx playwright install ${CI:+--with-deps} chromium >/dev/null 2>&1 ) \
+    || fail "could not install the browser for the dashboard journeys"
+  BROWSER_READY=1
+}
+b7() { beat B7; journeys B7; }
+history_beat() { echo; echo "== moment 5 in Chromium: History reads the steps from signed records"; journeys History; }
+
+# seed_held — the state B5 leaves, for a shard that does not play B3 to B5:
+# publishing 2.4.3 refused (B7 shows the refusal), 3.0.0 verified in test (on
+# autonomous there, since B3 never stepped it down) and its promote held in
+# prod for checkout and orders. The beats that check this are the story shard's.
+seed_held() {
+  echo; echo "== seed: payments 2.4.3 refused, 3.0.0 verified in test and held for prod"
+  checkout_version payments 2.4.3
+  if (cd "$WORK/payments" && reg "$PACTO" publish >/dev/null 2>&1); then fail "publishing payments 2.4.3 was not refused"; fi
+  ship_test payments 3.0.0
+  local op; op="$(wait_op prod payments "$(digest_of payments 3.0.0)")"
+  eventually 60 held prod "$op" || fail "payments 3.0.0 was not held for prod: $(field prod "$op" phase) $(field prod "$op" message)"
+  pass "payments 3.0.0 is held for prod"
+}
+# seed_240 — payments 2.4.0 verified in test, for prod-eu to take (freeze shard).
+seed_240() { echo; echo "== seed: payments 2.4.0 verified in test"; ship_test payments 2.4.0; pass "payments 2.4.0 is verified in test"; }
 
 # b8 — carol approved, 3.0.0 shipped, and prod sends no telemetry for it
 # (span-modes prod.3.0.0=silent), so the check says Unknown and the operation
@@ -865,10 +929,12 @@ b8() {
 b9() {
   beat B9
   journeys B9
-  local d op first; d="$(digest_of payments 2.3.0)"; first="$(prod_op 2.4.0)-rollback"
-  rolled() { op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vx "$first" | grep -q .; }
+  # B2's rollback, when this run played B2, is not carol's.
+  local d op first=""; d="$(digest_of payments 2.3.0)"
+  [ ! -s "$DEMO/digests/payments-2.4.0" ] || first="$(prod_op 2.4.0)-rollback"
+  rolled() { op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vxF -e "$first" | grep -q .; }
   eventually 60 rolled || fail "carol's rollback of payments 3.0.0 raised no operation"
-  op="$(op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vx "$first" | head -1)"
+  op="$(op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vxF -e "$first" | head -1)"
   predicted B9 prod "$op"
   wait_concluded prod "$op" Succeeded/Verified
   runs prod payments "$d" || fail "prod is not back on payments 2.3.0"
@@ -881,7 +947,9 @@ b9() {
 # just now: the admin credentials impersonating them, with the sign-in time
 # structured authentication maps from Dex's auth_time.
 person() {
-  local f="$DEMO/$1.kubeconfig"
+  # One file per user and group: the bootstrap's checkout and orders, shipped
+  # at once, each sign alice in on their own team.
+  local f="$DEMO/$1-${2//[:\/]/_}.kubeconfig"
   kubectl config view --raw --minify -o json | jq --arg u "$1" --arg g "$2" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '.users[0].user += {as: $u, "as-groups": [$g], "as-user-extra": {"delivery.pacto.trianalab.io/auth-time": [$t]}}' > "$f"
   echo "$f"
@@ -918,6 +986,9 @@ frozen() { [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}
 b10() {
   beat B10
   local tmp streams="127.0.0.1:${LOCAL_REG_PORT}/pacto-delivery-streams" m l anchor forged out
+  # A run that skipped B4 (the rollback shard) copies 2.4.0 instead of 3.0.0:
+  # any version the recorder must write a refusal for will do.
+  [ -s "$DEMO/digests/payments-oras-copy" ] || { out="$(oras_copy 2.4.0)"; remember payments oras-copy "$out"; }
   tmp="$(mktemp -d)"
   m="$(rec record verify -n prod --stage payments --output-format json | jq -r '.records[-1].manifest')"
   l="$(oras manifest fetch --plain-http "$streams@$m" | jq -r '.layers[0].digest')"
@@ -1061,16 +1132,10 @@ cmd_browser() {
   { [ -n "$p3" ] && held prod "$p3" && [ "$(field prod "$p3" applied)" != true ]; } \
     || fail "the browser step already ran on this cluster: 'make e2e-delivery-demo-down' and up again to replay it"
   b6
-  ( cd "$ROOT/pkg/dashboard/frontend" \
-    && { [ -d node_modules ] || npm ci --ignore-scripts >/dev/null 2>&1; } \
-    && timeout 300 npx playwright install ${CI:+--with-deps} chromium >/dev/null 2>&1 ) \
-    || fail "could not install the browser for the dashboard journeys"
-  beat B7
-  journeys B7
+  b7
   b8
   b9
-  echo; echo "== moment 5 in Chromium: History reads the steps from signed records"
-  journeys History
+  history_beat
   registry_pf
   b10
   b_agent
@@ -1157,10 +1222,24 @@ YAML
 cmd_reach() {
   admin
   [ -s "$DEMO/digests/payments-2.3.0" ] || fail "the demo's starting point is missing: run 'make e2e-delivery-demo-up'"
-  local ver stream op_chart d trust
+  registry_pf
+  reach_cluster
+  reach_follow
+  reach_freeze
+  echo; echo "REACH PASS: prod-us followed prod through signed records, applied by Argo CD, and refused a version prod-eu froze on"
+}
+
+prod_stream() { kubectl -n prod get stage payments -o jsonpath='{.status.stream.id}'; }
+
+# reach_cluster — prod-us: a second cluster with Argo CD, the Pacto operator
+# and the promoter, trusting the first cluster's recorder for prod's stream and
+# prod-eu's.
+reach_cluster() {
+  local ver stream op_chart trust
   ver="$(release_version kubernetes)"
-  stream="$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.id}')"
-  [ -n "$stream" ] || fail "payments prod has no record stream yet"
+  has_stream() { [ -n "$(prod_stream)" ]; }
+  eventually 30 has_stream || fail "payments prod has no record stream yet"
+  stream="$(prod_stream)"
 
   section "prod-us: a second cluster with Argo CD, the Pacto operator and the promoter"
   kind get clusters 2>/dev/null | grep -qx "$US_CLUSTER" \
@@ -1182,7 +1261,24 @@ cmd_reach() {
     --set delivery.image.tag="$ver" --set delivery.image.pullPolicy=Never --set "delivery.insecureRegistries[0]=$REG_HOST" \
     --set delivery.promoter.poll=2s --set delivery.argocd.enabled=true -f "$trust" --wait --timeout 240s >/dev/null \
     || fail "the pacto-operator chart did not roll out in prod-us"
+}
 
+# us_bg — reach_cluster in the background, while the first cluster plays the
+# shard's other beats; us_ready waits for it and prints what it said.
+US_PID=""
+us_bg() { reach_cluster > "$DEMO/prod-us.log" 2>&1 & US_PID=$!; }
+us_ready() {
+  [ -n "$US_PID" ] || return 0
+  local rc=0; wait "$US_PID" || rc=$?; US_PID=""
+  sed 's/^/  [prod-us] /' "$DEMO/prod-us.log"
+  [ "$rc" = 0 ] || exit "$rc"
+}
+
+# reach_follow — payments in prod-us takes what prod verified, applied by Argo
+# CD, and refuses what failed there (2.4.0, in B2).
+reach_follow() {
+  us_ready
+  local stream d; stream="$(prod_stream)"
   section "payments in prod-us follows prod through its signed records, applied by Argo CD"
   us kubectl apply -f - >/dev/null <<YAML
 apiVersion: argoproj.io/v1alpha1
@@ -1227,8 +1323,6 @@ YAML
   grep -qF "failed after release on the upstream Stage $stream" <<<"$msg" \
     || fail "prod-us refused payments 2.4.0 for another reason than its failure in prod: $msg"
   pass "prod-us refuses payments 2.4.0 because it failed after release in prod: $msg"
-  reach_freeze
-  echo; echo "REACH PASS: prod-us followed prod through signed records, applied by Argo CD, and refused a version prod-eu froze on"
 }
 
 # reach_freeze — the failure a re-check cannot roll back reaches the other
@@ -1242,8 +1336,7 @@ YAML
 reach_freeze() {
   local a x eu fz=eu-2-4-0-rollback-freeze
   a="$(digest_of payments 2.3.0)" x="$(digest_of payments 2.4.0)"
-  eu="$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.id}')"; eu="${eu%%/*}/prod-eu/payments"
-  registry_pf
+  eu="$(prod_stream)"; eu="${eu%%/*}/prod-eu/payments"
   # reach reuses the first cluster too: prod-eu plays once per cluster.
   if ! kubectl -n prod-eu get operation "$fz" >/dev/null 2>&1; then
     section "prod-eu: a re-check fails on the promoter's own rollback, so the Stage freezes"
@@ -1275,6 +1368,7 @@ reach_freeze() {
     pass "2.3.0 failed its re-check after the rollback that was 2.4.0's one: prod-eu froze, and the freeze is a signed record naming 2.3.0 and the failed check"
   fi
 
+  us_ready
   section "prod-us follows prod-eu's records and never takes the version prod-eu froze on"
   us kubectl apply -f - >/dev/null <<YAML
 apiVersion: argoproj.io/v1alpha1
@@ -1317,7 +1411,6 @@ YAML
     eventually 60 unfreeze_signed || fail "alice's unfreeze is not a signed record of prod-eu"
     pass "alice unfroze prod-eu, a signed record too"
   fi
-  stop_pf
 }
 
 # --- next steps --------------------------------------------------------------
@@ -1381,6 +1474,35 @@ cmd_status() {
   kubectl get operations -A -o custom-columns='NAMESPACE:.metadata.namespace,OPERATION:.metadata.name,TYPE:.spec.type,PHASE:.status.phase,OUTCOME:.status.outcome,REASON:.status.reason'
 }
 
+# --- shards ------------------------------------------------------------------
+
+# shard NAME — one CI shard (delivery-demo.yml runs a job per name in SHARDS):
+# the seed `up` leaves (DEMO_SEED), then the beats `play` runs. Together they
+# play every beat of the full run. A beat a shard needs to reach its own (B1
+# and B2 in reach) is played and checked again; the seed_* steps stand in for
+# beats another shard checks.
+SHARDS="story browser rollback reach freeze agent"
+shard() {
+  case "$1" in
+    story) echo "all story_pactify story_b3 story_b4 story_b5 story_records" ;;
+    browser) echo "all seed_held b6 b7 b8 b9 history_beat" ;;
+    rollback) echo "payments story_b1 story_b2 story_records b10" ;;
+    reach) echo "payments us_bg story_b1 story_b2 reach_follow" ;;
+    freeze) echo "payments us_bg seed_240 reach_freeze" ;;
+    agent) echo "none b_agent" ;;
+    *) return 1 ;;
+  esac
+}
+
+cmd_play() {
+  admin
+  local b
+  for b in "$@"; do declare -F "$b" >/dev/null || fail "no beat called $b"; done
+  registry_pf
+  for b in "$@"; do "$b"; done
+  echo; echo "PLAY PASS: $*"
+}
+
 cmd_down() {
   docker rm -f "${IDP_CONTAINERS[@]}" >/dev/null 2>&1 || true
   CLUSTER="$US_CLUSTER" down_cluster
@@ -1393,13 +1515,21 @@ case "$CMD" in
   story) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_story ;;
   browser) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_browser ;;
   reach) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_reach ;;
+  play) shift; trap 'rc=$?; stop_pf; [ -z "$US_PID" ] || kill "$US_PID" 2>/dev/null; exit $rc' EXIT; cmd_play "$@" ;;
   status) cmd_status ;;
   logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$DNS" logs deploy/pacto-operator-delivery --tail=100 2>&1 || true ;;
   down) cmd_down ;;
   all)
-    rc=0; { bash "$0" up && bash "$0" story && bash "$0" browser && bash "$0" reach; } || rc=$?
+    rc=0
+    if [ -n "${DELIVERY_DEMO_SHARD:-}" ]; then
+      plan="$(shard "$DELIVERY_DEMO_SHARD")" || { echo "unknown shard '$DELIVERY_DEMO_SHARD' (shards: $SHARDS)" >&2; exit 2; }
+      # shellcheck disable=SC2086  # the beats are words
+      { DEMO_SEED="${plan%% *}" bash "$0" up && bash "$0" play ${plan#* }; } || rc=$?
+    else
+      { bash "$0" up && bash "$0" story && bash "$0" browser && bash "$0" reach; } || rc=$?
+    fi
     # A failed run in CI keeps the cluster for scripts/ci/kind-diagnostics.sh.
     { [ -n "${CI:-}" ] && [ $rc -ne 0 ]; } || bash "$0" down
     exit $rc ;;
-  *) echo "usage: $0 up|story|status|logs|browser|reach|down|all"; exit 2 ;;
+  *) echo "usage: $0 up|story|status|logs|browser|reach|play BEAT...|down|all"; exit 2 ;;
 esac

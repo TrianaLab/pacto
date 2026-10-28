@@ -222,7 +222,7 @@ e2e-runtime-conformance-kind-down:
 # running, -story plays the payments story, -browser runs B6 to B10, the agent
 # beat and the dashboard journeys, -reach adds prod-us (a second cluster, applied
 # by Argo CD, following prod through signed records
-# and refusing a version prod-eu froze on), -down removes it. e2e-delivery-demo runs them all, as CI does nightly.
+# and refusing a version prod-eu froze on), -down removes it. e2e-delivery-demo runs them all; CI runs it in shards (DELIVERY_DEMO_SHARD).
 e2e-delivery-demo: test-acceptance-kind-delivery-demo
 e2e-delivery-demo-up:
 	bash tests/acceptance/kind/delivery-demo.sh up

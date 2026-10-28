@@ -464,9 +464,10 @@ jobs:
   # and every shard loads the same archive; each shard then runs its phase (plus
   # the phases it needs: identity needs core, records needs core and publish) on
   # its own small cluster, created while the shard pulls and preloads the rest.
+  # The delivery-demo shards load the same archive.
   delivery-images:
     needs: changes
-    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.e2e == 'true' || needs.changes.outputs.delivery == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -541,15 +542,18 @@ jobs:
   # phase (Argo CD applying by digest, a second cluster following the first
   # through its signed records) and the browser journeys against the real
   # sign-in guard run only here and in the nightly schedule of the same
-  # workflow. The called workflow's report job needs issues: write, which only
-  # its own schedule uses.
+  # workflow. It runs as parallel shards over delivery-images' archive, and its
+  # result is every shard's. The called workflow's report job needs issues:
+  # write, which only its own schedule uses.
   delivery-demo:
-    needs: changes
+    needs: [changes, delivery-images]
     if: needs.changes.outputs.delivery == 'true' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       issues: write
     uses: ./.github/workflows/delivery-demo.yml
+    with:
+      images-artifact: delivery-images
 
   # The same product vertical on the OTHER surface, proved the way a stranger meets
   # it: the demo application is published to a local registry with `docker compose

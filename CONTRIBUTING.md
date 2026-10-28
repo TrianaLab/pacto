@@ -94,6 +94,12 @@ To build and test the Go engine:
    down, set `KEEP_E2E_CLUSTER=1` (e.g. `KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind`).
    `make e2e-runtime-conformance-kind-up` leaves the eBPF node agent scenario
    running the same way, with `-status`, `-logs` and `-down` beside it.
+   `make e2e-delivery-demo` plays the whole Kubernetes delivery demo
+   ([the payments story](docs/examples/kubernetes-demo.md)) in one run, about
+   45 minutes. CI runs it nightly and on pull requests that change delivery as
+   parallel shards (`.github/workflows/delivery-demo.yml`), each seeding its own
+   cluster; `DELIVERY_DEMO_SHARD=browser make e2e-delivery-demo` runs one shard
+   (the list is `SHARDS` in `tests/acceptance/kind/delivery-demo.sh`).
 
    **Test the whole product locally.** One command installs the operator,
    dashboard, Evidence Server and a registry with sample contracts, and leaves

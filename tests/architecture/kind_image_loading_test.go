@@ -167,6 +167,53 @@ func TestEveryDeliveryPhaseHasAShard(t *testing.T) {
 	}
 }
 
+// TestEveryDemoShardHasAJob ties the delivery-demo.yml matrix to the shards
+// delivery-demo.sh defines (SHARDS), and every beat a shard plays to a function
+// the script defines: a shard missing from the matrix silently stops running,
+// and a misspelt beat fails only on a live cluster, forty minutes in.
+func TestEveryDemoShardHasAJob(t *testing.T) {
+	sh := code(t, filepath.Join(kindDir(t), "delivery-demo.sh"))
+	_, after, ok := strings.Cut(sh, "\nSHARDS=\"")
+	if !ok {
+		t.Fatal(`no SHARDS="..." in delivery-demo.sh; the shards are defined some other way now`)
+	}
+	list, _, _ := strings.Cut(after, "\"")
+	shards := strings.Fields(list)
+
+	wf := code(t, filepath.Join(repoRoot(t), ".github", "workflows", "delivery-demo.yml"))
+	_, after, ok = strings.Cut(wf, "shard: [")
+	if !ok {
+		t.Fatal("delivery-demo.yml has no `shard: [...]` matrix")
+	}
+	list, _, _ = strings.Cut(after, "]")
+	var matrix []string
+	for name := range strings.SplitSeq(list, ",") {
+		matrix = append(matrix, strings.TrimSpace(name))
+	}
+	if !slices.Equal(shards, matrix) {
+		t.Errorf("delivery-demo.sh SHARDS %v and the delivery-demo.yml matrix %v differ; every shard needs exactly one job", shards, matrix)
+	}
+
+	for _, s := range shards {
+		_, plan, ok := strings.Cut(sh, "\n    "+s+") echo \"")
+		if !ok {
+			t.Errorf("shard %s has no `%s) echo \"SEED BEAT...\"` line in delivery-demo.sh's shard()", s, s)
+			continue
+		}
+		plan, _, _ = strings.Cut(plan, "\"")
+		words := strings.Fields(plan)
+		if len(words) < 2 || !slices.Contains([]string{"none", "payments", "all"}, words[0]) {
+			t.Errorf("shard %s plays %q: want a seed (none, payments or all), then its beats", s, plan)
+			continue
+		}
+		for _, beat := range words[1:] {
+			if !strings.Contains(sh, "\n"+beat+"() {") {
+				t.Errorf("shard %s plays %s, which delivery-demo.sh does not define", s, beat)
+			}
+		}
+	}
+}
+
 func TestScenariosLoadImagesThroughTheSharedBoundary(t *testing.T) {
 	for _, path := range scenarios(t) {
 		if body := code(t, path); strings.Contains(body, "kind load") {
