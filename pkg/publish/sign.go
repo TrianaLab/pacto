@@ -9,6 +9,9 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 )
 
 // The signature publish attaches, as cosign 3 writes it and Flux verifies it:
@@ -16,20 +19,16 @@ import (
 // statement that names the signed digest. Its config media type is the
 // bundle type too (cosign's is empty), so a registry that reports a
 // referrer's type from its config lists it the same way.
+// The media, payload and annotation names are delivery's and deliveryrecord's,
+// so published signatures match what the readers filter on.
 const (
-	BundleType         = "application/vnd.dev.sigstore.bundle.v0.3+json"
-	SignPredicate      = "https://sigstore.dev/cosign/sign/v1"
-	AnnBundleContent   = "dev.sigstore.bundle.content"
-	AnnBundlePredicate = "dev.sigstore.bundle.predicateType"
-	inTotoPayload      = "application/vnd.in-toto+json"
-	maxSignatures      = 32
-	maxReferrers       = 256
+	SignPredicate = "https://sigstore.dev/cosign/sign/v1"
+	maxSignatures = 32
+	maxReferrers  = 256
 )
 
 // Signer signs a DSSE payload into a Sigstore bundle (pkg/signing.Signer).
-type Signer interface {
-	Sign(ctx context.Context, payloadType string, payload []byte) ([]byte, error)
-}
+type Signer = delivery.Signer
 
 // BundleVerifier checks a bundle whose statement must name digest, the raw
 // sha256 of the signed manifest (pkg/signing.Policy.Verify), and returns the
@@ -46,15 +45,15 @@ func SignDigest(ctx context.Context, reg Registry, s Signer, repo, digest string
 	if err != nil || head == nil {
 		return fmt.Errorf("reading %s@%s back: %v", repo, digest, err)
 	}
-	statement := fmt.Appendf(nil, `{"_type":"https://in-toto.io/Statement/v1","subject":[{"digest":{"sha256":%q}}],"predicateType":%q,"predicate":{}}`,
-		h.Hex, SignPredicate)
-	bundle, err := s.Sign(ctx, inTotoPayload, statement)
+	statement := fmt.Appendf(nil, `{"_type":%q,"subject":[{"digest":{"sha256":%q}}],"predicateType":%q,"predicate":{}}`,
+		delivery.StatementType, h.Hex, SignPredicate)
+	bundle, err := s.Sign(ctx, delivery.PayloadType, statement)
 	if err != nil {
 		return err
 	}
 	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
-	ann := map[string]string{AnnBundleContent: "dsse-envelope", AnnBundlePredicate: SignPredicate}
-	_, err = reg.Write(ctx, repo, newArtifact(BundleType, BundleType, []byte("{}"), BundleType, bundle, ann, &subject))
+	ann := map[string]string{deliveryrecord.AnnBundleContent: "dsse-envelope", deliveryrecord.AnnPredicateType: SignPredicate}
+	_, err = reg.Write(ctx, repo, newArtifact(delivery.BundleMediaType, delivery.BundleMediaType, []byte("{}"), delivery.BundleMediaType, bundle, ann, &subject))
 	return err
 }
 
@@ -66,7 +65,7 @@ func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo
 		return err
 	}
 	sum, _ := hex.DecodeString(h.Hex) // NewHash checked the hex
-	refs, err := reg.Referrers(ctx, repo, digest, BundleType)
+	refs, err := reg.Referrers(ctx, repo, digest, delivery.BundleMediaType)
 	if err != nil {
 		return err
 	}
@@ -85,7 +84,7 @@ func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo
 			why = append(why, r+": "+err.Error()) // one unreadable referrer hides no other
 			continue
 		}
-		if ann[AnnBundlePredicate] != SignPredicate {
+		if ann[deliveryrecord.AnnPredicateType] != SignPredicate {
 			continue // an attestation, not a signature
 		}
 		seen++
