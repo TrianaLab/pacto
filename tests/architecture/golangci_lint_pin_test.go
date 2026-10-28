@@ -2,10 +2,8 @@ package architecture
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -44,16 +42,8 @@ type compositeStep struct {
 // directory.
 func ciActionSteps(t *testing.T) (string, []compositeStep) {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate this test file")
-	}
-	root := filepath.Dir(filepath.Dir(filepath.Dir(thisFile))) // tests/architecture -> repo root
-	path := filepath.Join(root, ".github", "actions", "ci", "action.yml")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	path := filepath.Join(repoRoot(t), ".github", "actions", "ci", "action.yml")
+	b := []byte(readRepoFile(t, ".github", "actions", "ci", "action.yml"))
 	var doc struct {
 		Runs struct {
 			Steps []compositeStep `yaml:"steps"`

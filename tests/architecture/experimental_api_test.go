@@ -12,7 +12,7 @@ import (
 // it added to pkg/ must tell an importer their API is outside semver before a
 // rename after the release forces a major bump.
 func TestAlphaPackagesSayTheyAreExperimental(t *testing.T) {
-	root := docsRoot(t)
+	root := repoRoot(t)
 	for _, pkg := range []string{"delivery", "publish", "signing", "signing/testutil", "deliveryrecord", "ocireferrer"} {
 		files, err := filepath.Glob(filepath.Join(root, "pkg", pkg, "*.go"))
 		if err != nil {

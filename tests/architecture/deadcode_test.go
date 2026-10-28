@@ -137,7 +137,7 @@ type decl struct {
 func (d decl) key() string { return d.pkgDir + "." + d.name }
 
 func TestNoProductionSymbolIsReachableOnlyFromTests(t *testing.T) {
-	root := repoDir(t)
+	root := repoRoot(t)
 	fset := token.NewFileSet()
 
 	var decls []decl

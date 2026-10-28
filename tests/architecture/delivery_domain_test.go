@@ -13,7 +13,7 @@ import (
 // every authored file whose path names delivery, pactify or autonomy. The fleet
 // and evidence schema URNs predate delivery and are out of its scope.
 func TestDeliveryNamesNoParkedDomain(t *testing.T) {
-	root := docsRoot(t)
+	root := repoRoot(t)
 	skip := map[string]bool{"node_modules": true, ".git": true, "ui": true, "dist": true, ".claude": true}
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
