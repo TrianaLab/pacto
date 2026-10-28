@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -244,6 +245,20 @@ func TestFetchLatestVersion_InvalidJSON(t *testing.T) {
 	_, err := testUpdater(server).fetchLatestVersion()
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+// TestFetchLatestVersion_BoundedBody: a release document larger than
+// maxGitHubJSON is refused instead of read whole into memory, the same bound
+// the checksums download has.
+func TestFetchLatestVersion_BoundedBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"body":%q,"tag_name":"v1.5.0"}`, strings.Repeat("x", maxGitHubJSON))
+	}))
+	t.Cleanup(server.Close)
+
+	if v, err := testUpdater(server).fetchLatestVersion(); err == nil {
+		t.Fatalf("an oversize release document was read whole: %q", v)
 	}
 }
 

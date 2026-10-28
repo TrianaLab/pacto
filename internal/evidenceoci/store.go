@@ -246,9 +246,7 @@ func (s *Store) scan(ctx context.Context) registryScan {
 			continue
 		}
 		out.invalid += found.Invalid
-		for _, f := range found.Found {
-			out.records = append(out.records, f.Record)
-		}
+		out.records = append(out.records, found.Found...)
 	}
 	return out
 }

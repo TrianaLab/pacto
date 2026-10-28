@@ -33,43 +33,24 @@ func (u *Updater) UpdatePlugins() ([]PluginUpdateResult, error) {
 
 	// Fetch the published checksums once so every plugin binary can be verified
 	// before it is installed.
-	sums, err := u.fetchChecksums(u.checksumsURL(pluginsRepo, tag))
+	sums, err := u.fetchChecksums(u.releaseAssetURL(pluginsRepo, tag, "checksums.txt"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch plugin checksums: %w", err)
 	}
 
 	var results []PluginUpdateResult
 	for _, p := range plugins {
-		binary := u.pluginAssetName(p.Name)
+		// The plugins release workflow names each binary
+		// pacto-plugin-<name>_<os>_<arch>[.exe].
+		binary := u.assetName("pacto-plugin-" + p.Name)
 		expected, ok := sums[binary]
 		if !ok {
 			return results, fmt.Errorf("no checksum published for plugin %s", p.Name)
 		}
-		url := u.buildPluginDownloadURL(tag, p.Name)
-		if err := u.downloadAndInstall(url, p.Path, expected); err != nil {
+		if err := u.downloadAndInstall(u.releaseAssetURL(pluginsRepo, tag, binary), p.Path, expected); err != nil {
 			return results, fmt.Errorf("failed to update plugin %s: %w", p.Name, err)
 		}
 		results = append(results, PluginUpdateResult{Name: "pacto-plugin-" + p.Name, Version: tag})
 	}
 	return results, nil
-}
-
-// pluginAssetName returns the release asset filename for a plugin on the
-// current platform, matching the names produced by the plugins release
-// workflow (pacto-plugin-<name>_<os>_<arch>[.exe]).
-func (u *Updater) pluginAssetName(name string) string {
-	goos, goarch := u.platform()
-	ext := ""
-	if goos == "windows" {
-		ext = ".exe"
-	}
-	return fmt.Sprintf("pacto-plugin-%s_%s_%s%s", name, goos, goarch, ext)
-}
-
-// buildPluginDownloadURL constructs the download URL for a plugin binary.
-func (u *Updater) buildPluginDownloadURL(tag, name string) string {
-	return fmt.Sprintf(
-		"%s/%s/releases/download/%s/%s",
-		u.DownloadBaseURL, pluginsRepo, tag, u.pluginAssetName(name),
-	)
 }

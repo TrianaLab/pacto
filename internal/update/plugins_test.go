@@ -44,7 +44,7 @@ func TestBuildPluginDownloadURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			u := New()
 			u.goos, u.goarch = tt.goos, tt.goarch
-			if got := u.buildPluginDownloadURL(tt.tag, tt.plugin); got != u.DownloadBaseURL+tt.expected {
+			if got := u.releaseAssetURL(pluginsRepo, tt.tag, u.assetName("pacto-plugin-"+tt.plugin)); got != u.DownloadBaseURL+tt.expected {
 				t.Errorf("expected %s, got %s", u.DownloadBaseURL+tt.expected, got)
 			}
 		})

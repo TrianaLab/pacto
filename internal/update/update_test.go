@@ -31,12 +31,12 @@ func sha256hex(s string) string {
 // writeChecksums writes a sha256sum-format line for the current platform binary
 // asset to w (used by the test release servers).
 func writeChecksums(w io.Writer, content string) {
-	_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex(content), New().binaryAssetName())
+	_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex(content), New().assetName("pacto"))
 }
 
 // writePluginChecksums writes a sha256sum-format line for a plugin asset.
 func writePluginChecksums(w io.Writer, name, content string) {
-	_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex(content), New().pluginAssetName(strings.TrimPrefix(name, "pacto-plugin-")))
+	_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex(content), New().assetName(name))
 }
 
 // updaterFor points every endpoint at server and makes execPath the binary the
@@ -63,7 +63,7 @@ func TestBuildDownloadURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			u := New()
 			u.goos, u.goarch = tt.goos, tt.goarch
-			if got := u.buildDownloadURL(tt.tag); got != u.DownloadBaseURL+tt.expected {
+			if got := u.releaseAssetURL(pactoRepo, tt.tag, u.assetName("pacto")); got != u.DownloadBaseURL+tt.expected {
 				t.Errorf("expected %s, got %s", u.DownloadBaseURL+tt.expected, got)
 			}
 		})
@@ -575,7 +575,7 @@ func TestUpdate_ChecksumMismatch(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v2.0.0"})
 		case strings.HasSuffix(r.URL.Path, "checksums.txt"):
 			// Publish a checksum that does NOT match the served binary.
-			_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex("the-real-binary"), New().binaryAssetName())
+			_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex("the-real-binary"), New().assetName("pacto"))
 		default:
 			_, _ = w.Write([]byte("a-tampered-binary"))
 		}

@@ -6,14 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"slices"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -54,45 +51,30 @@ type Registry interface {
 }
 
 // Client is the go-containerregistry Registry, with Pacto's credentials and
-// its plain-HTTP hosts.
+// its plain-HTTP hosts. It goes through an oci.Client, so a write tries every
+// credential a pull would and fails with the same typed errors.
 type Client struct {
-	keychain authn.Keychain
-	insecure []string
+	oci *oci.Client
 }
 
 // NewClient builds a Client over keychain that reaches insecure hosts over
 // plain HTTP.
 func NewClient(keychain authn.Keychain, insecure ...string) *Client {
-	return &Client{keychain: keychain, insecure: insecure}
-}
-
-func (c *Client) parse(ref string) (name.Reference, error) {
-	r, err := name.ParseReference(ref)
-	if err != nil {
-		return nil, err
-	}
-	if slices.Contains(c.insecure, r.Context().RegistryStr()) {
-		return name.ParseReference(ref, name.Insecure)
-	}
-	return r, nil
-}
-
-func (c *Client) opts(ctx context.Context) []remote.Option {
-	return []remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}
+	return &Client{oci: oci.NewClient(keychain, oci.WithInsecureRegistries(insecure...))}
 }
 
 func notFound(err error) bool {
-	var t *transport.Error
-	return errors.As(err, &t) && t.StatusCode == http.StatusNotFound
+	var nf *oci.ArtifactNotFoundError
+	return errors.As(err, &nf)
 }
 
 // Head implements Registry.
 func (c *Client) Head(ctx context.Context, ref string) (*Remote, error) {
-	r, err := c.parse(ref)
-	if err != nil {
-		return nil, err
-	}
-	d, err := remote.Get(r, c.opts(ctx)...)
+	var d *remote.Descriptor
+	err := c.oci.Do(ctx, ref, func(r name.Reference, opts []remote.Option) (err error) {
+		d, err = remote.Get(r, opts...)
+		return err
+	})
 	if notFound(err) {
 		return nil, nil
 	}
@@ -108,11 +90,11 @@ func (c *Client) Head(ctx context.Context, ref string) (*Remote, error) {
 
 // Tags implements Registry.
 func (c *Client) Tags(ctx context.Context, repo string) ([]string, error) {
-	r, err := c.parse(repo)
-	if err != nil {
-		return nil, err
-	}
-	tags, err := remote.List(r.Context(), c.opts(ctx)...)
+	var tags []string
+	err := c.oci.Do(ctx, repo, func(r name.Reference, opts []remote.Option) (err error) {
+		tags, err = remote.List(r.Context(), opts...)
+		return err
+	})
 	if notFound(err) {
 		return nil, nil
 	}
@@ -121,7 +103,7 @@ func (c *Client) Tags(ctx context.Context, repo string) ([]string, error) {
 
 // Pull implements Registry.
 func (c *Client) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
-	return oci.NewClient(c.keychain, oci.WithInsecureRegistries(c.insecure...)).Pull(ctx, ref)
+	return c.oci.Pull(ctx, ref)
 }
 
 // Write implements Registry.
@@ -130,45 +112,39 @@ func (c *Client) Write(ctx context.Context, repo string, a Artifact) (string, er
 	if err != nil {
 		return "", err
 	}
-	r, err := c.parse(repo + "@" + d.String())
-	if err != nil {
-		return "", err
-	}
+	var write func(r name.Reference, opts []remote.Option) error
 	switch a := a.(type) {
 	case v1.Image:
-		err = remote.Write(r, a, c.opts(ctx)...)
+		write = func(r name.Reference, opts []remote.Option) error { return remote.Write(r, a, opts...) }
 	case v1.ImageIndex:
-		err = remote.WriteIndex(r, a, c.opts(ctx)...)
+		write = func(r name.Reference, opts []remote.Option) error { return remote.WriteIndex(r, a, opts...) }
 	default:
-		err = fmt.Errorf("cannot push a %T", a)
+		return d.String(), fmt.Errorf("cannot push a %T", a)
 	}
-	return d.String(), err
+	return d.String(), c.oci.Do(ctx, repo+"@"+d.String(), write)
 }
 
 // Tag implements Registry.
 func (c *Client) Tag(ctx context.Context, repo, digest, tag string) error {
-	src, err := c.parse(repo + "@" + digest)
-	if err != nil {
+	var d *remote.Descriptor
+	if err := c.oci.Do(ctx, repo+"@"+digest, func(src name.Reference, opts []remote.Option) (err error) {
+		d, err = remote.Get(src, opts...)
+		return err
+	}); err != nil {
 		return err
 	}
-	d, err := remote.Get(src, c.opts(ctx)...)
-	if err != nil {
-		return err
-	}
-	dst, err := c.parse(repo + ":" + tag)
-	if err != nil {
-		return err
-	}
-	return remote.Tag(dst.(name.Tag), d, c.opts(ctx)...)
+	return c.oci.Do(ctx, repo+":"+tag, func(dst name.Reference, opts []remote.Option) error {
+		return remote.Tag(dst.(name.Tag), d, opts...)
+	})
 }
 
 // Referrers implements Registry.
 func (c *Client) Referrers(ctx context.Context, repo, digest, artifactType string) ([]string, error) {
-	r, err := c.parse(repo + "@" + digest)
-	if err != nil {
-		return nil, err
-	}
-	idx, err := remote.Referrers(r.(name.Digest), append(c.opts(ctx), remote.WithFilter("artifactType", artifactType))...)
+	var idx v1.ImageIndex
+	err := c.oci.Do(ctx, repo+"@"+digest, func(r name.Reference, opts []remote.Option) (err error) {
+		idx, err = remote.Referrers(r.(name.Digest), append(opts, remote.WithFilter("artifactType", artifactType))...)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -186,12 +162,11 @@ const maxLayer = 4 << 20
 
 // Layer implements Registry.
 func (c *Client) Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error) {
-	r, err := c.parse(repo + "@" + digest)
-	if err != nil {
-		return nil, nil, err
-	}
-	img, err := remote.Image(r, c.opts(ctx)...)
-	if err != nil {
+	var img v1.Image
+	if err := c.oci.Do(ctx, repo+"@"+digest, func(r name.Reference, opts []remote.Option) (err error) {
+		img, err = remote.Image(r, opts...)
+		return err
+	}); err != nil {
 		return nil, nil, err
 	}
 	m, _ := img.Manifest() // remote.Image fetched and parsed it already

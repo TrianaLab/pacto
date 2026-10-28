@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -18,12 +19,14 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/layout"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -652,9 +655,44 @@ func TestClient(t *testing.T) {
 	expect(t, err != nil, "write of an artifact with no digest")
 	_, err = c.Write(ctx, host+"/x", hashOnly{})
 	expect(t, err != nil, "write of an unknown artifact kind")
-	secure := NewClient(anonymous)
-	r, err := secure.parse("ghcr.io/acme/x:1")
-	expect(t, err == nil && r.Context().Scheme() == "https", "a secure host: %v", err)
+	var scheme string
+	err = NewClient(anonymous).oci.Do(ctx, "ghcr.io/acme/x:1", func(r name.Reference, _ []remote.Option) error {
+		scheme = r.Context().Scheme()
+		return nil
+	})
+	expect(t, err == nil && scheme == "https", "a secure host: %v", err)
+}
+
+// candidates offers a rejected credential before the accepted one, the way
+// oci's keychain lists every source it knows for a registry.
+type candidates struct{ authn.Keychain }
+
+func (candidates) Candidates(authn.Resource) ([]oci.CredSource, error) {
+	return []oci.CredSource{
+		{Name: "stale", Authenticator: &authn.Basic{Username: "u", Password: "stale"}},
+		{Name: "fresh", Authenticator: &authn.Basic{Username: "u", Password: "fresh"}},
+	}, nil
+}
+
+// TestClientFallsThroughRejectedCredentials: a write tries the next credential
+// when the registry rejects one, as a pull does, instead of failing on the
+// first.
+func TestClientFallsThroughRejectedCredentials(t *testing.T) {
+	reg := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, pw, ok := r.BasicAuth(); ok && pw != "fresh" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		reg.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := NewClient(candidates{anonymous}, host)
+	d, err := c.Write(context.Background(), host+"/x", empty.Image)
+	expect(t, err == nil, "write with a stale credential first: %v", err)
+	r, err := c.Head(context.Background(), host+"/x@"+d)
+	expect(t, err == nil && r != nil, "head: %v", err)
 }
 
 func TestClientTagsAndReferrers(t *testing.T) {
