@@ -32,11 +32,11 @@ async function dexLogin(page: Page, user: string): Promise<void> {
   await page.locator('button[type="submit"]').click();
 }
 
-// decide presses choice on the held change. A decision counts only on a fresh
+// decide presses choice on the held change as user. A decision counts only on a fresh
 // login: a plain sign-in is not one, so the dashboard keeps the choice and
 // sends the person straight to sign in again (or, when the server says so
 // only on the press, offers it).
-async function decide(page: Page, choice: string, note: string): Promise<void> {
+async function decide(page: Page, user: string, choice: string, note: string): Promise<void> {
   const panel = page.getByTestId('decision-panel');
   await expect(panel.getByRole('button', { name: choice })).toBeVisible({ timeout: T });
   await panel.getByLabel('Note (kept with the decision)').fill(note);
@@ -47,7 +47,7 @@ async function decide(page: Page, choice: string, note: string): Promise<void> {
   await expect(recorded.or(fresh).or(login)).toBeVisible({ timeout: T });
   if (!(await recorded.isVisible())) {
     if (await fresh.isVisible()) await fresh.getByRole('button', { name: 'Sign in again' }).click();
-    await dexLogin(page, 'carol');
+    await dexLogin(page, user);
     await expect(page.getByTestId('decision-kept')).toContainText(`Your choice was ${choice}`, { timeout: T });
     await panel.getByRole('button', { name: choice }).click();
   }
@@ -103,12 +103,12 @@ test('B7: carol finds the change in her inbox and approves it after a fresh sign
   await expect(page).toHaveURL(new RegExp(`#/delivery/changes/prod/${OP}$`));
 
   await axe(page, 'change, as carol');
-  await decide(page, 'Approve', 'orders 1.4 is ready for payments 3');
+  await decide(page, 'carol', 'Approve', 'orders 1.4 is ready for payments 3');
 });
 
 test('B8: carol accepts the unknown check on the shipped change', async ({ page }) => {
   await signIn(page, 'carol', CHANGE);
-  await decide(page, 'Accept the unknown', 'too little traffic yet; accepting');
+  await decide(page, 'carol', 'Accept the unknown', 'too little traffic yet; accepting');
 });
 
 test('B9: carol rolls the change back from the dashboard', async ({ page }) => {
@@ -124,7 +124,7 @@ test('B9: carol rolls the change back from the dashboard', async ({ page }) => {
 // says Unknown and a person on its team accepts that before it counts as shipped.
 test('agent: alice accepts the unknown on pay-agent 1.0.0 in test', async ({ page }) => {
   await signIn(page, 'alice', `/#/delivery/changes/test/${process.env.PW_AGENT_CHANGE ?? ''}`);
-  await decide(page, 'Accept the unknown', 'the model is run by its vendor; the evals passed');
+  await decide(page, 'alice', 'Accept the unknown', 'the model is run by its vendor; the evals passed');
 });
 
 test('History: the payments prod steps read back from signed records that verify', async ({ page }) => {
