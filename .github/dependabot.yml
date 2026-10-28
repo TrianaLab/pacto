@@ -60,3 +60,22 @@ updates:
       actions:
         patterns:
           - "*"
+
+  # The dashboard frontend ships its production dependencies inside the CLI
+  # and dashboard images; the root package.json is the changesets release
+  # tooling. Grouped like the rest so a weekly run is one PR per directory.
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/pkg/dashboard/frontend"
+    schedule:
+      interval: "weekly"
+    rebase-strategy: "auto"
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
