@@ -98,8 +98,9 @@ help: ## Display this help.
 .PHONY: check-dashboard-image
 check-dashboard-image:
 	@if [ -z "$(PACTO_VERSION)" ]; then \
-		echo "Error: Could not resolve Pacto version from go.mod." >&2; \
-		echo "       Ensure 'github.com/trianalab/pacto' is listed in go.mod and 'go list -m' works." >&2; \
+		echo "Error: Could not resolve the dashboard image version." >&2; \
+		echo "       In the monorepo it comes from release/release-manifest.json (units.dashboard-image.version);" >&2; \
+		echo "       in a standalone checkout from 'go list -m github.com/trianalab/pacto/v4'." >&2; \
 		exit 1; \
 	fi
 	@echo "Dashboard image: $(DASHBOARD_IMG)"
@@ -176,22 +177,6 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v /e2e) -coverprofile cover.out
 
-KIND_CLUSTER_E2E ?= pacto-operator-test-e2e
-
-.PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
-	@case "$$($(KIND) get clusters)" in \
-		*"$(KIND_CLUSTER_E2E)"*) \
-			echo "Kind cluster '$(KIND_CLUSTER_E2E)' already exists. Skipping creation." ;; \
-		*) \
-			echo "Creating Kind cluster '$(KIND_CLUSTER_E2E)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER_E2E) ;; \
-	esac
-
 .PHONY: test-integration
 test-integration: ## Run integration tests (in-process OCI registry, no cluster needed).
 	go test -tags=integration ./test/integration/ -v -timeout 120s
@@ -199,10 +184,6 @@ test-integration: ## Run integration tests (in-process OCI registry, no cluster 
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet setup-envtest ## Run the Pacto 2.0 e2e acceptance matrix against envtest.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test -tags=e2e ./test/e2e/... -count=1 -v
-
-.PHONY: cleanup-test-e2e
-cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
-	@$(KIND) delete cluster --name $(KIND_CLUSTER_E2E)
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -235,22 +216,6 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
-
-PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
-.PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
-	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name pacto-operator-builder
-	$(CONTAINER_TOOL) buildx use pacto-operator-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm pacto-operator-builder
-	rm Dockerfile.cross
-
-.PHONY: build-installer
-build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
-	mkdir -p dist
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default > dist/install.yaml
 
 ##@ Chart
 
@@ -383,12 +348,10 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 HELM_UNITTEST ?= $(LOCALBIN)/helm-unittest
-CRD_REF_DOCS ?= $(LOCALBIN)/crd-ref-docs
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
-CRD_REF_DOCS_VERSION ?= v0.3.0
 
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually (controller-runtime replace has no tag)" >&2; exit 1; }; \
@@ -443,11 +406,6 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 		$(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
 		mv -f $(LOCALBIN)/golangci-lint-custom $(GOLANGCI_LINT); \
 	} || true
-
-.PHONY: crd-ref-docs
-crd-ref-docs: $(CRD_REF_DOCS) ## Download crd-ref-docs locally if necessary.
-$(CRD_REF_DOCS): $(LOCALBIN)
-	$(call go-install-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs,$(CRD_REF_DOCS_VERSION))
 
 .PHONY: helm-unittest-install
 helm-unittest-install: $(HELM_UNITTEST) ## Download helm-unittest locally if necessary.
