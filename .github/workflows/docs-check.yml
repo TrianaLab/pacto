@@ -148,6 +148,36 @@ jobs:
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      # Vale for the docs-lint gate. Without a pinned `vale` on PATH, docs_lint.py
+      # falls back to `go run`, which builds Vale from source and verifies its
+      # modules against sum.golang.org on every run -- a network dependency that
+      # failed a Version PR. The official release binary is fetched once (with
+      # retries), checked against a pinned sha256 and cached by version. The
+      # version must match VALE_VERSION in docs_lint.py, so the results do not
+      # change; the install step refuses to run when the two disagree.
+      - name: Cache Vale
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.vale-bin
+          key: vale-3.9.1-Linux_64-bit
+      - name: Install Vale
+        env:
+          VALE_VERSION: 3.9.1
+          VALE_SHA256: fbc2eb47d0b8c50220ed1a2c5c611fbe0904ed567d638143d482016a18fd2db0
+        run: |
+          grep -q "^VALE_VERSION = \"$VALE_VERSION\"$" release/scripts/docs_lint.py \
+            || { echo "VALE_VERSION here disagrees with release/scripts/docs_lint.py"; exit 1; }
+          dir="$HOME/.vale-bin"
+          if [ ! -x "$dir/vale" ]; then
+            tgz="$RUNNER_TEMP/vale.tar.gz"
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$tgz" \
+              "https://github.com/errata-ai/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz"
+            echo "$VALE_SHA256  $tgz" | sha256sum -c -
+            mkdir -p "$dir"
+            tar -xzf "$tgz" -C "$dir" vale
+          fi
+          echo "$dir" >> "$GITHUB_PATH"
+          "$dir/vale" --version | grep -qx "vale version $VALE_VERSION"
       # Blocking mermaid syntax gate: render every fenced ```mermaid block via mmdc.
       # mkdocs --strict does not parse mermaid, so this is the only gate that sees
       # EVERY diagram. Runs standalone for fast, clearly-labeled feedback; docs-check

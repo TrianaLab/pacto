@@ -344,6 +344,7 @@ $(DOCS_DEMO)/app.wasm: $(DEMO_SOURCES)
 docs-demo:
 	$(MAKE) -C examples/demo build
 	$(MAKE) -C examples/demo smoke
+	rm -rf $(DOCS_DEMO)
 	mkdir -p $(DOCS_DEMO)
 	cp -r examples/demo/dist/. $(DOCS_DEMO)/
 

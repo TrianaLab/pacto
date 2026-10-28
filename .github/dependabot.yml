@@ -79,10 +79,12 @@ updates:
         update-types:
           - minor
           - patch
-    # TypeScript 7 is the native compiler and ships no programmatic compiler
-    # API, which svelte-check (peer ^5 || ^6) and openapi-typescript (peer ^5)
-    # are built on. Drop this once both accept TypeScript 7.
+    # openapi-typescript (7.13.0, the latest) peers on typescript ^5.x, so
+    # TypeScript 6 is a peer conflict even though svelte-check accepts ^5 || ^6.
+    # TypeScript 7 is the native compiler and ships no programmatic compiler API,
+    # which both tools are built on. Narrow this to ">=7.0.0" once
+    # openapi-typescript accepts ^6; drop it once both accept 7.
     ignore:
       - dependency-name: "typescript"
         versions:
-          - ">=7.0.0"
+          - ">=6.0.0"

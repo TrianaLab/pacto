@@ -22,6 +22,9 @@ vi.mock('./lib/api.ts', () => ({
     health: (...a: unknown[]) => healthFn(...a),
     capabilities: (...a: unknown[]) => capabilitiesFn(...a),
     refresh: vi.fn().mockResolvedValue({}),
+    // The '#/delivery/inbox' case mounts the inbox view, which loads on mount. The
+    // test reads only the permissions note, so the load is left pending.
+    deliveryInbox: () => new Promise(() => {}),
   },
 }));
 
