@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -244,26 +245,43 @@ func parseChecksums(s string) map[string]string {
 // validateRelease checks that a release with the given tag exists on GitHub.
 func (u *Updater) validateRelease(tag string) error {
 	url := fmt.Sprintf("%s/repos/%s/releases/tags/%s", u.APIBaseURL, pactoRepo, tag)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := u.Client.Do(req)
+	status, err := u.getGitHubJSON(url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to check release: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body) // drain body
-
-	if resp.StatusCode == http.StatusNotFound {
+	if status == http.StatusNotFound {
 		return fmt.Errorf("release %s not found", tag)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	if status != http.StatusOK {
+		return fmt.Errorf("GitHub API returned status %d", status)
 	}
 	return nil
+}
+
+// maxGitHubJSON bounds a GitHub API response body; a release document is a
+// few kilobytes, and GitHub caps a release's notes far below this.
+const maxGitHubJSON = 1 << 20
+
+// getGitHubJSON GETs a GitHub API url and returns the response status. On a
+// 200 it decodes the body, read through maxGitHubJSON, into v; any other
+// status, or a nil v, only drains the body.
+func (u *Updater) getGitHubJSON(url string, v any) (int, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := u.Client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body := io.LimitReader(resp.Body, maxGitHubJSON)
+	if resp.StatusCode != http.StatusOK || v == nil {
+		_, _ = io.Copy(io.Discard, body)
+		return resp.StatusCode, nil
+	}
+	return resp.StatusCode, json.NewDecoder(body).Decode(v)
 }
 
 // downloadBinary downloads the binary from the given URL into the writer using
