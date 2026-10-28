@@ -114,7 +114,7 @@ type State struct {
 	// Method is how the caller signed in: "oidc" or "token" (shared only).
 	Method string
 	// AuthTime is when the caller last logged in at the identity provider,
-	// in Unix seconds, when known.
+	// as Unix seconds or RFC 3339, when known.
 	AuthTime string
 }
 

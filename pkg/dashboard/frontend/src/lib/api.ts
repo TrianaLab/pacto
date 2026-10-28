@@ -67,7 +67,13 @@ type DeleteResponse<P extends keyof paths> =
   paths[P] extends { delete: { responses: { 200: infer R } } } ? JSONBody<R> : never;
 
 // ── delivery wire types ──────────────────────────────────────────────────────
-export type DeliverySession = GetResponse<'/api/session'>;
+export type DeliveryCaller = GetResponse<'/api/delivery/caller'>;
+/** The session, with who delivery classifies the caller as when it is served. */
+export type DeliverySession = GetResponse<'/api/session'> & {
+  caller?: DeliveryCaller;
+  callerError?: string;
+  requireOwnerTeam?: boolean;
+};
 export type DeliveryInbox = GetResponse<'/api/delivery/inbox'>;
 export type DeliveryEnvironments = GetResponse<'/api/delivery/environments'>;
 export type DeliveryAutonomy = GetResponse<'/api/delivery/autonomy'>;
@@ -303,8 +309,14 @@ async function productGet<T extends { meta?: ProductMeta }>(p: Promise<FetchResu
 // token on every POST, PUT, PATCH and DELETE, not only on delivery ones.
 let csrf = '';
 async function csrfHeaders(): Promise<Record<string, string>> {
-  if (!csrf) csrf = (await api.session().catch(() => null))?.csrf ?? '';
+  if (!csrf) csrf = (await readSession().catch(() => null))?.csrf ?? '';
   return csrf ? { 'X-Pacto-CSRF': csrf } : {};
+}
+
+async function readSession(): Promise<GetResponse<'/api/session'>> {
+  const s = await unwrap(client.GET('/api/session'));
+  csrf = s?.csrf ?? '';
+  return s;
 }
 
 // A mutating request kept unsent, so a refusal for a stale token can be retried.
@@ -419,10 +431,18 @@ export const api = {
 
   // ── Delivery. Every call runs as the caller: the signed-in person, or the
   // kubeconfig user of a local dashboard. The apiserver decides. ──
+  /** The session and, for a signed-in caller where delivery is served, who
+   *  delivery classifies them as. A cluster without delivery adds nothing; any
+   *  other failure lands in callerError. */
   session: async (): Promise<DeliverySession> => {
-    const s = await unwrap(client.GET('/api/session'));
-    csrf = s?.csrf ?? '';
-    return s;
+    const s: DeliverySession = await readSession();
+    if (!s?.signedIn) return s;
+    try {
+      const caller = await unwrap(client.GET('/api/delivery/caller'));
+      return { ...s, caller, requireOwnerTeam: caller.requireOwnerTeam };
+    } catch (e) {
+      return e instanceof ApiError && e.status === 404 ? s : { ...s, callerError: (e as Error).message };
+    }
   },
   /** Signs in with a pasted Kubernetes bearer token (POST /auth/token, outside the
    *  API). The server checks it with the cluster and keeps it in the session. */

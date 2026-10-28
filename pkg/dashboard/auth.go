@@ -2,12 +2,9 @@ package dashboard
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
-
-	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
 // Auth is a live host's identity layer. Nil means no sign-in and no delivery
@@ -45,7 +42,7 @@ type AuthState struct {
 	// Method is how the caller signed in: "oidc" or "token".
 	Method string
 	// AuthTime is when the caller last logged in at the identity provider,
-	// in Unix seconds, when known.
+	// as Unix seconds or RFC 3339, when known.
 	AuthTime string
 }
 
@@ -73,57 +70,56 @@ func (s *Server) authState(ctx context.Context) AuthState {
 
 // ── session ────────────────────────────────────────────────────────────
 
+// authSummary is how this dashboard identifies callers and whether this one
+// is signed in. Mode is local (the kubeconfig user), shared (people sign in),
+// open (shared without sign-in: nobody is identified) or none (no identity
+// layer).
+type authSummary struct {
+	Mode       string
+	Login      bool
+	LoginName  string
+	TokenLogin bool
+	State      AuthState
+}
+
+func (s *Server) authSummary(ctx context.Context) authSummary {
+	a := s.opts.Auth
+	switch {
+	case a == nil:
+		return authSummary{Mode: "none"}
+	case a.Local:
+		return authSummary{Mode: "local", State: s.authState(ctx)}
+	case !a.Login && !a.TokenLogin:
+		return authSummary{Mode: "open", State: s.authState(ctx)}
+	}
+	return authSummary{Mode: "shared", Login: a.Login, LoginName: a.LoginName, TokenLogin: a.TokenLogin, State: s.authState(ctx)}
+}
+
 type sessionOutput struct {
 	Body struct {
-		Mode       string   `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; none: no identity layer"`
+		Mode       string   `json:"mode" enum:"local,shared,open,none" doc:"local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; open: shared without sign-in, so nobody is identified; none: no identity layer"`
 		Login      bool     `json:"login" doc:"People sign in with the identity provider"`
 		LoginName  string   `json:"loginName,omitempty" doc:"The identity provider's name on the sign-in button; empty says OIDC"`
 		TokenLogin bool     `json:"tokenLogin,omitempty" doc:"People may sign in by pasting a Kubernetes bearer token"`
 		SignedIn   bool     `json:"signedIn" doc:"The caller has a live session (shared) or the launch cookie (local)"`
 		Method     string   `json:"method,omitempty" enum:"oidc,token" doc:"How the caller signed in: with the identity provider or with a pasted token, which never decides"`
 		Name       string   `json:"name,omitempty" doc:"The signed-in person's name from their ID token (name, else email)"`
-		User       string   `json:"user,omitempty" doc:"The signed-in person's username as the cluster names them; the fleet views show what its Kubernetes RBAC lets this user read"`
-		Groups     []string `json:"groups,omitempty" doc:"The signed-in person's groups as the cluster names them"`
+		User       string   `json:"user,omitempty" doc:"The signed-in person's username as the API server names them; every view shows what its Kubernetes RBAC lets this user read"`
+		Groups     []string `json:"groups,omitempty" doc:"The signed-in person's groups as the API server names them"`
+		AuthTime   string   `json:"authTime,omitempty" doc:"When the signed-in person last logged in at the identity provider, as Unix seconds or RFC 3339, when known"`
 		CSRF       string   `json:"csrf,omitempty" doc:"Send it in the X-Pacto-CSRF header of every mutating request"`
-		// Caller is who the apiserver says the caller is, when delivery is
-		// installed and the caller is signed in.
-		Caller      *delivery.Caller `json:"caller,omitempty"`
-		CallerError string           `json:"callerError,omitempty"`
-		// RequireOwnerTeam is the published policy's rule for a question
-		// that names no team: nobody may answer it, only break-glass
-		// overrides. Known only with the caller.
-		RequireOwnerTeam bool `json:"requireOwnerTeam,omitempty" doc:"A question that names no team has nobody who may answer it; only break-glass can override"`
 	}
 }
 
 func (s *Server) session(ctx context.Context, _ *struct{}) (*sessionOutput, error) {
 	out := &sessionOutput{}
-	out.Body.Mode = "none"
-	if a := s.opts.Auth; a != nil {
-		out.Body.Mode, out.Body.Login, out.Body.LoginName, out.Body.TokenLogin = "shared", a.Login, a.LoginName, a.TokenLogin
-		if a.Local {
-			out.Body.Mode = "local"
-		}
-	}
-	st := s.authState(ctx)
-	out.Body.SignedIn, out.Body.CSRF, out.Body.Name = st.SignedIn, st.CSRF, st.Name
-	out.Body.User, out.Body.Groups, out.Body.Method = st.User, st.Groups, st.Method
-	if !st.SignedIn || s.opts.Delivery == nil {
-		return out, nil
-	}
-	api, err := s.deliveryFor(ctx)
-	if de := (*DeliveryError)(nil); errors.As(err, &de) && de.Code == "DeliveryNotInstalled" {
-		return out, nil
-	}
-	if err == nil {
-		var c delivery.Caller
-		if c, err = api.WhoAmI(ctx); err == nil {
-			out.Body.Caller, out.Body.RequireOwnerTeam = &c, c.Policy.RequireOwnerTeam
-			s.remember(c.User, st.Name)
-		}
-	}
-	if err != nil {
-		out.Body.CallerError = err.Error()
+	a := s.authSummary(ctx)
+	st := a.State
+	out.Body.Mode, out.Body.Login, out.Body.LoginName, out.Body.TokenLogin = a.Mode, a.Login, a.LoginName, a.TokenLogin
+	out.Body.SignedIn, out.Body.CSRF, out.Body.Name, out.Body.Method = st.SignedIn, st.CSRF, st.Name, st.Method
+	out.Body.User, out.Body.Groups, out.Body.AuthTime = st.User, st.Groups, st.AuthTime
+	if st.SignedIn {
+		s.remember(st.User, st.Name)
 	}
 	return out, nil
 }
@@ -133,6 +129,6 @@ func (s *Server) registerAuthOperations(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "session", Method: http.MethodGet, Path: "/api/session", Tags: []string{"Auth"},
 		Summary:     "Who is signed in",
-		Description: "The identity mode, whether the caller is signed in, the CSRF token for mutating requests and who the apiserver says the caller is.",
+		Description: "The identity mode, whether the caller is signed in, who the API server says they are, when they last logged in and the CSRF token for mutating requests.",
 	}, s.session)
 }

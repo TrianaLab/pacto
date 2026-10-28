@@ -341,8 +341,8 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 	}
 	_, caps := call(t, http.MethodGet, down+"/api/capabilities", nil)
 	expect(t, caps["delivery"] == true, "an unreachable cluster keeps the delivery tab: %v", caps)
-	_, sess := call(t, http.MethodGet, down+"/api/session", nil)
-	expect(t, strings.Contains(fmt.Sprint(sess["callerError"]), "ClusterUnreachable"), "the session names the failure: %v", sess)
+	code, body = call(t, http.MethodGet, down+"/api/delivery/caller", nil)
+	expect(t, code == http.StatusServiceUnavailable && body["code"] == "ClusterUnreachable", "the caller names the failure: %d %v", code, body)
 	// Where delivery is never served, capabilities do not ask the cluster.
 	asked := false
 	open := startServer(t, NewServer(Options{UI: testUI(), Auth: a.auth(false, false),
@@ -936,7 +936,7 @@ func TestDeliveryNamespaceScope(t *testing.T) {
 }
 
 func TestPeopleAndVersionLabels(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz"}}
+	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz", User: person().User}}
 	f := sampleCluster("acme:team-checkout")
 	f.known = map[string]string{dNext: "2.0.0"}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
@@ -998,7 +998,7 @@ func TestRememberIsBounded(t *testing.T) {
 }
 
 func TestBlame(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz"}}
+	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz", User: person().User}}
 	f := sampleCluster("acme:team-checkout")
 	f.known = map[string]string{dNext: "2.0.0"}
 	f.blame = &delivery.Blame{Stage: delivery.StageNow{Name: "payments", Pointer: dNext}, Digest: dNext, Completeness: "complete",

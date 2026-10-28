@@ -137,7 +137,9 @@ func (d *demoDelivery) SetPersona(name string, fresh bool) error {
 func (d *demoDelivery) State(*http.Request) dashboard.AuthState {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return dashboard.AuthState{SignedIn: true, CSRF: "browser-demo", Name: displayNames[d.persona]}
+	c := d.caller()
+	return dashboard.AuthState{SignedIn: true, CSRF: "browser-demo", Name: displayNames[d.persona], Method: "oidc",
+		User: c.User, Groups: c.Groups, AuthTime: c.AuthTime}
 }
 
 // ── the world ───────────────────────────────────────────────────────────

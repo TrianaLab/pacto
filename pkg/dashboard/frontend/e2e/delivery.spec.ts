@@ -70,13 +70,14 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/session') {
       if (persona === 'token') {
         return json(200, { mode: 'shared', login: false, tokenLogin: true, signedIn: !signedOut(),
-          ...(signedOut() ? {} : { method: 'token', csrf: 't', caller, user: 'system:serviceaccount:shop:viewer' }) });
+          ...(signedOut() ? {} : { method: 'token', csrf: 't', user: 'system:serviceaccount:shop:viewer' }) });
       }
       if (persona === 'signed-out') return json(200, { mode: 'shared', login: true, signedIn: false });
       return json(200, { mode: persona === 'local' ? 'local' : 'shared', login: persona !== 'local', signedIn: true,
-        csrf: 't', caller });
+        csrf: 't', ...(caller as object) });
     }
-    if (signedOut()) return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to see delivery' });
+    if (signedOut()) return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to use this dashboard' });
+    if (route === '/api/delivery/caller') return caller ? json(200, { ...caller, requireOwnerTeam: false }) : json(503, { status: 503, code: 'ClusterUnreachable', detail: 'no caller' });
     if (route === '/api/delivery/inbox') {
       return json(200, { ...listing, held: decided() || !caller?.groups.includes('team-checkout') ? [] : [{
         namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, phase: 'Held',
@@ -176,12 +177,11 @@ function installDelivery(persona: Persona): void {
     }
     // Like the gate: signed out, the API answers nothing but the session.
     if (signedOut() && route.startsWith('/api/') && route !== '/api/session') {
-      return { status: 401, body: 'sign in to use this dashboard', contentType: 'text/plain' };
+      return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to use this dashboard' });
     }
     if (route === '/api/capabilities') {
       const doc = JSON.parse((await (real as Serve)(method, path, body)).body);
-      return json(200, { ...doc, delivery: true, miraURL: 'https://mira.example',
-        auth: { mode: persona === 'local' ? 'local' : 'shared', login: persona !== 'local' && persona !== 'token', tokenLogin: persona === 'token', signedIn: !signedOut() } });
+      return json(200, { ...doc, delivery: true, miraURL: 'https://mira.example', auth: { hidden: false } });
     }
     if (route === '/api/session' || route.startsWith('/api/delivery/')) return delivery(method, route, body);
     return (real as Serve)(method, path, body);

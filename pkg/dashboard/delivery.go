@@ -96,6 +96,34 @@ func (s *Server) deliveryFor(ctx context.Context) (DeliveryAPI, error) {
 	return s.opts.Delivery(requestFrom(ctx))
 }
 
+// ── caller ─────────────────────────────────────────────────────────────
+
+type callerOutput struct {
+	Body struct {
+		delivery.Caller
+		// RequireOwnerTeam is the published policy's rule for a question
+		// that names no team: nobody may answer it, only break-glass
+		// overrides.
+		RequireOwnerTeam bool `json:"requireOwnerTeam" doc:"A question that names no team has nobody who may answer it; only break-glass can override"`
+	}
+}
+
+// deliveryCaller is the caller as delivery classifies them: the person the
+// session names, their actor class and the published policy's team rule.
+func (s *Server) deliveryCaller(ctx context.Context, _ *struct{}) (*callerOutput, error) {
+	api, err := s.deliveryFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, err := api.WhoAmI(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := &callerOutput{}
+	out.Body.Caller, out.Body.RequireOwnerTeam = c, c.Policy.RequireOwnerTeam
+	return out, nil
+}
+
 // ── registration ───────────────────────────────────────────────────────
 
 func (s *Server) registerDeliveryOperations(api huma.API) {
@@ -107,6 +135,10 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		op.Errors = []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict}
 		return op
 	}
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-caller", Method: http.MethodGet, Path: "/api/delivery/caller",
+		Summary: "Who delivery says I am",
+		Description: "The caller as the API server names them, their actor class (human, agent, break-glass or controller), when they last logged in " +
+			"and whether a question that names no team has nobody who may answer it."}), s.deliveryCaller)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-inbox", Method: http.MethodGet, Path: "/api/delivery/inbox",
 		Summary: "What waits on me",
 		Description: "Held operations whose question names one of the caller's teams, with the decision asked and the affected services; " +

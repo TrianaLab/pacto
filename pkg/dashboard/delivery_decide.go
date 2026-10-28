@@ -80,15 +80,15 @@ type decideOutput struct {
 // a local or sign-in-free dashboard, no session or a pasted token. cli is the
 // command that decides instead.
 func (s *Server) decisionSession(ctx context.Context, cli string) error {
-	a := s.opts.Auth
-	switch {
-	case a == nil || a.Local:
+	a := s.authSummary(ctx)
+	switch a.Mode {
+	case "none", "local":
 		return Refuse(http.StatusForbidden, "ApproveFromCLI",
 			"a local dashboard never decides: any process on this machine could do it as you. Run: "+cli)
-	case !a.Login && !a.TokenLogin:
+	case "open":
 		return Refuse(http.StatusForbidden, "LoginNotConfigured", "this dashboard has no sign-in, so it serves no decisions")
 	}
-	st := s.authState(ctx)
+	st := a.State
 	switch {
 	case !st.SignedIn:
 		return Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to decide")

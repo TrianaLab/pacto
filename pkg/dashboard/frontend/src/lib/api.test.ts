@@ -460,13 +460,28 @@ describe('delivery endpoints', () => {
     expect([plain.status, plain.code, plain.message]).toEqual([403, '', 'missing or wrong X-Pacto-CSRF header']);
   });
 
+  it('adds who delivery says the caller is to a signed-in session', async () => {
+    const answer = (caller: Response) => (req: Request) => Promise.resolve(
+      new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: true, user: 'u' }) : caller);
+    mockFetch.mockImplementation(answer(jsonResponse({ user: 'u', class: 'human', requireOwnerTeam: true })));
+    expect(await api.session()).toMatchObject({ user: 'u', caller: { class: 'human' }, requireOwnerTeam: true });
+    mockFetch.mockImplementation(answer(jsonResponse({ code: 'DeliveryNotInstalled', detail: 'no' }, 404)));
+    const without = await api.session();
+    expect([without.caller, without.callerError]).toEqual([undefined, undefined]);
+    mockFetch.mockImplementation(answer(jsonResponse({ code: 'ClusterUnreachable', detail: 'apiserver down' }, 503)));
+    expect((await api.session()).callerError).toContain('apiserver down');
+    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse({ mode: 'shared', login: true, signedIn: false })));
+    await api.session();
+    expect(mockFetch).toHaveBeenCalledTimes(7);
+  });
+
   it('signs out with the CSRF token and returns the provider logout page', async () => {
     mockFetch.mockImplementation((req: Request) => Promise.resolve(
       new URL(req.url).pathname === '/api/session' ? jsonResponse({ mode: 'shared', login: true, signedIn: true, csrf: 'tok2' })
         : jsonResponse({ logoutURL: 'https://idp/logout?client_id=x' })));
     await api.session();
     expect(await api.signOut()).toBe('https://idp/logout?client_id=x');
-    const req = requestFor(1);
+    const req = requestFor(2);
     expect([req.method, new URL(req.url).pathname, req.headers.get('X-Pacto-CSRF')]).toEqual(['POST', '/auth/logout', 'tok2']);
     // No logout page, a body that is not JSON, a refusal, and no CSRF token to send.
     mockFetch.mockReset();
