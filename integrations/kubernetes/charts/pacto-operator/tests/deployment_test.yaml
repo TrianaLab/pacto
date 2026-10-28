@@ -293,6 +293,32 @@ tests:
           content: --dashboard-oidc-ca-secret=
           any: true
 
+  - it: should name the identity provider on the sign-in button only when set
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        displayName: "Acme SSO: staff"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-oidc-display-name=Acme SSO: staff"
+
+  - it: should leave the sign-in button saying OIDC by default
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-display-name=
+          any: true
+
   - it: should pass the issuer CA bundle from a Secret key
     set:
       dashboard.enabled: true

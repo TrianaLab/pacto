@@ -460,6 +460,7 @@
                   "type": "string"
                 },
                 "internalIssuerURL": { "type": "string", "pattern": "^$|^https?://[^/?#]+" },
+                "displayName": { "type": "string" },
                 "caBundle": {
                   "type": "object",
                   "additionalProperties": false,

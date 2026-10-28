@@ -31,6 +31,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.auth.oidc.clientID` | `""` | The dashboard's client id at the issuer |
 | `dashboard.auth.oidc.clientSecretRef.key` | `client-secret` | Key of the client secret in that Secret |
 | `dashboard.auth.oidc.clientSecretRef.name` | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |
+| `dashboard.auth.oidc.displayName` | `""` | The identity provider's name on the sign-in button, as in "Sign in with Keycloak" (empty: "Sign in with OIDC") |
 | `dashboard.auth.oidc.extraScopes` | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
 | `dashboard.auth.oidc.groupsClaim` | `""` | ID token claim the API server takes the groups from; must match its `claimMappings.groups` (empty: `groups`) |
 | `dashboard.auth.oidc.groupsPrefix` | `""` | Prefix the API server puts before every group; must match its `claimMappings.groups.prefix` |

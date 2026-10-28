@@ -220,6 +220,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | dashboard.auth.oidc.clientID | string | `""` | The dashboard's client id at the issuer |
 | dashboard.auth.oidc.clientSecretRef.key | string | `"client-secret"` | Key of the client secret in that Secret |
 | dashboard.auth.oidc.clientSecretRef.name | string | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |
+| dashboard.auth.oidc.displayName | string | `""` | The identity provider's name on the sign-in button, as in "Sign in with Keycloak" (empty: "Sign in with OIDC") |
 | dashboard.auth.oidc.extraScopes | list | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
 | dashboard.auth.oidc.groupsClaim | string | `""` | ID token claim the API server takes the groups from; must match its `claimMappings.groups` (empty: `groups`) |
 | dashboard.auth.oidc.groupsPrefix | string | `""` | Prefix the API server puts before every group; must match its `claimMappings.groups.prefix` |

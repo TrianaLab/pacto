@@ -63,6 +63,9 @@ type Auth struct {
 	Local bool
 	// Login: people sign in with OpenID Connect.
 	Login bool
+	// LoginName is the identity provider's name on the sign-in button; empty
+	// says OIDC.
+	LoginName string
 	// TokenLogin: people may sign in by pasting a Kubernetes bearer token.
 	TokenLogin bool
 	// Routes serves /auth/*.
@@ -160,6 +163,7 @@ type sessionOutput struct {
 	Body struct {
 		Mode       string   `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; none: no identity layer"`
 		Login      bool     `json:"login" doc:"People sign in with the identity provider"`
+		LoginName  string   `json:"loginName,omitempty" doc:"The identity provider's name on the sign-in button; empty says OIDC"`
 		TokenLogin bool     `json:"tokenLogin,omitempty" doc:"People may sign in by pasting a Kubernetes bearer token"`
 		SignedIn   bool     `json:"signedIn" doc:"The caller has a live session (shared) or the launch cookie (local)"`
 		Method     string   `json:"method,omitempty" enum:"oidc,token" doc:"How the caller signed in: with the identity provider or with a pasted token, which never decides"`
@@ -183,7 +187,7 @@ func (s *Server) session(ctx context.Context, _ *struct{}) (*sessionOutput, erro
 	out := &sessionOutput{}
 	out.Body.Mode = "none"
 	if a := s.opts.Auth; a != nil {
-		out.Body.Mode, out.Body.Login, out.Body.TokenLogin = "shared", a.Login, a.TokenLogin
+		out.Body.Mode, out.Body.Login, out.Body.LoginName, out.Body.TokenLogin = "shared", a.Login, a.LoginName, a.TokenLogin
 		if a.Local {
 			out.Body.Mode = "local"
 		}

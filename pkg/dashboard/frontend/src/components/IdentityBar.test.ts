@@ -176,7 +176,8 @@ describe('SignInScreen', () => {
     (api as unknown as { signInWithToken: unknown }).signInWithToken = tokenFn;
     tokenFn.mockRejectedValueOnce(new Error('the cluster did not accept this token: Unauthorized'));
     show({ mode: 'shared', login: false, tokenLogin: true, signedIn: false }, SignInScreen);
-    expect(document.body.querySelectorAll('a')).toHaveLength(0);
+    // The only link is the docs one: no identity provider to sign in with.
+    expect([...document.body.querySelectorAll('a')].map((a) => a.textContent)).toEqual(['How to get a token']);
     const form = document.body.querySelector('[data-testid="token-sign-in"]') as HTMLFormElement;
     const input = form.querySelector('input') as HTMLInputElement;
     expect(input.type).toBe('password');
@@ -200,14 +201,33 @@ describe('SignInScreen', () => {
 
   it('offers both where both sign-ins are on', () => {
     show({ mode: 'shared', login: true, tokenLogin: true, signedIn: false }, SignInScreen);
-    expect(document.body.querySelectorAll('a')).toHaveLength(1);
+    expect([...document.body.querySelectorAll('a')].map((a) => a.textContent)).toEqual(['Sign in with OIDC', 'How to get a token']);
     expect(document.body.querySelector('[data-testid="token-sign-in"]')).not.toBeNull();
   });
 
-  it('shows the product name and one Sign in button that comes back to the page asked for', () => {
+  it('names the identity provider on the button when the dashboard is told its name', () => {
+    show({ mode: 'shared', login: true, loginName: 'Keycloak', signedIn: false }, SignInScreen);
+    expect(document.body.querySelector('a')?.textContent).toBe('Sign in with Keycloak');
+  });
+
+  it('says how to get a token next to the field, with a link to the docs', () => {
+    show({ mode: 'shared', login: false, tokenLogin: true, signedIn: false }, SignInScreen);
+    const input = document.body.querySelector('#signin-token') as HTMLInputElement;
+    // Accessible name from the label, description from the hint.
+    expect(document.body.querySelector('label[for="signin-token"]')?.textContent).toBe('Kubernetes token');
+    const hint = document.getElementById(input.getAttribute('aria-describedby')!);
+    expect(hint?.textContent).toContain('kubectl create token <service-account> -n <namespace>');
+    const link = hint?.querySelector('a') as HTMLAnchorElement;
+    expect(link.textContent).toBe('How to get a token');
+    expect(link.getAttribute('href')).toBe('https://pacto.run/latest/integrations/kubernetes/dashboard-authentication/#token-sign-in');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+  });
+
+  it('shows the product name and one Sign in with OIDC button that comes back to the page asked for', () => {
     location.hash = '#/fleet/attention';
     const t = show(null, SignInScreen);
-    expect(t).toBe('Pacto Sign in');
+    expect(t).toBe('Pacto Sign in with OIDC');
     const links = document.body.querySelectorAll('a');
     expect(links).toHaveLength(1);
     expect(links[0].getAttribute('href')).toBe('/auth/login?return=%2F%23%2Ffleet%2Fattention');

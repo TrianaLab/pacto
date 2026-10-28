@@ -34,6 +34,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-oidc-client-id` | `string` |  | chart value | The dashboard's OpenID Connect client id. |
 | `-dashboard-oidc-client-secret-key` | `string` | `client-secret` | chart value | Key of the client secret in that Secret. |
 | `-dashboard-oidc-client-secret-name` | `string` |  | chart value | Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef. |
+| `-dashboard-oidc-display-name` | `string` |  | chart value | The identity provider's name on the dashboard's sign-in button, as in Sign in with Keycloak (empty: OIDC). |
 | `-dashboard-oidc-extra-scopes` | `string` |  | chart value | Comma-separated scopes beyond openid, profile and groups. |
 | `-dashboard-oidc-groups-claim` | `string` |  | chart value | ID token claim the API server takes the groups from; must match its claim mapping (empty: groups). |
 | `-dashboard-oidc-groups-prefix` | `string` |  | chart value | Prefix the API server puts before every group; must match its claim mapping. |

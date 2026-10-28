@@ -54,10 +54,10 @@ async function decide(page: Page, choice: string, note: string): Promise<void> {
   await expect(recorded).toContainText('recorded as', { timeout: T });
 }
 
-// signIn signs user in through the dashboard's own Sign in link and comes back to hash.
+// signIn signs user in through the dashboard's own Sign in with OIDC link and comes back to hash.
 async function signIn(page: Page, user: string, hash: string): Promise<void> {
   await page.goto(hash);
-  await page.getByRole('link', { name: 'Sign in' }).first().click({ timeout: T });
+  await page.getByRole('link', { name: 'Sign in with OIDC', exact: true }).first().click({ timeout: T });
   await dexLogin(page, user);
   await expect(page.getByTestId('identity')).toContainText('Signed in as', { timeout: T });
 }

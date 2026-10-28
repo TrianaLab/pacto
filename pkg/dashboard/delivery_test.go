@@ -351,13 +351,13 @@ func TestCapabilitiesAndSessionWithTokenSignIn(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true, CSRF: "c", Method: "token", User: "system:serviceaccount:shop:viewer", Groups: []string{"system:serviceaccounts"}}}
 	f := &fakeDelivery{caller: person()}
 	au := a.auth(false, false)
-	au.TokenLogin = true
+	au.TokenLogin, au.LoginName = true, "Keycloak"
 	base := startDelivery(t, f, au, true, nil)
 	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
 	auth, _ := caps["auth"].(map[string]any)
 	expect(t, caps["delivery"] == true && auth["mode"] == "shared" && auth["login"] == false && auth["tokenLogin"] == true, "capabilities %v", caps)
 	_, sess := call(t, http.MethodGet, base+"/api/session", nil)
-	expect(t, sess["tokenLogin"] == true && sess["method"] == "token" && sess["user"] == "system:serviceaccount:shop:viewer", "session %v", sess)
+	expect(t, sess["tokenLogin"] == true && sess["loginName"] == "Keycloak" && sess["method"] == "token" && sess["user"] == "system:serviceaccount:shop:viewer", "session %v", sess)
 }
 
 func TestCapabilitiesAndSessionWithoutDelivery(t *testing.T) {

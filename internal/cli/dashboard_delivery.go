@@ -70,6 +70,8 @@ type dashboardIdentity struct {
 	// viewer narrows the fleet views to what the signed-in person's Kubernetes
 	// RBAC lets them read; nil outside shared mode with sign-in.
 	viewer *authn.Viewer
+	// loginName is the identity provider's name on the sign-in button.
+	loginName string
 
 	// probe guards the discovery answer; mu guards revisions. A slow cluster
 	// never holds up describe.
@@ -121,7 +123,8 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	}
 	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
 		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
-		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache()}
+		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache(),
+		loginName: v.GetString("dashboard.oidc-display-name")}
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
 	var o *authn.OIDC
 	if issuer := v.GetString("dashboard.oidc-issuer-url"); issuer != "" {
@@ -158,7 +161,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 
 // options are the dashboard options this identity fills in.
 func (id *dashboardIdentity) options(o *dashboard.Options) {
-	o.Auth = &dashboard.Auth{Local: id.auth.Local(), Login: id.auth.Login(), TokenLogin: id.auth.TokenLogin(),
+	o.Auth = &dashboard.Auth{Local: id.auth.Local(), Login: id.auth.Login(), LoginName: id.loginName, TokenLogin: id.auth.TokenLogin(),
 		Routes: id.auth.Routes(), Middleware: id.auth.Middleware,
 		State: func(r *http.Request) dashboard.AuthState {
 			st := id.state(r.Context())

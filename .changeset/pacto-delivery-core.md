@@ -179,7 +179,9 @@ the promoter would count, and says up front when a cluster reports no login
 time, so nobody can approve there. With sign-in configured, people sign in
 before the dashboard shows anything, every view follows their Kubernetes RBAC
 and the header names who they are; `--token-login` adds sign-in with a pasted
-Kubernetes token for clusters that trust no identity provider. The dashboard also takes a new look: serif titles and numbers,
+Kubernetes token for clusters that trust no identity provider. The sign-in
+button says Sign in with OIDC, or names the provider with `--oidc-display-name`.
+The dashboard also takes a new look: serif titles and numbers,
 a grouped data-sources menu and labelled status bars.
 
 **Demos.** The browser demo plays the payments story from `examples/story` on

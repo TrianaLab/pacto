@@ -149,7 +149,7 @@ one to a `sha256:` digest and that image is pulled as `tag@digest`, so the pod
 runs exactly that image whatever the tag later points at.
 
 **The `pacto-operator` chart** gains `dashboard.auth.oidc` (`issuerURL`,
-`clientID`, `clientSecretRef`, `redirectURL`, `extraScopes` and the claim
+`clientID`, `clientSecretRef`, `redirectURL`, `extraScopes`, `displayName` and the claim
 mapping `usernameClaim`, `usernamePrefix`, `groupsClaim`, `groupsPrefix`),
 `dashboard.auth.session` (`idleTimeout`, `maxAge`),
 `dashboard.auth.tokenLogin.enabled`, `dashboard.auth.deliveryNamespace` and

@@ -163,9 +163,9 @@ func TestDeploymentAC_AuthVolumes(t *testing.T) {
 		return env, vols
 	}
 	cfg := Config{Image: "i", Namespace: "n", Auth: AuthConfig{IssuerURL: "https://idp", InternalIssuerURL: "http://idp.idp:5556",
-		CAConfigMap: "corp-ca"}, DeliveryTrust: KeyRef{Name: "trust"}}
+		DisplayName: "Keycloak", CAConfigMap: "corp-ca"}, DeliveryTrust: KeyRef{Name: "trust"}}
 	env, vols := spec(cfg)
-	for name, want := range map[string]string{"PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL": "http://idp.idp:5556",
+	for name, want := range map[string]string{"PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL": "http://idp.idp:5556", "PACTO_DASHBOARD_OIDC_DISPLAY_NAME": "Keycloak",
 		"PACTO_DASHBOARD_OIDC_CA_FILE": "/etc/pacto/oidc-ca/ca.crt", "PACTO_DASHBOARD_DELIVERY_TRUST": "/etc/pacto/delivery-trust/trust.yaml"} {
 		if env[name] != want {
 			t.Errorf("%s: want %q, got %q", name, want, env[name])

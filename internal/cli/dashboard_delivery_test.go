@@ -67,7 +67,11 @@ func TestDashboardIdentityModes(t *testing.T) {
 	if shared := identityFor(t, v, "127.0.0.1", nil); !shared.auth.Login() {
 		t.Fatal("an issuer makes it shared, even on loopback")
 	}
+	v.Set("dashboard.oidc-display-name", "Keycloak")
 	gated := identityFor(t, v, "0.0.0.0", nil)
+	var gatedOpts dashboard.Options
+	gated.options(&gatedOpts)
+	expect(t, gatedOpts.Auth.Login && gatedOpts.Auth.LoginName == "Keycloak", "the sign-in button names the provider: %+v", gatedOpts.Auth)
 	rec := httptest.NewRecorder()
 	gated.auth.Middleware(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/status", nil))
 	expect(t, rec.Code == http.StatusUnauthorized, "sign-in gates the fleet API: %d", rec.Code)

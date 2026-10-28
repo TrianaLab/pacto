@@ -225,6 +225,7 @@ pacto dashboard [sources...] [flags]
       --namespace string                  Kubernetes namespace (empty = all namespaces)
       --oidc-ca-file string               PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)
       --oidc-client-id string             OpenID Connect client id of the dashboard
+      --oidc-display-name string          the identity provider's name on the sign-in button, as in Sign in with Keycloak (default OIDC; also PACTO_DASHBOARD_OIDC_DISPLAY_NAME)
       --oidc-extra-scopes strings         scopes to ask for beyond openid, profile and groups
       --oidc-groups-claim string          ID token claim the API server takes the groups from; must match its claim mapping (default groups)
       --oidc-groups-prefix string         prefix the API server puts before every group; must match its claim mapping

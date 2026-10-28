@@ -231,6 +231,8 @@ dashboard:
       issuerURL: ""
       # -- Where the dashboard reaches the issuer when it differs from `issuerURL`, the address browsers use (for example an in-cluster Service). Discovery, tokens and keys are read there; ID tokens must still name `issuerURL`
       internalIssuerURL: ""
+      # -- The identity provider's name on the sign-in button, as in "Sign in with Keycloak" (empty: "Sign in with OIDC")
+      displayName: ""
       caBundle:
         # -- A ConfigMap in the operator namespace holding the PEM certificates of the CAs that sign the issuer's certificate (corporate or self-signed), trusted on top of the image's public roots
         configMap: ""

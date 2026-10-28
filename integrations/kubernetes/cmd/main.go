@@ -160,6 +160,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardAuth.InternalIssuerURL, "dashboard-oidc-internal-issuer-url", "",
 		"Where the dashboard reaches the issuer when it differs from the public issuer URL browsers use, such as an "+
 			"in-cluster Service; ID tokens must still name the public issuer.")
+	fs.StringVar(&o.dashboardAuth.DisplayName, "dashboard-oidc-display-name", "",
+		"The identity provider's name on the dashboard's sign-in button, as in Sign in with Keycloak (empty: OIDC).")
 	fs.StringVar(&o.dashboardAuth.CAConfigMap, "dashboard-oidc-ca-configmap", "",
 		"ConfigMap in the operator namespace holding the PEM bundle of the CAs that sign the issuer's certificate.")
 	fs.StringVar(&o.dashboardAuth.CASecret, "dashboard-oidc-ca-secret", "",

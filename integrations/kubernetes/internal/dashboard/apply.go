@@ -94,6 +94,7 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	a := cfg.Auth
 	add("PACTO_DASHBOARD_OIDC_ISSUER_URL", a.IssuerURL)
 	add("PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL", a.InternalIssuerURL)
+	add("PACTO_DASHBOARD_OIDC_DISPLAY_NAME", a.DisplayName)
 	if a.CAConfigMap != "" || a.CASecret != "" {
 		add("PACTO_DASHBOARD_OIDC_CA_FILE", oidcCADir+"/"+keyOr(a.CAKey, "ca.crt"))
 	}

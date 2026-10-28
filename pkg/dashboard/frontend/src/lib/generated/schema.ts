@@ -3421,6 +3421,8 @@ export interface components {
             groups?: string[] | null;
             /** @description People sign in with the identity provider */
             login: boolean;
+            /** @description The identity provider's name on the sign-in button; empty says OIDC */
+            loginName?: string;
             /**
              * @description How the caller signed in: with the identity provider or with a pasted token, which never decides
              * @enum {string}

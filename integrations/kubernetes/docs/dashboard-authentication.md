@@ -58,6 +58,7 @@ dashboard:
       clientSecretRef: {name: dashboard-oidc, key: client-secret}
       redirectURL: https://pacto.example.com/auth/callback
       extraScopes: [offline_access]   # what your provider needs beyond openid, profile and groups
+      displayName: Keycloak           # the button says "Sign in with Keycloak"; empty: "Sign in with OIDC"
       # The claim mapping: the same values as the API server's claimMappings.
       usernameClaim: sub              # empty: sub
       usernamePrefix: ""              # empty: the issuer URL and #, none for email; "-" for none
@@ -72,6 +73,10 @@ dashboard:
 
 For an evaluation cluster, the chart can bundle Dex and wire it for you
 ([quickstart](quickstart.md)).
+
+The sign-in screen's button says **Sign in with OIDC**. Set `displayName` to
+the name people know the provider by and it says **Sign in with** that name
+instead.
 
 Register `https://<dashboard>/auth/callback` as the client's redirect URL and
 terminate TLS in front of the dashboard. `pacto dashboard` takes the same
@@ -177,6 +182,20 @@ keeps it in the server-side session and checks it again every five minutes, so
 a token that expires or is revoked ends its session. A token session reads and
 acts with that token's RBAC and never decides on a held change: it proves no
 recent sign-in. Token sign-in works with or without `oidc`.
+
+To get a token:
+
+- **For a ServiceAccount**, run `kubectl create token <service-account> -n <namespace>`.
+  Add `--duration` for a token that lasts longer than the default hour, up to
+  what the API server allows.
+- **For yourself with a static token** in your kubeconfig, run
+  `kubectl config view --raw --minify -o jsonpath='{.users[0].user.token}'`.
+- **For yourself on EKS**, run `aws eks get-token --cluster-name <cluster>`
+  and take its `status.token` field.
+- **For yourself on GKE**, run `gcloud auth print-access-token`.
+
+Cloud provider tokens are short-lived, and the session ends when its token
+expires.
 
 ## Identity providers
 

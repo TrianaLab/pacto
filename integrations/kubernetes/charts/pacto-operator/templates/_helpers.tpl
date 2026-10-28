@@ -204,6 +204,9 @@ Controller arguments derived from values
 {{- with .internalIssuerURL }}
 - --dashboard-oidc-internal-issuer-url={{ . }}
 {{- end }}
+{{- with .displayName }}
+- {{ printf "--dashboard-oidc-display-name=%s" . | quote }}
+{{- end }}
 {{- with .caBundle }}
 {{- if and .configMap .secret }}
 {{- fail "dashboard.auth.oidc.caBundle takes a configMap or a secret, not both" }}

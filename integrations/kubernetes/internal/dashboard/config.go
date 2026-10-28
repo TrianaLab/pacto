@@ -102,6 +102,9 @@ type AuthConfig struct {
 	// differs from IssuerURL, the address browsers use; ID tokens still name
 	// IssuerURL.
 	InternalIssuerURL string
+	// DisplayName is the identity provider's name on the sign-in button;
+	// empty says OIDC.
+	DisplayName string
 	// CAConfigMap or CASecret (never both) holds, under CAKey, the PEM bundle
 	// of the CAs that sign the issuer's certificate, trusted on top of the
 	// system roots.

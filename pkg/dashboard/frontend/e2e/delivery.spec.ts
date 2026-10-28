@@ -327,7 +327,7 @@ test.describe('Delivery views', () => {
       await page.goto(`/${hash}`);
       const screen = page.getByTestId('sign-in');
       await expect(screen).toBeVisible({ timeout: T });
-      await expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', `/auth/login?return=${encodeURIComponent('/' + hash)}`);
+      await expect(screen.getByRole('link', { name: 'Sign in with OIDC', exact: true })).toHaveAttribute('href', `/auth/login?return=${encodeURIComponent('/' + hash)}`);
       await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0);
       await expect(page.getByTestId('environments-board')).toHaveCount(0);
       await expect(page.getByTestId('identity')).toHaveCount(0);
@@ -346,7 +346,8 @@ test.describe('Delivery views', () => {
     await page.goto('/#/fleet/services');
     const screen = page.getByTestId('sign-in');
     await expect(screen.getByTestId('token-sign-in')).toBeVisible({ timeout: T });
-    await expect(screen.getByRole('link', { name: 'Sign in' })).toHaveCount(0);
+    await expect(screen.getByRole('link', { name: 'Sign in with OIDC', exact: true })).toHaveCount(0);
+    await expect(screen.getByRole('link', { name: 'How to get a token' })).toHaveAttribute('href', /dashboard-authentication\/#token-sign-in$/);
     await screen.getByLabel('Kubernetes token').fill('wrong');
     await screen.getByRole('button', { name: 'Sign in with a token' }).click();
     await expect(screen.getByRole('alert')).toContainText('the cluster did not accept this token');
