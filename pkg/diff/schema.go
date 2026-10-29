@@ -271,7 +271,7 @@ func classifySchemaChange(dir schemaDirection, path string, elem bool, ct Change
 	// `schema` and may own a `content` block of its own, so both escalations below
 	// have to exclude it. The payload sits beside `headers`, never inside it.
 	inResponseHeader := dir == dirResponse && inResponseHeaders(path)
-	if (dir == dirRecord && inRecordSchema(segs)) || ((dir == dirRequest || dir == dirResponse) && inSchema(segs)) {
+	if positionallyGraded(dir, segs) {
 		c := positional(dir, segs, elem, ct, old, new)
 		if inResponseHeader {
 			c = min(c, PotentialBreaking)
@@ -364,6 +364,15 @@ var schemaRoots = map[string]bool{"schema": true, "inputSchema": true, "outputSc
 
 func inSchema(segs []string) bool {
 	return slices.ContainsFunc(segs[:len(segs)-1], func(s string) bool { return schemaRoots[s] })
+}
+
+// positionallyGraded reports whether segs lies in a schema the position model
+// grades: a record's payload or headers, or a request or response schema.
+func positionallyGraded(dir schemaDirection, segs []string) bool {
+	if dir == dirRecord {
+		return inRecordSchema(segs)
+	}
+	return dir != dirUnknown && inSchema(segs)
 }
 
 // inRecordSchema reports whether segs lies below an AsyncAPI message's

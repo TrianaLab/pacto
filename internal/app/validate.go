@@ -144,17 +144,10 @@ func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...v
 		if failed == "" && stages[i].Status == validation.StageFail {
 			failed = stages[i].Name
 		}
-		for j := range stages[i].Errors {
-			e := &stages[i].Errors[j]
-			// With overrides, raw is the merged document, whose lines are not
-			// the file's, so an error there carries no position.
-			if !opts.Overrides.IsEmpty() {
-				continue
-			}
-			e.Line, e.Column = contract.Locate(raw, e.Path)
-			if m := parseLineRe.FindStringSubmatch(e.Message); e.Code == "PARSE_ERROR" && m != nil {
-				e.Line, _ = strconv.Atoi(m[1])
-			}
+		// With overrides, raw is the merged document, whose lines are not the
+		// file's, so an error there carries no position.
+		if opts.Overrides.IsEmpty() {
+			locate(raw, stages[i].Errors)
 		}
 		// In file order, so the first error, the one Next names, is the same on
 		// every run: the schema layer reports its errors in no fixed order.
@@ -189,6 +182,17 @@ func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...v
 		res.Next = nextFix(res, rerunCommand(ref, opts))
 	}
 	return res
+}
+
+// locate sets each error's line and column in raw.
+func locate(raw []byte, errs []contract.ValidationError) {
+	for j := range errs {
+		e := &errs[j]
+		e.Line, e.Column = contract.Locate(raw, e.Path)
+		if m := parseLineRe.FindStringSubmatch(e.Message); e.Code == "PARSE_ERROR" && m != nil {
+			e.Line, _ = strconv.Atoi(m[1])
+		}
+	}
 }
 
 // nextFix is what to do about the first error: the command a lock error names,
