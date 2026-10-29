@@ -106,4 +106,22 @@ report the unresolved error. Cycle detection is per chain: a `ref` is a
 cycle only when it reappears in its own resolution chain (`A → B → A`); two
 sibling policies pointing at the same `ref` resolve independently.
 
+### Dependency closure
+
+By default Layer 3 checks the root contract only. `pacto validate --closure`
+also checks every contract in the dependency closure against the policies the
+root resolves. Each dependency's own `policies[]` is left to its owner's
+validation. The closure resolves the same way `pacto graph` does, with one fetch
+per dependency. External dependencies carry no contract and are skipped.
+
+| Condition | Code |
+|---|---|
+| A dependency violates a policy the root resolves | `CLOSURE_POLICY_VIOLATION` |
+| A dependency cannot be resolved, sits in a dependency cycle or has an unreadable contract | `CLOSURE_DEPENDENCY_UNRESOLVED` |
+
+Each finding names the dependency in its path, for example
+`dependencies[ledger@1.0.0]`. An unresolvable dependency fails the run, so the
+check fails closed. When `pacto.lock` is present, the lock is verified first and
+a drifted closure fails with the lock error before the closure is checked.
+
 ---

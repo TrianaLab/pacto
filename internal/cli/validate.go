@@ -26,11 +26,15 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
   pacto validate --output-format json my-service
 
   # Also check the readiness gate (fail if score < minScore)
-  pacto validate --readiness my-service`,
+  pacto validate --readiness my-service
+
+  # Also check every dependency against this contract's policies
+  pacto validate --closure my-service`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := optionalArg(args)
 			checkReadiness, _ := cmd.Flags().GetBool("readiness")
+			closure, _ := cmd.Flags().GetBool("closure")
 			format := v.GetString(outputFormatKey)
 
 			sp := startSpinner(cmd, format, "Validating")
@@ -38,6 +42,7 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				Path:      path,
 				Overrides: getOverrides(cmd),
 				Readiness: checkReadiness,
+				Closure:   closure,
 			})
 			sp.Stop()
 			if err != nil {
@@ -57,6 +62,7 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	}
 
 	cmd.Flags().Bool("readiness", false, "also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic")
+	cmd.Flags().Bool("closure", false, "also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved. Fetches each dependency once")
 	addOverrideFlags(cmd)
 
 	return cmd

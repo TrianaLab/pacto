@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io/fs"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -21,6 +22,10 @@ type ValidateOptions struct {
 	// Off by default because the gate is time-dependent (it reads expiry dates),
 	// which would otherwise make plain validation non-deterministic.
 	Readiness bool
+	// Closure, when true, also checks every contract in the dependency closure
+	// against the policies the ROOT resolves. Off by default: it fetches every
+	// dependency, and a dependency's own policies stay its owner's business.
+	Closure bool
 }
 
 // ValidateResult holds the result of the validate command.
@@ -92,12 +97,94 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		}
 	}
 
+	if opts.Closure {
+		if ce := s.closureErrors(ctx, ref, bundle, resolver); len(ce) > 0 {
+			errors = append(errors, ce...)
+			valid = false
+		}
+	}
+
 	return &ValidateResult{
 		Path:     ref,
 		Valid:    valid,
 		Errors:   errors,
 		Warnings: result.Warnings,
 	}, nil
+}
+
+// closureErrors checks every contract in the root's dependency closure against
+// the policies the root resolves. It fails closed: a dependency that cannot be
+// resolved, or whose contract cannot be read, is an error. External
+// dependencies carry no contract and are skipped.
+//
+// A root whose own policies fail to resolve is already invalid, so the closure
+// is then checked for resolution failures only.
+//
+// ponytail: the closure is resolved again after verifyLockIfPresent resolved it
+// for the lock check, so a tag re-pushed between the two reads is not caught;
+// a lock-pinned fetcher closes that window if it matters.
+func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contract.Bundle, resolver validation.BundleResolver) []contract.ValidationError {
+	policies, pr := validation.ResolvePoliciesWithResolver(ctx, bundle.Contract, bundle.FS, resolver)
+	if !pr.IsValid() {
+		policies = nil
+	}
+	res := graph.ResolveWithOptions(ctx, bundle.Contract, s.newDepFetcher(ref), graph.ResolveOptions{})
+
+	var errs []contract.ValidationError
+	// The resolver keys nodes on the declaring base, so one service reached
+	// through two directories (a diamond) is two nodes. Check it once.
+	checked := map[string]bool{}
+	var walk func(n *graph.Node)
+	walk = func(n *graph.Node) {
+		for _, e := range n.Dependencies {
+			switch {
+			case e.External:
+			case e.Error != "":
+				errs = append(errs, contract.ValidationError{
+					Path:    "dependencies",
+					Code:    "CLOSURE_DEPENDENCY_UNRESOLVED",
+					Message: fmt.Sprintf("dependency %s: %s", e.Ref, e.Error),
+				})
+			case e.Node == nil || e.Shared:
+				// A shared edge points at a node checked where it was first resolved.
+			default:
+				if id := e.Node.Name + "@" + e.Node.Version; !checked[id] {
+					checked[id] = true
+					errs = append(errs, checkClosureNode(e.Node, policies)...)
+				}
+				walk(e.Node)
+			}
+		}
+	}
+	walk(res.Root)
+	return errs
+}
+
+// checkClosureNode checks one resolved dependency against the root's policies,
+// naming the dependency in every finding.
+func checkClosureNode(n *graph.Node, policies []validation.ResolvedPolicy) []contract.ValidationError {
+	path := fmt.Sprintf("dependencies[%s@%s]", n.Name, n.Version)
+	err := fs.ErrNotExist
+	var data []byte
+	if n.FS != nil {
+		data, err = fs.ReadFile(n.FS, DefaultContractPath)
+	}
+	if err != nil {
+		return []contract.ValidationError{{
+			Path:    path,
+			Code:    "CLOSURE_DEPENDENCY_UNRESOLVED",
+			Message: fmt.Sprintf("dependency %s: cannot read its contract: %v", n.Ref, err),
+		}}
+	}
+	var errs []contract.ValidationError
+	for _, v := range validation.EnforcePolicies(data, policies).Errors {
+		errs = append(errs, contract.ValidationError{
+			Path:    path,
+			Code:    "CLOSURE_POLICY_VIOLATION",
+			Message: fmt.Sprintf("dependency %s@%s (%s): %s", n.Name, n.Version, n.Ref, v.Message),
+		})
+	}
+	return errs
 }
 
 // PolicyResolver returns the resolver layer 3 uses to follow a policies[].ref

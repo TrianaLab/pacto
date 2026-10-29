@@ -1629,11 +1629,15 @@ pacto validate [dir | oci://ref] [flags]
 
   # Also check the readiness gate (fail if score < minScore)
   pacto validate --readiness my-service
+
+  # Also check every dependency against this contract's policies
+  pacto validate --closure my-service
 ```
 
 **Flags:**
 
 ```
+      --closure              also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved. Fetches each dependency once
   -h, --help                 help for validate
       --readiness            also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
