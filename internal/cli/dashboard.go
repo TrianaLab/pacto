@@ -41,7 +41,7 @@ It visualizes the same contracts the CLI manages and the operator verifies,
 organised around four workflows: an operational Overview, the Services
 inventory, the Operational Graph and Change analysis.
 
-Each positional argument is a pacto source reference:
+Each positional argument is a contract source reference:
   - oci://registry/repo  → OCI registry source (can be repeated)
   - ./path/to/dir        → local filesystem source (at most one)
 
