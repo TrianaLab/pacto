@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+
+{# Banner Material shows on every mike version that is not the latest one. #}
+{% block outdated %}
+  You are viewing an old version of these docs.
+  <a href="{{ '../' ~ base_url }}"><strong>Go to the latest version.</strong></a>
+{% endblock %}

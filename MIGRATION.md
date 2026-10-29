@@ -488,7 +488,7 @@ readiness:
 
 ## Further Reading
 
-- **Schema reference**: `pkg/validation/schema/pacto-v2.0.schema.json` (JSON Schema)
+- **Schema reference**: `pkg/validation/schema/pacto-v2.0.schema.json` and `pkg/validation/schema/pacto-v2.1.schema.json` (JSON Schema, one per `pactoVersion`)
 - **Contract model**: `pkg/contract/contract.go` (Go types)
 - **Findings and evidence**: `pkg/finding/finding.go`, `pkg/evidence/evidence.go`
 - **Evaluation model**: `pkg/validation/evaluate.go` (pure `Evaluate(contract, evidence) -> (findings, coverage)`)

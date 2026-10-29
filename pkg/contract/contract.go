@@ -1,4 +1,4 @@
-// Package contract defines the core data model for Pacto v2.0 service contracts:
+// Package contract defines the core data model for Pacto service contracts (pactoVersion 2.0 and later):
 // the in-memory representation of a pacto.yaml and the types for service identity,
 // interfaces, dependencies, configurations, policies, state, capabilities, and
 // readiness. It also provides YAML parsing along with OCI-reference and semver-range

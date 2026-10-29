@@ -49,11 +49,11 @@ permissions:
   contents: read
 
 jobs:
-  # Non-release doc refresh. The release UNIT k8s-docs (the versioned site deploy
-  # with the exact release versions) is published by the release transaction
-  # (.github/workflows/release.yml, the docs job) — this is NOT that publisher. This
-  # job only redeploys the current version's docs on a doc-only change to main, or a
-  # manual run. mike publishes to gh-pages; GitHub Pages must serve from that branch.
+  # Validation only. The release UNIT k8s-docs (the versioned site deploy with the
+  # exact release versions) is published by the release transaction
+  # (.github/workflows/release.yml, the docs job). This job runs a strict build on a
+  # doc-only change to main, or a manual run, and publishes nothing. A docs change
+  # reaches pacto.run only with a release, so it needs a "@pacto/core": patch changeset.
   deploy:
     runs-on: ubuntu-latest
     steps:

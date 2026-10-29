@@ -11,9 +11,9 @@ sections are in [Contract sections](sections.md),
 
 Optional. Needs `pactoVersion: "2.1"`: a 2.0 contract with a `publish` section
 fails validation with `NEEDS_PACTO_2_1`. Every other 2.0 contract keeps working
-unchanged. Pacto versions older than the one that added 2.1 reject a 2.1
-contract, and that includes your consumers. Once you publish a 2.1 bundle, a
-consumer whose Pacto or operator predates 2.1 fails to resolve it as a
+unchanged. Pacto core older than 4.1.0 and operator older than 6.1.0 reject a
+2.1 contract, and that includes your consumers. Once you publish a 2.1 bundle,
+a consumer on an older Pacto or operator fails to resolve it as a
 dependency. Have your consumers upgrade first.
 
 ```yaml

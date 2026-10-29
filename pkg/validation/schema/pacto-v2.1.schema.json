@@ -533,7 +533,7 @@
         "expires",
         "claims"
       ],
-      "description": "Operational readiness assessment (pactoVersion 2.0).",
+      "description": "Operational readiness assessment (pactoVersion 2.0 and later).",
       "properties": {
         "minScore": {
           "type": "integer",
