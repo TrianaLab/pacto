@@ -322,7 +322,7 @@ edit helps one side of an exchange and hurts the other.
 
 | Edit | Effect |
 |------|--------|
-| `enum` value, `oneOf` or `anyOf` variant, or `type` member added | widens |
+| `enum` value added, `oneOf` or `anyOf` variant added or `type` member added | widens |
 | `type` changed from `integer` to `number`, or `nullable: true` set | widens |
 | `maxLength`, `maximum`, `maxItems` or `maxProperties` raised, or a `min*` bound lowered | widens |
 | a bound, `pattern`, `format`, `const`, `enum`, `allOf` or `items` removed | widens |

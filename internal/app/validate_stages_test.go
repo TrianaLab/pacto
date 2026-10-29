@@ -175,7 +175,7 @@ func TestValidateStages_OverridesUnlocated(t *testing.T) {
 			t.Errorf("with overrides: %+v", e)
 		}
 	}
-	if want := "fix interfaces[0].ref at " + filepath.Join(dir, "pacto.yaml") + " [FILE_NOT_FOUND], then run pacto validate --set service.version=2.0.0 " + dir; r.Next != want {
+	if want := "fix interfaces[0].ref [FILE_NOT_FOUND] in " + filepath.Join(dir, "pacto.yaml") + " or in the --set and -f values, then run pacto validate --set service.version=2.0.0 " + dir; r.Next != want {
 		t.Errorf("next = %q, want %q", r.Next, want)
 	}
 }

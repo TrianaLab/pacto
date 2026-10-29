@@ -179,7 +179,7 @@ func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...v
 	res := &ValidateResult{Path: ref, File: file, Valid: r.IsValid(), Errors: r.Errors, Warnings: r.Warnings, Stages: ordered}
 	res.Next = "pacto impact PUBLISHED_REF " + ref
 	if !res.Valid {
-		res.Next = nextFix(res, rerunCommand(ref, opts))
+		res.Next = nextFix(res, rerunCommand(ref, opts), !opts.Overrides.IsEmpty())
 	}
 	return res
 }
@@ -196,14 +196,18 @@ func locate(raw []byte, errs []contract.ValidationError) {
 }
 
 // nextFix is what to do about the first error: the command a lock error names,
-// or where to fix the contract and the command that checks it again.
-func nextFix(r *ValidateResult, rerun string) string {
+// or where to fix the contract and the command that checks it again. With
+// overrides the error may come from a --set or -f value, so Next names both.
+func nextFix(r *ValidateResult, rerun string, overridden bool) string {
 	e := r.Errors[0]
 	if m := fixCommandRe.FindStringSubmatch(e.Message); strings.HasPrefix(e.Code, "LOCK_") && m != nil {
 		return m[1] + " " + r.Path
 	}
 	if _, err := os.Stat(r.Path); !isOCIRef(r.Path) && errors.Is(err, fs.ErrNotExist) {
 		return r.Path + " does not exist: run pacto validate on the directory that holds " + DefaultContractPath
+	}
+	if overridden {
+		return fmt.Sprintf("fix %s [%s] in %s or in the --set and -f values, then run %s", e.Path, e.Code, r.File, rerun)
 	}
 	return fmt.Sprintf("fix %s [%s], then run %s", r.Where(e), e.Code, rerun)
 }
