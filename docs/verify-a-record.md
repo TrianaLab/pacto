@@ -1,5 +1,8 @@
 # Verify a record
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 This page is for an auditor or security reviewer who must check what Pacto
 did, using standard tools only. It shows how to read a
 record, check its signature, check the whole history and check that a

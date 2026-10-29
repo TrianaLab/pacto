@@ -1,10 +1,13 @@
 # Delivery reference: health checks
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 Beyond the Pacto contract check, a Stage can check a version's errors and
 response times in your monitoring, an AI agent's evals and that the service
 calls only what its contract declares (its claims). Every check answers Pass,
-Fail or Unknown and cites what it read, so anyone can run it again. Unknown
-never passes.
+Fail or Unknown and cites what it read, so anyone can run it again. An
+Unknown check holds the change for a person, who can accept the unknown.
 
 The Pacto resource ships inside every version and names its own target, so
 `pacto.contract` and `pacto.runtime` count only a Pacto that evaluated the

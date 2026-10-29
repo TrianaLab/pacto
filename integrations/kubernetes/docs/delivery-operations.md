@@ -1,5 +1,8 @@
 # Delivery reference: plan, propose and approve
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 How a change is planned, proposed and approved, for
 [Pacto delivery](delivery.md). Setting up a Stage is in
 [Delivery reference: setup and gates](delivery-setup.md).

@@ -26,10 +26,10 @@ You need:
   the image there and pushes it itself:
   `docker buildx create --use --driver docker-container`;
 - a container registry, and a login to it:
-  `pacto login ghcr.io -u <user>` (or `docker login`). Any registry works
+  `pacto login registry.example -u <user>` (or `docker login`). Any registry works
   for this page. The optional signed [record](glossary.md#record) of each
-  change needs one that serves OCI Referrers, and without records a Stage
-  stops at advise; see [What delivery needs](index.md#what-delivery-needs);
+  change is stored next to what you publish, in a registry that serves OCI
+  Referrers. Without records a Stage stops at advise; see [What delivery needs](index.md#what-delivery-needs);
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
@@ -55,7 +55,7 @@ pacto init --delivery --plan
 
 `pacto init` reads what is already there, such as the Dockerfile and the
 Kubernetes files, and fills in a contract from it. It reads your registry from
-the image name in your Deployment; pass `--registry ghcr.io/acme` if it cannot,
+the image name in your Deployment; pass `--registry registry.example/acme` if it cannot,
 or if the image is a bare name such as `checkout`: a Docker Hub official
 image only Docker can push to.
 `--delivery` adds the cluster files of step 4, so the first version you publish
@@ -83,7 +83,7 @@ echo cosign.key >> .gitignore
 company login, whose members Pacto asks about this service
 ([Decide, unfreeze and roll back](pactify-decide.md)). `init` writes
 `pacto.yaml`, the `delivery/` folder and a `.pactoignore` that keeps the
-signing key out of what is published, and never overwrites your edits. For an image `ghcr.io/acme/my-service:1.0.0` and
+signing key out of what is published, and never overwrites your edits. For an image `registry.example/acme/my-service:1.0.0` and
 the files `k8s/deployment.yaml` and `k8s/service.yaml`, the contract is:
 
 ```yaml
@@ -96,22 +96,22 @@ service:
 workload: service           # from the Kubernetes workload kind
 # dependencies:             # one per service yours calls; init leaves them commented
 #   - name: billing
-#     ref: oci://ghcr.io/acme/contracts/billing   # its publish.bundle
+#     ref: oci://registry.example/acme/contracts/billing   # its publish.bundle
 #     required: true                              # yours cannot run without it
 #     compatibility: "^2.0.0"                     # the versions yours accepts
 publish:
-  bundle: oci://ghcr.io/acme/contracts/my-service   # where the contract goes
+  bundle: oci://registry.example/acme/contracts/my-service   # where the contract goes
   deploy: manifests                                 # what Flux applies
   artifacts:
     - name: api
       type: image
-      ref: oci://ghcr.io/acme/my-service
+      ref: oci://registry.example/acme/my-service
       build: {dockerfile: {context: .}}
     - name: manifests
       type: manifests
-      ref: oci://ghcr.io/acme/deploy/my-service
+      ref: oci://registry.example/acme/deploy/my-service
       build:                # your Kubernetes files, the image just built, delivery/pacto.yaml
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)ghcr\.io/acme/my-service:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: ghcr.io/acme/my-service:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)registry\.example/acme/my-service:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: registry.example/acme/my-service:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign: {key: cosign.key}
 ```
 
@@ -154,17 +154,20 @@ using yours needs 3.0.0) and never overwrites a published one; see
 
 ## 4. Connect the service to your cluster
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 Install, once per cluster, Flux, the Pacto operator (it checks that each
 running service matches its contract) and delivery (it decides which version
 runs in each environment). One Helm chart installs both. Delivery reads your contracts: with a private registry, give it a login
-first in the operator's namespace and add
+in the operator's namespace and add
 `--set delivery.promoter.registryCredentials.secretName=registry-creds` to the
 command that turns delivery on below:
 
 ```bash
 kubectl create namespace pacto-operator-system
 kubectl -n pacto-operator-system create secret docker-registry registry-creds \
-  --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
+  --docker-server=registry.example --docker-username=<user> --docker-password=<token>
 ```
 
 ```bash
@@ -188,7 +191,7 @@ for env in test prod; do
   kubectl -n $env create secret generic cosign-pub --from-file=cosign.pub
   # a private registry only:
   kubectl -n $env create secret docker-registry registry-creds \
-    --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
+    --docker-server=registry.example --docker-username=<user> --docker-password=<token>
 done
 kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
 ```

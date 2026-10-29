@@ -1,7 +1,10 @@
 # The autonomy ladder
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 Pacto starts by watching your changes. It earns more freedom one step at a
-time, and a person confirms each step. This page explains those steps, called
+time, and a person confirms each step up. This page explains those steps, called
 levels. Words in links are defined in the
 [glossary](glossary.md).
 
@@ -13,7 +16,7 @@ Each [Stage](glossary.md#stage) sits on one level.
 |---|---|---|
 | **observe** | Works out what it would do for every change and moves nothing | Your GitOps tool, as today |
 | **advise** | Shows each new version and what it would do with it | A person asks, or approves what an [AI agent](glossary.md#agent) asked for |
-| **auto for non-breaking** | Ships [non-breaking](glossary.md#breaking-change) changes on its own | Pacto, for non-breaking changes; a person for the rest |
+| **auto for non-breaking** (`auto-nonbreaking`) | Ships [non-breaking](glossary.md#breaking-change) changes on its own | Pacto, for non-breaking changes; a person for the rest |
 | **autonomous** | Ships every change the contracts [clear](glossary.md#clear) on its own | Pacto, unless a consumer would break or a check is [Unknown](glossary.md#unknown) |
 
 Once Pacto moves versions, the same safety rules hold on every level: a change

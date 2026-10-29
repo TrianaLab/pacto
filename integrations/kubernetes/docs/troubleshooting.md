@@ -227,3 +227,21 @@ kubectl -n pacto-operator-system logs deploy/pacto-operator | grep node-agent
   it lacks BTF (the kernel type information at `/sys/kernel/btf/vmlinux`).
   [Turn it on](runtime-conformance.md#turn-it-on) lists what each node
   needs.
+
+## Delivery records are not written
+
+With the [recorder](delivery-records.md) on, every Stage carries a
+`RecordStoreReady` condition. Read its reason:
+
+```bash
+kubectl get stages.delivery.pacto.trianalab.io -A \
+  -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason
+```
+
+`ReferrersUnsupported` means the streams repository's registry does not serve
+the OCI Referrers API, and the message starts with `the registry has no
+Referrers API`. The recorder has no tag fallback, so the Stage stays below the automatic
+levels. GHCR and released `distribution` behave this way. Move
+`delivery.recorder.streamsRepository`, and the versions and contracts your
+Stages apply, to a registry that serves the API natively, such as zot.
+[Check it works](delivery-records.md#check-it-works) lists the other reasons.

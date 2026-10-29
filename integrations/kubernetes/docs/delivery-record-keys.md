@@ -1,5 +1,8 @@
 # Delivery reference: record keys
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 ## Trust and key rotation
 
 Readers and the recorder check every signature against a trust config. To

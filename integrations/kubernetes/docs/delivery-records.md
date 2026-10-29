@@ -1,5 +1,8 @@
 # Delivery reference: signed records and history
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 The recorder writes a signed record of every operation that ends, refusals
 included, into your registry next to the versions it touched. Off by
 default. Only the recorder can sign and push records. With it on, history, blame and undo read the records in place of

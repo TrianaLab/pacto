@@ -1,10 +1,21 @@
 # Delivery reference: setup and gates
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 Reference for [Pacto delivery](delivery.md). To pactify a service end to end,
 follow [Pactify a service](../../pactify.md) instead. The API group is
 `delivery.pacto.trianalab.io/v1alpha1` (alpha).
 Plans, approvals and who may do what are in
 [Delivery reference: plan, propose and approve](delivery-operations.md).
+
+## Registry
+
+The two automatic levels need [signed records](delivery-records.md#install),
+and records need a registry that serves the OCI Referrers API natively. The
+recorder attaches each record to its streams repository and to the versions
+and contract it touched, so keep all of them on such a registry. GHCR does not
+serve the API.
 
 ## Install
 
