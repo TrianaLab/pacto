@@ -70,8 +70,9 @@ Pacto follows each dependency to its own contract in the registry, all the way d
 If you would rather generate Kubernetes files from contracts than keep them
 by hand, `pacto generate <name>` runs a plugin program called
 `pacto-plugin-<name>` and writes the files it returns. The two official
-plugins (`schema-infer` and `openapi-infer`) fill in a contract from files you
-already have. To generate deployment files, write your own plugin: a small program in any language that reads a
+plugins generate parts of an existing contract: `openapi-infer` writes the
+OpenAPI document and `schema-infer` writes the configuration schema. Both need
+a `pacto.yaml` in the folder first. To generate deployment files, write your own plugin: a small program in any language that reads a
 contract as JSON and returns file contents. See
 [Plugin development](plugins.md).
 

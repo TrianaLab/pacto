@@ -93,6 +93,7 @@ service:
   version: 1.0.0            # from the image tag (0.1.0 and an Unknown if none)
   owner:
     team: payments
+workload: service           # from the Kubernetes workload kind
 # dependencies:             # one per service yours calls; init leaves them commented
 #   - name: billing
 #     ref: oci://ghcr.io/acme/contracts/billing   # its publish.bundle
@@ -264,7 +265,10 @@ pacto delivery approve -n prod <name> --decision approve
 
 `pacto init` takes several folders and ends with a summary table.
 `--cluster` drafts a contract for every workload no Pacto describes yet, from
-your current kubeconfig context, in `<out>/<namespace>/<name>`:
+your current kubeconfig context, in `<out>/<namespace>/<name>`. Pass
+`--namespace`: without it, `--cluster` reads every namespace, system ones
+included. Even with `--namespace` it lists Services, EndpointSlices and Pactos
+in every namespace, so your identity needs cluster-wide `list` on them:
 
 ```bash
 pacto init --plan services/checkout services/payments
@@ -278,6 +282,8 @@ of that service asks your team. A service with no contract stays a comment.
 Drafts are never published, and an invalid one fails the command. The MCP tool
 `pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,
 and only plans unless `dry_run` is false.
+[Generate contracts from what you already have](bootstrap-contracts.md) walks
+through a whole folder of services, and what init cannot read.
 
 ## What's next
 

@@ -76,7 +76,7 @@ pacto init --cluster --namespace shop --out drafts --plan
 
 `--cluster` drafts a contract for every workload in the namespace that no
 Pacto resource describes. See
-[Pactify a service](https://pacto.run/latest/pactify/#many-services-at-once).
+[Generate contracts from what you already have](https://pacto.run/latest/bootstrap-contracts/).
 
 ## Where Pacto is going: delivery and the autonomy ladder
 
