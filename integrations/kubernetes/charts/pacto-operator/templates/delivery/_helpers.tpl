@@ -29,17 +29,22 @@ takes the root context, or (dict "ctx" $ "component" "delivery-recorder").
 
 {{/*
 Refuse to render delivery where the admission policies cannot run: the
-promoter trusts nothing an operation or approval says about who wrote it
-without them. ValidatingAdmissionPolicy is GA from Kubernetes 1.30. Only
-delivery.admissionPolicies.allowUnguarded skips the check.
+promoter admits nothing without them. ValidatingAdmissionPolicy is GA from
+Kubernetes 1.30. delivery.admissionPolicies.skipCapabilityCheck skips the
+check for offline rendering, and the policies still render. The keys that
+once let delivery run without its policies fail with their replacement.
 */}}
 {{- define "pacto-operator.delivery.gate" -}}
-{{- if not .Values.delivery.admissionPolicies.allowUnguarded }}
+{{- $ap := .Values.delivery.admissionPolicies }}
+{{- if or (hasKey $ap "enabled") (hasKey $ap "allowUnguarded") }}
+{{- fail "delivery.admissionPolicies.enabled and delivery.admissionPolicies.allowUnguarded were removed: delivery always installs its admission policies. Delete both keys from your values (with helm upgrade --reuse-values, use --reset-then-reuse-values). To skip only the Kubernetes 1.30 and ValidatingAdmissionPolicy API check, set delivery.admissionPolicies.skipCapabilityCheck=true" }}
+{{- end }}
+{{- if not $ap.skipCapabilityCheck }}
 {{- if not (semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version) }}
-{{- fail (printf "delivery.enabled needs Kubernetes 1.30 or later for its admission policies, and this cluster is %s. Upgrade the cluster, or set delivery.admissionPolicies.allowUnguarded=true to install without that guard" .Capabilities.KubeVersion.Version) }}
+{{- fail (printf "delivery.enabled needs Kubernetes 1.30 or later for its admission policies, and this cluster is %s. Upgrade the cluster, or set delivery.admissionPolicies.skipCapabilityCheck=true to render for another cluster" .Capabilities.KubeVersion.Version) }}
 {{- end }}
 {{- if not (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy") }}
-{{- fail "delivery.enabled needs the admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy API, and this cluster does not serve it. Enable it, or set delivery.admissionPolicies.allowUnguarded=true to install without that guard (with helm template, pass --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)" }}
+{{- fail "delivery.enabled needs the admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy API, and this cluster does not serve it. Enable it, or set delivery.admissionPolicies.skipCapabilityCheck=true to render for another cluster (with helm template, pass --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)" }}
 {{- end }}
 {{- end }}
 {{- end }}

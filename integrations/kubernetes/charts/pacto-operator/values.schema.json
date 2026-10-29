@@ -1153,9 +1153,14 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Removed: the chart always installs the admission policies with delivery, and rendering fails while this key is set."
             },
             "allowUnguarded": {
+              "type": "boolean",
+              "description": "Removed: use skipCapabilityCheck, and rendering fails while this key is set."
+            },
+            "skipCapabilityCheck": {
               "type": "boolean"
             },
             "gitopsUsers": {

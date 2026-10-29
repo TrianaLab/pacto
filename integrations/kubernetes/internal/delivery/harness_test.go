@@ -167,7 +167,8 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 	e.c = fake.NewClientBuilder().WithScheme(newScheme()).
 		WithStatusSubresource(&dv1.Stage{}, &dv1.Operation{}).
 		WithIndex(&dv1.Approval{}, approvalOperationUID, approvalUID).
-		WithObjects(objs...).
+		// Every reconciler runs guarded, as the chart installs it.
+		WithObjects(append(objs, guardPolicy(), guardBinding())...).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				if err := fail("get", obj); err != nil {
@@ -220,10 +221,11 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 	}}
 	policy := delivery.ClassPolicy{ControllerUser: promoterSA, AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}
 	clock := func() time.Time { return e.now }
+	guarded := []string{"pd-operation"}
 	e.health = &fakeHealth{result: delivery.Pass}
 	gates := NewGates(cluster, map[string]delivery.Gate{"mira": e.health})
-	e.op = &OperationReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, Gates: gates, Now: clock, Poll: time.Second, heldChecks: &sync.Map{}}
-	e.st = &StageReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, ClusterID: "cid", Gates: gates, Now: clock, Resync: time.Second, seen: &sync.Map{}}
+	e.op = &OperationReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, Gates: gates, Now: clock, Poll: time.Second, heldChecks: &sync.Map{}, AdmissionPolicies: guarded}
+	e.st = &StageReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, ClusterID: "cid", Gates: gates, Now: clock, Resync: time.Second, seen: &sync.Map{}, AdmissionPolicies: guarded}
 	return e
 }
 

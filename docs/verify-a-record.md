@@ -247,8 +247,8 @@ from the registry. See
   agent's claim.
 - Registry clean-up rules can delete records. The platform team must keep
   the streams repository out of them.
-- A record made while the cluster's admission checks were off has no
-  `guarded: true`.
+- A record from an earlier promoter that ran without the cluster's admission
+  checks has no `guarded: true`.
 - A runner's signature proves which runner key signed the answer, not that
   the runner ran every case honestly, and not which model really answered.
   A runner that reports `observedModel` vouches for it with its own key.

@@ -869,10 +869,11 @@ type Times struct {
 type OperationStatus struct {
 	// +optional
 	Phase Phase `json:"phase,omitempty"`
-	// Guarded says the promoter checked its admission policies guarded the
-	// cluster when it admitted this operation. False when the chart runs
-	// without them (delivery.admissionPolicies.allowUnguarded): the actor and the
-	// approvers are then only what their writers claimed.
+	// Guarded says the promoter found its admission policies guarding the
+	// cluster when it admitted this operation. The promoter admits nothing
+	// otherwise, so it is always true. A record from an earlier promoter or
+	// another cluster may lack it, and its actor and approvers are then only
+	// what their writers claimed.
 	// +optional
 	Guarded bool `json:"guarded,omitempty"`
 	// +optional

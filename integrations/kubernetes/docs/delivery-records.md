@@ -16,9 +16,10 @@ policy, every check result with its proof, every approval and the outcome. It
 holds references, never secrets. It is a sigstore bundle attached as an OCI
 referrer to the version moved to, the one moved from, the new contract and the
 Stage's stream anchor. `guarded: true` says the admission policies checked who
-asked and who approved. A record without it was written while the chart ran
-without them (`delivery.admissionPolicies.allowUnguarded`), so those names are only what
-their writers claimed.
+asked and who approved. The promoter admits an operation only while its
+admission policies guard the cluster, so every record it writes carries it. A
+record from an earlier promoter that ran without them lacks it, and its names
+are only what their writers claimed.
 
 An eval verdict carries two signatures:
 

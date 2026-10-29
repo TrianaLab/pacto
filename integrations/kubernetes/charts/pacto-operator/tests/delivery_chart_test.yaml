@@ -47,17 +47,57 @@ tests:
       - failedTemplate:
           errorPattern: "needs Kubernetes 1.30 or later"
 
-  - it: installs below 1.30 only when allowUnguarded says so
+  - it: renders below 1.30 only when skipCapabilityCheck says so
     template: templates/delivery/deployment.yaml
     set:
       delivery.enabled: true
-      delivery.admissionPolicies.allowUnguarded: true
+      delivery.admissionPolicies.skipCapabilityCheck: true
     capabilities:
       majorVersion: 1
       minorVersion: 29
     asserts:
       - hasDocuments:
           count: 1
+
+  - it: still renders every admission policy when skipCapabilityCheck is set
+    template: templates/delivery/admission.yaml
+    set:
+      delivery.enabled: true
+      delivery.admissionPolicies.skipCapabilityCheck: true
+    capabilities:
+      majorVersion: 1
+      minorVersion: 29
+    asserts:
+      - hasDocuments:
+          count: 14
+
+  - it: refuses the removed admissionPolicies.enabled with its replacement
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.enabled: true
+      delivery.admissionPolicies.enabled: true
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - failedTemplate:
+          errorPattern: "were removed: delivery always installs its admission policies.*skipCapabilityCheck=true"
+
+  - it: refuses the removed admissionPolicies.allowUnguarded with its replacement
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.enabled: true
+      delivery.admissionPolicies.allowUnguarded: false
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - failedTemplate:
+          errorPattern: "were removed: delivery always installs its admission policies.*skipCapabilityCheck=true"
 
   - it: runs the promoter as its own ServiceAccount, not the operator's
     template: templates/delivery/deployment.yaml

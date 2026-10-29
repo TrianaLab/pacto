@@ -29,8 +29,8 @@ the groups.
 
 ## What each admission policy checks
 
-The chart installs these ValidatingAdmissionPolicies when you turn on
-delivery, unless a row names another setting. Each one fails closed.
+The chart installs these ValidatingAdmissionPolicies whenever delivery is on.
+Each one fails closed.
 
 | Policy | What it checks |
 |---|---|
@@ -50,16 +50,13 @@ garbage collector create or delete a labelled pointer or Kustomization.
 
 ## When a policy is missing
 
-While the chart installs its policies, the promoter reads them before it acts.
-If one is missing, fails open or does not deny, the promoter holds every
-operation and counts no approval. Cluster-admin and `system:masters` can
-delete the policies. The promoter then holds every operation until they are
-back.
-
-With `delivery.admissionPolicies.enabled: false` and
-`delivery.admissionPolicies.allowUnguarded: true`, the chart installs no
-policies, and nothing checks who wrote an Operation or Approval.
-The chart refuses `enabled: false` without `allowUnguarded`.
+The promoter reads its policies before it acts. If one is missing, fails open,
+has a binding that does not deny or binds another policy, or is narrowed by
+`matchResources` or `paramRef`, the promoter holds every operation and counts
+no approval.
+Cluster-admin and `system:masters` can delete the policies. The promoter then
+holds every operation until they are back. A promoter started without
+`--admission-policies` admits nothing, and every Stage shows `Unguarded`.
 
 ## The checks each operation type runs
 

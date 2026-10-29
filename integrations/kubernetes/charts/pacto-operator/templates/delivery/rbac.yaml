@@ -31,12 +31,10 @@ rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages/status, operations/status]
     verbs: [get, update, patch]
-  {{- if .Values.delivery.admissionPolicies.enabled }}
   # It checks its own admission policies are installed before trusting a spec.
   - apiGroups: [admissionregistration.k8s.io]
     resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
     verbs: [get, list, watch]
-  {{- end }}
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get, list, watch, patch]

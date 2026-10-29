@@ -57,15 +57,25 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --argocd
 
-  - it: names no admission policies when they are off on purpose
+  - it: names the admission policies when the capability check is skipped
     template: templates/delivery/deployment.yaml
     set:
-      delivery.admissionPolicies.enabled: false
-      delivery.admissionPolicies.allowUnguarded: true
+      delivery.admissionPolicies.skipCapabilityCheck: true
     asserts:
-      - notContains:
+      - contains:
           path: spec.template.spec.containers[0].args
-          content: --admission-policies=RELEASE-NAME-pacto-operator-delivery-operation,RELEASE-NAME-pacto-operator-delivery-cancel,RELEASE-NAME-pacto-operator-delivery-approval,RELEASE-NAME-pacto-operator-delivery-pointer,RELEASE-NAME-pacto-operator-delivery-applier,RELEASE-NAME-pacto-operator-delivery-promoter-writes
+          content: --admission-policies=RELEASE-NAME-pacto-operator-delivery-operation,RELEASE-NAME-pacto-operator-delivery-cancel,RELEASE-NAME-pacto-operator-delivery-approval,RELEASE-NAME-pacto-operator-delivery-pointer,RELEASE-NAME-pacto-operator-delivery-applier,RELEASE-NAME-pacto-operator-delivery-promoter-writes,RELEASE-NAME-pacto-operator-delivery-status
+
+  - it: grants the promoter read access to its admission policies
+    template: templates/delivery/rbac.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [admissionregistration.k8s.io]
+            resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
+            verbs: [get, list, watch]
+        documentIndex: 1
 
   - it: publishes the identity policy the promoter mounts, readable by every signed-in user
     template: templates/delivery/identities.yaml

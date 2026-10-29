@@ -44,15 +44,14 @@ create the namespace, with the recorder key, yourself. Bind
 [signed](artifact-hub.md).
 
 The admission policies make the actor of an Operation and the person behind
-an Approval true, so the chart refuses Kubernetes below 1.30, a cluster
-without the `ValidatingAdmissionPolicy` API and
-`delivery.admissionPolicies.enabled=false`, unless you set
-`delivery.admissionPolicies.allowUnguarded=true`. With `helm template`, pass
-`--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy`.
-The promoter checks every policy the chart rendered. While one is missing,
-does not fail closed, has a binding that does not deny, binds another policy
-or is narrowed by `matchResources` or `paramRef`, it admits no operation and
-counts no approval, and shows `Unguarded`.
+an Approval true, so the chart always installs them with delivery and refuses
+Kubernetes below 1.30 and a cluster without the `ValidatingAdmissionPolicy`
+API. With `helm template`, pass
+`--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy`,
+or set `delivery.admissionPolicies.skipCapabilityCheck=true` to skip only that
+check. While a policy the chart rendered is missing or weakened, the promoter
+admits no operation, counts no approval and shows `Unguarded`
+([when a policy is missing](delivery-security.md#when-a-policy-is-missing)).
 
 To run an unreleased build, from the repository root:
 
