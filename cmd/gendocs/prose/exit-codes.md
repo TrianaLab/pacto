@@ -1,11 +1,13 @@
 ## Exit codes
 
-Pacto exits `0`, `1` or `2`. `0` means the command produced its result and the result was
-acceptable. `1` means the check failed or the command could not run, so **the
-exit status alone cannot distinguish "the check failed" from "the command
-could not run"**. `2` means `pacto impact` could not show that a breaking
-change is safe, and no other command exits `2` for its own result. `pacto run`
-exits with the exit code of the command it wraps, whatever it is, or `1` when that command exits `0` and the final verdict fails `--fail-on`.
+Pacto exits `0`, `1` or `2`, apart from `pacto run` (below). `0` means the
+command produced its result and the result was acceptable. `1` means the check
+failed or the command could not run, so **the exit status alone cannot
+distinguish "the check failed" from "the command could not run"**. `2` means
+`pacto impact` could not show that a breaking change is safe, and no other
+command exits `2` for its own result. `pacto run` exits with the exit code of
+the command it wraps, whatever it is, or `1` when that command exits `0` and
+the final verdict fails `--fail-on`.
 
 | Exits `1` | Exits `0` |
 | --- | --- |
