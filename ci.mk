@@ -279,11 +279,21 @@ docs-build-strict: $(MERMAID_RUNTIME)
 # Mermaid runtime every other entry point stages. Expressing it here is what lets
 # release.yml keep calling plain `make docs-deploy` on a clean runner: the
 # prerequisite travels with the target instead of being re-implemented in the job.
+#
+# Two publishers can meet on gh-pages: a docs fix that merges while a release is
+# running. mike never fetches before it pushes, so the loser is rejected as
+# non-fast-forward. The recipe commits locally, pushes, and on rejection resets the
+# local gh-pages to the fresh remote tip and rebuilds, up to three times.
 docs-deploy: docs-generate $(MERMAID_RUNTIME)
 	@ver=$${PACTO_DOCS_CORE_VERSION:-$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])")}; \
-	echo "==> mike deploy --push --update-aliases $$ver latest (release)"; \
-	mike deploy --push --update-aliases "$$ver" latest; \
-	mike set-default --push latest
+	for try in 1 2 3; do \
+	  echo "==> mike deploy --update-aliases $$ver latest (release, try $$try)"; \
+	  mike deploy --update-aliases "$$ver" latest && mike set-default latest || exit 1; \
+	  git push origin gh-pages && exit 0; \
+	  echo "==> gh-pages moved during the build; rebuilding on the new tip"; \
+	  git fetch origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages && \
+	    git update-ref refs/heads/gh-pages refs/remotes/origin/gh-pages || exit 1; \
+	done; exit 1
 
 # Blocking Mermaid syntax gate: every fenced ```mermaid block in docs/ +
 # integrations/ must render via mermaid-cli (mmdc). mkdocs --strict does NOT parse
