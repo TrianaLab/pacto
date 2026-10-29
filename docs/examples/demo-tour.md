@@ -160,7 +160,9 @@ third classification gives additive changes like these their own verdict.
 Four consumers. `confidence=contractual` means the consumer declared this
 dependency in its own contract; `confidence=inferred` means it was reached
 transitively. `compat=incompatible` is a second judgement: 2.0.1 falls outside
-the consumer's declared version range.
+the consumer's declared version range. The release gate is `unverified` and the
+command exits 2. The bundles say nothing about where anything runs, so Pacto
+cannot show a consumer is hit and does not call the change safe either.
 
 Contracts find only the consumers that declare the dependency. Add observed
 traffic:
@@ -176,9 +178,10 @@ Then ask where the change actually lands:
 
 --8<-- "examples/demo/generated/_beat-09.md"
 
-The consumer list is identical. The last two lines are new. Two deployed
-targets sit in the path of this change: `orders-service`, one of the five
-consumers, and `payments-service` itself. The command exits non-zero. Story 3
+The consumer list is identical. The active targets are new, and the gate turns
+from `unverified` to `blocked`. Two deployed targets sit in the path of this
+change: `orders-service`, one of the five consumers, and `payments-service`
+itself. The command exits 1. Story 3
 refused a change for what it is. This command refuses it for where it lands.
 
 ## Story 5: Compare declared and observed dependencies

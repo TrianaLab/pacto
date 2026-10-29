@@ -153,9 +153,14 @@ Potentially breaking changes: 0
 Affected consumers (2):
   checkout                     direct     confidence=contractual  compat=incompatible owner=my-team
   reporting                    direct     confidence=contractual  compat=compatible   owner=my-team
+    note: the range >=1.0.0 has no upper bound, so compatible only means the range >=1.0.0 accepts 2.0.0; this change is BREAKING, so check that reporting does not use what it removes or changes
+Release gate: unverified
+unverified: the change is BREAKING and 2 consumers depend on my-service, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
 ```
 
-`checkout` and `reporting` declare the *same* edge to the *same* service and get *opposite* verdicts. `checkout` pins `^1.0.0` (1.x only) and breaks. `reporting` accepts `>=1.0.0` (any major) and survives. Pacto tells them apart because each contract carries its compatibility range.
+`checkout` and `reporting` declare the *same* edge to the *same* service and get *opposite* verdicts. `checkout` pins `^1.0.0` (1.x only) and breaks. `reporting` accepts `>=1.0.0` (any major), so its range still matches. The note says what that match does not prove: that `reporting` avoids what the change removes. Pacto tells the two apart because each contract carries its compatibility range.
+
+The exit code is 2: the gate is `unverified`. The bundles say nothing about where the consumers run, so Pacto neither blocks the change nor calls it safe. [Release gate and exit status](impact.md#release-gate-and-exit-status) explains the three outcomes.
 
 `owner=my-team` is the placeholder team `pacto init` wrote. `confidence=contractual`
 means the answer comes from the declared ranges alone, without a runtime

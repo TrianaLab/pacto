@@ -44,24 +44,33 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
 
 ## Exit codes
 
-Pacto exits `0` or `1`. `0` means the command produced its result and the
-result was acceptable. `1` means anything else, so **the exit status alone
-cannot distinguish "the check failed" from "the command could not run"**.
+Pacto exits `0`, `1` or, for `pacto impact` only, `2`. `0` means the command
+produced its result and the result was acceptable. `1` means the check failed
+or the command could not run, so **the exit status alone cannot distinguish
+"the check failed" from "the command could not run"**. `2` means `pacto impact`
+could not show that a breaking change is safe.
 
 | Exits `1` | Exits `0` |
 | --- | --- |
 | `pacto diff` where the overall classification is `BREAKING` | a `POTENTIAL_BREAKING` or `NON_BREAKING` diff |
 | `pacto validate` reporting at least one error | validation that reported only warnings |
 | `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
-| **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | `pacto impact` run on declared-only sources, *whatever* it classifies (see below) |
+| `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target | `pacto impact` where the gate is `clear`: the change is not `BREAKING`, or the snapshot is complete and no service depends on the changed one |
+| **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | |
+
+| Exits `2` |
+| --- |
+| `pacto impact` where the gate is `unverified`: a `BREAKING` change that nothing is shown to block, on a partial answer or with consumers none of which is shown to be safe |
 
 Two cases affect CI gates:
 
 - A `pacto diff` against a missing reference exits `1`, the same as a breaking
   change.
-- `pacto impact` exits `1` only when the change is breaking **and** a live
-  source shows an incompatible consumer. Declared-only sources have no
-  consumers, so it prints `Classification: BREAKING` and exits `0`.
+- `pacto impact` exits `1` only when the change is breaking **and** a source
+  that knows where services run shows an incompatible consumer on a target.
+  Sources that know no targets, such as `--local` alone, cannot show that, so
+  a breaking change with consumers exits `2`. A job that gates on deployed
+  impact alone can treat `2` as a pass; any other job fails on it.
 
 **Use stdout to tell a verdict from a failure.** A command that produced a
 verdict writes it to stdout and puts a one-line summary on stderr. A command
@@ -856,7 +865,7 @@ pacto fleet snapshot [flags]
 
 ### `pacto fleet status`
 
-Report services and targets needing attention
+Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies and dependencies whose provider version is outside the declared range. With no category flag it reports every category.
 
 ```
 pacto fleet status [flags]
@@ -865,15 +874,16 @@ pacto fleet status [flags]
 **Flags:**
 
 ```
-  -h, --help                help for status
-      --invalid             report structurally invalid contracts
-      --limit int           maximum results (0 = 200)
-      --missing-readiness   report revisions without a readiness assessment
-      --needs-attention     report every attention category
-      --non-compliant       report non-compliant targets
-      --stale               report targets with stale evidence
-      --unknown             report targets with unknown compliance
-      --unresolved-deps     report unresolved declared dependencies
+  -h, --help                 help for status
+      --invalid              report structurally invalid contracts
+      --limit int            maximum results (0 = 200)
+      --missing-readiness    report revisions without a readiness assessment
+      --needs-attention      report every attention category
+      --non-compliant        report non-compliant targets
+      --stale                report targets with stale evidence
+      --unknown              report targets with unknown compliance
+      --unresolved-deps      report unresolved declared dependencies
+      --unsatisfied-ranges   report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
 ```
 
 ---
@@ -944,7 +954,13 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 
 Composes a semantic contract diff (old→new) with the operational graph to answer which consumers a change really affects, how strong the evidence is and whether their declared compatibility still holds.
 
-Exit status is non-zero when the change is BREAKING and at least one ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). Active means the snapshot knows at least one operational target where that consumer is deployed. An incompatible consumer with no visible target leaves the exit at 0, so a declared-only run over `--local` bundles alone always exits 0 whatever it classifies. Supply targets with --target-state (or query a live fleet with `pacto fleet`) to make the exit code meaningful.
+When no fleet source holds the changed service, the new revision is added to the snapshot so the services that depend on it are found.
+
+The answer ends in a release gate, and the exit status follows it:
+  0  clear: the change is not BREAKING, or the snapshot is complete and no service depends on the changed one.
+  1  blocked: the change is BREAKING and a consumer that does not accept the new version runs on a known target.
+  2  unverified: the change is BREAKING and nothing is shown to block it, but the answer cannot clear it: the answer is partial, or consumers depend on the service and none is shown to be safe. A run over --local bundles alone knows no targets, so a BREAKING change with consumers exits 2.
+A command that could not run also exits 1, with nothing on stdout. Add --target-state (or a live source) so the gate can tell deployed impact apart.
 
 ```
 pacto impact <old> <new> [flags]
@@ -1276,7 +1292,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_search` | `text`, `owner`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |
 | `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
-| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `missing_readiness`; plus `limit` |
+| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`; plus `limit`. No category, including empty input, reports every category |
 | `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
 | `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
 
