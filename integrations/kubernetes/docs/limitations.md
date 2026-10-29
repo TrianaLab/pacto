@@ -152,7 +152,8 @@ only violations they see. These things stay out of reach:
   miss an exposure; it never invents one.
 - **Kernel requirements.** A node without BTF (the kernel type information
   the agent needs) reports `Failed`, which turns its pods' interface checks
-  into `COLLECTION_FAILED`.
+  into `COLLECTION_FAILED`. A kernel older than 5.11 can report it too, since
+  the agent pod has no `SYS_RESOURCE`.
 - **Docker Compose and bare hosts.** The node agent is the Kubernetes way to
   run `pacto agent`. On a Docker host or a server, run
   [`pacto agent`](../../runtime-agent.md) yourself; the cluster-only checks

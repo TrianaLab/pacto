@@ -41,3 +41,11 @@ sign-in completes and every request is refused, so use
 [token sign-in](dashboard-authentication.md#token-sign-in), which the profile
 turns on. A token session decides on no held change, so approve with
 `pacto delivery approve` ([approve or unblock a change](../../pactify-decide.md)).
+
+## Health and metrics checks
+
+The profile keeps the chart's runtime defaults. The metrics dimension of a
+contract that declares `metrics` reads `Unsupported`, and health is read
+passively, so Pacto can confirm it but never contradict it. To check both actively, add to `helm install`
+`--set controller.enableProbing=true --set controller.enableMetricsObservation=true`;
+see [Opt-in features](limitations.md#opt-in-features).

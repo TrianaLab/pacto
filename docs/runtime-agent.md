@@ -50,7 +50,9 @@ Why each flag is there:
 | the Docker socket | the agent reads container labels; it only ever sends `GET` requests |
 
 On macOS and Windows, run the same command against Docker Desktop: the agent
-watches the containers inside Docker's Linux VM.
+watches the containers inside Docker's Linux VM. Where that VM's kernel cannot
+load the program, the agent's snapshots keep reading collection `Failed`,
+with a reason such as `LoadFailed`.
 
 ## Docker labels
 

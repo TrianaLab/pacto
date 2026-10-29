@@ -46,8 +46,9 @@ Pacto answers three questions about each service:
 - **Who connects?** Which addresses the service dials.
 - **Did it work?** Whether each of those connections succeeded or failed.
 
-It never reads message contents, request bodies, files, environment variables
-or secrets. A listener is recorded as an address, a port and a process name; a
+The kernel watcher never reads message contents, request bodies, files,
+environment variables or secrets. The optional probes call the health, metrics
+and interface ports and read only the response they need to decide. A listener is recorded as an address, a port and a process name; a
 connection as a peer address and port, with counts and timestamps.
 
 The watching is done with *eBPF*: a small program the Linux kernel runs safely
@@ -78,7 +79,7 @@ they watch and where the answer goes.
 | --- | --- | --- | --- |
 | What it watches | one command and its child processes | every workload on one host: containers, systemd units, processes | every pod on every node |
 | How you name the workload | `--bind` and `--dep` flags | Docker labels or a bindings file | the `Pacto` resource and its Service |
-| Privileges | none required; root or eBPF capabilities for full results | root or eBPF capabilities | a privileged DaemonSet |
+| Privileges | none required; root or eBPF capabilities for full results | root or eBPF capabilities | a root DaemonSet with eBPF capabilities, in a namespace labelled privileged for Pod Security |
 | What it can prove broken | listeners in both modes; failed connections with eBPF only | listeners and failed connections | listeners and failed connections |
 | Where the answer goes | your terminal and exit code; optionally an Evidence Server | your terminal or log; optionally an Evidence Server | the `Pacto` resource status |
 | Platform | Linux; elsewhere the command runs unobserved | Linux, or a Docker Desktop container on macOS and Windows | any Linux node |
@@ -87,8 +88,8 @@ they watch and where the answer goes.
 Pick `pacto run` for a CI job or a single process you start yourself. Pick
 `pacto agent` for long-running services on a Docker host or a server. Pick the
 node agent when your services already run on Kubernetes with the Pacto
-operator. On Kubernetes the node agent is `pacto agent` too, deployed by the
-operator on every node.
+operator. On Kubernetes the node agent is `pacto agent` too, which the
+operator can deploy on every node (opt-in: `nodeAgent.enabled`).
 
 ## Requirements
 
@@ -124,8 +125,11 @@ network alone cannot show. On a plain host these fields stay unverified:
 | `workload`, `state.persistence.durability: persistent`, required `configurations` | read from the workload, volumes and bound ConfigMaps | no source: the contract reads `Unknown` with `EVIDENCE_MISSING` |
 | a call to another Pacto service no dependency declares | `DEPENDENCY_UNDECLARED` | `pacto agent`: the same, for a call to another workload it checks; `pacto run`: not reported, it checks one command |
 
-The protocol an interface speaks (`interfaces[].type`) and the health and
-metrics capabilities are checked everywhere, by probing the bound port.
+Off Kubernetes, `pacto run` and `pacto agent` probe the bound port of the
+health and metrics capabilities with no flag, and `--enable-probing` also
+checks the protocol an interface speaks (`interfaces[].type`). On Kubernetes,
+active probing and metrics observation are off by default; see
+[Opt-in features](integrations/kubernetes/limitations.md#opt-in-features).
 
 The [field coverage](integrations/kubernetes/field-coverage.md) reference says,
 for every contract field, what each of the three ways can verify, and names the

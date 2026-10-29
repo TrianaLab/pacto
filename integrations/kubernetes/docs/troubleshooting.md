@@ -224,7 +224,9 @@ kubectl -n pacto-operator-system logs deploy/pacto-operator | grep node-agent
   the operator reads whichever of its `renewTime` and the observation's
   `lastPublished` is newer.
 - **Collection `Failed`.** The kernel could not load the program, often because
-  it lacks BTF (the kernel type information at `/sys/kernel/btf/vmlinux`).
+  it lacks BTF (the kernel type information at `/sys/kernel/btf/vmlinux`). A
+  kernel older than 5.11 can also fail to load it when the container runtime's
+  RLIMIT_MEMLOCK is too low for its maps.
   [Turn it on](runtime-conformance.md#turn-it-on) lists what each node
   needs.
 

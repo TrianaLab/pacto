@@ -45,7 +45,10 @@ interface is exposed and which version a dependency runs. They are listed under
 
 You need, on every node that runs target pods:
 
-- Linux 5.8 or later with BTF. BTF is type information the kernel publishes at
+- Linux 5.11 or later with BTF. The agent pod has no `SYS_RESOURCE`
+  capability, so on 5.8 to 5.10 the program loads only when the container
+  runtime's RLIMIT_MEMLOCK already covers its maps. Otherwise the node reads
+  `Failed`. BTF is type information the kernel publishes at
   `/sys/kernel/btf/vmlinux`; current distribution kernels ship it. The agent
   runs on `kubernetes.io/os: linux` nodes only.
 - The agent needs `hostPID`, the node's `/sys/fs/cgroup` read-only, root and
@@ -186,7 +189,7 @@ A pod's kernel view is usable at one of four levels:
 
 `Degraded` carries the reason `PodLimitExceeded`, `ResyncFailed` or
 `EventsDropped`. `Failed` carries `LoadFailed`, `AttachFailed` or
-`RingBufferFailed`; a kernel without BTF fails to load.
+`RingBufferFailed`; a kernel without BTF fails to load, and one older than 5.11 can fail to load.
 
 ## Complementary checks
 

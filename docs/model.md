@@ -89,14 +89,15 @@ Pacto ships one general runtime collector and plugs it into each platform. The
 watcher observes TCP listeners and connection outcomes with eBPF and names the
 workload behind each socket: a pod, a container, a systemd unit, a `pacto run`
 session or a plain process. Its facts are platform neutral, and so are its
-health, metrics and protocol probes. Three front ends put it to work (see [runtime
+health, metrics and protocol probes. It runs on Linux hosts that meet its
+[requirements](runtime-conformance.md#requirements). Three front ends put it to work (see [runtime
 conformance](runtime-conformance.md)):
 
 - `pacto run` wraps one command and evaluates it locally.
 - `pacto agent` watches a host, binds workloads to contracts from Docker labels
   or a bindings file and evaluates them locally or sends signed evidence.
-- The Kubernetes operator (`integrations/kubernetes`) deploys `pacto agent` on
-  every node and merges what it publishes with its own Kubernetes collector,
+- The Kubernetes operator (`integrations/kubernetes`) can deploy `pacto agent`
+  on every node (opt-in: `nodeAgent.enabled`) and merges what it publishes with its own Kubernetes collector,
   which reads the API server, into one `EvidenceSet`.
 
 Every path ends in the same `Evaluate`. The "custom collector" box below is a
@@ -106,7 +107,7 @@ design extension point.
 flowchart LR
     C["Pacto contract<br/>declared intent"]
     subgraph Collectors["Collectors: environment-specific"]
-        W["Runtime watcher: eBPF + probes<br/><i>first-party, any Linux host</i>"]
+        W["Runtime watcher: eBPF + probes<br/><i>first-party, Linux</i>"]
         K["Kubernetes collector<br/><i>first-party, operator</i>"]
         X["Custom collector<br/><i>external integration</i>"]
     end

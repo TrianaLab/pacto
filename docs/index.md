@@ -101,15 +101,16 @@ contract says, on Linux, and reports only what it can confirm:
 | --- | --- |
 | A process reports healthy but nothing listens on the declared port | `INTERFACE_ABSENT` |
 | A declared dependency the service keeps failing to reach | `DEPENDENCY_UNREACHABLE` |
-| A call to another Pacto service no dependency declares (seen on Kubernetes or by `pacto agent`) | `DEPENDENCY_UNDECLARED` |
+| A call to another Pacto service no dependency declares (seen by the node agent or `pacto agent`; a warning that never fails the contract) | `DEPENDENCY_UNDECLARED` |
 
 ```bash
 pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./payments-server
 ```
 
 Pacto watches TCP connections in the Linux kernel with eBPF (small, safe
-programs the kernel runs on events). It reads connection metadata, never
-payloads or secrets. When it cannot see something, it says so. Run it three ways:
+programs the kernel runs on events). The kernel watcher reads connection
+metadata, never payloads or secrets. The optional probes read only the
+response they need. When it cannot see something, it says so. Run it three ways:
 `pacto run` wraps one command (a laptop, a CI job), `pacto agent` watches a
 Docker host or a server and the Kubernetes operator can deploy the same agent
 on every node (opt-in). See [Runtime conformance](runtime-conformance.md) for
