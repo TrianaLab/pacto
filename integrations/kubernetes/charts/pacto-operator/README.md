@@ -2,7 +2,7 @@
 
 ![Version: 6.1.0](https://img.shields.io/badge/Version-6.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.1.0](https://img.shields.io/badge/AppVersion-6.1.0-informational?style=flat-square)  [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
 
-Kubernetes operator that checks running workloads against their Pacto service contracts, with an opt-in delivery component (alpha)
+Pacto tells you which services a change breaks before it ships, and checks what is actually running. This chart installs the operator that checks running workloads, with an opt-in delivery component (alpha).
 
 ## Documentation
 
