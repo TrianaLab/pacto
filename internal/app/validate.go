@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 
@@ -132,7 +134,9 @@ func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contrac
 
 	var errs []contract.ValidationError
 	// The resolver keys nodes on the declaring base, so one service reached
-	// through two directories (a diamond) is two nodes. Check it once.
+	// through two directories (a diamond) is two nodes. Check it once, keyed on
+	// content too: a local copy with edits and the published bundle can share a
+	// name and version.
 	checked := map[string]bool{}
 	var walk func(n *graph.Node)
 	walk = func(n *graph.Node) {
@@ -140,17 +144,25 @@ func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contrac
 			switch {
 			case e.External:
 			case e.Error != "":
-				errs = append(errs, contract.ValidationError{
-					Path:    "dependencies",
-					Code:    "CLOSURE_DEPENDENCY_UNRESOLVED",
-					Message: fmt.Sprintf("dependency %s: %s", e.Ref, e.Error),
-				})
+				path, msg := "dependencies", fmt.Sprintf("dependency %s: %s", e.Ref, e.Error)
+				if n != res.Root {
+					// The ref is relative to the declaring dependency, so name it.
+					path = fmt.Sprintf("dependencies[%s@%s]", n.Name, n.Version)
+					msg = fmt.Sprintf("dependency %s of %s@%s (%s): %s", e.Ref, n.Name, n.Version, n.Ref, e.Error)
+				}
+				errs = append(errs, contract.ValidationError{Path: path, Code: "CLOSURE_DEPENDENCY_UNRESOLVED", Message: msg})
 			case e.Node == nil || e.Shared:
 				// A shared edge points at a node checked where it was first resolved.
 			default:
-				if id := e.Node.Name + "@" + e.Node.Version; !checked[id] {
+				err := fs.ErrNotExist
+				var data []byte
+				if e.Node.FS != nil {
+					data, err = fs.ReadFile(e.Node.FS, DefaultContractPath)
+				}
+				sum := sha256.Sum256(data)
+				if id := e.Node.Name + "@" + e.Node.Version + "@" + hex.EncodeToString(sum[:]); !checked[id] {
 					checked[id] = true
-					errs = append(errs, checkClosureNode(e.Node, policies)...)
+					errs = append(errs, checkClosureNode(e.Node, data, err, policies)...)
 				}
 				walk(e.Node)
 			}
@@ -160,20 +172,15 @@ func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contrac
 	return errs
 }
 
-// checkClosureNode checks one resolved dependency against the root's policies,
-// naming the dependency in every finding.
-func checkClosureNode(n *graph.Node, policies []validation.ResolvedPolicy) []contract.ValidationError {
+// checkClosureNode checks one resolved dependency's contract data, read with
+// readErr, against the root's policies, naming the dependency in every finding.
+func checkClosureNode(n *graph.Node, data []byte, readErr error, policies []validation.ResolvedPolicy) []contract.ValidationError {
 	path := fmt.Sprintf("dependencies[%s@%s]", n.Name, n.Version)
-	err := fs.ErrNotExist
-	var data []byte
-	if n.FS != nil {
-		data, err = fs.ReadFile(n.FS, DefaultContractPath)
-	}
-	if err != nil {
+	if readErr != nil {
 		return []contract.ValidationError{{
 			Path:    path,
 			Code:    "CLOSURE_DEPENDENCY_UNRESOLVED",
-			Message: fmt.Sprintf("dependency %s: cannot read its contract: %v", n.Ref, err),
+			Message: fmt.Sprintf("dependency %s: cannot read its contract: %v", n.Ref, readErr),
 		}}
 	}
 	var errs []contract.ValidationError

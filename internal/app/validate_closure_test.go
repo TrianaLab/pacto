@@ -88,7 +88,22 @@ func TestValidate_Closure(t *testing.T) {
 			rootDeps:  []string{"ledger"},
 			extra:     map[string]string{"ledger": closureService("ledger", "bob@example.com", "payments")},
 			wantCodes: []string{"CLOSURE_DEPENDENCY_UNRESOLVED"},
-			wantPath:  "dependencies",
+			// The cycle closes at payments reached again through ledger.
+			wantPath: "dependencies[payments@1.0.0]",
+		},
+		{
+			name: "transitive unresolvable dependency names its declarer", closure: true,
+			rootDeps:  []string{"ledger"},
+			extra:     map[string]string{"ledger": closureService("ledger", "bob@example.com", "missing")},
+			wantCodes: []string{"CLOSURE_DEPENDENCY_UNRESOLVED"},
+			wantPath:  "dependencies[ledger@1.0.0]",
+		},
+		{
+			name: "two bundles sharing a name and version are both checked", closure: true,
+			ledgerDRI: "bob@example.com", rootDeps: []string{"ledger", "ledger-copy"},
+			extra:     map[string]string{"ledger-copy": closureService("ledger", "")},
+			wantCodes: []string{"CLOSURE_POLICY_VIOLATION"},
+			wantPath:  "dependencies[ledger@1.0.0]",
 		},
 		{
 			name: "without the flag dependencies are not checked", closure: false,
