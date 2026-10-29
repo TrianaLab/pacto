@@ -85,9 +85,8 @@ compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
 `pacto diff` says whether a change is breaking. `pacto impact` says which
 consumers it breaks, from the consumer contracts it can see. Your repository
 holds only your contract, so name each consumer's published contract with
-`--root`, one per consumer. Keep that list up to date as teams start or stop
-using your service. The step needs `jq` on the runner, which
-GitHub-hosted runners include, and the same login variables:
+`--root`, one per consumer, and keep that list current. The step needs `jq`,
+which GitHub-hosted runners include, and the same login variables:
 
 ```yaml
 - name: Check who the change breaks
