@@ -19,10 +19,10 @@ jq -r '.results[] | [.service, .mode, (.unknown | length)] | @tsv' plan.json
 ```
 
 ```text
-checkout  pactify  3
+checkout  pactify  2
 ledger    blank    1
 notifier  blank    0
-payments  pactify  3
+payments  pactify  2
 ```
 
 Each entry in `results` has a `mode`. `pactify` means init found a Dockerfile
@@ -43,12 +43,15 @@ jq -r '.results[] | .service as $s | .unknown[] | "\($s): \(.)"' plan.json
 | `Dockerfile` (or `Dockerfile.*`, `*.Dockerfile`) | an image artifact under `publish.artifacts`, built from the Dockerfile |
 | Kubernetes YAML with a Deployment, StatefulSet, DaemonSet, Job or CronJob | `service.name` from the workload, `service.version` from the image tag, the registry from the image, `workload`, and a manifests artifact that copies the YAML files |
 | The `team` label on the workload | `service.owner.team` |
-| Environment values that name another in-cluster service | `dependencies`, written as comments with a placeholder range `^1.0.0` |
+| The workload's environment, with the ConfigMaps in the folder that it reads | a configuration schema at `configuration/schema.json`, each value as its default |
+| An environment value that names another in-cluster service | `dependencies`, with the range from that service's contract in `--fleet`, or the placeholder `^1.0.0` |
+| A readiness, liveness or startup probe | a `health` capability |
 | A file named exactly `openapi` or `swagger`, with a `.yaml`, `.yml` or `.json` extension | one `openapi` interface |
 | `kustomization.yaml` | the manifests artifact keeps the folder layout, and init asks you to set the Kustomization's `spec.path` |
 
 Init reads only these. A file such as `api/openapi.v1.yaml` is missed, and
-configuration schemas, state and dependency ranges stay for you to write.
+state stays for you to write. A placeholder range is named in a comment above
+the dependency and under `unknown`.
 
 Init skips the files and folders that the service's
 [`.pactoignore`](pactoignore.md) lists. It also skips every folder that holds a
@@ -122,9 +125,10 @@ Work through the `unknown` list of each service.
         ref: interfaces/openapi.yaml
     ```
 
-- **Configuration.** `schema-infer` writes a JSON Schema from a config file
+- **Configuration.** Init's schema lists the environment only. `schema-infer`
+  writes a JSON Schema from a config file
   ([For developers](developers.md#2-infer-schemas-from-your-code-optional)).
-- **Dependencies.** Uncomment each one and set `compatibility` to the versions
+- **Dependencies.** Replace each placeholder `compatibility` with the versions
   the service accepts.
 
 Then check every contract and see who declares each service:
@@ -153,7 +157,8 @@ cluster returns them, without namespace, uid or status. It also holds a
 Pacto targets is skipped.
 
 Without the [node agent](runtime-agent.md), dependencies come only from
-environment values, as in a folder: commented out, with the range `^1.0.0`.
+environment values, as in a folder. The draft holds no ConfigMaps, so each one the workload reads is named under
+`unknown` and its keys stay out of the configuration schema.
 A value such as `host:6443` matches whether or not `host` is a Service, so a
 control-plane endpoint can become a dependency. Check each one.
 

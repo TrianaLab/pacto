@@ -76,7 +76,9 @@ and 3.0.0 falls outside it. `reporting` accepts
 `>=2.0.0 <4.0.0` and 3.0.0 is inside, though a range match does not prove
 reporting avoids what changed. `direct` means each one declares auth
 itself. `contractual` means the answer comes from the declared ranges alone,
-without a runtime observation of the call.
+without a runtime observation of the call. The folder says nothing about
+where the consumers run, so the release gate is `unverified` and the command
+exits 2.
 
 See [who breaks in CI](ci.md#on-every-pull-request-who-breaks) for the
 sources `pacto impact` needs.

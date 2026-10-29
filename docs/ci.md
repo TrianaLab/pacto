@@ -95,7 +95,7 @@ GitHub-hosted runners include, and the same login variables:
     pacto impact oci://ghcr.io/acme/contracts/my-service . \
       --root oci://ghcr.io/acme/contracts/checkout \
       --root oci://ghcr.io/acme/contracts/reporting \
-      --output-format json > impact.json
+      --output-format json > impact.json || [ $? -eq 2 ]
     jq -r '.consumers[] | select(.compatibilityVerdict == "incompatible") | "\(.service) (owner \(.owner // "unknown")) accepts \(.compatibility)"' impact.json
     jq -e '.classification != "BREAKING" or all(.consumers[]; .compatibilityVerdict != "incompatible")' impact.json
 ```
@@ -105,18 +105,18 @@ version, with its owner. The second fails the step when the change is
 `BREAKING` and at least one consumer is `incompatible`. A consumer that
 declares no range reads `unknown` and does not fail the step.
 
-The step gates on the JSON because the exit code covers deployed consumers
-only. `pacto impact` exits `1` when the change is `BREAKING` and an
-incompatible consumer is active, which means the snapshot knows a target where
-it runs. Contracts from `--root` carry no targets, so this run exits `0`
-whatever it finds. To gate on what is deployed, keep the `--root` flags and
-add a source of targets: `--k8s` reads the Pacto resources in the current
-cluster and `--evidence-url` reads an Evidence Server. The exit code then fails
-the step when an incompatible consumer runs somewhere. `--target-state` reads
-targets from a fixture file, for demos and tests.
+`pacto impact` ends in a release gate and exits on it: `0` clear, `1` blocked
+and `2` unverified. Contracts from `--root` carry no targets, so a `BREAKING`
+change with consumers exits `2`, and GitHub Actions fails a step on any
+non-zero exit. `|| [ $? -eq 2 ]` lets the step go on to the `jq` checks after
+a `2`. A `1`, for a blocked change or a command that could not run, still
+fails the step.
 
-With `--local` alone, `pacto impact` sees only the contracts in that folder,
-so `No affected consumers.` is not evidence that the change is safe.
+To gate on what is deployed, keep the `--root` flags and add a source of
+targets: `--k8s` reads the Pacto resources in the current cluster and
+`--evidence-url` reads an Evidence Server. Exit `1` then fails the step when
+an incompatible consumer runs somewhere. `--target-state` reads targets from a
+fixture file, for demos and tests.
 
 ## After a merge: publish
 

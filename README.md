@@ -29,7 +29,14 @@ Potentially breaking changes: 0
 Affected consumers (2):
   checkout                     direct     confidence=contractual  compat=incompatible owner=commerce
   reporting                    direct     confidence=contractual  compat=compatible   owner=analytics
+    note: compatible only means the range >=2.0.0 <4.0.0 accepts 3.0.0; this change is BREAKING, so check that reporting does not use what it removes or changes
+Release gate: unverified
+unverified: the change is BREAKING and 2 consumers depend on auth, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
 ```
+
+The folder says nothing about where the consumers run, so the release gate is
+`unverified` and the command exits 2. It exits 1 when an incompatible
+consumer runs on a known target.
 
 `pacto diff` works in any pull request and says whether a change is breaking.
 `pacto impact` says which consumers it breaks once Pacto can see your fleet:
@@ -66,7 +73,9 @@ later. See
 ## Generate contracts from what you have
 
 `pacto init` reads a service's Dockerfile and Kubernetes manifests and writes
-a contract, with a list of what it could not tell. It takes many folders at
+a contract, with a list of what it could not tell. The workload's environment
+becomes a configuration schema, a URL that names another service becomes a
+dependency and a probe becomes a health check. It takes many folders at
 once, and `--plan` shows the result without writing anything:
 
 ```bash
