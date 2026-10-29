@@ -59,8 +59,7 @@ consumer calls, so it is a notice. An earlier sunset shortens the time consumers
 have to migrate. Removing an interface before its sunset is still **BREAKING**,
 and the reason says that the sunset has not been reached.
 
-Each [guarantee](sections.md#guarantees) is
-compared on its own: a longer `dedupeWindow` or `retention`, a shorter
+Each [guarantee](sections.md#guarantees) is compared on its own: a longer `dedupeWindow` or `retention`, a shorter
 `timeout`, `global` ordering in place of `per-key` and a new `idempotent: true`
 are stronger. A `delivery` change is weaker in both directions, because a
 consumer relying on the old value breaks.
@@ -270,7 +269,7 @@ asyncapi.operations[sendOrder].action
 | `grpc.enums.values` | Added | POTENTIAL_BREAKING |
 | `grpc.enums.values` | Removed / Modified | **BREAKING** |
 
-proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. An added enum value is `POTENTIAL_BREAKING`: a reader that switches over every value has no case for the new one, and the scan cannot tell whether the enum travels in a request, where that reader never sees it, or a response. A removed or renumbered value is `BREAKING`. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. For that reason a modified field is `BREAKING`.
+proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. An added enum value is `POTENTIAL_BREAKING`: the scan cannot tell whether the enum reaches a reader that switches over every value. A removed or renumbered value is `BREAKING`. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. For that reason a modified field is `BREAKING`.
 
 Change paths pinpoint the exact location, for example:
 
