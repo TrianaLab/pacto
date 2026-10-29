@@ -24,11 +24,13 @@ func TestValidate_Guarantees(t *testing.T) {
 		wantValid bool
 		errors    []string // code: message
 		warnings  []string
+		stage     string // status, then reason when there is one
 	}{
 		{
 			name:      "met requirement passes",
 			deps:      "  - {name: orders, ref: ../orders, compatibility: ^1.0.0, required: true, requires: [{interface: events, delivery: at-least-once}]}\n",
 			wantValid: true,
+			stage:     "pass",
 		},
 		{
 			name: "every mismatch on a required dependency is an error",
@@ -38,24 +40,36 @@ func TestValidate_Guarantees(t *testing.T) {
 				"GUARANTEE_UNMET: checkout requires events dedupeWindow >= 5m from orders, which offers 1m",
 				"GUARANTEE_UNMET: checkout requires events delivery at-most-once from orders, which offers at-least-once",
 			},
+			stage: "fail",
 		},
 		{
 			name:      "a mismatch on an optional dependency is a warning",
 			deps:      "  - {name: orders, ref: ../orders, compatibility: ^1.0.0, required: false, requires: [{interface: events, idempotent: true}]}\n",
 			wantValid: true,
 			warnings:  []string{"GUARANTEE_UNMET: checkout requires events idempotent true from orders, which offers nothing"},
+			stage:     "pass",
 		},
 		{
 			name:      "an unresolvable provider is unverified",
 			deps:      "  - {name: ledger, ref: ../ledger, compatibility: ^1.0.0, required: true, requires: [{interface: events, delivery: at-least-once}]}\n",
 			wantValid: true,
 			warnings:  []string{"GUARANTEE_UNVERIFIED: cannot check what checkout requires from ledger: "},
+			stage:     "skip could not verify: ledger",
 		},
 		{
 			name:      "an external dependency without a contract is unverified",
 			deps:      "  - {name: model, external: true, version: \"2025-01\", required: true, requires: [{interface: chat, timeout: 5s}]}\n",
 			wantValid: true,
 			warnings:  []string{"GUARANTEE_UNVERIFIED: cannot check what checkout requires from model: it has no ref"},
+			stage:     "skip could not verify: model",
+		},
+		{
+			name: "one verified and one unverified is no pass",
+			deps: "  - {name: orders, ref: ../orders, compatibility: ^1.0.0, required: true, requires: [{interface: events, delivery: at-least-once}]}\n" +
+				"  - {name: ledger, ref: ../ledger, compatibility: ^1.0.0, required: true, requires: [{interface: events, delivery: at-least-once}]}\n",
+			wantValid: true,
+			warnings:  []string{"GUARANTEE_UNVERIFIED: cannot check what checkout requires from ledger: "},
+			stage:     "skip could not verify: ledger",
 		},
 	}
 	for _, tt := range tests {
@@ -71,6 +85,11 @@ func TestValidate_Guarantees(t *testing.T) {
 			}
 			if res.Valid != tt.wantValid {
 				t.Fatalf("valid = %v, want %v (errors %v)", res.Valid, tt.wantValid, res.Errors)
+			}
+			for _, st := range res.Stages {
+				if got := strings.TrimSpace(st.Status + " " + st.Reason); st.Name == "guarantees" && got != tt.stage {
+					t.Errorf("guarantees stage %q, want %q", got, tt.stage)
+				}
 			}
 			var errs, warns []string
 			for _, e := range res.Errors {

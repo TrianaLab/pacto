@@ -235,7 +235,9 @@ func rerunCommand(ref string, opts ValidateOptions) string {
 // GUARANTEE_UNMET, an error on a required dependency and a warning on an
 // optional one, which by definition the service runs without. A provider
 // Pacto cannot fetch leaves its requirements unknown: GUARANTEE_UNVERIFIED, a
-// warning, never a pass. Only dependencies that declare requires are fetched,
+// warning, never a pass: the stage passes only when every requirement was
+// checked and none failed, and a stage with an unchecked requirement and no
+// failure is skipped with a reason naming what it could not verify. Only dependencies that declare requires are fetched,
 // so a contract without them validates offline as before; what a dependency's
 // own dependencies require stays its owner's business.
 func (s *Service) guaranteeStage(ctx context.Context, ref string, c *contract.Contract) validation.Stage {
@@ -243,6 +245,7 @@ func (s *Service) guaranteeStage(ctx context.Context, ref string, c *contract.Co
 	var warns []contract.ValidationWarning
 	fetcher := s.newDepFetcher(ref)
 	checked := false
+	var unverified []string
 	for i, dep := range c.Dependencies {
 		if len(dep.Requires) == 0 {
 			continue
@@ -257,6 +260,7 @@ func (s *Service) guaranteeStage(ctx context.Context, ref string, c *contract.Co
 		if err != nil {
 			warns = append(warns, contract.ValidationWarning{Path: path, Code: "GUARANTEE_UNVERIFIED",
 				Message: fmt.Sprintf("cannot check what %s requires from %s: %v", c.Service.Name, dep.Name, err)})
+			unverified = append(unverified, dep.Name)
 			continue
 		}
 		for _, m := range contract.Unmet(c.Service.Name, dep, b.Contract) {
@@ -270,7 +274,11 @@ func (s *Service) guaranteeStage(ctx context.Context, ref string, c *contract.Co
 	if !checked {
 		return validation.SkippedStages("no dependency declares requires", "guarantees")[0]
 	}
-	return validation.RanStage("guarantees", validation.ValidationResult{Errors: errs, Warnings: warns})
+	st := validation.RanStage("guarantees", validation.ValidationResult{Errors: errs, Warnings: warns})
+	if st.Status == validation.StagePass && len(unverified) > 0 {
+		st.Status, st.Reason = validation.StageSkip, "could not verify: "+strings.Join(unverified, ", ")
+	}
+	return st
 }
 
 // closureFindings checks every contract in the root's dependency closure against
