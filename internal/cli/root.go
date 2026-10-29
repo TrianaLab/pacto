@@ -120,8 +120,8 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 
 	root := &cobra.Command{
 		Use:           "pacto",
-		Short:         "Pacto: continuous delivery driven by service contracts",
-		Long:          "Pacto is a CLI tool for managing OCI-distributed service contracts.",
+		Short:         "Pacto: the operational contract system for cloud-native services",
+		Long:          "Pacto is an operational contract system with optional delivery. A contract (pacto.yaml) describes one service: who owns it, what it offers, which services it calls and which of their versions it accepts. Pacto tells you which consumers a change breaks before it ships and checks what is running.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

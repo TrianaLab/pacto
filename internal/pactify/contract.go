@@ -3,6 +3,7 @@ package pactify
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -143,10 +144,20 @@ func (p *planner) contract() error {
 	}
 	p.contractNew = true
 	text := p.pactified()
-	if err := validate(text, p.sc.openapi); err != nil {
+	files := map[string]string{}
+	if p.sc.openapi != "" {
+		files[p.sc.openapi] = "{}"
+	}
+	if p.schema != "" {
+		files[configSchema] = p.schema
+	}
+	if err := validate(text, files); err != nil {
 		return fmt.Errorf("the contract pacto init would write is not valid: %w", err)
 	}
 	p.file("pacto.yaml", text)
+	if p.schema != "" {
+		p.file(configSchema, p.schema)
+	}
 	return nil
 }
 
@@ -171,18 +182,19 @@ func (p *planner) existing(data []byte) {
 		return
 	}
 	p.r.Service, p.pub = c.Service.Name, c.Publish
-	if c.Publish == nil {
+	if c.Publish == nil && !p.opts.DescribeOnly {
 		p.next("pacto.yaml has no publish section, so pacto publish refuses it: set pactoVersion: \"2.1\" and add publish " +
 			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written")
 	}
 }
 
-func validate(text, openapi string) error {
+// validate validates the contract text in a bundle that also holds files.
+func validate(text string, files map[string]string) error {
 	c, err := contract.Parse(strings.NewReader(text))
 	if err == nil {
 		fsys := fstest.MapFS{"pacto.yaml": {Data: []byte(text)}}
-		if openapi != "" {
-			fsys[openapi] = &fstest.MapFile{Data: []byte("{}")}
+		for name, data := range files {
+			fsys[name] = &fstest.MapFile{Data: []byte(data)}
 		}
 		if r := validation.Validate(c, []byte(text), fsys); !r.IsValid() {
 			err = errors.New(r.Errors[0].Message)
@@ -256,7 +268,11 @@ func (p *planner) pactified() string {
 
 	var b strings.Builder
 	files := strings.Join(append(nonEmpty(sc.dockerfile), sc.manifests...), ", ")
-	fmt.Fprintf(&b, "# Written by pacto init from %s.\n# Check it, then see what publishing would do: pacto publish --plan\n", files)
+	next := "see what publishing would do: pacto publish --plan"
+	if p.opts.DescribeOnly {
+		next = "validate it: pacto validate"
+	}
+	fmt.Fprintf(&b, "# Written by pacto init from %s.\n# Check it, then %s\n", files, next)
 	fmt.Fprintf(&b, "pactoVersion: \"2.1\"\nservice:\n  name: %s\n  version: %s\n", yq(name), yq(version))
 	team := p.opts.Owner
 	if team == "" && w.team != "" {
@@ -265,6 +281,9 @@ func (p *planner) pactified() string {
 	}
 	if team != "" {
 		fmt.Fprintf(&b, "  owner:\n    team: %s\n", yq(team))
+		if hint := OwnerHint(team); hint != "" {
+			p.next("%s", hint)
+		}
 	} else {
 		fmt.Fprintf(&b, "  # owner:\n  #   team: <the team that owns %s>\n", name)
 		p.unknown("owner: no team label says who owns %s; pass --owner", name)
@@ -291,8 +310,14 @@ func (p *planner) pactified() string {
 		bundles = registry + "/contracts"
 		p.found("contract bundles under %s, as the image %s already holds %s/%s", bundles, w.image, registry, name)
 	}
-	p.dependencyComments(&b, bundles)
+	p.health(&b, sc.openapi != "")
+	p.dependencyEntries(&b, bundles)
+	p.configuration(&b)
+	if p.opts.DescribeOnly {
+		return b.String()
+	}
 	p.publish(&b, bundles, registry, imgRepo)
+	p.next("the publish section is for pacto publish only: for a contract that only describes %s, run pacto init --describe-only instead (describe_only: true with pacto_create)", name)
 	for _, f := range sc.secrets {
 		p.next("%s holds a Secret's values, so it is left out of the published manifests, which anyone who can pull them reads; "+
 			"supply it another way (a SealedSecret, an ExternalSecret or SOPS) and move any other objects in it to their own file", f)
@@ -303,27 +328,140 @@ func (p *planner) pactified() string {
 	return b.String()
 }
 
-// dependencyComments lists the services found as commented-out dependencies:
-// declaring one needs the versions accepted, which only its consumer knows.
-func (p *planner) dependencyComments(b *strings.Builder, bundles string) {
-	pinned := p.pinned(b)
-	var rest []Finding
-	for _, d := range p.r.Dependencies {
-		if !pinned[d.Name] {
-			rest = append(rest, d)
-		}
-	}
-	if len(rest) == 0 {
+// health writes a health capability when the workload has a probe, bound
+// to the api interface when the probe calls an HTTP path and an OpenAPI file
+// describes what the service serves.
+func (p *planner) health(b *strings.Builder, api bool) {
+	w := p.sc.workload
+	if w == nil || w.probe == nil {
 		return
 	}
-	fmt.Fprintf(b, "# %s calls these services. Declare each one with the versions it accepts,\n# or the runtime check reports the call as undeclared.\n", p.r.Service)
-	if len(pinned) == 0 {
-		b.WriteString("# dependencies:\n")
+	path := w.probe.path
+	if !contract.ValidCapabilityPath(path) {
+		path = ""
 	}
-	for _, d := range rest {
-		fmt.Fprintf(b, "#   - name: %s\n#     ref: oci://%s/%s\n#     required: true\n#     compatibility: \"^1.0.0\"\n", d.Name, bundles, d.Name)
-		p.unknown("the versions of %s that %s accepts: declare it under dependencies in pacto.yaml", d.Name, p.r.Service)
+	b.WriteString("capabilities:\n  - type: health\n")
+	switch {
+	case path != "" && api:
+		fmt.Fprintf(b, "    binding:\n      type: http\n      interface: api\n      path: %s\n", yq(path))
+		p.found("health check GET %s on api, from the %s probe in %s", path, w.probe.kind, w.file)
+	case path != "":
+		p.found("health check GET %s, from the %s probe in %s", path, w.probe.kind, w.file)
+		p.unknown("the interface that serves the health check GET %s: no OpenAPI file describes what %s serves, so the check is bound to none", path, p.r.Service)
+	default:
+		p.found("health check, from the %s probe in %s", w.probe.kind, w.file)
 	}
+}
+
+// placeholderRange is the compatibility written for a dependency whose
+// contract was not found. It is named in Unknown, never passed off as known.
+const placeholderRange = "^1.0.0"
+
+// dependencyEntries declares the services found. One whose contract is in
+// --fleet gets its bundle and a range from the version that contract has; any
+// other gets the repository its contract would be published at and a
+// placeholder range, both said in a comment and in Unknown.
+func (p *planner) dependencyEntries(b *strings.Builder, bundles string) {
+	pinned := p.pinned(b)
+	header := len(pinned) == 0
+	for _, d := range p.r.Dependencies {
+		if pinned[d.Name] {
+			continue
+		}
+		if header {
+			b.WriteString("dependencies:\n")
+			header = false
+		}
+		ref, version := p.provider(d.Name, bundles)
+		compat := placeholderRange
+		if version != "" {
+			compat = "^" + version
+			fmt.Fprintf(b, "  # from %s; its contract in --fleet is at %s\n", d.Where, version)
+			p.found("%s calls %s (%s), whose contract in --fleet is at %s", p.r.Service, d.Name, d.Where, version)
+			p.next("pacto.yaml declares %s compatible with %s, from the version its contract has: change it to the versions %s accepts", d.Name, compat, p.r.Service)
+		} else {
+			fmt.Fprintf(b, "  # from %s\n  # no contract for %s was read (pass its folder with --fleet): ref is where\n"+
+				"  # it would be published and %s is a placeholder; set the versions %s accepts\n", d.Where, d.Name, placeholderRange, p.r.Service)
+			p.unknown("the versions of %s that %s accepts: no contract for %s was read (pass its folder with --fleet), so compatibility %s in pacto.yaml is a placeholder", d.Name, p.r.Service, d.Name, placeholderRange)
+		}
+		fmt.Fprintf(b, "  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s\n", d.Name, ref, yq(compat))
+	}
+}
+
+// provider is the ref to declare name with and the version its contract in
+// --fleet has, "" when none was found: then ref is where its contract would
+// be published.
+func (p *planner) provider(name, bundles string) (ref, version string) {
+	ref = "oci://" + bundles + "/" + name
+	if p.snap == nil {
+		return ref, ""
+	}
+	var best *fleet.ContractRevision
+	var bestV *semver.Version
+	for _, rev := range p.snap.Revisions {
+		v, err := semver.NewVersion(rev.Version)
+		if rev.Service != name || err != nil || (bestV != nil && !v.GreaterThan(bestV)) {
+			continue
+		}
+		best, bestV = rev, v
+	}
+	if best == nil {
+		return ref, ""
+	}
+	if c := best.Contract; c != nil && c.Publish != nil && c.Publish.Bundle != "" {
+		ref = c.Publish.Bundle
+	}
+	return ref, bestV.String()
+}
+
+// configSchema is where the configuration schema pacto init writes goes.
+const configSchema = "configuration/schema.json"
+
+// configuration writes a configuration entry whose schema, configSchema,
+// lists the workload's environment: each variable typed by its value, with
+// that value as its default. A variable read from a Secret gets no default.
+func (p *planner) configuration(b *strings.Builder) {
+	for _, n := range p.sc.envNotes {
+		p.unknown("%s", n)
+	}
+	if len(p.sc.env) == 0 {
+		return
+	}
+	props := map[string]map[string]any{}
+	var from []string
+	for _, e := range p.sc.env {
+		prop := map[string]any{"type": "string"}
+		switch {
+		case e.secret:
+			prop["description"] = "Read from the Secret " + e.ref + ", whose values pacto init does not read."
+		case e.value != "":
+			prop["type"], prop["default"] = typed(e.value)
+		}
+		props[e.name] = prop
+		if !slices.Contains(from, e.file) {
+			from = append(from, e.file)
+		}
+	}
+	data, _ := json.MarshalIndent(struct { // ponytail: a map of strings and scalars always marshals
+		Schema     string                    `json:"$schema"`
+		Type       string                    `json:"type"`
+		Properties map[string]map[string]any `json:"properties"`
+	}{"https://json-schema.org/draft/2020-12/schema", "object", props}, "", "  ")
+	p.schema = string(data) + "\n"
+	fmt.Fprintf(b, "configurations:\n  - name: env\n    schema: %s\n    required: true\n", configSchema)
+	p.found("%s: the %d environment variables %s reads, with the values in %s as defaults", configSchema, len(p.sc.env), p.r.Service, strings.Join(from, ", "))
+}
+
+// typed is an environment value as a JSON Schema type and default: an
+// integer, a boolean or a string.
+func typed(v string) (string, any) {
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return "integer", n
+	}
+	if v == "true" || v == "false" {
+		return "boolean", v == "true"
+	}
+	return "string", v
 }
 
 // pinned writes the dependencies seen at runtime whose provider runs a
@@ -488,12 +626,10 @@ func (p *planner) copyManifests() (string, bool) {
 	return strings.Join(cmds, " && "), true
 }
 
-// consumers looks for the services that declare this one, in FleetRoots.
-func (p *planner) consumers(ctx context.Context) error {
+// readFleet reads the contracts in FleetRoots, once, for the dependencies
+// and the consumers.
+func (p *planner) readFleet(ctx context.Context) error {
 	if len(p.opts.FleetRoots) == 0 {
-		if p.r.Mode == modePactify {
-			p.unknown("who uses %s: no other services' contracts were given (--fleet), so none were looked at", p.r.Service)
-		}
 		return nil
 	}
 	var sources []fleet.Source
@@ -504,16 +640,27 @@ func (p *planner) consumers(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reading the contracts in %s: %w", strings.Join(p.opts.FleetRoots, ", "), err)
 	}
+	p.snap = snap
+	return nil
+}
+
+// consumers looks for the services that declare this one, in FleetRoots.
+func (p *planner) consumers() {
+	if p.snap == nil {
+		if p.r.Mode == modePactify {
+			p.unknown("who uses %s: no other services' contracts were given (--fleet), so none were looked at", p.r.Service)
+		}
+		return
+	}
 	bundle := ""
 	if p.pub != nil {
 		bundle = strings.TrimPrefix(p.pub.Bundle, "oci://")
 	}
-	p.r.Consumers = declaredBy(snap, p.r.Service, bundle)
-	if snap.Completeness != fleet.CompletenessComplete {
-		p.unknown("who uses %s: the contracts in %s were read only in part (%s)", p.r.Service, strings.Join(p.opts.FleetRoots, ", "), snap.Completeness)
+	p.r.Consumers = declaredBy(p.snap, p.r.Service, bundle)
+	if p.snap.Completeness != fleet.CompletenessComplete {
+		p.unknown("who uses %s: the contracts in %s were read only in part (%s)", p.r.Service, strings.Join(p.opts.FleetRoots, ", "), p.snap.Completeness)
 	}
 	p.unknown("who calls %s without declaring it: no contract says", p.r.Service)
-	return nil
 }
 
 // declaredBy are the services in snap that declare name, or its bundle, as a
@@ -623,4 +770,16 @@ func joinInts(ns []int) string {
 		s[i] = strconv.Itoa(n)
 	}
 	return strings.Join(s, ", ")
+}
+
+// OwnerHint says what is wrong with team as owner.team, "" when nothing is.
+// owner.team is the team's bare name, such as billing, usually the team label
+// on its workloads; a team/ or teams/ prefix only repeats that it is a team.
+func OwnerHint(team string) string {
+	for _, prefix := range []string{"team/", "teams/"} {
+		if rest, ok := strings.CutPrefix(strings.ToLower(team), prefix); ok && rest != "" {
+			return fmt.Sprintf("owner %q starts with %s: owner.team is the team's bare name, so write %q", team, prefix, team[len(prefix):])
+		}
+	}
+	return ""
 }

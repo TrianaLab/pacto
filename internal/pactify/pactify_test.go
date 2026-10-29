@@ -38,14 +38,17 @@ func writeTree(t *testing.T, dir string, files map[string]string) string {
 // fraudDir copies testdata/fraud, a copy of examples/story/plain/fraud (the
 // plain service the story pactifies; keep the two in step), into a folder
 // named fraud.
-func fraudDir(t *testing.T) string {
+func fraudDir(t *testing.T) string { return fixtureDir(t, "fraud") }
+
+// fixtureDir copies testdata/<name> into a folder named name.
+func fixtureDir(t *testing.T, name string) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "fraud")
+	dir := filepath.Join(t.TempDir(), name)
 	files := map[string]string{}
-	err := filepath.WalkDir("testdata/fraud", func(p string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir("testdata/"+name, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			data, _ := os.ReadFile(p)
-			rel, _ := filepath.Rel("testdata/fraud", p)
+			rel, _ := filepath.Rel("testdata/"+name, p)
 			files[filepath.ToSlash(rel)] = string(data)
 		}
 		return err
@@ -351,8 +354,8 @@ func runManifestsBuild(t *testing.T, dir string, command []string) {
 
 // TestDependenciesFromEnvironment: a workload's environment names the
 // services it calls. Its own Services, itself, localhost and anything outside
-// the cluster are not dependencies; each one found is listed once, left
-// commented out in the contract and its accepted versions are Unknown.
+// the cluster are not dependencies; each one found is declared once, with a
+// placeholder range its comment names, and its accepted versions are Unknown.
 func TestDependenciesFromEnvironment(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{
 		"Dockerfile":         "FROM scratch\n",
@@ -395,7 +398,8 @@ metadata: {name: db}
 		t.Fatalf("dependencies: %+v", r.Dependencies)
 	}
 	text := file(t, r, "pacto.yaml").Content
-	for _, s := range []string{"#   - name: payments\n#     ref: oci://ghcr.io/acme/contracts/payments", "version: 1.9.0", "team: shop", "ref: oci://ghcr.io/acme/checkout\n",
+	for _, s := range []string{"  - name: payments\n    ref: oci://ghcr.io/acme/contracts/payments\n    required: true\n    compatibility: '^1.0.0'\n",
+		"  # from deploy/app.yaml, env PAYMENTS_URL\n  # no contract for payments was read", "version: 1.9.0", "team: shop", "ref: oci://ghcr.io/acme/checkout\n",
 		"bundle: oci://ghcr.io/acme/contracts/checkout\n",
 		`command: [sh, -c, 'cp deploy/app.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)ghcr\.io/acme/checkout:v1\.9\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" deploy/app.yaml > "$PACTO_OUT"/app.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/app.yaml || { echo "pacto: no image: ghcr.io/acme/checkout:v1.9.0 line to pin" >&2; exit 1; }; }']`, "from Dockerfile, deploy/app.yaml.\n"} {
 		if !strings.Contains(text, s) {

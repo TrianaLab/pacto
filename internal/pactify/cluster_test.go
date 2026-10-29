@@ -134,7 +134,8 @@ func checkCheckoutDraft(t *testing.T, checkout *Result, out string) {
 	text := file(t, checkout, "pacto.yaml").Content
 	pin := "dependencies:\n  # inferred from runtime calls: pinned to the version seen running; widen it once you know\n" +
 		"  - name: payments\n    ref: oci://reg.io/acme/contracts/payments\n    required: true\n    compatibility: '=2.3.0'\n"
-	if !strings.Contains(text, pin) || strings.Contains(text, "'*'") || strings.Contains(text, `"*"`) || !strings.Contains(text, "#   - name: fraud\n") || strings.Contains(text, "# dependencies:") {
+	if !strings.Contains(text, pin) || strings.Contains(text, "'*'") || strings.Contains(text, `"*"`) || !strings.Contains(text, "  # from calls seen to the Service shop/fraud\n  # no contract for fraud was read") ||
+		!strings.Contains(text, "  - name: fraud\n    ref: oci://reg.io/acme/contracts/fraud\n    required: true\n    compatibility: '^1.0.0'\n") {
 		t.Fatalf("checkout's dependencies:\n%s", text)
 	}
 	if checkout.Dir != filepath.Join(out, "shop", "checkout") || file(t, checkout, "manifests.yaml").Action != Add ||
@@ -150,7 +151,8 @@ func checkCheckoutDraft(t *testing.T, checkout *Result, out string) {
 // TestClusterDrafts: every workload no Pacto describes gets a draft, its
 // dependencies read from the calls its pods made. A call to a provider whose
 // Pacto runs a version is pinned to exactly that version, never "*"; one
-// with no contract version is only a comment. A plan writes nothing.
+// with no contract version gets a placeholder range its comment names. A plan
+// writes nothing.
 func TestClusterDrafts(t *testing.T) {
 	now := time.Now()
 	out := filepath.Join(t.TempDir(), "drafts")
@@ -166,8 +168,8 @@ func TestClusterDrafts(t *testing.T) {
 		t.Fatal("a plan wrote under --out")
 	}
 	checkCheckoutDraft(t, result(t, b, "checkout"), out)
-	// ledger calls payments and legacy, whose Pacto runs no version yet: a comment.
-	if l := file(t, result(t, b, "ledger"), "pacto.yaml").Content; !strings.Contains(l, "compatibility: '=2.3.0'") || !strings.Contains(l, "#   - name: legacy\n") {
+	// ledger calls payments and legacy, whose Pacto runs no version yet: a placeholder range.
+	if l := file(t, result(t, b, "ledger"), "pacto.yaml").Content; !strings.Contains(l, "compatibility: '=2.3.0'") || !strings.Contains(l, "  - name: legacy\n") {
 		t.Fatalf("ledger:\n%s", l)
 	}
 	if n := result(t, b, "nightly"); strings.Contains(file(t, n, "pacto.yaml").Content, "dependencies") || len(n.Dependencies) != 0 {

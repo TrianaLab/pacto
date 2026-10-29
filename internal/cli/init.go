@@ -28,14 +28,29 @@ func newInitCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 
 An empty or new folder gets a blank contract with the bundle structure
 (interfaces/, configuration/). A folder that already holds a service gets a
-contract read from its Dockerfile and Kubernetes manifests, publish section
-included, and a list of what Pacto found and what it could not tell
-(Unknown). --delivery also writes the cluster pieces: the Pacto resource that
-checks the running service, and per environment a Stage with the Flux
-OCIRepository and Kustomization it applies through. Each Stage starts at
-observe: it plans every new version and moves nothing, and the OCIRepository
-stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
-last environment's Stage also asks a person to approve every promote.
+contract read from its Dockerfile and Kubernetes manifests, and a list of what
+Pacto found and what it could not tell (Unknown). The workload's environment,
+including the ConfigMaps it reads, becomes a configuration schema with each
+value as its default. A URL in it that names another service in the cluster
+becomes a dependency: with that service's contract in --fleet, its bundle and
+a range from its version; without it, a placeholder range that the comment
+above it and Unknown name. A readiness, liveness or startup probe becomes a
+health check.
+
+The contract also gets a publish section, for pacto publish. To describe the
+service and leave delivery out, pass --describe-only: the contract then has no
+publish section and needs no signing key. --delivery also writes the cluster
+pieces: the Pacto resource that checks the running service, and per
+environment a Stage with the Flux OCIRepository and Kustomization it applies
+through. Each Stage starts at observe: it plans every new version and moves
+nothing, and the OCIRepository stays pinned to the tag you deploy, so GitOps
+keeps applying what it did. The last environment's Stage also asks a person to
+approve every promote.
+
+--owner is the team's bare name, such as billing: usually the team label on
+the workload. An AI agent is a service too: its tools are an mcp interface,
+the model it calls is a dependency and its eval suite is a checks entry; see
+https://pacto.run/latest/contract-reference/checks/#an-agent-is-a-service.
 
 Several folders are each pactified, with a summary at the end. --cluster
 drafts a contract for every workload in the namespaces that no Pacto
@@ -49,6 +64,7 @@ there is yours and is left as it is, so running it twice is safe. --plan shows e
 changes nothing.`,
 		Example: `  pacto init my-service
   pacto init --plan
+  pacto init --describe-only --owner billing
   pacto init --delivery --owner payments --fleet ../contracts
   pacto init --delivery --no-transparency-log --insecure-registry
   pacto init --delivery --registry-secret registry-creds
@@ -85,9 +101,10 @@ changes nothing.`,
 	}
 	f := cmd.Flags()
 	f.BoolVar(&opts.Plan, "plan", false, "show what would be added and change nothing")
+	f.BoolVar(&opts.DescribeOnly, "describe-only", false, "write a contract that only describes the service: no publish section, so no signing key")
 	f.BoolVar(&opts.Delivery, "delivery", false, "also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization")
 	f.StringVar(&opts.Name, "name", "", "service name (default: the workload's name, then the folder's)")
-	f.StringVar(&opts.Owner, "owner", "", "the team that owns the service (default: the workload's team label)")
+	f.StringVar(&opts.Owner, "owner", "", "the team that owns the service, as a bare name such as billing (default: the workload's team label)")
 	f.StringVar(&opts.Registry, "registry", "", "where to publish, as host/path (default: read from the workload's image)")
 	f.StringSliceVar(&opts.Environments, "env", []string{"test", "prod"}, "environments for --delivery, in promotion order")
 	f.BoolVar(&opts.NoTransparencyLog, "no-transparency-log", false, "write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)")

@@ -60,7 +60,7 @@ Structured ownership metadata. All fields are optional but at least one must be 
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `team` | string | No | Team name |
+| `team` | string | No | The team's bare name, such as `billing`: usually the `team` label on its workloads. `pacto init` and `pacto_check` flag a `team/` prefix |
 | `dri` | string | No | Directly Responsible Individual |
 | `contacts` | [OwnerContact](#ownercontact)[] | No | Contact points |
 
