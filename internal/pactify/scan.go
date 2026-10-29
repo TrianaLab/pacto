@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -29,7 +30,7 @@ type scan struct {
 	workloads   []*workload
 	workload    *workload // the one the contract describes
 	openapi     string
-	chart       string
+	charts      []string
 	kustomize   []string // kustomization.yaml files among the manifests
 	configMaps  map[string]configMap
 	// env is the workload's environment, with every ConfigMap it reads
@@ -107,16 +108,14 @@ func scanDir(dir string) (*scan, error) {
 			}
 			// A Helm chart's templates are not manifests until rendered, so a
 			// chart folder is never read. When the folder itself is a chart,
-			// only its templates and subcharts are left out.
+			// only its templates, subcharts and CRDs are left out.
 			if _, err := os.Stat(filepath.Join(p, "Chart.yaml")); err == nil {
-				if sc.chart == "" {
-					sc.chart = rel
-				}
+				sc.charts = append(sc.charts, rel)
 				if rel != "." {
 					return fs.SkipDir
 				}
 			}
-			if sc.chart == "." && (rel == "templates" || rel == "charts") {
+			if slices.Contains(sc.charts, ".") && (rel == "templates" || rel == "charts" || rel == "crds") {
 				return fs.SkipDir
 			}
 			return nil

@@ -136,8 +136,8 @@ func (p *planner) contract() error {
 		p.existing(data)
 		return nil
 	}
-	if c := p.sc.chart; c != "" {
-		p.unknown("the Helm chart in %s is not read: render it with helm template %s %s > k8s/rendered.yaml and run pacto init again, "+
+	for _, c := range p.sc.charts {
+		p.unknown("the Helm chart in %s is not read: render it with helm template --include-crds %s %s > k8s/rendered.yaml and run pacto init again, "+
 			"or add the chart under publish.artifacts as a chart", c, p.r.Service, c)
 	}
 	if p.r.Mode == modeBlank {

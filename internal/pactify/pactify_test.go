@@ -1073,19 +1073,24 @@ func TestHelmChartIsNotRead(t *testing.T) {
 	const docker = "FROM alpine:3.20\n"
 	deploy := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\nspec: {template: {spec: {containers: [{name: checkout, image: 'ghcr.io/acme/checkout:1.2.0'}]}}}\n"
 	for _, tc := range []struct {
-		name, mode, header, chartDir string
-		files                        map[string]string
-		want                         []string // in pacto.yaml
+		name, mode, header string
+		chartDirs          []string
+		files              map[string]string
+		want               []string // in pacto.yaml
 	}{
-		{name: "beside a Dockerfile", mode: modePactify, header: "Dockerfile", chartDir: "chart",
+		{name: "beside a Dockerfile", mode: modePactify, header: "Dockerfile", chartDirs: []string{"chart"},
 			files: with(map[string]string{"Dockerfile": docker})},
-		{name: "chart only", mode: modeBlank, chartDir: "chart", files: chart},
-		{name: "beside a plain manifest", mode: modePactify, header: "Dockerfile, k8s/deploy.yaml", chartDir: "chart",
+		{name: "chart only", mode: modeBlank, chartDirs: []string{"chart"}, files: chart},
+		{name: "two charts are both named", mode: modePactify, header: "Dockerfile", chartDirs: []string{"chart", "worker"},
+			files: with(map[string]string{"Dockerfile": docker, "worker/Chart.yaml": chart["chart/Chart.yaml"],
+				"worker/templates/configmap.yaml": chart["chart/templates/configmap.yaml"]})},
+		{name: "beside a plain manifest", mode: modePactify, header: "Dockerfile, k8s/deploy.yaml", chartDirs: []string{"chart"},
 			files: with(map[string]string{"Dockerfile": docker, "k8s/deploy.yaml": deploy}),
 			want:  []string{"cp k8s/deploy.yaml", "version: 1.2.0", "workload: service"}},
-		{name: "the folder is the chart", mode: modePactify, header: "Dockerfile", chartDir: ".",
+		{name: "the folder is the chart", mode: modePactify, header: "Dockerfile", chartDirs: []string{"."},
 			files: map[string]string{"Dockerfile": docker, "Chart.yaml": chart["chart/Chart.yaml"],
-				"templates/configmap.yaml": chart["chart/templates/configmap.yaml"], "charts/db/templates/cm.yaml": chart["chart/templates/configmap.yaml"]}},
+				"templates/configmap.yaml": chart["chart/templates/configmap.yaml"], "charts/db/templates/cm.yaml": chart["chart/templates/configmap.yaml"],
+				"crds/crd.yaml": "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: widgets.acme.io\n"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := writeTree(t, filepath.Join(t.TempDir(), "checkout"), tc.files)
@@ -1096,17 +1101,19 @@ func TestHelmChartIsNotRead(t *testing.T) {
 			if r.Service != "checkout" || r.Mode != tc.mode {
 				t.Fatalf("service %q, mode %q", r.Service, r.Mode)
 			}
-			n := 0
-			for _, l := range r.Unknown {
-				if strings.HasPrefix(l, "the Helm chart in "+tc.chartDir+" is not read: render it with helm template checkout "+tc.chartDir+" > k8s/rendered.yaml") {
-					n++
+			for _, c := range tc.chartDirs {
+				n := 0
+				for _, l := range r.Unknown {
+					if strings.HasPrefix(l, "the Helm chart in "+c+" is not read: render it with helm template --include-crds checkout "+c+" > k8s/rendered.yaml") {
+						n++
+					}
+				}
+				if n != 1 {
+					t.Fatalf("want chart %s named once in Unknown, got %d: %q", c, n, r.Unknown)
 				}
 			}
-			if n != 1 {
-				t.Fatalf("want the chart named once in Unknown, got %d: %q", n, r.Unknown)
-			}
 			text := file(t, r, "pacto.yaml").Content
-			if strings.Contains(text, "templates/") || strings.Contains(text, "Release.Name") || hasLine(r.Found, "templates/") {
+			if strings.Contains(text, "templates/") || strings.Contains(text, "Release.Name") || strings.Contains(text, "crds/") || hasLine(r.Found, "templates/") {
 				t.Fatalf("a chart template was read:\n%s\n%+v", text, r.Found)
 			}
 			if tc.header != "" && !strings.HasPrefix(text, "# Written by pacto init from "+tc.header+".\n") {

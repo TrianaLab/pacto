@@ -63,13 +63,15 @@ such as `catalog-info.yaml` and `skaffold.yaml`.
 Init keeps a `pacto.yaml` that is already there, so prepare these folders
 before step 3.
 
-**Helm charts.** Init does not render charts. It skips the chart's templates
-and names the chart once under `unknown`, so a chart-only folder plans as
-`blank`. Render the chart into the folder, then init reads the result:
+**Helm charts.** Init does not render charts. It skips each chart's
+templates, subcharts and CRDs and names every chart under `unknown`, so a
+chart-only folder plans as `blank`. Render the chart into the folder, then
+init reads the result:
 
 ```bash
 mkdir -p services/ledger/k8s
-helm template ledger services/ledger/chart > services/ledger/k8s/rendered.yaml
+helm template --include-crds ledger services/ledger/chart \
+  > services/ledger/k8s/rendered.yaml
 ```
 
 The contract then publishes the rendered file, so render again when the chart
