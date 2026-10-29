@@ -36,6 +36,7 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 		}
 
 		changes = append(changes, diffGuarantees(name, oldIface.Guarantees, newIface.Guarantees)...)
+		changes = append(changes, diffEpoch(name, oldIface.CompatibilityEpoch, newIface.CompatibilityEpoch)...)
 
 		// Diff spec ref (renamed from Contract in v1)
 		if oldIface.Ref != newIface.Ref {
@@ -117,6 +118,20 @@ func diffLifecycle(name string, o, n *contract.InterfaceLifecycle) []Change {
 		changes = append(changes, newChange("interfaces.lifecycle.successor", strChangeType(o.Successor, n.Successor), name+": "+o.Successor, name+": "+n.Successor))
 	}
 	return changes
+}
+
+// diffEpoch reports a changed compatibilityEpoch on interface name. Either
+// direction is Breaking (the rule table says why); the reason says which.
+func diffEpoch(name string, o, n int) []Change {
+	if o == n {
+		return nil
+	}
+	c := newChange("interfaces.compatibilityEpoch", Modified, fmt.Sprintf("%s: %d", name, o), fmt.Sprintf("%s: %d", name, n))
+	c.Reason = fmt.Sprintf("interface %s: compatibilityEpoch raised from %d to %d: its behavior changed incompatibly, so every consumer must review the change", name, o, n)
+	if n < o {
+		c.Reason = fmt.Sprintf("interface %s: compatibilityEpoch lowered from %d to %d: an epoch only goes up, and consumers that adapted to the higher one break", name, o, n)
+	}
+	return []Change{c}
 }
 
 // diffConfiguration compares configuration slices by name and delegates to JSON Schema diff.

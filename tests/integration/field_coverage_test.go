@@ -90,8 +90,8 @@ var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
 	valid("pactoVersion=2.2", set("pactoVersion", "2.2")),
-	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
-	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("checks"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
+	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
+	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("checks"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
@@ -146,7 +146,7 @@ var fieldCoverageCases = []fcCase{
 	invalid("interfaces[].ref/invalid", "FILE_NOT_FOUND", set("interfaces.0.ref", "interfaces/missing.yaml")),
 	valid("interfaces[].guarantees/valid", del("interfaces.0.guarantees")),
 	invalid("interfaces[].guarantees/invalid", parseError, set("interfaces.0.guarantees.latency", "1s")),
-	invalid("interfaces[].guarantees/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("dependencies.1.requires")),
+	invalid("interfaces[].guarantees/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
 	valid("interfaces[].guarantees.profile/valid", del("interfaces.0.guarantees.profile")),
 	invalid("interfaces[].guarantees.profile/invalid", schemaViolation, set("interfaces.0.guarantees.profile", "2")),
 	valid("interfaces[].guarantees.profile=1", set("interfaces.0.guarantees.profile", "1")),
@@ -166,13 +166,16 @@ var fieldCoverageCases = []fcCase{
 	invalid("interfaces[].guarantees.idempotent/invalid", schemaViolation, set("interfaces.0.guarantees.idempotent", "yes")),
 	valid("interfaces[].guarantees.timeout/valid", set("interfaces.0.guarantees.timeout", "250ms")),
 	invalid("interfaces[].guarantees.timeout/invalid", schemaViolation, set("interfaces.0.guarantees.timeout", "-1s")),
+	valid("interfaces[].compatibilityEpoch/valid", set("interfaces.0.compatibilityEpoch", 3)),
+	invalid("interfaces[].compatibilityEpoch/invalid", schemaViolation, set("interfaces.0.compatibilityEpoch", -1)),
+	invalid("interfaces[].compatibilityEpoch/needs-2.2", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
 	valid("interfaces[].visibility/valid", del("interfaces.0.visibility")),
 	invalid("interfaces[].visibility/invalid", schemaViolation, set("interfaces.0.visibility", "private")),
 	valid("interfaces[].visibility=public", set("interfaces.0.visibility", "public")),
 	valid("interfaces[].visibility=internal", set("interfaces.0.visibility", "internal")),
 	valid("interfaces[].lifecycle/valid", del("interfaces.0.lifecycle")),
 	invalid("interfaces[].lifecycle/invalid", schemaViolation, set("interfaces.0.lifecycle", map[string]any{})),
-	invalid("interfaces[].lifecycle/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
+	invalid("interfaces[].lifecycle/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
 	valid("interfaces[].lifecycle.deprecated/valid", set("interfaces.0.lifecycle.deprecated", "2025-12-01")),
 	invalid("interfaces[].lifecycle.deprecated/invalid", "INVALID_INTERFACE_LIFECYCLE", set("interfaces.0.lifecycle.deprecated", "2026-1-15")),
 	valid("interfaces[].lifecycle.sunset/valid", del("interfaces.0.lifecycle.sunset")),
@@ -227,7 +230,7 @@ var fieldCoverageCases = []fcCase{
 	invalid("dependencies[].external/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish"), del("checks"), set("dependencies.0.external", true)),
 	valid("dependencies[].requires/valid", del("dependencies.1.requires")),
 	invalid("dependencies[].requires/invalid", unmet, set("dependencies.1.requires.0.dedupeWindow", "1h")),
-	invalid("dependencies[].requires/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees")),
+	invalid("dependencies[].requires/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees")),
 	valid("dependencies[].requires[]/valid", set("dependencies.1.requires.1", map[string]any{"interface": "events", "idempotent": true})),
 	invalid("dependencies[].requires[]/invalid", parseError, set("dependencies.1.requires.0", "events")),
 	valid("dependencies[].requires[].interface/valid", set("dependencies.1.requires.0.interface", "events")),
@@ -469,6 +472,7 @@ interfaces:
       retention: 24h
       idempotent: true
       timeout: 2s
+    compatibilityEpoch: 1
 configurations:
   - name: app
     schema: configuration/schema.json

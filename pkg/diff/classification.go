@@ -70,6 +70,10 @@ var rules = map[classificationKey]Classification{
 	{"interfaces.type", Modified}:       Breaking,
 	{"interfaces.ref", Modified}:        PotentialBreaking,
 	{"interfaces.visibility", Modified}: PotentialBreaking,
+	// A compatibilityEpoch change is the provider saying the interface's
+	// behavior changed incompatibly where no spec diff can see it. Lowering it
+	// is no undo: consumers that adapted to the raised epoch break in turn.
+	{"interfaces.compatibilityEpoch", Modified}: Breaking,
 
 	// Interface lifecycle (2.2): notices, except a sunset moved earlier, which
 	// diffLifecycle downgrades to NonBreaking when it moves later instead.

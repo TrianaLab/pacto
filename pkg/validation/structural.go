@@ -132,16 +132,18 @@ func ValidateStructural(data any) ValidationResult {
 }
 
 // needs22 records a NEEDS_PACTO_2_2 error for each field only pactoVersion 2.2
-// has (an interface lifecycle or guarantees and a dependency requires) in a 2.0
-// or 2.1 contract, in place of the older schema's generic "not allowed", and
-// returns data without them for that schema to check the rest. Every entry
-// stays in place so its other errors keep their index.
+// has (an interface lifecycle, compatibilityEpoch or guarantees and a
+// dependency requires) in a 2.0 or 2.1 contract, in place of the older schema's
+// generic "not allowed", and returns data without them for that schema to
+// check the rest. Every entry stays in place so its other errors keep their
+// index.
 func needs22(result *ValidationResult, data any) any {
 	const fix = `; set pactoVersion: "2.2", which keeps every older field`
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	out := maps.Clone(m)
 	for _, s := range []struct{ list, key, what string }{
 		{"interfaces", "lifecycle", "an interface lifecycle needs"},
+		{"interfaces", "compatibilityEpoch", "compatibilityEpoch needs"},
 		{"interfaces", "guarantees", "interface guarantees need"},
 		{"dependencies", "requires", "requires on a dependency needs"},
 	} {

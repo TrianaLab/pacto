@@ -27,8 +27,9 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 Structural failures report `SCHEMA_VIOLATION`. A `"2.0"` contract that uses
 `publish`, `checks`, an external dependency or an `mcp` interface reports `NEEDS_PACTO_2_1` for each
 instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
-`"2.1"` contract that uses an interface `lifecycle` or `guarantees` or a dependency
-`requires` reports `NEEDS_PACTO_2_2` for each: set `pactoVersion: "2.2"`.
+`"2.1"` contract that uses an interface `lifecycle`, `compatibilityEpoch` or
+`guarantees` or a dependency `requires` reports `NEEDS_PACTO_2_2` for each: set
+`pactoVersion: "2.2"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
 `pactoVersion` other than `"2.0"`, `"2.1"` or `"2.2"`, fails before any layer runs and reports

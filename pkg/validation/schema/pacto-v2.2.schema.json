@@ -234,6 +234,11 @@
                 "description": "The longest a call takes to answer, as a duration such as 2s. A shorter timeout is stronger. For request/reply interfaces."
               }
             }
+          },
+          "compatibilityEpoch": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Raise it when the interface's behavior changes incompatibly while its spec stays the same, such as an amount switching from cents to euros. pacto diff reports any change to it as breaking. Absent means 0."
           }
         }
       }

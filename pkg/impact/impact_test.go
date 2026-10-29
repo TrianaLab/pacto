@@ -457,6 +457,27 @@ func TestConfidence(t *testing.T) {
 	}
 }
 
+// A raised compatibilityEpoch is a semantic break with every spec unchanged.
+// It alone makes the change BREAKING, and the consumers are named.
+func TestAnalyze_CompatibilityEpochNamesConsumers(t *testing.T) {
+	snap := buildChain(t)
+	iface := func(epoch int) []contract.Interface {
+		return []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto", CompatibilityEpoch: epoch}}
+	}
+	old := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	old.Interfaces = iface(1)
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
+	newC.Interfaces = iface(2)
+
+	res := Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	if res.Classification != "BREAKING" || len(res.BreakingChanges) != 1 || res.BreakingChanges[0].Path != "interfaces.compatibilityEpoch" {
+		t.Fatalf("classification %s, breakingChanges %+v", res.Classification, res.BreakingChanges)
+	}
+	if len(res.Consumers) != 2 || res.Consumers[0].Service != "api-gateway" {
+		t.Errorf("consumers = %+v", res.Consumers)
+	}
+}
+
 func TestAnalyze_PotentialBreakingSeparated(t *testing.T) {
 	dep := func(comp string) contract.Dependency {
 		return contract.Dependency{Name: "redis", Ref: "oci://x/redis", Required: true, Compatibility: comp}

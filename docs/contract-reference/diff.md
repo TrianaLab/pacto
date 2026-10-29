@@ -52,8 +52,9 @@ modification. `service` carries identity only, so the contract has no `image` or
 | `interfaces.guarantees` | Removed | **BREAKING** |
 | `interfaces.guarantees.weakened` | Modified | **BREAKING** |
 | `interfaces.guarantees.strengthened` | Modified | NON_BREAKING |
+| `interfaces.compatibilityEpoch` | Modified (raised or lowered) | **BREAKING** |
 
-Interfaces are keyed by `name`. Deprecating an interface changes nothing a
+Interfaces are keyed by `name`. The `type` enum is `openapi`/`asyncapi`/`grpc`/`mcp`, and the spec pointer is `ref`. Deprecating an interface changes nothing a
 consumer calls, so it is a notice. An earlier sunset shortens the time consumers
 have to migrate. Removing an interface before its sunset is still **BREAKING**,
 and the reason says that the sunset has not been reached.
@@ -62,7 +63,9 @@ Each [guarantee](sections.md#guarantees) is
 compared on its own: a longer `dedupeWindow` or `retention`, a shorter
 `timeout`, `global` ordering in place of `per-key` and a new `idempotent: true`
 are stronger. A `delivery` change is weaker in both directions, because a
-consumer relying on the old value breaks. The `type` enum is `openapi`/`asyncapi`/`grpc`, and the spec pointer is `ref`.
+consumer relying on the old value breaks.
+
+A [`compatibilityEpoch`](sections.md#compatibility-epoch) change marks a behavior change that no spec diff can see.
 
 ## Configurations
 

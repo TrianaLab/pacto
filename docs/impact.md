@@ -33,6 +33,11 @@ flowchart LR
     IMPACT --> OWNERS["Owners to notify"]
 ```
 
+A change can break consumers while every spec stays identical, such as an
+amount switching from cents to euros. Raise the interface's
+[`compatibilityEpoch`](contract-reference/sections.md#compatibility-epoch) and
+the diff classifies the revision `BREAKING`, so its consumers are listed.
+
 The diff is computed once over the old→new revision. The changed service is then
 looked up in the graph and traversed in the **dependents** direction, direct and
 transitive. Each dependent becomes an *affected consumer*, annotated with the

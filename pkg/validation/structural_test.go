@@ -544,6 +544,50 @@ func TestValidateStructural_V21Publish(t *testing.T) {
 	}
 }
 
+// TestNeeds22Epoch: a 2.0 or 2.1 contract that declares an interface's
+// compatibilityEpoch is told to set pactoVersion 2.2, the rest of the contract
+// is still checked, and a 2.2 contract accepts the field.
+func TestNeeds22Epoch(t *testing.T) {
+	for _, version := range []string{"2.0", "2.1"} {
+		data := map[string]any{
+			"pactoVersion": version,
+			"service":      map[string]any{"name": "svc", "version": "1.0.0"},
+			"interfaces": []any{
+				map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml", "compatibilityEpoch": 2},
+				map[string]any{"name": "rpc", "type": "grpc", "ref": "api.proto", "visibility": "nonsense"},
+			},
+		}
+		var got []string
+		for _, e := range ValidateStructural(data).Errors {
+			got = append(got, e.Code+" "+e.Path)
+		}
+		joined := strings.Join(got, "\n")
+		for _, want := range []string{"NEEDS_PACTO_2_2 interfaces.0.compatibilityEpoch", "SCHEMA_VIOLATION interfaces.1.visibility"} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("%s: missing %q in:\n%s", version, want, joined)
+			}
+		}
+		if len(got) != 2 {
+			t.Fatalf("%s: expected only those two errors:\n%s", version, joined)
+		}
+		if data["interfaces"].([]any)[0].(map[string]any)["compatibilityEpoch"] != 2 {
+			t.Fatal("the caller's data was changed")
+		}
+	}
+	ok := map[string]any{
+		"pactoVersion": "2.2",
+		"service":      map[string]any{"name": "svc", "version": "1.0.0"},
+		"interfaces":   []any{map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml", "compatibilityEpoch": 2}},
+	}
+	if res := ValidateStructural(ok); !res.IsValid() {
+		t.Fatalf("a 2.2 contract with an epoch: %+v", res.Errors)
+	}
+	ok["interfaces"] = []any{map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml", "compatibilityEpoch": -1}}
+	if res := ValidateStructural(ok); res.IsValid() {
+		t.Fatal("a negative epoch must be refused")
+	}
+}
+
 // TestNeeds21: a 2.0 contract using what only 2.1 has is told to set
 // pactoVersion 2.1, not given the schema's generic "not allowed", and the rest
 // of the contract is still checked.

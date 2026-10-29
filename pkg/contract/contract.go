@@ -206,6 +206,10 @@ type Interface struct {
 	Lifecycle *InterfaceLifecycle `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
 	// Guarantees is the behavior consumers may rely on (pactoVersion 2.2).
 	Guarantees *Guarantees `yaml:"guarantees,omitempty" json:"guarantees,omitempty"`
+	// CompatibilityEpoch (2.2) is raised when the interface's behavior changes
+	// incompatibly while its spec stays the same, such as an amount switching
+	// from cents to euros. Absent is 0.
+	CompatibilityEpoch int `yaml:"compatibilityEpoch,omitempty" json:"compatibilityEpoch,omitempty"`
 }
 
 // InterfaceLifecycle is the retirement schedule of a deprecated interface.

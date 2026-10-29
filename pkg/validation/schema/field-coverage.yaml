@@ -649,6 +649,22 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.timeout/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.timeout/invalid
       e2e: []
+  interfaces[].compatibilityEpoch:
+    meaning: Raised when the interface's behavior changes incompatibly while its spec stays the same; absent means 0.
+    runtime: static-only
+    evidence: 'none: a behavior change no spec shows has no runtime counterpart'
+    rule: 'schema: integer, minimum 0, pactoVersion 2.2; pacto diff reports any change to it as BREAKING'
+    outcomes: SCHEMA_VIOLATION, NEEDS_PACTO_2_2
+    limitations: validation sees one contract, so a lowered epoch is caught by pacto diff only
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds22Epoch
+      - pkg/diff/interfaces_test.go:TestDiffInterfaces_CompatibilityEpoch
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/needs-2.2
+      e2e: []
   interfaces[].visibility:
     meaning: Intended audience of the interface; omitted means internal (the schema default, applied by the engine).
     runtime: partial

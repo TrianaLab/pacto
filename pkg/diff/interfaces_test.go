@@ -108,6 +108,41 @@ func TestDiffInterfaces_VisibilityChanged(t *testing.T) {
 	}
 }
 
+// A compatibilityEpoch change marks a behavior change no schema shows, so it
+// is BREAKING whichever way it moves, and the reason names the interface.
+func TestDiffInterfaces_CompatibilityEpoch(t *testing.T) {
+	tests := []struct {
+		name     string
+		old, new int
+		reason   string
+	}{
+		{"declared", 0, 1, "interface " + minimalContract().Interfaces[0].Name + ": compatibilityEpoch raised from 0 to 1: its behavior changed incompatibly"},
+		{"raised", 1, 2, "compatibilityEpoch raised from 1 to 2"},
+		{"lowered", 2, 1, "compatibilityEpoch lowered from 2 to 1: an epoch only goes up"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old, new := minimalContract(), minimalContract()
+			old.Interfaces[0].CompatibilityEpoch = tt.old
+			new.Interfaces[0].CompatibilityEpoch = tt.new
+			changes := diffInterfaces(old, new, nil, nil)
+			if len(changes) != 1 {
+				t.Fatalf("expected one change, got %+v", changes)
+			}
+			c := changes[0]
+			if c.Path != "interfaces.compatibilityEpoch" || c.Type != Modified || c.Classification != Breaking {
+				t.Errorf("got %+v", c)
+			}
+			if !strings.Contains(c.Reason, tt.reason) {
+				t.Errorf("reason %q does not contain %q", c.Reason, tt.reason)
+			}
+		})
+	}
+	if changes := diffInterfaces(minimalContract(), minimalContract(), nil, nil); len(changes) != 0 {
+		t.Errorf("unchanged epoch: %+v", changes)
+	}
+}
+
 func TestDiffInterfaces_RefChanged(t *testing.T) {
 	old := minimalContract()
 	old.Interfaces[0].Ref = "interfaces/old.yaml"

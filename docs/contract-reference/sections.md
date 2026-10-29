@@ -11,7 +11,9 @@ dependencies and state are in
 
 The contract specification version: `"2.0"`, `"2.1"` or `"2.2"`. 2.1 adds
 [`publish`](publish.md), [`checks`](checks.md), external dependencies and the `mcp` interface type.
-2.2 adds the [interface lifecycle](#interface-lifecycle).
+2.2 adds the [interface lifecycle](#interface-lifecycle), an interface's
+[`compatibilityEpoch`](#compatibility-epoch) and [`guarantees`](#guarantees), and
+[`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
 Every 2.0 contract is also valid under 2.1, and every 2.1 contract under 2.2.
 A 2.1 contract needs Pacto core 4.1.0 or later and operator 6.1.0 or later;
 see [Versions](../installation.md#versions).
@@ -111,6 +113,7 @@ Declares the service's communication boundaries. Optional: a service with no net
 | `visibility` | string | No | Enum: `public`, `internal`. Default: `internal` |
 | `lifecycle` | object | No | 2.2. See [interface lifecycle](#interface-lifecycle) |
 | `guarantees` | object | No | 2.2. Behavior consumers may rely on. See [Guarantees](#guarantees) |
+| `compatibilityEpoch` | integer | No | 2.2. Minimum `0`. Default: `0`. See [Compatibility epoch](#compatibility-epoch) |
 
 ### Interface types
 
@@ -188,6 +191,25 @@ A consumer lists what it relies on in
 [`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
 [`pacto diff`](diff.md#interfaces) classifies a removed or weakened guarantee as
 breaking.
+
+### Compatibility epoch
+
+Raise `compatibilityEpoch` when an interface's behavior changes incompatibly
+while its spec stays the same, for example when an `amount` field switches from
+cents to euros. `pacto diff` reports the change as `BREAKING` with the
+interface's name in the reason, so `pacto impact` lists the consumers to review.
+
+```yaml
+interfaces:
+  - name: payments-api
+    type: openapi
+    ref: interfaces/openapi.yaml
+    compatibilityEpoch: 2
+```
+
+An epoch only goes up. Lowering it is also `BREAKING`, because consumers that
+adapted to the higher epoch break in turn. A `"2.0"` or `"2.1"` contract that
+sets it reports `NEEDS_PACTO_2_2`.
 
 ### Interfaces at runtime
 
