@@ -77,35 +77,44 @@ previous revision, with the rules your platform sets for every contract
 (policies) and with what is deployed. A CI job, a controller or an agent needs
 that comparison before it concludes anything.
 
-## Principles
+## Tenets
 
-- **Operational knowledge is a first-class artifact.** It deserves the rigor
-  already given to API specs and container images: authored, versioned,
-  validated, distributed and verified.
+Pacto tells you which services a change breaks before it ships, and checks
+what is actually running. These tenets decide its design questions. They are
+in priority order: when two conflict, the earlier one wins.
 
-- **Declaration is separate from observation.** The contract is stable author
-  intent. Runtime state is external to it, gathered by collectors (agents that
-  watch running services) and evaluated against it. Pacto keeps observations
-  out of the declaration, so one contract can be validated at authoring time,
-  diffed in CI and checked against a running system.
-
-- **Reference existing schemas.** The interfaces a service exposes already
-  have schemas, each owned by the system that maintains it. A contract
-  references those schemas. A reference stays correct when the original
-  changes, while a copy goes stale.
-
-- **Distributed through existing infrastructure.** Contracts are OCI artifacts.
-  They travel through the registries, the auth and the tooling that already
-  carry container images.
-
-- **Act only on what each change can show.** The opt-in delivery component
-  moves a version on its own only when this change's compatibility, its
-  impact on the consumers and its checks back it. A
-  [Stage](https://pacto.run/latest/glossary/#stage) earns the right to
-  move on its own one level at a time, and a person confirms each level. Each
-  change still needs its own evidence, whatever the track record. When Pacto
-  cannot see enough, it holds the change and asks a person on the teams
-  concerned.
+1. **Every feature answers who a change breaks.** A feature belongs in Pacto
+   when it makes that answer more accurate, available earlier or easier to
+   act on.
+2. **A confirmed contradiction is an error. A missing observation is
+   Unknown.** Pacto reports a pass only for what it checked, and says so when
+   it cannot see.
+3. **The contract describes the service you already run.** Pacto works with
+   existing services in any language, and adopting it never requires a
+   change to service code.
+4. **Declaration stays separate from observation.** The contract records
+   author intent. Collectors gather runtime state, and Pacto evaluates that
+   state against the contract, so one contract is validated at authoring
+   time, compared in CI and checked against a running system.
+5. **Every dependency states what it relies on.** A dependency names the
+   provider, the versions it accepts and the behavior it needs from it. CI
+   can evaluate a range, and a bare edge gives it nothing to evaluate.
+6. **Compatibility is computed from the contract.** The diff rules, the
+   version ranges and the lock decide whether a change is compatible. A
+   version number is a claim that Pacto checks.
+7. **Contracts travel through existing infrastructure.** Each revision is an
+   immutable OCI artifact, carried by the registries and the auth that
+   already move container images. A contract references the schemas its
+   interfaces already have, so it stays correct when they change.
+8. **The core observes. Acting is opt-in.** The core never changes what runs.
+   The opt-in delivery component moves a version only when this change's
+   compatibility, its impact on the consumers and its checks back it. A
+   [Stage](https://pacto.run/latest/glossary/#stage) earns the right to move
+   on its own one level at a time, and a person confirms each level. When
+   Pacto cannot see enough, it holds the change and asks a person on the
+   teams concerned.
+9. **People, CI and agents take the same path.** They get the same checks,
+   the same answer and the same next step.
 
 ## Agents take the same path
 
