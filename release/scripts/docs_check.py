@@ -972,7 +972,7 @@ def comparison_review(text: str, today: datetime.date) -> tuple[str, str]:
     if not m:
         return f"{COMPARISON} has no 'Reviewed on YYYY-MM-DD.' line", ""
     try:
-        reviewed = datetime.date.fromisoformat(m.group(1))
+        reviewed = datetime.datetime.strptime(m.group(1), "%Y-%m-%d").date()
     except ValueError:
         return f"{COMPARISON} review date {m.group(1)!r} is not YYYY-MM-DD", ""
     age = (today - reviewed).days

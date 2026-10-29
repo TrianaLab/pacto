@@ -137,6 +137,7 @@ cases = {
     "stale": "# T\n\nReviewed on 2026-01-01. More.\n",
     "missing": "# T\n\nNo date here.\n",
     "garbled": "# T\n\nReviewed on 2026-13-40. More.\n",
+    "compact": "# T\n\nReviewed on 20261029. More.\n",
 }
 out = {k: m.comparison_review(v, today) for k, v in cases.items()}
 out["page"] = m.comparison_review(open(sys.argv[2]).read(), datetime.date.today())
@@ -156,6 +157,7 @@ print(json.dumps(out))
 		"stale":   {false, true},
 		"missing": {true, false},
 		"garbled": {true, false},
+		"compact": {true, false},
 	} {
 		if (got[name][0] != "") != want[0] || (got[name][1] != "") != want[1] {
 			t.Errorf("%s: (error, warning) = %q, want error=%v warning=%v", name, got[name], want[0], want[1])
