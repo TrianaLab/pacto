@@ -265,6 +265,9 @@ const (
 	LimitationSourceStale         = "SOURCE_STALE"
 	LimitationSourcePartial       = "SOURCE_PARTIAL"
 	LimitationUnresolvedDep       = "UNRESOLVED_DEPENDENCY"
+	// LimitationRangeUnsatisfied: a declared dependency resolves to a provider
+	// whose version in the fleet is outside the consumer's compatibility range.
+	LimitationRangeUnsatisfied    = "DEPENDENCY_RANGE_UNSATISFIED"
 	LimitationEvidenceMissing     = "EVIDENCE_MISSING"
 	LimitationSourceRecordInvalid = "SOURCE_RECORD_INVALID"
 	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
@@ -386,7 +389,7 @@ type ServiceRecord struct {
 	Key       ServiceKey        `json:"key"`
 	Domain    string            `json:"domain,omitempty"`
 	Name      string            `json:"name"`
-	Owner     contract.Owner    `json:"owner,omitempty"`
+	Owner     contract.Owner    `json:"owner,omitzero"`
 	Revisions []RevisionKey     `json:"revisions,omitempty"`
 	Targets   []TargetKey       `json:"targets,omitempty"`
 	Labels    map[string]string `json:"labels,omitempty"`
@@ -533,14 +536,18 @@ type TargetRecord struct {
 	// MUTABLE tag/version correlation, not proof). Empty when there is no link;
 	// an ambiguous mutable match yields no link and a REVISION_LINK_AMBIGUOUS
 	// limitation instead. Only an exact link may be presented as authoritative.
-	RevisionMatch string            `json:"revisionMatch,omitempty"`
-	RequestedRef  string            `json:"requestedRef,omitempty"`
-	ResolvedRef   string            `json:"resolvedRef,omitempty"`
-	Digest        string            `json:"digest,omitempty"`
-	Compliance    string            `json:"compliance"`
-	Findings      []finding.Finding `json:"findings,omitempty"`
-	Coverage      *Coverage         `json:"coverage,omitempty"`
-	Readiness     *readiness.Result `json:"readiness,omitempty"`
+	RevisionMatch string `json:"revisionMatch,omitempty"`
+	RequestedRef  string `json:"requestedRef,omitempty"`
+	ResolvedRef   string `json:"resolvedRef,omitempty"`
+	Digest        string `json:"digest,omitempty"`
+	Compliance    string `json:"compliance"`
+	// Owner is the owner the observing source read from the contract it
+	// evaluates (the operator reports it in status.contract.owner). It lets a
+	// fleet with no contract revisions still say who owns the service.
+	Owner     contract.Owner    `json:"owner,omitzero"`
+	Findings  []finding.Finding `json:"findings,omitempty"`
+	Coverage  *Coverage         `json:"coverage,omitempty"`
+	Readiness *readiness.Result `json:"readiness,omitempty"`
 	// ObservedRuntime is the BOUNDED, deterministic projection of the source's raw
 	// observed-runtime map, computed ONCE at Build time (the single unbounded-source
 	// pass) from the untrusted, arbitrarily wide/deep source data. The raw map is not
@@ -610,6 +617,13 @@ type Relationship struct {
 	LockedDigest   string `json:"lockedDigest,omitempty"`
 	LockedVersion  string `json:"lockedVersion,omitempty"`
 	Reason         string `json:"reason,omitempty"`
+	// RangeStatus, for a resolved declared dependency with a compatibility range,
+	// says whether the provider version the fleet holds satisfies that range:
+	// satisfied, unsatisfied or unknown (a range or version semver cannot read, or
+	// provider revisions that disagree). Empty when no range is declared or the
+	// dependency is unresolved. Resolved only means the provider exists; read
+	// this field before saying a dependency is met.
+	RangeStatus string `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
 	// External marks a declared dependency this Pacto system does not deliver:
 	// it is not expected in the fleet, so not resolving is not a gap. Version
 	// is the free-text version an external dependency with no ref declares.

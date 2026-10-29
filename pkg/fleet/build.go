@@ -423,6 +423,9 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 		existing.ResolvedRef = ref
 	}
 	lims = append(lims, mergeTargetLabels(existing, add)...)
+	if existing.Owner.IsEmpty() {
+		existing.Owner = add.Owner
+	}
 	if targetFresher(add, existing) {
 		applyEvaluation(existing, add)
 	}
@@ -1012,6 +1015,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		ResolvedRef:  raw.ResolvedRef,
 		Digest:       raw.Digest,
 		Compliance:   compliance,
+		Owner:        cloneOwner(raw.Owner),
 		Findings:     findings,
 		Coverage:     cloneCoverage(raw.Coverage),
 		Readiness:    cloneReadiness(raw.Readiness),
@@ -1348,10 +1352,23 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 		}
 		claims.add(o)
 	}
+	// No revision declares an owner (a fleet read only from Kubernetes has no
+	// revisions at all): fall back to the owner the observing sources read from
+	// the contract each target runs.
+	if claims.len() == 0 {
+		targets := slices.Sorted(slices.Values(s.Targets))
+		for _, tk := range targets {
+			o := snap.Targets[tk].Owner
+			if s.Owner.IsEmpty() {
+				s.Owner = o
+			}
+			claims.add(o)
+		}
+	}
 	if claims.len() > 1 {
 		return []Limitation{{
 			Code: LimitationOwnerConflict, Source: "fleet",
-			Message: "revisions of " + s.Name + " declare different owners; the service owner is a summary (see per-revision ownership)",
+			Message: "the contracts of " + s.Name + " declare different owners; the service owner is a summary (see the owner on each revision or target)",
 		}}
 	}
 	return nil
@@ -1761,6 +1778,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			snap.forwardDeps[rev.ServiceKey] = appendUnique(snap.forwardDeps[rev.ServiceKey], toSvc)
 			snap.reverseDeps[toSvc] = appendUnique(snap.reverseDeps[toSvc], rev.ServiceKey)
 			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
+			rel.RangeStatus = dependencyRangeStatus(snap, rel)
 			// A contested lock reaches this edge exactly as a missing one does — nil —
 			// so the pin is absent either way and only the reason distinguishes them.
 			// mergeRevisionLock deterministically discards BOTH sides of a lock
@@ -1803,6 +1821,68 @@ func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRe
 			rel.Resolved, rel.ToService, rel.ResolvedRevision = true, target.ServiceKey, target.Key
 		}
 		out = append(out, rel)
+	}
+	return out
+}
+
+// Range statuses of a declared dependency (see [Relationship.RangeStatus]).
+const (
+	RangeSatisfied   = "satisfied"
+	RangeUnsatisfied = "unsatisfied"
+	RangeUnknown     = "unknown"
+)
+
+// CheckRange reports whether version satisfies the compatibility range
+// constraint. Either side empty or unreadable by semver is RangeUnknown: an
+// unreadable range is uncertainty, never a pass or a fail.
+func CheckRange(constraint, version string) string {
+	if constraint == "" || version == "" {
+		return RangeUnknown
+	}
+	rng, err := contract.ParseRange(constraint)
+	if err != nil {
+		return RangeUnknown
+	}
+	ok, err := rng.Check(version)
+	switch {
+	case err != nil:
+		return RangeUnknown
+	case ok:
+		return RangeSatisfied
+	}
+	return RangeUnsatisfied
+}
+
+// dependencyRangeStatus checks a resolved dependency's range against the
+// provider: the locked revision when the lock pins one, otherwise every revision
+// of the provider the fleet holds. Revisions that disagree make it unknown,
+// because the fleet cannot tell which one the consumer reaches.
+func dependencyRangeStatus(snap *FleetSnapshot, rel Relationship) string {
+	if rel.Compatibility == "" {
+		return ""
+	}
+	status := RangeUnknown
+	for i, v := range providerVersions(snap, rel) {
+		st := CheckRange(rel.Compatibility, v)
+		if i > 0 && st != status {
+			return RangeUnknown
+		}
+		status = st
+	}
+	return status
+}
+
+// providerVersions lists the versions a resolved dependency can reach: the
+// locked revision's when the lock pins one, otherwise every revision the
+// provider has in the fleet, in revision order.
+func providerVersions(snap *FleetSnapshot, rel Relationship) []string {
+	revs := snap.Services[rel.ToService].Revisions
+	if rel.ResolvedRevision != "" {
+		revs = []RevisionKey{rel.ResolvedRevision}
+	}
+	out := make([]string, 0, len(revs))
+	for _, rk := range revs {
+		out = append(out, snap.Revisions[rk].Version)
 	}
 	return out
 }

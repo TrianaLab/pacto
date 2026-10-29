@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -255,6 +256,7 @@ type OverviewSummary struct {
 	OtherComplianceTargets    int `json:"otherComplianceTargets"`
 	StaleTargets              int `json:"staleTargets"`
 	UnresolvedRelationships   int `json:"unresolvedRelationships"`
+	UnsatisfiedRanges         int `json:"unsatisfiedRanges"`
 	ObservedOnlyRelationships int `json:"observedOnlyRelationships"`
 	UncontractedCallers       int `json:"uncontractedCallers"`
 	DegradedSources           int `json:"degradedSources"`
@@ -453,6 +455,9 @@ func (q *Query) tallyRelationships(sum *OverviewSummary) {
 			if rel.missing() {
 				sum.UnresolvedRelationships++
 			}
+			if rel.RangeStatus == RangeUnsatisfied {
+				sum.UnsatisfiedRanges++
+			}
 			if rel.ToService != "" {
 				declared[[2]ServiceKey{rel.FromService, rel.ToService}] = true
 			}
@@ -511,7 +516,7 @@ func (q *Query) servicesNeedingAttention() int {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && rel.missing() {
+		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && (rel.missing() || rel.RangeStatus == RangeUnsatisfied) {
 			need[rel.FromService] = true
 		}
 	}
@@ -540,6 +545,7 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		{Label: "Operational targets with unknown compliance", Count: sum.UnknownTargets, View: EntryPointAttention, Category: categoryUnknown, Severity: severityWarning},
 		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid, Severity: severityError},
 		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved, Severity: severityWarning},
+		{Label: "Dependencies outside their accepted range", Count: sum.UnsatisfiedRanges, View: EntryPointAttention, Category: categoryOutOfRange, Severity: severityWarning},
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices, Severity: severityInfo},
 		{Label: "Uncontracted callers observed", Count: sum.UncontractedCallers, View: EntryPointServices, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
@@ -564,7 +570,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved"`
+	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -579,6 +585,7 @@ const (
 	categoryInvalid      = "invalid"
 	categoryReadiness    = "readiness"
 	categoryUnresolved   = "unresolved"
+	categoryOutOfRange   = "out-of-range"
 )
 
 // severity levels.
@@ -693,7 +700,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "readiness"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "readiness"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -785,26 +792,38 @@ func (q *Query) revisionAttention(r *ContractRevision) []AttentionItem {
 	return out
 }
 
-// unresolvedAttention reports each unresolved declared dependency against the
-// service that declares it — a navigable service entity, never a dead pseudo-edge.
+// unresolvedAttention reports each unresolved declared dependency, and each one
+// whose provider is in the fleet at a version outside the declared range,
+// against the service that declares it: a navigable service entity, never a
+// dead pseudo-edge.
 func (q *Query) unresolvedAttention() []AttentionItem {
 	var out []AttentionItem
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || !rel.missing() {
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {
 			continue
 		}
-		// A declared dependency's FromService always exists — it is the service
+		// A declared dependency's FromService always exists: it is the service
 		// whose revision declares the dependency.
 		svc := q.snap.Services[rel.FromService]
-		ref := serviceEntityRef(svc)
-		out = append(out, AttentionItem{
-			Entity: ref, Service: string(rel.FromService), Label: svc.Name + " depends on " + rel.To,
-			Severity: severityWarning, Code: "UNRESOLVED_DEPENDENCY", Category: categoryUnresolved,
-			Summary:  "Declared dependency is unresolved",
-			Reason:   "the declared dependency " + rel.To + " is not resolved in the fleet",
-			NextStep: "Publish or resolve the dependency",
-		})
+		item := AttentionItem{Entity: serviceEntityRef(svc), Service: string(rel.FromService), Label: svc.Name + " depends on " + rel.To, Severity: severityWarning}
+		switch {
+		case rel.missing():
+			item.Code, item.Category = "UNRESOLVED_DEPENDENCY", categoryUnresolved
+			item.Summary = "Declared dependency is unresolved"
+			item.Reason = "the declared dependency " + rel.To + " is not resolved in the fleet"
+			item.NextStep = "Publish or resolve the dependency"
+		case rel.RangeStatus == RangeUnsatisfied:
+			versions := providerVersions(q.snap, rel)
+			sort.Strings(versions)
+			item.Code, item.Category = LimitationRangeUnsatisfied, categoryOutOfRange
+			item.Summary = "Dependency version is outside the accepted range"
+			item.Reason = svc.Name + " accepts " + rel.To + " " + rel.Compatibility + ", but the fleet holds " + rel.To + " " + strings.Join(versions, ", ")
+			item.NextStep = "Ship a version of " + rel.To + " inside the range, or widen the range in " + svc.Name + "'s contract"
+		default:
+			continue
+		}
+		out = append(out, item)
 	}
 	return out
 }

@@ -151,7 +151,7 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 			if rel.Provenance == ProvenanceObserved {
 				continue // runtime evidence about the hidden service, not the caller's declaration
 			}
-			rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason = "", "", true, hiddenMessage
+			rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus = "", "", true, hiddenMessage, ""
 		}
 		out.Relationships = append(out.Relationships, rel)
 	}
