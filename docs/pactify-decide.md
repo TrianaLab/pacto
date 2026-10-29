@@ -1,5 +1,8 @@
 # Decide, unfreeze and roll back
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 This page is for the person Pacto asks to decide on a change. It covers
 everything you need to do it. If you set up Pacto for your team, read
 [Pactify a service](pactify.md) first.
@@ -49,8 +52,9 @@ Pacto holds a change and asks a person in these cases:
   past.** That consumer's team approves it first; see
   [Cancel and roll back](integrations/kubernetes/delivery-operations.md#cancel-and-roll-back).
 
-Pacto asks only members of the [owner team](glossary.md#owner-team) of an
-affected service, and skips the person who asked. If an AI agent asked for you
+Pacto asks members of the [owner team](glossary.md#owner-team) of each
+affected service, or the changed service's own team when none of them names
+one, and skips the person who asked. If an AI agent asked for you
 without naming you, leave that change to a teammate; the rule is in
 [Who may approve](integrations/kubernetes/delivery.md#who-may-approve).
 
@@ -153,7 +157,7 @@ command is `propose`. It also clears `HOLD`, so run it on a Stage that is on hol
 only the team that owns the service (the owner team in the contract running on
 the Stage) or break-glass may unfreeze it: a person of another team is refused
 with `NotYourTeam`, even with a cluster-wide approver binding. In the dashboard, the
-**Environments** view has an **Unfreeze** button on each frozen Stage, shown
+**Stages** view has an **Unfreeze** button on each frozen Stage, shown
 only to the people the same rule lets unfreeze it.
 
 ## Roll back by hand

@@ -158,10 +158,12 @@ Artifact Hub failure never leaves a published-but-unrecorded chart or wedges a r
 
 `mike` publishes to `gh-pages`. Only a **release** deploys the docs: it publishes the
 exact released core version and moves the `latest` alias + default (`make docs-deploy`).
-A **non-release** main-push does NOT deploy — `docs.yml` runs a strict build only, to
-validate the docs. So merging a breaking PR before its Version PR releases can never
-mislabel the stable docs or move `latest`. There is no published `next` snapshot in the
+A **non-release** main-push redeploys the released version only when `main` has no
+pending changesets and that version holds `latest` (`docs_publish_gate.sh`). So a
+breaking PR merged before its Version PR can never mislabel the stable docs. There is no published `next` snapshot in the
 version selector; preview unreleased docs locally with `make docs` / `mkdocs serve`.
+
+Each minor release, re-check `docs/comparison.md` and bump its date.
 
 ## Demo bundle immutability
 

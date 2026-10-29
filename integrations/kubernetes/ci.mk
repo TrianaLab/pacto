@@ -69,21 +69,21 @@ helm-template: ## Render chart templates and validate output.
 	helm template pacto-operator charts/pacto-operator --set dashboard.ingress.enabled=true > /dev/null
 	@echo "==> Rendering with metrics disabled..."
 	helm template pacto-operator charts/pacto-operator --set metrics.enabled=false > /dev/null
-	@echo "==> Rendering with delivery, with and without admission policies..."
+	@echo "==> Rendering with delivery, with and without the capability check..."
 	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy --debug > /dev/null
 	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
-		--set delivery.admissionPolicies.enabled=false --set delivery.admissionPolicies.allowUnguarded=true > /dev/null
+		--set delivery.admissionPolicies.skipCapabilityCheck=true > /dev/null
 	@echo "==> Rendering the quickstart profile (bundled zot and Dex)..."
 	helm template pacto-operator charts/pacto-operator -n pacto-operator-system -f charts/pacto-operator/values-quickstart.yaml \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null
 	@echo "==> Delivery refuses to render with no humanGroups by accident..."
 	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null 2>&1
-	@echo "==> Delivery refuses to render unguarded by accident..."
+	@echo "==> Delivery refuses the removed admission policy keys..."
 	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy \
-		--set delivery.admissionPolicies.enabled=false > /dev/null 2>&1
+		--set delivery.admissionPolicies.allowUnguarded=true > /dev/null 2>&1
 
 # The default render is byte-identical to the committed golden (versions
 # normalised, so a release bump does not move it), and turning delivery on

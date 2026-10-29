@@ -96,7 +96,7 @@ func runPromoter(args []string) error {
 	admissionPolicies := fs.String("admission-policies", "",
 		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) the promoter trusts. "+
 			"While one is missing, fails open or is not bound with Deny to every object, no operation is admitted, "+
-			"no approval counts and every Stage is not Ready.")
+			"no approval counts and every Stage is not Ready. Required: with none set, the promoter admits nothing.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)

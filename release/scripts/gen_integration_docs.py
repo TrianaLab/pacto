@@ -1232,6 +1232,10 @@ def gen_compatibility(repo_root: str, k8s: str) -> str:
     out.append(f"| Integration docs | `{units['k8s-docs']['version']}` | `{pacto_core_req}` |")
     out.append("")
     out.append(
+        'Contracts with `pactoVersion: "2.1"` need Pacto core 4.1.0 or later and operator '
+        "6.1.0 or later.\n"
+    )
+    out.append(
         f"This documentation set corresponds to Pacto core `{core}`. The integration's own "
         f"version (currently operator/chart `{units['operator-chart']['version']}`, docs "
         f"`{units['k8s-docs']['version']}`) advances on its own release cadence.\n"

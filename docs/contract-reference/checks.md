@@ -8,7 +8,8 @@ are in [Contract sections](sections.md) and
 ## `checks`
 
 Optional. Needs `pactoVersion: "2.1"`: a 2.0 contract with it fails
-validation with `NEEDS_PACTO_2_1`.
+validation with `NEEDS_PACTO_2_1`. 2.1 needs Pacto core 4.1.0 or later and
+operator 6.1.0 or later; see [Versions](../installation.md#versions).
 
 ```yaml
 pactoVersion: "2.1"

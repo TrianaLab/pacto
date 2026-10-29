@@ -136,6 +136,10 @@ func (p *planner) contract() error {
 		p.existing(data)
 		return nil
 	}
+	for _, c := range p.sc.charts {
+		p.unknown("the Helm chart in %s is not read: render it with helm template --include-crds %s %s > k8s/rendered.yaml and run pacto init again, "+
+			"or add the chart under publish.artifacts as a chart", c, p.r.Service, c)
+	}
 	if p.r.Mode == modeBlank {
 		p.file("pacto.yaml", fmt.Sprintf(blankContract, p.r.Service))
 		p.file("interfaces/openapi.yaml", fmt.Sprintf(blankOpenAPI, p.r.Service))
@@ -321,9 +325,6 @@ func (p *planner) pactified() string {
 	for _, f := range sc.secrets {
 		p.next("%s holds a Secret's values, so it is left out of the published manifests, which anyone who can pull them reads; "+
 			"supply it another way (a SealedSecret, an ExternalSecret or SOPS) and move any other objects in it to their own file", f)
-	}
-	if sc.chart != "" {
-		p.unknown("the Helm chart in %s is not read; add it under publish.artifacts as a chart", sc.chart)
 	}
 	return b.String()
 }

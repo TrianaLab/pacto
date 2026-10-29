@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 
 This puts three programs in `/usr/local/bin`: `pacto`, `pacto-plugin-schema-infer` and `pacto-plugin-openapi-infer`. The script checks each download's SHA-256 checksum first. If a plugin fails to install, the script warns and still installs `pacto`.
 
-Pass `--version` for a specific release: `bash -s -- --version v4.0.0`. The CLI, the charts and the images each have their own version numbers.
+Pass `--version` for a specific release: `bash -s -- --version v4.0.0`. The CLI, the charts and the images each have their own version numbers. See [Versions](#versions).
 
 !!! warning "If the script cannot find a version (GitHub API rate limit)"
     The script asks the GitHub API for the latest version. Without a token GitHub allows 60 requests per hour per IP address, so on a shared network it can fail with `Failed to fetch latest version`. Set `GH_TOKEN` to any GitHub token and run it again:
@@ -61,6 +61,23 @@ make build
 ```
 
 `make build` installs into `$GOBIN` (typically `~/go/bin`) and stamps the version, commit and build date.
+
+## Versions
+
+Pacto uses three version numbers:
+
+| Version | What it versions | Current major |
+|---|---|---|
+| `pactoVersion` | The contract format, set in each `pacto.yaml` | `"2.0"` and `"2.1"` |
+| Pacto core | The `pacto` CLI and the Go library `github.com/trianalab/pacto/v4` | 4.x |
+| Kubernetes integration | The operator, its Helm chart and delivery | 6.x |
+
+The version selector at the top of these docs follows Pacto core.
+
+A contract with `pactoVersion: "2.1"` needs Pacto core 4.1.0 or later and
+operator 6.1.0 or later. Older releases reject it. The integration's
+[version compatibility table](integrations/kubernetes/upgrade.md#version-compatibility)
+lists the current releases.
 
 ## Verify the installation
 

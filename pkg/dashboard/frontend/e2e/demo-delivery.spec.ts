@@ -18,7 +18,7 @@ async function ready(page: Page, hash: string) {
   await expect(page.getByTestId('demo-delivery-start')).toBeVisible({ timeout: T });
 }
 
-/** Propose a promote from the Environments board, as the current person. */
+/** Propose a promote from the Stages board, as the current person. */
 async function promote(page: Page, service: string, version: string) {
   await page.goto('/#/delivery/environments');
   await page.getByRole('button', { name: `Promote ${service} in prod to ${version}` }).click({ timeout: T });

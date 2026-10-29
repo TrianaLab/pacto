@@ -160,7 +160,7 @@ Pacto tool. Inputs and outputs are in the [MCP reference](mcp-reference.md).
 ## Try it
 
 ```text
-You:    Create a pacto contract for a stateful Go HTTP API called user-service
+You:    Create a contract for a stateful Go HTTP API called user-service
         that stores data in PostgreSQL
 Claude: [writes pacto.yaml with an HTTP interface and marks the service as
          keeping data that survives a restart]

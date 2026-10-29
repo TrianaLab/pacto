@@ -663,18 +663,16 @@ delivery:
   # OCIRepository with `spec.insecure: true` is read over HTTP anyway.
   insecureRegistries: []
 
+  # The chart always installs the delivery ValidatingAdmissionPolicies (Kubernetes 1.30 or
+  # later): an operation's actor is the requesting user, only the promoter may set witnessed,
+  # override and unfreeze are limited to their raisers, cancel is refused once the pointer moved
+  # and an agent cancels only its own operations, approvals come from people and never change,
+  # spec.ref.digest is edited only by the promoter or break-glass, and on objects labelled
+  # delivery.pacto.trianalab.io/apply-ref the label, the source and what a Kustomization applies
+  # change only by break-glass, and only the promoter writes the status of a Stage or an Operation.
+  # The promoter admits no operation and counts no approval while any of them is missing or does
+  # not deny.
   admissionPolicies:
-    # -- Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's
-    # actor is the requesting user, only the promoter may set witnessed, override and
-    # unfreeze are limited to their raisers, cancel is refused once the pointer moved
-    # and an agent cancels only its own operations,
-    # approvals come from people and never change, spec.ref.digest is edited only by the
-    # promoter or break-glass, and on objects labelled delivery.pacto.trianalab.io/apply-ref
-    # the label, the source and what a Kustomization applies change only by break-glass,
-    # and only the promoter writes the status of a Stage or an Operation.
-    # The promoter admits no operation and counts no approval while any of them is
-    # missing or does not deny.
-    enabled: true
     # -- Users besides break-glass that may create or delete an OCIRepository, Kustomization
     # or Application labelled delivery.pacto.trianalab.io/apply-ref: the GitOps controllers
     # that apply them. Deleting one and creating it again is an edit, so a namespace editor
@@ -682,11 +680,9 @@ delivery:
     gitopsUsers:
       - system:serviceaccount:flux-system:kustomize-controller
       - system:serviceaccount:argocd:argocd-application-controller
-    # -- Render without the policies (enabled=false) anyway, and skip the chart's
-    # Kubernetes 1.30 and ValidatingAdmissionPolicy API check. Without the policies
-    # anyone who may create an Operation or an Approval can claim to be anyone, so
-    # the chart refuses either unless this is set.
-    allowUnguarded: false
+    # -- Skip the chart's Kubernetes 1.30 and ValidatingAdmissionPolicy API check (for `helm lint`
+    # or a `helm template` without `--api-versions`). The policies still render.
+    skipCapabilityCheck: false
 
   # -- Pod securityContext of the promoter and the recorder (defaults to `global.podSecurityContext`)
   podSecurityContext: {}

@@ -1,5 +1,8 @@
 # Ladder reference
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 This page lists the rules behind [the autonomy ladder](autonomy.md): its
 fields, blockers and commands.
 

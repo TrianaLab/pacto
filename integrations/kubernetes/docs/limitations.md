@@ -8,8 +8,9 @@ can prove it, and it leaves the workloads it watches unchanged.
 
 The operator never modifies the workloads it observes: it does not restart pods,
 edit Deployments or change anything it was pointed at. Observation is read and
-report only. Deciding which version runs is [Pacto delivery](delivery.md), a
-separate opt-in chart; installing the operator grants none of it.
+report only. Deciding which version runs is [Pacto delivery](delivery.md), an
+opt-in component of the same chart (`delivery.enabled`); installing the
+operator without it grants none of it.
 
 The operator does write to its own components. At chart defaults it manages the Pacto
 dashboard for you, which means creating a Deployment, Service, ServiceAccount,
@@ -151,7 +152,8 @@ only violations they see. These things stay out of reach:
   miss an exposure; it never invents one.
 - **Kernel requirements.** A node without BTF (the kernel type information
   the agent needs) reports `Failed`, which turns its pods' interface checks
-  into `COLLECTION_FAILED`.
+  into `COLLECTION_FAILED`. A kernel older than 5.11 can report it too, since
+  the agent pod has no `SYS_RESOURCE`.
 - **Docker Compose and bare hosts.** The node agent is the Kubernetes way to
   run `pacto agent`. On a Docker host or a server, run
   [`pacto agent`](../../runtime-agent.md) yourself; the cluster-only checks

@@ -85,5 +85,5 @@ your own whose contract is not published yet, so it shows as unresolved until it
 is. The contract schema and the `DEPENDENCY_REF_REQUIRED` message say the same.
 
 The MCP server instructions, `pacto_schema` and `pacto --help` now describe
-Pacto as an operational contract system with optional delivery, and
-`pacto_schema` returns how to describe an AI agent as a service.
+what a contract holds and say delivery is opt-in, and `pacto_schema` returns
+how to describe an AI agent as a service.

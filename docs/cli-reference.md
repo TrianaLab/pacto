@@ -44,11 +44,14 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
 
 ## Exit codes
 
-Pacto exits `0`, `1` or, for `pacto impact` only, `2`. `0` means the command
-produced its result and the result was acceptable. `1` means the check failed
-or the command could not run, so **the exit status alone cannot distinguish
-"the check failed" from "the command could not run"**. `2` means `pacto impact`
-could not show that a breaking change is safe.
+Pacto exits `0`, `1` or `2`, apart from `pacto run` (below). `0` means the
+command produced its result and the result was acceptable. `1` means the check
+failed or the command could not run, so **the exit status alone cannot
+distinguish "the check failed" from "the command could not run"**. `2` means
+`pacto impact` could not show that a breaking change is safe, and no other
+command exits `2` for its own result. `pacto run` exits with the exit code of
+the command it wraps, whatever it is, or `1` when that command exits `0` and
+the final verdict fails `--fail-on`.
 
 | Exits `1` | Exits `0` |
 | --- | --- |
@@ -109,7 +112,7 @@ Runs until interrupted. Watches TCP listeners and outbound connection outcomes w
 
 --sink local and --sink evidence check workloads against their contracts on this host. The workloads come from --bindings (a YAML list of {match: {unit|container|cgroup|session|pid}, contract, host, interfaces: {name: port}, dependencies: {name: host:port}}) and with --docker from running containers labelled dev.pacto.contract=<dir|oci ref>, dev.pacto.bind.&lt;interface&gt;=&lt;port&gt; and dev.pacto.dep.&lt;dependency&gt;=<host:port>. Interfaces and dependencies are judged from the kernel's view, health and metrics capabilities by probing the bound port; a negative is reported once it persists for --stabilization-window. --sink local prints every target's compliance and findings each interval in --output-format; --sink evidence signs each target's evidence and sends it to an Evidence Server, which needs contracts pinned as oci://...@sha256:&lt;digest&gt;. Envelope sequences start at the wall clock in nanoseconds and count up, so they keep increasing across restarts as long as the clock does.
 
-Needs Linux 5.8 or later with BTF, root (or BPF, PERFMON and SYS_PTRACE) and the host's /proc and cgroupfs.
+Needs Linux 5.11 or later with BTF, or 5.8 or later with BTF and root or CAP_SYS_RESOURCE; root (or BPF, PERFMON and SYS_PTRACE); and the host's /proc and cgroupfs.
 
 ```
 pacto agent [flags]
@@ -177,7 +180,7 @@ It visualizes the same contracts the CLI manages and the operator verifies,
 organised around four workflows: an operational Overview, the Services
 inventory, the Operational Graph and Change analysis.
 
-Each positional argument is a pacto source reference:
+Each positional argument is a contract source reference:
   - oci://registry/repo  → OCI registry source (can be repeated)
   - ./path/to/dir        → local filesystem source (at most one)
 
@@ -977,6 +980,8 @@ The answer ends in a release gate, and the exit status follows it:
   2  unverified: the change is BREAKING and nothing is shown to block it, but the answer cannot clear it: the answer is partial, or consumers depend on the service and none is shown to be safe. A run over --local bundles alone knows no targets, so a BREAKING change with consumers exits 2.
 A command that could not run also exits 1, with nothing on stdout. Add --target-state (or a live source) so the gate can tell deployed impact apart.
 
+Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url and --traces. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
+
 ```
 pacto impact <old> <new> [flags]
 ```
@@ -1513,7 +1518,7 @@ The command runs in a process group of its own, so a Ctrl-C reaches it once. Whe
 
 Pacto leaves the command's stdin, stdout and stderr untouched. Rounds go to stderr, each in a single write, or with --report to a file: the file is truncated when the run starts and every round is appended to it in a single write, so a reader following it sees whole rounds (with json, one object per line).
 
-With root (or BPF, PERFMON, SYS_PTRACE and write access to its own cgroup) on Linux 5.8 or later with BTF and cgroup v2, the command starts inside a new cgroup pacto-run-&lt;pid&gt; and an eBPF program sees every listener and every connection outcome of the tree, failures included (collector pacto-run+ebpf). Otherwise it falls back to polling /proc every second and says so (collector pacto-run): listeners are seen in full, so a missing one is still confirmed, but a connection is seen only while it is open at a poll and a failed connection never, so a dependency is reported reachable or unknown, never unreachable. If the program attached but the command cannot start inside the new cgroup, the run falls back to polling too and says so. Elsewhere than Linux the command runs unobserved and every runtime assertion is unsupported.
+With root (or BPF, PERFMON, SYS_PTRACE and write access to its own cgroup) on Linux 5.11 or later with BTF and cgroup v2 (or 5.8 or later with BTF and root or CAP_SYS_RESOURCE), the command starts inside a new cgroup pacto-run-&lt;pid&gt; and an eBPF program sees every listener and every connection outcome of the tree, failures included (collector pacto-run+ebpf). Otherwise it falls back to polling /proc every second and says so (collector pacto-run): listeners are seen in full, so a missing one is still confirmed, but a connection is seen only while it is open at a poll and a failed connection never, so a dependency is reported reachable or unknown, never unreachable. If the program attached but the command cannot start inside the new cgroup, the run falls back to polling too and says so. Elsewhere than Linux the command runs unobserved and every runtime assertion is unsupported.
 
 A negative is reported once it persists for --stabilization-window. Health and metrics capabilities are probed on --host at their bound interface's port. With --evidence-url every round is also signed and sent to an Evidence Server, which needs the contract pinned as oci://...@sha256:&lt;digest&gt;.
 
@@ -1665,11 +1670,15 @@ pacto validate [dir | oci://ref] [flags]
 
   # Also check the readiness gate (fail if score < minScore)
   pacto validate --readiness my-service
+
+  # Also check every dependency against this contract's policies
+  pacto validate --closure my-service
 ```
 
 **Flags:**
 
 ```
+      --closure              also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved. Fetches each dependency once
   -h, --help                 help for validate
       --readiness            also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)

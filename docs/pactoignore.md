@@ -92,6 +92,7 @@ The same rule applies to `configurations[].schema`, `policies[].schema` and any 
 
 - **`pacto pack`**: files matching ignore patterns are excluded from the tar.gz archive
 - **`pacto push`**: files matching ignore patterns are excluded from the OCI artifact
+- **`pacto init`**: files matching ignore patterns are not read when it drafts a contract from the folder, so none of them lands in the `manifests` artifact's build command
 
 Every command that loads a local bundle reads through the ignore filter, so ignored files are invisible to all of them. The commands that validate the bundle (`validate`, `pack`, `push`) hard-fail on a missing referenced file, while `graph`, `diff`, `doc` and `explain` do not see the file and produce incomplete output. Only `pacto pack` and `pacto push` additionally package the filtered file set into the shipped artifact.
 

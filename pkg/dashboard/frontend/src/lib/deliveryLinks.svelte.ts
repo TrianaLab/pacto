@@ -1,7 +1,7 @@
 /**
  * Where a delivery page links a service name. A service the fleet knows opens its
  * fleet page. One the fleet does not know (a service with no contract yet, or the
- * demo's delivery story) opens its row on Environments instead of a fleet page
+ * demo's delivery story) opens its row on Stages instead of a fleet page
  * that only says "Not found".
  */
 import { api } from './api.ts';

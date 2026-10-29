@@ -23,6 +23,7 @@ import (
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
+	admissionv1 "k8s.io/api/admissionregistration/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -96,6 +97,16 @@ func TestPerfPromoter(t *testing.T) {
 			"metadata": map[string]any{"name": fmt.Sprintf("perf-%d", i)}}}))
 	}
 	must(t, c.Create(ctx, &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": ns}}}))
+	// The promoter admits nothing without an enforcing admission policy, so
+	// the run installs one that matches nothing the burst writes.
+	fail := admissionv1.Fail
+	must(t, c.Create(ctx, &admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"},
+		Spec: admissionv1.ValidatingAdmissionPolicySpec{FailurePolicy: &fail,
+			MatchConstraints: &admissionv1.MatchResources{ResourceRules: []admissionv1.NamedRuleWithOperations{{
+				RuleWithOperations: admissionv1.RuleWithOperations{Operations: []admissionv1.OperationType{admissionv1.Delete},
+					Rule: admissionv1.Rule{APIGroups: []string{""}, APIVersions: []string{"v1"}, Resources: []string{"configmaps"}}}}}},
+			Validations: []admissionv1.Validation{{Expression: "true"}}}}))
+	must(t, c.Create(ctx, guardBinding()))
 	p := pactoObj("payments", "payments", c1, "Compliant", 2)
 	p.Object["spec"] = map[string]any{"contractRef": map[string]any{"oci": "reg.example/pactos/payments@" + c1}}
 	status := p.Object["status"]
@@ -159,9 +170,9 @@ func TestPerfPromoter(t *testing.T) {
 	policy := delivery.ClassPolicy{ControllerUser: promoterSA, AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}
 	gates := NewGates(cluster, map[string]delivery.Gate{"mira": &fakeHealth{result: delivery.Pass}})
 	must(t, (&OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Policy: policy,
-		Workers: 4, Gates: gates, Now: time.Now, Poll: 3 * time.Second}).SetupWithManager(mgr))
+		Workers: 4, Gates: gates, Now: time.Now, Poll: 3 * time.Second, AdmissionPolicies: []string{"pd-operation"}}).SetupWithManager(mgr))
 	must(t, (&StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Policy: policy,
-		Workers: 4, ClusterID: "cid", Gates: gates, Now: time.Now, Resync: DefaultResync}).SetupWithManager(mgr))
+		Workers: 4, ClusterID: "cid", Gates: gates, Now: time.Now, Resync: DefaultResync, AdmissionPolicies: []string{"pd-operation"}}).SetupWithManager(mgr))
 	go func() { _ = mgr.Start(ctx) }()
 	if !mgr.GetCache().WaitForCacheSync(ctx) {
 		t.Fatal("the cache never synced")

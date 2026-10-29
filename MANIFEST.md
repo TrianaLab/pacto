@@ -19,8 +19,8 @@ the evidence runs out.
 
 ## What GitlessOps means
 
-GitlessOps sets which version runs where from signed artifacts in your
-registry and from evidence. Your code and manifests stay in git. GitlessOps is
+GitlessOps means signed artifacts in your registry and evidence decide which
+version runs where, while your code and manifests stay in git. GitlessOps is
 three principles, and each one holds only under its stated condition:
 
 1. **Desired versions are immutable artifacts in a registry.** Every version
@@ -106,6 +106,27 @@ that comparison before it concludes anything.
   change still needs its own evidence, whatever the track record. When Pacto
   cannot see enough, it holds the change and asks a person on the teams
   concerned.
+
+## Agents take the same path
+
+An agent, like any automation, reaches its goal by whatever path is open to
+it. A golden path it can skip protects little. Pacto gives agents building
+blocks that it checks and, with the recorder on, records. Those blocks are the
+only way Pacto makes a change.
+
+Every change Pacto makes goes through the same checks for its type and the
+same admission policies, whether a person, a CI job or an agent over MCP asks
+for it. Agents get no approve tool, and the policies refuse an approval from
+an agent.
+
+### What stays outside the path
+
+The admission policies decide who may write an Operation, an Approval and a
+pointer's digest. They do not cover workloads, objects without the pointer
+label or anyone allowed to delete the policies. RBAC alone limits
+`kubectl apply` on a workload. Your platform closes the rest with RBAC and
+its own admission. The [delivery security model](https://pacto.run/latest/integrations/kubernetes/delivery-security/)
+gives the detail.
 
 ## Credits
 

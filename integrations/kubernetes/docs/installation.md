@@ -343,8 +343,10 @@ Evidence Server included. Five things survive, in any order:
 
 - **The CRDs and your `Pacto` resources.** The chart marks every CRD
   `helm.sh/resource-policy: keep`, because deleting one takes every `Pacto`,
-  `PactoRevision` and `NodeRuntimeObservation` with it. No finalizers, so the
-  delete returns immediately.
+  `PactoRevision` and `NodeRuntimeObservation` with it. With delivery enabled
+  this includes the delivery CRDs, so every `Stage`, `Operation` and
+  `Approval` and their history stay too. No finalizers, so the delete returns
+  immediately.
 - **The dashboard's cluster-scoped RBAC**, which a namespaced owner cannot own.
 - **Anything you created by hand**: the Evidence Server's trust Secret, your
   registry-credentials Secret, a `metrics-observation-role` ClusterRole you
@@ -365,6 +367,8 @@ Then remove what is left:
 ```bash
 kubectl delete crd pactos.pacto.trianalab.io pactorevisions.pacto.trianalab.io \
   noderuntimeobservations.pacto.trianalab.io
+kubectl delete crd stages.delivery.pacto.trianalab.io \
+  operations.delivery.pacto.trianalab.io approvals.delivery.pacto.trianalab.io  # if delivery was enabled
 kubectl delete clusterrole,clusterrolebinding pacto-dashboard
 kubectl delete clusterrole metrics-observation-role               # if granted
 kubectl delete clusterrolebinding metrics-observation-rolebinding # if granted

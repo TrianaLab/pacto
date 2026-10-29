@@ -2,7 +2,7 @@
 
 ![Version: 6.1.0](https://img.shields.io/badge/Version-6.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.1.0](https://img.shields.io/badge/AppVersion-6.1.0-informational?style=flat-square)  [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
 
-Kubernetes operator for Pacto service contract validation
+Pacto tells you which services a change breaks before it ships, and checks what is actually running. This chart installs the operator that checks running workloads, with an opt-in delivery component (alpha).
 
 ## Documentation
 
@@ -37,7 +37,7 @@ What the chart installs:
 - Optional: Prometheus `ServiceMonitor`
 - Optional: the node agent `DaemonSet` (`nodeAgent.enabled`, off by default), in its own namespace (`nodeAgent.namespace`, default `pacto-node-agent`) that the chart creates privileged for Pod Security, with a `ValidatingAdmissionPolicy` binding each agent's writes to its own node
 
-The operator never modifies your workloads. It only reads them and reports whether they match their contracts.
+The operator controller never modifies your workloads. It only reads them and reports whether they match their contracts. The same chart ships an opt-in delivery component (alpha, `delivery.enabled`), its own `Deployment`, which decides which version runs where and moves Flux or Argo CD source pointers. Its own admission policies guard each promotion. See [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/).
 
 ## Installation
 
@@ -253,9 +253,8 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | dashboard.service.nodePort | string | `""` | Node port (only used when type is NodePort) |
 | dashboard.service.port | int | `3000` | Dashboard service port |
 | dashboard.service.type | string | `"ClusterIP"` | Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-dashboard) for pod-to-pod communication. This chart-managed Service provides configurable external access and serves as the backend for Ingress/HTTPRoute resources. Selects dashboard pods via operator-defined labels. |
-| delivery.admissionPolicies.allowUnguarded | bool | `false` | Render without the policies (enabled=false) anyway, and skip the chart's Kubernetes 1.30 and ValidatingAdmissionPolicy API check. Without the policies anyone who may create an Operation or an Approval can claim to be anyone, so the chart refuses either unless this is set. |
-| delivery.admissionPolicies.enabled | bool | `true` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved and an agent cancels only its own operations, approvals come from people and never change, spec.ref.digest is edited only by the promoter or break-glass, and on objects labelled delivery.pacto.trianalab.io/apply-ref the label, the source and what a Kustomization applies change only by break-glass, and only the promoter writes the status of a Stage or an Operation. The promoter admits no operation and counts no approval while any of them is missing or does not deny. |
 | delivery.admissionPolicies.gitopsUsers | list | `["system:serviceaccount:flux-system:kustomize-controller","system:serviceaccount:argocd:argocd-application-controller"]` | Users besides break-glass that may create or delete an OCIRepository, Kustomization or Application labelled delivery.pacto.trianalab.io/apply-ref: the GitOps controllers that apply them. Deleting one and creating it again is an edit, so a namespace editor may do neither. The namespace controller and the garbage collector are always allowed. |
+| delivery.admissionPolicies.skipCapabilityCheck | bool | `false` | Skip the chart's Kubernetes 1.30 and ValidatingAdmissionPolicy API check (for `helm lint` or a `helm template` without `--api-versions`). The policies still render. |
 | delivery.affinity | object | `{}` | Affinity for the promoter pod |
 | delivery.argocd.enabled | bool | `false` | Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`). Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`, and the pointer admission policy holds it to that) and read access to the agent, approver and recorder roles. Off by default. |
 | delivery.createNamespace | bool | `true` | Create `delivery.namespace`. Set false to create it yourself first, for example to put the recorder key Secret in it before the install |

@@ -1,8 +1,4 @@
 {{- if .Values.delivery.enabled }}
-{{- if not (or .Values.delivery.admissionPolicies.enabled .Values.delivery.admissionPolicies.allowUnguarded) }}
-{{- fail "delivery.admissionPolicies.enabled=false leaves every actor, approver and the pointer unguarded: anyone who may create an Operation or an Approval can claim to be anyone. Set delivery.admissionPolicies.allowUnguarded=true only if you accept that." }}
-{{- end }}
-{{- if .Values.delivery.admissionPolicies.enabled }}
 {{- $fullname := include "pacto-operator.delivery.fullname" . }}
 {{- $controller := include "pacto-operator.delivery.controllerUser" . }}
 {{- $agents := include "pacto-operator.delivery.celList" .Values.delivery.identities.agentGroups }}
@@ -660,6 +656,5 @@ metadata:
 spec:
   policyName: {{ $fullname }}-promoter-writes-argocd
   validationActions: [Deny]
-{{- end }}
 {{- end }}
 {{- end }}

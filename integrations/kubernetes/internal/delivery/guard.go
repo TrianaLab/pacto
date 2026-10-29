@@ -22,8 +22,12 @@ import (
 // closed, and a binding of the same name binds that policy with Deny, to
 // every object (no matchResources) and with no params (no paramRef). A
 // binding set to Warn or Audit, or narrowed to some objects, guards nothing
-// the promoter can count on. An error is a read that failed.
+// the promoter can count on, and neither does an empty list. An error is a
+// read that failed.
 func unguardedBy(ctx context.Context, c client.Reader, policies []string) (string, error) {
+	if len(policies) == 0 {
+		return "the promoter was started without --admission-policies", nil
+	}
 	for _, name := range policies {
 		p, b := &admissionv1.ValidatingAdmissionPolicy{}, &admissionv1.ValidatingAdmissionPolicyBinding{}
 		for _, obj := range []client.Object{p, b} {

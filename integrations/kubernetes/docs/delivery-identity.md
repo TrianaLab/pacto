@@ -1,5 +1,8 @@
 # Delivery reference: approvals and agents
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 People decide in the dashboard and agents reach Pacto over the network, each
 under their own Kubernetes identity. The dashboard and the MCP server pass the
 caller's own token on, so the apiserver decides what the caller may do and its

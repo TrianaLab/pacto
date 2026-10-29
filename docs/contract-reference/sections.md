@@ -12,6 +12,8 @@ dependencies and state are in
 The contract specification version: `"2.0"` or `"2.1"`. 2.1 adds
 [`publish`](publish.md), [`checks`](checks.md), external dependencies and the `mcp` interface type.
 Every 2.0 contract is also valid under 2.1.
+A 2.1 contract needs Pacto core 4.1.0 or later and operator 6.1.0 or later;
+see [Versions](../installation.md#versions).
 
 ```yaml
 pactoVersion: "2.0"

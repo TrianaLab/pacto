@@ -76,6 +76,7 @@ When a `pacto.lock` file exists in a contract directory, the following commands 
 - `pacto graph`
 - `pacto diff`
 - `pacto push`
+- `pacto publish`
 
 If any resolved dependency or reference produces a digest that does not match the pin in the lock, the command fails with one of these error codes:
 

@@ -268,23 +268,32 @@ docs-build-strict: $(MERMAID_RUNTIME)
 # mike creates gh-pages on first run. The WASM demo is included when built into
 # docs/demo/ first (the deploy workflow folds it there; locally run `make docs-build`).
 # Docs deploy is a release-transaction unit: release.yml passes the EXACT released core version via PACTO_DOCS_CORE_VERSION
-# so the versioned snapshot never depends on "latest release" guessing. The
-# non-release docs.yml push path leaves it unset and falls back to the committed
-# manifest (redeploying the current core version's docs). A k8s-only release keeps
-# the same core version and refreshes the integration docs inside that snapshot.
-# RELEASE docs deploy (release.yml, unit k8s-docs): publish the EXACT released core
-# version and move the `latest` alias + default. Only a release transaction may
-# touch a stable version or latest.
+# so the versioned snapshot never depends on "latest release" guessing. docs.yml
+# redeploys docs-only fixes through the same target, passing the version
+# release/scripts/docs_publish_gate.sh checked: the current release, which already
+# holds `latest`. A k8s-only release keeps the same core version and refreshes the
+# integration docs inside that snapshot. Only a release transaction adds a version
+# or moves `latest` to a new one.
 #
 # mike runs mkdocs internally, so the release publisher needs the same pinned
 # Mermaid runtime every other entry point stages. Expressing it here is what lets
 # release.yml keep calling plain `make docs-deploy` on a clean runner: the
 # prerequisite travels with the target instead of being re-implemented in the job.
+#
+# Two publishers can meet on gh-pages: a docs fix that merges while a release is
+# running. mike never fetches before it pushes, so the loser is rejected as
+# non-fast-forward. The recipe commits locally, pushes, and on rejection resets the
+# local gh-pages to the fresh remote tip and rebuilds, up to three times.
 docs-deploy: docs-generate $(MERMAID_RUNTIME)
 	@ver=$${PACTO_DOCS_CORE_VERSION:-$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])")}; \
-	echo "==> mike deploy --push --update-aliases $$ver latest (release)"; \
-	mike deploy --push --update-aliases "$$ver" latest; \
-	mike set-default --push latest
+	for try in 1 2 3; do \
+	  echo "==> mike deploy --update-aliases $$ver latest (release, try $$try)"; \
+	  mike deploy --update-aliases "$$ver" latest && mike set-default latest || exit 1; \
+	  git push origin gh-pages && exit 0; \
+	  echo "==> gh-pages moved during the build; rebuilding on the new tip"; \
+	  git fetch origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages && \
+	    git update-ref refs/heads/gh-pages refs/remotes/origin/gh-pages || exit 1; \
+	done; exit 1
 
 # Blocking Mermaid syntax gate: every fenced ```mermaid block in docs/ +
 # integrations/ must render via mermaid-cli (mmdc). mkdocs --strict does NOT parse

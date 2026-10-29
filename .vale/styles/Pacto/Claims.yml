@@ -9,7 +9,9 @@ ignorecase: true
 #   blocks breaking    only BREAKING exits non-zero; POTENTIAL_BREAKING exits 0
 #   enforces policy    Pacto reports; OPA/Kyverno decide. MANIFEST.md says so.
 #   guardrail          implies an admission path; no webhook is registered
-#   signed contracts   Ed25519 signing covers evidence envelopes, not contracts
+#   signed contracts   Ed25519 signs evidence envelopes; `pacto publish` signs the
+#                      published bundle digest with Sigstore. Authoring and
+#                      validate sign nothing, so say "signed bundle" for publish
 #   four-layer         validation is three layers
 #   context graph      occupied term of art; the noun here is operational graph
 #   knowledge plane    same

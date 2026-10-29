@@ -277,21 +277,6 @@ tests:
           path: 'spec.validations[?(@.message == "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix, targetNamespace, serviceAccountName, kubeConfig, suspend and decryption decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
           pattern: "variables\\.guarded\\.all\\(f,"
 
-  - it: renders nothing when disabled on purpose
-    set:
-      delivery.admissionPolicies.enabled: false
-      delivery.admissionPolicies.allowUnguarded: true
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: refuses to render unguarded by accident
-    set:
-      delivery.admissionPolicies.enabled: false
-    asserts:
-      - failedTemplate:
-          errorPattern: "leaves every actor, approver and the pointer unguarded"
-
   - it: holds the promoter to labelled objects and the pointer field alone
     set:
       delivery.argocd.enabled: true

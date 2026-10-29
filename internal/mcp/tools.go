@@ -313,7 +313,7 @@ func schemaTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_schema",
 		Description: "Returns the Pacto contract JSON Schema, how to describe an AI agent as a service and the documentation link. " +
-			"Pacto is an operational contract system with optional delivery. " +
+			"Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
 			"Call this FIRST before creating or editing contracts to understand the format.",
 		InputSchema: inputSchema(map[string]property{}, nil),
 	}
@@ -339,7 +339,7 @@ type schemaResult struct {
 func schemaHandler() mcpsdk.ToolHandlerFor[struct{}, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		result := schemaResult{
-			Description: "Pacto is an operational contract system with optional delivery. " +
+			Description: "Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
 				"A pacto.yaml file describes one service: who owns it (service.owner.team, a bare team name such as billing), " +
 				"its interfaces, the services it calls and the versions of each it accepts, its configuration, " +
 				"workload and state semantics, health and policies. The publish section is opt-in and only pacto publish reads it. " +

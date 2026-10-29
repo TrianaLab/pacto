@@ -24,7 +24,7 @@ var ErrUnsupported = errors.New("unsupported")
 
 // New fails: kernel collection needs Linux.
 func New(uint32) (runtimewatch.Collector, error) {
-	return nil, fmt.Errorf("kernel collection is %w on %s: pacto agent needs Linux with eBPF (5.8 or later, BTF)",
+	return nil, fmt.Errorf("kernel collection is %w on %s: pacto agent needs Linux 5.11 or later with BTF, or 5.8 or later with BTF and root or CAP_SYS_RESOURCE",
 		ErrUnsupported, runtime.GOOS)
 }
 

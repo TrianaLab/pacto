@@ -68,6 +68,11 @@ pacto generate openapi-infer my-service -o my-service
 pacto generate openapi-infer my-service -o my-service --option framework=fastapi
 ```
 
+Both plugins need the `pacto.yaml` that step 1 wrote. The starter contract
+already points its `api` interface at `interfaces/openapi.yaml`. A contract
+that `pacto init` read from a Dockerfile and manifests has an interface only
+when it found an OpenAPI file, so add the `interfaces` entry yourself.
+
 Both plugins live in a separate repository and ship as separate binaries. The installer script fetches them alongside the CLI; `go install` and `make build` build only `pacto`. See [Official plugins](plugins.md#official-plugins) for how to get them.
 
 ### 3. Define the contract

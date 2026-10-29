@@ -1,10 +1,21 @@
 # Delivery reference: setup and gates
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 Reference for [Pacto delivery](delivery.md). To pactify a service end to end,
 follow [Pactify a service](../../pactify.md) instead. The API group is
 `delivery.pacto.trianalab.io/v1alpha1` (alpha).
 Plans, approvals and who may do what are in
 [Delivery reference: plan, propose and approve](delivery-operations.md).
+
+## Registry
+
+The two automatic levels need [signed records](delivery-records.md#install),
+and records need a registry that serves the OCI Referrers API natively. The
+recorder attaches each record to its streams repository and to the versions
+and contract it touched, so keep all of them on such a registry. GHCR does not
+serve the API.
 
 ## Install
 
@@ -33,15 +44,14 @@ create the namespace, with the recorder key, yourself. Bind
 [signed](artifact-hub.md).
 
 The admission policies make the actor of an Operation and the person behind
-an Approval true, so the chart refuses Kubernetes below 1.30, a cluster
-without the `ValidatingAdmissionPolicy` API and
-`delivery.admissionPolicies.enabled=false`, unless you set
-`delivery.admissionPolicies.allowUnguarded=true`. With `helm template`, pass
-`--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy`.
-The promoter checks every policy the chart rendered. While one is missing,
-does not fail closed, has a binding that does not deny, binds another policy
-or is narrowed by `matchResources` or `paramRef`, it admits no operation and
-counts no approval, and shows `Unguarded`.
+an Approval true, so the chart always installs them with delivery and refuses
+Kubernetes below 1.30 and a cluster without the `ValidatingAdmissionPolicy`
+API. With `helm template`, pass
+`--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy`,
+or set `delivery.admissionPolicies.skipCapabilityCheck=true` to skip only that
+check. While a policy the chart rendered is missing or weakened, the promoter
+admits no operation, counts no approval and shows `Unguarded`
+([when a policy is missing](delivery-security.md#when-a-policy-is-missing)).
 
 To run an unreleased build, from the repository root:
 
@@ -172,6 +182,8 @@ reason `ApplyRefUnguarded`.
 `kubectl set image` on the workload itself is not mediated: Flux puts it back
 on its next reconcile, and Argo CD does with `selfHeal`; until then it runs
 beside the pointer.
+The [security model](delivery-security.md) lists what each admission policy
+checks and what stays open.
 
 ## Set up a Stage
 

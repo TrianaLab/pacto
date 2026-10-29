@@ -400,7 +400,7 @@ func TestSchemaTool(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		t.Fatalf("expected valid JSON: %v", err)
 	}
-	if !strings.Contains(parsed.Description, "operational contract system with optional delivery") || !strings.Contains(parsed.Description, "a bare team name") {
+	if !strings.Contains(parsed.Description, "tells you which services a change breaks before it ships") || !strings.Contains(parsed.Description, "a bare team name") {
 		t.Errorf("expected description to mention Pacto, got: %s", parsed.Description)
 	}
 	if !strings.Contains(parsed.Agents, "An AI agent is a service") || !strings.HasSuffix(parsed.Agents, "contract-reference/checks/#an-agent-is-a-service") {
@@ -553,7 +553,7 @@ func TestCreateTool_PactifyDescribeOnly(t *testing.T) {
 // TestServerInstructionsPosition: the instructions every server starts
 // from say what Pacto is and steer a documentation request to describe_only.
 func TestServerInstructionsPosition(t *testing.T) {
-	for _, want := range []string{"Pacto is an operational contract system with optional delivery.", "describe_only", "AI agent"} {
+	for _, want := range []string{"Pacto tells you which services a change breaks before it ships, and checks what is actually running.", "describe_only", "AI agent"} {
 		if !strings.Contains(baseInstructions, want) {
 			t.Errorf("baseInstructions lacks %q", want)
 		}

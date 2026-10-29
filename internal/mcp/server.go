@@ -12,10 +12,9 @@ import (
 )
 
 // baseInstructions describe the always-present contract-authoring tools.
-const baseInstructions = "Pacto is an operational contract system with optional delivery. " +
+const baseInstructions = "Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
 	"A contract (pacto.yaml) describes one cloud-native service: who owns it, what it offers, " +
 	"which services it calls and which of their versions it accepts, its configuration, workload and state. " +
-	"Pacto reads contracts to tell which consumers a change breaks before it ships and to check what is running. " +
 	"Delivery (a publish section, signing and Stages) is opt-in: a contract that only describes a service needs none of it. " +
 	"Use pacto_create to write a new contract, or with pactify to read one from an existing service folder " +
 	"(add describe_only when you are asked to describe or document a service). " +

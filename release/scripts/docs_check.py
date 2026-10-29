@@ -20,11 +20,13 @@ ledger for every claim family:
   (n) the signed/unsigned supply-chain table matches the real `cosign sign` sites
   (o) versions with release notes but no GitHub Release are disclosed as such
   (p) no wrapped prose line begins with a number (Markdown eats it as a list)
+  (q) the comparison page carries its review date (warns, never fails, when stale)
 
 Exit code is non-zero if any check fails.
 """
 from __future__ import annotations
 
+import datetime
 import glob
 import hashlib
 import json
@@ -946,6 +948,49 @@ def check_accidental_lists() -> None:
 
 
 # ---------------------------------------------------------------------------
+# (q) the comparison page states when it was last reviewed
+# ---------------------------------------------------------------------------
+
+COMPARISON = os.path.join("docs", "comparison.md")
+REVIEWED = re.compile(r"^Reviewed on (\S+?)\.", re.MULTILINE)
+REVIEW_MAX_AGE_DAYS = 183
+
+
+def comparison_review(text: str, today: datetime.date) -> tuple[str, str]:
+    """Return (error, warning) for the comparison page's review date.
+
+    A missing or unparseable date is an error. A stale date is only a warning:
+    the page grades other projects, so it ages with the calendar, and a gate
+    that fails on the calendar would break builds nobody changed.
+    """
+    m = REVIEWED.search(text)
+    if not m:
+        return f"{COMPARISON} has no 'Reviewed on YYYY-MM-DD.' line", ""
+    try:
+        reviewed = datetime.datetime.strptime(m.group(1), "%Y-%m-%d").date()
+    except ValueError:
+        return f"{COMPARISON} review date {m.group(1)!r} is not YYYY-MM-DD", ""
+    age = (today - reviewed).days
+    if age > REVIEW_MAX_AGE_DAYS:
+        return "", (f"{COMPARISON} was last reviewed on {reviewed} ({age} days ago); "
+                    "re-check every cell against its source and bump the date")
+    return "", ""
+
+
+def check_comparison_review() -> None:
+    text = read(os.path.join(REPO_ROOT, COMPARISON))
+    error, warning = comparison_review(text, datetime.date.today())
+    if warning:
+        print(f"[WARN] {warning}")
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            m = REVIEWED.search(text)
+            line = text.count("\n", 0, m.start()) + 1
+            print(f"::warning file={COMPARISON},line={line}::{warning}")
+    record(not error, "(q) the comparison page states its review date",
+           error or ("stale, see warning" if warning else f"reviewed within {REVIEW_MAX_AGE_DAYS} days"))
+
+
+# ---------------------------------------------------------------------------
 # Drift helpers
 # ---------------------------------------------------------------------------
 
@@ -1016,6 +1061,7 @@ def main() -> int:
     check_supply_chain()                         # (n)
     check_unreleased_versions()                  # (o)
     check_accidental_lists()                     # (p)
+    check_comparison_review()                    # (q)
 
     # (i) twice = no diff
     proc = run(["make", "docs-generate"])

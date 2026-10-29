@@ -1,4 +1,4 @@
-name: Docs (validate)
+name: Docs
 
 on:
   push:
@@ -36,31 +36,30 @@ on:
       - 'examples/demo/**'
       # The demo embeds the dashboard UI + engine, so redeploy when they change.
       - 'pkg/dashboard/**'
+      - 'release/scripts/docs_publish_gate.sh'
       - '.github/workflows/docs.yml'
-  # The versioned public site is deployed ONLY by the release transaction
-  # (release.yml, unit k8s-docs), which owns the exact core + k8s versions and the
-  # `latest` alias. This workflow does NOT deploy: on a doc-only change to main it
-  # just runs a strict build to validate the docs (a post-merge safety net on top
-  # of the PR docs-check). It no longer publishes an unreleased `next` snapshot.
+  # Two jobs. `validate` runs a strict build on every matching push and manual
+  # run, and publishes nothing. `publish` redeploys the site from main over the
+  # CURRENT released core version, so a docs-only fix reaches pacto.run without a
+  # release. It publishes only when main carries no pending changesets and that
+  # version already holds the `latest` alias on gh-pages, so it never adds an
+  # entry to the version selector. The release transaction (release.yml, unit
+  # k8s-docs) stays the only thing that publishes a new version.
   workflow_dispatch:
 
-# Validation only — no deploy — so read access is enough.
+# Read-only by default. Only the publish job gets write access, to push gh-pages.
 permissions:
   contents: read
 
 jobs:
-  # Non-release doc refresh. The release UNIT k8s-docs (the versioned site deploy
-  # with the exact release versions) is published by the release transaction
-  # (.github/workflows/release.yml, the docs job) — this is NOT that publisher. This
-  # job only redeploys the current version's docs on a doc-only change to main, or a
-  # manual run. mike publishes to gh-pages; GitHub Pages must serve from that branch.
-  deploy:
+  # Strict build gate. Runs on a docs change to main or a manual run and publishes
+  # nothing: a post-merge safety net on top of the PR docs-check.
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         # Full history + tags so the demo build's `git describe` resolves the real
-        # Pacto version to bake into the dashboard navbar, and so mike has the
-        # gh-pages history it appends each versioned deploy to.
+        # Pacto version to bake into the dashboard navbar.
         with:
           fetch-depth: 0
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -77,24 +76,88 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      # Build the WASM demo, smoke its engine and fold it into the docs tree so
-      # mike's internal `mkdocs build` copies it into every versioned deploy at /demo/.
+      # Build the WASM demo, smoke its engine and fold it into the docs tree, the
+      # same way the publishers do.
       - name: Build, smoke and fold the WASM demo into the docs site
         run: make docs-demo
-      # Strict gate: mike's internal build is not --strict, so run the same strict
-      # build the PR "Docs check" enforces, against a throwaway dir. This is a
-      # main-push validation net; it does NOT deploy.
-      #
       # Through `make`, never `mkdocs` directly: the site stages its own pinned
       # Mermaid runtime and the hook fails closed without it, so on a clean runner a
       # bare `mkdocs build --strict` aborts before building. docs-build-strict owns
       # that prerequisite, which keeps the install expressed once in Make rather
-      # than duplicated into this job.
-      #
-      # The versioned public site is deployed only by the release transaction
-      # (release.yml, unit k8s-docs). We intentionally do NOT publish an
-      # unreleased `next` snapshot: it cluttered the public version selector (and
-      # was the fallback the selector landed on). Preview unreleased docs locally
-      # with `make docs` / `mkdocs serve`.
+      # than duplicated into this job. Preview unreleased docs locally with
+      # `make docs` / `mkdocs serve`.
       - name: Strict docs build gate
         run: make docs-build-strict
+
+  # Docs-only fixes over the released version. Publishes only when all hold:
+  #   1. main has no pending changesets, so release/release-manifest.json names
+  #      the current core version;
+  #   2. only authored docs changed since the last release commit, so the CLI,
+  #      integration and demo content regenerate from released code. The release
+  #      commit itself is left to release.yml;
+  #   3. that version already carries the `latest` alias in gh-pages versions.json,
+  #      so mike overwrites an existing slot and the selector gains no entry.
+  # Otherwise it publishes nothing and says why in the step summary. Pending
+  # changesets mean main carries unreleased changes, so a docs fix needs a
+  # "@pacto/core": patch changeset and ships with the next release. A version
+  # absent from versions.json is a release in flight, which publishes it itself.
+  publish:
+    needs: validate
+    # Only main describes a release. A manual run on another branch validates and
+    # publishes nothing.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Serialises publishes from this workflow. Condition 2 keeps this job off the
+    # release commit. A docs fix that merges while a release is still running can
+    # still meet the release docs job on gh-pages, so `make docs-deploy` rebuilds on
+    # the new tip and retries when its push is rejected.
+    concurrency:
+      group: docs-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # Full history + tags for the demo's `git describe`, and the gh-pages branch
+        # the guard reads and mike appends to.
+        with:
+          fetch-depth: 0
+      - name: Check that main matches the released version
+        id: gate
+        run: bash release/scripts/docs_publish_gate.sh origin/gh-pages
+      - if: steps.gate.outputs.publish == 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+      - if: steps.gate.outputs.publish == 'true'
+        run: pip install -r docs/requirements.txt
+      - if: steps.gate.outputs.publish == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      # docs-demo and docs-generate compile Go twice. Same warm-up as the release
+      # docs job.
+      - name: Warm the module cache (retried)
+        if: steps.gate.outputs.publish == 'true'
+        run: bash release/scripts/retry.sh go mod download
+      - if: steps.gate.outputs.publish == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: pkg/dashboard/frontend/package-lock.json
+      - name: Build, smoke and fold the WASM demo into the docs site
+        if: steps.gate.outputs.publish == 'true'
+        run: make docs-demo
+      # The same guarded target the release publisher calls, pinned to the version
+      # the gate checked.
+      - name: Redeploy the released version with mike
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          PACTO_DOCS_CORE_VERSION: ${{ steps.gate.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          make docs-deploy

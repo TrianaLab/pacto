@@ -1,5 +1,8 @@
 # Verify a record
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 This page is for an auditor or security reviewer who must check what Pacto
 did, using standard tools only. It shows how to read a
 record, check its signature, check the whole history and check that a
@@ -244,8 +247,8 @@ from the registry. See
   agent's claim.
 - Registry clean-up rules can delete records. The platform team must keep
   the streams repository out of them.
-- A record made while the cluster's admission checks were off has no
-  `guarded: true`.
+- A record from an earlier promoter that ran without the cluster's admission
+  checks has no `guarded: true`.
 - A runner's signature proves which runner key signed the answer, not that
   the runner ran every case honestly, and not which model really answered.
   A runner that reports `observedModel` vouches for it with its own key.

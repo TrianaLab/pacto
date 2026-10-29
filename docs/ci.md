@@ -80,6 +80,44 @@ Until the first version is published there is nothing to compare with and
 `pacto diff` fails, so add this step after your first `pacto publish`. To
 compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
 
+## On every pull request: who breaks
+
+`pacto diff` says whether a change is breaking. `pacto impact` says which
+consumers it breaks, from the consumer contracts it can see. Your repository
+holds only your contract, so name each consumer's published contract with
+`--root`, one per consumer, and keep that list current. The step needs `jq`,
+which GitHub-hosted runners include, and the same login variables:
+
+```yaml
+- name: Check who the change breaks
+  run: |
+    pacto impact oci://ghcr.io/acme/contracts/my-service . \
+      --root oci://ghcr.io/acme/contracts/checkout \
+      --root oci://ghcr.io/acme/contracts/reporting \
+      --output-format json > impact.json || [ $? -eq 2 ]
+    jq -r '.consumers[] | select(.compatibilityVerdict == "incompatible") | "\(.service) (owner \(.owner // "unknown")) accepts \(.compatibility)"' impact.json
+    jq -e '.classification != "BREAKING" or all(.consumers[]; .compatibilityVerdict != "incompatible")' impact.json
+```
+
+The first `jq` lists each consumer whose `compatibility` range rejects the new
+version, with its owner. The second fails the step when the change is
+`BREAKING` and at least one consumer is `incompatible`. A consumer whose range
+Pacto cannot evaluate, such as one with an invalid contract, reads `unknown`
+and does not fail the step.
+
+`pacto impact` ends in a release gate and exits on it: `0` clear, `1` blocked
+and `2` unverified. Contracts from `--root` carry no targets, so a `BREAKING`
+change with consumers exits `2`, and GitHub Actions fails a step on any
+non-zero exit. `|| [ $? -eq 2 ]` lets the step go on to the `jq` checks after
+a `2`. A `1`, for a blocked change or a command that could not run, still
+fails the step.
+
+To gate on what is deployed, keep the `--root` flags and add a source of
+targets: `--k8s` reads the Pacto resources in the current cluster and
+`--evidence-url` reads an Evidence Server. Exit `1` then fails the step when
+an incompatible consumer runs somewhere. `--target-state` reads targets from a
+fixture file, for demos and tests.
+
 ## After a merge: publish
 
 With the same login variables:

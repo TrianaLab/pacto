@@ -2,7 +2,7 @@ site_name: Pacto
 # With no social-cards plugin and no og:image, this string is the whole of the
 # shared-link preview. Not "standard": that promises governance, a conformance
 # suite and a second implementation, none of which exist.
-site_description: Continuous delivery for the GitlessOps era — describe your services once as contracts, and Pacto decides what ships, asking only the teams a change affects.
+site_description: Pacto tells you which services a change breaks before it ships, and checks what is actually running.
 site_url: https://pacto.run/
 repo_url: https://github.com/TrianaLab/pacto
 repo_name: TrianaLab/pacto
@@ -190,6 +190,7 @@ nav:
       - What Pacto is:
           - The autonomy ladder: autonomy.md
           - Manifesto and GitlessOps: manifesto.md
+          - How Pacto relates to other tools: comparison.md
           - Glossary: glossary.md
       - Try it:
           - Live dashboard demo: examples/dashboard-demo.md
@@ -199,8 +200,9 @@ nav:
       - Pactify your first service:
           - Installation: installation.md
           - Quickstart: quickstart.md
-          - Pactify a service: pactify.md
+          - Generate contracts from what you already have: bootstrap-contracts.md
           - Put it in your repository: ci.md
+          - Pactify a service: pactify.md
       - Approve or unblock a change: pactify-decide.md
       - Verify a record: verify-a-record.md
       - Drive Pacto from an agent: mcp-integration.md
@@ -237,6 +239,7 @@ nav:
           - Health checks: integrations/kubernetes/delivery-health.md
           - Eval providers: integrations/kubernetes/delivery-evals.md
           - Argo CD and several clusters: integrations/kubernetes/delivery-reach.md
+          - Security model: integrations/kubernetes/delivery-security.md
       - Contract reference:
           - contract-reference/index.md
           - Contract sections: contract-reference/sections.md

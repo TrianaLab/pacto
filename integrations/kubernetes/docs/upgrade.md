@@ -141,6 +141,25 @@ these before `helm upgrade`:
 - **Kernel evidence namespace.** `controller.kernelEvidence.namespace`
   defaults to the agent namespace instead of the operator's.
 
+## Delivery always installs its admission policies
+
+Delivery no longer runs without its admission policies. The chart refuses
+`delivery.admissionPolicies.enabled` and
+`delivery.admissionPolicies.allowUnguarded` whatever their value, and names
+the replacement. Before `helm upgrade`:
+
+- Delete both keys from your values.
+- If you set `allowUnguarded` to skip the Kubernetes 1.30 and
+  `ValidatingAdmissionPolicy` API check for `helm lint` or `helm template`,
+  set `delivery.admissionPolicies.skipCapabilityCheck=true` instead. The
+  policies still render.
+- An upgrade that reuses the earlier release's values carries `enabled: true`
+  over from the earlier chart's defaults, so it fails. Reuse them with
+  `--reset-then-reuse-values`.
+
+A promoter started without `--admission-policies` admits no operation and
+counts no approval.
+
 ## Rolling back
 
 **Within** a major, `helm rollback pacto-operator` reverts what the chart owns

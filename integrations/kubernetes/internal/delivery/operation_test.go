@@ -1329,7 +1329,7 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 	guard := func(e *env) { e.create(guardPolicy(), guardBinding()) }
 	t.Run("admission waits for the policy and its binding", func(t *testing.T) {
 		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
-		e.op.AdmissionPolicies = []string{"pd-operation"}
+		unguard(e)
 		if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != ReasonUnguarded || o.Status.ActorClass != "" {
 			t.Fatalf("want parked before admission: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.ActorClass)
 		}
@@ -1341,18 +1341,29 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning || !o.Status.Guarded {
 			t.Fatalf("guarded, it moves and says so: %s %s %v", o.Status.Phase, o.Status.Message, o.Status.Guarded)
 		}
-		// Without admission policies (allowUnguarded) the operation runs, and
-		// its record says admission never checked who asked.
-		e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
-		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning || o.Status.Guarded {
-			t.Fatalf("unguarded on purpose: %s %v", o.Status.Phase, o.Status.Guarded)
+	})
+	t.Run("a promoter started without admission policies admits nothing", func(t *testing.T) {
+		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.op.AdmissionPolicies, e.st.AdmissionPolicies = nil, nil
+		if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != ReasonUnguarded ||
+			!strings.HasPrefix(o.Status.Message, "the promoter was started without --admission-policies, so") {
+			t.Fatalf("want parked: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.Message)
+		}
+		e.create(verifiedRepo("payments-candidates", "latest@"+dB))
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(e.getStage().Status.Conditions, func(x delivery.Condition) bool {
+			return x.Type == "Ready" && x.Status == statusFalse && x.Reason == ReasonUnguarded
+		}) {
+			t.Fatalf("Ready: %+v", e.getStage().Status.Conditions)
 		}
 	})
 	t.Run("a held operation counts no approval", func(t *testing.T) {
 		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
 		delete(e.reg.bundles, contractRef(c2))
 		o := e.drive("p1")
-		e.op.AdmissionPolicies = []string{"pd-operation"}
+		unguard(e)
 		e.approve(o, "no", "alice", delivery.Reject)
 		if o = e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != ReasonUnguarded || len(o.Status.Approvals) != 0 {
 			t.Fatalf("an unguarded approval must not count: %s %s %+v", o.Status.Phase, o.Status.Reason, o.Status.Approvals)
@@ -1367,7 +1378,7 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 		e.drive("p1")
 		e.now = e.now.Add(2 * time.Minute)
 		e.drive("p1")
-		e.op.AdmissionPolicies = []string{"pd-operation"}
+		unguard(e)
 		e.approve(e.getOp("p1"), "au", "alice", delivery.AcceptUnknown)
 		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != ReasonUnguarded {
 			t.Fatalf("want parked: %s %s", o.Status.Phase, o.Status.Reason)
@@ -1377,12 +1388,21 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 	})
 	t.Run("an unreadable policy is not installed", func(t *testing.T) {
 		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
-		e.op.AdmissionPolicies = []string{"pd-operation"}
 		e.fails["get/*v1.ValidatingAdmissionPolicy"] = true
 		if err := e.reconcileOpErr("p1"); err == nil {
 			t.Fatal("a failed policy read must surface")
 		}
 	})
+}
+
+// unguard deletes the admission policy and binding every env starts with.
+func unguard(e *env) {
+	e.t.Helper()
+	for _, o := range []client.Object{guardPolicy(), guardBinding()} {
+		if err := e.c.Delete(context.Background(), o); err != nil {
+			e.t.Fatal(err)
+		}
+	}
 }
 
 // TestRefusedPointerWriteIsShown: a pointer write the apiserver refuses (a
@@ -1489,8 +1509,8 @@ func TestUnguardedBy(t *testing.T) {
 				c.binding(b)
 			}
 			e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+			unguard(e)
 			e.create(p, b, verifiedRepo("payments-candidates", "latest@"+dB))
-			e.op.AdmissionPolicies, e.st.AdmissionPolicies = []string{"pd-operation"}, []string{"pd-operation"}
 			if why, err := unguardedBy(context.Background(), e.c, e.op.AdmissionPolicies); why != c.want || err != nil {
 				t.Fatalf("got %q %v", why, err)
 			}
@@ -1516,7 +1536,6 @@ func TestUnguardedBy(t *testing.T) {
 	}
 	e := baseEnv(t, nil)
 	e.create(verifiedRepo("payments-candidates", "latest@"+dB))
-	e.st.AdmissionPolicies = []string{"pd-operation"}
 	e.fails["get/*v1.ValidatingAdmissionPolicy"] = true
 	if err := e.reconcileStage("payments-prod"); err == nil {
 		t.Fatal("a failed policy read must surface on the Stage")

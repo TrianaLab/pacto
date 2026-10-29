@@ -1,5 +1,8 @@
 # Delivery reference: eval providers
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 An `eval` provider is a suite runner: it runs one of the
 [checks](../../contract-reference/checks.md) the version ships, such as an AI
 agent's eval suite. The Stage check names it in `suite`:

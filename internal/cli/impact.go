@@ -34,7 +34,11 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"the answer is partial, or consumers depend on the service and none is shown to be safe. " +
 			"A run over --local bundles alone knows no targets, so a BREAKING change with consumers exits 2.\n" +
 			"A command that could not run also exits 1, with nothing on stdout. Add --target-state " +
-			"(or a live source) so the gate can tell deployed impact apart.",
+			"(or a live source) so the gate can tell deployed impact apart.\n\n" +
+			"Pacto finds consumers only in the sources you pass, such as --local, --root, " +
+			"--oci, --cache, --k8s, --evidence-url and --traces. With --local alone " +
+			"Pacto sees only the contracts in those folders, so \"No affected " +
+			"consumers\" is not evidence of safety.",
 		Example: `  # Impact of upgrading a local service against the local fleet
   pacto impact ./svc-v1 ./svc-v2 --local .
 

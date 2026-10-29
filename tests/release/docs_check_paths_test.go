@@ -1,7 +1,9 @@
 package release
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -115,5 +117,53 @@ func TestTheDemoTourTeachesEveryRecordedCommand(t *testing.T) {
 	// Must link to compose-demo.md rather than restating the run command
 	if !strings.Contains(doc, "compose-demo.md") {
 		t.Errorf("the tour never links compose-demo.md; it should point there for the real-stack journey")
+	}
+}
+
+// TestDocsCheckComparisonReview: the comparison page grades other projects, so
+// it goes stale with the calendar. docs_check.py fails when the review date is
+// missing or unparseable and only warns when it is old, so a build nobody
+// changed never turns red on a date.
+func TestDocsCheckComparisonReview(t *testing.T) {
+	root := repoRoot(t)
+	cmd := exec.Command("python3", "-I", "-c", `
+import datetime, importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("dc", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+today = datetime.date(2026, 10, 29)
+cases = {
+    "fresh": "# T\n\nReviewed on 2026-10-01. More.\n",
+    "stale": "# T\n\nReviewed on 2026-01-01. More.\n",
+    "missing": "# T\n\nNo date here.\n",
+    "garbled": "# T\n\nReviewed on 2026-13-40. More.\n",
+    "compact": "# T\n\nReviewed on 20261029. More.\n",
+}
+out = {k: m.comparison_review(v, today) for k, v in cases.items()}
+out["page"] = m.comparison_review(open(sys.argv[2]).read(), datetime.date.today())
+print(json.dumps(out))
+`, filepath.Join(root, "release", "scripts", "docs_check.py"), filepath.Join(root, "docs", "comparison.md"))
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("docs_check.py: %v\n%s", err, out)
+	}
+	var got map[string][2]string
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("parse %s: %v", out, err)
+	}
+	for name, want := range map[string][2]bool{
+		"fresh":   {false, false},
+		"stale":   {false, true},
+		"missing": {true, false},
+		"garbled": {true, false},
+		"compact": {true, false},
+	} {
+		if (got[name][0] != "") != want[0] || (got[name][1] != "") != want[1] {
+			t.Errorf("%s: (error, warning) = %q, want error=%v warning=%v", name, got[name], want[0], want[1])
+		}
+	}
+	if got["page"][0] != "" {
+		t.Errorf("docs/comparison.md: %s", got["page"][0])
 	}
 }

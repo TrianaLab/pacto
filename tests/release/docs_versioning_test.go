@@ -9,14 +9,16 @@ import (
 	"testing"
 )
 
-// Release-safety item 6: a non-release main-push (docs.yml) must NEVER deploy the
-// versioned public site. It only validates the docs (strict build); the release
-// transaction (release.yml unit k8s-docs) is the sole publisher of the versioned
-// site and the only thing that moves the `latest` alias. docs.yml no longer
-// publishes an unreleased `next` snapshot: that cluttered the public version
-// selector (and was the fallback the selector landed on). With this gate green,
-// merging a breaking PR before its Version PR releases cannot alter stable docs,
-// move latest, or add a `next` entry to the version dropdown.
+// Release-safety item 6: a non-release main-push (docs.yml) must NEVER add a
+// version to the public site or move `latest` to an unreleased one. The release
+// transaction (release.yml unit k8s-docs) is the only publisher of a new version.
+// docs.yml may redeploy the CURRENT released version, and only through
+// release/scripts/docs_publish_gate.sh, which refuses while main has pending
+// changesets and unless that version already holds `latest` in versions.json.
+// docs.yml no longer publishes an unreleased `next` snapshot: that cluttered the
+// public version selector. With this gate green, merging a breaking PR before its
+// Version PR releases cannot alter stable docs, move latest, or add a `next` entry
+// to the version dropdown.
 
 // makeRecipe returns the recipe lines of a make target from a Makefile-like text.
 func makeRecipe(text, target string) string {
@@ -64,19 +66,33 @@ func TestDocsDevDeployNeverMovesLatest(t *testing.T) {
 		t.Error("ci.mk must no longer define docs-deploy-dev (the `next` preview was removed)")
 	}
 
-	// The non-release workflow must NOT deploy the site at all: no `mike deploy`,
-	// no release docs-deploy, and no leftover dev-deploy call. It only validates.
+	// The non-release workflow may only redeploy the released version: no direct
+	// `mike deploy`, no leftover dev-deploy call, and every `make docs-deploy` step
+	// gated on the publish gate and pinned to the version it checked.
 	docs := read(".github/workflows/docs.yml")
 	if strings.Contains(docs, "mike deploy") {
-		t.Error("docs.yml (non-release) must not run `mike deploy` (deploys are release-only)")
+		t.Error("docs.yml (non-release) must not run `mike deploy` directly")
 	}
 	if strings.Contains(docs, "docs-deploy-dev") {
 		t.Error("docs.yml must not call docs-deploy-dev (the `next` preview was removed)")
 	}
 	if regexp.MustCompile(`make docs-deploy(\s|$)`).MatchString(docs) {
-		t.Error("docs.yml (non-release) must NOT call the release `make docs-deploy` (it moves latest)")
+		if !strings.Contains(docs, "bash release/scripts/docs_publish_gate.sh") {
+			t.Error("docs.yml calls `make docs-deploy` without running release/scripts/docs_publish_gate.sh")
+		}
+		// The deploy step is the text from its `- name:` up to the make call.
+		at := strings.LastIndex(docs, "make docs-deploy")
+		step := docs[max(strings.LastIndex(docs[:at], "- name:"), 0):at]
+		if !strings.Contains(step, "if: steps.gate.outputs.publish == 'true'") ||
+			!strings.Contains(step, "PACTO_DOCS_CORE_VERSION: ${{ steps.gate.outputs.version }}") {
+			t.Errorf("docs.yml's `make docs-deploy` step must run only when the gate says publish "+
+				"and must deploy the version the gate checked; step:\n%s", step)
+		}
 	}
-	if strings.Contains(docs, "release/release-manifest.json") {
+	if !strings.Contains(docs, "if: github.ref == 'refs/heads/main'") {
+		t.Error("docs.yml's publish job must run only on main; a manual run on a branch would publish it over `latest`")
+	}
+	if strings.Contains(docs, "'release/release-manifest.json'") {
 		t.Error("docs.yml must not trigger on release/release-manifest.json (that double-fires with the release docs job)")
 	}
 

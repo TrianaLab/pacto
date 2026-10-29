@@ -73,8 +73,8 @@ accepts (its [consumer range](../../glossary.md#consumer-range)), for example "c
 accepts payments 2.x". That is how Pacto knows who a change can break.
 
 Say payments 3.0.0 removes a field. In prod, checkout and orders still accept
-only payments 2.x. The change waits and Pacto asks only the checkout and
-orders teams, whose services it would break.
+only payments 2.x. The change waits for the checkout and orders teams, whose services it would
+break.
 
 A breaking change that no contract depends on still waits for a person, who
 can [accept the unknown](#what-unknown-means), because a service without a

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1048,5 +1049,140 @@ func TestPinImageInEveryManifest(t *testing.T) {
 		if strings.Contains(l, "service.yaml") {
 			t.Fatalf("a Service with no image is told to rewrite it: %q", l)
 		}
+	}
+}
+
+// TestHelmChartIsNotRead: a Helm chart's templates are never manifests (#432).
+// Neither the build command, the header nor the workload come from a chart,
+// whether its templates parse as YAML or not, and Unknown names the chart once.
+// A plain manifest beside the chart is still read.
+func TestHelmChartIsNotRead(t *testing.T) {
+	chart := map[string]string{
+		"chart/Chart.yaml":               "apiVersion: v2\nname: checkout\nversion: 0.1.0\n",
+		"chart/values.yaml":              "image: ghcr.io/acme/checkout:1.0.0\nreplicas: 2\n",
+		"chart/templates/configmap.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: checkout-config\ndata:\n  LOG_LEVEL: info\n",
+		"chart/templates/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: \"{{ .Release.Name }}\"\nspec:\n" +
+			"  replicas: \"{{ .Values.replicas }}\"\n  template:\n    spec:\n      containers:\n        - name: checkout\n          image: \"{{ .Values.image }}\"\n",
+		"chart/templates/service.yaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: {{ include \"checkout.fullname\" . }}\nspec:\n  ports:\n    - port: 80\n",
+	}
+	with := func(extra map[string]string) map[string]string {
+		m := maps.Clone(chart)
+		maps.Copy(m, extra)
+		return m
+	}
+	const docker = "FROM alpine:3.20\n"
+	deploy := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\nspec: {template: {spec: {containers: [{name: checkout, image: 'ghcr.io/acme/checkout:1.2.0'}]}}}\n"
+	for _, tc := range []struct {
+		name, mode, header string
+		chartDirs          []string
+		files              map[string]string
+		want               []string // in pacto.yaml
+	}{
+		{name: "beside a Dockerfile", mode: modePactify, header: "Dockerfile", chartDirs: []string{"chart"},
+			files: with(map[string]string{"Dockerfile": docker})},
+		{name: "chart only", mode: modeBlank, chartDirs: []string{"chart"}, files: chart},
+		{name: "two charts are both named", mode: modePactify, header: "Dockerfile", chartDirs: []string{"chart", "worker"},
+			files: with(map[string]string{"Dockerfile": docker, "worker/Chart.yaml": chart["chart/Chart.yaml"],
+				"worker/templates/configmap.yaml": chart["chart/templates/configmap.yaml"]})},
+		{name: "beside a plain manifest", mode: modePactify, header: "Dockerfile, k8s/deploy.yaml", chartDirs: []string{"chart"},
+			files: with(map[string]string{"Dockerfile": docker, "k8s/deploy.yaml": deploy}),
+			want:  []string{"cp k8s/deploy.yaml", "version: 1.2.0", "workload: service"}},
+		{name: "the folder is the chart", mode: modePactify, header: "Dockerfile", chartDirs: []string{"."},
+			files: map[string]string{"Dockerfile": docker, "Chart.yaml": chart["chart/Chart.yaml"],
+				"templates/configmap.yaml": chart["chart/templates/configmap.yaml"], "charts/db/templates/cm.yaml": chart["chart/templates/configmap.yaml"],
+				"crds/crd.yaml": "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: widgets.acme.io\n"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writeTree(t, filepath.Join(t.TempDir(), "checkout"), tc.files)
+			r, err := Init(context.Background(), Options{Dir: dir, Registry: "ghcr.io/acme/checkout", Plan: true}, os.WriteFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.Service != "checkout" || r.Mode != tc.mode {
+				t.Fatalf("service %q, mode %q", r.Service, r.Mode)
+			}
+			for _, c := range tc.chartDirs {
+				assertChartNamedOnce(t, r.Unknown, c)
+			}
+			text := file(t, r, "pacto.yaml").Content
+			assertNoChartRead(t, text, r.Found)
+			if tc.header != "" && !strings.HasPrefix(text, "# Written by pacto init from "+tc.header+".\n") {
+				t.Fatalf("header:\n%s", text)
+			}
+			if tc.want == nil && strings.Contains(text, "type: manifests") {
+				t.Fatalf("a manifests artifact came from the chart:\n%s", text)
+			}
+			for _, s := range tc.want {
+				if !strings.Contains(text, s) {
+					t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
+				}
+			}
+		})
+	}
+}
+
+// assertNoChartRead fails when pacto.yaml or Found carries a chart template
+// or CRD.
+func assertNoChartRead(t *testing.T, text string, found []string) {
+	t.Helper()
+	if strings.Contains(text, "templates/") || strings.Contains(text, "Release.Name") || strings.Contains(text, "crds/") || hasLine(found, "templates/") {
+		t.Fatalf("a chart template was read:\n%s\n%+v", text, found)
+	}
+}
+
+// assertChartNamedOnce fails unless Unknown tells the user exactly once how
+// to render the chart in dir.
+func assertChartNamedOnce(t *testing.T, unknown []string, dir string) {
+	t.Helper()
+	n := 0
+	for _, l := range unknown {
+		if strings.HasPrefix(l, "the Helm chart in "+dir+" is not read: render it with helm template --include-crds checkout "+dir+" > k8s/rendered.yaml") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("want chart %s named once in Unknown, got %d: %q", dir, n, unknown)
+	}
+}
+
+// TestOnlyClusterFilesAreManifests: tool configs written like Kubernetes
+// objects (a Backstage catalog-info.yaml, a skaffold.yaml) are not manifests,
+// and a file .pactoignore lists is not read (#433).
+func TestOnlyClusterFilesAreManifests(t *testing.T) {
+	const (
+		catalog  = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata: {name: checkout}\nspec: {type: service, owner: payments}\n"
+		skaffold = "apiVersion: skaffold/v4beta11\nkind: Config\nmetadata: {name: checkout}\nmanifests: {rawYaml: [k8s/deploy.yaml]}\n"
+		deploy   = "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\nspec: {template: {spec: {containers: [{name: checkout, image: 'ghcr.io/acme/checkout:1.0.0'}]}}}\n"
+		extra    = "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: extra}\n"
+	)
+	for _, tc := range []struct {
+		name   string
+		files  map[string]string
+		header string
+	}{
+		{name: "tool configs beside a manifest", header: "Dockerfile, k8s/deploy.yaml",
+			files: map[string]string{"Dockerfile": "FROM scratch\n", "catalog-info.yaml": catalog, "skaffold.yaml": skaffold, "k8s/deploy.yaml": deploy}},
+		{name: "a manifest .pactoignore lists", header: "Dockerfile, k8s/deploy.yaml",
+			files: map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deploy, "k8s/extra.yaml": extra, "local/dev.yaml": extra,
+				".pactoignore": "k8s/extra.yaml\nlocal/\n"}},
+		{name: "an ignored Dockerfile", header: "k8s/deploy.yaml",
+			files: map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deploy, ".pactoignore": "Dockerfile\n"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writeTree(t, filepath.Join(t.TempDir(), "checkout"), tc.files)
+			r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := file(t, r, "pacto.yaml").Content
+			if !strings.HasPrefix(text, "# Written by pacto init from "+tc.header+".\n") || !strings.Contains(text, `cp k8s/deploy.yaml "$PACTO_OUT"/`) {
+				t.Fatalf("pacto.yaml:\n%s", text)
+			}
+			for _, s := range []string{"catalog-info.yaml", "skaffold.yaml", "extra.yaml", "local/"} {
+				if strings.Contains(text, s) {
+					t.Errorf("pacto.yaml names %s:\n%s", s, text)
+				}
+			}
+		})
 	}
 }

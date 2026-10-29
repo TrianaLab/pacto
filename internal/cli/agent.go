@@ -58,8 +58,8 @@ func newAgentCommand(svc *app.Service, v *viper.Viper, version string, d deps) *
 			"sends it to an Evidence Server, which needs contracts pinned as oci://...@sha256:<digest>. " +
 			"Envelope sequences start at the wall clock in nanoseconds and count up, so they keep increasing " +
 			"across restarts as long as the clock does.\n\n" +
-			"Needs Linux 5.8 or later with BTF, root (or BPF, PERFMON and SYS_PTRACE) and the host's " +
-			"/proc and cgroupfs.",
+			"Needs Linux 5.11 or later with BTF, or 5.8 or later with BTF and root or CAP_SYS_RESOURCE; root " +
+			"(or BPF, PERFMON and SYS_PTRACE); and the host's /proc and cgroupfs.",
 		Example: `  pacto agent --sink stdout --publish-interval 5s
   pacto agent --sink kubernetes --cgroup-root /host/sys/fs/cgroup
   pacto agent --sink local --docker --cgroup-root /host/sys/fs/cgroup

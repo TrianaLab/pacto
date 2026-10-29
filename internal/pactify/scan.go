@@ -10,10 +10,13 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/trianalab/pacto/v4/pkg/ignore"
 )
 
 // scan is what a folder says about the service in it.
@@ -27,7 +30,7 @@ type scan struct {
 	workloads   []*workload
 	workload    *workload // the one the contract describes
 	openapi     string
-	chart       string
+	charts      []string
 	kustomize   []string // kustomization.yaml files among the manifests
 	configMaps  map[string]configMap
 	// env is the workload's environment, with every ConfigMap it reads
@@ -79,7 +82,12 @@ var skipDirs = map[string]bool{"node_modules": true, "vendor": true}
 
 func scanDir(dir string) (*scan, error) {
 	sc := &scan{objects: map[string]bool{}, services: map[string]bool{}, configMaps: map[string]configMap{}}
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	// What .pactoignore leaves out of the bundle is not read either.
+	ign, err := ignore.Load(os.DirFS(dir))
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", filepath.Join(dir, ignore.IgnoreFileName), err)
+	}
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && p == dir {
 			return fs.SkipAll // a folder that is not there yet is empty
 		}
@@ -88,11 +96,14 @@ func scanDir(dir string) (*scan, error) {
 		}
 		rel, _ := filepath.Rel(dir, p) // ponytail: p is always under dir
 		rel = filepath.ToSlash(rel)
-		if d.IsDir() {
-			if rel != "." && (strings.HasPrefix(d.Name(), ".") || skipDirs[d.Name()] || rel == "delivery") {
+		if rel != "." && ign.Ignored(rel, d.IsDir()) {
+			if d.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
+		}
+		if d.IsDir() {
+			return sc.dir(p, rel, d.Name())
 		}
 		sc.file(p, rel, d.Name())
 		return nil
@@ -107,6 +118,27 @@ func scanDir(dir string) (*scan, error) {
 	sc.workload = pickWorkload(sc.workloads, filepath.Base(dir))
 	sc.resolveEnv()
 	return sc, nil
+}
+
+// dir decides whether scanDir walks into a folder: fs.SkipDir to leave it
+// out, nil to read it.
+func (sc *scan) dir(p, rel, name string) error {
+	if rel != "." && (strings.HasPrefix(name, ".") || skipDirs[name] || rel == "delivery") {
+		return fs.SkipDir
+	}
+	// A Helm chart's templates are not manifests until rendered, so a
+	// chart folder is never read. When the folder itself is a chart,
+	// only its templates, subcharts and CRDs are left out.
+	if _, err := os.Stat(filepath.Join(p, "Chart.yaml")); err == nil {
+		sc.charts = append(sc.charts, rel)
+		if rel != "." {
+			return fs.SkipDir
+		}
+	}
+	if slices.Contains(sc.charts, ".") && (rel == "templates" || rel == "charts" || rel == "crds") {
+		return fs.SkipDir
+	}
+	return nil
 }
 
 // dockerRank orders Dockerfiles shallowest first, a plain Dockerfile first.
@@ -135,10 +167,7 @@ func (sc *scan) file(p, rel, base string) {
 	switch {
 	case base == "Dockerfile" || strings.HasPrefix(base, "Dockerfile.") || strings.HasSuffix(base, ".Dockerfile"):
 		sc.dockerfiles = append(sc.dockerfiles, rel)
-	case base == "Chart.yaml":
-		if sc.chart == "" {
-			sc.chart = path.Dir(rel)
-		}
+	case base == "Chart.yaml": // its folder is a chart, recorded by scanDir
 	case openapiRE.MatchString(base):
 		if sc.openapi == "" || strings.Count(rel, "/") < strings.Count(sc.openapi, "/") {
 			sc.openapi = rel
@@ -150,6 +179,13 @@ func (sc *scan) file(p, rel, base string) {
 		}
 	}
 }
+
+// toolGroups are apiVersion groups of tool configs written like Kubernetes
+// objects that never go to a cluster: a Backstage catalog-info.yaml and a
+// skaffold.yaml. Flux would refuse a kind the cluster does not serve.
+// ponytail: a denylist of the collisions seen so far; .pactoignore keeps out
+// the next one until it is added here.
+var toolGroups = map[string]bool{"backstage.io": true, "skaffold": true}
 
 // manifest reads every Kubernetes object in one YAML file. A file that is not
 // YAML, or holds no object with apiVersion and kind, is not a manifest.
@@ -170,7 +206,8 @@ func (sc *scan) manifest(rel string, data []byte) {
 		}
 		kind, _ := doc["kind"].(string)
 		secret = secret || holdsSecret(kust, kind, doc)
-		if _, ok := doc["apiVersion"].(string); !ok || kind == "" {
+		api, ok := doc["apiVersion"].(string)
+		if group, _, _ := strings.Cut(api, "/"); !ok || kind == "" || toolGroups[group] {
 			continue
 		}
 		found = true

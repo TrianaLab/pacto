@@ -5,29 +5,30 @@
 template: home.html
 ---
 
-<h1 hidden>Describe your services once. Pacto decides what ships.</h1>
+<h1 hidden>Know which services a change breaks before it ships.</h1>
 
 ## What is Pacto? { #what-is-pacto }
 
-Pacto is continuous delivery for the
-[GitlessOps](manifesto.md#what-gitlessops-means) era: signed artifacts and
-evidence decide which version runs where, while your code and your deployment
-files stay in git. You describe each service once, in a contract. Pacto works out what each change does to the services
-that depend on it, and decides which version runs in each environment. Flux
-or Argo CD, the tools that keep a Kubernetes cluster running what you ask for,
-still apply the version.
+Pacto tells you which services a change breaks before it ships, and checks
+what is actually running. You describe each service once, in a contract: one
+YAML file that says who owns the service, what it offers, which services it
+calls and which of their versions it accepts. It lives in the OCI registry
+you already run. `pacto diff` says whether a change is breaking and
+`pacto impact` says which consumers it breaks once Pacto can see your fleet.
+The [runtime checks](#check-what-is-actually-running) compare a running
+service with its contract.
 
-Pacto starts by watching. It earns the right to ship on its own one step at a
-time, and a person confirms every step: that is
+When you are ready, Pacto's opt-in delivery component (alpha, Kubernetes)
+ships the changes the contract graph clears. Flux or Argo CD still apply every
+version. [GitlessOps](manifesto.md#what-gitlessops-means) means signed
+artifacts in your registry and evidence decide which version runs where, while
+your code and manifests stay in git. Delivery starts by watching and climbs
 [the autonomy ladder](autonomy.md), from observe (watch only) to autonomous,
-set per [Stage](glossary.md#stage). It asks only the teams a change affects,
-and when it cannot see enough it says [Unknown](glossary.md#unknown) and waits
-for a person.
+set per [Stage](glossary.md#stage). A person confirms every step up. A change
+that breaks a consumer waits for that consumer's owners, and when Pacto cannot
+see enough it says [Unknown](glossary.md#unknown) and waits for a person.
 
-Contracts are the foundation. A contract is one YAML file that says who owns
-a service, what it offers, which services it calls and which of their
-versions it accepts. It lives in the container registry you already run, and
-it is useful on its own, before you turn on delivery:
+A contract looks like this:
 
 ```yaml title="pacto.yaml"
 pactoVersion: "2.0"
@@ -52,9 +53,9 @@ dependencies:
 
 ## Who breaks when a dependency ships a new version
 
-The `compatibility` range above records which versions of `auth` this revision
-accepts, and an optional `pacto.lock` pins every dependency, direct or indirect, to the
-exact published build. So when auth is about to ship 3.0, Pacto answers per consumer:
+The `compatibility` range above records which versions of `auth` this
+revision accepts. Each consumer's range lets Pacto answer per consumer when
+auth is about to ship 3.0:
 
 ```console
 $ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
@@ -75,7 +76,12 @@ and 3.0.0 falls outside it. `reporting` accepts
 `>=2.0.0 <4.0.0` and 3.0.0 is inside, though a range match does not prove
 reporting avoids what changed. `direct` means each one declares auth
 itself. `contractual` means the answer comes from the declared ranges alone,
-without a runtime observation of the call.
+without a runtime observation of the call. The folder says nothing about
+where the consumers run, so the release gate is `unverified` and the command
+exits 2.
+
+See [who breaks in CI](ci.md#on-every-pull-request-who-breaks) for the
+sources `pacto impact` needs.
 
 You check one file when you write it, compare it with the previous revision
 and then compare it with what is running.
@@ -94,31 +100,33 @@ calls whom pay off at the second consumer.
 
 ## Check what is actually running
 
-Pacto can check what a running service actually does on the network against
-what its contract says, on any Linux machine, and tells you only what it can
-prove:
+Pacto checks what a running service does on the network against what its
+contract says, on Linux, and reports only what it can confirm:
 
 | What it catches | Finding |
 | --- | --- |
 | A process reports healthy but nothing listens on the declared port | `INTERFACE_ABSENT` |
 | A declared dependency the service keeps failing to reach | `DEPENDENCY_UNREACHABLE` |
-| A call to another Pacto service no dependency declares (seen on Kubernetes or by `pacto agent`) | `DEPENDENCY_UNDECLARED` |
+| A call to another Pacto service no dependency declares (seen by the node agent or `pacto agent`; a warning, so the contract reads Warning rather than NonCompliant) | `DEPENDENCY_UNDECLARED` |
 
 ```bash
 pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./payments-server
 ```
 
 Pacto watches TCP connections in the Linux kernel with eBPF (small, safe
-programs the kernel runs on events). It reads connection metadata, never
-payloads or secrets. When it cannot see something, it says so. Run it three ways:
+programs the kernel runs on events). The kernel watcher reads connection
+metadata, never payloads or secrets. The optional probes read only the
+response they need. When it cannot see something, it says so. Run it three ways:
 `pacto run` wraps one command (a laptop, a CI job), `pacto agent` watches a
-Docker host or a server and the Kubernetes operator deploys the same agent on
-every node. See [Runtime conformance](runtime-conformance.md).
+Docker host or a server and the Kubernetes operator can deploy the same agent
+on every node (opt-in). See [Runtime conformance](runtime-conformance.md) for
+the kernel and privilege requirements.
 
 ## What delivery needs
 
-Contracts and the checks above work anywhere. Delivery, the part that moves
-versions, is alpha: its settings and commands may still change. It needs:
+Contracts work anywhere, and the checks above work on Linux. Delivery, the
+part that moves versions, is alpha: its settings and commands may still
+change. It needs:
 
 - Kubernetes 1.30 or later, with Flux (Argo CD works too, as an experimental
   option).
@@ -142,11 +150,24 @@ versions, is alpha: its settings and commands may still change. It needs:
 To try it, start a new service on observe, where Pacto moves nothing, or open
 the [live demo](examples/dashboard-demo.md) in your browser.
 
+## Agents take the same path
+
+An AI agent asks for a delivery change over MCP the way a person or a CI job
+does: it creates an Operation, and the promoter plans and checks it. Agents
+get no approve tool, and the admission policies the chart installs with
+delivery refuse an approval from an agent. Kubernetes RBAC still governs
+what the agent's identity may do outside Pacto.
+[Agents take the same path](manifesto.md#agents-take-the-same-path) says what
+the policies close and what your platform closes itself. The
+[delivery security model](integrations/kubernetes/delivery-security.md) gives
+the detail.
+
 ## Where to start
 
 | You want to | Read |
 |---|---|
-| Know what Pacto is and whether it fits | [The autonomy ladder](autonomy.md), [What GitlessOps means](manifesto.md#what-gitlessops-means) and the [live demo](examples/dashboard-demo.md) |
+| Know what Pacto is and whether it fits | [Who breaks when a dependency ships](#who-breaks-when-a-dependency-ships-a-new-version), [How Pacto relates to other tools](comparison.md) and the [live demo](examples/dashboard-demo.md) |
+| Give many existing services a contract | [Generate contracts from what you already have](bootstrap-contracts.md) |
 | Pactify your first service (give it a contract and connect it to delivery) | [Quickstart](quickstart.md), then [Pactify a service](pactify.md) |
 | Approve or unblock a change | [Decide, unfreeze and roll back](pactify-decide.md) |
 | Verify a record | [Check a record without Pacto](verify-a-record.md) |

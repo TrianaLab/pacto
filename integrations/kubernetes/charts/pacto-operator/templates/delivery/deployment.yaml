@@ -48,13 +48,11 @@ spec:
             {{- if .Values.delivery.argocd.enabled }}
             - --argocd
             {{- end }}
-            {{- if .Values.delivery.admissionPolicies.enabled }}
             {{- $fullname := include "pacto-operator.delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}
             {{- if .Values.delivery.argocd.enabled }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
             {{- if .Values.delivery.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
             - --admission-policies={{ range $i, $p := $policies }}{{ if $i }},{{ end }}{{ $fullname }}-{{ $p }}{{ end }}
-            {{- end }}
             {{- if .Values.delivery.recorder.enabled }}
             - --records
             - --recorded-ttl={{ .Values.delivery.recorder.operationTTL }}

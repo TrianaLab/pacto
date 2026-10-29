@@ -26,10 +26,11 @@ You need:
   the image there and pushes it itself:
   `docker buildx create --use --driver docker-container`;
 - a container registry, and a login to it:
-  `pacto login ghcr.io -u <user>` (or `docker login`). Any registry works
-  for this page. The optional signed [record](glossary.md#record) of each
-  change needs one that serves OCI Referrers, and without records a Stage
-  stops at advise; see [What delivery needs](index.md#what-delivery-needs);
+  `pacto login registry.example -u <user>` (or `docker login`). Any registry
+  works for this page. The optional signed [record](glossary.md#record) of each
+  change is stored next to what you publish, in a registry that serves OCI
+  Referrers. Without records a Stage stops at advise; see
+  [What delivery needs](index.md#what-delivery-needs);
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
@@ -56,14 +57,14 @@ pacto init --delivery --plan
 
 `pacto init` reads what is already there, such as the Dockerfile and the
 Kubernetes files, and fills in a contract from it. It reads your registry from
-the image name in your Deployment; pass `--registry ghcr.io/acme` if it cannot,
-or if the image is a bare name such as `checkout`: a Docker Hub official
-image only Docker can push to.
-`--delivery` adds the cluster files of step 4, so the first version you publish
-already carries them. With `--plan` it shows exactly what it would add and
-changes nothing. For a private registry, add `--registry-secret registry-creds`
-(step 4 creates that Secret). For a local registry that speaks plain HTTP, add
-`--insecure-registry`; to keep a throwaway key's signatures out of the public
+the image name in your Deployment; pass `--registry registry.example/acme` if it
+cannot, or if the image is a bare name such as `checkout`: a Docker Hub official
+image only Docker can push to. `--delivery` adds the cluster files of step 4, so
+the first version you publish already carries them. With `--plan` it shows
+exactly what it would add and changes nothing. For a private registry, add
+`--registry-secret registry-creds` (step 4 creates that Secret). For a local
+registry that speaks plain HTTP, add `--insecure-registry`; to keep a throwaway
+key's signatures out of the public
 [transparency log](glossary.md#transparency-log), add `--no-transparency-log`.
 
 The plan lists the services yours depends on, what Pacto could not work out,
@@ -83,9 +84,10 @@ echo cosign.key >> .gitignore
 `--owner` names the team that owns the service: the name of its group in your
 company login, whose members Pacto asks about this service
 ([Decide, unfreeze and roll back](pactify-decide.md)). `init` writes
-`pacto.yaml`, the `delivery/` folder and a `.pactoignore` that keeps the
-signing key out of what is published, and never overwrites your edits. For an image `ghcr.io/acme/my-service:1.0.0` and
-the files `k8s/deployment.yaml` and `k8s/service.yaml`, the contract is:
+`pacto.yaml`, the `delivery/` folder and a `.pactoignore` that keeps the signing
+key out of what is published, and never overwrites your edits. For an image
+`registry.example/acme/my-service:1.0.0` and the files `k8s/deployment.yaml` and
+`k8s/service.yaml`, the contract is:
 
 ```yaml
 pactoVersion: "2.1"
@@ -94,11 +96,12 @@ service:
   version: 1.0.0            # from the image tag (0.1.0 and an Unknown if none)
   owner:
     team: payments
+workload: service           # from the Kubernetes workload kind
 capabilities:               # from a readiness, liveness or startup probe
   - type: health
 dependencies:               # one per service a URL in the environment names
   - name: billing
-    ref: oci://ghcr.io/acme/contracts/billing   # its publish.bundle
+    ref: oci://registry.example/acme/contracts/billing   # its publish.bundle
     required: true                              # yours cannot run without it
     compatibility: "^1.0.0"                     # a placeholder: the versions yours accepts
 configurations:             # the environment, ConfigMaps included, values as defaults
@@ -106,18 +109,18 @@ configurations:             # the environment, ConfigMaps included, values as de
     schema: configuration/schema.json
     required: true
 publish:
-  bundle: oci://ghcr.io/acme/contracts/my-service   # where the contract goes
+  bundle: oci://registry.example/acme/contracts/my-service   # where the contract goes
   deploy: manifests                                 # what Flux applies
   artifacts:
     - name: api
       type: image
-      ref: oci://ghcr.io/acme/my-service
+      ref: oci://registry.example/acme/my-service
       build: {dockerfile: {context: .}}
     - name: manifests
       type: manifests
-      ref: oci://ghcr.io/acme/deploy/my-service
+      ref: oci://registry.example/acme/deploy/my-service
       build:                # your Kubernetes files, the image just built, delivery/pacto.yaml
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)ghcr\.io/acme/my-service:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: ghcr.io/acme/my-service:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)registry\.example/acme/my-service:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: registry.example/acme/my-service:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign: {key: cosign.key}
 ```
 
@@ -161,17 +164,20 @@ using yours needs 3.0.0) and never overwrites a published one; see
 
 ## 4. Connect the service to your cluster
 
+!!! warning "Alpha"
+    Delivery is new: its settings and commands may still change.
+
 Install, once per cluster, Flux, the Pacto operator (it checks that each
 running service matches its contract) and delivery (it decides which version
 runs in each environment). One Helm chart installs both. Delivery reads your contracts: with a private registry, give it a login
-first in the operator's namespace and add
+in the operator's namespace and add
 `--set delivery.promoter.registryCredentials.secretName=registry-creds` to the
 command that turns delivery on below:
 
 ```bash
 kubectl create namespace pacto-operator-system
 kubectl -n pacto-operator-system create secret docker-registry registry-creds \
-  --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
+  --docker-server=registry.example --docker-username=<user> --docker-password=<token>
 ```
 
 ```bash
@@ -195,7 +201,7 @@ for env in test prod; do
   kubectl -n $env create secret generic cosign-pub --from-file=cosign.pub
   # a private registry only:
   kubectl -n $env create secret docker-registry registry-creds \
-    --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
+    --docker-server=registry.example --docker-username=<user> --docker-password=<token>
 done
 kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
 ```
@@ -272,7 +278,9 @@ pacto delivery approve -n prod <name> --decision approve
 
 `pacto init` takes several folders and ends with a summary table.
 `--cluster` drafts a contract for every workload no Pacto describes yet, from
-your current kubeconfig context, in `<out>/<namespace>/<name>`:
+your current kubeconfig context, in `<out>/<namespace>/<name>`. Pass
+`--namespace`: without it, `--cluster` reads every namespace, system ones
+included:
 
 ```bash
 pacto init --plan services/checkout services/payments
@@ -281,11 +289,15 @@ pacto init --cluster --namespace shop --out drafts --plan
 
 With the Pacto node agent running, the services a workload was seen calling
 become dependencies, pinned to exactly the version seen running
-(`compatibility: "=2.3.0"`) for you to widen. Until you do, every new version
-of that service asks your team. A service with no contract gets a placeholder range.
-Drafts are never published, and an invalid one fails the command. The MCP tool
+(`compatibility: "=2.3.0"`) for you to widen. Until you do, every new version of
+that service asks your team. Without the agent, environment URLs name
+dependencies, and one with no contract gets a placeholder range. Drafts are
+never published, and an invalid one fails the command. The MCP tool
 `pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,
 and only plans unless `dry_run` is false.
+[Generate contracts from what you already have](bootstrap-contracts.md#draft-from-a-running-cluster)
+lists the permissions `--cluster` needs and walks through a whole folder of
+services.
 
 ## What's next
 
