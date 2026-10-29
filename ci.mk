@@ -268,13 +268,12 @@ docs-build-strict: $(MERMAID_RUNTIME)
 # mike creates gh-pages on first run. The WASM demo is included when built into
 # docs/demo/ first (the deploy workflow folds it there; locally run `make docs-build`).
 # Docs deploy is a release-transaction unit: release.yml passes the EXACT released core version via PACTO_DOCS_CORE_VERSION
-# so the versioned snapshot never depends on "latest release" guessing. The
-# non-release docs.yml push path leaves it unset and falls back to the committed
-# manifest (redeploying the current core version's docs). A k8s-only release keeps
-# the same core version and refreshes the integration docs inside that snapshot.
-# RELEASE docs deploy (release.yml, unit k8s-docs): publish the EXACT released core
-# version and move the `latest` alias + default. Only a release transaction may
-# touch a stable version or latest.
+# so the versioned snapshot never depends on "latest release" guessing. docs.yml
+# redeploys docs-only fixes through the same target, passing the version
+# release/scripts/docs_publish_gate.sh checked: the current release, which already
+# holds `latest`. A k8s-only release keeps the same core version and refreshes the
+# integration docs inside that snapshot. Only a release transaction adds a version
+# or moves `latest` to a new one.
 #
 # mike runs mkdocs internally, so the release publisher needs the same pinned
 # Mermaid runtime every other entry point stages. Expressing it here is what lets
