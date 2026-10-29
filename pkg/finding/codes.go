@@ -9,7 +9,7 @@ const (
 	// Durable v2 codes (may occur for v2 Operational Contracts).
 	CodeUnsupportedPactoVersion      Code = "UNSUPPORTED_PACTO_VERSION"
 	CodeNeedsPacto21                 Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
-	CodeNeedsPacto22                 Code = "NEEDS_PACTO_2_2" // a 2.0 or 2.1 contract uses a field only 2.2 has
+	CodeNeedsPacto22                 Code = "NEEDS_PACTO_2_2" // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
 	CodeSchemaError                  Code = "SCHEMA_ERROR"
 	CodeSchemaViolation              Code = "SCHEMA_VIOLATION"
 	CodeYamlParseError               Code = "YAML_PARSE_ERROR"

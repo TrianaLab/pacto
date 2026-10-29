@@ -109,12 +109,58 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		warnings = append(warnings, cw...)
 	}
 
+	ge, gw := s.guaranteeFindings(ctx, ref, bundle.Contract)
+	if len(ge) > 0 {
+		errors = append(errors, ge...)
+		valid = false
+	}
+	warnings = append(warnings, gw...)
+
 	return &ValidateResult{
 		Path:     ref,
 		Valid:    valid,
 		Errors:   errors,
 		Warnings: warnings,
 	}, nil
+}
+
+// guaranteeFindings checks what each direct dependency requires against its
+// provider's contract, reporting every unmet guarantee at once. An unmet
+// guarantee is a confirmed contradiction between two declared contracts:
+// GUARANTEE_UNMET, an error on a required dependency and a warning on an
+// optional one, which by definition the service runs without. A provider
+// Pacto cannot fetch leaves its requirements unknown: GUARANTEE_UNVERIFIED, a
+// warning, never a pass. Only dependencies that declare requires are fetched,
+// so a contract without them validates offline as before; what a dependency's
+// own dependencies require stays its owner's business.
+func (s *Service) guaranteeFindings(ctx context.Context, ref string, c *contract.Contract) ([]contract.ValidationError, []contract.ValidationWarning) {
+	var errs []contract.ValidationError
+	var warns []contract.ValidationWarning
+	fetcher := s.newDepFetcher(ref)
+	for i, dep := range c.Dependencies {
+		if len(dep.Requires) == 0 {
+			continue
+		}
+		path := fmt.Sprintf("dependencies[%d].requires", i)
+		var b *contract.Bundle
+		err := fmt.Errorf("it has no ref, so there is no contract to read")
+		if dep.Ref != "" {
+			b, err = fetcher.Fetch(ctx, dep)
+		}
+		if err != nil {
+			warns = append(warns, contract.ValidationWarning{Path: path, Code: "GUARANTEE_UNVERIFIED",
+				Message: fmt.Sprintf("cannot check what %s requires from %s: %v", c.Service.Name, dep.Name, err)})
+			continue
+		}
+		for _, m := range contract.Unmet(c.Service.Name, dep, b.Contract) {
+			if dep.Required {
+				errs = append(errs, contract.ValidationError{Path: path, Code: "GUARANTEE_UNMET", Message: m.String()})
+			} else {
+				warns = append(warns, contract.ValidationWarning{Path: path, Code: "GUARANTEE_UNMET", Message: m.String()})
+			}
+		}
+	}
+	return errs, warns
 }
 
 // closureFindings checks every contract in the root's dependency closure against

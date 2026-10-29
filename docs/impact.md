@@ -61,6 +61,7 @@ For each dependent the analysis records:
 | **provenance** | Where the edge came from: `declared`, `observed`, `declared+observed` or `inferred`. |
 | **confidence** | How strongly the evidence supports the claim (see below). |
 | **status / targets** | The consumer's aggregate status and the operational targets it runs in. |
+| **unmet** | Each [guarantee](contract-reference/dependencies-and-state.md#required-guarantees) the consumer requires that the new version does not meet, with both values. |
 | **note** | A plain-words qualifier. On a `BREAKING` change a `compatible` verdict only means the range accepts the new version, so the note says to check that the consumer does not use what the change removes. An open range such as `>=1.0.0` accepts every new major version, and the note says so. |
 
 ### Confidence model
@@ -134,7 +135,7 @@ The CLI exits on it, and the MCP tool returns it:
 
 | `gate` | Exit | When |
 |--------|------|------|
-| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version and is *active*. |
+| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. |
 | `unverified` | `2` | The change is `BREAKING` and nothing is shown to block it, but the answer cannot clear it: the answer is partial, or consumers depend on the service and none is shown to be safe. |
 | `clear` | `0` | The change is not `BREAKING`, or the snapshot is complete and no service depends on the changed one. |
 

@@ -39,6 +39,7 @@ func diffDependencies(old, new *contract.Contract) []Change {
 			changes = append(changes, newChange("dependencies.external", Modified,
 				name+": external="+strconv.FormatBool(oldDep.External), name+": external="+strconv.FormatBool(newDep.External)))
 		}
+		changes = append(changes, diffRequires(name, oldDep.Requires, newDep.Requires)...)
 		if oldDep.Required != newDep.Required {
 			changes = append(changes, newChange("dependencies.required", Modified,
 				name+": required="+strconv.FormatBool(oldDep.Required), name+": required="+strconv.FormatBool(newDep.Required)))

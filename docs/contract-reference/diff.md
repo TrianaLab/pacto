@@ -48,11 +48,21 @@ modification. `service` carries identity only, so the contract has no `image` or
 | `interfaces.lifecycle.sunset` | Modified, earlier | POTENTIAL_BREAKING |
 | `interfaces.lifecycle.sunset` | Modified, later | NON_BREAKING |
 | `interfaces.lifecycle.successor` | Added / Modified / Removed | NON_BREAKING |
+| `interfaces.guarantees` | Added | NON_BREAKING |
+| `interfaces.guarantees` | Removed | **BREAKING** |
+| `interfaces.guarantees.weakened` | Modified | **BREAKING** |
+| `interfaces.guarantees.strengthened` | Modified | NON_BREAKING |
 
 Interfaces are keyed by `name`. Deprecating an interface changes nothing a
 consumer calls, so it is a notice. An earlier sunset shortens the time consumers
 have to migrate. Removing an interface before its sunset is still **BREAKING**,
-and the reason says that the sunset has not been reached. The `type` enum is `openapi`/`asyncapi`/`grpc`, and the spec pointer is `ref`.
+and the reason says that the sunset has not been reached.
+
+Each [guarantee](sections.md#guarantees) is
+compared on its own: a longer `dedupeWindow` or `retention`, a shorter
+`timeout`, `global` ordering in place of `per-key` and a new `idempotent: true`
+are stronger. A `delivery` change is weaker in both directions, because a
+consumer relying on the old value breaks. The `type` enum is `openapi`/`asyncapi`/`grpc`, and the spec pointer is `ref`.
 
 ## Configurations
 
@@ -131,6 +141,8 @@ Capabilities (`health`, `metrics`, `extension`) are compared as a set, keyed by
 | `dependencies.ref` | Modified | POTENTIAL_BREAKING |
 | `dependencies.compatibility` | Modified | POTENTIAL_BREAKING |
 | `dependencies.required` | Modified | POTENTIAL_BREAKING |
+| `dependencies.requires` | Added / Modified | POTENTIAL_BREAKING |
+| `dependencies.requires` | Removed | NON_BREAKING |
 
 ## OpenAPI
 

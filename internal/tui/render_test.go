@@ -167,6 +167,17 @@ func TestRenderImpactBreakingWithIncompatibleActiveConsumer(t *testing.T) {
 	}
 }
 
+func TestRenderImpactUnmetGuarantee(t *testing.T) {
+	r := &impact.Result{
+		Service: "orders", NewVersion: "1.1.0", Classification: "BREAKING", Gate: impact.GateBlocked,
+		Consumers: []impact.AffectedConsumer{{Service: "checkout", CompatibilityVerdict: impact.CompatibilityCompatible,
+			Unmet: []contract.Mismatch{{Consumer: "checkout", Provider: "orders", Interface: "events", Guarantee: "dedupeWindow", Required: "5m", Offered: "1m"}}}},
+	}
+	if got := renderImpact(r); !strings.Contains(got, "refused: checkout requires events dedupeWindow >= 5m from orders, which offers 1m") {
+		t.Fatalf("unmet guarantee not rendered:\n%s", got)
+	}
+}
+
 func TestRenderImpactBreakingWithTargetlessIncompatibleConsumer(t *testing.T) {
 	r := &impact.Result{
 		Service:        "test-svc",

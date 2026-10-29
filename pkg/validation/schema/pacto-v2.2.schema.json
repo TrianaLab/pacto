@@ -176,6 +176,64 @@
                 "description": "The interface that replaces this one: the name of another interface of this service, or an absolute URL such as an oci:// reference to another service."
               }
             }
+          },
+          "guarantees": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The behavior consumers may rely on from this interface, in a closed vocabulary. A consumer lists what it relies on in dependencies[].requires, and a change that weakens or removes a guarantee is breaking.",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "enum": [
+                  "1"
+                ],
+                "default": "1",
+                "description": "The version of the guarantee vocabulary. 1 is the only version so far."
+              },
+              "delivery": {
+                "type": "string",
+                "enum": [
+                  "at-most-once",
+                  "at-least-once"
+                ],
+                "description": "What happens to an event when a delivery fails partway. For event interfaces.",
+                "x-enum-descriptions": {
+                  "at-most-once": "an event is never delivered twice and may be lost",
+                  "at-least-once": "an event is never lost and may be delivered more than once"
+                }
+              },
+              "ordering": {
+                "type": "string",
+                "enum": [
+                  "per-key",
+                  "global"
+                ],
+                "description": "The scope in which events arrive in the order they were sent. Global ordering also orders every key. For event interfaces.",
+                "x-enum-descriptions": {
+                  "per-key": "events with the same key arrive in order",
+                  "global": "every event arrives in order"
+                }
+              },
+              "dedupeWindow": {
+                "type": "string",
+                "pattern": "^([0-9]+(ms|s|m|h))+$",
+                "description": "How long a repeated event is recognised and dropped, as a duration such as 5m. A longer window is stronger. For event interfaces."
+              },
+              "retention": {
+                "type": "string",
+                "pattern": "^([0-9]+(ms|s|m|h))+$",
+                "description": "How long an event stays available for replay, as a duration such as 168h. A longer retention is stronger. For event interfaces."
+              },
+              "idempotent": {
+                "type": "boolean",
+                "description": "True when repeating a call has the same effect as making it once. For request/reply interfaces."
+              },
+              "timeout": {
+                "type": "string",
+                "pattern": "^([0-9]+(ms|s|m|h))+$",
+                "description": "The longest a call takes to answer, as a duration such as 2s. A shorter timeout is stronger. For request/reply interfaces."
+              }
+            }
           }
         }
       }
@@ -345,6 +403,75 @@
             "type": "string",
             "minLength": 1,
             "description": "The version an external dependency with no ref runs against, as free text (e.g. 2025-01 or claude-sonnet-4-5). Shown in the graph and in diffs; Pacto cannot check it, so anything relying on it is Unknown."
+          },
+          "requires": {
+            "type": "array",
+            "description": "The behavior this service relies on from the provider's interfaces. Pacto refuses the dependency when the provider does not declare a guarantee this asks for, or declares a weaker one.",
+            "items": {
+              "type": "object",
+              "required": [
+                "interface"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "interface": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The name of the provider interface the requirement is about."
+                },
+                "profile": {
+                  "type": "string",
+                  "enum": [
+                    "1"
+                  ],
+                  "default": "1",
+                  "description": "The version of the guarantee vocabulary. 1 is the only version so far."
+                },
+                "delivery": {
+                  "type": "string",
+                  "enum": [
+                    "at-most-once",
+                    "at-least-once"
+                  ],
+                  "description": "What happens to an event when a delivery fails partway. For event interfaces.",
+                  "x-enum-descriptions": {
+                    "at-most-once": "an event is never delivered twice and may be lost",
+                    "at-least-once": "an event is never lost and may be delivered more than once"
+                  }
+                },
+                "ordering": {
+                  "type": "string",
+                  "enum": [
+                    "per-key",
+                    "global"
+                  ],
+                  "description": "The scope in which events arrive in the order they were sent. Global ordering also orders every key. For event interfaces.",
+                  "x-enum-descriptions": {
+                    "per-key": "events with the same key arrive in order",
+                    "global": "every event arrives in order"
+                  }
+                },
+                "dedupeWindow": {
+                  "type": "string",
+                  "pattern": "^([0-9]+(ms|s|m|h))+$",
+                  "description": "How long a repeated event is recognised and dropped, as a duration such as 5m. A longer window is stronger. For event interfaces."
+                },
+                "retention": {
+                  "type": "string",
+                  "pattern": "^([0-9]+(ms|s|m|h))+$",
+                  "description": "How long an event stays available for replay, as a duration such as 168h. A longer retention is stronger. For event interfaces."
+                },
+                "idempotent": {
+                  "type": "boolean",
+                  "description": "True when repeating a call has the same effect as making it once. For request/reply interfaces."
+                },
+                "timeout": {
+                  "type": "string",
+                  "pattern": "^([0-9]+(ms|s|m|h))+$",
+                  "description": "The longest a call takes to answer, as a duration such as 2s. A shorter timeout is stronger. For request/reply interfaces."
+                }
+              }
+            }
           }
         }
       }

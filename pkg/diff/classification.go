@@ -83,6 +83,14 @@ var rules = map[classificationKey]Classification{
 	{"interfaces.lifecycle.successor", Modified}:  NonBreaking,
 	{"interfaces.lifecycle.successor", Removed}:   NonBreaking,
 
+	// Interface guarantees. A consumer may rely on any guarantee, so one that
+	// is removed or weakened breaks it; diffGuarantees decides the direction
+	// with contract.Unmet, the same check a consumer's requirement gets.
+	{"interfaces.guarantees", Added}:                 NonBreaking,
+	{"interfaces.guarantees", Removed}:               Breaking,
+	{"interfaces.guarantees.weakened", Modified}:     Breaking,
+	{"interfaces.guarantees.strengthened", Modified}: NonBreaking,
+
 	// Configurations (name-indexed). A source that gains a schema where it had
 	// none is deliberately absent: it newly constrains a consumer who was
 	// unconstrained, which is the PotentialBreaking default, and a row restating
@@ -115,6 +123,9 @@ var rules = map[classificationKey]Classification{
 	// service needs. A new free-text version of an external dependency is
 	// something nobody can check: PotentialBreaking (the default).
 	{"dependencies.external", Modified}: NonBreaking,
+	// Dropping every requirement can refuse no provider. Adding or changing
+	// one is the PotentialBreaking default.
+	{"dependencies.requires", Removed}: NonBreaking,
 
 	// OpenAPI paths
 	{"openapi.paths", Added}:   NonBreaking,

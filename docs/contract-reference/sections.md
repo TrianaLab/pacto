@@ -110,6 +110,7 @@ Declares the service's communication boundaries. Optional: a service with no net
 | `ref` | string | Yes | Non-empty. Path to the spec file within the bundle |
 | `visibility` | string | No | Enum: `public`, `internal`. Default: `internal` |
 | `lifecycle` | object | No | 2.2. See [interface lifecycle](#interface-lifecycle) |
+| `guarantees` | object | No | 2.2. Behavior consumers may rely on. See [Guarantees](#guarantees) |
 
 ### Interface types
 
@@ -153,6 +154,40 @@ the services it depends on; see [Dependency closure](validation.md#dependency-cl
 A dependency names a service and not an interface, so the consumer is warned about
 every deprecated interface of that service. `pacto diff` reports the schedule;
 see [change classification](diff.md#interfaces).
+
+### Guarantees
+
+`guarantees` declares the behavior a consumer may rely on, in a closed
+vocabulary: an unknown key fails to load.
+
+| Guarantee | Value | For | Stronger value |
+|---|---|---|---|
+| `delivery` | `at-most-once` or `at-least-once` | events | Neither: they trade loss for duplicates |
+| `ordering` | `per-key` or `global` | events | `global`, which also orders every key |
+| `dedupeWindow` | duration | events | Longer |
+| `retention` | duration | events | Longer |
+| `idempotent` | boolean | calls | `true` |
+| `timeout` | duration | calls | Shorter |
+| `profile` | `"1"` | both | The vocabulary version. Omitted means `1` |
+
+A duration is written like `500ms`, `5m` or `168h`.
+
+```yaml
+interfaces:
+  - name: order-events
+    type: asyncapi
+    ref: interfaces/events.yaml
+    guarantees:
+      delivery: at-least-once
+      ordering: per-key
+      dedupeWindow: 10m
+      retention: 168h
+```
+
+A consumer lists what it relies on in
+[`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
+[`pacto diff`](diff.md#interfaces) classifies a removed or weakened guarantee as
+breaking.
 
 ### Interfaces at runtime
 

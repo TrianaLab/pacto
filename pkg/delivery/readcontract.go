@@ -290,7 +290,7 @@ func revisionFromStatus(p PactoView) (fleet.RawRevision, string) {
 		ct.Service.Owner = *c.Owner
 	}
 	for _, d := range p.Status.Dependencies {
-		ct.Dependencies = append(ct.Dependencies, contract.Dependency(d))
+		ct.Dependencies = append(ct.Dependencies, contract.Dependency{Name: d.Name, Ref: d.Ref, Required: d.Required, Compatibility: d.Compatibility, External: d.External, Version: d.Version})
 	}
 	digest := ""
 	if e := p.Status.EvaluatedRevision; e != nil {

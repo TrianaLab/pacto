@@ -35,6 +35,8 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 			changes = append(changes, newChange("interfaces.visibility", Modified, name+": "+oldIface.Visibility, name+": "+newIface.Visibility))
 		}
 
+		changes = append(changes, diffGuarantees(name, oldIface.Guarantees, newIface.Guarantees)...)
+
 		// Diff spec ref (renamed from Contract in v1)
 		if oldIface.Ref != newIface.Ref {
 			changes = append(changes, newChange("interfaces.ref", Modified, name+": "+oldIface.Ref, name+": "+newIface.Ref))

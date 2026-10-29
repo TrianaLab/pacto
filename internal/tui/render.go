@@ -271,24 +271,7 @@ func renderImpact(r *impact.Result) string {
 	} else {
 		section(&b, fmt.Sprintf("Affected consumers (%d)", len(r.Consumers)))
 		for _, cons := range r.Consumers {
-			depth := ""
-			if cons.Direct {
-				depth = " [direct]"
-			} else {
-				depth = fmt.Sprintf(" [depth %d]", cons.Depth)
-			}
-			compat := safeText(cons.CompatibilityVerdict)
-			if compat == impact.CompatibilityIncompatible {
-				compat = errorStyle.Render(compat)
-			}
-			targets := fmt.Sprintf("%d targets", len(cons.Targets))
-			if len(cons.Targets) == 0 {
-				targets = dimStyle.Render("no targets")
-			}
-			fmt.Fprintf(&b, "  %s%s: %s, %s, %s\n", safeText(cons.Service), depth, compat, safeText(string(cons.Confidence)), targets)
-			if cons.Note != "" {
-				b.WriteString("    " + dimStyle.Render(safeText(cons.Note)) + "\n")
-			}
+			renderConsumer(&b, cons)
 		}
 	}
 	if len(r.Owners) > 0 {
@@ -298,4 +281,30 @@ func renderImpact(r *impact.Result) string {
 		}
 	}
 	return b.String()
+}
+
+// renderConsumer writes one affected consumer: its verdict line, every
+// guarantee it refuses and its note.
+func renderConsumer(b *strings.Builder, cons impact.AffectedConsumer) {
+	depth := ""
+	if cons.Direct {
+		depth = " [direct]"
+	} else {
+		depth = fmt.Sprintf(" [depth %d]", cons.Depth)
+	}
+	compat := safeText(cons.CompatibilityVerdict)
+	if compat == impact.CompatibilityIncompatible {
+		compat = errorStyle.Render(compat)
+	}
+	targets := fmt.Sprintf("%d targets", len(cons.Targets))
+	if len(cons.Targets) == 0 {
+		targets = dimStyle.Render("no targets")
+	}
+	fmt.Fprintf(b, "  %s%s: %s, %s, %s\n", safeText(cons.Service), depth, compat, safeText(string(cons.Confidence)), targets)
+	for _, m := range cons.Unmet {
+		b.WriteString("    " + errorStyle.Render("refused: "+safeText(m.String())) + "\n")
+	}
+	if cons.Note != "" {
+		b.WriteString("    " + dimStyle.Render(safeText(cons.Note)) + "\n")
+	}
 }

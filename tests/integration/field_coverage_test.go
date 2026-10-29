@@ -83,14 +83,15 @@ const (
 	parseError      = "PARSE_ERROR"
 	needs21         = "NEEDS_PACTO_2_1" // a 2.1-only part in a 2.0 contract
 	needs22         = "NEEDS_PACTO_2_2" // a 2.2-only part in a 2.0 or 2.1 contract
+	unmet           = "GUARANTEE_UNMET" // a requirement the provider bundle does not meet
 )
 
 var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
 	valid("pactoVersion=2.2", set("pactoVersion", "2.2")),
-	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("interfaces.0.lifecycle")),
-	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("checks"), del("interfaces.0.lifecycle")),
+	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
+	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("checks"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
@@ -143,13 +144,35 @@ var fieldCoverageCases = []fcCase{
 		set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
 	valid("interfaces[].ref/valid", set("interfaces.0.ref", "interfaces/asyncapi.yaml")),
 	invalid("interfaces[].ref/invalid", "FILE_NOT_FOUND", set("interfaces.0.ref", "interfaces/missing.yaml")),
+	valid("interfaces[].guarantees/valid", del("interfaces.0.guarantees")),
+	invalid("interfaces[].guarantees/invalid", parseError, set("interfaces.0.guarantees.latency", "1s")),
+	invalid("interfaces[].guarantees/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("dependencies.1.requires")),
+	valid("interfaces[].guarantees.profile/valid", del("interfaces.0.guarantees.profile")),
+	invalid("interfaces[].guarantees.profile/invalid", schemaViolation, set("interfaces.0.guarantees.profile", "2")),
+	valid("interfaces[].guarantees.profile=1", set("interfaces.0.guarantees.profile", "1")),
+	valid("interfaces[].guarantees.delivery/valid", del("interfaces.0.guarantees.delivery")),
+	invalid("interfaces[].guarantees.delivery/invalid", schemaViolation, set("interfaces.0.guarantees.delivery", "exactly-once")),
+	valid("interfaces[].guarantees.delivery=at-most-once", set("interfaces.0.guarantees.delivery", "at-most-once")),
+	valid("interfaces[].guarantees.delivery=at-least-once", set("interfaces.0.guarantees.delivery", "at-least-once")),
+	valid("interfaces[].guarantees.ordering/valid", del("interfaces.0.guarantees.ordering")),
+	invalid("interfaces[].guarantees.ordering/invalid", schemaViolation, set("interfaces.0.guarantees.ordering", "total")),
+	valid("interfaces[].guarantees.ordering=per-key", set("interfaces.0.guarantees.ordering", "per-key")),
+	valid("interfaces[].guarantees.ordering=global", set("interfaces.0.guarantees.ordering", "global")),
+	valid("interfaces[].guarantees.dedupeWindow/valid", set("interfaces.0.guarantees.dedupeWindow", "1h30m")),
+	invalid("interfaces[].guarantees.dedupeWindow/invalid", schemaViolation, set("interfaces.0.guarantees.dedupeWindow", "5 minutes")),
+	valid("interfaces[].guarantees.retention/valid", set("interfaces.0.guarantees.retention", "720h")),
+	invalid("interfaces[].guarantees.retention/invalid", schemaViolation, set("interfaces.0.guarantees.retention", "7d")),
+	valid("interfaces[].guarantees.idempotent/valid", set("interfaces.0.guarantees.idempotent", false)),
+	invalid("interfaces[].guarantees.idempotent/invalid", schemaViolation, set("interfaces.0.guarantees.idempotent", "yes")),
+	valid("interfaces[].guarantees.timeout/valid", set("interfaces.0.guarantees.timeout", "250ms")),
+	invalid("interfaces[].guarantees.timeout/invalid", schemaViolation, set("interfaces.0.guarantees.timeout", "-1s")),
 	valid("interfaces[].visibility/valid", del("interfaces.0.visibility")),
 	invalid("interfaces[].visibility/invalid", schemaViolation, set("interfaces.0.visibility", "private")),
 	valid("interfaces[].visibility=public", set("interfaces.0.visibility", "public")),
 	valid("interfaces[].visibility=internal", set("interfaces.0.visibility", "internal")),
 	valid("interfaces[].lifecycle/valid", del("interfaces.0.lifecycle")),
 	invalid("interfaces[].lifecycle/invalid", schemaViolation, set("interfaces.0.lifecycle", map[string]any{})),
-	invalid("interfaces[].lifecycle/invalid-2.1", needs22, set("pactoVersion", "2.1")),
+	invalid("interfaces[].lifecycle/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
 	valid("interfaces[].lifecycle.deprecated/valid", set("interfaces.0.lifecycle.deprecated", "2025-12-01")),
 	invalid("interfaces[].lifecycle.deprecated/invalid", "INVALID_INTERFACE_LIFECYCLE", set("interfaces.0.lifecycle.deprecated", "2026-1-15")),
 	valid("interfaces[].lifecycle.sunset/valid", del("interfaces.0.lifecycle.sunset")),
@@ -202,6 +225,30 @@ var fieldCoverageCases = []fcCase{
 	valid("dependencies[].external/valid", set("dependencies.0.external", true)),
 	invalid("dependencies[].external/invalid", "DEPENDENCY_REF_REQUIRED", del("dependencies.0.ref")),
 	invalid("dependencies[].external/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish"), del("checks"), set("dependencies.0.external", true)),
+	valid("dependencies[].requires/valid", del("dependencies.1.requires")),
+	invalid("dependencies[].requires/invalid", unmet, set("dependencies.1.requires.0.dedupeWindow", "1h")),
+	invalid("dependencies[].requires/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees")),
+	valid("dependencies[].requires[]/valid", set("dependencies.1.requires.1", map[string]any{"interface": "events", "idempotent": true})),
+	invalid("dependencies[].requires[]/invalid", parseError, set("dependencies.1.requires.0", "events")),
+	valid("dependencies[].requires[].interface/valid", set("dependencies.1.requires.0.interface", "events")),
+	invalid("dependencies[].requires[].interface/invalid", unmet, set("dependencies.1.requires.0.interface", "audit")),
+	valid("dependencies[].requires[].profile/valid", del("dependencies.1.requires.0.profile")),
+	invalid("dependencies[].requires[].profile/invalid", schemaViolation, set("dependencies.1.requires.0.profile", "2")),
+	valid("dependencies[].requires[].profile=1", set("dependencies.1.requires.0.profile", "1")),
+	valid("dependencies[].requires[].delivery/valid", del("dependencies.1.requires.0.delivery")),
+	invalid("dependencies[].requires[].delivery/invalid", unmet, set("dependencies.1.requires.0.delivery", "at-most-once")),
+	valid("dependencies[].requires[].delivery=at-least-once", set("dependencies.1.requires.0.delivery", "at-least-once")),
+	valid("dependencies[].requires[].ordering/valid", del("dependencies.1.requires.0.ordering")),
+	invalid("dependencies[].requires[].ordering/invalid", unmet, set("dependencies.1.requires.0.ordering", "global")),
+	valid("dependencies[].requires[].ordering=per-key", set("dependencies.1.requires.0.ordering", "per-key")),
+	valid("dependencies[].requires[].dedupeWindow/valid", set("dependencies.1.requires.0.dedupeWindow", "10m")),
+	invalid("dependencies[].requires[].dedupeWindow/invalid", unmet, set("dependencies.1.requires.0.dedupeWindow", "1h")),
+	valid("dependencies[].requires[].retention/valid", set("dependencies.1.requires.0.retention", "168h")),
+	invalid("dependencies[].requires[].retention/invalid", unmet, set("dependencies.1.requires.0.retention", "8760h")),
+	valid("dependencies[].requires[].idempotent/valid", set("dependencies.1.requires.0.idempotent", false)),
+	invalid("dependencies[].requires[].idempotent/invalid", schemaViolation, set("dependencies.1.requires.0.idempotent", "yes")),
+	valid("dependencies[].requires[].timeout/valid", set("dependencies.1.requires.0.timeout", "2s")),
+	invalid("dependencies[].requires[].timeout/invalid", unmet, set("dependencies.1.requires.0.timeout", "1ms")),
 	valid("dependencies[].version/valid", set("dependencies.1", map[string]any{"name": "model", "required": true, "external": true, "version": "claude-sonnet-4-5"})),
 	invalid("dependencies[].version/invalid", "EXTERNAL_VERSION_REQUIRED", set("dependencies.1", map[string]any{"name": "model", "required": true, "external": true})),
 
@@ -414,6 +461,14 @@ interfaces:
       deprecated: "2026-01-15"
       sunset: "2099-12-31"
       successor: oci://ghcr.io/acme/orders-v2
+    guarantees:
+      profile: "1"
+      delivery: at-least-once
+      ordering: per-key
+      dedupeWindow: 5m
+      retention: 24h
+      idempotent: true
+      timeout: 2s
 configurations:
   - name: app
     schema: configuration/schema.json
@@ -429,6 +484,19 @@ dependencies:
     ref: oci://ghcr.io/acme/payments-pacto@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     required: true
     compatibility: ^1.0.0
+  - name: ledger
+    ref: ./ledger
+    required: true
+    compatibility: ^1.0.0
+    requires:
+      - interface: events
+        profile: "1"
+        delivery: at-least-once
+        ordering: per-key
+        dedupeWindow: 5m
+        retention: 24h
+        idempotent: true
+        timeout: 5s
 state:
   type: stateful
   persistence:
@@ -512,7 +580,9 @@ var fieldCoverageFiles = map[string]string{
 	"policy/schema.json":               `{"type":"object","required":["service"]}`,
 	"policy-bundle/pacto.yaml":         "pactoVersion: \"2.0\"\nservice:\n  name: platform-policy\n  version: 1.0.0\n",
 	"policy-bundle/policy/schema.json": `{"type":"object","required":["service"]}`,
-	"policy/strict.json":               `{"type":"object","required":["service"],"properties":{"service":{"required":["owner"],"properties":{"owner":{"required":["oncall"]}}}}}`,
+	"ledger/pacto.yaml": "pactoVersion: \"2.2\"\nservice:\n  name: ledger\n  version: 1.0.0\ninterfaces:\n  - name: events\n    type: asyncapi\n    ref: events.yaml\n" +
+		"    guarantees: {delivery: at-least-once, ordering: per-key, dedupeWindow: 10m, retention: 168h, idempotent: true, timeout: 2s}\n",
+	"policy/strict.json": `{"type":"object","required":["service"],"properties":{"service":{"required":["owner"],"properties":{"owner":{"required":["oncall"]}}}}}`,
 }
 
 func fieldCoverageDoc(t *testing.T) map[string]any {

@@ -204,6 +204,8 @@ type Interface struct {
 	// Lifecycle marks the interface deprecated and schedules its removal
 	// (pactoVersion 2.2). Nil for an interface that is not deprecated.
 	Lifecycle *InterfaceLifecycle `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
+	// Guarantees is the behavior consumers may rely on (pactoVersion 2.2).
+	Guarantees *Guarantees `yaml:"guarantees,omitempty" json:"guarantees,omitempty"`
 }
 
 // InterfaceLifecycle is the retirement schedule of a deprecated interface.
@@ -295,6 +297,9 @@ type Dependency struct {
 	Compatibility string `yaml:"compatibility,omitempty" json:"compatibility,omitempty"`
 	External      bool   `yaml:"external,omitempty" json:"external,omitempty"`
 	Version       string `yaml:"version,omitempty" json:"version,omitempty"`
+	// Requires is the behavior this service relies on from the provider's
+	// interfaces (pactoVersion 2.2); see [Unmet].
+	Requires []Requirement `yaml:"requires,omitempty" json:"requires,omitempty"`
 }
 
 // Reference kinds for ReferenceRef.Kind.

@@ -93,6 +93,11 @@ type AffectedConsumer struct {
 	// Uncontracted marks a runtime caller no contract describes: Service is its
 	// raw observed identity, and it has no range a change could be checked against.
 	Uncontracted bool `json:"uncontracted,omitempty"`
+	// Unmet lists the guarantees this consumer declares it requires from the
+	// changed service that the new revision does not meet, over every revision
+	// of the consumer the snapshot holds. A consumer with an unmet guarantee
+	// breaks whatever its range accepts.
+	Unmet []contract.Mismatch `json:"unmet,omitempty"`
 	// Note qualifies the verdict in plain words. On a BREAKING change a
 	// compatible verdict only means the consumer's range accepts the new version,
 	// not that the consumer avoids what the change removes.
@@ -102,7 +107,8 @@ type AffectedConsumer struct {
 // Release gate values (see [Result.Gate]).
 const (
 	// GateBlocked: the change is BREAKING and reaches a consumer that does not
-	// accept the new version and runs on a target the snapshot knows.
+	// accept the new version, or requires a guarantee it does not meet, and
+	// runs on a target the snapshot knows.
 	GateBlocked = "blocked"
 	// GateUnverified: the change is BREAKING and nothing is shown to block it,
 	// but the answer cannot clear it either: the answer is partial, or consumers
@@ -165,19 +171,28 @@ func (r *Result) boundEnvelope() {
 }
 
 // ReleaseBlocking reports whether this change is the kind `pacto impact` fails
-// on: a breaking change that reaches a consumer which is both incompatible and
-// actually deployed. A consumer that is incompatible on paper but running
-// nowhere the snapshot can see is not a release blocker.
+// on: a breaking change that reaches a consumer which is both broken
+// (incompatible, or with an unmet guarantee) and actually deployed. A consumer
+// that is broken on paper but running nowhere the snapshot can see is not a
+// release blocker.
 func (r *Result) ReleaseBlocking() bool {
+	active, _ := r.blockingConsumers()
+	return len(active) > 0
+}
+
+// blockingConsumers names the consumers that make the change release
+// blocking, and whether any of them is blocked by an unmet guarantee.
+func (r *Result) blockingConsumers() (active []string, unmet bool) {
 	if r.Classification != "BREAKING" {
-		return false
+		return nil, false
 	}
 	for _, c := range r.Consumers {
-		if c.CompatibilityVerdict == CompatibilityIncompatible && len(c.Targets) > 0 {
-			return true
+		if (c.CompatibilityVerdict == CompatibilityIncompatible || len(c.Unmet) > 0) && len(c.Targets) > 0 {
+			active = append(active, c.Service)
+			unmet = unmet || len(c.Unmet) > 0
 		}
 	}
-	return false
+	return active, unmet
 }
 
 // gate derives the release gate from the finished answer. Only a BREAKING change
@@ -195,14 +210,12 @@ func (r *Result) gate() (string, string) {
 		return GateClear, "the change is " + r.Classification
 	}
 	if r.ReleaseBlocking() {
-		var active []string
-		for _, c := range r.Consumers {
-			if c.CompatibilityVerdict == CompatibilityIncompatible && len(c.Targets) > 0 {
-				active = append(active, c.Service)
-			}
+		active, unmet := r.blockingConsumers()
+		why := "do not accept " + r.Service + " " + r.NewVersion
+		if unmet {
+			why += " or require a guarantee it does not meet"
 		}
-		return GateBlocked, "breaking changes affect active consumers, which run on known targets and do not accept " +
-			r.Service + " " + r.NewVersion + ": " + strings.Join(active, ", ")
+		return GateBlocked, "breaking changes affect active consumers, which run on known targets and " + why + ": " + strings.Join(active, ", ")
 	}
 	if hasCode(r.Limitations, "SERVICE_NOT_IN_FLEET") {
 		return GateUnverified, "the change is BREAKING, but " + r.Service + " is not in the fleet snapshot, so its consumers are unknown. " +
@@ -345,6 +358,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	}
 	for _, cn := range unionConsumers(graph, changed, resolvedObserved) {
 		c := consumerImpact(snap, changed, cn, new.Service.Version, resolvedObserved)
+		c.Unmet = unmetGuarantees(snap, cn.key, changed, new)
 		res.Consumers = append(res.Consumers, c)
 		if c.Owner != "" {
 			owners[c.Owner] = true
@@ -538,6 +552,32 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey,
 		}
 	}
 	return rel, declared, observed
+}
+
+// unmetGuarantees lists what the consumer's declared dependencies on the
+// changed service require that the new revision does not meet, once each,
+// over every revision of the consumer the snapshot holds.
+func unmetGuarantees(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, newC *contract.Contract) []contract.Mismatch {
+	var out []contract.Mismatch
+	seen := map[contract.Mismatch]bool{}
+	for _, r := range snap.Relationships {
+		rev := snap.Revisions[r.FromRevision]
+		if r.Type != fleet.RelationshipDependency || r.Provenance != fleet.ProvenanceDeclared || r.FromService != consumer || r.ToService != changed || rev == nil || rev.Contract == nil {
+			continue
+		}
+		for _, dep := range rev.Contract.Dependencies {
+			if dep.Name != r.To {
+				continue
+			}
+			for _, m := range contract.Unmet(rev.Service, dep, newC) {
+				if !seen[m] {
+					seen[m] = true
+					out = append(out, m)
+				}
+			}
+		}
+	}
+	return out
 }
 
 func provenance(declared, observed bool) string {
