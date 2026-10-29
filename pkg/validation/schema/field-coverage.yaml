@@ -625,7 +625,7 @@ fields:
     evidence: 'none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers'
     rule: 'schema: boolean; pacto diff compares it with the old value'
     outcomes: 'SCHEMA_VIOLATION when not a boolean'
-    limitations: 'covers the whole interface, not single operations; a declaration: Pacto never measures whether the interface keeps it'
+    limitations: 'applies to every operation of the interface; a declaration: Pacto never measures whether the interface keeps it'
     tests:
       unit:
       - pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees
@@ -640,7 +640,7 @@ fields:
     evidence: 'none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers'
     rule: 'schema: Go duration with ms, s, m or h units; pacto diff compares it with the old value'
     outcomes: 'SCHEMA_VIOLATION when not a duration'
-    limitations: 'a declared budget, not a measured latency; a declaration: Pacto never measures whether the interface keeps it'
+    limitations: 'a declared latency budget; Pacto never measures whether the interface keeps it'
     tests:
       unit:
       - pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees
@@ -733,7 +733,7 @@ fields:
   interfaces[].lifecycle:
     meaning: Marks the interface deprecated and schedules its removal; pactoVersion 2.2 only.
     runtime: static-only
-    evidence: 'none: a schedule, not a runtime fact'
+    evidence: 'none: a declared schedule'
     rule: 'schema: object with deprecated; diff: deprecating is non-breaking, removing before the sunset says so in the
       reason; a consumer resolving the contract with --closure is warned'
     outcomes: SCHEMA_VIOLATION; NEEDS_PACTO_2_2 under 2.0 and 2.1; DEPENDENCY_INTERFACE_DEPRECATED or DEPENDENCY_INTERFACE_SUNSET
@@ -1215,7 +1215,7 @@ fields:
   dependencies[].requires:
     meaning: 'Behavior this service relies on from the provider interfaces.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'pacto validate reads the provider bundle of the dependency and checks each requirement against the named interface guarantees; pactoVersion 2.2 only'
     outcomes: 'GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read; NEEDS_PACTO_2_2 under 2.0 and 2.1'
     limitations: 'only direct dependencies are checked; pacto graph and pacto impact report the rest'
@@ -1232,7 +1232,7 @@ fields:
   dependencies[].requires[]:
     meaning: 'One requirement on one provider interface.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'pacto validate reads the provider bundle of the dependency and checks each requirement against the named interface guarantees'
     outcomes: 'PARSE_ERROR when not an object; GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read'
     limitations: 'every unmet guarantee is reported at once'
@@ -1247,7 +1247,7 @@ fields:
   dependencies[].requires[].interface:
     meaning: 'Name of the provider interface the requirement is about.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'schema: required; the provider must declare an interface with this name'
     outcomes: 'GUARANTEE_UNMET when the provider declares none'
     limitations: 'interface names are matched exactly'
@@ -1262,7 +1262,7 @@ fields:
   dependencies[].requires[].profile:
     meaning: 'Requires: version of the guarantee vocabulary; omitted means 1.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'schema: enum; the provider must offer this value or a stronger one'
     outcomes: 'SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less'
     limitations: 'only 1 exists, so profiles are not compared yet'
@@ -1286,7 +1286,7 @@ fields:
   dependencies[].requires[].delivery:
     meaning: 'Requires: what happens to an event when a delivery fails partway.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'schema: enum; the provider must offer this value or a stronger one'
     outcomes: 'SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less'
     limitations: 'the two values trade loss for duplicates, so neither satisfies the other'
@@ -1318,7 +1318,7 @@ fields:
   dependencies[].requires[].ordering:
     meaning: 'Requires: scope in which events arrive in the order sent; global also orders every key.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'schema: enum; the provider must offer this value or a stronger one'
     outcomes: 'SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less'
     limitations: 'per-key does not name the key'
@@ -1350,7 +1350,7 @@ fields:
   dependencies[].requires[].dedupeWindow:
     meaning: 'Requires: how long a repeated event is recognised and dropped; longer is stronger.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'schema: Go duration with ms, s, m or h units; the provider must offer this value or a stronger one'
     outcomes: 'SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less'
     limitations: 'days are written in hours'
@@ -1365,7 +1365,7 @@ fields:
   dependencies[].requires[].retention:
     meaning: 'Requires: how long an event stays available for replay; longer is stronger.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'schema: Go duration with ms, s, m or h units; the provider must offer this value or a stronger one'
     outcomes: 'SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less'
     limitations: 'days are written in hours'
@@ -1380,10 +1380,10 @@ fields:
   dependencies[].requires[].idempotent:
     meaning: 'Requires: repeating a call has the effect of making it once.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'schema: boolean; the provider must offer this value or a stronger one'
     outcomes: 'SCHEMA_VIOLATION when not a boolean; GUARANTEE_UNMET when the provider offers less'
-    limitations: 'covers the whole interface, not single operations'
+    limitations: 'applies to every operation of the interface'
     tests:
       unit:
       - pkg/contract/guarantee_test.go:TestUnmet
@@ -1395,10 +1395,10 @@ fields:
   dependencies[].requires[].timeout:
     meaning: 'Requires: the longest a call takes to answer; shorter is stronger.'
     runtime: static-only
-    evidence: 'none: checked against the provider contract, not against runtime'
+    evidence: 'none: checked against the provider contract'
     rule: 'schema: Go duration with ms, s, m or h units; the provider must offer this value or a stronger one'
     outcomes: 'SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less'
-    limitations: 'a declared budget, not a measured latency'
+    limitations: 'a declared latency budget that Pacto never measures'
     tests:
       unit:
       - pkg/contract/guarantee_test.go:TestUnmet
