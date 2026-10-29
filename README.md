@@ -172,30 +172,9 @@ schemas, and complements the deploy tools, such as Helm and Terraform. Its
 core makes no deployment decisions. The opt-in delivery component decides
 which version runs where and leaves applying it to Flux or Argo CD.
 
-| | Versioned artifact | Semantic diff | Dependency graph | Transitive policy | Runtime verify | Orchestrator-agnostic | Deploys? |
-|---|---|---|---|---|---|---|---|
-| **Score** ([score.dev](https://score.dev)) | — | — | — | — | — | ✅ | No |
-| **Crossplane Configuration** | ✅ | — | Partial | — | Partial | — | Yes |
-| **KubeVela** / OAM | — | Partial | Partial | — | Partial | Partial | Yes |
-| **Radius** | — | — | ✅ | — | — | Partial | Yes |
-| **Kratix** | Partial | — | Partial | — | — | Partial | Yes |
-| **Backstage** / Port | — | — | Partial | — | — | ✅ | No |
-| **Kargo** | ✅ | — | — | — | Partial | — | No |
-| **Pacto** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ contracts and checks; delivery needs Kubernetes | **No** (delivery promotes) |
-
-✅ first-class · Partial adjacent or limited · — not in scope. Verified against
-each project's own documentation, August 2026; these projects move fast, so
-re-check the cells before relying on them. The contested columns:
-
-- **Semantic diff**: changes classified by compatibility impact; a line-based text diff is Partial
-- **Transitive policy**: governance rules evaluated across the dependency [closure](https://pacto.run/latest/glossary/#transitive-closure), fail-closed
-- **Runtime verify**: workloads checked against an independently declared contract; reconciling toward the tool's own desired state is Partial
-- **Orchestrator-agnostic**: the tool runs without a Kubernetes control plane of its own. This is the softest column, and Partial is a judgement of degree
-
-Several of these work alongside Pacto: a contract can gate a Kargo promotion,
-feed a Backstage card or front a Crossplane provisioner. We graded our own row.
-The orchestrator cell holds for contracts and checks; delivery needs
-Kubernetes.
+[How Pacto relates to other tools](https://pacto.run/latest/comparison/)
+compares Pacto with nearby projects, with the criteria and a source for each
+row.
 
 ## Installation
 

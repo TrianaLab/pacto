@@ -190,6 +190,7 @@ nav:
       - What Pacto is:
           - The autonomy ladder: autonomy.md
           - Manifesto and GitlessOps: manifesto.md
+          - How Pacto relates to other tools: comparison.md
           - Glossary: glossary.md
       - Try it:
           - Live dashboard demo: examples/dashboard-demo.md
