@@ -173,6 +173,20 @@ on any diff. Handwritten frontend code may add ergonomics but must never
 redeclare a wire field or build an `/api/...` URL by hand, because a third,
 hand-maintained copy of the schema drifts silently.
 
+## Delivery
+
+Delivery is the opt-in part of Pacto that moves versions between
+environments. It is Alpha, and it is the one part of Pacto that needs
+Kubernetes.
+
+| Package | Role |
+|---|---|
+| `pkg/delivery` | The pure core: the operation model, `plan()`, autonomy levels and trust. The decision path reads no cluster, registry or clock; its inputs arrive in `PlanInput` and through the `Registry` interface. The promoter, the CLI and the MCP tools all call it. |
+| `pkg/deliveryrecord` | Where delivery records live in a registry: the stream anchor, the referrer annotations and the verified read. The recorder writes through it and every reader reads through it. |
+| `integrations/kubernetes/internal/delivery` | The promoter and the recorder. The promoter carries each Operation from admission to conclusion and writes status. The recorder writes one signed record per concluded operation. Both ship in the separate `pacto-delivery` image. |
+| `internal/app/delivery*.go` | The client side behind `pacto delivery`: plan, propose, approve, cancel, get, explain and the record history, against the cluster API and the registry. |
+| `internal/mcp/delivery.go` | The `pacto_delivery_*` MCP tools. |
+
 ## Design principles
 
 1. **Pure core** — `pkg/*` packages have zero CLI or Kubernetes dependencies and are reusable from any Go program
@@ -182,7 +196,7 @@ hand-maintained copy of the schema drifts silently.
 5. **Interface-based** — engines depend on interfaces (`BundleStore`, `ContractFetcher`), not concrete implementations
 6. **Out-of-process plugins** — language-agnostic, version-independent
 7. **Embedded schemas** — JSON Schema compiled into the binary
-8. **Deterministic validation** — no configurable rules; same input, same result
+8. **Deterministic validation** — the same contract, schema and resolved policies always give the same result
 9. **Compose, do not replace** — Pacto never defines a schema language of its own; the contract adds only the relational and temporal layer no single interface owns
 10. **Two projections, shared readers** — a bundle is projected twice, on purpose. `pkg/fleet` builds the live operational snapshot the dashboard and the MCP fleet tools serve: many sources, bounded, no document bodies. `pkg/contractview` (`ServiceDetailsFromBundle`) builds the offline view of one bundle, bodies included, that the `pacto doc` Markdown renderer and the static HTML exporter render. What keeps them from drifting is the bundle readers they share: tool naming (`capability.ToolsForContract`, also behind MCP capability tools), lockfile reading (`lock.ReadFS`) and the docs walk (`contract.WalkDocs`)
 
@@ -197,7 +211,7 @@ reason.
 | `pkg/*` must not import `internal/cli` or `internal/app` | Core logic must remain reusable outside the CLI (operator, MCP, tests). |
 | `pkg/oci` is a public package | OCI primitives (client, credentials, tag resolution) are importable by external consumers such as the Kubernetes operator. |
 | `internal/app` methods are stateless | Options in, result out. No side effects beyond the operation itself. This makes testing and composition straightforward. |
-| Validation is deterministic | No configurable rule sets. Same contract + same schema = same result, always. |
+| Validation is deterministic | Rules come only from the contract graph: the schema and the policies the contract resolves. The same contract, schema and resolved policies always give the same result. |
 | `pkg/catalog` is framework-independent | It imports `pkg/contract`, go-digest and the standard library, and nothing else, so catalog semantics can never become a property of one delivery mechanism. |
 | `pkg/fleet` is route-neutral | The operational graph owns canonical identities, query facts, completeness and limitations, and returns route-neutral entity references. Turning a reference into a navigable URL is a *transport* concern: the dashboard transport adds an href built from the canonical key through a single route builder. MCP and other non-dashboard consumers read the same facts and must never receive dashboard URLs. Enforced by `TestFleetStaysRouteNeutral` in `tests/architecture`. |
 | Every assertion needs a possible Evidence path | An assertion no collector can produce Evidence for leaves a service permanently `Unknown`. This is why `verification.conformance` was removed: nothing produces interface-conformance Evidence, so declaring an `interfaces[]` entry requires runtime *availability* Evidence instead. Conformance can return once a real observation kind and evaluator exist for it — a schema field is not enough. |

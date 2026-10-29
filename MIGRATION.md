@@ -497,19 +497,33 @@ readiness:
 ## Kubernetes integration Go module path
 
 The Kubernetes integration ships as its own Go module inside the monorepo. Its
-module path now carries a `/v5` major-version suffix:
-`github.com/trianalab/pacto/integrations/kubernetes/v5`. Consumers that import the
-operator packages (for example `.../integrations/kubernetes/v5/api/v1alpha1`) must
-use the `/v5` path and pull the module at its nested tag:
+module path carries the major-version suffix of the current operator release,
+`/v6`: `github.com/trianalab/pacto/integrations/kubernetes/v6`. Consumers that
+import the operator packages (for example
+`.../integrations/kubernetes/v6/api/v1alpha1`) use that path and pull the module
+at its nested tag:
 
 ```bash
-go get github.com/trianalab/pacto/integrations/kubernetes/v5@v5.0.0
+go get github.com/trianalab/pacto/integrations/kubernetes/v6@latest
 ```
 
 The published artifact coordinate is generated into
 `integrations/kubernetes/docs/generated/artifact-hub.md`. The operator image, Helm
 chart and documentation keep their own OCI/doc versions and are unaffected by the
 Go semantic-import suffix.
+
+## Library and operator majors
+
+This guide covers the contract format. The Go library and the operator have
+their own major versions, and each major lists its breaking changes with the
+migration in the [changelog](https://pacto.run/latest/changelog/):
+
+- Pacto core 4.0.0 (`github.com/trianalab/pacto/v4`): camelCase JSON
+  everywhere, the deprecated v3 API removed and some APIs reshaped. See the
+  [`@pacto/core` changelog](https://pacto.run/latest/changelog/#pactocore).
+- Operator 6.0.0: removed flags, chart values and unused condition reasons.
+  See the
+  [`@pacto/k8s-module` changelog](https://pacto.run/latest/changelog/#pactok8s-module).
 
 ## No Automated Migration Tool
 
