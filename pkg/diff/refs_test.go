@@ -374,6 +374,61 @@ func TestRefs_ChainedParameter(t *testing.T) {
 	}
 }
 
+const pathItemSpec = `openapi: 3.1.0
+paths:
+  /users:
+    $ref: 'paths/users.yaml'
+components:
+  schemas:
+    User: {type: object, properties: {id: {type: string}, name: {type: string}}}
+`
+
+const pathItemUsers = `get:
+  responses:
+    "200":
+      description: ok
+      content:
+        application/json:
+          schema: {$ref: '../openapi.yaml#/components/schemas/User'}
+`
+
+func pathItemFS(spec, users string) fstest.MapFS {
+	return fstest.MapFS{"api/openapi.yaml": {Data: []byte(spec)}, "api/paths/users.yaml": {Data: []byte(users)}}
+}
+
+// A path item may be a $ref to a file. Its operations are compared where the
+// file holds them, and a component reached only through it is used.
+func TestRefs_PathItem(t *testing.T) {
+	diff := func(oldSpec, newSpec, oldUsers, newUsers string) []Change {
+		return diffOpenAPI("api/openapi.yaml", "api/openapi.yaml", pathItemFS(oldSpec, oldUsers), pathItemFS(newSpec, newUsers))
+	}
+	t.Run("operation edited in the file", func(t *testing.T) {
+		changes := diff(pathItemSpec, pathItemSpec, pathItemUsers, edit(t, pathItemUsers, "\"200\":", "\"201\":"))
+		if _, ok := findChange(changes, "openapi.paths[/users].methods[GET].responses[200]", Removed); !ok {
+			t.Fatalf("got %+v", changes)
+		}
+	})
+	t.Run("component reached through the file", func(t *testing.T) {
+		c := onlyChange(t, diff(pathItemSpec, edit(t, pathItemSpec, ", name: {type: string}", ""), pathItemUsers, pathItemUsers))
+		if c.Path != "openapi.paths[/users].methods[GET].responses[200].content.application/json.schema.properties.name" || c.Classification != Breaking {
+			t.Fatalf("got %s %s", c.Path, c.Classification)
+		}
+	})
+	t.Run("file dropped from the bundle", func(t *testing.T) {
+		nw := fstest.MapFS{"api/openapi.yaml": {Data: []byte(pathItemSpec)}}
+		c := onlyChange(t, diffOpenAPI("api/openapi.yaml", "api/openapi.yaml", pathItemFS(pathItemSpec, pathItemUsers), nw))
+		if c.Path != "openapi.paths[/users]" || c.Classification != PotentialBreaking || !strings.Contains(c.Reason, "in the new revision") {
+			t.Fatalf("got %+v", c)
+		}
+	})
+	t.Run("unresolved on both sides", func(t *testing.T) {
+		nw := fstest.MapFS{"api/openapi.yaml": {Data: []byte(pathItemSpec)}}
+		if changes := diffOpenAPI("api/openapi.yaml", "api/openapi.yaml", nw, nw); len(changes) != 0 {
+			t.Fatalf("got %+v", changes)
+		}
+	})
+}
+
 const refAsyncV2 = `asyncapi: 2.6.0
 channels:
   orders:

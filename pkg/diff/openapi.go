@@ -75,7 +75,12 @@ func diffOpenAPISpecs(at *refAt, old, new *openAPISpec) []Change {
 			})
 			continue
 		}
-		changes = append(changes, diffPathMethods(at.child(path), path, oldMethods, newMethods)...)
+		itemAt, oldItem, newItem, unresolved := pathItem(at.child(path), path, oldMethods, newMethods)
+		if unresolved != nil {
+			changes = append(changes, unresolved...)
+			continue
+		}
+		changes = append(changes, diffPathMethods(itemAt, path, oldItem, newItem)...)
 	}
 
 	for _, path := range slices.Sorted(maps.Keys(new.Paths)) {
@@ -91,6 +96,21 @@ func diffOpenAPISpecs(at *refAt, old, new *openAPISpec) []Change {
 	}
 
 	return changes
+}
+
+// pathItem resolves a path item written as a $ref, so its operations are
+// compared where they live. A ref that does not resolve is reported the way
+// any other unresolved ref is.
+func pathItem(at *refAt, path string, old, new map[string]any) (*refAt, map[string]any, map[string]any, []Change) {
+	if !at.hasRef(old, new) {
+		return at, old, new, nil
+	}
+	o, oLoc, oErr := at.refs.side[0].deref(at.loc[0], old)
+	n, nLoc, nErr := at.refs.side[1].deref(at.loc[1], new)
+	if oErr != nil || nErr != nil {
+		return nil, nil, nil, unresolvedRef(fmt.Sprintf("openapi.paths[%s]", path), old, new, oErr != nil, nErr != nil)
+	}
+	return &refAt{at.refs, [2]string{oLoc, nLoc}}, toStringMap(o), toStringMap(n), nil
 }
 
 // diffPathMethods compares the HTTP methods within a single API path.
