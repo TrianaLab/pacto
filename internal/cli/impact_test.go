@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -121,8 +122,11 @@ func TestImpactCommand_BreakingBlocksActiveConsumer(t *testing.T) {
 	root, ev := impactFleet(t, "^1.0.0")
 
 	out, _, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--target-state", ev)
-	if err == nil {
-		t.Fatal("expected a non-zero exit for a breaking change on an active incompatible consumer")
+	if err == nil || !strings.Contains(err.Error(), "breaking changes affect active consumers, which run on known targets and do not accept orders 2.0.0: webapp") {
+		t.Fatalf("expected the blocked reason as the error, got %v", err)
+	}
+	if !strings.Contains(out, "Release gate: blocked") {
+		t.Errorf("text output missing the gate:\n%s", out)
 	}
 	for _, want := range []string{
 		"Impact: orders 1.0.0 -> 2.0.0", "Classification:", "BREAKING",
@@ -154,20 +158,55 @@ func TestImpactCommand_JSON(t *testing.T) {
 	}
 }
 
-// TestImpactCommand_BreakingCompatibleConsumer proves a breaking change with only
-// compatible active consumers exits zero; also exercises --include-observed.
+// TestImpactCommand_BreakingCompatibleConsumer proves a breaking change whose
+// only consumer matches by an open range exits 2 (unverified), never 0: the range
+// match does not show the consumer avoids what the change removes, and the text
+// says so. Also exercises --include-observed.
 func TestImpactCommand_BreakingCompatibleConsumer(t *testing.T) {
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeOrders(t, oldDir, "1.0.0", "service")
 	writeOrders(t, newDir, "2.0.0", "job")
 	root, ev := impactFleet(t, ">=1.0.0") // 2.0.0 satisfies → compatible
 
-	out, _, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--target-state", ev, "--include-observed")
-	if err != nil {
-		t.Fatalf("expected success when the active consumer stays compatible: %v", err)
+	out, stderr, err := execFleet(t, "impact", oldDir, newDir, "--local", root, "--target-state", ev, "--include-observed")
+	var exit *cli.ExitError
+	if !errors.As(err, &exit) || exit.Code != 2 {
+		t.Fatalf("expected exit 2 for an unverified breaking change, got %v", err)
 	}
-	if !strings.Contains(out, "compat=compatible") {
-		t.Errorf("expected a compatible verdict:\n%s", out)
+	for _, want := range []string{"compat=compatible", "note: the range >=1.0.0 has no upper bound", "Release gate: unverified"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text output missing %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(stderr, "unverified: the change is BREAKING and 1 consumer depends on orders") {
+		t.Errorf("expected the unverified reason on stderr:\n%s", stderr)
+	}
+}
+
+// TestImpactCommand_AddsNewRevisionToTheSnapshot proves the evaluation's trap is
+// closed: a fleet root that holds only the consumers (not the changed service)
+// used to answer "No affected consumers" and exit 0. The new revision is now
+// added to the snapshot, the consumer is found and the declared-only BREAKING
+// answer exits 2.
+func TestImpactCommand_AddsNewRevisionToTheSnapshot(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeOrders(t, oldDir, "1.0.0", "service")
+	writeOrders(t, newDir, "2.0.0", "job")
+	root := t.TempDir()
+	writeConsumer(t, filepath.Join(root, "webapp"), "^1.0.0")
+
+	out, _, err := execFleet(t, "impact", oldDir, newDir, "--local", root)
+	var exit *cli.ExitError
+	if !errors.As(err, &exit) || exit.Code != 2 {
+		t.Fatalf("expected exit 2, got %v", err)
+	}
+	for _, want := range []string{"orders is in none of the fleet sources", "webapp", "compat=incompatible"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "No affected consumers") {
+		t.Errorf("the consumer was missed:\n%s", out)
 	}
 }
 

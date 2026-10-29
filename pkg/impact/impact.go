@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -92,7 +93,24 @@ type AffectedConsumer struct {
 	// Uncontracted marks a runtime caller no contract describes: Service is its
 	// raw observed identity, and it has no range a change could be checked against.
 	Uncontracted bool `json:"uncontracted,omitempty"`
+	// Note qualifies the verdict in plain words. On a BREAKING change a
+	// compatible verdict only means the consumer's range accepts the new version,
+	// not that the consumer avoids what the change removes.
+	Note string `json:"note,omitempty"`
 }
+
+// Release gate values (see [Result.Gate]).
+const (
+	// GateBlocked: the change is BREAKING and reaches a consumer that does not
+	// accept the new version and runs on a target the snapshot knows.
+	GateBlocked = "blocked"
+	// GateUnverified: the change is BREAKING and nothing is shown to block it,
+	// but the answer cannot clear it either: the answer is partial, or consumers
+	// depend on the service whose safety the evidence cannot show.
+	GateUnverified = "unverified"
+	// GateClear: nothing in the answer stands in the way of the change.
+	GateClear = "clear"
+)
 
 // Result is the deterministic impact answer.
 type Result struct {
@@ -118,6 +136,15 @@ type Result struct {
 	// LimitationsTruncated reports that the snapshot and analysis produced more
 	// limitations than the answer carries.
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
+	// NewRevisionAdded reports that the changed service was in none of the fleet
+	// sources, so the new revision itself was added to the snapshot to find the
+	// services that depend on it. The changed service then has no targets.
+	NewRevisionAdded bool `json:"newRevisionAdded,omitempty"`
+	// Gate is the release decision `pacto impact` exits on: blocked (exit 1),
+	// unverified (exit 2) or clear (exit 0). GateReason says why in plain words
+	// and, when it is not clear, what to do next.
+	Gate       string `json:"gate" enum:"blocked,unverified,clear"`
+	GateReason string `json:"gateReason"`
 }
 
 // boundEnvelope applies the same cap fleet answers apply to the completeness
@@ -153,8 +180,94 @@ func (r *Result) ReleaseBlocking() bool {
 	return false
 }
 
+// gate derives the release gate from the finished answer. Only a BREAKING change
+// can be held. It is blocked when an incompatible consumer runs somewhere. It
+// is clear only when the answer is complete and no service depends on the
+// changed one: a partial answer may be missing consumers, and a consumer that
+// is incompatible on paper, has no usable range or only matches by range is a
+// consumer nobody has shown to be safe.
+func (r *Result) gate() (string, string) {
+	switch r.Classification {
+	case "BREAKING":
+	case "POTENTIAL_BREAKING":
+		return GateClear, "the change is POTENTIAL_BREAKING: the gate holds only BREAKING changes, so review the potentially breaking changes by hand"
+	default:
+		return GateClear, "the change is " + r.Classification
+	}
+	if r.ReleaseBlocking() {
+		var active []string
+		for _, c := range r.Consumers {
+			if c.CompatibilityVerdict == CompatibilityIncompatible && len(c.Targets) > 0 {
+				active = append(active, c.Service)
+			}
+		}
+		return GateBlocked, "breaking changes affect active consumers, which run on known targets and do not accept " +
+			r.Service + " " + r.NewVersion + ": " + strings.Join(active, ", ")
+	}
+	if hasCode(r.Limitations, "SERVICE_NOT_IN_FLEET") {
+		return GateUnverified, "the change is BREAKING, but " + r.Service + " is not in the fleet snapshot, so its consumers are unknown. " +
+			"Add the directory or registry that holds the services depending on it as a fleet source and run the analysis again"
+	}
+	if r.Completeness != fleet.CompletenessComplete {
+		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break. " +
+			"Fix the sources named in limitations and run the analysis again"
+	}
+	if len(r.Consumers) > 0 {
+		n := strconv.Itoa(len(r.Consumers)) + " consumers depend"
+		if len(r.Consumers) == 1 {
+			n = "1 consumer depends"
+		}
+		return GateUnverified, "the change is BREAKING and " + n + " on " + r.Service +
+			", but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run " +
+			"(for example --target-state) to tell deployed impact apart"
+	}
+	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
+}
+
+func hasCode(ls []fleet.Limitation, code string) bool {
+	for _, l := range ls {
+		if l.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+// openRangeProbe is a version no real range caps below: a range that accepts it
+// has no upper bound.
+const openRangeProbe = "999999.0.0"
+
+// noteRangeOnlyMatches qualifies every compatible verdict on a BREAKING change.
+// The verdict compares the range to the new version and nothing else, so it
+// cannot show that the consumer avoids the removed or changed element.
+func (r *Result) noteRangeOnlyMatches() {
+	if r.Classification != "BREAKING" {
+		return
+	}
+	for i := range r.Consumers {
+		c := &r.Consumers[i]
+		if c.CompatibilityVerdict != CompatibilityCompatible {
+			continue
+		}
+		c.Note = "compatible only means the range " + c.Compatibility + " accepts " + r.NewVersion +
+			"; this change is BREAKING, so check that " + c.Service + " does not use what it removes or changes"
+		if fleet.CheckRange(c.Compatibility, openRangeProbe) == fleet.RangeSatisfied {
+			c.Note = "the range " + c.Compatibility + " has no upper bound, so " + c.Note
+		}
+	}
+}
+
 // Analyze compares old→new and projects the change onto the operational graph.
+// The answer always carries its release gate (see [Result.Gate]).
 func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.FS, snap *fleet.FleetSnapshot, opts Options) *Result {
+	res := analyze(ctx, old, new, oldFS, newFS, snap, opts)
+	res.boundEnvelope()
+	res.noteRangeOnlyMatches()
+	res.Gate, res.GateReason = res.gate()
+	return res
+}
+
+func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.FS, snap *fleet.FleetSnapshot, opts Options) *Result {
 	d := diff.Compare(ctx, old, new, oldFS, newFS)
 	svc := new.Service.Name
 
@@ -170,9 +283,6 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		Limitations:    append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers:      []AffectedConsumer{},
 	}
-	// Both exits pass through here, so the early "not in the fleet" answer cannot
-	// ship an unbounded envelope either.
-	defer res.boundEnvelope()
 	// Breaking and potentially-breaking changes are kept SEPARATE: a
 	// POTENTIAL_BREAKING change is not a confirmed break and must not be presented
 	// as one.
@@ -469,21 +579,16 @@ func confidence(depth int, declared, hasRange, observed bool) Confidence {
 // compatibilityVerdict checks the new version against a consumer's declared
 // compatibility range. Without a declared range the verdict is unknown.
 func compatibilityVerdict(constraint, version string, declared bool) string {
-	if !declared || constraint == "" || version == "" {
+	if !declared {
 		return CompatibilityUnknown
 	}
-	rng, err := contract.ParseRange(constraint)
-	if err != nil {
-		return CompatibilityUnknown
-	}
-	ok, err := rng.Check(version)
-	switch {
-	case err != nil:
-		return CompatibilityUnknown
-	case ok:
+	switch fleet.CheckRange(constraint, version) {
+	case fleet.RangeSatisfied:
 		return CompatibilityCompatible
+	case fleet.RangeUnsatisfied:
+		return CompatibilityIncompatible
 	}
-	return CompatibilityIncompatible
+	return CompatibilityUnknown
 }
 
 // verdictRank orders compatibility verdicts from the one that accepts most.
