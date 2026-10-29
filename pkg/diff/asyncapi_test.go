@@ -239,8 +239,9 @@ func TestDiffAsyncAPI_OperationModified(t *testing.T) {
 
 // A channel or operation present on both sides is never reported as one opaque
 // Modified change: it is deep-diffed, and every inner difference is classified
-// by the record rules: a retyped field and a flipped action are each unsafe in
-// one direction, so both are BREAKING. This is why the rule table carries no
+// by its own rules: a retyped payload field is unsafe in one direction, so it
+// is BREAKING, and a flipped action lies outside the payload, so it keeps the
+// POTENTIAL_BREAKING default. This is why the rule table carries no
 // {"asyncapi.channels", Modified} / {"asyncapi.operations", Modified} entry —
 // nothing would ever consult it.
 func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
@@ -264,7 +265,7 @@ func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
 			name: "operation", prefix: "asyncapi.operations[sendOrder]",
 			old: baseAsyncAPIV3, new: opDoc,
 			deepPath: "asyncapi.operations[sendOrder].action",
-			wantDeep: Breaking,
+			wantDeep: PotentialBreaking,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -277,7 +278,7 @@ func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
 				t.Fatalf("expected a deep change at %s, got %+v", tt.deepPath, changes)
 			}
 			if c.Classification != tt.wantDeep {
-				t.Errorf("expected %s from the record rules, got %s", tt.wantDeep, c.Classification)
+				t.Errorf("expected %s, got %s", tt.wantDeep, c.Classification)
 			}
 		})
 	}
@@ -337,7 +338,7 @@ func TestDiffAsyncAPI_PayloadIsARecord(t *testing.T) {
       description: sent once per order`,
 			"asyncapi.channels[order.created].publish.description", Added, NonBreaking},
 		{"operation renamed", `      operationId: orderCreated`, `      operationId: orderPlaced`,
-			"asyncapi.channels[order.created].publish.operationId", Modified, Breaking},
+			"asyncapi.channels[order.created].publish.operationId", Modified, PotentialBreaking},
 		{"2.x operation added to a channel", `  order.cancelled:
     publish:`, `  order.cancelled:
     subscribe:
@@ -356,5 +357,74 @@ func TestDiffAsyncAPI_PayloadIsARecord(t *testing.T) {
 				t.Errorf("got %s, want %s", c.Classification, tt.want)
 			}
 		})
+	}
+}
+
+// Only the payload and headers schemas are graded as records. Tags document a
+// channel, and any other edit outside the schemas (a binding, a message name)
+// is POTENTIAL_BREAKING, in AsyncAPI 2.x and 3.x alike.
+func TestDiffAsyncAPI_OnlySchemasAreRecords(t *testing.T) {
+	const v3 = `asyncapi: 3.0.0
+channels:
+  orders:
+    address: orders
+    messages:
+      created:
+        payload: {type: object, properties: {id: {type: string}}}
+`
+	const v3New = `asyncapi: 3.0.0
+channels:
+  orders:
+    address: orders
+    tags: [{name: billing}]
+    bindings: {kafka: {partitions: 3}}
+    messages:
+      created:
+        name: OrderCreated
+        tags: [{name: orders}]
+        payload: {type: object, properties: {id: {type: string}}}
+`
+	const v2New = `asyncapi: "2.6.0"
+channels:
+  order.created:
+    bindings: {kafka: {partitions: 3}}
+    publish:
+      operationId: orderCreated
+      tags: [{name: billing}]
+      message:
+        name: OrderCreated
+        payload:
+          type: object
+          properties:
+            order_id:
+              type: string
+          required: ["order_id"]
+  order.cancelled:
+    publish:
+      operationId: orderCancelled
+      message:
+        payload:
+          type: object
+          properties:
+            order_id:
+              type: string
+`
+	want := map[string]Classification{
+		"asyncapi.channels[orders].tags":                        NonBreaking,
+		"asyncapi.channels[orders].bindings":                    PotentialBreaking,
+		"asyncapi.channels[orders].messages.created.name":       PotentialBreaking,
+		"asyncapi.channels[orders].messages.created.tags":       NonBreaking,
+		"asyncapi.channels[order.created].bindings":             PotentialBreaking,
+		"asyncapi.channels[order.created].publish.tags":         NonBreaking,
+		"asyncapi.channels[order.created].publish.message.name": PotentialBreaking,
+	}
+	changes := append(diffAsync(t, v3, v3New), diffAsync(t, strings.Replace(baseAsyncAPI, "info:\n  title: events\n  version: 1.0.0\n", "", 1), v2New)...)
+	if len(changes) != len(want) {
+		t.Fatalf("got %+v", changes)
+	}
+	for _, c := range changes {
+		if w, ok := want[c.Path]; !ok || c.Classification != w {
+			t.Errorf("%s: got %s, want %s", c.Path, c.Classification, w)
+		}
 	}
 }

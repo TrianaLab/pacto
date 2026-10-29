@@ -260,7 +260,7 @@ func classifySchemaChange(dir schemaDirection, path string, elem bool, ct Change
 	// `schema` and may own a `content` block of its own, so both escalations below
 	// have to exclude it. The payload sits beside `headers`, never inside it.
 	inResponseHeader := dir == dirResponse && strings.Contains(path, ".headers.")
-	if dir == dirRecord || (dir != dirUnknown && inSchema(segs)) {
+	if (dir == dirRecord && inRecordSchema(segs)) || ((dir == dirRequest || dir == dirResponse) && inSchema(segs)) {
 		c := positional(dir, segs, elem, ct, old, new)
 		if inResponseHeader {
 			c = min(c, PotentialBreaking)
@@ -300,6 +300,7 @@ func classifySchemaChange(dir schemaDirection, path string, elem bool, ct Change
 var docKeywords = map[string]bool{
 	"description": true, "title": true, "summary": true, "$comment": true,
 	"example": true, "examples": true, "externalDocs": true, "deprecated": true,
+	"tags": true,
 }
 
 // isDocOnly reports whether segs passes through a documentation keyword. A
@@ -320,7 +321,7 @@ func isDocOnly(segs []string) bool {
 // ponytail: a fixed list; a name under any other map (an AsyncAPI channel, a
 // security scheme) that starts with x- reads as an extension.
 var nameKeys = map[string]bool{"properties": true, "patternProperties": true,
-	"$defs": true, "definitions": true, "schemas": true, "headers": true}
+	"$defs": true, "definitions": true, "schemas": true, "headers": true, "messages": true}
 
 // isExtension reports whether segs passes through an x- extension keyword.
 // Tools read extensions (code generators, gateways), but no reader of the
@@ -343,6 +344,13 @@ var schemaRoots = map[string]bool{"schema": true, "inputSchema": true, "outputSc
 
 func inSchema(segs []string) bool {
 	return slices.ContainsFunc(segs[:len(segs)-1], func(s string) bool { return schemaRoots[s] })
+}
+
+// inRecordSchema reports whether segs lies below an AsyncAPI message's
+// payload or headers schema. Everything else in a channel or an operation
+// (a binding, a message name) keeps the path rules.
+func inRecordSchema(segs []string) bool {
+	return slices.ContainsFunc(segs[:len(segs)-1], func(s string) bool { return s == "payload" || s == "headers" })
 }
 
 // effect is what a schema edit does to the set of values the schema accepts.

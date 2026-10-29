@@ -450,7 +450,11 @@ func TestPositionalCompatibility(t *testing.T) {
 				dir  schemaDirection
 				want Classification
 			}{{dirRequest, tt.req}, {dirResponse, tt.resp}, {dirRecord, tt.rc}} {
-				got, changed := worst(diffJSON(pos.dir, nil, "body.schema", old, new))
+				prefix := "body.schema"
+				if pos.dir == dirRecord {
+					prefix = "message.payload"
+				}
+				got, changed := worst(diffJSON(pos.dir, nil, prefix, old, new))
 				if !changed {
 					t.Fatalf("no change detected")
 				}
