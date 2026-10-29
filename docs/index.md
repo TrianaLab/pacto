@@ -145,6 +145,18 @@ change. It needs:
 To try it, start a new service on observe, where Pacto moves nothing, or open
 the [live demo](examples/dashboard-demo.md) in your browser.
 
+## Agents take the same path
+
+An AI agent asks for a delivery change over MCP the way a person or a CI job
+does: it creates an Operation, and the promoter plans and checks it. Agents
+get no approve tool, and the admission policies the chart installs with
+delivery refuse an approval from an agent. Kubernetes RBAC still governs
+what the agent's identity may do outside Pacto.
+[Agents take the same path](manifesto.md#agents-take-the-same-path) says what
+the policies close and what your platform closes itself. The
+[delivery security model](integrations/kubernetes/delivery-security.md) gives
+the detail.
+
 ## Where to start
 
 | You want to | Read |

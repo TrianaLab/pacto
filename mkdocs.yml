@@ -237,6 +237,7 @@ nav:
           - Health checks: integrations/kubernetes/delivery-health.md
           - Eval providers: integrations/kubernetes/delivery-evals.md
           - Argo CD and several clusters: integrations/kubernetes/delivery-reach.md
+          - Security model: integrations/kubernetes/delivery-security.md
       - Contract reference:
           - contract-reference/index.md
           - Contract sections: contract-reference/sections.md

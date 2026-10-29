@@ -81,6 +81,15 @@ agent can too, except down to observe: once git stops setting the version
 (see [Leaving observe](#leaving-observe)), a Stage on observe has nothing moving it at
 all, and only a person may stop a service that way.
 
+An agent previews these changes with the MCP tool
+`pacto_delivery_operation_plan` and asks for them with
+`pacto_delivery_operation_propose` (see
+[Publish and delivery servers](mcp-reference.md#publish-and-delivery-servers)).
+Its Operation goes through the same plan and
+[admission policies](integrations/kubernetes/delivery-security.md) as a
+person's, as [Agents take the same path](manifesto.md#agents-take-the-same-path)
+explains.
+
 ## Step-down: one failure costs one level
 
 On every level where Pacto moves versions, a promote that fails its checks

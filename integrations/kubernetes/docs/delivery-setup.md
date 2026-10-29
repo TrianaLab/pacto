@@ -172,6 +172,8 @@ reason `ApplyRefUnguarded`.
 `kubectl set image` on the workload itself is not mediated: Flux puts it back
 on its next reconcile, and Argo CD does with `selfHeal`; until then it runs
 beside the pointer.
+The [security model](delivery-security.md) lists what each admission policy
+checks and what stays open.
 
 ## Set up a Stage
 
