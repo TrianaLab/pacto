@@ -69,7 +69,7 @@ function impactResult(opts: { offset?: number; nextOffset?: number; match?: bool
       total: 2, count: 2, limit: 100, offset: opts.offset ?? 0, truncated: opts.nextOffset != null, nextOffset: opts.nextOffset,
       items: [
         { service: ref('service', 'domain-a/billing', 'billing'), path: [ref('service', 'domain-a/billing', 'billing'), ref('service', 'domain-a/payments', 'payments')], pathTotal: 2, pathTruncated: false, depth: 1, direct: true, confidence: 'contractual', compatibilityVerdict: 'incompatible', owner: 'core' },
-        { service: ref('service', 'domain-a/ledger', 'ledger'), path: [], pathTotal: 0, pathTruncated: false, depth: 2, direct: false, confidence: 'inferred', compatibilityVerdict: 'unknown' },
+        { service: ref('service', 'domain-a/ledger', 'ledger'), path: [], pathTotal: 0, pathTruncated: false, depth: 2, direct: false, confidence: 'inferred', compatibilityVerdict: 'unknown', note: 'the range >=1.0.0 is open' },
       ],
     },
     owners: { total: 1, count: 1, truncated: false, items: [ref('owner', 'core', 'core')] },
@@ -83,6 +83,7 @@ function impactResult(opts: { offset?: number; nextOffset?: number; match?: bool
     },
     activeTargets: { total: 1, count: 1, truncated: false, items: [ref('target', 'prod/k8s/billing', 'billing')] },
     limitations: { total: 0, count: 0, truncated: false, items: [] },
+    gate: 'blocked', gateReason: 'breaking changes affect active consumers: billing',
   };
 }
 
@@ -164,7 +165,27 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     expect(text).toContain('incompatible');        // verdict
     expect(text).toContain('contractual');         // confidence
     expect(text).toContain('core');                // owner
+    expect(target.querySelector('[data-testid="consumer-note"]')?.textContent).toBe('the range >=1.0.0 is open');
     unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows the release gate with its reason, and none when the answer carries no gate', async () => {
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-gate"]')).toBeTruthy());
+    const gate = target.querySelector('[data-testid="changes-gate"]') as HTMLElement;
+    expect(gate.querySelector('.badge-err')?.textContent).toBe('Blocked');
+    expect(gate.textContent).toContain('breaking changes affect active consumers: billing');
+    unmount(component); document.body.removeChild(target);
+
+    impactFn.mockResolvedValue({ ...impactResult(), gate: '' });
+    const second = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(second.target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(second.target).click();
+    await vi.waitFor(() => expect(second.target.querySelector('[data-testid="changes-answer"]')).toBeTruthy());
+    expect(second.target.querySelector('[data-testid="changes-gate"]')).toBeNull();
+    unmount(second.component); document.body.removeChild(second.target);
   });
 
   it('paginates consumers through the product page metadata (POST with offset)', async () => {

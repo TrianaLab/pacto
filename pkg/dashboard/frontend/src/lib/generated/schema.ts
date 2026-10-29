@@ -2893,6 +2893,9 @@ export interface components {
             changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
             consumers: components["schemas"]["ProductImpactConsumersPage"];
+            /** @enum {string} */
+            gate: "blocked" | "unverified" | "clear";
+            gateReason: string;
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             newRevision?: components["schemas"]["ProductRef"];
@@ -2908,6 +2911,7 @@ export interface components {
             /** Format: int64 */
             depth: number;
             direct: boolean;
+            note?: string;
             owner?: string;
             path: components["schemas"]["ProductRef"][] | null;
             /** Format: int64 */

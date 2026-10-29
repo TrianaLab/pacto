@@ -151,6 +151,8 @@ func TestRenderImpactBreakingWithIncompatibleActiveConsumer(t *testing.T) {
 		OldVersion:     "1.0.0",
 		NewVersion:     "2.0.0",
 		Classification: "BREAKING",
+		Gate:           impact.GateBlocked,
+		GateReason:     "breaking changes affect active consumers",
 		Consumers: []impact.AffectedConsumer{
 			{
 				Service:              "consumer-svc",
@@ -160,8 +162,8 @@ func TestRenderImpactBreakingWithIncompatibleActiveConsumer(t *testing.T) {
 		},
 	}
 	got := renderImpact(r)
-	if !strings.Contains(got, "this would fail `pacto impact` in CI") {
-		t.Fatal("breaking impact with incompatible active consumer should warn about CI failure")
+	if !strings.Contains(got, "blocked: `pacto impact` exits 1") || !strings.Contains(got, "breaking changes affect active consumers") {
+		t.Fatalf("blocked gate should render with its reason, got:\n%s", got)
 	}
 }
 
@@ -171,17 +173,27 @@ func TestRenderImpactBreakingWithTargetlessIncompatibleConsumer(t *testing.T) {
 		OldVersion:     "1.0.0",
 		NewVersion:     "2.0.0",
 		Classification: "BREAKING",
+		Gate:           impact.GateUnverified,
+		GateReason:     "none is shown to be both incompatible and running",
 		Consumers: []impact.AffectedConsumer{
 			{
 				Service:              "consumer-svc",
 				CompatibilityVerdict: impact.CompatibilityIncompatible,
 				Targets:              []string{},
+				Note:                 "open range >=1.0.0",
 			},
 		},
 	}
 	got := renderImpact(r)
-	if strings.Contains(got, "this would fail `pacto impact` in CI") {
-		t.Fatal("breaking impact with targetless incompatible consumer should NOT warn about CI failure")
+	if strings.Contains(got, "blocked") || !strings.Contains(got, "unverified: `pacto impact` exits 2") || !strings.Contains(got, "open range >=1.0.0") {
+		t.Fatalf("targetless incompatible consumer should be unverified with its note, got:\n%s", got)
+	}
+}
+
+func TestRenderImpactClearGate(t *testing.T) {
+	got := renderImpact(&impact.Result{Service: "s", Classification: "NON_BREAKING", Gate: impact.GateClear, GateReason: "the change is NON_BREAKING"})
+	if !strings.Contains(got, "clear") || !strings.Contains(got, "the change is NON_BREAKING") {
+		t.Fatalf("clear gate should render with its reason, got:\n%s", got)
 	}
 }
 
