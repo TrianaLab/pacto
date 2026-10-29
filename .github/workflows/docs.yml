@@ -89,10 +89,13 @@ jobs:
       - name: Strict docs build gate
         run: make docs-build-strict
 
-  # Docs-only fixes over the released version. Publishes only when both hold:
-  #   1. main has no pending changesets, so main describes the released product
-  #      and release/release-manifest.json names the current core version;
-  #   2. that version already carries the `latest` alias in gh-pages versions.json,
+  # Docs-only fixes over the released version. Publishes only when all hold:
+  #   1. main has no pending changesets, so release/release-manifest.json names
+  #      the current core version;
+  #   2. only authored docs changed since the last release commit, so the CLI,
+  #      integration and demo content regenerate from released code. The release
+  #      commit itself is left to release.yml;
+  #   3. that version already carries the `latest` alias in gh-pages versions.json,
   #      so mike overwrites an existing slot and the selector gains no entry.
   # Otherwise it publishes nothing and says why in the step summary. Pending
   # changesets mean main carries unreleased changes, so a docs fix needs a
@@ -100,12 +103,16 @@ jobs:
   # absent from versions.json is a release in flight, which publishes it itself.
   publish:
     needs: validate
+    # Only main describes a release. A manual run on another branch validates and
+    # publishes nothing.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # Serialises publishes from this workflow. The release docs job runs only after
-    # a Version PR merge, and condition 2 holds back this job until that release has
-    # published, so the two never write gh-pages from the same starting point.
+    # Serialises publishes from this workflow. Condition 2 keeps this job off the
+    # release commit. A docs fix that merges while a release is still running can
+    # still meet the release docs job on gh-pages, so `make docs-deploy` rebuilds on
+    # the new tip and retries when its push is rejected.
     concurrency:
       group: docs-publish
       cancel-in-progress: false
@@ -130,6 +137,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # docs-demo and docs-generate compile Go twice. Same warm-up as the release
+      # docs job.
+      - name: Warm the module cache (retried)
+        if: steps.gate.outputs.publish == 'true'
+        run: bash release/scripts/retry.sh go mod download
       - if: steps.gate.outputs.publish == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:

@@ -5,10 +5,15 @@
 # Run from the repository root. Writes publish=true|false and version=<core> to
 # $GITHUB_OUTPUT and the reason to $GITHUB_STEP_SUMMARY (stdout when unset).
 #
-# Publishes only when main has no pending changesets AND the core version in
-# release/release-manifest.json already carries the `latest` alias in versions.json.
-# The second condition is what keeps the version selector unchanged: mike can only
-# overwrite a slot that exists, and only a release transaction creates one.
+# Publishes only when all three hold:
+#   1. main has no pending changesets;
+#   2. everything changed since the last release commit (the last commit to touch
+#      release/release-transaction.json) is authored docs, so `make docs-deploy`
+#      regenerates the CLI, integration and demo content from released code. HEAD
+#      being that release commit also skips, because release.yml publishes it;
+#   3. the core version in release/release-manifest.json already carries the
+#      `latest` alias in versions.json. That keeps the version selector unchanged:
+#      mike can only overwrite a slot that exists, and only a release creates one.
 set -euo pipefail
 
 src=${1:?usage: docs_publish_gate.sh <gh-pages ref | versions.json path>}
@@ -24,6 +29,20 @@ skip() {
 pending=$(find .changeset -maxdepth 1 -name '*.md' ! -name README.md | sort)
 if [ -n "$pending" ]; then
   skip "main carries unreleased changes (pending changesets: $(echo "$pending" | xargs -n1 basename | paste -sd' ' -)). A docs fix needs a \`\"@pacto/core\": patch\` changeset and ships with the next release."
+fi
+
+base=$(git log -1 --format=%H -- release/release-transaction.json)
+[ -n "$base" ] || skip "no release commit found in the history; release.yml publishes the first release."
+if [ "$base" = "$(git rev-parse HEAD)" ]; then
+  skip "this commit starts a release transaction; release.yml publishes the docs."
+fi
+changed=$(git diff --name-only "$base" HEAD)
+[ -n "$changed" ] || skip "nothing changed since the release (${base:0:12}); the site already matches it."
+# The authored docs: the site tree, its theme overrides and config, and each
+# integration's docs. Anything else means main differs from the release in code
+# or generated reference, which ships only with a release.
+if grep -vqE '^(docs/|overrides/|mkdocs\.yml$|integrations/[^/]+/docs/|\.changeset/README\.md$)' <<<"$changed"; then
+  skip "main changed more than docs since the release (${base:0:12}). Ship it with a \`\"@pacto/core\": patch\` changeset."
 fi
 
 version=$(jq -er '.units.core.version' release/release-manifest.json)

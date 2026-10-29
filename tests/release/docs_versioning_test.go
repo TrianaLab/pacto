@@ -89,6 +89,9 @@ func TestDocsDevDeployNeverMovesLatest(t *testing.T) {
 				"and must deploy the version the gate checked; step:\n%s", step)
 		}
 	}
+	if !strings.Contains(docs, "if: github.ref == 'refs/heads/main'") {
+		t.Error("docs.yml's publish job must run only on main; a manual run on a branch would publish it over `latest`")
+	}
 	if strings.Contains(docs, "'release/release-manifest.json'") {
 		t.Error("docs.yml must not trigger on release/release-manifest.json (that double-fires with the release docs job)")
 	}
