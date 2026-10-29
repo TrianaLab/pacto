@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: invoices-config
+data:
+  LEDGER_URL: http://ledger.finance.svc.cluster.local
+  LEDGER_TIMEOUT_MS: "2000"
+  DEFAULT_CURRENCY: EUR

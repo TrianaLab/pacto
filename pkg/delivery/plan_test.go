@@ -496,6 +496,22 @@ func TestPlanConsumerOutsideTheDomainIsUnknown(t *testing.T) {
 	}
 }
 
+func checkPublishedCase(t *testing.T, name string, p Plan, result Result, msg string) {
+	t.Helper()
+	v := verdict(t, p, GatePublished)
+	if v.Result != result || !strings.Contains(v.Message, msg) {
+		t.Errorf("%s: %s %q", name, v.Result, v.Message)
+	}
+	// A refused change asks nobody anything, even on a Stage that asks a
+	// person to approve every promote.
+	if result == Fail && (p.Predicted != PredictRejected || len(p.Verdicts) != 1 || p.Question != "" || p.Floor.Human) {
+		t.Errorf("%s: a version pacto publish did not publish goes no further: %+v", name, p)
+	}
+	if result == Unknown && (p.Predicted != PredictHeld || p.Floor.Decision != AcceptUnknown || !strings.Contains(p.Question, "cannot tell")) {
+		t.Errorf("%s: Unknown holds for a person: %+v", name, p)
+	}
+}
+
 // TestPublishedGate: a promote is admitted only for a version pacto publish
 // published. Anything else is refused before any other gate runs.
 func TestPublishedGate(t *testing.T) {
@@ -508,6 +524,7 @@ func TestPublishedGate(t *testing.T) {
 	oci, up, none, remote := stageSpec(), stageSpec(), stageSpec(), stageSpec()
 	remote.Candidates = Candidates{UpstreamRecords: &RemoteStage{Repository: "reg/streams", Stream: "c2/test/payments"}}
 	up.Candidates = Candidates{UpstreamStage: &StageRef{Name: "payments", Namespace: "test"}}
+	up.Approval.Always = true
 	none.Candidates = Candidates{}
 	published := StageStatus{Pointer: dA, Published: []string{dB}, Verified: []string{dA}}
 	cases := []struct {
@@ -522,7 +539,9 @@ func TestPublishedGate(t *testing.T) {
 		{"oci unreadable", plan(oci, published, Revision{Digest: dB, Err: "registry down"}, nil), Unknown, "registry down"},
 		{"upstream offered", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Offered: []string{dB}}), Pass, "passed pacto.published and verified on the upstream Stage"},
 		{"upstream failed", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{FailedDigests: []string{dB}}), Fail, "failed after release on the upstream Stage test/payments"},
-		{"upstream not verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Offered: []string{dB}}), Fail, "is not offered by the upstream Stage test/payments"},
+		{"upstream not verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Offered: []string{dB}}), Fail,
+			"is not offered by the upstream Stage test/payments: it never passed pacto.published there or never verified, so it is not a " +
+				"candidate here. Promote it on test/payments first, and plan again here once it verifies there"},
 		// Verified there, but on an accepted unknown or before the published
 		// rule existed, or only signed there: never offered.
 		{"upstream only verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}}), Fail, "is not offered"},
@@ -542,16 +561,7 @@ func TestPublishedGate(t *testing.T) {
 		msg    string
 	}{"upstream unreadable, no reason", silent, Fail, "does not exist or cannot be read"})
 	for _, c := range cases {
-		v := verdict(t, c.p, GatePublished)
-		if v.Result != c.result || !strings.Contains(v.Message, c.msg) {
-			t.Errorf("%s: %s %q", c.name, v.Result, v.Message)
-		}
-		if c.result == Fail && (c.p.Predicted != PredictRejected || len(c.p.Verdicts) != 1) {
-			t.Errorf("%s: a version pacto publish did not publish goes no further: %+v", c.name, c.p)
-		}
-		if c.result == Unknown && (c.p.Predicted != PredictHeld || c.p.Floor.Decision != AcceptUnknown || !strings.Contains(c.p.Question, "cannot tell")) {
-			t.Errorf("%s: Unknown holds for a person: %+v", c.name, c.p)
-		}
+		checkPublishedCase(t, c.name, c.p, c.result, c.msg)
 	}
 	// A verdict on a remote upstream cites the newest record it read.
 	view := &StageStatus{Verified: []string{dB}, Offered: []string{dB}, Stream: Stream{ID: "c2/test/payments", Seq: 7, Head: "sha256:r7"}}

@@ -84,6 +84,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.AddCommand(
 		newDeliveryTypesCommand(v),
 		newDeliveryDescribeCommand(v),
+		newDeliveryCandidatesCommand(v, d),
 		newDeliveryPlanCommand(v, d),
 		newDeliveryProposeCommand(v, d),
 		newDeliveryGetCommand(v, d),
@@ -188,7 +189,9 @@ func orNone(s []string) string {
 func addRequestFlags(cmd *cobra.Command) {
 	cmd.Flags().String("stage", "", "the Stage to change (required)")
 	cmd.Flags().String("type", delivery.TypePromote, "operation type")
-	cmd.Flags().String("to", "", "where to move: an artifact digest (sha256:...) for a pointer type, or a level (observe, advise, auto-nonbreaking or autonomous) for "+delivery.TypeAutonomy)
+	cmd.Flags().String("to", "", "where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), "+
+		"where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); "+
+		"for "+delivery.TypeAutonomy+" a level (observe, advise, auto-nonbreaking or autonomous)")
 	cmd.Flags().String("from", "", "where the Stage is now: a digest, or a level for "+delivery.TypeAutonomy+" (defaults to its pointer, or to its current level)")
 	cmd.Flags().String("undoes", "", "for a rollback: the name of the operation it undoes")
 	cmd.Flags().String("record", "", "for "+delivery.TypeAcknowledge+": the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it")
@@ -245,7 +248,47 @@ func newDeliveryPlanCommand(v *viper.Viper, d deps) *cobra.Command {
 	return cmd
 }
 
-func printPlan(w io.Writer, p delivery.Plan) {
+// newDeliveryCandidatesCommand lists the versions a Stage may take.
+func newDeliveryCandidatesCommand(v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "candidates",
+		Short: "List the versions a Stage may be promoted to: what pacto publish published that its candidate source offers",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, ns, err := deliveryClient(cmd, d)
+			if err != nil {
+				return err
+			}
+			stage, _ := cmd.Flags().GetString("stage")
+			list, err := c.Candidates(cmd.Context(), ns, stage)
+			if err != nil {
+				return err
+			}
+			return formatResult(cmd, v.GetString(outputFormatKey), list, func() error {
+				printCandidates(cmd.OutOrStdout(), list)
+				return nil
+			}, nil)
+		},
+	}
+	cmd.Flags().String("stage", "", "the Stage (required)")
+	_ = cmd.MarkFlagRequired("stage")
+	return cmd
+}
+
+func printCandidates(out io.Writer, c *delivery.CandidateVersions) {
+	_, _ = fmt.Fprintf(out, "stage %s/%s (%s) runs %s, candidates from the %s\n", c.Namespace, c.Stage, c.Service, orNone([]string{c.Running}), c.Source)
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "VERSION\tDIGEST\tNOTE")
+	for _, v := range c.Versions {
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", cmp.Or(v.Version, "?"), v.Digest, v.Unreadable)
+	}
+	_ = w.Flush()
+	if c.Note != "" {
+		_, _ = fmt.Fprintf(out, "note: %s\n", c.Note)
+	}
+}
+
+func printPlan(w io.Writer, p delivery.PlanAnswer) {
 	_, _ = fmt.Fprintf(w, "intent:    %s\n", p.IntentDigest)
 	_, _ = fmt.Fprintf(w, "change:    %s %s -> %s\n", p.Type, orNone([]string{p.From}), orNone([]string{p.To}))
 	_, _ = fmt.Fprintf(w, "predicted: %s\n", p.Predicted)
@@ -260,6 +303,9 @@ func printPlan(w io.Writer, p delivery.Plan) {
 	}
 	printOrder(w, p.Order)
 	printPrecedent(w, p.Precedent)
+	for _, n := range p.Next {
+		_, _ = fmt.Fprintf(w, "next:      %s\n", n)
+	}
 }
 
 // printPrecedent says what the records attached to the version say happened
@@ -291,7 +337,7 @@ func printOrder(w io.Writer, o *delivery.Order) {
 func newDeliveryProposeCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "propose",
-		Short: "Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan",
+		Short: "Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan or the reason or on-behalf-of differs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, ns, err := deliveryClient(cmd, d)
@@ -310,7 +356,7 @@ func newDeliveryProposeCommand(v *viper.Viper, d deps) *cobra.Command {
 			}
 			out := struct {
 				Operation *delivery.OperationObject `json:"operation"`
-				Plan      delivery.Plan             `json:"plan"`
+				Plan      delivery.PlanAnswer       `json:"plan"`
 			}{op, plan}
 			return formatResult(cmd, v.GetString(outputFormatKey), out, func() error {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "proposed %s/%s\n", op.Metadata.Namespace, op.Metadata.Name)
@@ -320,7 +366,7 @@ func newDeliveryProposeCommand(v *viper.Viper, d deps) *cobra.Command {
 		},
 	}
 	addRequestFlags(cmd)
-	cmd.Flags().String("intent-digest", "", "the intent digest from your plan; propose refuses if it no longer matches")
+	cmd.Flags().String("intent-digest", "", "the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of")
 	cmd.Flags().String("name", "", "the Operation name (generated when empty)")
 	return cmd
 }
@@ -339,7 +385,8 @@ func newDeliveryGetCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return formatResult(cmd, v.GetString(outputFormatKey), op, func() error {
+			answer := delivery.AnswerOperation(op)
+			return formatResult(cmd, v.GetString(outputFormatKey), answer, func() error {
 				w, s := cmd.OutOrStdout(), op.Status
 				_, _ = fmt.Fprintf(w, "operation: %s/%s (%s on %s)\n", op.Metadata.Namespace, op.Metadata.Name, op.Spec.Type, op.Spec.Stage)
 				_, _ = fmt.Fprintf(w, "phase:     %s %s\n", s.Phase, s.Outcome)
@@ -351,6 +398,9 @@ func newDeliveryGetCommand(v *viper.Viper, d deps) *cobra.Command {
 				}
 				if s.Question != "" {
 					_, _ = fmt.Fprintf(w, "question:  %s\n", s.Question)
+				}
+				if answer.Next != "" {
+					_, _ = fmt.Fprintf(w, "next:      %s\n", answer.Next)
 				}
 				return nil
 			}, nil)
@@ -692,7 +742,7 @@ func newDeliveryUndoCommand(v *viper.Viper, d deps) *cobra.Command {
 				w := cmd.OutOrStdout()
 				_, _ = fmt.Fprintf(w, "undo %s: %s: %s\n", u.Operation, u.Kind, u.Note)
 				if u.Plan != nil {
-					printPlan(w, *u.Plan)
+					printPlan(w, delivery.PlanAnswer{Plan: *u.Plan})
 					_, _ = fmt.Fprintf(w, "nothing was proposed; to propose it:\n  %s\n", u.Command)
 				}
 				return nil

@@ -344,7 +344,10 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Report services and targets needing attention",
-		Args:  cobra.NoArgs,
+		Long: "Reports what needs attention: non-compliant, unknown, invalid and stale targets, " +
+			"revisions without readiness, unresolved dependencies and dependencies whose provider " +
+			"version is outside the declared range. With no category flag it reports every category.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
@@ -361,6 +364,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("stale", false, "report targets with stale evidence")
 	cmd.Flags().Bool("missing-readiness", false, "report revisions without a readiness assessment")
 	cmd.Flags().Bool("unresolved-deps", false, "report unresolved declared dependencies")
+	cmd.Flags().Bool("unsatisfied-ranges", false, "report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)")
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d)", fleet.DefaultStatusLimit))
 	return cmd
 }
@@ -368,17 +372,14 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 func statusQueryFromCmd(cmd *cobra.Command) fleet.StatusQuery {
 	get := func(name string) bool { b, _ := cmd.Flags().GetBool(name); return b }
 	limit, _ := cmd.Flags().GetInt("limit")
-	sq := fleet.StatusQuery{
+	// With no category selected the query reports every category; the rule
+	// lives in fleet.Query.Status so the MCP tool and the CLI agree.
+	return fleet.StatusQuery{
 		NeedsAttention: get("needs-attention"), NonCompliant: get("non-compliant"),
 		Unknown: get("unknown"), Invalid: get("invalid"), StaleEvidence: get("stale"),
-		MissingReadiness: get("missing-readiness"), UnresolvedDeps: get("unresolved-deps"), Limit: limit,
+		MissingReadiness: get("missing-readiness"), UnresolvedDeps: get("unresolved-deps"),
+		UnsatisfiedRanges: get("unsatisfied-ranges"), Limit: limit,
 	}
-	// With no category selected, default to the union (most useful default).
-	if !sq.NonCompliant && !sq.Unknown && !sq.Invalid && !sq.StaleEvidence &&
-		!sq.MissingReadiness && !sq.UnresolvedDeps {
-		sq.NeedsAttention = true
-	}
-	return sq
 }
 
 func newFleetSnapshotCommand(svc *app.Service, v *viper.Viper) *cobra.Command {

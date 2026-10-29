@@ -13,18 +13,18 @@ import (
 
 type stubDelivery struct {
 	req     delivery.Request
-	plan    delivery.Plan
+	plan    delivery.PlanAnswer
 	op      *delivery.OperationObject
 	err     error
 	cancels []string
 }
 
-func (s *stubDelivery) Plan(_ context.Context, req delivery.Request) (delivery.Plan, error) {
+func (s *stubDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
 	s.req = req
 	return s.plan, s.err
 }
 
-func (s *stubDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error) {
+func (s *stubDelivery) Propose(_ context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error) {
 	s.req = req
 	return s.op, s.plan, s.err
 }
@@ -33,7 +33,16 @@ func (s *stubDelivery) Get(_ context.Context, _, name string) (*delivery.Operati
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: name}}, nil
+	op := &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: name}}
+	op.Status.Phase, op.Status.Times.ApprovalDeadline = delivery.PhaseHeld, "2026-10-30T09:00:00Z"
+	return op, nil
+}
+
+func (s *stubDelivery) Candidates(_ context.Context, ns, stage string) (*delivery.CandidateVersions, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.CandidateVersions{Namespace: ns, Stage: stage, Versions: []delivery.CandidateVersion{{Digest: "sha256:d", Version: "3.0.0"}}}, nil
 }
 
 func (s *stubDelivery) Cancel(_ context.Context, ns, name string) error {
@@ -133,7 +142,7 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 	if strings.Contains(read+write, "approve") {
 		t.Fatal("there must be no approve tool")
 	}
-	for _, tool := range []string{"pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo_plan", "pacto_delivery_record_verify"} {
+	for _, tool := range []string{"pacto_delivery_candidates", "pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo_plan", "pacto_delivery_record_verify"} {
 		if !strings.Contains(read, tool) {
 			t.Fatalf("%s is a read tool: %s", tool, read)
 		}
@@ -144,14 +153,13 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 			t.Fatalf("%s must not be registered: %s", gone, write)
 		}
 	}
-	if n := len(strings.Split(write, ",")); n != 10 {
-		t.Fatalf("want 8 read and 2 write delivery tools, got %d: %s", n, write)
+	if n := len(strings.Split(write, ",")); n != 11 {
+		t.Fatalf("want 9 read and 2 write delivery tools, got %d: %s", n, write)
 	}
 }
 
 func TestDeliveryToolCalls(t *testing.T) {
-	api := &stubDelivery{plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}
-	server := NewDeliveryServer("v", api, true, nil)
+	server := NewDeliveryServer("v", &stubDelivery{}, true, nil)
 	var types []delivery.OperationType
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_types", map[string]any{}), &types)
 	if len(types) != len(delivery.Types()) {
@@ -168,10 +176,16 @@ func TestDeliveryToolCalls(t *testing.T) {
 	if res := callToolOn(t, server, "pacto_delivery_operation_types", map[string]any{"type": "x"}); !res.IsError {
 		t.Fatal("unknown type must be an error")
 	}
-	var plan delivery.Plan
+}
+
+func TestDeliveryPlanToolCalls(t *testing.T) {
+	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}, Next: []string{"held"}}}
+	server := NewDeliveryServer("v", api, true, nil)
+	var plan delivery.PlanAnswer
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_plan", map[string]any{
-		"namespace": "prod", "stage": "s", "to": "sha256:x", "on_behalf_of": "alice"}), &plan)
-	if plan.Predicted != delivery.PredictHeld || api.req.OnBehalfOf != "alice" || api.req.Stage != "s" {
+		"namespace": "prod", "stage": "s", "to": "3.0.0", "on_behalf_of": "alice"}), &plan)
+	if plan.Predicted != delivery.PredictHeld || plan.IntentDigest != "sha256:i" || len(plan.Next) != 1 ||
+		api.req.OnBehalfOf != "alice" || api.req.Stage != "s" || api.req.To != "3.0.0" {
 		t.Fatalf("plan: %+v %+v", plan, api.req)
 	}
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_plan", map[string]any{
@@ -188,6 +202,15 @@ func TestDeliveryToolCalls(t *testing.T) {
 	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}), &h)
 	if h.Stage.Name != "s" || h.Completeness != "partial" {
 		t.Fatalf("history: %+v", h)
+	}
+}
+
+func TestDeliveryCandidatesToolCall(t *testing.T) {
+	server := NewDeliveryServer("v", &stubDelivery{}, true, nil)
+	var c delivery.CandidateVersions
+	decode(t, callToolOn(t, server, "pacto_delivery_candidates", map[string]any{"namespace": "prod", "stage": "s"}), &c)
+	if c.Stage != "s" || len(c.Versions) != 1 || c.Versions[0].Version != "3.0.0" {
+		t.Fatalf("candidates: %+v", c)
 	}
 }
 
@@ -222,7 +245,7 @@ func TestDeliveryRecordToolCalls(t *testing.T) {
 }
 
 func TestDeliveryWriteToolCalls(t *testing.T) {
-	api := &stubDelivery{plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}
+	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}}
 	server := NewDeliveryServer("v", api, true, nil)
 	api.op = &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "p1"}}
 	var proposed struct {
@@ -233,10 +256,13 @@ func TestDeliveryWriteToolCalls(t *testing.T) {
 	if proposed.Operation.Metadata.Name != "p1" || api.req.IntentDigest != "sha256:i" || api.req.Name != "p1" {
 		t.Fatalf("propose: %+v %+v", proposed, api.req)
 	}
-	var op delivery.OperationObject
+	var op struct {
+		delivery.OperationObject
+		Next string `json:"next"`
+	}
 	decode(t, callToolOn(t, server, "pacto_delivery_get", map[string]any{"namespace": "prod", "name": "p1"}), &op)
-	if op.Metadata.Name != "p1" {
-		t.Fatal("get")
+	if op.Metadata.Name != "p1" || !strings.Contains(op.Next, "concludes Expired") {
+		t.Fatalf("get says what happens at the deadline: %+v", op)
 	}
 	callToolOn(t, server, "pacto_delivery_cancel", map[string]any{"namespace": "prod", "name": "p1"})
 	if api.cancels[0] != "prod/p1" {
@@ -245,14 +271,14 @@ func TestDeliveryWriteToolCalls(t *testing.T) {
 }
 
 func TestDeliveryToolErrors(t *testing.T) {
-	api := &stubDelivery{plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}
+	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}}
 	server := NewDeliveryServer("v", api, true, nil)
 	api.op, api.err = nil, errors.New("PlanStale: moved")
 	res := callToolOn(t, server, "pacto_delivery_operation_propose", map[string]any{"namespace": "prod", "stage": "s"})
 	if !res.IsError || !strings.Contains(resultText(t, res), "PlanStale") || !strings.Contains(resultText(t, res), "sha256:i") {
 		t.Fatalf("a stale propose returns the fresh plan as an error: %s", resultText(t, res))
 	}
-	api.plan = delivery.Plan{}
+	api.plan = delivery.PlanAnswer{}
 	for _, tool := range []string{"pacto_delivery_operation_plan", "pacto_delivery_operation_propose"} {
 		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod", "stage": "s"}); !res.IsError {
 			t.Fatalf("%s must surface the error", tool)
@@ -264,7 +290,7 @@ func TestDeliveryToolErrors(t *testing.T) {
 			t.Fatalf("%s must refuse a malformed cause", tool)
 		}
 	}
-	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_record_verify"} {
+	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_record_verify", "pacto_delivery_candidates"} {
 		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod", "stage": "s"}); !res.IsError {
 			t.Fatalf("%s must surface the error", tool)
 		}

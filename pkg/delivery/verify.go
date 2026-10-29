@@ -15,7 +15,8 @@ import (
 const ContractAnnotation = "delivery.pacto.trianalab.io/contract"
 
 // ParseDigest validates an OCI manifest digest as a Pacto ContentID. A tag is
-// refused: delivery moves digests only.
+// refused: an operation always names a digest, and a client turns a version
+// or a tag into one only through the Stage's candidates.
 func ParseDigest(d string) (catalog.ContentID, error) {
 	return catalog.NewContentID(catalog.SchemeOCI, d)
 }

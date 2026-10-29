@@ -149,8 +149,10 @@ func boundedResult() *Result {
 		Classification: "BREAKING",
 		Consumers: []AffectedConsumer{
 			{Service: "web", Path: longPath, Confidence: ConfidenceDeclared, CompatibilityVerdict: CompatibilityIncompatible},
-			{Service: "api", Domain: "acme", Path: []string{"acme/api"}, Confidence: "novel", CompatibilityVerdict: CompatibilityCompatible},
+			{Service: "api", Domain: "acme", Path: []string{"acme/api"}, Confidence: "novel", CompatibilityVerdict: CompatibilityCompatible, Note: "range only"},
 		},
+		Gate:          GateUnverified,
+		GateReason:    "why",
 		Owners:        make([]string, MaxProductOwners+1),
 		ActiveTargets: []string{"prod/k8s/api", "gone/k8s/x"},
 		Limitations:   make([]fleet.Limitation, fleet.MaxMetaLimitations),
@@ -184,6 +186,18 @@ func TestBuildProduct_IdentityAndConsumers(t *testing.T) {
 	// Tallies cover every consumer, known buckets first, an unknown value after.
 	if last := c.ByConfidence[len(c.ByConfidence)-1]; last.Key != "novel" || last.Count != 1 {
 		t.Errorf("confidence tally = %+v", c.ByConfidence)
+	}
+}
+
+func TestBuildProduct_CarriesGateAndNote(t *testing.T) {
+	snap := productSnapshot()
+	from, to := snap.Revisions["api@1"], snap.Revisions["api@2"]
+	p := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, boundedResult(), 0, 0)
+	if p.Gate != GateUnverified || p.GateReason != "why" {
+		t.Errorf("gate = %q %q", p.Gate, p.GateReason)
+	}
+	if p.Consumers.Items[0].Note != "range only" {
+		t.Errorf("note = %q", p.Consumers.Items[0].Note)
 	}
 }
 

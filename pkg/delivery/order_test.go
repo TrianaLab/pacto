@@ -225,7 +225,7 @@ func TestOrderNoCandidateYet(t *testing.T) {
 	p := orderPlan(t, in, pactos, payments2, payments3)
 	m := onlyMove(t, p)
 	if m.Candidate != nil || m.Unknown != "" || strings.Contains(p.Question, "Or ship") ||
-		!strings.HasSuffix(m.Message, "No version of orders that test/orders verified accepts both 3.0.0 and the 2.4.0 running here yet. Ship one that does first.") {
+		!strings.HasSuffix(m.Message, "test/orders has not verified a version of orders that accepts both payments 3.0.0 and the 2.4.0 running here. Get one verified there, then promote it on orders-prod/orders first.") {
 		t.Fatalf("no candidate: %+v question %q", m, p.Question)
 	}
 }
@@ -285,7 +285,7 @@ func TestOrderPlacesTheConsumerOrSaysWhy(t *testing.T) {
 	in.Stages[1].Spec.Candidates = Candidates{OCIRepositoryRef: &LocalRef{Name: "orders-candidates"}}
 	m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3))
 	if m.Unknown != "" || m.Candidate != nil || !strings.HasSuffix(m.Message,
-		"orders takes its versions straight from its candidate source here, so no version of it is verified ahead of prod. Ship one that accepts 3.0.0 first.") {
+		"No Stage tests orders before prod, so Pacto has no tested version of it to suggest. Publish a version of orders that accepts payments 3.0.0 and promote it on orders-prod/orders first.") {
 		t.Fatalf("straight from source: %+v", m)
 	}
 }
@@ -312,7 +312,7 @@ func TestOrderOnAFirstVersionAndAPartialGraph(t *testing.T) {
 		t.Fatalf("a partial graph places nothing: %+v", m)
 	}
 	in.Stages[2].Status.Offered = nil
-	if m := onlyMove(t, orderPlan(t, in, pactos, Revision{}, payments3)); !strings.HasSuffix(m.Message, "verified accepts 3.0.0 yet. Ship one that does first.") {
+	if m := onlyMove(t, orderPlan(t, in, pactos, Revision{}, payments3)); !strings.HasSuffix(m.Message, "has not verified a version of orders that accepts payments 3.0.0. Get one verified there, then promote it on orders-prod/orders first.") {
 		t.Fatalf("first version, no candidate: %+v", m)
 	}
 }
@@ -362,8 +362,9 @@ func TestOrderCandidateMustAcceptWhatElseRunsHere(t *testing.T) {
 	}
 	in.Stages[2].Status.Offered = []string{o2}
 	m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3))
-	if m.Candidate != nil || m.Unknown != "" || !strings.HasSuffix(m.Message, "No version of orders that test/orders verified can move first yet "+
-		"(orders 1.9.0 accepts shipping ^2.0.0, but shipping 1.4.0 runs here). Ship a newer one that accepts both 3.0.0 and the 2.4.0 running here and what else runs here first.") {
+	if m.Candidate != nil || m.Unknown != "" || !strings.HasSuffix(m.Message, "None of the versions of orders that test/orders verified can move first yet "+
+		"(orders 1.9.0 accepts shipping ^2.0.0, but shipping 1.4.0 runs here). Get a newer one verified on test/orders that accepts both payments 3.0.0 "+
+		"and the 2.4.0 running here, and works with what else runs here, then promote it on orders-prod/orders first.") {
 		t.Fatalf("1.9.0 would break against shipping 1.4.0: %+v", m)
 	}
 	// Without shipping running here Pacto cannot tell: Unknown, not a candidate.

@@ -41,6 +41,8 @@ type ProductConsumer struct {
 	Confidence           string            `json:"confidence"`
 	CompatibilityVerdict string            `json:"compatibilityVerdict"`
 	Owner                string            `json:"owner,omitempty"`
+	// Note qualifies the verdict, as [AffectedConsumer.Note] does.
+	Note string `json:"note,omitempty"`
 }
 
 // TallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
@@ -113,6 +115,10 @@ type Product struct {
 	Owners         fleet.RefPreview         `json:"owners"`
 	ActiveTargets  fleet.RefPreview         `json:"activeTargets"`
 	Limitations    fleet.LimitationsPreview `json:"limitations"`
+	// Gate and GateReason are the release gate of the analysis, as
+	// [Result.Gate] and [Result.GateReason].
+	Gate       string `json:"gate" enum:"blocked,unverified,clear"`
+	GateReason string `json:"gateReason"`
 }
 
 // ProductRevisions looks up both revisions, requires them to exist and to belong
@@ -198,6 +204,7 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 			Confidence:           string(c.Confidence),
 			CompatibilityVerdict: c.CompatibilityVerdict,
 			Owner:                c.Owner,
+			Note:                 c.Note,
 		})
 	}
 	// Deterministic order so paging is stable across identical requests.
@@ -222,6 +229,8 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 		Owners:         boundRefs(owners, MaxProductOwners),
 		ActiveTargets:  boundRefs(targets, MaxProductActiveTargets),
 		Limitations:    limitationsPreview(res),
+		Gate:           res.Gate,
+		GateReason:     res.GateReason,
 	}
 }
 

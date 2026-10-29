@@ -157,7 +157,7 @@ func (d *Delivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.
 	if err != nil {
 		return nil, err
 	}
-	u.Planned(*req, plan)
+	u.Planned(*req, plan.Plan)
 	return u, nil
 }
 

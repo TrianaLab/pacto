@@ -151,7 +151,7 @@ change.
 | `pacto_skill` | a bundle | Read: returns the notes a bundle ships for agents in `skills/*.md` |
 | `pacto_publish_plan` | `--publish` | Read |
 | `pacto_publish` | `--publish` | Writes to your registry |
-| `pacto_delivery_operation_types`, `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`, `pacto_delivery_record_verify` | `--delivery` | Read |
+| `pacto_delivery_operation_types`, `pacto_delivery_candidates`, `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`, `pacto_delivery_record_verify` | `--delivery` | Read |
 | `pacto_delivery_operation_propose`, `pacto_delivery_cancel` | `--delivery`, agents only | Ask for or cancel a change |
 
 Pacto skips any API operation named `pacto_*`, so the prefix always means a

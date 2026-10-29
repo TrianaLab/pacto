@@ -10,6 +10,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/otelobserver"
@@ -38,12 +39,43 @@ type ImpactOptions struct {
 // Each call builds a fresh snapshot; the dashboard uses ImpactWithSnapshot to
 // analyze against its already-published snapshot instead (so the impact answer's
 // snapshotId matches the graph the user is looking at).
+//
+// When no source holds the changed service, the snapshot is built again with
+// the new revision added as one more source. The services that depend on it
+// are then found, where before the answer said "no affected consumers" about a
+// service it could not see.
 func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Result, error) {
+	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
 	snap, err := s.Fleet(ctx, opts.Fleet)
 	if err != nil {
 		return nil, fmt.Errorf("build fleet snapshot: %w", err)
 	}
-	return s.ImpactWithSnapshot(ctx, opts, snap)
+	domain := revisionDomain(opts.NewPath)
+	added := snap.Services[fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)] == nil
+	if added {
+		rev := fleet.RawRevision{Bundle: newBundle, Domain: domain, RequestedRef: opts.NewPath}
+		// The content digest the local source gives its bundles, so the added
+		// revision has the same identity it would have had from --local.
+		if h, err := lock.HashFS(newBundle.FS); err == nil {
+			rev.Digest = h
+		}
+		withNew := opts.Fleet
+		withNew.extraSources = []fleet.Source{fleet.NewMemorySource("new-revision", "argument", &fleet.Collection{
+			Revisions: []fleet.RawRevision{rev},
+		})}
+		if snap, err = s.Fleet(ctx, withNew); err != nil {
+			return nil, fmt.Errorf("build fleet snapshot: %w", err)
+		}
+	}
+	res, err := s.analyzeImpact(ctx, opts, snap, oldBundle, newBundle)
+	if err != nil {
+		return nil, err
+	}
+	res.NewRevisionAdded = added
+	return res, nil
 }
 
 // ImpactWithSnapshot analyzes a change's blast radius over an ALREADY-BUILT
@@ -52,16 +84,26 @@ func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Resul
 // impact answer bound to that exact snapshot — same snapshotId, same as-of time,
 // same completeness — rather than a freshly rebuilt one. opts.Fleet is ignored.
 func (s *Service) ImpactWithSnapshot(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
-	logging.LoggerFromContext(ctx).Debug("resolving old revision", "path", opts.OldPath)
-	oldBundle, err := s.resolveBundleWithOverrides(ctx, opts.OldPath, opts.OldOverrides)
+	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
 	if err != nil {
-		return nil, fmt.Errorf("old revision: %w", err)
+		return nil, err
+	}
+	return s.analyzeImpact(ctx, opts, snap, oldBundle, newBundle)
+}
+
+func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (oldBundle, newBundle *contract.Bundle, err error) {
+	logging.LoggerFromContext(ctx).Debug("resolving old revision", "path", opts.OldPath)
+	if oldBundle, err = s.resolveBundleWithOverrides(ctx, opts.OldPath, opts.OldOverrides); err != nil {
+		return nil, nil, fmt.Errorf("old revision: %w", err)
 	}
 	logging.LoggerFromContext(ctx).Debug("resolving new revision", "path", opts.NewPath)
-	newBundle, err := s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides)
-	if err != nil {
-		return nil, fmt.Errorf("new revision: %w", err)
+	if newBundle, err = s.resolveBundleWithOverrides(ctx, opts.NewPath, opts.NewOverrides); err != nil {
+		return nil, nil, fmt.Errorf("new revision: %w", err)
 	}
+	return oldBundle, newBundle, nil
+}
+
+func (s *Service) analyzeImpact(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
 	if err := refuseHidden(snap, opts.OldPath, oldBundle.Contract, opts.NewPath, newBundle.Contract); err != nil {
 		return nil, err
 	}
