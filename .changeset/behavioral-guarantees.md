@@ -9,6 +9,7 @@ interface lists what consumers may rely on in `guarantees`: `delivery`,
 A `"2.0"` or `"2.1"` contract that uses either reports `NEEDS_PACTO_2_2`.
 `pacto validate` reads the provider contract and reports every unmet guarantee
 as `GUARANTEE_UNMET` in its `guarantees` stage, or warns with `GUARANTEE_UNVERIFIED` when it cannot read
-it. `pacto graph` marks refused edges, `pacto diff` classifies a removed or
+it. The stage passes only when every requirement was checked, and is skipped
+with a reason naming the dependency otherwise. `pacto graph` marks refused edges, `pacto diff` classifies a removed or
 weakened guarantee as breaking and `pacto impact` names the consumers whose
-requirement a change breaks.
+requirement a change breaks, in its text and JSON output.

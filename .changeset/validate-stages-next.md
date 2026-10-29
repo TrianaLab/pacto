@@ -4,7 +4,8 @@
 
 `pacto validate` reports one PASS, FAIL or SKIP line per stage (load, lock,
 structural, cross-field, policy, guarantees, readiness and closure), lists each error
-under its stage with its file:line:column when it can be located, and ends
+under its stage with its file:line:column when it can be located (never
+with `--set` or `-f`, which validate a merged document), and ends
 with a `Next:` line naming the one command to run now. A failed
 load or lock stage skips every stage after it, and a failed structural or
 cross-field stage skips the stages after it up to policy. The guarantees,

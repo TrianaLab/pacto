@@ -225,7 +225,7 @@ openapi.paths[/users].methods[GET].responses[200].content.application/json.schem
 | `asyncapi.channels` | Added | NON_BREAKING |
 | `asyncapi.channels` | Removed | **BREAKING** |
 
-A channel present on both sides is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change. Old and new publishers and subscribers run side by side, so everything inside a channel sits in [record position](#schema-position): adding an optional payload property and editing documentation are `NON_BREAKING`, and so is adding a 2.x `publish` or `subscribe` operation. Every other inner difference is `BREAKING`. For that reason the table has no `asyncapi.channels` Modified row.
+A channel present on both sides is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change. Old and new publishers and subscribers run side by side, so a message's `payload` and `headers` schemas sit in [record position](#schema-position): adding an optional payload property is `NON_BREAKING` and every other schema difference is `BREAKING`. Documentation, `tags` included, is `NON_BREAKING`, and so is adding a 2.x `publish` or `subscribe` operation. Any other difference outside the schemas, such as a binding or a message `name`, is `POTENTIAL_BREAKING`. For that reason the table has no `asyncapi.channels` Modified row.
 
 ### Operations
 
@@ -234,7 +234,7 @@ A channel present on both sides is compared field by field, so a new payload pro
 | `asyncapi.operations` | Added | NON_BREAKING |
 | `asyncapi.operations` | Removed | **BREAKING** |
 
-An operation present on both sides is deep-diffed exactly like a channel, so flipping `action` from `send` to `receive` surfaces as `asyncapi.operations[sendOrder].action` (`BREAKING`).
+An operation present on both sides is deep-diffed exactly like a channel, so flipping `action` from `send` to `receive` surfaces as `asyncapi.operations[sendOrder].action` (`POTENTIAL_BREAKING`).
 
 Top-level `operations` are an AsyncAPI 3.x concept. A 2.x document has no `operations` map, so only its channels are compared.
 
@@ -316,7 +316,7 @@ edit helps one side of an exchange and hurts the other.
 |----------|-------|--------------|----------|-----------|
 | request | OpenAPI request bodies and parameters, MCP `inputSchema` | the new provider, from an old caller | NON_BREAKING | **BREAKING** |
 | response | OpenAPI responses, MCP `outputSchema` | an old consumer, which may switch over every `enum` value | **BREAKING** | NON_BREAKING |
-| record | AsyncAPI channels and operations | old and new code at once, in both directions | **BREAKING** | **BREAKING** |
+| record | AsyncAPI message `payload` and `headers` schemas | old and new code at once, in both directions | **BREAKING** | **BREAKING** |
 
 | Edit | Effect |
 |------|--------|
@@ -325,13 +325,14 @@ edit helps one side of an exchange and hurts the other.
 | `maxLength`, `maximum`, `maxItems` or `maxProperties` raised, or a `min*` bound lowered | widens |
 | a bound, `pattern`, `format`, `const`, `enum`, `allOf` or `items` removed | widens |
 | `additionalProperties: false` relaxed to a schema or removed | widens |
-| `required` entry removed, or `allOf` member removed | widens |
+| `required` entry or the whole `required` list removed, or `allOf` member removed | widens |
 | the mirror of each row above | narrows |
+| `enum` or `required` entries reordered | no change |
 | `pattern`, `format`, `const` or `multipleOf` rewritten, or `type` changed to an unrelated type | breaks in every position |
 | anything inside `not` or `if`, a `default`, `readOnly` or `discriminator` changed, any other keyword | breaks in every position |
 | a `$ref` Pacto cannot resolve | POTENTIAL_BREAKING in every position |
 | an `x-` extension keyword added, removed or changed | POTENTIAL_BREAKING in every position |
-| `description`, `title`, `summary`, `example`, `examples`, `$comment`, `externalDocs` or `deprecated` | NON_BREAKING in every position |
+| `description`, `title`, `summary`, `example`, `examples`, `$comment`, `externalDocs`, `deprecated` or `tags` | NON_BREAKING in every position |
 
 Properties have their own rules:
 
@@ -339,7 +340,7 @@ Properties have their own rules:
 - Removing an optional property is `BREAKING` from a response or a record whether or not `required` listed it. Most payload schemas list nothing, and the field is data a reader may use.
 - Removing one from a request is `POTENTIAL_BREAKING`: the provider drops the caller's field unread.
 - An object with `additionalProperties: false` accepts no undeclared field, so adding a property widens it and removing one narrows it.
-- Inside a response header every grade stops at `POTENTIAL_BREAKING`, because removing the whole header is `POTENTIAL_BREAKING`.
+- Inside a response's `headers` map every grade stops at `POTENTIAL_BREAKING`, because removing the whole header is `POTENTIAL_BREAKING`.
 
 ### References and components { #references }
 
@@ -348,7 +349,9 @@ Each `$ref` is resolved first, so a component is judged where it is used:
 - A component used in more than one position, such as a schema in a request body and in a response, is judged in each one. Pacto reports one change with the worst grade, at the usage path where that grade applies. The reason names the component and its usages.
 - Pacto compares what a ref resolves to. Renaming a component with identical content is no change, and a ref pointed at a different schema is graded by the structural difference.
 - Local refs (`#/components/...`, `#/definitions/...`, `#/$defs/...`) and relative file refs inside the bundle resolve, and a ref inside another file resolves against that file. Request bodies, responses, parameters and headers resolve the same way as schemas.
-- A remote (`http` or `https`) ref, or one whose target is missing, is `POTENTIAL_BREAKING`, and the reason says Pacto could not resolve it. The same unresolved ref in both revisions reports no change, because Pacto sees nothing change.
+- A remote (`http` or `https`) ref, or one whose target is missing, is `POTENTIAL_BREAKING`, and the reason says Pacto could not resolve it. The same unresolved ref in both revisions reports no change, because Pacto sees nothing change. A ref whose text stays the same while its target goes away, such as a renamed component or a file dropped from the bundle, is `POTENTIAL_BREAKING` at the usage path.
+- A ref to another ref resolves through the chain. A chain that loops never resolves.
+- A path item written as a `$ref`, local or to a file, is followed to the operations it holds.
 - A recursive schema is compared once per position, so cycles terminate.
 - A component that no path, channel or operation reaches through a `$ref` is reported as one `NON_BREAKING` change, because no consumer reads it. Security schemes are named without a `$ref`, so that report leaves them out.
 - In AsyncAPI 3 a ref from an operation to its channel or message is compared as text, because the channel is compared on its own.
