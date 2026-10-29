@@ -1,6 +1,6 @@
 # pacto-operator
 
-![Version: 6.1.0](https://img.shields.io/badge/Version-6.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.1.0](https://img.shields.io/badge/AppVersion-6.1.0-informational?style=flat-square)  [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
+![Version: 6.2.0](https://img.shields.io/badge/Version-6.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.2.0](https://img.shields.io/badge/AppVersion-6.2.0-informational?style=flat-square)  [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
 
 Pacto tells you which services a change breaks before it ships, and checks what is actually running. This chart installs the operator that checks running workloads, with an opt-in delivery component (alpha).
 
@@ -43,7 +43,7 @@ The operator controller never modifies your workloads. It only reads them and re
 
 ```bash
 helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
-  --version 6.1.0 \
+  --version 6.2.0 \
   --namespace pacto-operator-system --create-namespace
 ```
 
