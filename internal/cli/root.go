@@ -119,11 +119,9 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	v := viper.New()
 
 	root := &cobra.Command{
-		Use:   "pacto",
-		Short: "Pacto: know which services a change breaks before it ships",
-		Long: "Pacto tells you which services a change breaks before it ships, and " +
-			"checks what is actually running. Its delivery component, which ships " +
-			"the changes the contract graph clears, is opt-in, alpha and runs on Kubernetes.",
+		Use:           "pacto",
+		Short:         "Pacto: know which services a change breaks before it ships",
+		Long:          "Pacto tells you which services a change breaks before it ships, and checks what is actually running. A contract (pacto.yaml) describes one service: who owns it, what it offers, which services it calls and which of their versions it accepts. Its delivery component, which ships the changes the contract graph clears, is opt-in, alpha and runs on Kubernetes.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

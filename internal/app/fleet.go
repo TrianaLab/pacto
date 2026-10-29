@@ -70,6 +70,9 @@ type FleetOptions struct {
 	// Now overrides the build clock (freshness classification); defaults to
 	// time.Now. Injected in tests for deterministic staleness.
 	Now func() time.Time
+	// extraSources join the configured ones. Impact uses it to add the new
+	// revision when no configured source holds the changed service.
+	extraSources []fleet.Source
 }
 
 // Fleet builds an immutable [fleet.FleetSnapshot] from the configured sources.
@@ -121,6 +124,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			sources = append(sources, fleetsrc.NewK8sSource(id, client, opts.K8sNamespace))
 		}
 	}
+	sources = append(sources, opts.extraSources...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err
 	}

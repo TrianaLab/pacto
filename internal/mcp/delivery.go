@@ -13,8 +13,9 @@ import (
 // DeliveryAPI is what the delivery tools call. The command layer adapts
 // app.Delivery to it, so this package never reaches a cluster or a registry.
 type DeliveryAPI interface {
-	Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error)
-	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error)
+	Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, error)
+	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error)
+	Candidates(ctx context.Context, namespace, stage string) (*delivery.CandidateVersions, error)
 	Get(ctx context.Context, namespace, name string) (*delivery.OperationObject, error)
 	Cancel(ctx context.Context, namespace, name string) error
 	Explain(ctx context.Context, namespace, name string) (*delivery.Explanation, error)
@@ -34,9 +35,11 @@ const noApprove = " There is no approve tool: when a person must decide, the pla
 
 const deliveryInstructions = "Pacto delivery decides which version each environment (a Stage) runs. Use " +
 	"pacto_delivery_operation_types to learn what you may propose (with a type, what it checks), " +
+	"pacto_delivery_candidates to list the versions a Stage may take with their digests, " +
 	"pacto_delivery_operation_plan to see what the promoter will do (verdicts, whether a person is needed, " +
-	"the one question they are asked), then propose with the plan's intent digest and follow it with " +
-	"pacto_delivery_get. pacto_delivery_explain shows every verdict with the citation behind it and how to run it " +
+	"the one question they are asked and, in next, what proposing it leads to), then propose with the plan's intent digest " +
+	"and the same reason and on_behalf_of, and follow it with pacto_delivery_get. A promote's to takes a version (3.0.0), a tag " +
+	"or a digest; a version or tag must name exactly one version pacto publish published that the Stage may take. pacto_delivery_explain shows every verdict with the citation behind it and how to run it " +
 	"again, and pacto_delivery_history what happened on a Stage, read from its signed records when the recorder runs. " +
 	"pacto_delivery_blame says who put a version in place, pacto_delivery_undo_plan returns the plan that would undo an operation " +
 	"(it proposes nothing) and pacto_delivery_record_verify checks every record's signature and the chain. Every history answer " +
@@ -81,7 +84,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 		Description: "Plan an operation without doing it: the intent digest, the running version, the predicted " +
 			"verdicts of every gate, whether a person must decide, the one question they would be asked and, when a consumer " +
 			"running there does not accept the new version, the order: which consumer must move first and the verified " +
-			"version of it to promote. Read-only." + noApprove,
+			"version of it to promote. next says in plain words what proposing it leads to: which teams must sign, that an " +
+			"agent cannot answer and the operation is then Held, and what happens at the approval deadline. A Rejected plan " +
+			"asks nobody anything; its failing verdict says what to do first. Read-only." + noApprove,
 		InputSchema: requestSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
 		req, err := a.request()
@@ -92,12 +97,26 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 		return resultOrError(p, err)
 	})
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "pacto_delivery_get",
-		Description: "Read an operation: phase, outcome, verdicts and the question a person is asked while it is held. Read-only." + noApprove,
+		Name: "pacto_delivery_get",
+		Description: "Read an operation: phase, outcome, verdicts and the question a person is asked while it is held. While it " +
+			"is held, next says what happens if nobody decides by the approval deadline. Read-only." + noApprove,
 		InputSchema: nameSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {
 		op, err := api.Get(ctx, a.Namespace, a.Name)
-		return resultOrError(op, err)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return resultOrError(delivery.AnswerOperation(op), nil)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "pacto_delivery_candidates",
+		Description: "List the versions a Stage may be promoted to, newest first: every version its candidate source offers " +
+			"that pacto publish published, with its digest, the version its contract declares and the digest the Stage runs " +
+			"now. Pass one of them as to when you plan; note says why the list is empty. Read-only." + noApprove,
+		InputSchema: stageSchema(),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
+		c, err := api.Candidates(ctx, a.Namespace, a.Stage)
+		return resultOrError(c, err)
 	})
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "pacto_delivery_explain",
@@ -177,8 +196,10 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 func registerDeliveryWrites(server *mcpsdk.Server, api DeliveryAPI) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "pacto_delivery_operation_propose",
-		Description: "Propose an operation. Pass the intent_digest from your plan: if anything moved since, it fails " +
-			"with PlanStale and returns the fresh plan instead of proposing something you did not review." + noApprove,
+		Description: "Propose an operation. Pass the intent_digest from your plan with the same to, reason and on_behalf_of: " +
+			"the digest binds them and the Stage's state, so if one differs or anything moved since, it fails with PlanStale, " +
+			"says which parameter differs when it can tell, and returns the fresh plan instead of proposing something you did " +
+			"not review." + noApprove,
 		InputSchema: requestSchema("intent_digest", "name"),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
 		req, err := a.request()
@@ -189,15 +210,15 @@ func registerDeliveryWrites(server *mcpsdk.Server, api DeliveryAPI) {
 		if err != nil && plan.IntentDigest != "" {
 			// PlanStale (or a refused create) after planning: hand back the fresh plan.
 			r, jerr := jsonResult(struct {
-				Error string        `json:"error"`
-				Plan  delivery.Plan `json:"plan"`
+				Error string              `json:"error"`
+				Plan  delivery.PlanAnswer `json:"plan"`
 			}{err.Error(), plan})
 			r.IsError = true
 			return r, nil, jerr
 		}
 		return resultOrError(struct {
 			Operation *delivery.OperationObject `json:"operation"`
-			Plan      delivery.Plan             `json:"plan"`
+			Plan      delivery.PlanAnswer       `json:"plan"`
 		}{op, plan}, err)
 	})
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
@@ -249,10 +270,12 @@ func (a requestArgs) request() (delivery.Request, error) {
 // requestSchema is the plan input, plus the extra propose-only fields.
 func requestSchema(extra ...string) map[string]any {
 	props := map[string]property{
-		"namespace":    {Type: "string", Description: "Namespace of the Stage"},
-		"stage":        {Type: "string", Description: "Stage name"},
-		"type":         {Type: "string", Description: "Operation type (default delivery.pacto.trianalab.io/promote)"},
-		"to":           {Type: "string", Description: "Artifact digest to move to (sha256:...); a tag is refused"},
+		"namespace": {Type: "string", Description: "Namespace of the Stage"},
+		"stage":     {Type: "string", Description: "Stage name"},
+		"type":      {Type: "string", Description: "Operation type (default delivery.pacto.trianalab.io/promote)"},
+		"to": {Type: "string", Description: "The version to move to: a version (3.0.0), a tag or an artifact digest (sha256:...). " +
+			"A version or tag must name exactly one version pacto publish published that this Stage may take, or it is refused; " +
+			"pacto_delivery_candidates lists them. For an autonomy operation, the level"},
 		"from":         {Type: "string", Description: "Digest the Stage runs now (defaults to its pointer)"},
 		"undoes":       {Type: "string", Description: "For a rollback: the name of the operation it undoes"},
 		"reason":       {Type: "string", Description: "Why, for the record"},

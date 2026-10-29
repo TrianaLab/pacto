@@ -678,3 +678,77 @@ func TestAnalyze_UncontractedCallers(t *testing.T) {
 		t.Fatalf("declared-only analysis surfaced %+v", res.Consumers)
 	}
 }
+
+// TestGate pins the release gate for every outcome: only a BREAKING change can
+// be held, and a BREAKING change is clear only on a complete answer that no
+// service depends on.
+func TestGate(t *testing.T) {
+	active := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/web"}}
+	paper := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible}
+	tests := []struct {
+		name, gate, reason string
+		r                  Result
+	}{
+		{"non breaking", GateClear, "the change is NON_BREAKING", Result{Classification: "NON_BREAKING"}},
+		{"potential", GateClear, "review the potentially breaking changes by hand", Result{Classification: "POTENTIAL_BREAKING"}},
+		{"blocked", GateBlocked, "do not accept api 2.0.0: web", Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{active, paper}}},
+		{"not in fleet", GateUnverified, "api is not in the fleet snapshot", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessPartial,
+			Limitations: []fleet.Limitation{{Code: "SOURCE_STALE"}, {Code: "SERVICE_NOT_IN_FLEET"}}}},
+		{"partial", GateUnverified, "the answer is partial", Result{Classification: "BREAKING", Completeness: fleet.CompletenessPartial}},
+		{"one consumer", GateUnverified, "1 consumer depends on api", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper}}},
+		{"two consumers", GateUnverified, "2 consumers depend on api", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper, paper}}},
+		{"nobody depends", GateClear, "no service in the complete fleet snapshot depends on api", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gate, reason := tt.r.gate()
+			if gate != tt.gate || !strings.Contains(reason, tt.reason) {
+				t.Errorf("gate() = %q, %q; want %q containing %q", gate, reason, tt.gate, tt.reason)
+			}
+		})
+	}
+}
+
+// TestAnalyze_NotesRangeOnlyMatches proves a compatible verdict on a BREAKING
+// change says what it does not show, and names an open range as open.
+func TestAnalyze_NotesRangeOnlyMatches(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{})
+	open := svcContract("open", "1.0.0", contract.Owner{}, contract.Dependency{Name: "auth-service", Compatibility: ">=1.0.0"})
+	bounded := svcContract("bounded", "1.0.0", contract.Owner{}, contract.Dependency{Name: "auth-service", Compatibility: ">=1.0.0 <3.0.0"})
+	pinned := svcContract("pinned", "1.0.0", contract.Owner{}, contract.Dependency{Name: "auth-service", Compatibility: "^1.0.0"})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", &fleet.Collection{
+		Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(open)}, {Bundle: mkBundle(bounded)}, {Bundle: mkBundle(pinned)}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := svcContract("auth-service", "1.0.0", contract.Owner{})
+	old.Interfaces = []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto"}}
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{})
+
+	res := Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	notes := map[string]string{}
+	for _, c := range res.Consumers {
+		notes[c.Service] = c.Note
+	}
+	if !strings.HasPrefix(notes["open"], "the range >=1.0.0 has no upper bound, so compatible only means") {
+		t.Errorf("open note = %q", notes["open"])
+	}
+	if !strings.HasPrefix(notes["bounded"], "compatible only means the range >=1.0.0 <3.0.0 accepts 2.0.0") {
+		t.Errorf("bounded note = %q", notes["bounded"])
+	}
+	if notes["pinned"] != "" {
+		t.Errorf("an incompatible consumer needs no note, got %q", notes["pinned"])
+	}
+	if res.Gate != GateUnverified {
+		t.Errorf("gate = %q, want unverified", res.Gate)
+	}
+
+	// The same consumers on a change that breaks nothing carry no note.
+	same := Analyze(context.Background(), newC, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	for _, c := range same.Consumers {
+		if c.Note != "" {
+			t.Errorf("%s: a non-breaking change must not be noted: %q", c.Service, c.Note)
+		}
+	}
+}

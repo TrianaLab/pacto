@@ -1,33 +1,34 @@
 ## Exit codes
 
-Pacto exits `0` or `1`, except `pacto run`. `0` means the command produced
-its result and the result was acceptable. `1` means anything else, so **the
+Pacto exits `0`, `1` or, for `pacto impact` only, `2`. `pacto run` is the
+exception. `0` means the command produced its result and the result was
+acceptable. `1` means the check failed or the command could not run, so **the
 exit status alone cannot distinguish "the check failed" from "the command
-could not run"**. `pacto run` exits with the exit code of the command it
-wraps, or `1` when that command exits `0` and the final verdict fails
-`--fail-on`.
+could not run"**. `2` means `pacto impact` could not show that a breaking
+change is safe. `pacto run` exits with the exit code of the command it wraps,
+or `1` when that command exits `0` and the final verdict fails `--fail-on`.
 
 | Exits `1` | Exits `0` |
 | --- | --- |
 | `pacto diff` where the overall classification is `BREAKING` | a `POTENTIAL_BREAKING` or `NON_BREAKING` diff |
 | `pacto validate` reporting at least one error | validation that reported only warnings |
 | `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
-| `pacto impact` where the change is `BREAKING` and an incompatible consumer is active | `pacto impact` run on declared-only sources, *whatever* it classifies (see below) |
-| **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | any command that ran and produced an acceptable result |
+| `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target | `pacto impact` where the gate is `clear`: the change is not `BREAKING`, or the snapshot is complete and no service depends on the changed one |
+| **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | |
+
+| Exits `2` |
+| --- |
+| `pacto impact` where the gate is `unverified`: a `BREAKING` change that nothing is shown to block, on a partial answer or with consumers none of which is shown to be safe |
 
 Two cases affect CI gates:
 
 - A `pacto diff` against a missing reference exits `1`, the same as a breaking
   change.
-- `pacto impact` exits `1` only when the change is breaking **and** an
-  incompatible consumer is active: the snapshot knows a target where that
-  consumer runs. Targets come from `--k8s` or `--evidence-url`, and from
-  `--target-state` fixtures in demos and tests. Declared-only sources
-  (`--local`, `--root`, `--oci`) list consumers but no targets, so no consumer
-  is active: it prints `Classification: BREAKING`, can list
-  `compat=incompatible` consumers and still exits `0`. To gate on the contract
-  alone, read `--output-format json`, as
-  [Put it in your repository](ci.md#on-every-pull-request-who-breaks) shows.
+- `pacto impact` exits `1` only when the change is breaking **and** a source
+  that knows where services run shows an incompatible consumer on a target.
+  Sources that know no targets, such as `--local` alone, cannot show that, so
+  a breaking change with consumers exits `2`. A job that gates on deployed
+  impact alone can treat `2` as a pass; any other job fails on it.
 
 **Use stdout to tell a verdict from a failure.** A command that produced a
 verdict writes it to stdout and puts a one-line summary on stderr. A command

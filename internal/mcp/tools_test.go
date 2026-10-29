@@ -400,8 +400,11 @@ func TestSchemaTool(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		t.Fatalf("expected valid JSON: %v", err)
 	}
-	if !strings.Contains(parsed.Description, "tells you which services a change breaks before it ships") {
+	if !strings.Contains(parsed.Description, "tells you which services a change breaks before it ships") || !strings.Contains(parsed.Description, "a bare team name") {
 		t.Errorf("expected description to mention Pacto, got: %s", parsed.Description)
+	}
+	if !strings.Contains(parsed.Agents, "An AI agent is a service") || !strings.HasSuffix(parsed.Agents, "contract-reference/checks/#an-agent-is-a-service") {
+		t.Errorf("expected agent guidance and its link, got: %s", parsed.Agents)
 	}
 	if parsed.Docs == "" {
 		t.Error("expected non-empty docs URL")
@@ -523,5 +526,36 @@ func TestCreateTool_Pactify(t *testing.T) {
 	}
 	if res := callTool(t, "pacto_create", map[string]any{"name": "Bad_Name", "path": dir, "pactify": true}); !res.IsError {
 		t.Fatal("a bad name was accepted")
+	}
+}
+
+// TestCreateTool_PactifyDescribeOnly: describe_only plans a contract with no
+// publish section and no signing key, and refuses delivery.
+func TestCreateTool_PactifyDescribeOnly(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "fraud")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "d.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: fraud, labels: {team: risk}}\nspec: {template: {spec: {containers: [{name: fraud, image: 'reg.example/fraud:1.0.0'}]}}}\n"), 0o644)
+	res := callTool(t, "pacto_create", map[string]any{"name": "fraud", "path": dir, "pactify": true, "describe_only": true, "dry_run": true})
+	var plan struct {
+		Next  []string
+		Files []struct{ Path, Content string }
+	}
+	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &plan) != nil || len(plan.Files) != 1 || strings.Contains(plan.Files[0].Content, "publish:") || len(plan.Next) != 0 {
+		t.Fatalf("plan: %s", resultText(t, res))
+	}
+	if res := callTool(t, "pacto_create", map[string]any{"name": "fraud", "path": dir, "pactify": true, "describe_only": true, "delivery": true}); !res.IsError {
+		t.Fatal("describe_only with delivery was accepted")
+	}
+}
+
+// TestServerInstructionsPosition: the instructions every server starts
+// from say what Pacto is and steer a documentation request to describe_only.
+func TestServerInstructionsPosition(t *testing.T) {
+	for _, want := range []string{"Pacto tells you which services a change breaks before it ships, and checks what is actually running.", "describe_only", "AI agent"} {
+		if !strings.Contains(baseInstructions, want) {
+			t.Errorf("baseInstructions lacks %q", want)
+		}
 	}
 }

@@ -401,7 +401,7 @@ func validateDependencyForm(i int, dep contract.Dependency, result *ValidationRe
 	base := fmt.Sprintf("dependencies[%d]", i)
 	switch {
 	case dep.Ref == "" && !dep.External:
-		result.AddError(base+".ref", "DEPENDENCY_REF_REQUIRED", fmt.Sprintf("dependency %q has no ref: set ref to its contract, or, if this Pacto system does not deliver it, set external: true and the version you run against", dep.Name))
+		result.AddError(base+".ref", "DEPENDENCY_REF_REQUIRED", fmt.Sprintf("dependency %q has no ref: set ref to its contract (for a contract not published yet, the repository it will be published at, with the versions you accept in compatibility), or, if this Pacto system does not deliver it, set external: true and the version you run against", dep.Name))
 	case dep.Ref == "" && dep.Version == "":
 		result.AddError(base+".version", "EXTERNAL_VERSION_REQUIRED", fmt.Sprintf("external dependency %q has no ref, so it needs a version: write the version you run against, for example version: \"2025-01\"", dep.Name))
 	case dep.Ref == "" && dep.Compatibility != "":

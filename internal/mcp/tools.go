@@ -21,18 +21,21 @@ func createTool() *mcpsdk.Tool {
 			"Translates user intent (stores_data, data_survives_restart, etc.) into " +
 			"correct contract primitives. Scaffolds pacto.yaml plus interface and " +
 			"config files. Supports dry_run mode. With pactify it does what `pacto init` does " +
-			"to an existing service folder at path: reads its Dockerfile and Kubernetes manifests, " +
-			"plans the contract (publish section included) and, with delivery, the cluster pieces, " +
-			"and returns what it found, the dependencies and consumers found and what is Unknown. " +
-			"It only adds files; dry_run plans and writes nothing.",
+			"to an existing service folder at path: reads its Dockerfile and Kubernetes manifests " +
+			"(the environment and ConfigMaps become a configuration schema, service URLs become dependencies, " +
+			"probes become a health check), plans the contract and, with delivery, the cluster pieces, " +
+			"and returns what it found, the dependencies and consumers found, what is Unknown and what to do next. " +
+			"The contract gets a publish section for pacto publish unless describe_only is set: " +
+			"set describe_only when you are asked to describe or document a service. " +
+			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema.",
 		InputSchema: inputSchema(map[string]property{
 			"name":                         {Type: "string", Description: "Service name (DNS-compatible, e.g. 'payment-api')"},
 			"description":                  {Type: "string", Description: "Natural-language description; infers interfaces and workload only, never state (set stores_data and friends explicitly)"},
 			"path":                         {Type: "string", Description: "Output directory (defaults to service name)"},
 			"version":                      {Type: "string", Description: "Service version (defaults to '0.1.0')"},
-			"owner":                        {Type: "string", Description: "Owner identifier (e.g. 'team/platform')"},
+			"owner":                        {Type: "string", Description: "The team that owns the service, as a bare team name such as 'billing': usually the team label on its workloads. With pactify it defaults to that label"},
 			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, visibility?}]"},
-			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref"},
+			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). For a service your company runs with Pacto whose contract is not published yet, give ref as the OCI repository its contract will be published at and compatibility as the versions you accept: Pacto reports it as unresolved until it is published. A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref, and its compatibility stays Unknown"},
 			"workload":                     {Type: "string", Description: "Workload type", Enum: []string{"service", "job", "scheduled"}},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data (drives state model; never inferred from the description, unset means stateless)"},
 			"data_survives_restart":        {Type: "boolean", Description: "Whether data must survive pod restarts"},
@@ -42,7 +45,8 @@ func createTool() *mcpsdk.Tool {
 			"metadata":                     {Type: "string", Description: "JSON object of metadata key-value pairs"},
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
 			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
-			"delivery":                     {Type: "boolean", Description: "With pactify: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization"},
+			"describe_only":                {Type: "boolean", Description: "With pactify: write a contract that only describes the service, with no publish section and no signing key. Use it when you are asked to describe or document a service; leave it off to also prepare pacto publish"},
+			"delivery":                     {Type: "boolean", Description: "With pactify: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization (needs the publish section, so not with describe_only)"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
 			"environments":                 {Type: "string", Description: "With delivery: JSON array of environments in promotion order (default [\"test\",\"prod\"])"},
 			"no_transparency_log":          {Type: "boolean", Description: "With pactify: write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)"},
@@ -76,6 +80,7 @@ type createArgs struct {
 	Metadata                  string `json:"metadata"`
 	DryRun                    *bool  `json:"dry_run"`
 	Pactify                   bool   `json:"pactify"`
+	DescribeOnly              bool   `json:"describe_only"`
 	Delivery                  bool   `json:"delivery"`
 	Registry                  string `json:"registry"`
 	Environments              string `json:"environments"`
@@ -133,7 +138,7 @@ func pactifyFolder(ctx context.Context, args createArgs) (*mcpsdk.CallToolResult
 		plan = *args.DryRun
 	}
 	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Registry: args.Registry,
-		Delivery: args.Delivery, Plan: plan, NoTransparencyLog: args.NoTransparencyLog,
+		Delivery: args.Delivery, DescribeOnly: args.DescribeOnly, Plan: plan, NoTransparencyLog: args.NoTransparencyLog,
 		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
 	var paths []string
 	cluster := pactify.ClusterOptions{Out: args.Path}
@@ -190,15 +195,16 @@ func editTool() *mcpsdk.Tool {
 		Name: "pacto_edit",
 		Description: "Edits an existing Pacto contract. Supports adding/removing interfaces " +
 			"and dependencies, changing workload and state semantics, updating metadata, and more. " +
-			"Validates the result before writing. Supports dry_run mode.",
+			"Validates the result before writing. Supports dry_run mode. " +
+			"The result lists the changes made and warnings, such as an owner that is not a bare team name.",
 		InputSchema: inputSchema(map[string]property{
 			"path":                         {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
 			"name":                         {Type: "string", Description: "New service name"},
 			"version":                      {Type: "string", Description: "New service version"},
-			"owner":                        {Type: "string", Description: "New owner identifier"},
+			"owner":                        {Type: "string", Description: "The team that owns the service, as a bare team name such as 'billing': usually the team label on its workloads"},
 			"add_interfaces":               {Type: "string", Description: "JSON array of interfaces to add: [{name, type, visibility?}]"},
 			"remove_interfaces":            {Type: "string", Description: "JSON array of interface names to remove: [\"name1\", \"name2\"]"},
-			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref"},
+			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). For a service your company runs with Pacto whose contract is not published yet, give ref as the OCI repository its contract will be published at and compatibility as the versions you accept: Pacto reports it as unresolved until it is published. A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref, and its compatibility stays Unknown"},
 			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]; an external dependency with no ref is removed by name"},
 			"workload":                     {Type: "string", Description: "New workload type", Enum: []string{"service", "job", "scheduled"}},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data"},
@@ -276,9 +282,10 @@ func editHandler() mcpsdk.ToolHandlerFor[editArgs, any] {
 func checkTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_check",
-		Description: "Validates a Pacto contract and returns structured results including " +
+		Description: "Validates a Pacto contract the way `pacto validate` and CI do, and returns structured results including " +
 			"errors, warnings, a contract summary, and actionable suggestions for " +
-			"improvement with ready-to-use pacto_edit tool calls.",
+			"improvement with ready-to-use pacto_edit tool calls, such as an owner that is not a bare team name " +
+			"or an external dependency whose compatibility can never be confirmed.",
 		InputSchema: inputSchema(map[string]property{
 			"path": {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
 		}, nil),
@@ -305,16 +312,26 @@ func checkHandler(validate Validator) mcpsdk.ToolHandlerFor[checkArgs, any] {
 func schemaTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_schema",
-		Description: "Returns the Pacto contract JSON Schema and documentation link. " +
+		Description: "Returns the Pacto contract JSON Schema, how to describe an AI agent as a service and the documentation link. " +
+			"Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
 			"Call this FIRST before creating or editing contracts to understand the format.",
 		InputSchema: inputSchema(map[string]property{}, nil),
 	}
 }
 
-const docsURL = "https://pacto.run"
+const docsURL = "https://pacto.run/latest/"
+
+// agentGuidance is how to describe an AI agent, inline because an agent
+// reads the tool's answer and rarely the page it links.
+const agentGuidance = "An AI agent is a service and uses the same sections. The tools it exposes are an interface " +
+	"of type mcp whose ref is a tools/list result; removing a tool is breaking, adding one is non-breaking. " +
+	"The model it calls is a dependency: one with a contract is compared by its range, one without is " +
+	"external: true with its version, so swapping it is potentially breaking. Its eval suite is a checks entry, " +
+	"run by an eval runner that signs its result. See " + docsURL + "contract-reference/checks/#an-agent-is-a-service"
 
 type schemaResult struct {
 	Description string `json:"description"`
+	Agents      string `json:"agents"`
 	Docs        string `json:"docs"`
 	JSONSchema  string `json:"jsonSchema"`
 }
@@ -323,9 +340,12 @@ func schemaHandler() mcpsdk.ToolHandlerFor[struct{}, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		result := schemaResult{
 			Description: "Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
-				"A pacto.yaml file describes the service itself — interfaces, dependencies, " +
-				"configuration, workload and state semantics, and policies. Use pacto_create to generate new contracts and pacto_edit to " +
+				"A pacto.yaml file describes one service: who owns it (service.owner.team, a bare team name such as billing), " +
+				"its interfaces, the services it calls and the versions of each it accepts, its configuration, " +
+				"workload and state semantics, health and policies. The publish section is opt-in and only pacto publish reads it. " +
+				"Use pacto_create to generate new contracts and pacto_edit to " +
 				"modify existing ones. Use pacto_check to validate and get improvement suggestions.",
+			Agents:     agentGuidance,
 			Docs:       docsURL,
 			JSONSchema: string(validation.SchemaBytes()),
 		}

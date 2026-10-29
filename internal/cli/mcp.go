@@ -222,7 +222,7 @@ func buildDeliveryServer(cmd *cobra.Command, svc *app.Service, version string, d
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.
 type mcpDelivery struct{ *app.Delivery }
 
-func (m mcpDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error) {
+func (m mcpDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
 	p, _, err := m.Delivery.Plan(ctx, req)
 	return p, err
 }

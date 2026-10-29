@@ -13,11 +13,13 @@ import (
 
 // baseInstructions describe the always-present contract-authoring tools.
 const baseInstructions = "Pacto tells you which services a change breaks before it ships, and checks what is actually running. " +
-	"A contract (pacto.yaml) is an operational contract for one cloud-native service. " +
-	"Use pacto_create to generate new contracts from intent-level descriptions. " +
-	"Use pacto_edit to modify existing contracts. Use pacto_check to validate " +
-	"and get actionable improvement suggestions. Call pacto_schema first if you " +
-	"need the full JSON Schema reference."
+	"A contract (pacto.yaml) describes one cloud-native service: who owns it, what it offers, " +
+	"which services it calls and which of their versions it accepts, its configuration, workload and state. " +
+	"Delivery (a publish section, signing and Stages) is opt-in: a contract that only describes a service needs none of it. " +
+	"Use pacto_create to write a new contract, or with pactify to read one from an existing service folder " +
+	"(add describe_only when you are asked to describe or document a service). " +
+	"Use pacto_edit to change a contract and pacto_check to validate it and get suggestions. " +
+	"Call pacto_schema for the full JSON Schema and for how to describe an AI agent as a service."
 
 // Validator runs the `pacto validate` path for the bundle in dir: lockfile
 // verification, recursive policies[].ref resolution relative to dir, and every

@@ -233,3 +233,74 @@ func TestService_ImpactWithSnapshot_RefusesHiddenService(t *testing.T) {
 		t.Errorf("visible service: %v", err)
 	}
 }
+
+// writeImpactConsumer writes a bundle `name` declaring a dependency on
+// provider with the given range.
+func writeImpactConsumer(t *testing.T, dir, name, provider, compat string) {
+	t.Helper()
+	writeImpactService(t, dir, name, "1.0.0")
+	f, err := os.OpenFile(filepath.Join(dir, "pacto.yaml"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.WriteString("dependencies:\n  - name: " + provider + "\n    compatibility: \"" + compat + "\"\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestService_Impact_AddsNewRevisionWhenNoSourceHoldsIt proves the evaluation
+// trap is closed: a fleet root holding only the consumers used to leave the
+// changed service out of the graph and answer with no consumers at all.
+func TestService_Impact_AddsNewRevisionWhenNoSourceHoldsIt(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	fleetRoot := t.TempDir()
+	writeImpactConsumer(t, filepath.Join(fleetRoot, "webapp"), "webapp", "orders", "^1.0.0")
+
+	res, err := NewService(nil, nil).Impact(context.Background(), ImpactOptions{
+		OldPath: oldDir, NewPath: newDir, Fleet: FleetOptions{LocalRoots: []string{fleetRoot}},
+	})
+	if err != nil {
+		t.Fatalf("Impact: %v", err)
+	}
+	if !res.NewRevisionAdded {
+		t.Error("NewRevisionAdded = false, want true")
+	}
+	if len(res.Consumers) != 1 || res.Consumers[0].Service != "webapp" || res.Consumers[0].CompatibilityVerdict != impact.CompatibilityIncompatible {
+		t.Fatalf("consumers = %+v, want webapp incompatible", res.Consumers)
+	}
+	for _, l := range res.Limitations {
+		if l.Code == "SERVICE_NOT_IN_FLEET" {
+			t.Errorf("the added revision still reads as missing: %+v", l)
+		}
+	}
+}
+
+// TestService_Impact_SecondBuildError covers the rebuild failing after the first
+// build succeeded: a configured source already claims the added source's id.
+func TestService_Impact_SecondBuildError(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	_, err := NewService(nil, nil).Impact(context.Background(), ImpactOptions{
+		OldPath: oldDir, NewPath: newDir,
+		Fleet: FleetOptions{ObservationSources: []ObservationSourceSpec{{ID: "new-revision", Path: filepath.Join(t.TempDir(), "absent.json")}}},
+	})
+	if err == nil {
+		t.Fatal("expected the rebuild to refuse a duplicate source id")
+	}
+}
+
+func TestService_ImpactWithSnapshot_ResolveError(t *testing.T) {
+	newDir := t.TempDir()
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewService(nil, nil).ImpactWithSnapshot(context.Background(), ImpactOptions{OldPath: "/nonexistent/old", NewPath: newDir}, snap); err == nil {
+		t.Error("expected error for a nonexistent old path")
+	}
+}

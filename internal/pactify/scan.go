@@ -31,6 +31,17 @@ type scan struct {
 	openapi     string
 	chart       string
 	kustomize   []string // kustomization.yaml files among the manifests
+	configMaps  map[string]configMap
+	// env is the workload's environment, with every ConfigMap it reads
+	// expanded, and envNotes what of it could not be read.
+	env      []envVar
+	envNotes []string
+}
+
+// configMap is a ConfigMap's data and the file it is in.
+type configMap struct {
+	file string
+	data map[string]string
 }
 
 // workload is a Deployment, StatefulSet, DaemonSet, Job or CronJob.
@@ -38,9 +49,24 @@ type workload struct {
 	kind, name, file, image, team string
 	ports                         []int
 	env                           []envVar
+	// probe is the main container's first readiness, liveness or startup
+	// probe, nil when it has none.
+	probe *probe
 }
 
-type envVar struct{ file, name, value string }
+// envVar is one environment variable. A ConfigMap or Secret it is read from
+// is named in from: "configmap" or "secret" with ref the object's name and
+// key the key, or no key when every key of the object is read (envFrom, with
+// name its prefix). secret marks a value that is never read.
+type envVar struct {
+	file, name, value string
+	from, ref, key    string
+	secret            bool
+}
+
+// probe is a container probe: which one, and the HTTP path it calls, empty
+// for a TCP, gRPC or exec probe.
+type probe struct{ kind, path string }
 
 var workloadKinds = map[string]string{
 	"Deployment": "service", "StatefulSet": "service", "DaemonSet": "service",
@@ -54,7 +80,7 @@ var openapiRE = regexp.MustCompile(`^(openapi|swagger)\.(ya?ml|json)$`)
 var skipDirs = map[string]bool{"node_modules": true, "vendor": true}
 
 func scanDir(dir string) (*scan, error) {
-	sc := &scan{objects: map[string]bool{}, services: map[string]bool{}}
+	sc := &scan{objects: map[string]bool{}, services: map[string]bool{}, configMaps: map[string]configMap{}}
 	// What .pactoignore leaves out of the bundle is not read either.
 	ign, err := ignore.Load(os.DirFS(dir))
 	if err != nil {
@@ -106,6 +132,7 @@ func scanDir(dir string) (*scan, error) {
 		sc.dockerfile = sc.dockerfiles[0]
 	}
 	sc.workload = pickWorkload(sc.workloads, filepath.Base(dir))
+	sc.resolveEnv()
 	return sc, nil
 }
 
@@ -183,6 +210,9 @@ func (sc *scan) manifest(rel string, data []byte) {
 		sc.objects[name] = true
 		sc.services[name] = sc.services[name] || kind == "Service"
 		kust = kust || kind == "Kustomization"
+		if kind == "ConfigMap" {
+			sc.configMaps[name] = configMap{file: rel, data: stringMap(doc["data"])}
+		}
 		if _, ok := workloadKinds[kind]; ok {
 			sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc))
 		}
@@ -215,9 +245,16 @@ func readWorkload(rel, kind, name string, doc map[string]any) *workload {
 		pod = dig(doc, "spec", "jobTemplate", "spec", "template", "spec")
 	}
 	containers, _ := dig(pod, "containers").([]any)
+	main := 0
 	for i, c := range containers {
-		if image, _ := dig(c, "image").(string); i == 0 || dig(c, "name") == name {
-			w.image = image
+		if dig(c, "name") == name {
+			main = i
+		}
+	}
+	for i, c := range containers {
+		if i == main {
+			w.image, _ = dig(c, "image").(string)
+			w.probe = readProbe(c)
 		}
 		ports, _ := dig(c, "ports").([]any)
 		for _, port := range ports {
@@ -225,14 +262,102 @@ func readWorkload(rel, kind, name string, doc map[string]any) *workload {
 				w.ports = append(w.ports, n)
 			}
 		}
+		// envFrom first: an env entry of the same name wins, as in Kubernetes.
+		envFrom, _ := dig(c, "envFrom").([]any)
+		for _, e := range envFrom {
+			prefix, _ := dig(e, "prefix").(string)
+			if n, ok := dig(e, "configMapRef", "name").(string); ok {
+				w.env = append(w.env, envVar{file: rel, name: prefix, from: "configmap", ref: n})
+			} else if n, ok := dig(e, "secretRef", "name").(string); ok {
+				w.env = append(w.env, envVar{file: rel, name: prefix, from: "secret", ref: n, secret: true})
+			}
+		}
 		env, _ := dig(c, "env").([]any)
 		for _, e := range env {
-			n, _ := dig(e, "name").(string)
-			v, _ := dig(e, "value").(string)
-			w.env = append(w.env, envVar{file: rel, name: n, value: v})
+			v := envVar{file: rel}
+			v.name, _ = dig(e, "name").(string)
+			v.value, _ = dig(e, "value").(string)
+			if n, ok := dig(e, "valueFrom", "configMapKeyRef", "name").(string); ok {
+				v.from, v.ref = "configmap", n
+				v.key, _ = dig(e, "valueFrom", "configMapKeyRef", "key").(string)
+			} else if n, ok := dig(e, "valueFrom", "secretKeyRef", "name").(string); ok {
+				v.from, v.ref, v.secret = "secret", n, true
+				v.key, _ = dig(e, "valueFrom", "secretKeyRef", "key").(string)
+			}
+			w.env = append(w.env, v)
 		}
 	}
 	return w
+}
+
+// readProbe is a container's first readiness, liveness or startup probe.
+func readProbe(c any) *probe {
+	for _, kind := range []string{"readiness", "liveness", "startup"} {
+		p := dig(c, kind+"Probe")
+		if p == nil {
+			continue
+		}
+		path, _ := dig(p, "httpGet", "path").(string)
+		return &probe{kind: kind, path: path}
+	}
+	return nil
+}
+
+// resolveEnv expands the workload's environment: every variable read from a
+// ConfigMap in the folder gets its value, and one whose ConfigMap or Secret
+// cannot be read is named in envNotes. A later variable of the same name
+// replaces an earlier one, keeping the earlier one's place.
+func (sc *scan) resolveEnv() {
+	if sc.workload == nil {
+		return
+	}
+	at := map[string]int{}
+	add := func(v envVar) {
+		if i, ok := at[v.name]; ok {
+			sc.env[i] = v
+			return
+		}
+		at[v.name] = len(sc.env)
+		sc.env = append(sc.env, v)
+	}
+	for _, v := range sc.workload.env {
+		cm, found := sc.configMaps[v.ref]
+		switch {
+		case v.from == "secret" && v.key == "":
+			sc.envNotes = append(sc.envNotes, fmt.Sprintf("the environment %s reads from the Secret %s: its keys are not read, so they are not in the configuration schema", v.file, v.ref))
+		case v.from == "configmap" && !found:
+			sc.envNotes = append(sc.envNotes, fmt.Sprintf("the ConfigMap %s, which %s reads its environment from, is not in the folder, so its keys are not in the configuration schema", v.ref, v.file))
+			if v.key != "" {
+				add(v)
+			}
+		case v.from == "configmap" && v.key == "":
+			keys := make([]string, 0, len(cm.data))
+			for k := range cm.data {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				add(envVar{file: cm.file, name: v.name + k, value: cm.data[k], from: "configmap", ref: v.ref, key: k})
+			}
+		case v.from == "configmap":
+			v.file, v.value = cm.file, cm.data[v.key]
+			add(v)
+		default:
+			add(v)
+		}
+	}
+}
+
+// stringMap is a YAML mapping's string values.
+func stringMap(v any) map[string]string {
+	m, _ := v.(map[string]any)
+	out := make(map[string]string, len(m))
+	for k, val := range m {
+		if val != nil {
+			out[k] = fmt.Sprint(val)
+		}
+	}
+	return out
 }
 
 // dig walks nested maps.
@@ -253,11 +378,8 @@ var hostRE = regexp.MustCompile(`^(?:([a-z][a-z0-9+.-]*)://)?(?:[^@/]*@)?([a-z0-
 // leaving out itself and anything its own manifests define.
 func (sc *scan) dependencies(self string) []Finding {
 	out := []Finding{}
-	if sc.workload == nil {
-		return out
-	}
 	seen := map[string]bool{}
-	for _, e := range sc.workload.env {
+	for _, e := range sc.env {
 		m := hostRE.FindStringSubmatch(e.value)
 		if m == nil || (m[1] == "" && m[5] == "") {
 			continue

@@ -34,6 +34,8 @@ const (
 type fakeDeliveryRegistry struct {
 	hosts      []string
 	resolveErr error
+	// tag is the digest a tag resolves to; empty resolves to dlB.
+	tag string
 	// unbounded is set when a tag lookup came with no deadline: against a
 	// registry that is down it would wait as long as the transport retries.
 	unbounded bool
@@ -64,6 +66,9 @@ func (f *fakeDeliveryRegistry) Pull(_ context.Context, ref string) (*contract.Bu
 func (f *fakeDeliveryRegistry) Resolve(ctx context.Context, _ string) (string, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		f.unbounded = true
+	}
+	if f.tag != "" {
+		return f.tag, f.resolveErr
 	}
 	return dlB, f.resolveErr
 }
@@ -243,17 +248,28 @@ func TestDeliveryRefusals(t *testing.T) {
 	_, _, err := d.Plan(ctx, r)
 	wantErrContaining(t, err, "unknown operation type")
 	_, _, err = d.Plan(ctx, base)
-	wantErrContaining(t, err, "--to is required")
+	wantErrContaining(t, err, "to is required: name the version to move to")
+	wantErrContaining(t, err, "the pacto_delivery_candidates tool")
 	r = base
 	r.To = "v2"
-	_, _, err = d.Plan(ctx, r)
-	wantErrContaining(t, err, "currently resolves to "+dlB)
+	// The tag points at B, which the upstream Stage offers: it is the one candidate.
+	if _, spec, err := d.Plan(ctx, r); err != nil || spec.Params.To != dlB {
+		t.Fatalf("a tag naming a candidate resolves to it: %+v %v", spec, err)
+	}
 	if reg.unbounded {
 		t.Fatal("the tag lookup has no time limit")
 	}
-	reg.resolveErr = errors.New("no such tag")
+	reg.tag = dlA
 	_, _, err = d.Plan(ctx, r)
-	wantErrContaining(t, err, "no such tag")
+	wantErrContaining(t, err, `the tag "v2" points at `+dlA+", which is not a version this Stage may take")
+	reg.tag, reg.resolveErr = "", errors.New("no such tag")
+	r.To = ":1.1.0"
+	if _, spec, err := d.Plan(ctx, r); err != nil || spec.Params.To != dlB {
+		t.Fatalf("a version names the candidate whose contract declares it: %+v %v", spec, err)
+	}
+	r.To = "9.9.9"
+	_, _, err = d.Plan(ctx, r)
+	wantErrContaining(t, err, `no version "9.9.9" was published for Stage prod/payments-prod. It may take 1.1.0 (`+dlB+")")
 	r.From, r.To = dlB, dlA
 	if p, spec, err := d.Plan(ctx, r); err != nil || spec.Params.From != dlB || p.Predicted != delivery.PredictRejected {
 		t.Fatalf("explicit from: %+v %v", p, err)
@@ -663,4 +679,59 @@ func TestDeliveryCan(t *testing.T) {
 	if ok, err := d.Can(ctx, "delete", "operations", "prod"); err == nil || ok {
 		t.Fatal("a failed review is an error")
 	}
+}
+
+// Candidates lists what the upstream Stage offers, with each contract's
+// version; an upstream that fails to read stops it, and a version cannot be
+// matched while a candidate's artifact cannot be read.
+func TestDeliveryCandidates(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "alice", nil, nil)
+	ctx := context.Background()
+	got, err := d.Candidates(ctx, "prod", "payments-prod")
+	if err != nil || got.Running != dlA || got.Source != "upstream Stage test/payments-test" || len(got.Versions) != 1 ||
+		got.Versions[0] != (delivery.CandidateVersion{Digest: dlB, Version: "1.1.0", Contract: "oci://reg/pactos/payments@" + dlD}) {
+		t.Fatalf("candidates: %+v %v", got, err)
+	}
+	if _, err := d.Candidates(ctx, "prod", "missing"); err == nil {
+		t.Fatal("a missing Stage")
+	}
+	// The apply OCIRepository is gone: no artifact can be read, so a version
+	// matches nothing for certain and is refused.
+	if err := c.Resource(gvrOCIRepository).Namespace("prod").Delete(ctx, "payments", metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: "1.1.0"})
+	wantErrContaining(t, err, `"1.1.0" cannot be matched to exactly one published version, because Pacto could not read every candidate`)
+	c.PrependReactor("get", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		if a.GetNamespace() == "test" {
+			return true, nil, errors.New("etcd is down")
+		}
+		return false, nil, nil
+	})
+	if _, err := d.Candidates(ctx, "prod", "payments-prod"); err == nil || !strings.Contains(err.Error(), "etcd is down") {
+		t.Fatalf("an upstream read that fails stops the list: %v", err)
+	}
+	_, _, err = d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: "1.1.0"})
+	wantErrContaining(t, err, "etcd is down")
+}
+
+// A propose whose intent digest differs only by the reason it adds names the
+// reason; any other difference lists what the digest binds.
+func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
+	ctx := context.Background()
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB}
+	plan, _, err := d.Plan(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.IntentDigest, req.Reason = plan.IntentDigest, "ship"
+	_, _, err = d.Propose(ctx, req)
+	wantErrContaining(t, err, "PlanStale: you planned with no reason, and this propose passes one")
+	req.IntentDigest, req.OnBehalfOf = "sha256:0", "alice"
+	_, _, err = d.Propose(ctx, req)
+	wantErrContaining(t, err, `This request passes reason "ship" and on-behalf-of "alice"`)
+	req.OnBehalfOf = ""
+	_, _, err = d.Propose(ctx, req)
+	wantErrContaining(t, err, `This request passes reason "ship" and on-behalf-of ""`)
 }

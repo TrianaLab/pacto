@@ -16,5 +16,6 @@ Affected consumers (5):
   orders-service               direct     confidence=corroborated compat=incompatible owner=commerce-team
   pacto-demo                   transitive confidence=inferred     compat=unknown      owner=platform-foundations
 Active targets (2): [production-eu/kubernetes-workload/commerce%2Forders-service production-eu/kubernetes-workload/payments%2Fpayments-service]
-breaking changes affect active consumers
+Release gate: blocked
+breaking changes affect active consumers, which run on known targets and do not accept payments-service 2.0.1: orders-service
 ```

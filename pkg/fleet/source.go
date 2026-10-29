@@ -105,6 +105,7 @@ type RawTarget struct {
 	ResolvedRef     string
 	Digest          string
 	Compliance      string
+	Owner           contract.Owner
 	Findings        []finding.Finding
 	Coverage        *Coverage
 	Readiness       *readiness.Result

@@ -33,6 +33,7 @@
     'Operational targets with stale evidence': 'stale evidence',
     'Operational targets with unknown compliance': 'unknown compliance',
     'Unresolved declared dependencies': 'unresolved dependencies',
+    'Dependencies outside their accepted range': 'out-of-range dependencies',
     'Undeclared runtime dependencies observed': 'undeclared runtime calls',
     'Uncontracted callers observed': 'uncontracted callers',
     'Incomplete sources': 'incomplete sources',

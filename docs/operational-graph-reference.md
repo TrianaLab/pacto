@@ -109,9 +109,9 @@ I/O. A single snapshot serves concurrent queries.
 | Query | Answers |
 |-------|---------|
 | **search** | Which logical services match this filter (owner, label, status, compliance, capability, dependency, readiness). Bounded and deterministically ordered. |
-| **get** | Everything about one service (its revisions, targets, declared dependencies, dependents, tools and skills) or one target. |
+| **get** | Everything about one service (its owner, revisions, targets, declared dependencies, dependents, tools and skills) or one target. |
 | **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. |
-| **status** | What needs attention: non-compliant or unknown targets, invalid contracts, stale evidence, missing readiness, unresolved dependencies. |
+| **status** | What needs attention: non-compliant or unknown targets, invalid contracts, stale evidence, missing readiness, unresolved dependencies and dependencies outside their accepted range. With no category selected it reports every category. |
 | **explain** | Deterministic, structured reasons for a subject's state. An agent can turn them into prose; Pacto itself embeds no model. |
 
 Two more operations sit beside the queries: `snapshot` emits the whole read model and
@@ -143,7 +143,7 @@ carries a `meta` envelope, here from
   "count": 1,
   "services": [
     { "key": "payments-service", "name": "payments-service",
-      "owner": "team/payments", "status": "NotEvaluated",
+      "owner": { "team": "payments" }, "status": "NotEvaluated",
       "revisionCount": 6, "targetCount": 0, "sources": ["local"] }
   ]
 }
@@ -175,6 +175,22 @@ missing subject is a *failure*. `pacto fleet get ghost` exits 1
 with `service "ghost" not found in the fleet snapshot` on stderr. These answers have no `meta` and so no `completeness`. Read `completeness` from
 `search` before you treat a subject miss as an absence.
 
+### Resolved dependencies and accepted ranges
+
+A declared dependency has two separate answers. `resolved: true` means a
+service with that name exists in the fleet. `rangeStatus` says whether the
+version the fleet holds satisfies the consumer's `compatibility` range:
+
+| `rangeStatus` | Meaning |
+|---------------|---------|
+| `satisfied` | Every revision of the provider in the fleet (or the one `pacto.lock` pins) is inside the range. |
+| `unsatisfied` | None is. `status` reports it as `DEPENDENCY_RANGE_UNSATISFIED` in the `out-of-range` category. |
+| `unknown` | The range or a version cannot be read as semver, the provider has no revision in the fleet, or its revisions disagree. |
+| *absent* | The dependency declares no range or is unresolved. |
+
+A consumer that asks for `ledger ^2.0.0` while the fleet holds `ledger 1.6.2`
+is resolved and unsatisfied.
+
 ## Ownership and the canonical owner key
 
 The graph aggregates and navigates by a canonical owner key **namespaced by which
@@ -190,3 +206,9 @@ different owners, and only the name is shown on screen, with a `Team` / `DRI` ba
 where two owners would otherwise be indistinguishable. The separate free-text
 `owner` filter is a human search over team, DRI and contacts. It can match
 several owners at once.
+
+`search` and `get` return `owner` in one shape, the contract's own
+`{team, dri, contacts}`, and leave it out when no contract declares one. The
+owner comes from the newest revision that declares one. A service known only
+from Kubernetes has no revisions, so its owner comes from the owner the
+operator read from the running contract (`status.contract.owner`).

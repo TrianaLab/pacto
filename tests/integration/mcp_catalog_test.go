@@ -527,9 +527,9 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 		t.Errorf("pacto_fleet_status with needs_attention did not return the Unknown target production-eu/kubernetes-workload/identity%%2Fauth-service")
 	}
 
-	// pacto_fleet_status with NO arguments returns items: null. This is the trap:
-	// an agent asking "what needs attention?" the obvious way gets an apparent clean
-	// bill of health. Pin it so it cannot change silently, and mark it for the fix.
+	// pacto_fleet_status with NO arguments reports every category, as
+	// `pacto fleet status` does: an agent asking "what needs attention?" the
+	// obvious way gets the attention list, never an apparent clean bill of health.
 	bareStatusRes, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      "pacto_fleet_status",
 		Arguments: map[string]any{},
@@ -538,22 +538,14 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 		t.Fatalf("CallTool(pacto_fleet_status, no args): %v", err)
 	}
 	bareStatusText := mcpResultText(t, bareStatusRes)
-	var bareStatusResp map[string]any
+	var bareStatusResp struct {
+		Items []map[string]any `json:"items"`
+	}
 	if err := json.Unmarshal([]byte(bareStatusText), &bareStatusResp); err != nil {
 		t.Fatalf("decode bare status response: %v\npayload:\n%s", err, bareStatusText)
 	}
-	bareItems, hasBareItems := bareStatusResp["items"]
-	if !hasBareItems {
-		t.Errorf("bare pacto_fleet_status response has no 'items' key; payload: %v", bareStatusResp)
-	}
-	// items is null (not an empty list), and there is no counts key to fall back on.
-	// An agent asking "what needs attention?" the obvious way gets nothing back and
-	// no signal that it asked wrong. This is the trap.
-	if bareItems != nil {
-		t.Errorf("bare pacto_fleet_status returned items = %v, want null (the trap that needs fixing)", bareItems)
-	}
-	if _, hasCounts := bareStatusResp["counts"]; hasCounts {
-		t.Errorf("bare pacto_fleet_status response has a 'counts' key; the trap is partially fixed but still broken")
+	if len(bareStatusResp.Items) == 0 {
+		t.Errorf("bare pacto_fleet_status returned no items on a demo fleet that needs attention; payload:\n%s", bareStatusText)
 	}
 
 	if err := session.Close(); err != nil {

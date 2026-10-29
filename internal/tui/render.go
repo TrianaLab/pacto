@@ -217,16 +217,27 @@ func renderLock(r *app.LockResult) string {
 	return b.String()
 }
 
-// renderImpact reports the blast radius of a change. The CLI fails only when
-// the change is breaking AND an incompatible consumer is actually deployed.
+// renderGate is the release gate line, empty when the answer carries none.
+func renderGate(r *impact.Result) string {
+	switch r.Gate {
+	case impact.GateBlocked:
+		return errorStyle.Render("blocked: `pacto impact` exits 1") + "  " + safeText(r.GateReason) + "\n"
+	case impact.GateUnverified:
+		return warnStyle.Render("unverified: `pacto impact` exits 2") + "  " + safeText(r.GateReason) + "\n"
+	case impact.GateClear:
+		return okStyle.Render("clear") + "  " + safeText(r.GateReason) + "\n"
+	}
+	return ""
+}
+
+// renderImpact reports the blast radius of a change and the release gate
+// `pacto impact` exits on: blocked (1), unverified (2) or clear (0).
 func renderImpact(r *impact.Result) string {
 	if r == nil {
 		return "(no result)"
 	}
 	var b strings.Builder
-	if r.ReleaseBlocking() {
-		b.WriteString(errorStyle.Render("this would fail `pacto impact` in CI") + "\n")
-	}
+	b.WriteString(renderGate(r))
 	if r.Classification == "BREAKING" {
 		b.WriteString(errorStyle.Render("BREAKING") + "  " + safeText(r.Service) + " " + safeText(r.OldVersion) + " -> " + safeText(r.NewVersion) + "\n")
 	} else {
@@ -265,6 +276,9 @@ func renderImpact(r *impact.Result) string {
 				targets = dimStyle.Render("no targets")
 			}
 			fmt.Fprintf(&b, "  %s%s: %s, %s, %s\n", safeText(cons.Service), depth, compat, safeText(string(cons.Confidence)), targets)
+			if cons.Note != "" {
+				b.WriteString("    " + dimStyle.Render(safeText(cons.Note)) + "\n")
+			}
 		}
 	}
 	if len(r.Owners) > 0 {

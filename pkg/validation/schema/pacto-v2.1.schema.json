@@ -46,7 +46,7 @@
               "type": "string",
               "minLength": 1,
               "pattern": "^[a-zA-Z0-9._/-]+$",
-              "description": "The canonical team that owns the service."
+              "description": "The team that owns the service, as its bare name such as billing: usually the team label on its workloads. A slash is allowed for a name your identity provider qualifies, such as acme/billing; a team/ prefix only repeats that it is a team."
             },
             "dri": {
               "type": "string",
@@ -284,7 +284,7 @@
     },
     "dependencies": {
       "type": "array",
-      "description": "Other services this service depends on. Each one references the other service's published Pacto contract, or, for a dependency this Pacto system does not deliver and nobody wrote a contract for, is marked external with the version it runs against.",
+      "description": "Other services this service depends on. Each one references the other service's Pacto contract, or, for a dependency this Pacto system does not deliver and nobody wrote a contract for, is marked external with the version it runs against. For a service of your own whose contract is not published yet, give ref as the repository its contract will be published at and compatibility as the versions you accept: Pacto reports the dependency as unresolved until that contract is published.",
       "items": {
         "type": "object",
         "required": [
@@ -301,7 +301,7 @@
           "ref": {
             "type": "string",
             "minLength": 1,
-            "description": "An OCI reference to the dependency's published Pacto contract (e.g. ghcr.io/org/service-pacto@sha256:...). Leave it out only for an external dependency with no contract, which gives version instead."
+            "description": "An OCI reference to the dependency's Pacto contract (e.g. ghcr.io/org/service-pacto@sha256:...). For a contract that is not published yet, the repository it will be published at (e.g. oci://ghcr.io/org/contracts/ledger), which validates and stays unresolved until it is published. Leave it out only for an external dependency with no contract, which gives version instead."
           },
           "required": {
             "type": "boolean",
@@ -314,7 +314,7 @@
           },
           "external": {
             "type": "boolean",
-            "description": "True when this Pacto system does not deliver the dependency (it may still run in the same company). Pacto does not expect to see it running and never moves it. With ref, versions are compared as usual; without ref, version is required and compatibility can never be confirmed."
+            "description": "True when this Pacto system does not deliver the dependency (it may still run in the same company). Pacto does not expect to see it running, never moves it and leaves it out of the unresolved list. With ref, versions are compared as usual; without ref, version is required and compatibility can never be confirmed. For a service your Pacto system delivers whose contract is not published yet, leave external out and give the ref its contract will be published at."
           },
           "version": {
             "type": "string",

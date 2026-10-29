@@ -190,7 +190,7 @@ type ServiceHit struct {
 	Key           ServiceKey        `json:"key"`
 	Name          string            `json:"name"`
 	Domain        string            `json:"domain,omitempty"`
-	Owner         string            `json:"owner,omitempty"`
+	Owner         contract.Owner    `json:"owner,omitzero"`
 	Status        string            `json:"status,omitempty"`
 	RevisionCount int               `json:"revisionCount"`
 	TargetCount   int               `json:"targetCount"`
@@ -279,7 +279,7 @@ func (q *Query) sortedServiceKeys() []ServiceKey {
 
 func hitFromService(s *ServiceRecord) ServiceHit {
 	return ServiceHit{
-		Key: s.Key, Name: s.Name, Domain: s.Domain, Owner: s.Owner.DisplayString(), Status: s.Status,
+		Key: s.Key, Name: s.Name, Domain: s.Domain, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels),
 	}
@@ -802,7 +802,10 @@ type StatusQuery struct {
 	StaleEvidence    bool
 	MissingReadiness bool
 	UnresolvedDeps   bool
-	Limit            int
+	// UnsatisfiedRanges reports declared dependencies whose provider is in the
+	// fleet at a version outside the consumer's compatibility range.
+	UnsatisfiedRanges bool
+	Limit             int
 }
 
 // StatusItem is one attention-worthy finding.
@@ -827,16 +830,25 @@ type StatusResult struct {
 // and it counted observed edges the backlog correctly excludes. One producer means
 // a rule can only be changed in the place both readers see it.
 func (q *Query) Status(sq StatusQuery) *StatusResult {
-	all := sq.NeedsAttention
 	want := map[string]bool{
-		categoryNonCompliant: all || sq.NonCompliant,
-		categoryUnknown:      all || sq.Unknown,
-		categoryStale:        all || sq.StaleEvidence,
-		categoryInvalid:      all || sq.Invalid,
-		categoryReadiness:    all || sq.MissingReadiness,
-		categoryUnresolved:   all || sq.UnresolvedDeps,
+		categoryNonCompliant: sq.NonCompliant,
+		categoryUnknown:      sq.Unknown,
+		categoryStale:        sq.StaleEvidence,
+		categoryInvalid:      sq.Invalid,
+		categoryReadiness:    sq.MissingReadiness,
+		categoryUnresolved:   sq.UnresolvedDeps,
+		categoryOutOfRange:   sq.UnsatisfiedRanges,
 	}
-	var items []StatusItem
+	// No category selected means every category: an empty query from the CLI, an
+	// MCP client or the dashboard asks "what needs attention", never "nothing".
+	none := true
+	for _, on := range want {
+		none = none && !on
+	}
+	for c := range want {
+		want[c] = want[c] || sq.NeedsAttention || none
+	}
+	items := []StatusItem{}
 	for _, it := range q.collectAttention() {
 		if !want[it.Category] {
 			continue
@@ -926,9 +938,19 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.FromService == s.Key && rel.Type == RelationshipDependency && rel.missing() {
+		if rel.FromService != s.Key || rel.Type != RelationshipDependency {
+			continue
+		}
+		switch {
+		case rel.missing():
 			res.Reasons = append(res.Reasons, Reason{
 				Code: LimitationUnresolvedDep, Message: "declared dependency is not resolved in the fleet",
+				Assertion: &AssertionRef{Kind: "dependency", Name: rel.To},
+			})
+		case rel.RangeStatus == RangeUnsatisfied:
+			res.Reasons = append(res.Reasons, Reason{
+				Code:      LimitationRangeUnsatisfied,
+				Message:   "the provider version in the fleet is outside the declared range " + rel.Compatibility,
 				Assertion: &AssertionRef{Kind: "dependency", Name: rel.To},
 			})
 		}

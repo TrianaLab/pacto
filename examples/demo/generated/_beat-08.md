@@ -15,4 +15,6 @@ Affected consumers (5):
   frontend                     transitive confidence=inferred     compat=unknown      owner=frontend-team
   orders-service               direct     confidence=corroborated compat=incompatible owner=commerce-team
   pacto-demo                   transitive confidence=inferred     compat=unknown      owner=platform-foundations
+Release gate: unverified
+unverified: the change is BREAKING and 5 consumers depend on payments-service, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
 ```

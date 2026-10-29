@@ -44,34 +44,35 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
 
 ## Exit codes
 
-Pacto exits `0` or `1`, except `pacto run`. `0` means the command produced
-its result and the result was acceptable. `1` means anything else, so **the
+Pacto exits `0`, `1` or, for `pacto impact` only, `2`. `pacto run` is the
+exception. `0` means the command produced its result and the result was
+acceptable. `1` means the check failed or the command could not run, so **the
 exit status alone cannot distinguish "the check failed" from "the command
-could not run"**. `pacto run` exits with the exit code of the command it
-wraps, or `1` when that command exits `0` and the final verdict fails
-`--fail-on`.
+could not run"**. `2` means `pacto impact` could not show that a breaking
+change is safe. `pacto run` exits with the exit code of the command it wraps,
+or `1` when that command exits `0` and the final verdict fails `--fail-on`.
 
 | Exits `1` | Exits `0` |
 | --- | --- |
 | `pacto diff` where the overall classification is `BREAKING` | a `POTENTIAL_BREAKING` or `NON_BREAKING` diff |
 | `pacto validate` reporting at least one error | validation that reported only warnings |
 | `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
-| `pacto impact` where the change is `BREAKING` and an incompatible consumer is active | `pacto impact` run on declared-only sources, *whatever* it classifies (see below) |
-| **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | any command that ran and produced an acceptable result |
+| `pacto impact` where the gate is `blocked`: a `BREAKING` change reaches a consumer that does not accept the new version and runs on a known target | `pacto impact` where the gate is `clear`: the change is not `BREAKING`, or the snapshot is complete and no service depends on the changed one |
+| **any command that could not run**, for example on an unresolvable reference, an unreadable bundle or an unknown flag | |
+
+| Exits `2` |
+| --- |
+| `pacto impact` where the gate is `unverified`: a `BREAKING` change that nothing is shown to block, on a partial answer or with consumers none of which is shown to be safe |
 
 Two cases affect CI gates:
 
 - A `pacto diff` against a missing reference exits `1`, the same as a breaking
   change.
-- `pacto impact` exits `1` only when the change is breaking **and** an
-  incompatible consumer is active: the snapshot knows a target where that
-  consumer runs. Targets come from `--k8s` or `--evidence-url`, and from
-  `--target-state` fixtures in demos and tests. Declared-only sources
-  (`--local`, `--root`, `--oci`) list consumers but no targets, so no consumer
-  is active: it prints `Classification: BREAKING`, can list
-  `compat=incompatible` consumers and still exits `0`. To gate on the contract
-  alone, read `--output-format json`, as
-  [Put it in your repository](ci.md#on-every-pull-request-who-breaks) shows.
+- `pacto impact` exits `1` only when the change is breaking **and** a source
+  that knows where services run shows an incompatible consumer on a target.
+  Sources that know no targets, such as `--local` alone, cannot show that, so
+  a breaking change with consumers exits `2`. A job that gates on deployed
+  impact alone can treat `2` as a pass; any other job fails on it.
 
 **Use stdout to tell a verdict from a failure.** A command that produced a
 verdict writes it to stdout and puts a one-line summary on stderr. A command
@@ -328,6 +329,21 @@ pacto delivery cancel <operation> [flags]
   -h, --help   help for cancel
 ```
 
+### `pacto delivery candidates`
+
+List the versions a Stage may be promoted to: what pacto publish published that its candidate source offers
+
+```
+pacto delivery candidates [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help           help for candidates
+      --stage string   the Stage (required)
+```
+
 ### `pacto delivery describe`
 
 Show what an operation type checks, when a person is needed and how it is undone
@@ -404,14 +420,14 @@ pacto delivery plan [flags]
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
-      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a level (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
+      --to string                                                   where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); for delivery.pacto.trianalab.io/autonomy a level (observe, advise, auto-nonbreaking or autonomous)
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
 
 ### `pacto delivery propose`
 
-Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan
+Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan or the reason or on-behalf-of differs
 
 ```
 pacto delivery propose [flags]
@@ -423,13 +439,13 @@ pacto delivery propose [flags]
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help                                                        help for propose
-      --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches
+      --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of
       --name string                                                 the Operation name (generated when empty)
       --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
-      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a level (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
+      --to string                                                   where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); for delivery.pacto.trianalab.io/autonomy a level (observe, advise, auto-nonbreaking or autonomous)
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
@@ -866,7 +882,7 @@ pacto fleet snapshot [flags]
 
 ### `pacto fleet status`
 
-Report services and targets needing attention
+Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies and dependencies whose provider version is outside the declared range. With no category flag it reports every category.
 
 ```
 pacto fleet status [flags]
@@ -875,15 +891,16 @@ pacto fleet status [flags]
 **Flags:**
 
 ```
-  -h, --help                help for status
-      --invalid             report structurally invalid contracts
-      --limit int           maximum results (0 = 200)
-      --missing-readiness   report revisions without a readiness assessment
-      --needs-attention     report every attention category
-      --non-compliant       report non-compliant targets
-      --stale               report targets with stale evidence
-      --unknown             report targets with unknown compliance
-      --unresolved-deps     report unresolved declared dependencies
+  -h, --help                 help for status
+      --invalid              report structurally invalid contracts
+      --limit int            maximum results (0 = 200)
+      --missing-readiness    report revisions without a readiness assessment
+      --needs-attention      report every attention category
+      --non-compliant        report non-compliant targets
+      --stale                report targets with stale evidence
+      --unknown              report targets with unknown compliance
+      --unresolved-deps      report unresolved declared dependencies
+      --unsatisfied-ranges   report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
 ```
 
 ---
@@ -954,7 +971,13 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 
 Composes a semantic contract diff (old→new) with the operational graph to answer which consumers a change really affects, how strong the evidence is and whether their declared compatibility still holds.
 
-Exit status is non-zero when the change is BREAKING and at least one ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). Active means the snapshot knows at least one operational target where that consumer is deployed. An incompatible consumer with no visible target leaves the exit at 0, so a declared-only run over `--local` bundles alone always exits 0 whatever it classifies. Read a live fleet with --k8s or --evidence-url to make the exit code meaningful; --target-state supplies targets from a fixture file, for demos and tests.
+When no fleet source holds the changed service, the new revision is added to the snapshot so the services that depend on it are found.
+
+The answer ends in a release gate, and the exit status follows it:
+  0  clear: the change is not BREAKING, or the snapshot is complete and no service depends on the changed one.
+  1  blocked: the change is BREAKING and a consumer that does not accept the new version runs on a known target.
+  2  unverified: the change is BREAKING and nothing is shown to block it, but the answer cannot clear it: the answer is partial, or consumers depend on the service and none is shown to be safe. A run over --local bundles alone knows no targets, so a BREAKING change with consumers exits 2.
+A command that could not run also exits 1, with nothing on stdout. Add --target-state (or a live source) so the gate can tell deployed impact apart.
 
 Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url and --traces. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
 
@@ -1001,14 +1024,29 @@ Writes the contract for the service in dir (default: the current folder).
 
 An empty or new folder gets a blank contract with the bundle structure
 (interfaces/, configuration/). A folder that already holds a service gets a
-contract read from its Dockerfile and Kubernetes manifests, publish section
-included, and a list of what Pacto found and what it could not tell
-(Unknown). --delivery also writes the cluster pieces: the Pacto resource that
-checks the running service, and per environment a Stage with the Flux
-OCIRepository and Kustomization it applies through. Each Stage starts at
-observe: it plans every new version and moves nothing, and the OCIRepository
-stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
-last environment's Stage also asks a person to approve every promote.
+contract read from its Dockerfile and Kubernetes manifests, and a list of what
+Pacto found and what it could not tell (Unknown). The workload's environment,
+including the ConfigMaps it reads, becomes a configuration schema with each
+value as its default. A URL in it that names another service in the cluster
+becomes a dependency: with that service's contract in --fleet, its bundle and
+a range from its version; without it, a placeholder range that the comment
+above it and Unknown name. A readiness, liveness or startup probe becomes a
+health check.
+
+The contract also gets a publish section, for pacto publish. To describe the
+service and leave delivery out, pass --describe-only: the contract then has no
+publish section and needs no signing key. --delivery also writes the cluster
+pieces: the Pacto resource that checks the running service, and per
+environment a Stage with the Flux OCIRepository and Kustomization it applies
+through. Each Stage starts at observe: it plans every new version and moves
+nothing, and the OCIRepository stays pinned to the tag you deploy, so GitOps
+keeps applying what it did. The last environment's Stage also asks a person to
+approve every promote.
+
+--owner is the team's bare name, such as billing: usually the team label on
+the workload. An AI agent is a service too: its tools are an mcp interface,
+the model it calls is a dependency and its eval suite is a checks entry; see
+https://pacto.run/latest/contract-reference/checks/#an-agent-is-a-service.
 
 Several folders are each pactified, with a summary at the end. --cluster
 drafts a contract for every workload in the namespaces that no Pacto
@@ -1030,6 +1068,7 @@ pacto init [dir...] [flags]
 ```
   pacto init my-service
   pacto init --plan
+  pacto init --describe-only --owner billing
   pacto init --delivery --owner payments --fleet ../contracts
   pacto init --delivery --no-transparency-log --insecure-registry
   pacto init --delivery --registry-secret registry-creds
@@ -1042,6 +1081,7 @@ pacto init [dir...] [flags]
 ```
       --cluster                  draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
       --delivery                 also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
+      --describe-only            write a contract that only describes the service: no publish section, so no signing key
       --env strings              environments for --delivery, in promotion order (default [test,prod])
       --fleet strings            folders of other services' contracts to find the services that use this one
   -h, --help                     help for init
@@ -1050,7 +1090,7 @@ pacto init [dir...] [flags]
       --namespace strings        with --cluster: a namespace to read; repeat it for more (default: every namespace)
       --no-transparency-log      write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
       --out string               with --cluster: the folder the drafts go in, one <namespace>/<name> folder each
-      --owner string             the team that owns the service (default: the workload's team label)
+      --owner string             the team that owns the service, as a bare name such as billing (default: the workload's team label)
       --plan                     show what would be added and change nothing
       --registry string          where to publish, as host/path (default: read from the workload's image)
       --registry-secret string   with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
@@ -1288,7 +1328,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_search` | `text`, `owner`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |
 | `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
-| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `missing_readiness`; plus `limit` |
+| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`; plus `limit`. No category, including empty input, reports every category |
 | `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
 | `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
 

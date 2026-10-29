@@ -1944,6 +1944,8 @@ export interface components {
             /** Format: int64 */
             unresolvedTargetLinks: number;
             /** Format: int64 */
+            unsatisfiedRanges: number;
+            /** Format: int64 */
             warningTargets: number;
         };
         "Fleet.OwnerContactPoint": {
@@ -2096,6 +2098,8 @@ export interface components {
             observedCount?: number;
             observedSources?: components["schemas"]["Fleet.ObservedSourceStat"][] | null;
             provenance: string;
+            /** @enum {string} */
+            rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reason?: string;
             reconciliation?: string;
             requestedRef?: string;
@@ -2176,7 +2180,7 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
-            owner?: string;
+            owner?: components["schemas"]["Contract.Owner"];
             /** Format: int64 */
             revisionCount: number;
             sources?: string[] | null;
@@ -2324,6 +2328,7 @@ export interface components {
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             name: string;
             observedRuntime: components["schemas"]["Fleet.RuntimePreview"];
+            owner?: components["schemas"]["Contract.Owner"];
             quarantined?: boolean;
             readiness?: components["schemas"]["Readiness.Result"];
             /** Format: date-time */
@@ -2443,6 +2448,7 @@ export interface components {
             depth: number;
             direct: boolean;
             domain?: string;
+            note?: string;
             owner?: string;
             path: string[] | null;
             provenance: string;
@@ -2484,8 +2490,12 @@ export interface components {
             classification: string;
             completeness: string;
             consumers: components["schemas"]["Impact.AffectedConsumer"][] | null;
+            /** @enum {string} */
+            gate: "blocked" | "unverified" | "clear";
+            gateReason: string;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             limitationsTruncated?: boolean;
+            newRevisionAdded?: boolean;
             newVersion?: string;
             nonBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             oldVersion?: string;
@@ -2723,7 +2733,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
@@ -2883,6 +2893,9 @@ export interface components {
             changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
             consumers: components["schemas"]["ProductImpactConsumersPage"];
+            /** @enum {string} */
+            gate: "blocked" | "unverified" | "clear";
+            gateReason: string;
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             newRevision?: components["schemas"]["ProductRef"];
@@ -2898,6 +2911,7 @@ export interface components {
             /** Format: int64 */
             depth: number;
             direct: boolean;
+            note?: string;
             owner?: string;
             path: components["schemas"]["ProductRef"][] | null;
             /** Format: int64 */

@@ -40,9 +40,12 @@ evidence Pacto has for that edge, and the result rolls up the **active
 targets** the change would land in and the **owners** to notify.
 
 Every answer inherits the snapshot's `asOf` time, `completeness` and
-`limitations`, so a partial fleet always reads as partial. A changed service
-missing from the graph gets a `SERVICE_NOT_IN_FLEET` limitation and no consumer
-list.
+`limitations`, so a partial fleet always reads as partial. When no fleet source
+holds the changed service, `pacto impact` adds the new revision to the snapshot
+so the services that depend on it are found, and the answer carries
+`newRevisionAdded: true`. A snapshot it cannot add to, such as the dashboard's
+published snapshot, answers with a `SERVICE_NOT_IN_FLEET` limitation, no
+consumer list and an `unverified` gate.
 
 ## What an affected consumer carries
 
@@ -58,6 +61,7 @@ For each dependent the analysis records:
 | **provenance** | Where the edge came from: `declared`, `observed`, `declared+observed` or `inferred`. |
 | **confidence** | How strongly the evidence supports the claim (see below). |
 | **status / targets** | The consumer's aggregate status and the operational targets it runs in. |
+| **note** | A plain-words qualifier. On a `BREAKING` change a `compatible` verdict only means the range accepts the new version, so the note says to check that the consumer does not use what the change removes. An open range such as `>=1.0.0` accepts every new major version, and the note says so. |
 
 ### Confidence model
 
@@ -122,20 +126,27 @@ Pacto finds consumers only in the sources you pass. With `--local` alone it
 sees only the contracts in those folders, so `No affected consumers.` is not
 evidence that the change is safe.
 
-### Exit status: what makes a consumer *active*
+### Release gate and exit status
 
-`pacto impact` exits **1** only when both halves are true: the change is
-`BREAKING` **and** at least one incompatible consumer is *active*. Anything else
-exits **0**, including a run that prints `Classification: BREAKING` and a list of
-consumers every one of which says `compat=incompatible`.
+Every answer ends in a release gate, `gate`, with the reason in `gateReason`.
+The CLI exits on it, and the MCP tool returns it:
+
+| `gate` | Exit | When |
+|--------|------|------|
+| `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version and is *active*. |
+| `unverified` | `2` | The change is `BREAKING` and nothing is shown to block it, but the answer cannot clear it: the answer is partial, or consumers depend on the service and none is shown to be safe. |
+| `clear` | `0` | The change is not `BREAKING`, or the snapshot is complete and no service depends on the changed one. |
+
+A command that could not run also exits `1`, with nothing on stdout.
 
 **Active means the snapshot knows of somewhere that consumer is deployed**: at
 least one operational target. Compatibility is a statement about contracts;
-active is a statement about the world. A consumer that is incompatible on paper
-but runs nowhere the snapshot can see is a review item.
+active is a statement about the world.
 
-The consequence catches people out, because `--local` defaults to `.` and local
-bundles declare no targets: **a declared-only run can never exit non-zero.**
+`unverified` exists because a breaking change with consumers is never safe by
+default. A consumer can be incompatible on paper with no known target, declare
+no range, or match only by range. `--local` bundles declare no targets, so a
+declared-only run of a breaking change with consumers exits `2`:
 
 ```console
 $ pacto impact ./api-v1 ./api-v2 --local ./fleet
@@ -145,8 +156,10 @@ Breaking changes: 2
 Potentially breaking changes: 0
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
+Release gate: unverified
+unverified: the change is BREAKING and 1 consumer depends on api, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
 $ echo $?
-0
+2
 ```
 
 Give the snapshot a source that knows where things run and the same command
@@ -161,16 +174,18 @@ Potentially breaking changes: 0
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
 Active targets (1): [production/kubernetes-workload/shop%2Fweb]
-breaking changes affect active consumers
+Release gate: blocked
+breaking changes affect active consumers, which run on known targets and do not accept api 2.0.0: web
 $ echo $?
 1
 ```
 
 #### Gating in CI
 
-In CI that is one of two deliberate choices. Gate on the exit code and you gate on
-*deployed* impact, which is what a promotion pipeline wants, as long as the job
-supplies targets. Gate on the JSON instead (`--output-format json`, then
+In CI that is one of two deliberate choices. Fail on any non-zero exit and an
+unverified breaking change stops the job as a blocked one does. A promotion
+pipeline that gates on *deployed* impact alone can treat `2` as a pass, as long as
+the job supplies targets. Gate on the JSON instead (`--output-format json`, then
 `classification == "BREAKING"`) and you gate on the contract alone, which is what
 you want before anything is deployed. That JSON carries
 `schemaVersion: pacto.dev/impact/v1`, the compatibility contract to branch on

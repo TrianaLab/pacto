@@ -98,6 +98,13 @@
   // says which, rather than silently opening the wrong service or an empty search.
   let migrateNote = $state('');
 
+  // The release gate `pacto impact` exits on: blocked (1), unverified (2), clear (0).
+  const GATE = {
+    blocked: { cls: 'badge-err', label: 'Blocked' },
+    unverified: { cls: 'badge-warn', label: 'Unverified' },
+    clear: { cls: 'badge-ok', label: 'Clear' },
+  };
+
   function verdictClass(v) {
     if (v === 'compatible') return 'badge-ok';
     if (v === 'incompatible') return 'badge-err';
@@ -471,6 +478,12 @@
         <span class="badge {classificationClass(result.classification)}">{classificationLabel(result.classification)}</span>
         <span>{answerText}</span>
       </p>
+      {#if GATE[result.gate]}
+        <p class="ca-answer-line" data-testid="changes-gate">
+          <span class="badge {GATE[result.gate].cls}">{GATE[result.gate].label}</span>
+          <span class="text-2">{result.gateReason}</span>
+        </p>
+      {/if}
       <p class="impact-summary">
         {#if result.oldRevision || result.newRevision}
           <span class="text-2">{result.oldRevision?.label || '?'} → {result.newRevision?.label || '?'}</span>
@@ -565,7 +578,7 @@
                     <td data-label="Path" class="path-cell">
                       {#if (c.path?.length ?? 0) > 0}{c.path.map((p) => p.label).join(' → ')}{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
                     </td>
-                    <td data-label="Verdict"><span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span></td>
+                    <td data-label="Verdict"><span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}</td>
                     <td data-label="Confidence"><span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span></td>
                     <td data-label="Owner">{#if c.owner}<span class="cell-clip" title={c.owner}>{c.owner}</span>{:else}<span class="text-dim">—</span>{/if}</td>
                   </tr>
@@ -654,6 +667,7 @@
 
   .ca-answer { display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-4) 0 var(--sp-3); }
   .ca-answer-line { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: 0; font-size: var(--text-md); color: var(--c-text); }
+  .consumer-note { margin: var(--sp-1) 0 0; font-size: var(--text-xs); }
   .impact-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
   .ca-stack { border-top: 1px solid var(--c-border); }
   .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; }
