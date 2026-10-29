@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
@@ -228,12 +229,28 @@ func addSchemaError(result *ValidationResult, err error) {
 func collectErrors(result *ValidationResult, ve *jsonschema.ValidationError) {
 	if len(ve.Causes) == 0 {
 		path := instancePath(ve)
-		result.AddError(path, "SCHEMA_VIOLATION", ve.Error())
+		result.AddError(path, "SCHEMA_VIOLATION", ve.Error()+enumSuggestion(ve.ErrorKind))
 		return
 	}
 	for _, cause := range ve.Causes {
 		collectErrors(result, cause)
 	}
+}
+
+// enumSuggestion names the allowed value closest to a mistyped one.
+func enumSuggestion(k jsonschema.ErrorKind) string {
+	e, ok := k.(*kind.Enum)
+	if !ok {
+		return ""
+	}
+	got, _ := e.Got.(string)
+	var want []string
+	for _, w := range e.Want {
+		if s, ok := w.(string); ok {
+			want = append(want, s)
+		}
+	}
+	return contract.DidYouMean(got, want)
 }
 
 func instancePath(ve *jsonschema.ValidationError) string {

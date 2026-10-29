@@ -31,6 +31,14 @@ func (r *ValidationResult) AddWarning(path, code, message string) {
 	})
 }
 
+// Report is a validation run told stage by stage, with the one command to run
+// next.
+type Report struct {
+	ValidationResult
+	Stages []Stage `json:"stages,omitempty"`
+	Next   string  `json:"next,omitempty"`
+}
+
 // Merge combines another result into this one.
 func (r *ValidationResult) Merge(other ValidationResult) {
 	r.Errors = append(r.Errors, other.Errors...)

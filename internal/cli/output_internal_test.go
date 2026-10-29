@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 type errWriter struct{}
@@ -141,27 +142,35 @@ func TestPrintValidateResult_Valid(t *testing.T) {
 func TestPrintValidateResult_Invalid(t *testing.T) {
 	cmd, buf := testCmd()
 	result := &app.ValidateResult{
-		Path:  "pacto.yaml",
+		Path:  "svc",
+		File:  "svc/pacto.yaml",
 		Valid: false,
-		Errors: []contract.ValidationError{
-			{Code: "TEST_ERR", Path: "service.name", Message: "bad name"},
+		Stages: []validation.Stage{
+			{Name: "load", Status: validation.StagePass},
+			{Name: "structural", Status: validation.StageFail, Errors: []contract.ValidationError{
+				{Code: "TEST_ERR", Path: "service.name", Message: "bad name", Line: 3, Column: 3},
+				{Code: "LOOSE_ERR", Path: "", Message: "nowhere"},
+			}, Warnings: []contract.ValidationWarning{
+				{Code: "TEST_WARN", Path: "runtime", Message: "check this"},
+			}},
+			{Name: "policy", Status: validation.StageSkip, Reason: "structural failed"},
 		},
-		Warnings: []contract.ValidationWarning{
-			{Code: "TEST_WARN", Path: "runtime", Message: "check this"},
-		},
+		Next: "fix service.name at svc/pacto.yaml:3:3 [TEST_ERR], then run pacto validate svc",
 	}
 	if err := printValidateResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	out := buf.String()
-	if !strings.Contains(out, "is invalid") {
-		t.Errorf("expected 'is invalid', got %q", out)
-	}
-	if !strings.Contains(out, "ERROR [TEST_ERR]") {
-		t.Errorf("expected error output, got %q", out)
-	}
-	if !strings.Contains(out, "WARN  [TEST_WARN]") {
-		t.Errorf("expected warning output, got %q", out)
+	want := `svc is invalid
+PASS load
+FAIL structural
+  svc/pacto.yaml:3:3: ERROR [TEST_ERR] service.name: bad name
+  ERROR [LOOSE_ERR] : nowhere
+  WARN  [TEST_WARN] runtime: check this
+SKIP policy      structural failed
+Next: fix service.name at svc/pacto.yaml:3:3 [TEST_ERR], then run pacto validate svc
+`
+	if got := buf.String(); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
 

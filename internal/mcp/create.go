@@ -145,6 +145,10 @@ type CheckResult struct {
 	Errors      []ValidationItem `json:"errors,omitempty"`
 	Warnings    []ValidationItem `json:"warnings,omitempty"`
 	Suggestions []Suggestion     `json:"suggestions,omitempty"`
+	// Stages and Next are what `pacto validate` reports: each stage's status
+	// and the one command to run now.
+	Stages []validation.Stage `json:"stages,omitempty"`
+	Next   string             `json:"next,omitempty"`
 }
 
 // ContractSummary provides a high-level overview of a contract.
@@ -164,6 +168,8 @@ type ValidationItem struct {
 	Path    string `json:"path"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Line    int    `json:"line,omitempty"`
+	Column  int    `json:"column,omitempty"`
 }
 
 // Suggestion represents an improvement suggestion with an optional tool call.
@@ -938,18 +944,21 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string) (*C
 		return result, nil
 	}
 
-	var vr validation.ValidationResult
+	var vr validation.Report
 	if validate != nil {
 		if vr, err = validate(ctx, dir); err != nil {
 			return nil, err
 		}
 	} else {
-		vr = validation.ValidateWithResolver(ctx, c, rawYAML, o.dirFS(dir), nil)
+		vr.Stages = validation.ValidateStagesWithResolver(ctx, c, rawYAML, o.dirFS(dir), nil)
+		vr.ValidationResult = validation.Merged(vr.Stages)
 	}
 
 	cr := &CheckResult{
 		Valid:   vr.IsValid(),
 		Summary: summarizeContract(c),
+		Stages:  vr.Stages,
+		Next:    vr.Next,
 	}
 
 	for _, e := range vr.Errors {
@@ -957,6 +966,8 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string) (*C
 			Path:    e.Path,
 			Code:    e.Code,
 			Message: e.Message,
+			Line:    e.Line,
+			Column:  e.Column,
 		})
 	}
 	for _, w := range vr.Warnings {

@@ -165,14 +165,33 @@ func TestCheck_VerifiesTheLockfile(t *testing.T) {
 	if res.Valid {
 		t.Fatal("valid = true, want false for an unverifiable pacto.lock")
 	}
+	// The same stages and next step `pacto validate` reports.
+	if len(res.Stages) != 8 || res.Stages[1].Name != "lock" || res.Stages[1].Status != validation.StageFail || !strings.HasPrefix(res.Next, "fix ") {
+		t.Errorf("stages = %+v, next = %q", res.Stages, res.Next)
+	}
+}
+
+// TestCheck_LocatesErrors: pacto_check carries each error's line and column.
+func TestCheck_LocatesErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: 1.0.0\nworkload: servce\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Check(context.Background(), app.NewService(nil, nil).ValidationReport, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Errors) == 0 || res.Errors[0].Line != 5 || res.Errors[0].Column != 1 {
+		t.Errorf("errors = %+v", res.Errors)
+	}
 }
 
 // TestCheck_ValidatorErrorIsReturned: a validation path that cannot reach a
 // verdict is an error, never a pass.
 func TestCheck_ValidatorErrorIsReturned(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	failing := func(context.Context, string) (validation.ValidationResult, error) {
-		return validation.ValidationResult{}, errors.New("boom")
+	failing := func(context.Context, string) (validation.Report, error) {
+		return validation.Report{}, errors.New("boom")
 	}
 	if _, err := Check(context.Background(), failing, dir); err == nil {
 		t.Fatal("expected the validator error")

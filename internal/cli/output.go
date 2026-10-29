@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/doc"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -74,13 +76,20 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 			}
 		}
 
-		for _, e := range result.Errors {
-			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "  ERROR [%s] %s: %s\n", e.Code, e.Path, e.Message)
+		for _, st := range result.Stages {
+			_, _ = fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%s %-11s %s", strings.ToUpper(st.Status), st.Name, st.Reason), " "))
+			for _, e := range st.Errors {
+				at := ""
+				if e.Line > 0 {
+					at = result.Where(contract.ValidationError{Line: e.Line, Column: e.Column}) + ": "
+				}
+				_, _ = fmt.Fprintf(w, "  %sERROR [%s] %s: %s\n", at, e.Code, e.Path, e.Message)
+			}
+			for _, wr := range st.Warnings {
+				_, _ = fmt.Fprintf(w, "  WARN  [%s] %s: %s\n", wr.Code, wr.Path, wr.Message)
+			}
 		}
-
-		for _, w := range result.Warnings {
-			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "  WARN  [%s] %s: %s\n", w.Code, w.Path, w.Message)
-		}
+		_, _ = fmt.Fprintln(w, "Next: "+result.Next)
 
 		return nil
 	}, nil)

@@ -27,7 +27,7 @@ func Parse(r io.Reader) (*Contract, error) {
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&c); err != nil {
 		return nil, &ParseError{
-			Message: fmt.Sprintf("failed to parse YAML: %v", err),
+			Message: suggestFields(fmt.Sprintf("failed to parse YAML: %v", err)),
 			Err:     err,
 		}
 	}

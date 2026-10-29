@@ -42,6 +42,18 @@ func TestValidateCommand(t *testing.T) {
 			wantOut: "CAPABILITY_INTERFACE_UNKNOWN",
 		},
 		{
+			name: "local invalid reports the failing stage",
+			setup: func(t *testing.T) (*testRegistry, []string) {
+				dir := t.TempDir()
+				if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(brokenContract), 0644); err != nil {
+					t.Fatal(err)
+				}
+				return nil, []string{"validate", dir}
+			},
+			wantErr: true,
+			wantOut: "FAIL cross-field\n",
+		},
+		{
 			name: "json output",
 			setup: func(t *testing.T) (*testRegistry, []string) {
 				dir := t.TempDir()

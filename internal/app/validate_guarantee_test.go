@@ -34,8 +34,9 @@ func TestValidate_Guarantees(t *testing.T) {
 			name: "every mismatch on a required dependency is an error",
 			deps: "  - {name: orders, ref: ../orders, compatibility: ^1.0.0, required: true, requires: [{interface: events, delivery: at-most-once, dedupeWindow: 5m}]}\n",
 			errors: []string{
-				"GUARANTEE_UNMET: checkout requires events delivery at-most-once from orders, which offers at-least-once",
+				// in file order, then by message: both name the same requires
 				"GUARANTEE_UNMET: checkout requires events dedupeWindow >= 5m from orders, which offers 1m",
+				"GUARANTEE_UNMET: checkout requires events delivery at-most-once from orders, which offers at-least-once",
 			},
 		},
 		{
