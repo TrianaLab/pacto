@@ -26,6 +26,7 @@ Exit code is non-zero if any check fails.
 """
 from __future__ import annotations
 
+import datetime
 import glob
 import hashlib
 import json
@@ -35,8 +36,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-
-import datetime
 
 import yaml
 from jsonschema import Draft4Validator
@@ -949,10 +948,6 @@ def check_accidental_lists() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Drift helpers
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # (q) the comparison page states when it was last reviewed
 # ---------------------------------------------------------------------------
 
@@ -983,15 +978,21 @@ def comparison_review(text: str, today: datetime.date) -> tuple[str, str]:
 
 
 def check_comparison_review() -> None:
-    error, warning = comparison_review(read(os.path.join(REPO_ROOT, COMPARISON)),
-                                       datetime.date.today())
+    text = read(os.path.join(REPO_ROOT, COMPARISON))
+    error, warning = comparison_review(text, datetime.date.today())
     if warning:
         print(f"[WARN] {warning}")
         if os.environ.get("GITHUB_ACTIONS") == "true":
-            print(f"::warning file={COMPARISON}::{warning}")
+            m = REVIEWED.search(text)
+            line = text.count("\n", 0, m.start()) + 1
+            print(f"::warning file={COMPARISON},line={line}::{warning}")
     record(not error, "(q) the comparison page states its review date",
-           error or ("stale, see warning" if warning else "reviewed within 183 days"))
+           error or ("stale, see warning" if warning else f"reviewed within {REVIEW_MAX_AGE_DAYS} days"))
 
+
+# ---------------------------------------------------------------------------
+# Drift helpers
+# ---------------------------------------------------------------------------
 
 def snapshot(paths: list[str]) -> dict[str, str]:
     out = {}
