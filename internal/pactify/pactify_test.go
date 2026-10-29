@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1044,5 +1045,77 @@ func TestPinImageInEveryManifest(t *testing.T) {
 		if strings.Contains(l, "service.yaml") {
 			t.Fatalf("a Service with no image is told to rewrite it: %q", l)
 		}
+	}
+}
+
+// TestHelmChartIsNotRead: a Helm chart's templates are never manifests (#432).
+// Neither the build command, the header nor the workload come from a chart,
+// whether its templates parse as YAML or not, and Unknown names the chart once.
+// A plain manifest beside the chart is still read.
+func TestHelmChartIsNotRead(t *testing.T) {
+	chart := map[string]string{
+		"chart/Chart.yaml":               "apiVersion: v2\nname: checkout\nversion: 0.1.0\n",
+		"chart/values.yaml":              "image: ghcr.io/acme/checkout:1.0.0\nreplicas: 2\n",
+		"chart/templates/configmap.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: checkout-config\ndata:\n  LOG_LEVEL: info\n",
+		"chart/templates/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: \"{{ .Release.Name }}\"\nspec:\n" +
+			"  replicas: \"{{ .Values.replicas }}\"\n  template:\n    spec:\n      containers:\n        - name: checkout\n          image: \"{{ .Values.image }}\"\n",
+		"chart/templates/service.yaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: {{ include \"checkout.fullname\" . }}\nspec:\n  ports:\n    - port: 80\n",
+	}
+	with := func(extra map[string]string) map[string]string {
+		m := maps.Clone(chart)
+		maps.Copy(m, extra)
+		return m
+	}
+	const docker = "FROM alpine:3.20\n"
+	deploy := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\nspec: {template: {spec: {containers: [{name: checkout, image: 'ghcr.io/acme/checkout:1.2.0'}]}}}\n"
+	for _, tc := range []struct {
+		name, mode, header, chartDir string
+		files                        map[string]string
+		want                         []string // in pacto.yaml
+	}{
+		{name: "beside a Dockerfile", mode: modePactify, header: "Dockerfile", chartDir: "chart",
+			files: with(map[string]string{"Dockerfile": docker})},
+		{name: "chart only", mode: modeBlank, chartDir: "chart", files: chart},
+		{name: "beside a plain manifest", mode: modePactify, header: "Dockerfile, k8s/deploy.yaml", chartDir: "chart",
+			files: with(map[string]string{"Dockerfile": docker, "k8s/deploy.yaml": deploy}),
+			want:  []string{"cp k8s/deploy.yaml", "version: 1.2.0", "workload: service"}},
+		{name: "the folder is the chart", mode: modePactify, header: "Dockerfile", chartDir: ".",
+			files: map[string]string{"Dockerfile": docker, "Chart.yaml": chart["chart/Chart.yaml"],
+				"templates/configmap.yaml": chart["chart/templates/configmap.yaml"], "charts/db/templates/cm.yaml": chart["chart/templates/configmap.yaml"]}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writeTree(t, filepath.Join(t.TempDir(), "checkout"), tc.files)
+			r, err := Init(context.Background(), Options{Dir: dir, Registry: "ghcr.io/acme/checkout", Plan: true}, os.WriteFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.Service != "checkout" || r.Mode != tc.mode {
+				t.Fatalf("service %q, mode %q", r.Service, r.Mode)
+			}
+			n := 0
+			for _, l := range r.Unknown {
+				if strings.HasPrefix(l, "the Helm chart in "+tc.chartDir+" is not read: render it with helm template checkout "+tc.chartDir+" > k8s/rendered.yaml") {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Fatalf("want the chart named once in Unknown, got %d: %q", n, r.Unknown)
+			}
+			text := file(t, r, "pacto.yaml").Content
+			if strings.Contains(text, "templates/") || strings.Contains(text, "Release.Name") || hasLine(r.Found, "templates/") {
+				t.Fatalf("a chart template was read:\n%s\n%+v", text, r.Found)
+			}
+			if tc.header != "" && !strings.HasPrefix(text, "# Written by pacto init from "+tc.header+".\n") {
+				t.Fatalf("header:\n%s", text)
+			}
+			if tc.want == nil && strings.Contains(text, "type: manifests") {
+				t.Fatalf("a manifests artifact came from the chart:\n%s", text)
+			}
+			for _, s := range tc.want {
+				if !strings.Contains(text, s) {
+					t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
+				}
+			}
+		})
 	}
 }

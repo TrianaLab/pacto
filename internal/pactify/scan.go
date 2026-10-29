@@ -66,6 +66,20 @@ func scanDir(dir string) (*scan, error) {
 			if rel != "." && (strings.HasPrefix(d.Name(), ".") || skipDirs[d.Name()] || rel == "delivery") {
 				return fs.SkipDir
 			}
+			// A Helm chart's templates are not manifests until rendered, so a
+			// chart folder is never read. When the folder itself is a chart,
+			// only its templates and subcharts are left out.
+			if _, err := os.Stat(filepath.Join(p, "Chart.yaml")); err == nil {
+				if sc.chart == "" {
+					sc.chart = rel
+				}
+				if rel != "." {
+					return fs.SkipDir
+				}
+			}
+			if sc.chart == "." && (rel == "templates" || rel == "charts") {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		sc.file(p, rel, d.Name())
@@ -108,10 +122,7 @@ func (sc *scan) file(p, rel, base string) {
 	switch {
 	case base == "Dockerfile" || strings.HasPrefix(base, "Dockerfile.") || strings.HasSuffix(base, ".Dockerfile"):
 		sc.dockerfiles = append(sc.dockerfiles, rel)
-	case base == "Chart.yaml":
-		if sc.chart == "" {
-			sc.chart = path.Dir(rel)
-		}
+	case base == "Chart.yaml": // its folder is a chart, recorded by scanDir
 	case openapiRE.MatchString(base):
 		if sc.openapi == "" || strings.Count(rel, "/") < strings.Count(sc.openapi, "/") {
 			sc.openapi = rel
