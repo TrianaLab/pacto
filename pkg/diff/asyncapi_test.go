@@ -239,8 +239,8 @@ func TestDiffAsyncAPI_OperationModified(t *testing.T) {
 
 // A channel or operation present on both sides is never reported as one opaque
 // Modified change: it is deep-diffed, and every inner difference is classified
-// by the JSON Schema rules (`required` escalates to BREAKING, everything else is
-// POTENTIAL_BREAKING). This is why the rule table carries no
+// by the record rules: a retyped field and a flipped action are each unsafe in
+// one direction, so both are BREAKING. This is why the rule table carries no
 // {"asyncapi.channels", Modified} / {"asyncapi.operations", Modified} entry —
 // nothing would ever consult it.
 func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
@@ -258,13 +258,13 @@ func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
 			name: "channel", prefix: "asyncapi.channels[order.created]",
 			old: baseAsyncAPI, new: channelDoc,
 			deepPath: "asyncapi.channels[order.created].publish.message.payload.properties.order_id.type",
-			wantDeep: PotentialBreaking,
+			wantDeep: Breaking,
 		},
 		{
 			name: "operation", prefix: "asyncapi.operations[sendOrder]",
 			old: baseAsyncAPIV3, new: opDoc,
 			deepPath: "asyncapi.operations[sendOrder].action",
-			wantDeep: PotentialBreaking,
+			wantDeep: Breaking,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -277,7 +277,7 @@ func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
 				t.Fatalf("expected a deep change at %s, got %+v", tt.deepPath, changes)
 			}
 			if c.Classification != tt.wantDeep {
-				t.Errorf("expected %s from the JSON Schema rules, got %s", tt.wantDeep, c.Classification)
+				t.Errorf("expected %s from the record rules, got %s", tt.wantDeep, c.Classification)
 			}
 		})
 	}
@@ -307,5 +307,54 @@ func TestDiffAsyncAPI_DemoFixtures(t *testing.T) {
 	// payment_intent_id, which must surface as a deep required-set change.
 	if !hasChange(changes, "asyncapi.channels[payment.refunded].publish.message.payload.required[charge_id]", Removed) {
 		t.Errorf("expected removed required charge_id on payment.refunded, got %+v", changes)
+	}
+}
+
+// An AsyncAPI message is a record: old and new publishers and subscribers
+// coexist, so an edit has to be safe in both directions. Adding an optional
+// field and rewording a description pass; widening an enum does not.
+func TestDiffAsyncAPI_PayloadIsARecord(t *testing.T) {
+	const orderID = `            order_id:
+              type: string
+          required: ["order_id"]`
+	tests := []struct {
+		name, from, to, path string
+		ct                   ChangeType
+		want                 Classification
+	}{
+		{"optional property added", orderID, `            order_id:
+              type: string
+            note:
+              type: string
+          required: ["order_id"]`,
+			"asyncapi.channels[order.created].publish.message.payload.properties.note", Added, NonBreaking},
+		{"enum introduced", orderID, `            order_id:
+              type: string
+              enum: [a]
+          required: ["order_id"]`,
+			"asyncapi.channels[order.created].publish.message.payload.properties.order_id.enum", Added, Breaking},
+		{"description added", `      operationId: orderCreated`, `      operationId: orderCreated
+      description: sent once per order`,
+			"asyncapi.channels[order.created].publish.description", Added, NonBreaking},
+		{"operation renamed", `      operationId: orderCreated`, `      operationId: orderPlaced`,
+			"asyncapi.channels[order.created].publish.operationId", Modified, Breaking},
+		{"2.x operation added to a channel", `  order.cancelled:
+    publish:`, `  order.cancelled:
+    subscribe:
+      operationId: onOrderCancelled
+    publish:`,
+			"asyncapi.channels[order.cancelled].subscribe", Added, NonBreaking},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes := diffAsync(t, baseAsyncAPI, strings.Replace(baseAsyncAPI, tt.from, tt.to, 1))
+			c, ok := findChange(changes, tt.path, tt.ct)
+			if !ok || len(changes) != 1 {
+				t.Fatalf("expected one change at %s, got %+v", tt.path, changes)
+			}
+			if c.Classification != tt.want {
+				t.Errorf("got %s, want %s", c.Classification, tt.want)
+			}
+		})
 	}
 }

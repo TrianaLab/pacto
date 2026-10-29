@@ -159,6 +159,11 @@ var rules = map[classificationKey]Classification{
 	{"asyncapi.channels", Removed}:   Breaking,
 	{"asyncapi.operations", Added}:   NonBreaking,
 	{"asyncapi.operations", Removed}: Breaking,
+	// An AsyncAPI 2.x operation lives inside its channel, so the deep diff
+	// reaches it. Adding one is as harmless as adding a channel; removing one
+	// is the record default, Breaking.
+	{"asyncapi.channels.publish", Added}:   NonBreaking,
+	{"asyncapi.channels.subscribe", Added}: NonBreaking,
 
 	// gRPC service surface. proto3 has no `required`, so an added rpc, message
 	// or field is always wire-compatible. Everything else here is Breaking:
@@ -176,6 +181,14 @@ var rules = map[classificationKey]Classification{
 	{"grpc.messages.fields", Added}:    NonBreaking,
 	{"grpc.messages.fields", Removed}:  Breaking,
 	{"grpc.messages.fields", Modified}: Breaking,
+	// A proto enum may sit in a request, a response or a stream, and the text
+	// scan cannot tell which, so a value appearing fails closed: a reader that
+	// switches exhaustively over the enum has no case for it.
+	{"grpc.enums", Added}:           NonBreaking,
+	{"grpc.enums", Removed}:         Breaking,
+	{"grpc.enums.values", Added}:    Breaking,
+	{"grpc.enums.values", Removed}:  Breaking,
+	{"grpc.enums.values", Modified}: Breaking,
 
 	// MCP tools a service exposes. A tool on both sides is deep-diffed by
 	// diffJSON (input as a request, output as a response), so there is no

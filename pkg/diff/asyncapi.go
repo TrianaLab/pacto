@@ -76,10 +76,10 @@ func diffAsyncAPISection(prefix, noun string, old, new map[string]any) []Change 
 			})
 			continue
 		}
-		// dirUnknown: a channel is published by one service and subscribed by
-		// another, so the document cannot say which side a `required` entry
-		// constrains. Both readings stay breaking.
-		changes = append(changes, diffJSON(dirUnknown, fmt.Sprintf("%s[%s]", prefix, name), old[name], newVal)...)
+		// dirRecord: a message is written by one service and read by another
+		// while old and new versions of both run side by side, so an edit has to
+		// be safe in both directions.
+		changes = append(changes, diffJSON(dirRecord, fmt.Sprintf("%s[%s]", prefix, name), old[name], newVal)...)
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(new)) {

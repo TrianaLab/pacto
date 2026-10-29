@@ -504,15 +504,16 @@ paths:
 	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
 	// The response is DEEP-diffed like the request body, so a changed response
 	// surfaces the specific field rather than one shallow change for the whole
-	// response object. An optional field appearing on a response is the
-	// POTENTIAL_BREAKING default: a strict client can choke on it, but nothing a
-	// consumer already reads has moved.
+	// response object. An optional field appearing on a response is
+	// NON_BREAKING: the schema leaves the object open, so a reader already
+	// accepts fields it does not know. A schema that closes the object with
+	// additionalProperties: false grades it BREAKING instead.
 	found := false
 	for _, c := range changes {
 		if strings.Contains(c.Path, "responses[200]") && strings.Contains(c.Path, "email") && c.Type == Added {
 			found = true
-			if c.Classification != PotentialBreaking {
-				t.Errorf("expected POTENTIAL_BREAKING for an added response property, got %s", c.Classification)
+			if c.Classification != NonBreaking {
+				t.Errorf("expected NON_BREAKING for an added response property, got %s", c.Classification)
 			}
 		}
 	}
@@ -1548,7 +1549,7 @@ func TestDiffOpenAPI_ResponsePayloadRemovalIsBreaking(t *testing.T) {
                 type: object
 `, "openapi.paths[/users].methods[GET].responses[200].content.application/json.schema.properties", Breaking},
 		// Documentation beside the payload: removing it takes nothing away from a
-		// consumer, so it must not be escalated.
+		// consumer, so it never counts.
 		{"description removed", `"200":
           content:
             application/json:
@@ -1557,7 +1558,7 @@ func TestDiffOpenAPI_ResponsePayloadRemovalIsBreaking(t *testing.T) {
                 type: object
                 properties:
                   id: {type: string}
-`, "openapi.paths[/users].methods[GET].responses[200].description", PotentialBreaking},
+`, "openapi.paths[/users].methods[GET].responses[200].description", NonBreaking},
 		{"example removed", `"200":
           description: OK
           content:
@@ -1566,7 +1567,7 @@ func TestDiffOpenAPI_ResponsePayloadRemovalIsBreaking(t *testing.T) {
                 type: object
                 properties:
                   id: {type: string}
-`, "openapi.paths[/users].methods[GET].responses[200].content.application/json.example", PotentialBreaking},
+`, "openapi.paths[/users].methods[GET].responses[200].content.application/json.example", NonBreaking},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1797,5 +1798,58 @@ func TestToStringMap_CollidingKeysWithAlikeValuesAreDeterministic(t *testing.T) 
 		if len(got) != 1 || got["1"] != "true" {
 			t.Fatalf("expected the same winner on every run, got %#v", got)
 		}
+	}
+}
+
+// A request schema sits in request position and a response schema in response
+// position, so the same enum edit grades in opposite directions on the two
+// sides of one operation. A parameter's schema is request position too, and a
+// response's own description is documentation.
+func TestDiffOpenAPI_PositionalSchemaChanges(t *testing.T) {
+	spec := func(paramEnum, bodyEnum, respEnum, respDesc string) fstest.MapFS {
+		return makeOpenAPIFS(`paths:
+  /users:
+    post:
+      parameters:
+        - name: sort
+          in: query
+          schema: {type: string, enum: [` + paramEnum + `]}
+      requestBody:
+        content:
+          application/json:
+            schema: {type: string, enum: [` + bodyEnum + `]}
+      responses:
+        "200":
+          description: ` + respDesc + `
+          content:
+            application/json:
+              schema: {type: string, enum: [` + respEnum + `]}
+`)
+	}
+	base := spec("asc, desc", "a", "a", "OK")
+	tests := []struct {
+		name, path string
+		new        fstest.MapFS
+		want       Classification
+	}{
+		{"request body enum widened", "openapi.paths[/users].methods[POST].request-body.content.application/json.schema.enum[b]",
+			spec("asc, desc", "a, b", "a", "OK"), NonBreaking},
+		{"response enum widened", "openapi.paths[/users].methods[POST].responses[200].content.application/json.schema.enum[b]",
+			spec("asc, desc", "a", "a, b", "OK"), Breaking},
+		{"parameter enum narrowed", "openapi.paths[/users].methods[POST].parameters[sort:query]",
+			spec("asc", "a", "a", "OK"), Breaking},
+		{"response description reworded", "openapi.paths[/users].methods[POST].responses[200].description",
+			spec("asc, desc", "a", "a", "Fine"), NonBreaking},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes := diffOpenAPI("openapi.yaml", "openapi.yaml", base, tt.new)
+			if len(changes) != 1 || changes[0].Path != tt.path {
+				t.Fatalf("expected one change at %s, got %+v", tt.path, changes)
+			}
+			if changes[0].Classification != tt.want {
+				t.Errorf("got %s, want %s", changes[0].Classification, tt.want)
+			}
+		})
 	}
 }

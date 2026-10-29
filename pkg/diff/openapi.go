@@ -239,13 +239,19 @@ func diffParameters(path, method string, oldParams, newParams []any) []Change {
 		}
 		if !yamlEqual(oldParam, newParam) {
 			oldSummary, newSummary := mapDelta(oldParam, newParam, paramIdentityKeys)
+			paramPath := fmt.Sprintf("openapi.paths[%s].methods[%s].parameters[%s]", path, method, key)
 			cls := classify("openapi.parameters", Modified)
 			// optional -> required is breaking: existing clients omit the parameter.
 			if !paramRequired(oldParam) && paramRequired(newParam) {
 				cls = Breaking
 			}
+			// A parameter's schema is in request position, so narrowing it (an
+			// enum value dropped, a tighter limit) breaks existing callers.
+			for _, c := range diffJSON(dirRequest, paramPath+".schema", oldParam["schema"], newParam["schema"]) {
+				cls = max(cls, c.Classification)
+			}
 			changes = append(changes, Change{
-				Path:           fmt.Sprintf("openapi.paths[%s].methods[%s].parameters[%s]", path, method, key),
+				Path:           paramPath,
 				Type:           Modified,
 				OldValue:       oldSummary,
 				NewValue:       newSummary,

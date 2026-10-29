@@ -14,7 +14,7 @@ Each change is classified as:
 - **`POTENTIAL_BREAKING`**: a change that *may* break consumers, depending on how they use the field
 - **`NON_BREAKING`**: a safe change that keeps compatibility
 
-A change that matches no specific rule below defaults to **POTENTIAL_BREAKING**.
+A change that matches no specific rule below defaults to **POTENTIAL_BREAKING**. Inside an interface schema the default is **BREAKING**; see [Schema position](#schema-position).
 
 ## Service identity
 
@@ -170,12 +170,14 @@ Capabilities (`health`, `metrics`, `extension`) are compared as a set, keyed by
 | `openapi.parameters` | Added (`required: true`) | **BREAKING** |
 | `openapi.parameters` | Removed | **BREAKING** |
 | `openapi.parameters` | Modified (optional → required) | **BREAKING** |
+| `openapi.parameters` | Modified (schema narrowed) | **BREAKING** |
 | `openapi.parameters` | Modified (any other) | POTENTIAL_BREAKING |
 
-Requiring a parameter is the one parameter change that escalates: introducing a new
-`required` parameter, or flipping an existing one from optional to required, is
-`BREAKING` because existing clients omit it. Relaxing required to optional is
-`POTENTIAL_BREAKING`.
+Introducing a new `required` parameter, or flipping an existing one from
+optional to required, is `BREAKING` because existing clients omit it. A
+parameter's `schema` sits in [request position](#schema-position), so narrowing
+it, for example dropping an `enum` value or lowering a `maxLength`, is
+`BREAKING` too. Relaxing required to optional is `POTENTIAL_BREAKING`.
 
 Parameters are identified by `name` + `in` (location: query, path, header, cookie). A parameter renamed or moved to a different location counts as a removal plus an addition.
 
@@ -194,26 +196,13 @@ Parameters are identified by `name` + `in` (location: query, path, header, cooki
 | `openapi.responses` | Removed | **BREAKING** |
 
 Neither table has a Modified row. A request body or a status code present on
-both sides is deep-diffed field by field, and the [JSON Schema
-rules](#json-schema-configuration-policy-schemas) below classify each inner
-difference.
-
-Which side of the exchange the body belongs to changes the verdict, because a
-`required` entry means the opposite thing on each side:
-
-| Where | Change | Classification | Why |
-|-------|--------|----------------|-----|
-| request body | `required` field added | **BREAKING** | existing callers omit it |
-| request body | `required` field removed | NON_BREAKING | the caller's obligation relaxed |
-| response | `required` field added | NON_BREAKING | a stronger guarantee to the reader |
-| response | `required` field removed | **BREAKING** | a guarantee consumers read is withdrawn |
-| response | property removed | **BREAKING** | data a consumer could read is gone |
-
-A property removed from a response is `BREAKING` whether or not it was listed in
-`required`. Most response schemas have no `required` array at all, and deleting
-a field consumers read is the commonest way a REST provider breaks them. Every
-other inner difference (a property added, a type or constraint changed) is
-`POTENTIAL_BREAKING`.
+both sides is deep-diffed field by field. A request body schema sits in request
+position and a response schema in response position, and the
+[schema position rules](#schema-position) classify each inner difference. A
+documentation edit, such as a response `description` or an `example`, is
+`NON_BREAKING`. Any other change around the schema, such as a media type or a
+header, is `POTENTIAL_BREAKING`, except that removing a response's whole
+`content`, one of its media types or its schema is `BREAKING`.
 
 Change paths use a hierarchical format that pinpoints the exact location, for example:
 
@@ -234,7 +223,7 @@ openapi.paths[/users].methods[GET].responses[200].content.application/json.schem
 | `asyncapi.channels` | Added | NON_BREAKING |
 | `asyncapi.channels` | Removed | **BREAKING** |
 
-A channel present on both sides is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change. The [JSON Schema rules](#json-schema-configuration-policy-schemas) below classify each one: a `required` change is `BREAKING` and every other inner difference is `POTENTIAL_BREAKING`. For that reason the table has no `asyncapi.channels` Modified row.
+A channel present on both sides is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change. Old and new publishers and subscribers run side by side, so everything inside a channel sits in [record position](#schema-position): adding an optional payload property and editing documentation are `NON_BREAKING`, and so is adding a 2.x `publish` or `subscribe` operation. Every other inner difference is `BREAKING`. For that reason the table has no `asyncapi.channels` Modified row.
 
 ### Operations
 
@@ -243,7 +232,7 @@ A channel present on both sides is compared field by field, so a new payload pro
 | `asyncapi.operations` | Added | NON_BREAKING |
 | `asyncapi.operations` | Removed | **BREAKING** |
 
-An operation present on both sides is deep-diffed exactly like a channel, so flipping `action` from `send` to `receive` surfaces as `asyncapi.operations[sendOrder].action` (`POTENTIAL_BREAKING`).
+An operation present on both sides is deep-diffed exactly like a channel, so flipping `action` from `send` to `receive` surfaces as `asyncapi.operations[sendOrder].action` (`BREAKING`).
 
 Top-level `operations` are an AsyncAPI 3.x concept. A 2.x document has no `operations` map, so only its channels are compared.
 
@@ -259,7 +248,7 @@ asyncapi.operations[sendOrder].action
 
 ## gRPC
 
-`pacto diff` compares referenced `.proto` files at the service, rpc, message and field level.
+`pacto diff` compares referenced `.proto` files at the service, rpc, message, field and enum level.
 
 | Field | Change | Classification |
 |-------|--------|----------------|
@@ -273,8 +262,11 @@ asyncapi.operations[sendOrder].action
 | `grpc.messages.fields` | Added | NON_BREAKING |
 | `grpc.messages.fields` | Removed | **BREAKING** |
 | `grpc.messages.fields` | Modified | **BREAKING** |
+| `grpc.enums` | Added | NON_BREAKING |
+| `grpc.enums` | Removed | **BREAKING** |
+| `grpc.enums.values` | Added / Removed / Modified | **BREAKING** |
 
-proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. For that reason a modified field is `BREAKING`.
+proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. An added enum value is `BREAKING`: the scan cannot tell whether the enum travels in a request or a response, and a reader that switches over every value has no case for the new one. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. For that reason a modified field is `BREAKING`.
 
 Change paths pinpoint the exact location, for example:
 
@@ -289,7 +281,7 @@ grpc.messages[EvaluateTransactionRequest].fields[metadata]
 The comparison scans proto3 source as text. It runs no protobuf compiler, which has these effects:
 
 - **`import`s stay unresolved.** Pacto compares only the declarations in the referenced file. A message that moves into an imported file reads as a removal.
-- **Nested messages and `oneof` bodies are skipped.** Their fields are left out of the enclosing message, so a change inside one produces no change entry.
+- **Nested messages, nested enums and `oneof` bodies are skipped.** Their fields are left out of the enclosing message, so a change inside one produces no change entry.
 - **Identity is the declared name.** A renamed field or rpc reads as a removal plus an addition even when the field number is unchanged.
 - **Type identity is textual.** The scanner compares names as written, without `package` or `import` resolution, so fully qualifying a type (`Inner` → `pkg.v1.Inner`) reads as a modified field even though the descriptor is unchanged.
 - **Inline field options are ignored.** Adding or removing `[deprecated = true]` produces no change entry, while a retype behind one still does. A field whose option block contains braces (a nested text-format value such as `[(validate.rules).string = {min_len: 1}]`) is dropped from the revision that carries it, and only from that one. Adding such an option to an existing field therefore reads as a removal and is classified **BREAKING**.
@@ -305,21 +297,44 @@ Schema files referenced by `configurations[].schema`, `policies[].schema` or the
 | `schema.properties.*` | Removed | POTENTIAL_BREAKING |
 | `schema.properties.*` | Modified | POTENTIAL_BREAKING |
 | `schema.required` | Added / Removed | **BREAKING** |
+| `schema.description`, `title`, `examples` and other documentation | Added / Removed / Modified | NON_BREAKING |
 | `schema.*` (any other path) | Added / Removed / Modified | POTENTIAL_BREAKING |
 
-The same recursive comparison classifies OpenAPI request bodies and responses,
-AsyncAPI payloads and these schema files, with one difference. A `required`
-entry is a promise in one direction and an obligation in the other, so the
-verdict depends on which side supplies the data.
+A configuration or policy schema carries no position. A configuration schema
+constrains a value the platform supplies, so both `required` transitions take
+the conservative answer and stay `BREAKING`.
 
-- **OpenAPI request bodies and responses** carry a known direction and use the
-  mirrored table under [Responses](#responses) above.
-- **Configuration schemas, policy schemas and AsyncAPI payloads** carry no
-  direction. A configuration schema constrains a value the platform supplies,
-  and one service publishes to an AsyncAPI channel while another subscribes. With no
-  direction to read, both `required` transitions take the conservative answer
-  and stay `BREAKING`, and a removed property is `POTENTIAL_BREAKING` like any
-  other structural difference.
+## Schema position
+
+An interface schema is judged by the position it sits in, because the same
+edit helps one side of an exchange and hurts the other.
+
+| Position | Where | Who reads it | Widening | Narrowing |
+|----------|-------|--------------|----------|-----------|
+| request | OpenAPI request bodies and parameters, MCP `inputSchema` | the new provider, from an old caller | NON_BREAKING | **BREAKING** |
+| response | OpenAPI responses, MCP `outputSchema` | an old consumer, which may switch over every `enum` value | **BREAKING** | NON_BREAKING |
+| record | AsyncAPI channels and operations | old and new code at once, in both directions | **BREAKING** | **BREAKING** |
+
+| Edit | Effect |
+|------|--------|
+| `enum` value, `oneOf` or `anyOf` variant, or `type` member added | widens |
+| `type` changed from `integer` to `number`, or `nullable: true` set | widens |
+| `maxLength`, `maximum`, `maxItems` or `maxProperties` raised, or a `min*` bound lowered | widens |
+| a bound, `pattern`, `format`, `const`, `enum`, `allOf` or `items` removed | widens |
+| `additionalProperties: false` relaxed to a schema or removed | widens |
+| `required` entry removed, or `allOf` member removed | widens |
+| the mirror of each row above | narrows |
+| `pattern`, `format`, `const` or `multipleOf` rewritten, or `type` changed to an unrelated type | breaks in every position |
+| anything inside `not` or `if`, a `$ref` repointed, a `default` changed, any other keyword | breaks in every position |
+| `description`, `title`, `summary`, `example`, `examples`, `$comment`, `externalDocs` or `deprecated` | NON_BREAKING in every position |
+
+Properties have their own rules:
+
+- Adding an optional property is `NON_BREAKING` in every position, because a reader tolerates a field it does not know.
+- Removing one is `BREAKING` from a response or a record whether or not `required` listed it. Most payload schemas list nothing, and the field is data a reader may use.
+- Removing one from a request is `POTENTIAL_BREAKING`: the provider drops the caller's field unread.
+- An object with `additionalProperties: false` accepts no undeclared field, so adding a property widens it and removing one narrows it.
+- Inside a response header every grade stops at `POTENTIAL_BREAKING`, because removing the whole header is `POTENTIAL_BREAKING`.
 
 ## Readiness
 
