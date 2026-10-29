@@ -471,6 +471,19 @@ func needs21(m map[string]any, deps []DependencyInput) bool {
 
 // --- Edit ---
 
+// validateEdited validates an edited contract over its bundle: the existing
+// files, the new YAML, stubs for new refs and a merged config schema.
+func (o fileOps) validateEdited(dir string, yamlBytes []byte, c *contract.Contract, schemaRel string, schemaBytes []byte) error {
+	bundleFS := o.buildBundleFSForValidation(dir, yamlBytes, c)
+	if schemaRel != "" {
+		bundleFS[schemaRel] = &fstest.MapFile{Data: schemaBytes}
+	}
+	if result := validation.Validate(c, yamlBytes, bundleFS); !result.IsValid() {
+		return fmt.Errorf("edited contract fails validation: %s", result.Errors[0].Message)
+	}
+	return nil
+}
+
 // Edit modifies an existing pacto contract.
 func Edit(input EditInput) (*EditResult, error) { return osFileOps().edit(input) }
 
@@ -516,15 +529,8 @@ func (o fileOps) edit(input EditInput) (*EditResult, error) {
 		return nil, fmt.Errorf("edited contract is invalid: %w", err)
 	}
 
-	// Build FS for validation (existing files + new YAML + stubs for new refs)
-	bundleFS := o.buildBundleFSForValidation(dir, yamlBytes, c)
-	if schemaRel != "" {
-		bundleFS[schemaRel] = &fstest.MapFile{Data: schemaBytes}
-	}
-
-	result := validation.Validate(c, yamlBytes, bundleFS)
-	if !result.IsValid() {
-		return nil, fmt.Errorf("edited contract fails validation: %s", result.Errors[0].Message)
+	if err := o.validateEdited(dir, yamlBytes, c, schemaRel, schemaBytes); err != nil {
+		return nil, err
 	}
 
 	summary := summarizeContract(c)

@@ -159,8 +159,7 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 }
 
 func TestDeliveryToolCalls(t *testing.T) {
-	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}, Next: []string{"held"}}}
-	server := NewDeliveryServer("v", api, true, nil)
+	server := NewDeliveryServer("v", &stubDelivery{}, true, nil)
 	var types []delivery.OperationType
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_types", map[string]any{}), &types)
 	if len(types) != len(delivery.Types()) {
@@ -177,6 +176,11 @@ func TestDeliveryToolCalls(t *testing.T) {
 	if res := callToolOn(t, server, "pacto_delivery_operation_types", map[string]any{"type": "x"}); !res.IsError {
 		t.Fatal("unknown type must be an error")
 	}
+}
+
+func TestDeliveryPlanToolCalls(t *testing.T) {
+	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}, Next: []string{"held"}}}
+	server := NewDeliveryServer("v", api, true, nil)
 	var plan delivery.PlanAnswer
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_plan", map[string]any{
 		"namespace": "prod", "stage": "s", "to": "3.0.0", "on_behalf_of": "alice"}), &plan)
@@ -199,6 +203,10 @@ func TestDeliveryToolCalls(t *testing.T) {
 	if h.Stage.Name != "s" || h.Completeness != "partial" {
 		t.Fatalf("history: %+v", h)
 	}
+}
+
+func TestDeliveryCandidatesToolCall(t *testing.T) {
+	server := NewDeliveryServer("v", &stubDelivery{}, true, nil)
 	var c delivery.CandidateVersions
 	decode(t, callToolOn(t, server, "pacto_delivery_candidates", map[string]any{"namespace": "prod", "stage": "s"}), &c)
 	if c.Stage != "s" || len(c.Versions) != 1 || c.Versions[0].Version != "3.0.0" {

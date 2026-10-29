@@ -67,6 +67,9 @@ func TestListCandidates(t *testing.T) {
 	if l := ListCandidates(context.Background(), oci, nil, "", describeVersions); !strings.Contains(l.Note, "publish one with pacto publish") {
 		t.Fatalf("nothing published yet: %+v", l)
 	}
+}
+
+func TestListCandidatesUpstream(t *testing.T) {
 	up := candidateStage(Candidates{UpstreamStage: &StageRef{Name: "payments", Namespace: "test"}}, StageStatus{})
 	if l := ListCandidates(context.Background(), up, nil, "", describeVersions); l.Source != "upstream Stage test/payments" ||
 		!strings.Contains(l.Note, "does not exist or cannot be read") {

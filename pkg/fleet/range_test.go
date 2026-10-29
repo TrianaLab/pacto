@@ -81,8 +81,7 @@ func TestRelationshipRangeStatus(t *testing.T) {
 }
 
 // TestRangeUnsatisfiedNeedsAttention proves a resolved dependency outside its
-// range reaches every reader: status (with no category selected and with its own
-// category), explain, the overview tally and its entry point.
+// range reaches status, with no category selected and with its own category.
 func TestRangeUnsatisfiedNeedsAttention(t *testing.T) {
 	q := rangeFleet(t)
 	for name, sq := range map[string]StatusQuery{"empty": {}, "own category": {UnsatisfiedRanges: true}} {
@@ -103,7 +102,12 @@ func TestRangeUnsatisfiedNeedsAttention(t *testing.T) {
 	if res := q.Status(StatusQuery{UnresolvedDeps: true}); len(res.Items) != 0 {
 		t.Errorf("another category must not report the range item: %+v", res.Items)
 	}
+}
 
+// TestRangeUnsatisfiedExplainAndOverview: explain names the range, and the
+// overview tallies it with its own entry point.
+func TestRangeUnsatisfiedExplainAndOverview(t *testing.T) {
+	q := rangeFleet(t)
 	ex, err := q.Explain("reporting")
 	if err != nil {
 		t.Fatal(err)

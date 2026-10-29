@@ -496,6 +496,22 @@ func TestPlanConsumerOutsideTheDomainIsUnknown(t *testing.T) {
 	}
 }
 
+func checkPublishedCase(t *testing.T, name string, p Plan, result Result, msg string) {
+	t.Helper()
+	v := verdict(t, p, GatePublished)
+	if v.Result != result || !strings.Contains(v.Message, msg) {
+		t.Errorf("%s: %s %q", name, v.Result, v.Message)
+	}
+	// A refused change asks nobody anything, even on a Stage that asks a
+	// person to approve every promote.
+	if result == Fail && (p.Predicted != PredictRejected || len(p.Verdicts) != 1 || p.Question != "" || p.Floor.Human) {
+		t.Errorf("%s: a version pacto publish did not publish goes no further: %+v", name, p)
+	}
+	if result == Unknown && (p.Predicted != PredictHeld || p.Floor.Decision != AcceptUnknown || !strings.Contains(p.Question, "cannot tell")) {
+		t.Errorf("%s: Unknown holds for a person: %+v", name, p)
+	}
+}
+
 // TestPublishedGate: a promote is admitted only for a version pacto publish
 // published. Anything else is refused before any other gate runs.
 func TestPublishedGate(t *testing.T) {
@@ -545,18 +561,7 @@ func TestPublishedGate(t *testing.T) {
 		msg    string
 	}{"upstream unreadable, no reason", silent, Fail, "does not exist or cannot be read"})
 	for _, c := range cases {
-		v := verdict(t, c.p, GatePublished)
-		if v.Result != c.result || !strings.Contains(v.Message, c.msg) {
-			t.Errorf("%s: %s %q", c.name, v.Result, v.Message)
-		}
-		// A refused change asks nobody anything, even on a Stage that asks a
-		// person to approve every promote.
-		if c.result == Fail && (c.p.Predicted != PredictRejected || len(c.p.Verdicts) != 1 || c.p.Question != "" || c.p.Floor.Human) {
-			t.Errorf("%s: a version pacto publish did not publish goes no further: %+v", c.name, c.p)
-		}
-		if c.result == Unknown && (c.p.Predicted != PredictHeld || c.p.Floor.Decision != AcceptUnknown || !strings.Contains(c.p.Question, "cannot tell")) {
-			t.Errorf("%s: Unknown holds for a person: %+v", c.name, c.p)
-		}
+		checkPublishedCase(t, c.name, c.p, c.result, c.msg)
 	}
 	// A verdict on a remote upstream cites the newest record it read.
 	view := &StageStatus{Verified: []string{dB}, Offered: []string{dB}, Stream: Stream{ID: "c2/test/payments", Seq: 7, Head: "sha256:r7"}}
