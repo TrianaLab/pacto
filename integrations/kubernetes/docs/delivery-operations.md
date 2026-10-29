@@ -5,10 +5,15 @@ How a change is planned, proposed and approved, for
 [Delivery reference: setup and gates](delivery-setup.md).
 
 ```bash
-pacto delivery plan -n prod --stage payments --to sha256:...
-pacto delivery propose -n prod --stage payments --to sha256:... --intent-digest sha256:...
+pacto delivery candidates -n prod --stage payments
+pacto delivery plan -n prod --stage payments --to 3.0.0
+pacto delivery propose -n prod --stage payments --to 3.0.0 --intent-digest sha256:...
 pacto delivery approve -n prod <operation> --decision approve
 ```
+
+`candidates` lists the versions a Stage may take, with their digests. `--to`
+takes a version, a tag or a digest; a version or a tag must name exactly one
+candidate, or Pacto refuses it and says why. The operation records the digest.
 
 `approve` decides as your kubeconfig signs you in. Where the Stage asks for a
 recent sign-in, it makes you log in again in your browser through its own
@@ -17,13 +22,18 @@ recent sign-in, it makes you log in again in your browser through its own
 [approve from the terminal](delivery-identity.md#approve-from-the-terminal).
 
 `plan` predicts each gate's verdict and the one question a person would be
-asked. `propose` with the plan's intent digest refuses with `PlanStale` if
-anything moved since.
+asked. Its `next` lines say which teams must sign, that an agent cannot answer
+and that an operation nobody decides before its approval deadline (24 hours
+unless the Stage's `deadlines.approval` says otherwise) concludes Expired. A
+Rejected plan asks nobody anything; its failing verdict says what to do first. `propose` with the plan's intent digest refuses with
+`PlanStale` if anything moved since. The digest also binds the reason and the
+on-behalf-of person, so pass the same ones you planned with: when they explain
+the difference, `PlanStale` names them.
 
 ## Cancel and roll back
 
 `cancel` works until the pointer moves; after that,
-propose `--type rollback --undoes <operation>`. A tag is refused. A rollback
+propose `--type rollback --undoes <operation>`. A rollback
 runs no gates, so only a person or break-glass may roll back a rollback or an
 override: an agent proposes a promote of that version instead, which the gates
 judge. One check applies to a rollback a person or agent raises: when a

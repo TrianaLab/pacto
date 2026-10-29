@@ -156,11 +156,21 @@ always to a new tag) beside the authoring tools. It runs over stdio
 only.
 
 `--delivery` serves the delivery tools over the cluster your kubeconfig
-points at: `pacto_delivery_operation_types`, `pacto_delivery_operation_plan`,
-`pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`,
-`pacto_delivery_blame`, `pacto_delivery_undo_plan` and
+points at: `pacto_delivery_operation_types`, `pacto_delivery_candidates`,
+`pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`,
+`pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan` and
 `pacto_delivery_record_verify` for everyone, plus
 `pacto_delivery_operation_propose` and `pacto_delivery_cancel` only when the
-cluster says the caller is an agent. Delivery mode has no approve tool. Over HTTP it
+cluster says the caller is an agent. Delivery mode has no approve tool.
+
+`pacto_delivery_candidates` lists the versions a Stage may take, with their
+digests. The `to` input of plan and propose takes a version (`3.0.0`), a tag or
+a digest; a version or a tag must name exactly one of those candidates, or the
+tool refuses it and says why. A plan's `next` says what proposing it leads to:
+which teams must sign, that an agent cannot answer and the operation is then
+Held, and what happens at the approval deadline. `pacto_delivery_get` adds
+`next` with the deadline while an operation is held. Propose with the plan's
+intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
+and `PlanStale` names the one that differs when it can tell. Over HTTP it
 needs token exchange; see
 [agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).

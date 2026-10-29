@@ -318,6 +318,21 @@ pacto delivery cancel <operation> [flags]
   -h, --help   help for cancel
 ```
 
+### `pacto delivery candidates`
+
+List the versions a Stage may be promoted to: what pacto publish published that its candidate source offers
+
+```
+pacto delivery candidates [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help           help for candidates
+      --stage string   the Stage (required)
+```
+
 ### `pacto delivery describe`
 
 Show what an operation type checks, when a person is needed and how it is undone
@@ -394,14 +409,14 @@ pacto delivery plan [flags]
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
-      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a level (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
+      --to string                                                   where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); for delivery.pacto.trianalab.io/autonomy a level (observe, advise, auto-nonbreaking or autonomous)
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
 
 ### `pacto delivery propose`
 
-Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan
+Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan or the reason or on-behalf-of differs
 
 ```
 pacto delivery propose [flags]
@@ -413,13 +428,13 @@ pacto delivery propose [flags]
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help                                                        help for propose
-      --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches
+      --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of
       --name string                                                 the Operation name (generated when empty)
       --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
-      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a level (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
+      --to string                                                   where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); for delivery.pacto.trianalab.io/autonomy a level (observe, advise, auto-nonbreaking or autonomous)
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
