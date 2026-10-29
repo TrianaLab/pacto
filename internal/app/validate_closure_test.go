@@ -6,7 +6,58 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+// A consumer validated with --closure is warned about each deprecated
+// interface of a provider it depends on directly, also when a sibling reached
+// that provider first (a diamond), and never about a transitive provider.
+func TestValidate_Closure_DeprecatedProviderInterface(t *testing.T) {
+	root := t.TempDir()
+	deprecated := closureService("ledger", "bob@example.com") + `interfaces:
+  - name: v1
+    type: openapi
+    ref: v1.yaml
+    lifecycle:
+      deprecated: "2026-01-15"
+      sunset: "2026-07-01"
+      successor: v2
+  - name: v2
+    type: openapi
+    ref: v1.yaml
+`
+	writeClosureFile(t, root, "ledger/pacto.yaml", strings.Replace(deprecated, `"2.0"`, `"2.2"`, 1))
+	writeClosureFile(t, root, "ledger/v1.yaml", "openapi: 3.0.0\ninfo: {title: l, version: '1'}\npaths: {}\n")
+	writeClosureFile(t, root, "audit/pacto.yaml", closureService("audit", "carol@example.com", "ledger"))
+	writeClosureFile(t, root, "payments/pacto.yaml", closureService("payments", "alice@example.com", "audit", "ledger"))
+	writeClosureFile(t, root, "billing/pacto.yaml", closureService("billing", "dan@example.com", "audit"))
+
+	for _, tc := range []struct {
+		at   time.Time
+		code string
+	}{
+		{time.Date(2026, time.June, 30, 9, 0, 0, 0, time.UTC), "DEPENDENCY_INTERFACE_DEPRECATED"},
+		{time.Date(2026, time.July, 1, 9, 0, 0, 0, time.UTC), "DEPENDENCY_INTERFACE_SUNSET"},
+	} {
+		svc := NewService(&mockBundleStore{}, nil)
+		svc.sys.now = func() time.Time { return tc.at }
+		res, err := svc.Validate(context.Background(), ValidateOptions{Path: filepath.Join(root, "payments"), Closure: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !res.Valid || len(res.Warnings) != 1 || res.Warnings[0].Code != tc.code || res.Warnings[0].Path != "dependencies[1]" {
+			t.Fatalf("%s: valid=%v warnings=%+v errors=%+v", tc.code, res.Valid, res.Warnings, res.Errors)
+		}
+		if !strings.Contains(res.Warnings[0].Message, "ledger@1.0.0 interface v1") || !strings.Contains(res.Warnings[0].Message, "successor v2") {
+			t.Fatalf("message: %q", res.Warnings[0].Message)
+		}
+	}
+
+	res, err := NewService(&mockBundleStore{}, nil).Validate(context.Background(), ValidateOptions{Path: filepath.Join(root, "billing"), Closure: true})
+	if err != nil || len(res.Warnings) != 0 {
+		t.Fatalf("a transitive provider is its direct consumer's business: %+v %v", res.Warnings, err)
+	}
+}
 
 const closurePolicySchema = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",

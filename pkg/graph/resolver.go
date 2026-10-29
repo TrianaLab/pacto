@@ -103,6 +103,10 @@ type Edge struct {
 	Error    string `json:"error,omitempty"`
 	Shared   bool   `json:"shared,omitempty"`
 	Local    bool   `json:"local,omitempty"`
+	// Unmet lists the guarantees the dependency requires that the resolved
+	// provider does not meet. It is empty when they all hold and when the
+	// provider was not resolved (see Error), which leaves them unknown.
+	Unmet []contract.Mismatch `json:"unmet,omitempty"`
 
 	// key identifies the node this edge points at. A Shared edge carries only a
 	// shallow copy of that node, so the cycle pass needs the identity to find the
@@ -175,7 +179,7 @@ func ResolveWithOptions(ctx context.Context, c *contract.Contract, fetcher Contr
 
 	// Build dependency edges (unless only-references mode)
 	if !opts.OnlyReferences {
-		root.Dependencies = r.resolveChildren(ctx, c.Dependencies, rootBase, path)
+		root.Dependencies = r.resolveChildren(ctx, c.Service.Name, c.Dependencies, rootBase, path)
 	}
 
 	// Add reference edges from config/policy refs
@@ -243,9 +247,10 @@ func fetchPort(fetcher ContractFetcher) (func(context.Context, string, contract.
 	}, ""
 }
 
-// resolveChildren resolves a slice of dependencies concurrently. base is the
-// declaring contract's base, which every child reference resolves against.
-func (r *resolver) resolveChildren(ctx context.Context, deps []contract.Dependency, base string, path []string) []Edge {
+// resolveChildren resolves a slice of dependencies concurrently. from names
+// the declaring contract; base is its base, which every child reference
+// resolves against.
+func (r *resolver) resolveChildren(ctx context.Context, from string, deps []contract.Dependency, base string, path []string) []Edge {
 	if len(deps) == 0 {
 		return nil
 	}
@@ -256,6 +261,7 @@ func (r *resolver) resolveChildren(ctx context.Context, deps []contract.Dependen
 		for i, dep := range deps {
 			edges[i] = r.resolveEdge(ctx, dep, base, path)
 		}
+		r.checkGuarantees(from, deps, edges)
 		return edges
 	}
 
@@ -268,7 +274,26 @@ func (r *resolver) resolveChildren(ctx context.Context, deps []contract.Dependen
 	}
 	_ = g.Wait()
 
+	r.checkGuarantees(from, deps, edges)
 	return edges
+}
+
+// checkGuarantees records on each resolved edge the guarantees its dependency
+// requires that the provider does not meet. A shared edge reads the provider
+// from the node it was first resolved as. An edge with no provider (an error,
+// or no fetcher) records nothing: whether its requirements hold is unknown.
+func (r *resolver) checkGuarantees(from string, deps []contract.Dependency, edges []Edge) {
+	for i := range edges {
+		if len(deps[i].Requires) == 0 || edges[i].Error != "" {
+			continue
+		}
+		r.mu.Lock()
+		n := r.visited[edges[i].key]
+		r.mu.Unlock()
+		if n != nil {
+			edges[i].Unmet = contract.Unmet(from, deps[i], n.Contract)
+		}
+	}
 }
 
 // resolveEdge resolves a single dependency edge, recursing into its dependencies.
@@ -372,7 +397,7 @@ func (r *resolver) resolveEdge(ctx context.Context, dep contract.Dependency, bas
 	}
 
 	childPath := append(append([]string{}, path...), dep.Ref)
-	node.Dependencies = r.resolveChildren(ctx, bundle.Contract.Dependencies, childBase, childPath)
+	node.Dependencies = r.resolveChildren(ctx, node.Name, bundle.Contract.Dependencies, childBase, childPath)
 
 	edge.Node = node
 	return edge

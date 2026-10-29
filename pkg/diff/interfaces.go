@@ -1,9 +1,11 @@
 package diff
 
 import (
+	"fmt"
 	"io/fs"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -21,9 +23,10 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 		oldIface := oldByName[name]
 		newIface, exists := newByName[name]
 		if !exists {
-			changes = append(changes, newChange("interfaces", Removed, name, nil))
+			changes = append(changes, removedInterface(oldIface))
 			continue
 		}
+		changes = append(changes, diffLifecycle(name, oldIface.Lifecycle, newIface.Lifecycle)...)
 
 		if oldIface.Type != newIface.Type {
 			changes = append(changes, newChange("interfaces.type", Modified, name+": "+oldIface.Type, name+": "+newIface.Type))
@@ -31,6 +34,9 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 		if oldIface.Visibility != newIface.Visibility {
 			changes = append(changes, newChange("interfaces.visibility", Modified, name+": "+oldIface.Visibility, name+": "+newIface.Visibility))
 		}
+
+		changes = append(changes, diffGuarantees(name, oldIface.Guarantees, newIface.Guarantees)...)
+		changes = append(changes, diffEpoch(name, oldIface.CompatibilityEpoch, newIface.CompatibilityEpoch)...)
 
 		// Diff spec ref (renamed from Contract in v1)
 		if oldIface.Ref != newIface.Ref {
@@ -61,6 +67,71 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	}
 
 	return changes
+}
+
+// removedInterface is the Breaking removal of iface. Its reason says so when
+// the interface is removed before the sunset it announced.
+func removedInterface(iface contract.Interface) Change {
+	c := newChange("interfaces", Removed, iface.Name, nil)
+	if l := iface.Lifecycle; l != nil && l.Sunset != "" && !l.SunsetReached(now()) {
+		c.Reason += fmt.Sprintf(": %s removed before its sunset %s, so consumers still inside the announced window break", iface.Name, l.Sunset)
+	}
+	return c
+}
+
+// now is the clock that decides whether a removed interface's sunset has been
+// reached. Only the reason text reads it; no classification does.
+var now = time.Now
+
+// diffLifecycle compares the lifecycle of one interface. Deprecating, moving the
+// deprecation date, adding or dropping a sunset and naming a successor are
+// notices that change nothing a consumer calls, so they are NonBreaking. An
+// earlier sunset shortens the window consumers were promised to migrate in and
+// is PotentialBreaking; a later one only extends it.
+func diffLifecycle(name string, o, n *contract.InterfaceLifecycle) []Change {
+	switch {
+	case o == nil && n == nil:
+		return nil
+	case o == nil:
+		c := newChange("interfaces.lifecycle", Added, nil, name+": deprecated "+n.Deprecated)
+		c.Reason += ": " + name + " " + n.String()
+		return []Change{c}
+	case n == nil:
+		return []Change{newChange("interfaces.lifecycle", Removed, name+": deprecated "+o.Deprecated, nil)}
+	}
+	var changes []Change
+	if o.Deprecated != n.Deprecated {
+		changes = append(changes, newChange("interfaces.lifecycle.deprecated", Modified, name+": "+o.Deprecated, name+": "+n.Deprecated))
+	}
+	if o.Sunset != n.Sunset {
+		c := newChange("interfaces.lifecycle.sunset", strChangeType(o.Sunset, n.Sunset), name+": "+o.Sunset, name+": "+n.Sunset)
+		if c.Type == Modified {
+			direction := "earlier"
+			if n.Sunset > o.Sunset { // canonical dates compare as strings
+				direction, c.Classification = "later", NonBreaking
+			}
+			c.Reason += fmt.Sprintf(": %s sunset moved %s, from %s to %s", name, direction, o.Sunset, n.Sunset)
+		}
+		changes = append(changes, c)
+	}
+	if o.Successor != n.Successor {
+		changes = append(changes, newChange("interfaces.lifecycle.successor", strChangeType(o.Successor, n.Successor), name+": "+o.Successor, name+": "+n.Successor))
+	}
+	return changes
+}
+
+// diffEpoch reports a changed compatibilityEpoch on interface name. Either
+// direction is Breaking (the rule table says why); the reason says which.
+func diffEpoch(name string, o, n int) []Change {
+	if o == n {
+		return nil
+	}
+	c := newChange("interfaces.compatibilityEpoch", Modified, fmt.Sprintf("%s: %d", name, o), fmt.Sprintf("%s: %d", name, n))
+	c.Reason = fmt.Sprintf("interface %s: compatibilityEpoch raised from %d to %d: its behavior changed incompatibly, so every consumer must review the change", name, o, n)
+	if n < o {
+		c.Reason = fmt.Sprintf("interface %s: compatibilityEpoch lowered from %d to %d: an epoch only goes up, and consumers that adapted to the higher one break", name, o, n)
+	}
+	return []Change{c}
 }
 
 // diffConfiguration compares configuration slices by name and delegates to JSON Schema diff.
@@ -137,7 +208,7 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 // structural diff but reclassifying every change as NonBreaking: values are the
 // provider's own defaults, not part of the consumer-facing contract surface.
 func diffConfigValues(field, name string, old, new map[string]any) []Change {
-	changes := diffJSON(dirUnknown, field+"["+name+"].values", old, new)
+	changes := diffJSON(dirUnknown, nil, field+"["+name+"].values", old, new)
 	for i := range changes {
 		changes[i].Classification = NonBreaking
 	}

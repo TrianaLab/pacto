@@ -386,7 +386,7 @@ func pacto(env string, r delivery.Revision) delivery.PactoView {
 		Owner: &owner, ResolvedRef: r.ContractRef}
 	p.Status.EvaluatedRevision = &delivery.EvaluatedView{ContractDigest: delivery.ContractDigest(r.ContractRef)}
 	for _, d := range c.Dependencies {
-		p.Status.Dependencies = append(p.Status.Dependencies, delivery.DependencyView(d))
+		p.Status.Dependencies = append(p.Status.Dependencies, delivery.DependencyView{Name: d.Name, Ref: d.Ref, Required: d.Required, Compatibility: d.Compatibility, External: d.External, Version: d.Version})
 	}
 	return p
 }

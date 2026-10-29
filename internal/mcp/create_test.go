@@ -829,6 +829,11 @@ func TestSummarizeContract(t *testing.T) {
 	if len(s.Interfaces) != 1 {
 		t.Errorf("expected 1 interface, got %d", len(s.Interfaces))
 	}
+	c := bundle.Contract
+	c.Interfaces[0].Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-01-15", Sunset: "2026-07-01"}
+	if got := summarizeContract(c).Interfaces[0]; got != c.Interfaces[0].Name+" (openapi, deprecated 2026-01-15, sunset 2026-07-01)" {
+		t.Errorf("a deprecated interface carries its schedule, got %q", got)
+	}
 }
 
 func TestAssessSections(t *testing.T) {

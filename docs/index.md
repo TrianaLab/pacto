@@ -166,7 +166,7 @@ the detail.
 
 | You want to | Read |
 |---|---|
-| Know what Pacto is and whether it fits | [Who breaks when a dependency ships](#who-breaks-when-a-dependency-ships-a-new-version), [How Pacto relates to other tools](comparison.md) and the [live demo](examples/dashboard-demo.md) |
+| Know what Pacto is and whether it fits | [Why Pacto](why-pacto.md), [Who breaks when a dependency ships](#who-breaks-when-a-dependency-ships-a-new-version), [How Pacto relates to other tools](comparison.md) and the [live demo](examples/dashboard-demo.md) |
 | Give many existing services a contract | [Generate contracts from what you already have](bootstrap-contracts.md) |
 | Pactify your first service (give it a contract and connect it to delivery) | [Quickstart](quickstart.md), then [Pactify a service](pactify.md) |
 | Approve or unblock a change | [Decide, unfreeze and roll back](pactify-decide.md) |

@@ -18,7 +18,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 15 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 71 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 94 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 13 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -44,7 +44,20 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `interfaces[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_INTERFACE_NAME |
 | `interfaces[].type` | `partial` | `partial` | `partial` | `partial` | Compliant; INTERFACE_PROTOCOL_MISMATCH (error); listed in evaluationCoverage.unverified otherwise; SCHEMA_VIOLATION statically |
 | `interfaces[].ref` | `static-only` | - | - | - | FILE_NOT_FOUND, INVALID_INTERFACE_SPEC, INVALID_MCP_TOOLS |
+| `interfaces[].guarantees` | `static-only` | - | - | - | PARSE_ERROR for an unknown guarantee; NEEDS_PACTO_2_2 under 2.0 and 2.1 |
+| `interfaces[].guarantees.profile` | `static-only` | - | - | - | SCHEMA_VIOLATION when unknown |
+| `interfaces[].guarantees.delivery` | `static-only` | - | - | - | SCHEMA_VIOLATION when unknown |
+| `interfaces[].guarantees.ordering` | `static-only` | - | - | - | SCHEMA_VIOLATION when unknown |
+| `interfaces[].guarantees.dedupeWindow` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a duration |
+| `interfaces[].guarantees.retention` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a duration |
+| `interfaces[].guarantees.idempotent` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a boolean |
+| `interfaces[].guarantees.timeout` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a duration |
+| `interfaces[].compatibilityEpoch` | `static-only` | - | - | - | SCHEMA_VIOLATION, NEEDS_PACTO_2_2 |
 | `interfaces[].visibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; INTERFACE_VISIBILITY_MISMATCH (error); listed in evaluationCoverage.unverified otherwise; SCHEMA_VIOLATION statically |
+| `interfaces[].lifecycle` | `static-only` | - | - | - | SCHEMA_VIOLATION; NEEDS_PACTO_2_2 under 2.0 and 2.1; DEPENDENCY_INTERFACE_DEPRECATED or DEPENDENCY_INTERFACE_SUNSET (warnings) for a consumer |
+| `interfaces[].lifecycle.deprecated` | `static-only` | - | - | - | SCHEMA_VIOLATION, INVALID_INTERFACE_LIFECYCLE |
+| `interfaces[].lifecycle.sunset` | `static-only` | - | - | - | INVALID_INTERFACE_LIFECYCLE; DEPENDENCY_INTERFACE_SUNSET (warning) for a consumer from that date on |
+| `interfaces[].lifecycle.successor` | `static-only` | - | - | - | INTERFACE_SUCCESSOR_UNKNOWN |
 | `configurations` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
 | `configurations[]` | `partial` | `partial` | `unverified` | `unverified` | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically |
 | `configurations[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CONFIGURATION_NAME |
@@ -65,6 +78,16 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `dependencies[].required` | `partial` | `partial` | `partial` | `partial` | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted |
 | `dependencies[].compatibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically |
 | `dependencies[].external` | `static-only` | - | - | - | DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0 |
+| `dependencies[].requires` | `static-only` | - | - | - | GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read; NEEDS_PACTO_2_2 under 2.0 and 2.1 |
+| `dependencies[].requires[]` | `static-only` | - | - | - | PARSE_ERROR when not an object; GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read |
+| `dependencies[].requires[].interface` | `static-only` | - | - | - | GUARANTEE_UNMET when the provider declares none |
+| `dependencies[].requires[].profile` | `static-only` | - | - | - | SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less |
+| `dependencies[].requires[].delivery` | `static-only` | - | - | - | SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less |
+| `dependencies[].requires[].ordering` | `static-only` | - | - | - | SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less |
+| `dependencies[].requires[].dedupeWindow` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
+| `dependencies[].requires[].retention` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
+| `dependencies[].requires[].idempotent` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a boolean; GUARANTEE_UNMET when the provider offers less |
+| `dependencies[].requires[].timeout` | `static-only` | - | - | - | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
 | `dependencies[].version` | `static-only` | - | - | - | EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF |
 | `state` | `not-applicable` | - | - | - | PARSE_ERROR when not an object |
 | `state.type` | `static-only` | - | - | - | SCHEMA_VIOLATION |
@@ -140,14 +163,14 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Contract format version; selects the JSON Schema the contract is validated against. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | parse rejects anything but "2.0" and "2.1" before any other layer runs; the version selects the schema |
+| Rule | parse rejects anything but "2.0", "2.1" and "2.2" before any other layer runs; the version selects the schema |
 | Outcomes | PARSE_ERROR when unsupported |
-| Limitations | 2.0 has its own schema without publish, checks, external dependencies or mcp; this inventory walks 2.1, the superset |
+| Limitations | 2.0 and 2.1 have their own schemas without the fields later versions add; this inventory walks 2.2, the superset |
 | Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid` |
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| `2.1` | `static-only` | the newest Operational Contract format, which adds publish, agent and the mcp interface type; 2.0 contracts keep working unchanged | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
+| `2.2` | `static-only` | the newest Operational Contract format; 2.0 and 2.1 contracts keep working unchanged | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
 
 ### `service`
 
@@ -377,6 +400,128 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Limitations | only the protocol family is checked at runtime, through interfaces[].type |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateInterfaceFiles_FileNotFound`, `pkg/validation/crossfield_test.go:TestValidateInterfaceFileContent_InvalidYAML`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].ref/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].ref/invalid` |
 
+### `interfaces[].guarantees`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Behavior consumers may rely on from the interface, in a closed vocabulary. |
+| Runtime | `static-only` |
+| Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
+| Rule | schema: object of the known guarantees; pactoVersion 2.2 only; pacto diff classifies removing or weakening one as breaking |
+| Outcomes | PARSE_ERROR for an unknown guarantee; NEEDS_PACTO_2_2 under 2.0 and 2.1 |
+| Limitations | a declaration: Pacto never measures whether the interface keeps it |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/validation/structural_test.go:TestNeeds22`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees/invalid-2.1` |
+
+### `interfaces[].guarantees.profile`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Version of the guarantee vocabulary; omitted means 1. |
+| Runtime | `static-only` |
+| Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
+| Rule | schema: enum; pacto diff compares it with the old value |
+| Outcomes | SCHEMA_VIOLATION when unknown |
+| Limitations | only 1 exists, so profiles are not compared yet; a declaration: Pacto never measures whether the interface keeps it |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.profile/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.profile/invalid` |
+
+| Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
+| --- | --- | --- | --- | --- | --- | --- |
+| `1` | `static-only` | the first guarantee vocabulary | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.profile=1` |
+
+### `interfaces[].guarantees.delivery`
+
+| Key | Value |
+| --- | --- |
+| Meaning | What happens to an event when a delivery fails partway. |
+| Runtime | `static-only` |
+| Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
+| Rule | schema: enum; pacto diff compares it with the old value |
+| Outcomes | SCHEMA_VIOLATION when unknown |
+| Limitations | the two values trade loss for duplicates, so neither satisfies the other; a declaration: Pacto never measures whether the interface keeps it |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.delivery/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.delivery/invalid` |
+
+| Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
+| --- | --- | --- | --- | --- | --- | --- |
+| `at-most-once` | `static-only` | an event is never delivered twice and may be lost | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.delivery=at-most-once` |
+| `at-least-once` | `static-only` | an event is never lost and may be delivered more than once | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.delivery=at-least-once` |
+
+### `interfaces[].guarantees.ordering`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Scope in which events arrive in the order sent; global also orders every key. |
+| Runtime | `static-only` |
+| Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
+| Rule | schema: enum; pacto diff compares it with the old value |
+| Outcomes | SCHEMA_VIOLATION when unknown |
+| Limitations | per-key does not name the key; a declaration: Pacto never measures whether the interface keeps it |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.ordering/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.ordering/invalid` |
+
+| Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
+| --- | --- | --- | --- | --- | --- | --- |
+| `per-key` | `static-only` | events with the same key arrive in order | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.ordering=per-key` |
+| `global` | `static-only` | every event arrives in order | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.ordering=global` |
+
+### `interfaces[].guarantees.dedupeWindow`
+
+| Key | Value |
+| --- | --- |
+| Meaning | How long a repeated event is recognised and dropped; longer is stronger. |
+| Runtime | `static-only` |
+| Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
+| Rule | schema: Go duration with ms, s, m or h units; pacto diff compares it with the old value |
+| Outcomes | SCHEMA_VIOLATION when not a duration |
+| Limitations | days are written in hours; a declaration: Pacto never measures whether the interface keeps it |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.dedupeWindow/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.dedupeWindow/invalid` |
+
+### `interfaces[].guarantees.retention`
+
+| Key | Value |
+| --- | --- |
+| Meaning | How long an event stays available for replay; longer is stronger. |
+| Runtime | `static-only` |
+| Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
+| Rule | schema: Go duration with ms, s, m or h units; pacto diff compares it with the old value |
+| Outcomes | SCHEMA_VIOLATION when not a duration |
+| Limitations | days are written in hours; a declaration: Pacto never measures whether the interface keeps it |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.retention/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.retention/invalid` |
+
+### `interfaces[].guarantees.idempotent`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Repeating a call has the effect of making it once. |
+| Runtime | `static-only` |
+| Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
+| Rule | schema: boolean; pacto diff compares it with the old value |
+| Outcomes | SCHEMA_VIOLATION when not a boolean |
+| Limitations | applies to every operation of the interface; a declaration: Pacto never measures whether the interface keeps it |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.idempotent/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.idempotent/invalid` |
+
+### `interfaces[].guarantees.timeout`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The longest a call takes to answer; shorter is stronger. |
+| Runtime | `static-only` |
+| Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
+| Rule | schema: Go duration with ms, s, m or h units; pacto diff compares it with the old value |
+| Outcomes | SCHEMA_VIOLATION when not a duration |
+| Limitations | a declared latency budget; Pacto never measures whether the interface keeps it |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.timeout/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.timeout/invalid` |
+
+### `interfaces[].compatibilityEpoch`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Raised when the interface's behavior changes incompatibly while its spec stays the same; absent means 0. |
+| Runtime | `static-only` |
+| Evidence | none: a behavior change no spec shows has no runtime counterpart |
+| Rule | schema: integer, minimum 0, pactoVersion 2.2; pacto diff reports any change to it as BREAKING |
+| Outcomes | SCHEMA_VIOLATION, NEEDS_PACTO_2_2 |
+| Limitations | validation sees one contract, so a lowered epoch is caught by pacto diff only |
+| Tests | unit: `pkg/validation/structural_test.go:TestNeeds22Epoch`, `pkg/diff/interfaces_test.go:TestDiffInterfaces_CompatibilityEpoch`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].compatibilityEpoch/needs-2.2` |
+
 ### `interfaces[].visibility`
 
 | Key | Value |
@@ -399,6 +544,54 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- | --- | --- | --- | --- | --- |
 | `internal` | `verified` | Only callers inside the cluster may reach it. | internal satisfies; external contradicts | Compliant or INTERFACE_VISIBILITY_MISMATCH | unknown exposure is unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceVisibilityFacet`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].visibility=internal`; e2e: `tests/acceptance/kind/runtime-conformance.sh:conforming-workload`, `tests/acceptance/kind/runtime-conformance.sh:visibility-mismatch` |
 | `public` | `partial` | Meant to be reachable from outside the cluster. | external satisfies; internal and unknown are unverified, never a violation | Compliant or unverified | a public interface behind an external gateway looks internal | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceVisibilityFacet`, `integrations/kubernetes/internal/observer/exposure_test.go:TestInterfaceFacts_ProtocolAndExposure`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].visibility=public`; e2e: `tests/acceptance/kind/runtime-conformance.sh:visibility-mismatch` |
+
+### `interfaces[].lifecycle`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Marks the interface deprecated and schedules its removal; pactoVersion 2.2 only. |
+| Runtime | `static-only` |
+| Evidence | none: a declared schedule |
+| Rule | schema: object with deprecated; diff: deprecating is non-breaking, removing before the sunset says so in the reason; a consumer resolving the contract with --closure is warned |
+| Outcomes | SCHEMA_VIOLATION; NEEDS_PACTO_2_2 under 2.0 and 2.1; DEPENDENCY_INTERFACE_DEPRECATED or DEPENDENCY_INTERFACE_SUNSET (warnings) for a consumer |
+| Limitations | a dependency does not say which interfaces it calls, so a consumer is warned about every deprecated interface of its provider |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestNeeds22Lifecycle`, `pkg/validation/lifecycle_test.go:TestDeprecatedInterfaceWarnings`, `pkg/diff/interfaces_test.go:TestDiffInterfaces_Lifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle/invalid-2.1` |
+
+### `interfaces[].lifecycle.deprecated`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Date the interface was deprecated (YYYY-MM-DD). |
+| Runtime | `static-only` |
+| Evidence | none: a date the provider declares |
+| Rule | schema: required; cross-field: a canonical YYYY-MM-DD date |
+| Outcomes | SCHEMA_VIOLATION, INVALID_INTERFACE_LIFECYCLE |
+| Limitations | no check that the date is in the past |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestValidateInterfaceLifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.deprecated/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.deprecated/invalid` |
+
+### `interfaces[].lifecycle.sunset`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Date from which the interface may be removed (YYYY-MM-DD). |
+| Runtime | `static-only` |
+| Evidence | none: a date the provider declares |
+| Rule | cross-field: a canonical date not before deprecated; diff: an earlier sunset is potentially breaking |
+| Outcomes | INVALID_INTERFACE_LIFECYCLE; DEPENDENCY_INTERFACE_SUNSET (warning) for a consumer from that date on |
+| Limitations | read in UTC |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestValidateInterfaceLifecycle`, `pkg/contract/contract_test.go:TestInterfaceLifecycle_SunsetReached`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.sunset/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.sunset/invalid` |
+
+### `interfaces[].lifecycle.successor`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The interface that replaces this one, named locally or as an absolute URL. |
+| Runtime | `static-only` |
+| Evidence | none: a pointer for consumers |
+| Rule | cross-field: names another interface of the service, or is an absolute URL with a host |
+| Outcomes | INTERFACE_SUCCESSOR_UNKNOWN |
+| Limitations | a URL successor is not fetched |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestValidateInterfaceLifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.successor/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.successor/invalid` |
 
 ### `configurations`
 
@@ -685,6 +878,140 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Outcomes | DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0 |
 | Limitations | with a ref it is compared like any other dependency; reachability is still checked when bound |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateDependencyForm`, `pkg/graph/resolver_test.go:TestResolve_ExternalDependency`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/invalid-2.0` |
+
+### `dependencies[].requires`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Behavior this service relies on from the provider interfaces. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | pacto validate reads the provider bundle of the dependency and checks each requirement against the named interface guarantees; pactoVersion 2.2 only |
+| Outcomes | GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read; NEEDS_PACTO_2_2 under 2.0 and 2.1 |
+| Limitations | only direct dependencies are checked; pacto graph and pacto impact report the rest |
+| Tests | unit: `internal/app/validate_guarantee_test.go:TestValidate_Guarantees`, `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestNeeds22`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires/invalid-2.1` |
+
+### `dependencies[].requires[]`
+
+| Key | Value |
+| --- | --- |
+| Meaning | One requirement on one provider interface. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | pacto validate reads the provider bundle of the dependency and checks each requirement against the named interface guarantees |
+| Outcomes | PARSE_ERROR when not an object; GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read |
+| Limitations | every unmet guarantee is reported at once |
+| Tests | unit: `internal/app/validate_guarantee_test.go:TestValidate_Guarantees`, `pkg/contract/guarantee_test.go:TestUnmet`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[]/invalid` |
+
+### `dependencies[].requires[].interface`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Name of the provider interface the requirement is about. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | schema: required; the provider must declare an interface with this name |
+| Outcomes | GUARANTEE_UNMET when the provider declares none |
+| Limitations | interface names are matched exactly |
+| Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].interface/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].interface/invalid` |
+
+### `dependencies[].requires[].profile`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Requires: version of the guarantee vocabulary; omitted means 1. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | schema: enum; the provider must offer this value or a stronger one |
+| Outcomes | SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less |
+| Limitations | only 1 exists, so profiles are not compared yet |
+| Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].profile/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].profile/invalid` |
+
+| Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
+| --- | --- | --- | --- | --- | --- | --- |
+| `1` | `static-only` | the first guarantee vocabulary | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].profile=1` |
+
+### `dependencies[].requires[].delivery`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Requires: what happens to an event when a delivery fails partway. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | schema: enum; the provider must offer this value or a stronger one |
+| Outcomes | SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less |
+| Limitations | the two values trade loss for duplicates, so neither satisfies the other |
+| Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].delivery/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].delivery/invalid` |
+
+| Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
+| --- | --- | --- | --- | --- | --- | --- |
+| `at-most-once` | `static-only` | requires that an event is never delivered twice | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].delivery/invalid` |
+| `at-least-once` | `static-only` | requires that an event is never lost | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].delivery=at-least-once` |
+
+### `dependencies[].requires[].ordering`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Requires: scope in which events arrive in the order sent; global also orders every key. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | schema: enum; the provider must offer this value or a stronger one |
+| Outcomes | SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less |
+| Limitations | per-key does not name the key |
+| Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].ordering/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].ordering/invalid` |
+
+| Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
+| --- | --- | --- | --- | --- | --- | --- |
+| `per-key` | `static-only` | requires events with the same key in order | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].ordering=per-key` |
+| `global` | `static-only` | requires every event in order | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].ordering/invalid` |
+
+### `dependencies[].requires[].dedupeWindow`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Requires: how long a repeated event is recognised and dropped; longer is stronger. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | schema: Go duration with ms, s, m or h units; the provider must offer this value or a stronger one |
+| Outcomes | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
+| Limitations | days are written in hours |
+| Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].dedupeWindow/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].dedupeWindow/invalid` |
+
+### `dependencies[].requires[].retention`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Requires: how long an event stays available for replay; longer is stronger. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | schema: Go duration with ms, s, m or h units; the provider must offer this value or a stronger one |
+| Outcomes | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
+| Limitations | days are written in hours |
+| Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].retention/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].retention/invalid` |
+
+### `dependencies[].requires[].idempotent`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Requires: repeating a call has the effect of making it once. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | schema: boolean; the provider must offer this value or a stronger one |
+| Outcomes | SCHEMA_VIOLATION when not a boolean; GUARANTEE_UNMET when the provider offers less |
+| Limitations | applies to every operation of the interface |
+| Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].idempotent/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].idempotent/invalid` |
+
+### `dependencies[].requires[].timeout`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Requires: the longest a call takes to answer; shorter is stronger. |
+| Runtime | `static-only` |
+| Evidence | none: checked against the provider contract |
+| Rule | schema: Go duration with ms, s, m or h units; the provider must offer this value or a stronger one |
+| Outcomes | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
+| Limitations | a declared latency budget that Pacto never measures |
+| Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].timeout/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].timeout/invalid` |
 
 ### `dependencies[].version`
 

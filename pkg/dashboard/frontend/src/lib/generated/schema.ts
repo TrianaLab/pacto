@@ -1030,6 +1030,7 @@ export interface components {
             name: string;
             ref?: string;
             required: boolean;
+            requires?: components["schemas"]["Contract.Requirement"][] | null;
             version?: string;
         };
         "Contract.DockerfileBuild": {
@@ -1037,11 +1038,37 @@ export interface components {
             file?: string;
             platforms?: string[] | null;
         };
+        "Contract.Guarantees": {
+            dedupeWindow?: string;
+            delivery?: string;
+            idempotent?: boolean;
+            ordering?: string;
+            profile?: string;
+            retention?: string;
+            timeout?: string;
+        };
         "Contract.Interface": {
+            /** Format: int64 */
+            compatibilityEpoch?: number;
+            guarantees?: components["schemas"]["Contract.Guarantees"];
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             ref: string;
             type: string;
             visibility?: string;
+        };
+        "Contract.InterfaceLifecycle": {
+            deprecated: string;
+            successor?: string;
+            sunset?: string;
+        };
+        "Contract.Mismatch": {
+            consumer: string;
+            guarantee: string;
+            interface: string;
+            offered?: string;
+            provider: string;
+            required: string;
         };
         "Contract.Owner": {
             contacts?: components["schemas"]["Contract.OwnerContact"][] | null;
@@ -1112,6 +1139,16 @@ export interface components {
             date: string;
             description: string;
             version: string;
+        };
+        "Contract.Requirement": {
+            dedupeWindow?: string;
+            delivery?: string;
+            idempotent?: boolean;
+            interface: string;
+            ordering?: string;
+            profile?: string;
+            retention?: string;
+            timeout?: string;
         };
         "Contract.Service": {
             name: string;
@@ -2457,6 +2494,7 @@ export interface components {
             status?: string;
             targets?: string[] | null;
             uncontracted?: boolean;
+            unmet?: components["schemas"]["Contract.Mismatch"][] | null;
         };
         "Impact.ChangesPreview": {
             /** Format: int64 */

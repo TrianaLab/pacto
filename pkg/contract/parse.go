@@ -11,14 +11,15 @@ import (
 )
 
 // SupportedVersions are the pactoVersion values Parse accepts, oldest first.
-var SupportedVersions = []string{"2.0", "2.1"}
+var SupportedVersions = []string{"2.0", "2.1", "2.2"}
 
 // Parse deserializes a pacto.yaml from the given reader into a Contract.
 // It enforces syntactic correctness (field types, unknown-field rejection) and a
 // few required top-level fields (pactoVersion, service.name, service.version).
-// pactoVersion "2.0" and "2.1" are supported; other versions are rejected. 2.1
-// adds the publish and checks sections, external dependencies and the mcp
-// interface type, which validation refuses in a 2.0 contract.
+// pactoVersion "2.0", "2.1" and "2.2" are supported; other versions are
+// rejected. 2.1 adds the publish and checks sections, external dependencies and
+// the mcp interface type, which validation refuses in a 2.0 contract; 2.2 adds
+// fields validation refuses in a 2.0 or 2.1 contract.
 // Deeper semantic validation is a separate concern handled by the validation engine.
 func Parse(r io.Reader) (*Contract, error) {
 	var c Contract
@@ -26,7 +27,7 @@ func Parse(r io.Reader) (*Contract, error) {
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&c); err != nil {
 		return nil, &ParseError{
-			Message: fmt.Sprintf("failed to parse YAML: %v", err),
+			Message: suggestFields(fmt.Sprintf("failed to parse YAML: %v", err)),
 			Err:     err,
 		}
 	}

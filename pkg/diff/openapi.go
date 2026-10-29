@@ -30,7 +30,10 @@ func diffOpenAPI(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 		return nil
 	}
 
-	return diffOpenAPISpecs(oldSpec, newSpec)
+	refs := newSpecRefs(oldFS, newFS, oldPath, newPath)
+	changes := refs.merge(diffOpenAPISpecs(refs.at("/paths"), oldSpec, newSpec))
+	// webhooks are not compared yet, but a component one uses is still used.
+	return append(changes, refs.unused("openapi", "path or webhook", "paths", "webhooks")...)
 }
 
 // openAPISpec holds the parsed paths from an OpenAPI document.
@@ -55,8 +58,8 @@ func readOpenAPISpec(fsys fs.FS, path string) (*openAPISpec, error) {
 	return &openAPISpec{Paths: raw.Paths}, nil
 }
 
-// diffOpenAPISpecs compares two parsed OpenAPI specs.
-func diffOpenAPISpecs(old, new *openAPISpec) []Change {
+// diffOpenAPISpecs compares two parsed OpenAPI specs. at stands at `paths`.
+func diffOpenAPISpecs(at *refAt, old, new *openAPISpec) []Change {
 	var changes []Change
 
 	for _, path := range slices.Sorted(maps.Keys(old.Paths)) {
@@ -72,7 +75,12 @@ func diffOpenAPISpecs(old, new *openAPISpec) []Change {
 			})
 			continue
 		}
-		changes = append(changes, diffPathMethods(path, oldMethods, newMethods)...)
+		itemAt, oldItem, newItem, unresolved := pathItem(at.child(path), path, oldMethods, newMethods)
+		if unresolved != nil {
+			changes = append(changes, unresolved...)
+			continue
+		}
+		changes = append(changes, diffPathMethods(itemAt, path, oldItem, newItem)...)
 	}
 
 	for _, path := range slices.Sorted(maps.Keys(new.Paths)) {
@@ -90,15 +98,30 @@ func diffOpenAPISpecs(old, new *openAPISpec) []Change {
 	return changes
 }
 
+// pathItem resolves a path item written as a $ref, so its operations are
+// compared where they live. A ref that does not resolve is reported the way
+// any other unresolved ref is.
+func pathItem(at *refAt, path string, old, new map[string]any) (*refAt, map[string]any, map[string]any, []Change) {
+	if !at.hasRef(old, new) {
+		return at, old, new, nil
+	}
+	o, oLoc, oErr := at.refs.side[0].deref(at.loc[0], old)
+	n, nLoc, nErr := at.refs.side[1].deref(at.loc[1], new)
+	if oErr != nil || nErr != nil {
+		return nil, nil, nil, unresolvedRef(fmt.Sprintf("openapi.paths[%s]", path), old, new, oErr != nil, nErr != nil)
+	}
+	return &refAt{at.refs, [2]string{oLoc, nLoc}}, toStringMap(o), toStringMap(n), nil
+}
+
 // diffPathMethods compares the HTTP methods within a single API path.
-func diffPathMethods(path string, oldMethods, newMethods map[string]any) []Change {
+func diffPathMethods(at *refAt, path string, oldMethods, newMethods map[string]any) []Change {
 	var changes []Change
 
 	// Path-item-level parameters are shared by every operation under the path
 	// (OpenAPI spec), so fold them into each method's effective set below — a
 	// shared parameter added/removed/made-required must be diffed, not ignored.
-	pathParamsOld := toSlice(oldMethods["parameters"])
-	pathParamsNew := toSlice(newMethods["parameters"])
+	pathParamsOld := params(at, 0, oldMethods["parameters"])
+	pathParamsNew := params(at, 1, newMethods["parameters"])
 
 	for _, method := range slices.Sorted(maps.Keys(oldMethods)) {
 		if !httpMethods[method] {
@@ -117,7 +140,7 @@ func diffPathMethods(path string, oldMethods, newMethods map[string]any) []Chang
 			})
 			continue
 		}
-		changes = append(changes, diffOperation(path, upper, oldOp, newOp, pathParamsOld, pathParamsNew)...)
+		changes = append(changes, diffOperation(at.child(method), path, upper, oldOp, newOp, pathParamsOld, pathParamsNew)...)
 	}
 
 	for _, method := range slices.Sorted(maps.Keys(newMethods)) {
@@ -141,7 +164,7 @@ func diffPathMethods(path string, oldMethods, newMethods map[string]any) []Chang
 
 // diffOperation compares two operations (same path + method) for parameter,
 // request body, and response changes.
-func diffOperation(path, method string, oldOp, newOp any, pathParamsOld, pathParamsNew []any) []Change {
+func diffOperation(at *refAt, path, method string, oldOp, newOp any, pathParamsOld, pathParamsNew []param) []Change {
 	oldMap := toStringMap(oldOp)
 	newMap := toStringMap(newOp)
 	if oldMap == nil && newMap == nil {
@@ -154,9 +177,9 @@ func diffOperation(path, method string, oldOp, newOp any, pathParamsOld, pathPar
 	// operation-level ones. indexParams keeps the last entry per name+in, so listing
 	// operation-level params after path-level ones makes the operation override the
 	// path-level parameter of the same identity (per the OpenAPI spec).
-	effOld := append(append([]any{}, pathParamsOld...), toSlice(oldMap["parameters"])...)
-	effNew := append(append([]any{}, pathParamsNew...), toSlice(newMap["parameters"])...)
-	changes = append(changes, diffParameters(path, method, effOld, effNew)...)
+	effOld := append(append([]param{}, pathParamsOld...), params(at, 0, oldMap["parameters"])...)
+	effNew := append(append([]param{}, pathParamsNew...), params(at, 1, newMap["parameters"])...)
+	changes = append(changes, diffParameters(at, path, method, effOld, effNew)...)
 
 	// Compare request body.
 	oldBody, oldHas := oldMap["requestBody"]
@@ -179,17 +202,17 @@ func diffOperation(path, method string, oldOp, newOp any, pathParamsOld, pathPar
 			Classification: classify("openapi.request-body", Added),
 			Reason:         fmt.Sprintf("%s %s request body added", method, path),
 		})
-	} else if oldHas && newHas && !yamlEqual(oldBody, newBody) {
+	} else if oldHas && newHas {
 		// Deep-diff the request body so field-level changes are classified
 		// precisely — notably a newly required property (Breaking, via the schema
 		// differ) rather than one shallow POTENTIAL_BREAKING for the whole body.
-		changes = append(changes, diffJSON(dirRequest, bodyPath, oldBody, newBody)...)
+		changes = append(changes, diffJSON(dirRequest, at.child("requestBody"), bodyPath, oldBody, newBody)...)
 	}
 
 	// Compare responses.
 	oldResponses := toStringMap(oldMap["responses"])
 	newResponses := toStringMap(newMap["responses"])
-	changes = append(changes, diffResponses(path, method, oldResponses, newResponses)...)
+	changes = append(changes, diffResponses(at.child("responses"), path, method, oldResponses, newResponses)...)
 
 	return changes
 }
@@ -206,6 +229,9 @@ func paramKey(param map[string]any) string {
 
 // paramLabel returns a human-readable label like "query param 'filter'".
 func paramLabel(param map[string]any) string {
+	if ref := refOf(param); ref != "" {
+		return "param $ref " + ref + ", which Pacto could not resolve,"
+	}
 	name, _ := param["name"].(string)
 	in, _ := param["in"].(string)
 	return fmt.Sprintf("%s param '%s'", in, name)
@@ -217,35 +243,93 @@ func paramRequired(param map[string]any) bool {
 	return r
 }
 
+// param is one OpenAPI parameter, its $ref resolved, and where it lives in
+// its revision.
+type param struct {
+	m   map[string]any
+	loc string
+}
+
+// params lists the parameters v holds, side 0 or 1 of at. A $ref is
+// resolved, through a chain of refs; one Pacto cannot resolve, or a cycle,
+// stays a bare reference, which indexParams keys by its text.
+func params(at *refAt, side int, v any) []param {
+	var out []param
+	for i, p := range toSlice(v) {
+		loc := ""
+		if at != nil {
+			loc = fmt.Sprintf("%s/parameters/%d", at.loc[side], i)
+			p, loc = derefAll(at.refs.side[side], loc, p)
+		}
+		out = append(out, param{toStringMap(p), loc})
+	}
+	return out
+}
+
+// derefAll follows node's $ref until it reaches a node without one. When a
+// ref fails or loops it returns the last node it reached, which still
+// carries the ref.
+func derefAll(s *refSide, loc string, node any) (any, string) {
+	seen := map[string]bool{loc: true}
+	for refOf(node) != "" {
+		t, tLoc, err := s.deref(loc, node)
+		if err != nil || seen[tLoc] {
+			break
+		}
+		seen[tLoc] = true
+		node, loc = t, tLoc
+	}
+	return node, loc
+}
+
 // diffParameters compares operation parameters identified by name+in.
-func diffParameters(path, method string, oldParams, newParams []any) []Change {
+func diffParameters(at *refAt, path, method string, oldParams, newParams []param) []Change {
 	oldByKey := indexParams(oldParams)
 	newByKey := indexParams(newParams)
+
+	// A parameter Pacto could not resolve may be the one that looks removed
+	// or added on the other side, so neither is a confirmed break.
+	unknownOld, unknownNew := hasUnresolved(oldByKey), hasUnresolved(newByKey)
 
 	var changes []Change
 
 	for _, key := range slices.Sorted(maps.Keys(oldByKey)) {
-		oldParam := oldByKey[key]
-		newParam, exists := newByKey[key]
+		oldParam := oldByKey[key].m
+		newP, exists := newByKey[key]
+		newParam := newP.m
 		if !exists {
+			cls := classify("openapi.parameters", Removed)
+			if unknownNew {
+				cls = PotentialBreaking
+			}
 			changes = append(changes, Change{
 				Path:           fmt.Sprintf("openapi.paths[%s].methods[%s].parameters[%s]", path, method, key),
 				Type:           Removed,
 				OldValue:       fmt.Sprintf("%s %s %s", method, path, paramLabel(oldParam)),
-				Classification: classify("openapi.parameters", Removed),
+				Classification: cls,
 				Reason:         fmt.Sprintf("%s %s %s removed", method, path, paramLabel(oldParam)),
 			})
 			continue
 		}
-		if !yamlEqual(oldParam, newParam) {
+		// A parameter's schema is in request position, so narrowing it (an
+		// enum value dropped, a tighter limit) breaks existing callers. Each
+		// parameter gets its own walk: its changes fold into this one entry, so
+		// a component already walked for another parameter must not hide.
+		paramPath := fmt.Sprintf("openapi.paths[%s].methods[%s].parameters[%s]", path, method, key)
+		schemaChanges := diffJSON(dirRequest, at.fresh(oldByKey[key].loc+"/schema", newP.loc+"/schema"),
+			paramPath+".schema", oldParam["schema"], newParam["schema"])
+		if len(schemaChanges) > 0 || !yamlEqual(withoutSchema(oldParam), withoutSchema(newParam)) {
 			oldSummary, newSummary := mapDelta(oldParam, newParam, paramIdentityKeys)
 			cls := classify("openapi.parameters", Modified)
 			// optional -> required is breaking: existing clients omit the parameter.
 			if !paramRequired(oldParam) && paramRequired(newParam) {
 				cls = Breaking
 			}
+			for _, c := range schemaChanges {
+				cls = max(cls, c.Classification)
+			}
 			changes = append(changes, Change{
-				Path:           fmt.Sprintf("openapi.paths[%s].methods[%s].parameters[%s]", path, method, key),
+				Path:           paramPath,
 				Type:           Modified,
 				OldValue:       oldSummary,
 				NewValue:       newSummary,
@@ -257,10 +341,10 @@ func diffParameters(path, method string, oldParams, newParams []any) []Change {
 
 	for _, key := range slices.Sorted(maps.Keys(newByKey)) {
 		if _, exists := oldByKey[key]; !exists {
-			newParam := newByKey[key]
+			newParam := newByKey[key].m
 			cls := classify("openapi.parameters", Added)
 			// adding a required parameter is breaking: existing clients omit it.
-			if paramRequired(newParam) {
+			if paramRequired(newParam) && !unknownOld {
 				cls = Breaking
 			}
 			changes = append(changes, Change{
@@ -276,25 +360,39 @@ func diffParameters(path, method string, oldParams, newParams []any) []Change {
 	return changes
 }
 
-// indexParams builds a map keyed by "name:in" from a parameter slice.
-func indexParams(params []any) map[string]map[string]any {
-	m := make(map[string]map[string]any, len(params))
+func hasUnresolved(params map[string]param) bool {
 	for _, p := range params {
-		pm := toStringMap(p)
-		if pm == nil {
-			continue
+		if refOf(p.m) != "" {
+			return true
 		}
-		key := paramKey(pm)
-		if key == ":" {
-			continue
+	}
+	return false
+}
+
+func withoutSchema(m map[string]any) map[string]any {
+	m = maps.Clone(m)
+	delete(m, "schema")
+	return m
+}
+
+// indexParams builds a map keyed by "name:in" from a parameter slice. A
+// parameter whose $ref did not resolve is keyed by its ref text.
+func indexParams(params []param) map[string]param {
+	m := make(map[string]param, len(params))
+	for _, p := range params {
+		key := paramKey(p.m)
+		if ref := refOf(p.m); ref != "" {
+			key = "$ref:" + ref
 		}
-		m[key] = pm
+		if key != ":" {
+			m[key] = p
+		}
 	}
 	return m
 }
 
 // diffResponses compares response status codes and their definitions.
-func diffResponses(path, method string, oldResp, newResp map[string]any) []Change {
+func diffResponses(at *refAt, path, method string, oldResp, newResp map[string]any) []Change {
 	var changes []Change
 
 	for _, code := range slices.Sorted(maps.Keys(oldResp)) {
@@ -311,15 +409,13 @@ func diffResponses(path, method string, oldResp, newResp map[string]any) []Chang
 			})
 			continue
 		}
-		if !yamlEqual(oldVal, newVal) {
-			// Deep-diff the response for the same reason the request body is,
-			// and with more at stake: dropping a property a success response
-			// guaranteed is the commonest way a provider breaks its consumers,
-			// and one flat POTENTIAL_BREAKING for the whole response hides it
-			// from the BREAKING-only CI gate. dirResponse mirrors the required
-			// semantics, which point the other way on this side.
-			changes = append(changes, diffJSON(dirResponse, respPath, oldVal, newVal)...)
-		}
+		// Deep-diff the response for the same reason the request body is,
+		// and with more at stake: dropping a property a success response
+		// guaranteed is the commonest way a provider breaks its consumers,
+		// and one flat POTENTIAL_BREAKING for the whole response hides it
+		// from the BREAKING-only CI gate. dirResponse mirrors the required
+		// semantics, which point the other way on this side.
+		changes = append(changes, diffJSON(dirResponse, at.child(code), respPath, oldVal, newVal)...)
 	}
 
 	for _, code := range slices.Sorted(maps.Keys(newResp)) {

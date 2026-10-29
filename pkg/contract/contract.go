@@ -8,6 +8,7 @@ package contract
 import (
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Contract is the root aggregate — the parsed in-memory representation of a pacto.yaml.
@@ -200,6 +201,45 @@ type Interface struct {
 	Type       string `yaml:"type" json:"type"`
 	Ref        string `yaml:"ref" json:"ref"`
 	Visibility string `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+	// Lifecycle marks the interface deprecated and schedules its removal
+	// (pactoVersion 2.2). Nil for an interface that is not deprecated.
+	Lifecycle *InterfaceLifecycle `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
+	// Guarantees is the behavior consumers may rely on (pactoVersion 2.2).
+	Guarantees *Guarantees `yaml:"guarantees,omitempty" json:"guarantees,omitempty"`
+	// CompatibilityEpoch (2.2) is raised when the interface's behavior changes
+	// incompatibly while its spec stays the same, such as an amount switching
+	// from cents to euros. Absent is 0.
+	CompatibilityEpoch int `yaml:"compatibilityEpoch,omitempty" json:"compatibilityEpoch,omitempty"`
+}
+
+// InterfaceLifecycle is the retirement schedule of a deprecated interface.
+// Deprecated and Sunset are YYYY-MM-DD dates. Successor names the interface of
+// the same service that replaces this one, or holds an absolute URL (such as
+// another service's oci:// reference) when the replacement lives elsewhere.
+type InterfaceLifecycle struct {
+	Deprecated string `yaml:"deprecated" json:"deprecated"`
+	Sunset     string `yaml:"sunset,omitempty" json:"sunset,omitempty"`
+	Successor  string `yaml:"successor,omitempty" json:"successor,omitempty"`
+}
+
+// String renders the schedule as "deprecated D, sunset S, successor X",
+// leaving out the parts that are not set.
+func (l *InterfaceLifecycle) String() string {
+	s := "deprecated " + l.Deprecated
+	if l.Sunset != "" {
+		s += ", sunset " + l.Sunset
+	}
+	if l.Successor != "" {
+		s += ", successor " + l.Successor
+	}
+	return s
+}
+
+// SunsetReached reports whether now (read in UTC) is on or after the sunset
+// date. A missing or unreadable sunset is never reached.
+func (l *InterfaceLifecycle) SunsetReached(now time.Time) bool {
+	sunset, err := time.Parse(time.DateOnly, l.Sunset)
+	return err == nil && !now.UTC().Before(sunset)
 }
 
 // InterfaceType constants.
@@ -261,6 +301,9 @@ type Dependency struct {
 	Compatibility string `yaml:"compatibility,omitempty" json:"compatibility,omitempty"`
 	External      bool   `yaml:"external,omitempty" json:"external,omitempty"`
 	Version       string `yaml:"version,omitempty" json:"version,omitempty"`
+	// Requires is the behavior this service relies on from the provider's
+	// interfaces (pactoVersion 2.2); see [Unmet].
+	Requires []Requirement `yaml:"requires,omitempty" json:"requires,omitempty"`
 }
 
 // Reference kinds for ReferenceRef.Kind.

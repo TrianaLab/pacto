@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/doc"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -74,13 +76,20 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 			}
 		}
 
-		for _, e := range result.Errors {
-			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "  ERROR [%s] %s: %s\n", e.Code, e.Path, e.Message)
+		for _, st := range result.Stages {
+			_, _ = fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%s %-11s %s", strings.ToUpper(st.Status), st.Name, st.Reason), " "))
+			for _, e := range st.Errors {
+				at := ""
+				if e.Line > 0 {
+					at = result.Where(contract.ValidationError{Line: e.Line, Column: e.Column}) + ": "
+				}
+				_, _ = fmt.Fprintf(w, "  %sERROR [%s] %s: %s\n", at, e.Code, e.Path, e.Message)
+			}
+			for _, wr := range st.Warnings {
+				_, _ = fmt.Fprintf(w, "  WARN  [%s] %s: %s\n", wr.Code, wr.Path, wr.Message)
+			}
 		}
-
-		for _, w := range result.Warnings {
-			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "  WARN  [%s] %s: %s\n", w.Code, w.Path, w.Message)
-		}
+		_, _ = fmt.Fprintln(w, "Next: "+result.Next)
 
 		return nil
 	}, nil)
@@ -257,6 +266,19 @@ func colorClassification(w io.Writer, s string) string {
 	}
 }
 
+// interfaceDetails is the ", visibility, lifecycle" tail of an explained
+// interface, leaving out what is not set.
+func interfaceDetails(iface app.ExplainInterface) string {
+	var s string
+	if iface.Visibility != "" {
+		s += ", " + iface.Visibility
+	}
+	if iface.Lifecycle != nil {
+		s += ", " + iface.Lifecycle.String()
+	}
+	return s
+}
+
 func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
@@ -291,11 +313,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		if len(result.Interfaces) > 0 {
 			_, _ = fmt.Fprintf(w, "\nInterfaces (%d):\n", len(result.Interfaces))
 			for _, iface := range result.Interfaces {
-				_, _ = fmt.Fprintf(w, "  - %s (%s: %s", iface.Name, iface.Type, iface.Ref)
-				if iface.Visibility != "" {
-					_, _ = fmt.Fprintf(w, ", %s", iface.Visibility)
-				}
-				_, _ = fmt.Fprintln(w, ")")
+				_, _ = fmt.Fprintf(w, "  - %s (%s: %s%s)\n", iface.Name, iface.Type, iface.Ref, interfaceDetails(iface))
 			}
 		}
 

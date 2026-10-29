@@ -31,7 +31,7 @@ const baseInstructions = "Pacto tells you which services a change breaks before 
 // agent looping until pacto_check says valid must stop on a contract `pacto
 // validate` and CI also accept. A resolver alone left the lockfile unverified,
 // so a drifted pacto.lock passed pacto_check and then failed CI.
-type Validator func(ctx context.Context, dir string) (validation.ValidationResult, error)
+type Validator func(ctx context.Context, dir string) (validation.Report, error)
 
 // NewServer creates a new MCP server with all Pacto authoring tools registered.
 //

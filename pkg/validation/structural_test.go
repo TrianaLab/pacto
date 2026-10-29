@@ -544,6 +544,50 @@ func TestValidateStructural_V21Publish(t *testing.T) {
 	}
 }
 
+// TestNeeds22Epoch: a 2.0 or 2.1 contract that declares an interface's
+// compatibilityEpoch is told to set pactoVersion 2.2, the rest of the contract
+// is still checked, and a 2.2 contract accepts the field.
+func TestNeeds22Epoch(t *testing.T) {
+	for _, version := range []string{"2.0", "2.1"} {
+		data := map[string]any{
+			"pactoVersion": version,
+			"service":      map[string]any{"name": "svc", "version": "1.0.0"},
+			"interfaces": []any{
+				map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml", "compatibilityEpoch": 2},
+				map[string]any{"name": "rpc", "type": "grpc", "ref": "api.proto", "visibility": "nonsense"},
+			},
+		}
+		var got []string
+		for _, e := range ValidateStructural(data).Errors {
+			got = append(got, e.Code+" "+e.Path)
+		}
+		joined := strings.Join(got, "\n")
+		for _, want := range []string{"NEEDS_PACTO_2_2 interfaces.0.compatibilityEpoch", "SCHEMA_VIOLATION interfaces.1.visibility"} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("%s: missing %q in:\n%s", version, want, joined)
+			}
+		}
+		if len(got) != 2 {
+			t.Fatalf("%s: expected only those two errors:\n%s", version, joined)
+		}
+		if data["interfaces"].([]any)[0].(map[string]any)["compatibilityEpoch"] != 2 {
+			t.Fatal("the caller's data was changed")
+		}
+	}
+	ok := map[string]any{
+		"pactoVersion": "2.2",
+		"service":      map[string]any{"name": "svc", "version": "1.0.0"},
+		"interfaces":   []any{map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml", "compatibilityEpoch": 2}},
+	}
+	if res := ValidateStructural(ok); !res.IsValid() {
+		t.Fatalf("a 2.2 contract with an epoch: %+v", res.Errors)
+	}
+	ok["interfaces"] = []any{map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml", "compatibilityEpoch": -1}}
+	if res := ValidateStructural(ok); res.IsValid() {
+		t.Fatal("a negative epoch must be refused")
+	}
+}
+
 // TestNeeds21: a 2.0 contract using what only 2.1 has is told to set
 // pactoVersion 2.1, not given the schema's generic "not allowed", and the rest
 // of the contract is still checked.
@@ -590,5 +634,78 @@ func TestNeeds21(t *testing.T) {
 	delete(data, "dependencies")
 	if res := ValidateStructural(data); !res.IsValid() {
 		t.Fatalf("a plain 2.0 contract: %+v", res.Errors)
+	}
+}
+
+// TestNeeds22: an interface lifecycle and guarantees (both on one interface)
+// and dependency requires in a 2.0 or 2.1 contract are told to set
+// pactoVersion 2.2, the rest of each entry is still checked at its own index,
+// and the caller's data is left alone.
+func TestNeeds22(t *testing.T) {
+	for _, version := range []string{"2.0", "2.1"} {
+		data := map[string]any{
+			"pactoVersion": version,
+			"service":      map[string]any{"name": "svc", "version": "1.0.0"},
+			"interfaces": []any{
+				map[string]any{"name": "events", "type": "asyncapi", "ref": "e.yaml", "guarantees": map[string]any{"delivery": "at-least-once"},
+					"lifecycle": map[string]any{"deprecated": "2026-01-15"}},
+				map[string]any{"name": "api", "type": "openapi", "ref": "a.yaml", "visibility": "nonsense"},
+			},
+			"dependencies": []any{
+				map[string]any{"name": "orders", "ref": "oci://r/orders", "required": true, "compatibility": "^1.0.0",
+					"requires": []any{map[string]any{"interface": "events", "delivery": "at-least-once"}}},
+			},
+		}
+		var got []string
+		for _, e := range ValidateStructural(data).Errors {
+			got = append(got, e.Code+" "+e.Path)
+		}
+		joined := strings.Join(got, "\n")
+		want := []string{"NEEDS_PACTO_2_2 interfaces.0.lifecycle", "NEEDS_PACTO_2_2 interfaces.0.guarantees", "NEEDS_PACTO_2_2 dependencies.0.requires", "SCHEMA_VIOLATION interfaces.1.visibility"}
+		if len(got) != len(want) {
+			t.Fatalf("%s: got\n%s", version, joined)
+		}
+		for _, w := range want {
+			if !strings.Contains(joined, w) {
+				t.Fatalf("%s: missing %q in:\n%s", version, w, joined)
+			}
+		}
+		if _, ok := data["interfaces"].([]any)[0].(map[string]any)["guarantees"]; !ok {
+			t.Fatal("the caller's data was changed")
+		}
+	}
+	data := map[string]any{"pactoVersion": "2.1", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "interfaces": "not a list"}
+	if res := ValidateStructural(data); res.IsValid() {
+		t.Fatal("a malformed interfaces list must still be refused")
+	}
+}
+
+func TestValidateStructural_V22Guarantees(t *testing.T) {
+	const head = "pactoVersion: \"2.2\"\nservice: {name: svc, version: 1.0.0}\n"
+	ok := head + `interfaces:
+  - {name: events, type: asyncapi, ref: e.yaml, guarantees: {profile: "1", delivery: at-least-once, ordering: per-key, dedupeWindow: 5m, retention: 168h}}
+  - {name: api, type: openapi, ref: a.yaml, guarantees: {idempotent: true, timeout: 1m30s}}
+dependencies:
+  - name: orders
+    ref: oci://r/orders
+    required: true
+    compatibility: ^1.0.0
+    requires: [{interface: events, delivery: at-least-once, dedupeWindow: 1m}]
+`
+	if r := ValidateStructuralRaw([]byte(ok)); !r.IsValid() {
+		t.Fatalf("valid 2.2 contract refused: %+v", r.Errors)
+	}
+	bad := map[string]string{
+		"duration":     "interfaces: [{name: e, type: asyncapi, ref: e.yaml, guarantees: {retention: 7d}}]\n",
+		"delivery":     "interfaces: [{name: e, type: asyncapi, ref: e.yaml, guarantees: {delivery: exactly-once}}]\n",
+		"profile":      "interfaces: [{name: e, type: asyncapi, ref: e.yaml, guarantees: {profile: \"2\"}}]\n",
+		"unknown":      "interfaces: [{name: e, type: asyncapi, ref: e.yaml, guarantees: {latency: 1s}}]\n",
+		"no interface": "dependencies: [{name: o, ref: oci://r/o, required: true, compatibility: ^1.0.0, requires: [{idempotent: true}]}]\n",
+		"bad requires": "dependencies: [{name: o, ref: oci://r/o, required: true, compatibility: ^1.0.0, requires: [{interface: e, ordering: total}]}]\n",
+	}
+	for name, doc := range bad {
+		if r := ValidateStructuralRaw([]byte(head + doc)); r.IsValid() {
+			t.Errorf("%s: must be refused", name)
+		}
 	}
 }

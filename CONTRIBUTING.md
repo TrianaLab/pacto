@@ -142,6 +142,14 @@ If you find a bug, please [open an issue](https://github.com/TrianaLab/pacto/iss
 
 Have an idea? [Open a feature request](https://github.com/TrianaLab/pacto/issues/new?template=feature_request.yml) using the feature request template. Describe the problem you're trying to solve and the solution you'd like to see.
 
+A feature request answers these questions, which come from the [tenets](MANIFEST.md#tenets):
+
+1. Which part of the answer to "which services does this change break" does it improve?
+2. Does it work for a service whose code Pacto does not own?
+3. Does it build on an artifact that already exists, such as OCI, OpenAPI, AsyncAPI or Kubernetes, instead of creating a new place for the same facts?
+4. Does it keep the core observe-only? A feature that acts belongs to the opt-in delivery component.
+5. Which real failure that someone hit does it come from?
+
 ### Submitting Changes
 
 1. **Create a branch** from `main`:

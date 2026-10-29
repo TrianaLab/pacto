@@ -1649,6 +1649,8 @@ Notifications are suppressed when:
 
 Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field and policy.
 
+The output has one PASS, FAIL or SKIP line per stage, in order: load, lock, structural, cross-field, policy, guarantees, readiness and closure. Each error sits under its stage with its file:line:column when Pacto can locate it. A failed load or lock stage skips every stage after it, and a failed structural or cross-field stage skips the stages after it up to policy. The guarantees, readiness and closure stages run even when an earlier stage fails. The last line, Next:, names the one command to run now. With --output-format json the same comes as stages and next.
+
 ```
 pacto validate [dir | oci://ref] [flags]
 ```
@@ -1678,7 +1680,7 @@ pacto validate [dir | oci://ref] [flags]
 **Flags:**
 
 ```
-      --closure              also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved. Fetches each dependency once
+      --closure              also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved and warns about deprecated interfaces of direct dependencies. Fetches each dependency once
   -h, --help                 help for validate
       --readiness            also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
@@ -1686,6 +1688,24 @@ pacto validate [dir | oci://ref] [flags]
 ```
 
 The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment. Individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. Without the flag, validation checks the contract's structure and rules. It still checks the shape of readiness claims and skips the freshness gate. See the [readiness reference](contract-reference/readiness.md#readiness) for the score and gate semantics.
+
+A contract with a mistyped value fails like this:
+
+```
+svc is invalid
+PASS load
+SKIP lock        no pacto.lock
+FAIL structural
+  svc/pacto.yaml:6:1: ERROR [SCHEMA_VIOLATION] workload: at '/workload': value must be one of 'service', 'job', 'scheduled' (did you mean "service"?)
+SKIP cross-field structural failed
+SKIP policy      structural failed
+SKIP guarantees  no dependency declares requires
+SKIP readiness   not requested (--readiness)
+SKIP closure     not requested (--closure)
+Next: fix workload at svc/pacto.yaml:6:1 [SCHEMA_VIOLATION], then run pacto validate svc
+```
+
+Errors within a stage are listed in file order. An unknown field or an enum value close to a known one carries a `did you mean` hint. A failed `lock` stage names the `pacto lock` command that repairs it. When every stage passes, `Next` is `pacto impact PUBLISHED_REF <dir>`, which shows the services the change breaks; replace `PUBLISHED_REF` with the `oci://` reference of the version you run today. In JSON, `stages` lists each stage with its `status`, `reason` and `errors`, each error carries `line` and `column` when known (never with `--set` or `-f`, which validate a merged document whose lines differ from the file), `file` is the contract file they point into, and `next` holds the command. `errors` and `warnings` still list every stage's findings.
 
 **Exit code:** Non-zero if validation fails.
 

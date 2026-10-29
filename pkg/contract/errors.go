@@ -27,6 +27,10 @@ type ValidationError struct {
 	Path    string `json:"path"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Line and Column locate the failure in the contract's pacto.yaml, 1-based,
+	// when the reporter knows where it is.
+	Line   int `json:"line,omitempty"`
+	Column int `json:"column,omitempty"`
 }
 
 // Error formats the failure as "[CODE] path: message".

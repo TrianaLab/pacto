@@ -9,10 +9,10 @@
 // way. Everything the recursive JSON walk reaches — a request body, a response,
 // a JSON Schema, an event payload — is classified by classifySchemaChange in
 // schema.go from the shape of its JSON path, because those paths are open-ended
-// and cannot be enumerated in advance. That classifier also takes the walk's
-// direction, because the same edit is not the same news on both sides: a
-// required field added to a request is a new obligation on the caller, added to
-// a response it is a stronger guarantee to the reader.
+// and cannot be enumerated in advance. That classifier also takes the position
+// the schema sits in, because the same edit is not the same news everywhere: a
+// request tolerates widening, a response tolerates narrowing and a record that
+// flows both ways tolerates neither.
 //
 // The boundary is the reason the rule table has no Modified row for anything the
 // walk descends into: an element present on both sides is deep-diffed, so the
@@ -23,7 +23,8 @@
 // decide severity for openapi.parameters or for a configuration's values.
 // diffParameters (openapi.go) escalates to Breaking when a parameter arrives
 // required or turns required, because the table cannot see the parameter's own
-// required flag. diffConfigValues (interfaces.go) overwrites every walk result
+// required flag, and raises a modified parameter to the worst grade its schema
+// diff reaches in request position. diffConfigValues (interfaces.go) overwrites every walk result
 // with NonBreaking, because inline values are the provider's own defaults rather
 // than consumer-facing surface. Tuning either of those two table rows without
 // reading its call site will look like it did nothing.
@@ -103,6 +104,10 @@ type Change struct {
 	NewValue       any            `json:"newValue,omitempty"`
 	Classification Classification `json:"classification"`
 	Reason         string         `json:"reason"`
+
+	// refPair and refRel name the component edit a change came from while one
+	// interface spec is diffed, so specRefs.merge can fold its usages.
+	refPair, refRel string
 }
 
 // Result holds the output of comparing two contracts.

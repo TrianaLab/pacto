@@ -89,6 +89,8 @@ type ExplainInterface struct {
 	Type       string `json:"type"`
 	Ref        string `json:"ref"`
 	Visibility string `json:"visibility,omitempty"`
+	// Lifecycle is the retirement schedule of a deprecated interface.
+	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 }
 
 // ExplainDependency is a simplified dependency summary.
@@ -145,6 +147,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 			Type:       iface.Type,
 			Ref:        iface.Ref,
 			Visibility: iface.Visibility,
+			Lifecycle:  iface.Lifecycle,
 		})
 	}
 

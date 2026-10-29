@@ -1,14 +1,23 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -30,13 +39,22 @@ type ValidateOptions struct {
 	Closure bool
 }
 
-// ValidateResult holds the result of the validate command.
+// ValidateResult holds the result of the validate command. Stages lists every
+// stage in order; Errors and Warnings hold all of theirs, in the same order.
+// File is the contract file the errors' Line and Column point into, and Next
+// is the one command to run now.
 type ValidateResult struct {
 	Path     string                       `json:"path"`
+	File     string                       `json:"file"`
 	Valid    bool                         `json:"valid"`
 	Errors   []contract.ValidationError   `json:"errors"`
 	Warnings []contract.ValidationWarning `json:"warnings"`
+	Stages   []validation.Stage           `json:"stages"`
+	Next     string                       `json:"next"`
 }
+
+// stageOrder is every stage of a validate run, in the order it runs them.
+var stageOrder = []string{"load", "lock", "structural", "cross-field", "policy", "guarantees", "readiness", "closure"}
 
 // Validate loads a contract, runs validation, and returns the result.
 func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
@@ -45,23 +63,22 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	logging.LoggerFromContext(ctx).Debug("resolving contract for validation", "ref", ref)
 	bundle, err := s.resolveBundleWithOverrides(ctx, ref, opts.Overrides)
 	if err != nil {
-		return &ValidateResult{
-			Path:  ref,
-			Valid: false,
-			Errors: []contract.ValidationError{
-				{Path: "", Code: "PARSE_ERROR", Message: err.Error()},
-			},
-		}, nil
+		return newValidateResult(ref, opts, nil, failedStage("load", "PARSE_ERROR", err)), nil
 	}
+	stages := []validation.Stage{validation.RanStage("load", validation.ValidationResult{})}
 
+	lockPath, local := lockPathFor(ref)
 	if lerr := s.verifyLockIfPresent(ctx, ref, bundle); lerr != nil {
-		return &ValidateResult{
-			Path:  ref,
-			Valid: false,
-			Errors: []contract.ValidationError{
-				{Path: "", Code: lockCode(lerr), Message: lerr.Error()},
-			},
-		}, nil
+		return newValidateResult(ref, opts, nil, append(stages, failedStage("lock", lockCode(lerr), lerr))...), nil
+	}
+	if _, err := os.Stat(lockPath); local && err == nil {
+		stages = append(stages, validation.RanStage("lock", validation.ValidationResult{}))
+	} else {
+		reason := "no " + lock.FileName
+		if !local {
+			reason = "not checked for registry references"
+		}
+		stages = append(stages, validation.SkippedStages(reason, "lock")...)
 	}
 
 	// Raw YAML for structural validation. Unreadable is fatal here: unlike the
@@ -76,48 +93,220 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	if s.BundleStore != nil {
 		resolver = s.PolicyResolver(ref)
 	}
-	result := validation.ValidateWithResolver(ctx, bundle.Contract, rawYAML, bundle.FS, resolver)
-	logging.LoggerFromContext(ctx).Debug("validation complete", "valid", result.IsValid(), "errors", len(result.Errors), "warnings", len(result.Warnings))
-
-	errors := result.Errors
-	valid := result.IsValid()
+	stages = append(stages, validation.ValidateStagesWithResolver(ctx, bundle.Contract, rawYAML, bundle.FS, resolver)...)
+	stages = append(stages, s.guaranteeStage(ctx, ref, bundle.Contract))
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
 	if opts.Readiness {
+		var r validation.ValidationResult
 		if eval := readiness.Evaluate(bundle.Contract.Readiness, s.env().now()); eval != nil && !eval.Passing {
 			state := "score below gate"
 			if eval.Expired {
 				state = "assessment expired"
 			}
-			errors = append(errors, contract.ValidationError{
-				Path: "readiness",
-				Code: "READINESS_GATE_UNMET",
-				Message: fmt.Sprintf("%s: score %d, minScore %d (%d done, %d partial, %d not-done, %d deferred)",
-					state, eval.Score, eval.MinScore, eval.DoneCount, eval.PartialCount, eval.NotDoneCount, eval.DeferredCount),
-			})
-			valid = false
+			r.AddError("readiness", "READINESS_GATE_UNMET", fmt.Sprintf("%s: score %d, minScore %d (%d done, %d partial, %d not-done, %d deferred)",
+				state, eval.Score, eval.MinScore, eval.DoneCount, eval.PartialCount, eval.NotDoneCount, eval.DeferredCount))
 		}
+		stages = append(stages, validation.RanStage("readiness", r))
 	}
 
 	if opts.Closure {
-		if ce := s.closureErrors(ctx, ref, bundle, resolver); len(ce) > 0 {
-			errors = append(errors, ce...)
-			valid = false
-		}
+		ce, cw := s.closureFindings(ctx, ref, bundle, resolver)
+		stages = append(stages, validation.RanStage("closure", validation.ValidationResult{Errors: ce, Warnings: cw}))
 	}
 
-	return &ValidateResult{
-		Path:     ref,
-		Valid:    valid,
-		Errors:   errors,
-		Warnings: result.Warnings,
-	}, nil
+	return newValidateResult(ref, opts, rawYAML, stages...), nil
 }
 
-// closureErrors checks every contract in the root's dependency closure against
+// failedStage is the stage name, failed with err under code.
+func failedStage(name, code string, err error) validation.Stage {
+	return validation.RanStage(name, validation.ValidationResult{Errors: []contract.ValidationError{{Code: code, Message: err.Error()}}})
+}
+
+var (
+	// parseLineRe finds the line a YAML decode error names.
+	parseLineRe = regexp.MustCompile(`line (\d+):`)
+	// fixCommandRe finds the command a lock error tells the reader to run.
+	fixCommandRe = regexp.MustCompile("run `(pacto [^`]+)`")
+)
+
+// newValidateResult folds stages into a result. It locates each error in raw,
+// lists every stage that did not run as skipped, and names in Next the
+// narrowest command to run now.
+func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...validation.Stage) *ValidateResult {
+	file := DefaultContractPath
+	if !isOCIRef(ref) {
+		file = filepath.Join(ref, DefaultContractPath)
+	}
+	ran := map[string]validation.Stage{}
+	failed := ""
+	for i := range stages {
+		if failed == "" && stages[i].Status == validation.StageFail {
+			failed = stages[i].Name
+		}
+		// With overrides, raw is the merged document, whose lines are not the
+		// file's, so an error there carries no position.
+		if opts.Overrides.IsEmpty() {
+			locate(raw, stages[i].Errors)
+		}
+		// In file order, so the first error, the one Next names, is the same on
+		// every run: the schema layer reports its errors in no fixed order.
+		slices.SortStableFunc(stages[i].Errors, func(a, b contract.ValidationError) int {
+			unlocated := func(e contract.ValidationError) int {
+				if e.Line == 0 {
+					return 1
+				}
+				return 0
+			}
+			return cmp.Or(cmp.Compare(unlocated(a), unlocated(b)), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column),
+				cmp.Compare(a.Path, b.Path), cmp.Compare(a.Message, b.Message))
+		})
+		ran[stages[i].Name] = stages[i]
+	}
+	asked := map[string]bool{"readiness": opts.Readiness, "closure": opts.Closure}
+	ordered := make([]validation.Stage, len(stageOrder))
+	for i, name := range stageOrder {
+		st, ok := ran[name]
+		if ask, optIn := asked[name]; !ok && optIn && !ask {
+			st = validation.SkippedStages("not requested (--"+name+")", name)[0]
+		} else if !ok {
+			st = validation.SkippedStages(failed+" failed", name)[0]
+		}
+		ordered[i] = st
+	}
+
+	r := validation.Merged(ordered)
+	res := &ValidateResult{Path: ref, File: file, Valid: r.IsValid(), Errors: r.Errors, Warnings: r.Warnings, Stages: ordered}
+	res.Next = "pacto impact PUBLISHED_REF " + ref
+	if !res.Valid {
+		res.Next = nextFix(res, rerunCommand(ref, opts), !opts.Overrides.IsEmpty())
+	}
+	return res
+}
+
+// locate sets each error's line and column in raw.
+func locate(raw []byte, errs []contract.ValidationError) {
+	for j := range errs {
+		e := &errs[j]
+		e.Line, e.Column = contract.Locate(raw, e.Path)
+		if m := parseLineRe.FindStringSubmatch(e.Message); e.Code == "PARSE_ERROR" && m != nil {
+			e.Line, _ = strconv.Atoi(m[1])
+		}
+	}
+}
+
+// nextFix is what to do about the first error: the command a lock error names,
+// or where to fix the contract and the command that checks it again. With
+// overrides the error may come from a --set or -f value, so Next names both.
+func nextFix(r *ValidateResult, rerun string, overridden bool) string {
+	e := r.Errors[0]
+	if m := fixCommandRe.FindStringSubmatch(e.Message); strings.HasPrefix(e.Code, "LOCK_") && m != nil {
+		return m[1] + " " + r.Path
+	}
+	if _, err := os.Stat(r.Path); !isOCIRef(r.Path) && errors.Is(err, fs.ErrNotExist) {
+		return r.Path + " does not exist: run pacto validate on the directory that holds " + DefaultContractPath
+	}
+	if overridden {
+		return fmt.Sprintf("fix %s [%s] in %s or in the --set and -f values, then run %s", e.Path, e.Code, r.File, rerun)
+	}
+	return fmt.Sprintf("fix %s [%s], then run %s", r.Where(e), e.Code, rerun)
+}
+
+// Where is the place an error points at: its contract path, and its file
+// position when known.
+func (r *ValidateResult) Where(e contract.ValidationError) string {
+	at := r.File
+	if e.Line > 0 {
+		at += ":" + strconv.Itoa(e.Line)
+	}
+	if e.Column > 0 {
+		at += ":" + strconv.Itoa(e.Column)
+	}
+	if e.Path == "" {
+		return at
+	}
+	return e.Path + " at " + at
+}
+
+// rerunCommand is the pacto validate command line opts stand for.
+//
+// ponytail: values are not shell-quoted; a --set value with a space needs
+// quoting by hand.
+func rerunCommand(ref string, opts ValidateOptions) string {
+	args := []string{"pacto", "validate"}
+	if opts.Readiness {
+		args = append(args, "--readiness")
+	}
+	if opts.Closure {
+		args = append(args, "--closure")
+	}
+	for _, f := range opts.Overrides.ValueFiles {
+		args = append(args, "-f", f)
+	}
+	for _, kv := range opts.Overrides.SetValues {
+		args = append(args, "--set", kv)
+	}
+	return strings.Join(append(args, ref), " ")
+}
+
+// guaranteeStage checks what each direct dependency requires against its
+// provider's contract, reporting every unmet guarantee at once. It is skipped
+// when no dependency declares requires. An unmet
+// guarantee is a confirmed contradiction between two declared contracts:
+// GUARANTEE_UNMET, an error on a required dependency and a warning on an
+// optional one, which by definition the service runs without. A provider
+// Pacto cannot fetch leaves its requirements unknown: GUARANTEE_UNVERIFIED, a
+// warning, never a pass: the stage passes only when every requirement was
+// checked and none failed, and a stage with an unchecked requirement and no
+// failure is skipped with a reason naming what it could not verify. Only dependencies that declare requires are fetched,
+// so a contract without them validates offline as before; what a dependency's
+// own dependencies require stays its owner's business.
+func (s *Service) guaranteeStage(ctx context.Context, ref string, c *contract.Contract) validation.Stage {
+	var errs []contract.ValidationError
+	var warns []contract.ValidationWarning
+	fetcher := s.newDepFetcher(ref)
+	checked := false
+	var unverified []string
+	for i, dep := range c.Dependencies {
+		if len(dep.Requires) == 0 {
+			continue
+		}
+		checked = true
+		path := fmt.Sprintf("dependencies[%d].requires", i)
+		var b *contract.Bundle
+		err := fmt.Errorf("it has no ref, so there is no contract to read")
+		if dep.Ref != "" {
+			b, err = fetcher.Fetch(ctx, dep)
+		}
+		if err != nil {
+			warns = append(warns, contract.ValidationWarning{Path: path, Code: "GUARANTEE_UNVERIFIED",
+				Message: fmt.Sprintf("cannot check what %s requires from %s: %v", c.Service.Name, dep.Name, err)})
+			unverified = append(unverified, dep.Name)
+			continue
+		}
+		for _, m := range contract.Unmet(c.Service.Name, dep, b.Contract) {
+			if dep.Required {
+				errs = append(errs, contract.ValidationError{Path: path, Code: "GUARANTEE_UNMET", Message: m.String()})
+			} else {
+				warns = append(warns, contract.ValidationWarning{Path: path, Code: "GUARANTEE_UNMET", Message: m.String()})
+			}
+		}
+	}
+	if !checked {
+		return validation.SkippedStages("no dependency declares requires", "guarantees")[0]
+	}
+	st := validation.RanStage("guarantees", validation.ValidationResult{Errors: errs, Warnings: warns})
+	if st.Status == validation.StagePass && len(unverified) > 0 {
+		st.Status, st.Reason = validation.StageSkip, "could not verify: "+strings.Join(unverified, ", ")
+	}
+	return st
+}
+
+// closureFindings checks every contract in the root's dependency closure against
 // the policies the root resolves. It fails closed: a dependency that cannot be
 // resolved, or whose contract cannot be read, is an error. External
-// dependencies carry no contract and are skipped.
+// dependencies carry no contract and are skipped. It also warns about each
+// deprecated interface of a provider the root depends on directly.
 //
 // A root whose own policies fail to resolve is already invalid, so the closure
 // is then checked for resolution failures only.
@@ -125,7 +314,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 // ponytail: the closure is resolved again after verifyLockIfPresent resolved it
 // for the lock check, so a tag re-pushed between the two reads is not caught;
 // a lock-pinned fetcher closes that window if it matters.
-func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contract.Bundle, resolver validation.BundleResolver) []contract.ValidationError {
+func (s *Service) closureFindings(ctx context.Context, ref string, bundle *contract.Bundle, resolver validation.BundleResolver) ([]contract.ValidationError, []contract.ValidationWarning) {
 	policies, pr := validation.ResolvePoliciesWithResolver(ctx, bundle.Contract, bundle.FS, resolver)
 	if !pr.IsValid() {
 		policies = nil
@@ -138,6 +327,13 @@ func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contrac
 	// content too: a local copy with edits and the published bundle can share a
 	// name and version.
 	checked := map[string]bool{}
+	// A shared edge carries no contract, so the root's direct providers are
+	// looked up among the nodes the walk resolved.
+	// ponytail: keyed on name, version and ref, so two different bundles under one
+	// relative ref in different directories collapse; key on the resolver's base if
+	// that ever matters.
+	contracts := map[string]*contract.Contract{}
+	nodeID := func(n *graph.Node) string { return n.Name + "@" + n.Version + "@" + n.Ref }
 	var walk func(n *graph.Node)
 	walk = func(n *graph.Node) {
 		for _, e := range n.Dependencies {
@@ -159,6 +355,7 @@ func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contrac
 				if e.Node.FS != nil {
 					data, err = fs.ReadFile(e.Node.FS, DefaultContractPath)
 				}
+				contracts[nodeID(e.Node)] = e.Node.Contract
 				sum := sha256.Sum256(data)
 				if id := e.Node.Name + "@" + e.Node.Version + "@" + hex.EncodeToString(sum[:]); !checked[id] {
 					checked[id] = true
@@ -169,7 +366,14 @@ func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contrac
 		}
 	}
 	walk(res.Root)
-	return errs
+
+	var warns []contract.ValidationWarning
+	for i, e := range res.Root.Dependencies {
+		if e.Node != nil && contracts[nodeID(e.Node)] != nil {
+			warns = append(warns, validation.DeprecatedInterfaceWarnings(fmt.Sprintf("dependencies[%d]", i), contracts[nodeID(e.Node)], s.env().now())...)
+		}
+	}
+	return errs, warns
 }
 
 // checkClosureNode checks one resolved dependency's contract data, read with
@@ -268,10 +472,10 @@ func (a *bundleResolverAdapter) ResolveBundleFrom(ctx context.Context, base, ref
 // ValidationReport runs Validate for the bundle at dir and returns the verdict in
 // the shape the MCP pacto_check port consumes, so the tool and `pacto validate`
 // share one validation path (lockfile verification included).
-func (s *Service) ValidationReport(ctx context.Context, dir string) (validation.ValidationResult, error) {
+func (s *Service) ValidationReport(ctx context.Context, dir string) (validation.Report, error) {
 	r, err := s.Validate(ctx, ValidateOptions{Path: dir})
 	if err != nil {
-		return validation.ValidationResult{}, err
+		return validation.Report{}, err
 	}
-	return validation.ValidationResult{Errors: r.Errors, Warnings: r.Warnings}, nil
+	return validation.Report{ValidationResult: validation.ValidationResult{Errors: r.Errors, Warnings: r.Warnings}, Stages: r.Stages, Next: r.Next}, nil
 }

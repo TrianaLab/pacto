@@ -70,6 +70,30 @@ var rules = map[classificationKey]Classification{
 	{"interfaces.type", Modified}:       Breaking,
 	{"interfaces.ref", Modified}:        PotentialBreaking,
 	{"interfaces.visibility", Modified}: PotentialBreaking,
+	// A compatibilityEpoch change is the provider saying the interface's
+	// behavior changed incompatibly where no spec diff can see it. Lowering it
+	// is no undo: consumers that adapted to the raised epoch break in turn.
+	{"interfaces.compatibilityEpoch", Modified}: Breaking,
+
+	// Interface lifecycle (2.2): notices, except a sunset moved earlier, which
+	// diffLifecycle downgrades to NonBreaking when it moves later instead.
+	{"interfaces.lifecycle", Added}:               NonBreaking,
+	{"interfaces.lifecycle", Removed}:             NonBreaking,
+	{"interfaces.lifecycle.deprecated", Modified}: NonBreaking,
+	{"interfaces.lifecycle.sunset", Added}:        NonBreaking,
+	{"interfaces.lifecycle.sunset", Removed}:      NonBreaking,
+	{"interfaces.lifecycle.sunset", Modified}:     PotentialBreaking,
+	{"interfaces.lifecycle.successor", Added}:     NonBreaking,
+	{"interfaces.lifecycle.successor", Modified}:  NonBreaking,
+	{"interfaces.lifecycle.successor", Removed}:   NonBreaking,
+
+	// Interface guarantees. A consumer may rely on any guarantee, so one that
+	// is removed or weakened breaks it; diffGuarantees decides the direction
+	// with contract.Unmet, the same check a consumer's requirement gets.
+	{"interfaces.guarantees", Added}:                 NonBreaking,
+	{"interfaces.guarantees", Removed}:               Breaking,
+	{"interfaces.guarantees.weakened", Modified}:     Breaking,
+	{"interfaces.guarantees.strengthened", Modified}: NonBreaking,
 
 	// Configurations (name-indexed). A source that gains a schema where it had
 	// none is deliberately absent: it newly constrains a consumer who was
@@ -103,6 +127,9 @@ var rules = map[classificationKey]Classification{
 	// service needs. A new free-text version of an external dependency is
 	// something nobody can check: PotentialBreaking (the default).
 	{"dependencies.external", Modified}: NonBreaking,
+	// Dropping every requirement can refuse no provider. Adding or changing
+	// one is the PotentialBreaking default.
+	{"dependencies.requires", Removed}: NonBreaking,
 
 	// OpenAPI paths
 	{"openapi.paths", Added}:   NonBreaking,
@@ -136,6 +163,17 @@ var rules = map[classificationKey]Classification{
 	{"asyncapi.channels", Removed}:   Breaking,
 	{"asyncapi.operations", Added}:   NonBreaking,
 	{"asyncapi.operations", Removed}: Breaking,
+	// An AsyncAPI 2.x operation lives inside its channel, so the deep diff
+	// reaches it. Adding one is as harmless as adding a channel. Removing one,
+	// which is also how a publish/subscribe flip reads, changes who sends.
+	{"asyncapi.channels.publish", Added}:     NonBreaking,
+	{"asyncapi.channels.subscribe", Added}:   NonBreaking,
+	{"asyncapi.channels.publish", Removed}:   Breaking,
+	{"asyncapi.channels.subscribe", Removed}: Breaking,
+	// A 3.x operation whose action flips changes who sends, and one linked to
+	// another channel changes where the consumer listens.
+	{"asyncapi.operations.action", Modified}:       Breaking,
+	{"asyncapi.operations.channel.$ref", Modified}: Breaking,
 
 	// gRPC service surface. proto3 has no `required`, so an added rpc, message
 	// or field is always wire-compatible. Everything else here is Breaking:
@@ -153,6 +191,15 @@ var rules = map[classificationKey]Classification{
 	{"grpc.messages.fields", Added}:    NonBreaking,
 	{"grpc.messages.fields", Removed}:  Breaking,
 	{"grpc.messages.fields", Modified}: Breaking,
+	// A proto enum may sit in a request, a response or a stream, and the text
+	// scan cannot tell which. A value appearing breaks a reader that switches
+	// exhaustively over the enum only when the enum reaches it, so it is
+	// POTENTIAL_BREAKING: Pacto does not claim a contradiction it cannot see.
+	{"grpc.enums", Added}:           NonBreaking,
+	{"grpc.enums", Removed}:         Breaking,
+	{"grpc.enums.values", Added}:    PotentialBreaking,
+	{"grpc.enums.values", Removed}:  Breaking,
+	{"grpc.enums.values", Modified}: Breaking,
 
 	// MCP tools a service exposes. A tool on both sides is deep-diffed by
 	// diffJSON (input as a request, output as a response), so there is no

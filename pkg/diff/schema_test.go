@@ -325,3 +325,201 @@ func TestJSONSafe_CollidingStringifiedKeysAreDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// worst returns the most severe classification among changes, and whether
+// there was any change at all.
+func worst(changes []Change) (Classification, bool) {
+	w := NonBreaking
+	for _, c := range changes {
+		w = max(w, c.Classification)
+	}
+	return w, len(changes) > 0
+}
+
+// TestPositionalCompatibility is the compatibility model as a table: each
+// schema edit judged in the three positions a schema can sit in. A request
+// (old caller, new provider) tolerates widening, a response (new provider, old
+// reader) tolerates narrowing, and a record that flows both ways tolerates
+// neither. Doc-only edits pass everywhere; an edit the model cannot place is
+// breaking everywhere. A property a request stops declaring stays
+// POTENTIAL_BREAKING: the provider drops it unread, which may or may not
+// matter to the caller.
+func TestPositionalCompatibility(t *testing.T) {
+	const (
+		nb = NonBreaking
+		pb = PotentialBreaking
+		br = Breaking
+	)
+	tests := []struct {
+		name          string
+		old, new      string
+		req, resp, rc Classification
+	}{
+		{"enum value added", `{"enum":["a"]}`, `{"enum":["a","b"]}`, nb, br, br},
+		{"enum value removed", `{"enum":["a","b"]}`, `{"enum":["a"]}`, br, nb, br},
+		{"numeric enum value added", `{"enum":[1]}`, `{"enum":[1,2]}`, nb, br, br},
+		{"numeric enum value removed", `{"enum":[1,2]}`, `{"enum":[1]}`, br, nb, br},
+		{"numeric enum value replaced", `{"enum":[1,2]}`, `{"enum":[1,3]}`, br, br, br},
+		{"enum introduced", `{"type":"string"}`, `{"type":"string","enum":["a"]}`, br, nb, br},
+		{"enum dropped", `{"type":"string","enum":["a"]}`, `{"type":"string"}`, nb, br, br},
+		{"const introduced", `{}`, `{"const":"a"}`, br, nb, br},
+		{"oneOf variant added", `{"oneOf":[{"type":"string"}]}`, `{"oneOf":[{"type":"string"},{"type":"integer"}]}`, nb, br, br},
+		{"oneOf variant removed", `{"oneOf":[{"type":"string"},{"type":"integer"}]}`, `{"oneOf":[{"type":"string"}]}`, br, nb, br},
+		{"anyOf variant added", `{"anyOf":[{"type":"string"}]}`, `{"anyOf":[{"type":"string"},{"type":"integer"}]}`, nb, br, br},
+		{"allOf member added", `{"allOf":[{"type":"object"}]}`, `{"allOf":[{"type":"object"},{"required":["a"]}]}`, br, nb, br},
+		{"allOf member removed", `{"allOf":[{"type":"object"},{"required":["a"]}]}`, `{"allOf":[{"type":"object"}]}`, nb, br, br},
+		{"maxLength tightened", `{"maxLength":10}`, `{"maxLength":5}`, br, nb, br},
+		{"maxLength loosened", `{"maxLength":5}`, `{"maxLength":10}`, nb, br, br},
+		{"maxLength introduced", `{}`, `{"maxLength":5}`, br, nb, br},
+		{"maxLength dropped", `{"maxLength":5}`, `{}`, nb, br, br},
+		{"minLength tightened", `{"minLength":1}`, `{"minLength":3}`, br, nb, br},
+		{"minLength loosened", `{"minLength":3}`, `{"minLength":1}`, nb, br, br},
+		{"minimum tightened", `{"minimum":0}`, `{"minimum":1}`, br, nb, br},
+		{"maximum loosened", `{"maximum":10}`, `{"maximum":100}`, nb, br, br},
+		{"maxItems loosened", `{"maxItems":1}`, `{"maxItems":2}`, nb, br, br},
+		{"minItems tightened", `{"minItems":0}`, `{"minItems":1}`, br, nb, br},
+		{"exclusiveMaximum flag set", `{"maximum":5,"exclusiveMaximum":false}`, `{"maximum":5,"exclusiveMaximum":true}`, br, nb, br},
+		{"exclusiveMinimum value loosened", `{"exclusiveMinimum":5}`, `{"exclusiveMinimum":1}`, nb, br, br},
+		{"exclusiveMaximum flag to value", `{"exclusiveMaximum":true}`, `{"exclusiveMaximum":5}`, br, br, br},
+		{"uniqueItems introduced", `{}`, `{"uniqueItems":true}`, br, nb, br},
+		{"pattern introduced", `{}`, `{"pattern":"^a"}`, br, nb, br},
+		{"pattern dropped", `{"pattern":"^a"}`, `{}`, nb, br, br},
+		{"pattern changed", `{"pattern":"^a"}`, `{"pattern":"^b"}`, br, br, br},
+		{"format introduced", `{"type":"string"}`, `{"type":"string","format":"uuid"}`, br, nb, br},
+		{"multipleOf changed", `{"multipleOf":2}`, `{"multipleOf":3}`, br, br, br},
+		{"required added", `{"required":["a"]}`, `{"required":["a","b"]}`, br, nb, br},
+		{"required removed", `{"required":["a","b"]}`, `{"required":["a"]}`, nb, br, br},
+		{"required introduced", `{}`, `{"required":["a"]}`, br, nb, br},
+		{"required dropped", `{"required":["a"]}`, `{}`, nb, br, br},
+		{"$defs entry named title widened", `{"$defs":{"title":{"enum":["a"]}}}`, `{"$defs":{"title":{"enum":["a","b"]}}}`, nb, br, br},
+		{"boolean enum value added", `{"enum":[true]}`, `{"enum":[true,false]}`, nb, br, br},
+		{"additionalProperties closed", `{"type":"object"}`, `{"type":"object","additionalProperties":false}`, br, nb, br},
+		{"additionalProperties opened", `{"type":"object","additionalProperties":false}`, `{"type":"object"}`, nb, br, br},
+		{"additionalProperties true to false", `{"additionalProperties":true}`, `{"additionalProperties":false}`, br, nb, br},
+		{"additionalProperties false to schema", `{"additionalProperties":false}`, `{"additionalProperties":{"type":"string"}}`, nb, br, br},
+		{"additionalProperties schema loosened", `{"additionalProperties":{"maxLength":1}}`, `{"additionalProperties":{"maxLength":2}}`, nb, br, br},
+		{"additionalProperties true spelled out", `{}`, `{"additionalProperties":true}`, nb, nb, nb},
+		{"type widened integer to number", `{"type":"integer"}`, `{"type":"number"}`, nb, br, br},
+		{"type narrowed number to integer", `{"type":"number"}`, `{"type":"integer"}`, br, nb, br},
+		{"type changed string to integer", `{"type":"string"}`, `{"type":"integer"}`, br, br, br},
+		{"type made nullable", `{"type":"string"}`, `{"type":["string","null"]}`, nb, br, br},
+		{"type list gains a member", `{"type":["string"]}`, `{"type":["string","null"]}`, nb, br, br},
+		{"type list loses a member", `{"type":["string","null"]}`, `{"type":["string"]}`, br, nb, br},
+		{"type introduced", `{}`, `{"type":"string"}`, br, nb, br},
+		{"redundant integer dropped from type list", `{"type":["integer","number"]}`, `{"type":"number"}`, nb, nb, nb},
+		{"type list with a non-string member", `{"type":"string"}`, `{"type":["string",1]}`, br, br, br},
+		{"items turned into a tuple", `{"items":{"type":"string"}}`, `{"items":[{"type":"string"}]}`, br, br, br},
+		{"tuple member added", `{"items":[{"type":"string"}]}`, `{"items":[{"type":"string"},{"type":"string"}]}`, br, br, br},
+		{"nullable set", `{"type":"string"}`, `{"type":"string","nullable":true}`, nb, br, br},
+		{"items retyped", `{"items":{"type":"string"}}`, `{"items":{"type":"integer"}}`, br, br, br},
+		{"items loosened", `{"items":{"maxLength":1}}`, `{"items":{"maxLength":2}}`, nb, br, br},
+		{"items introduced", `{"type":"array"}`, `{"type":"array","items":{"type":"string"}}`, br, nb, br},
+		{"optional property added", `{"properties":{}}`, `{"properties":{"a":{"type":"string"}}}`, nb, nb, nb},
+		{"optional property removed", `{"properties":{"a":{"type":"string"}}}`, `{"properties":{}}`, pb, br, br},
+		{"property added to a closed object", `{"additionalProperties":false,"properties":{}}`, `{"additionalProperties":false,"properties":{"a":{}}}`, nb, br, br},
+		{"property removed from a closed object", `{"additionalProperties":false,"properties":{"a":{}}}`, `{"additionalProperties":false,"properties":{}}`, br, br, br},
+		{"properties block introduced", `{"type":"object"}`, `{"type":"object","properties":{"a":{}}}`, nb, nb, nb},
+		{"property type changed", `{"properties":{"a":{"type":"string"}}}`, `{"properties":{"a":{"type":"integer"}}}`, br, br, br},
+		{"property named description removed", `{"properties":{"description":{"type":"string"}}}`, `{"properties":{}}`, pb, br, br},
+		{"property named title retyped", `{"properties":{"title":{"type":"string"}}}`, `{"properties":{"title":{"type":"integer"}}}`, br, br, br},
+		{"description changed", `{"description":"a"}`, `{"description":"b"}`, nb, nb, nb},
+		{"title added", `{}`, `{"title":"T"}`, nb, nb, nb},
+		{"examples changed", `{"examples":["a"]}`, `{"examples":["b"]}`, nb, nb, nb},
+		{"comment added", `{}`, `{"$comment":"why"}`, nb, nb, nb},
+		{"nested example changed", `{"properties":{"a":{"example":{"x":1}}}}`, `{"properties":{"a":{"example":{"x":2}}}}`, nb, nb, nb},
+		{"deprecated set", `{"properties":{"a":{"type":"string"}}}`, `{"properties":{"a":{"type":"string","deprecated":true}}}`, nb, nb, nb},
+		{"default changed", `{"default":"a"}`, `{"default":"b"}`, br, br, br},
+		{"extension changed", `{"x-kind":"a"}`, `{"x-kind":"b"}`, pb, pb, pb},
+		{"extension added", `{}`, `{"x-kind":"a"}`, pb, pb, pb},
+		{"extension removed", `{"x-kind":{"a":1}}`, `{}`, pb, pb, pb},
+		{"nested extension changed", `{"x-kind":{"a":1}}`, `{"x-kind":{"a":2}}`, pb, pb, pb},
+		{"property named like an extension removed", `{"properties":{"x-id":{"type":"string"}}}`, `{"properties":{}}`, pb, br, br},
+		{"property named like an extension retyped", `{"properties":{"x-id":{"type":"string"}}}`, `{"properties":{"x-id":{"type":"integer"}}}`, br, br, br},
+		{"unknown keyword", `{"kind":"a"}`, `{"kind":"b"}`, br, br, br},
+		{"readOnly set", `{"properties":{"a":{"type":"string"}}}`, `{"properties":{"a":{"type":"string","readOnly":true}}}`, br, br, br},
+		{"discriminator changed", `{"discriminator":{"propertyName":"a"}}`, `{"discriminator":{"propertyName":"b"}}`, br, br, br},
+		{"not body changed", `{"not":{"type":"string"}}`, `{"not":{"type":["string","null"]}}`, br, br, br},
+		{"ref repointed", `{"$ref":"#/a"}`, `{"$ref":"#/b"}`, br, br, br},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var old, new any
+			if err := json.Unmarshal([]byte(tt.old), &old); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(tt.new), &new); err != nil {
+				t.Fatal(err)
+			}
+			for _, pos := range []struct {
+				dir  schemaDirection
+				want Classification
+			}{{dirRequest, tt.req}, {dirResponse, tt.resp}, {dirRecord, tt.rc}} {
+				prefix := "body.schema"
+				if pos.dir == dirRecord {
+					prefix = "message.payload"
+				}
+				got, changed := worst(diffJSON(pos.dir, nil, prefix, old, new))
+				if !changed {
+					t.Fatalf("no change detected")
+				}
+				if got != pos.want {
+					t.Errorf("direction %d: got %s, want %s", pos.dir, got, pos.want)
+				}
+			}
+		})
+	}
+}
+
+// yaml.v3 decodes an integer bound as int, encoding/json as float64; both
+// rank. A bound that is not a number cannot be ranked and fails closed.
+func TestKeywordEffect_BoundValues(t *testing.T) {
+	if got := keywordEffect("maxLength", false, Modified, 5, 10); got != effectWiden {
+		t.Errorf("int bound: got %d", got)
+	}
+	if got := keywordEffect("maxLength", false, Modified, 5, "ten"); got != effectUnknown {
+		t.Errorf("non-number bound: got %d", got)
+	}
+}
+
+// A configuration or policy schema keeps its conservative grading: a
+// structural edit stays POTENTIAL_BREAKING and `required` stays BREAKING both
+// ways. Only a doc-only edit changes, because documentation never counts.
+func TestUnknownDirection_KeepsDefaultsButIgnoresDocs(t *testing.T) {
+	var old, new any
+	_ = json.Unmarshal([]byte(`{"description":"a","enum":["x"]}`), &old)
+	_ = json.Unmarshal([]byte(`{"description":"b","enum":["x","y"]}`), &new)
+	got := map[string]Classification{}
+	for _, c := range diffJSON(dirUnknown, nil, "schema", old, new) {
+		got[c.Path] = c.Classification
+	}
+	if got["schema.description"] != NonBreaking {
+		t.Errorf("description: got %s", got["schema.description"])
+	}
+	if got["schema.enum[y]"] != PotentialBreaking {
+		t.Errorf("enum: got %s", got["schema.enum[y]"])
+	}
+}
+
+// Scalar enum values are compared as a set, so removing one is one removed
+// entry and reordering is no change.
+func TestDiffJSON_ScalarArraysAsSets(t *testing.T) {
+	var old, new any
+	_ = json.Unmarshal([]byte(`{"enum":[1,2,3]}`), &old)
+	_ = json.Unmarshal([]byte(`{"enum":[3,1]}`), &new)
+	changes := diffJSON(dirResponse, nil, "body.schema", old, new)
+	if len(changes) != 1 || changes[0].Path != "body.schema.enum[2]" || changes[0].Type != Removed || changes[0].Classification != NonBreaking {
+		t.Fatalf("got %+v", changes)
+	}
+}
+
+// A response header caps what is nested in it at POTENTIAL_BREAKING. A body
+// property that happens to be named headers is body data.
+func TestResponseHeaderCap_MatchesTheHeadersMap(t *testing.T) {
+	const resp = "openapi.paths[/x].methods[GET].responses[200]"
+	if got := classifySchemaChange(dirResponse, resp+".headers.X-Rate.schema.enum", true, Added, nil, "a"); got != PotentialBreaking {
+		t.Errorf("response header: got %s", got)
+	}
+	if got := classifySchemaChange(dirResponse, resp+".content.application/json.schema.properties.headers.properties.b", false, Removed, "a", nil); got != Breaking {
+		t.Errorf("body property named headers: got %s", got)
+	}
+}

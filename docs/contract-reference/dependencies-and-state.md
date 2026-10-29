@@ -20,9 +20,38 @@ Declares dependencies on other services via their Pacto contracts.
 | `compatibility` | string | With `ref` | Non-empty. Valid semver constraint |
 | `external` | boolean | No | `true` when something outside this Pacto system delivers the dependency. Needs `pactoVersion: "2.1"` |
 | `version` | string | Only for `external` without `ref` | The version it runs against, as free text |
+| `requires` | list | No | Guarantees this service relies on from the provider. See [Required guarantees](#required-guarantees). Needs `pactoVersion: "2.2"` |
 
 !!! note
     `true` means the service cannot function without the dependency. `false` means it degrades gracefully when the dependency is unavailable. The field is declared *intent*: consumers read it and the dashboard uses it to work out the affected consumers. Pacto checks nothing about it at deployment time.
+
+### Required guarantees
+
+Each `requires` entry names a provider `interface` and the
+[guarantees](sections.md#guarantees) this service relies on. The provider must
+declare each one at least as strong as written.
+
+```yaml
+dependencies:
+  - name: orders
+    ref: oci://ghcr.io/acme/pacto/orders
+    compatibility: "^2.0.0"
+    required: true
+    requires:
+      - interface: order-events
+        delivery: at-least-once
+        dedupeWindow: 5m
+```
+
+`pacto validate` reads the provider contract and reports every unmet guarantee
+in one run as `GUARANTEE_UNMET`, naming both services, the guarantee and both
+values. It is an error on a required dependency and a warning on an optional
+one. When Pacto cannot read the provider contract, nothing confirms the
+requirement, so validation warns with `GUARANTEE_UNVERIFIED` and reports the
+`guarantees` stage as `SKIP` with a reason naming the dependency. The stage
+passes only when every requirement was checked. `pacto graph`
+marks each refused edge. [`pacto impact`](../impact.md) lists the consumers
+whose requirement a change breaks and blocks the release when one of them runs.
 
 ### External dependencies
 

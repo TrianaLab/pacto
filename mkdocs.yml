@@ -188,6 +188,7 @@ nav:
   - Home: index.md
   - Get started:
       - What Pacto is:
+          - Why Pacto: why-pacto.md
           - The autonomy ladder: autonomy.md
           - Manifesto and GitlessOps: manifesto.md
           - How Pacto relates to other tools: comparison.md

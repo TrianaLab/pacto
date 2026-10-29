@@ -167,6 +167,17 @@ func TestRenderImpactBreakingWithIncompatibleActiveConsumer(t *testing.T) {
 	}
 }
 
+func TestRenderImpactUnmetGuarantee(t *testing.T) {
+	r := &impact.Result{
+		Service: "orders", NewVersion: "1.1.0", Classification: "BREAKING", Gate: impact.GateBlocked,
+		Consumers: []impact.AffectedConsumer{{Service: "checkout", CompatibilityVerdict: impact.CompatibilityCompatible,
+			Unmet: []contract.Mismatch{{Consumer: "checkout", Provider: "orders", Interface: "events", Guarantee: "dedupeWindow", Required: "5m", Offered: "1m"}}}},
+	}
+	if got := renderImpact(r); !strings.Contains(got, "refused: checkout requires events dedupeWindow >= 5m from orders, which offers 1m") {
+		t.Fatalf("unmet guarantee not rendered:\n%s", got)
+	}
+}
+
 func TestRenderImpactBreakingWithTargetlessIncompatibleConsumer(t *testing.T) {
 	r := &impact.Result{
 		Service:        "test-svc",
@@ -302,6 +313,7 @@ func TestRenderExplainWithCapabilitiesInterfacesDependencies(t *testing.T) {
 		},
 		Interfaces: []app.ExplainInterface{
 			{Name: "api", Type: "grpc", Ref: "api.proto"},
+			{Name: "old", Type: "grpc", Ref: "old.proto", Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-15", Successor: "api"}},
 		},
 		Dependencies: []app.ExplainDependency{
 			{Name: "auth-svc", Ref: "oci://example.com/auth:1.0", Required: true, Compatibility: "^1.0"},
@@ -317,6 +329,9 @@ func TestRenderExplainWithCapabilitiesInterfacesDependencies(t *testing.T) {
 	}
 	if !strings.Contains(got, "api") {
 		t.Fatal("render should include interfaces")
+	}
+	if !strings.Contains(got, "old (grpc, deprecated 2026-01-15, successor api)") {
+		t.Fatalf("render should include an interface lifecycle: %s", got)
 	}
 	if !strings.Contains(got, "auth-svc") {
 		t.Fatal("render should include dependencies")

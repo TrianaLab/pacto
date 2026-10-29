@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"slices"
@@ -774,5 +775,20 @@ func TestPlanHoldsAVersionThatChangedAPinnedSuite(t *testing.T) {
 		if p.Predicted != PredictHeld || v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(p.Question, tc.held) {
 			t.Errorf("%s: %+v", tc.held, p)
 		}
+	}
+}
+
+// A dependency's requires survive the trip from the Pacto status into the
+// rebuilt contract, so impact can name a guarantee the candidate refuses.
+func TestRevisionFromStatus_KeepsRequires(t *testing.T) {
+	p := checkoutPacto("^1.0.0")
+	if err := json.Unmarshal([]byte(`[{"name":"payments","ref":"oci://reg.example/pactos/payments","required":true,"compatibility":"^1.0.0",
+		"requires":[{"interface":"events","delivery":"at-least-once"}]}]`), &p.Status.Dependencies); err != nil {
+		t.Fatal(err)
+	}
+	rev, _ := revisionFromStatus(p)
+	got := rev.Bundle.Contract.Dependencies[0].Requires
+	if len(got) != 1 || got[0].Interface != "events" || got[0].Delivery != "at-least-once" {
+		t.Fatalf("requires = %+v", got)
 	}
 }

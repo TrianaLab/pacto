@@ -37,8 +37,8 @@ func diffMCP(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 			continue
 		}
 		n := newTools[i]
-		changes = append(changes, diffJSON(dirRequest, path+".inputSchema", o.InputSchema, n.InputSchema)...)
-		changes = append(changes, diffJSON(dirResponse, path+".outputSchema", o.OutputSchema, n.OutputSchema)...)
+		changes = append(changes, diffJSON(dirRequest, nil, path+".inputSchema", o.InputSchema, n.InputSchema)...)
+		changes = append(changes, diffJSON(dirResponse, nil, path+".outputSchema", o.OutputSchema, n.OutputSchema)...)
 	}
 	for _, n := range newTools {
 		if !slices.ContainsFunc(oldTools, func(t contract.MCPTool) bool { return t.Name == n.Name }) {

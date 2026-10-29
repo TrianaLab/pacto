@@ -109,6 +109,13 @@ func renderChildren(b *strings.Builder, edges []Edge, prefix string, col TreeCol
 			if edge.External {
 				label += " " + apply(col.Marker, "[external]")
 			}
+			if len(edge.Unmet) > 0 {
+				refused := make([]string, len(edge.Unmet))
+				for i, m := range edge.Unmet {
+					refused[i] = m.String()
+				}
+				label += " " + apply(col.Error, "(refused: "+strings.Join(refused, "; ")+")")
+			}
 			if edge.Shared {
 				fmt.Fprintf(b, "%s%s%s %s\n", prefix, connector, label, apply(col.Marker, "(shared)"))
 			} else {

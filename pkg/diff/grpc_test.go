@@ -705,3 +705,43 @@ func TestExtractProto_DemoFixture(t *testing.T) {
 		t.Errorf("unexpected acknowledged field %q", got)
 	}
 }
+
+// A proto enum is compared like a message: an enum or one of its values going
+// away, or renumbered, breaks readers. A value appearing is POTENTIAL_BREAKING:
+// it breaks a reader that switches over the enum exhaustively only when the
+// enum travels to it, and the text scan cannot tell which way it travels.
+func TestDiffGRPC_Enums(t *testing.T) {
+	old := `enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_OPEN = 1;
+}
+enum Gone {
+  GONE_UNSPECIFIED = 0;
+}
+`
+	new := `enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_OPEN = 1;
+  STATUS_CLOSED = 2 [deprecated = true];
+}
+enum Fresh {
+  FRESH_UNSPECIFIED = 0;
+}
+`
+	got := map[string]Classification{}
+	for _, c := range diffProto(t, old, new) {
+		got[c.Path+" "+c.Type.String()] = c.Classification
+	}
+	want := map[string]Classification{
+		"grpc.enums[Status].values[STATUS_CLOSED] added": PotentialBreaking,
+		"grpc.enums[Gone] removed":                       Breaking,
+		"grpc.enums[Fresh] added":                        NonBreaking,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	renumbered := strings.Replace(old, "STATUS_OPEN = 1", "STATUS_OPEN = 3", 1)
+	if c, ok := findChange(diffProto(t, old, renumbered), "grpc.enums[Status].values[STATUS_OPEN]", Modified); !ok || c.Classification != Breaking {
+		t.Errorf("renumbered value: %+v", c)
+	}
+}

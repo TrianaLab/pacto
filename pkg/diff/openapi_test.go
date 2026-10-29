@@ -504,15 +504,16 @@ paths:
 	changes := diffOpenAPI("openapi.yaml", "openapi.yaml", oldFS, newFS)
 	// The response is DEEP-diffed like the request body, so a changed response
 	// surfaces the specific field rather than one shallow change for the whole
-	// response object. An optional field appearing on a response is the
-	// POTENTIAL_BREAKING default: a strict client can choke on it, but nothing a
-	// consumer already reads has moved.
+	// response object. An optional field appearing on a response is
+	// NON_BREAKING: the schema leaves the object open, so a reader already
+	// accepts fields it does not know. A schema that closes the object with
+	// additionalProperties: false grades it BREAKING instead.
 	found := false
 	for _, c := range changes {
 		if strings.Contains(c.Path, "responses[200]") && strings.Contains(c.Path, "email") && c.Type == Added {
 			found = true
-			if c.Classification != PotentialBreaking {
-				t.Errorf("expected POTENTIAL_BREAKING for an added response property, got %s", c.Classification)
+			if c.Classification != NonBreaking {
+				t.Errorf("expected NON_BREAKING for an added response property, got %s", c.Classification)
 			}
 		}
 	}
@@ -754,21 +755,21 @@ paths:
 }
 
 func TestDiffOpenAPI_OperationBothNilMaps(t *testing.T) {
-	changes := diffOperation("/test", "GET", nil, nil, nil, nil)
+	changes := diffOperation(nil, "/test", "GET", nil, nil, nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for nil operations, got %d", len(changes))
 	}
 }
 
 func TestDiffOpenAPI_OperationOneNilMap(t *testing.T) {
-	changes := diffOperation("/test", "GET", map[string]any{"summary": "test"}, nil, nil, nil)
+	changes := diffOperation(nil, "/test", "GET", map[string]any{"summary": "test"}, nil, nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes when new op is nil (no responses/requestBody), got %d", len(changes))
 	}
 }
 
 func TestDiffOpenAPI_ResponsesNilBothSides(t *testing.T) {
-	changes := diffResponses("/test", "GET", nil, nil)
+	changes := diffResponses(nil, "/test", "GET", nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for nil responses, got %d", len(changes))
 	}
@@ -832,7 +833,7 @@ func TestYamlEqual(t *testing.T) {
 func TestDiffOpenAPISpecs_BothEmpty(t *testing.T) {
 	old := &openAPISpec{Paths: map[string]map[string]any{}}
 	new := &openAPISpec{Paths: map[string]map[string]any{}}
-	changes := diffOpenAPISpecs(old, new)
+	changes := diffOpenAPISpecs(nil, old, new)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -841,7 +842,7 @@ func TestDiffOpenAPISpecs_BothEmpty(t *testing.T) {
 func TestDiffPathMethods_NoHTTPMethods(t *testing.T) {
 	old := map[string]any{"summary": "old", "description": "old desc"}
 	new := map[string]any{"summary": "new", "description": "new desc"}
-	changes := diffPathMethods("/test", old, new)
+	changes := diffPathMethods(nil, "/test", old, new)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for non-HTTP keys, got %d", len(changes))
 	}
@@ -1151,18 +1152,14 @@ paths:
 }
 
 func TestDiffParameters_BothNil(t *testing.T) {
-	changes := diffParameters("/test", "GET", nil, nil)
+	changes := diffParameters(nil, "/test", "GET", nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for nil parameters, got %d", len(changes))
 	}
 }
 
 func TestIndexParams_SkipsInvalidEntries(t *testing.T) {
-	params := []any{
-		"not a map",
-		map[string]any{},
-	}
-	result := indexParams(params)
+	result := indexParams(params(nil, 0, []any{"not a map", map[string]any{}}))
 	if len(result) != 0 {
 		t.Errorf("expected 0 indexed params, got %d", len(result))
 	}
@@ -1548,7 +1545,7 @@ func TestDiffOpenAPI_ResponsePayloadRemovalIsBreaking(t *testing.T) {
                 type: object
 `, "openapi.paths[/users].methods[GET].responses[200].content.application/json.schema.properties", Breaking},
 		// Documentation beside the payload: removing it takes nothing away from a
-		// consumer, so it must not be escalated.
+		// consumer, so it never counts.
 		{"description removed", `"200":
           content:
             application/json:
@@ -1557,7 +1554,7 @@ func TestDiffOpenAPI_ResponsePayloadRemovalIsBreaking(t *testing.T) {
                 type: object
                 properties:
                   id: {type: string}
-`, "openapi.paths[/users].methods[GET].responses[200].description", PotentialBreaking},
+`, "openapi.paths[/users].methods[GET].responses[200].description", NonBreaking},
 		{"example removed", `"200":
           description: OK
           content:
@@ -1566,7 +1563,7 @@ func TestDiffOpenAPI_ResponsePayloadRemovalIsBreaking(t *testing.T) {
                 type: object
                 properties:
                   id: {type: string}
-`, "openapi.paths[/users].methods[GET].responses[200].content.application/json.example", PotentialBreaking},
+`, "openapi.paths[/users].methods[GET].responses[200].content.application/json.example", NonBreaking},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1797,5 +1794,58 @@ func TestToStringMap_CollidingKeysWithAlikeValuesAreDeterministic(t *testing.T) 
 		if len(got) != 1 || got["1"] != "true" {
 			t.Fatalf("expected the same winner on every run, got %#v", got)
 		}
+	}
+}
+
+// A request schema sits in request position and a response schema in response
+// position, so the same enum edit grades in opposite directions on the two
+// sides of one operation. A parameter's schema is request position too, and a
+// response's own description is documentation.
+func TestDiffOpenAPI_PositionalSchemaChanges(t *testing.T) {
+	spec := func(paramEnum, bodyEnum, respEnum, respDesc string) fstest.MapFS {
+		return makeOpenAPIFS(`paths:
+  /users:
+    post:
+      parameters:
+        - name: sort
+          in: query
+          schema: {type: string, enum: [` + paramEnum + `]}
+      requestBody:
+        content:
+          application/json:
+            schema: {type: string, enum: [` + bodyEnum + `]}
+      responses:
+        "200":
+          description: ` + respDesc + `
+          content:
+            application/json:
+              schema: {type: string, enum: [` + respEnum + `]}
+`)
+	}
+	base := spec("asc, desc", "a", "a", "OK")
+	tests := []struct {
+		name, path string
+		new        fstest.MapFS
+		want       Classification
+	}{
+		{"request body enum widened", "openapi.paths[/users].methods[POST].request-body.content.application/json.schema.enum[b]",
+			spec("asc, desc", "a, b", "a", "OK"), NonBreaking},
+		{"response enum widened", "openapi.paths[/users].methods[POST].responses[200].content.application/json.schema.enum[b]",
+			spec("asc, desc", "a", "a, b", "OK"), Breaking},
+		{"parameter enum narrowed", "openapi.paths[/users].methods[POST].parameters[sort:query]",
+			spec("asc", "a", "a", "OK"), Breaking},
+		{"response description reworded", "openapi.paths[/users].methods[POST].responses[200].description",
+			spec("asc, desc", "a", "a", "Fine"), NonBreaking},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes := diffOpenAPI("openapi.yaml", "openapi.yaml", base, tt.new)
+			if len(changes) != 1 || changes[0].Path != tt.path {
+				t.Fatalf("expected one change at %s, got %+v", tt.path, changes)
+			}
+			if changes[0].Classification != tt.want {
+				t.Errorf("got %s, want %s", changes[0].Classification, tt.want)
+			}
+		})
 	}
 }

@@ -584,7 +584,7 @@ func TestStatusCarriesExternal(t *testing.T) {
 		t.Fatal(err)
 	}
 	in, pactos := ordersWorld(map[string]*contract.Bundle{
-		o2: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0"), contract.Dependency(dep)),
+		o2: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0"), contract.Dependency{Name: dep.Name, Ref: dep.Ref, Required: dep.Required, Compatibility: dep.Compatibility, External: dep.External}),
 	})
 	for i := range pactos {
 		pactos[i].Status.Dependencies = append(pactos[i].Status.Dependencies, dep)

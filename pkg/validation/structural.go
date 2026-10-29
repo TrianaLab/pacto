@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
@@ -20,15 +21,18 @@ var schemaV20Bytes []byte
 //go:embed schema/pacto-v2.1.schema.json
 var schemaV21Bytes []byte
 
+//go:embed schema/pacto-v2.2.schema.json
+var schemaV22Bytes []byte
+
 // SchemaBytes returns the raw embedded JSON Schema bytes of the newest version
-// (2.1, a superset of 2.0 that adds publish). The doc package extracts field
-// descriptions from it.
-func SchemaBytes() []byte { return schemaV21Bytes }
+// (2.2, a superset of 2.1 and 2.0). The doc package extracts field descriptions
+// from it.
+func SchemaBytes() []byte { return schemaV22Bytes }
 
 // schemaBytes is the embedded JSON Schema of each pactoVersion. The versions
 // supported are contract.SupportedVersions; init panics on one without a
 // schema here.
-var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes}
+var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
 var compiledSchemas = map[string]*jsonschema.Schema{}
@@ -104,6 +108,9 @@ func ValidateStructural(data any) ValidationResult {
 	}
 
 	var mcp []int
+	if version == "2.0" || version == "2.1" {
+		data = needs22(&result, data)
+	}
 	if version == "2.0" {
 		data, mcp = needs21(&result, data)
 	}
@@ -123,6 +130,41 @@ func ValidateStructural(data any) ValidationResult {
 		})
 	}
 	return result
+}
+
+// needs22 records a NEEDS_PACTO_2_2 error for each field only pactoVersion 2.2
+// has (an interface lifecycle, compatibilityEpoch or guarantees and a
+// dependency requires) in a 2.0 or 2.1 contract, in place of the older schema's
+// generic "not allowed", and returns data without them for that schema to
+// check the rest. Every entry stays in place so its other errors keep their
+// index.
+func needs22(result *ValidationResult, data any) any {
+	const fix = `; set pactoVersion: "2.2", which keeps every older field`
+	m, _ := data.(map[string]any) // an older pactoVersion was read from it
+	out := maps.Clone(m)
+	for _, s := range []struct{ list, key, what string }{
+		{"interfaces", "lifecycle", "an interface lifecycle needs"},
+		{"interfaces", "compatibilityEpoch", "compatibilityEpoch needs"},
+		{"interfaces", "guarantees", "interface guarantees need"},
+		{"dependencies", "requires", "requires on a dependency needs"},
+	} {
+		items, ok := out[s.list].([]any) // out keeps what an earlier key removed
+		if !ok {
+			continue
+		}
+		kept := slices.Clone(items)
+		for i, it := range items {
+			im, _ := it.(map[string]any)
+			if _, ok := im[s.key]; ok {
+				result.AddError(fmt.Sprintf("%s.%d.%s", s.list, i, s.key), string(finding.CodeNeedsPacto22), s.what+` pactoVersion "2.2"`+fix)
+				im = maps.Clone(im)
+				delete(im, s.key)
+				kept[i] = im
+			}
+		}
+		out[s.list] = kept
+	}
+	return out
 }
 
 // needs21 records a NEEDS_PACTO_2_1 error for each part of data only
@@ -187,12 +229,28 @@ func addSchemaError(result *ValidationResult, err error) {
 func collectErrors(result *ValidationResult, ve *jsonschema.ValidationError) {
 	if len(ve.Causes) == 0 {
 		path := instancePath(ve)
-		result.AddError(path, "SCHEMA_VIOLATION", ve.Error())
+		result.AddError(path, "SCHEMA_VIOLATION", ve.Error()+enumSuggestion(ve.ErrorKind))
 		return
 	}
 	for _, cause := range ve.Causes {
 		collectErrors(result, cause)
 	}
+}
+
+// enumSuggestion names the allowed value closest to a mistyped one.
+func enumSuggestion(k jsonschema.ErrorKind) string {
+	e, ok := k.(*kind.Enum)
+	if !ok {
+		return ""
+	}
+	got, _ := e.Got.(string)
+	var want []string
+	for _, w := range e.Want {
+		if s, ok := w.(string); ok {
+			want = append(want, s)
+		}
+	}
+	return contract.DidYouMean(got, want)
 }
 
 func instancePath(ve *jsonschema.ValidationError) string {

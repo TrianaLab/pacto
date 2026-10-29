@@ -4,9 +4,77 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
+
+func TestDiffInterfaces_Lifecycle(t *testing.T) {
+	lc := func(dep, sunset, succ string) *contract.InterfaceLifecycle {
+		return &contract.InterfaceLifecycle{Deprecated: dep, Sunset: sunset, Successor: succ}
+	}
+	type row struct {
+		path string
+		ct   ChangeType
+		cls  Classification
+	}
+	cases := map[string]struct {
+		old, new *contract.InterfaceLifecycle
+		want     []row
+		reason   string // substring of the first change's reason
+	}{
+		"unchanged":         {lc("2026-01-15", "2026-07-01", "v2"), lc("2026-01-15", "2026-07-01", "v2"), nil, ""},
+		"deprecate":         {nil, lc("2026-01-15", "2026-07-01", "v2"), []row{{"interfaces.lifecycle", Added, NonBreaking}}, "api deprecated 2026-01-15, sunset 2026-07-01, successor v2"},
+		"deprecate bare":    {nil, lc("2026-01-15", "", ""), []row{{"interfaces.lifecycle", Added, NonBreaking}}, "api deprecated 2026-01-15"},
+		"undeprecate":       {lc("2026-01-15", "", ""), nil, []row{{"interfaces.lifecycle", Removed, NonBreaking}}, ""},
+		"deprecated moved":  {lc("2026-01-15", "", ""), lc("2026-01-10", "", ""), []row{{"interfaces.lifecycle.deprecated", Modified, NonBreaking}}, ""},
+		"sunset added":      {lc("2026-01-15", "", ""), lc("2026-01-15", "2026-07-01", ""), []row{{"interfaces.lifecycle.sunset", Added, NonBreaking}}, ""},
+		"sunset removed":    {lc("2026-01-15", "2026-07-01", ""), lc("2026-01-15", "", ""), []row{{"interfaces.lifecycle.sunset", Removed, NonBreaking}}, ""},
+		"sunset earlier":    {lc("2026-01-15", "2026-07-01", ""), lc("2026-01-15", "2026-03-01", ""), []row{{"interfaces.lifecycle.sunset", Modified, PotentialBreaking}}, "earlier"},
+		"sunset later":      {lc("2026-01-15", "2026-07-01", ""), lc("2026-01-15", "2026-12-01", ""), []row{{"interfaces.lifecycle.sunset", Modified, NonBreaking}}, "later"},
+		"successor changed": {lc("2026-01-15", "", "v2"), lc("2026-01-15", "", "v3"), []row{{"interfaces.lifecycle.successor", Modified, NonBreaking}}, ""},
+		"successor added":   {lc("2026-01-15", "", ""), lc("2026-01-15", "", "v3"), []row{{"interfaces.lifecycle.successor", Added, NonBreaking}}, ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			old, new := minimalContract(), minimalContract()
+			old.Interfaces[0].Lifecycle, new.Interfaces[0].Lifecycle = tc.old, tc.new
+			changes := diffInterfaces(old, new, nil, nil)
+			if len(changes) != len(tc.want) {
+				t.Fatalf("want %d changes, got %+v", len(tc.want), changes)
+			}
+			for i, w := range tc.want {
+				if c := changes[i]; c.Path != w.path || c.Type != w.ct || c.Classification != w.cls {
+					t.Fatalf("change %d: got %s %s %s, want %+v", i, c.Path, c.Type, c.Classification, w)
+				}
+			}
+			if tc.reason != "" && !strings.Contains(changes[0].Reason, tc.reason) {
+				t.Fatalf("reason %q lacks %q", changes[0].Reason, tc.reason)
+			}
+		})
+	}
+}
+
+// TestDiffInterfaces_RemovedBeforeSunset: removing an interface stays Breaking;
+// the reason says so when its announced sunset has not been reached yet.
+func TestDiffInterfaces_RemovedBeforeSunset(t *testing.T) {
+	saved := now
+	t.Cleanup(func() { now = saved })
+	now = func() time.Time { return time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC) }
+
+	for sunset, flagged := range map[string]bool{"2026-07-01": true, "2026-06-30": false, "": false} {
+		old, new := minimalContract(), minimalContract()
+		old.Interfaces[0].Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-01-15", Sunset: sunset}
+		new.Interfaces = nil
+		changes := diffInterfaces(old, new, nil, nil)
+		if len(changes) != 1 || changes[0].Classification != Breaking {
+			t.Fatalf("sunset %q: %+v", sunset, changes)
+		}
+		if got := strings.Contains(changes[0].Reason, "before its sunset 2026-07-01"); got != flagged {
+			t.Fatalf("sunset %q: reason %q", sunset, changes[0].Reason)
+		}
+	}
+}
 
 func TestDiffInterfaces_TypeChanged(t *testing.T) {
 	old := minimalContract()
@@ -37,6 +105,41 @@ func TestDiffInterfaces_VisibilityChanged(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected interfaces.visibility Modified change")
+	}
+}
+
+// A compatibilityEpoch change marks a behavior change no schema shows, so it
+// is BREAKING whichever way it moves, and the reason names the interface.
+func TestDiffInterfaces_CompatibilityEpoch(t *testing.T) {
+	tests := []struct {
+		name     string
+		old, new int
+		reason   string
+	}{
+		{"declared", 0, 1, "interface " + minimalContract().Interfaces[0].Name + ": compatibilityEpoch raised from 0 to 1: its behavior changed incompatibly"},
+		{"raised", 1, 2, "compatibilityEpoch raised from 1 to 2"},
+		{"lowered", 2, 1, "compatibilityEpoch lowered from 2 to 1: an epoch only goes up"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old, new := minimalContract(), minimalContract()
+			old.Interfaces[0].CompatibilityEpoch = tt.old
+			new.Interfaces[0].CompatibilityEpoch = tt.new
+			changes := diffInterfaces(old, new, nil, nil)
+			if len(changes) != 1 {
+				t.Fatalf("expected one change, got %+v", changes)
+			}
+			c := changes[0]
+			if c.Path != "interfaces.compatibilityEpoch" || c.Type != Modified || c.Classification != Breaking {
+				t.Errorf("got %+v", c)
+			}
+			if !strings.Contains(c.Reason, tt.reason) {
+				t.Errorf("reason %q does not contain %q", c.Reason, tt.reason)
+			}
+		})
+	}
+	if changes := diffInterfaces(minimalContract(), minimalContract(), nil, nil); len(changes) != 0 {
+		t.Errorf("unchanged epoch: %+v", changes)
 	}
 }
 

@@ -32,14 +32,17 @@ func diffGRPC(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 	new := extractProto(string(newData))
 
 	changes := diffProtoSection(protoServices, old.services, new.services)
-	return append(changes, diffProtoSection(protoMessages, old.messages, new.messages)...)
+	changes = append(changes, diffProtoSection(protoMessages, old.messages, new.messages)...)
+	return append(changes, diffProtoSection(protoEnums, old.enums, new.enums)...)
 }
 
 // protoAPI is the extracted contract surface of a .proto file: each service with
-// its rpc signatures, and each message with its "<type> = <number>" fields.
+// its rpc signatures, each message with its "<type> = <number>" fields and each
+// enum with its value numbers.
 type protoAPI struct {
 	services map[string]map[string]string
 	messages map[string]map[string]string
+	enums    map[string]map[string]string
 }
 
 // protoSection describes how one kind of owner (service or message) and its
@@ -57,6 +60,10 @@ var (
 	protoMessages = protoSection{
 		ownerRule: "grpc.messages", ownerNoun: "message", ownerPathFmt: "grpc.messages[%s]",
 		memberRule: "grpc.messages.fields", memberNoun: "field", memberPathFmt: "grpc.messages[%s].fields[%s]",
+	}
+	protoEnums = protoSection{
+		ownerRule: "grpc.enums", ownerNoun: "enum", ownerPathFmt: "grpc.enums[%s]",
+		memberRule: "grpc.enums.values", memberNoun: "enum value", memberPathFmt: "grpc.enums[%s].values[%s]",
 	}
 )
 
@@ -144,12 +151,15 @@ func diffProtoMembers(s protoSection, owner string, old, new map[string]string) 
 }
 
 var (
-	protoBlockRe = regexp.MustCompile(`(?m)^\s*(service|message)\s+(\w+)\s*\{`)
+	protoBlockRe = regexp.MustCompile(`(?m)^\s*(service|message|enum)\s+(\w+)\s*\{`)
 	protoRPCRe   = regexp.MustCompile(`(?s)\brpc\s+(\w+)\s*\(([^)]*)\)\s*returns\s*\(([^)]*)\)`)
 	// The trailing `\[.*\]` is a field's inline option block. It is matched so the
 	// field is still recognised, and discarded so `[deprecated = true]` appearing
 	// or disappearing is not reported as a change.
 	protoFieldRe = regexp.MustCompile(`^(?:(repeated|optional)\s+)?(map\s*<[^>]*>|[.\w]+)\s+(\w+)\s*=\s*(\d+)\s*(?:\[.*\])?$`)
+	// protoEnumValueRe is one enum value, "<NAME> = <number>", options discarded
+	// for the same reason as a field's.
+	protoEnumValueRe = regexp.MustCompile(`^(\w+)\s*=\s*(-?\d+)\s*(?:\[.*\])?$`)
 )
 
 // protoStatementKeywords lead a statement that is never a field declaration.
@@ -167,6 +177,7 @@ func extractProto(src string) protoAPI {
 	api := protoAPI{
 		services: make(map[string]map[string]string),
 		messages: make(map[string]map[string]string),
+		enums:    make(map[string]map[string]string),
 	}
 
 	for i := 0; i < len(src); {
@@ -188,10 +199,13 @@ func extractProto(src string) protoAPI {
 			continue
 		}
 		body := src[open+1 : end-1]
-		if kind == "service" {
+		switch kind {
+		case "service":
 			api.services[name] = extractRPCs(body)
-		} else {
+		case "message":
 			api.messages[name] = extractFields(body)
+		default:
+			api.enums[name] = extractFields(body)
 		}
 		i = end
 	}
@@ -367,6 +381,10 @@ func addProtoField(out map[string]string, stmt string) {
 	}
 	m := protoFieldRe.FindStringSubmatch(stmt)
 	if m == nil {
+		// An enum body holds values, not fields. A message body never matches.
+		if v := protoEnumValueRe.FindStringSubmatch(stmt); v != nil {
+			out[v[1]] = v[2]
+		}
 		return
 	}
 	typ := m[2]

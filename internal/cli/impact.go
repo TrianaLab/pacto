@@ -128,6 +128,9 @@ func printImpactResult(cmd *cobra.Command, result *impact.Result, format string)
 				}
 				_, _ = fmt.Fprintf(w, "  %-28s %-10s confidence=%-12s compat=%-12s owner=%s\n",
 					c.Service, scope, c.Confidence, c.CompatibilityVerdict, orDash(c.Owner))
+				for _, m := range c.Unmet {
+					_, _ = fmt.Fprintf(w, "    refused: %s\n", m)
+				}
 				if c.Note != "" {
 					_, _ = fmt.Fprintf(w, "    note: %s\n", c.Note)
 				}

@@ -12,7 +12,10 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate [dir | oci://ref]",
 		Short: "Validate a pacto contract",
-		Long:  "Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field and policy.",
+		Long: "Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field and policy.\n\n" +
+			"The output has one PASS, FAIL or SKIP line per stage, in order: load, lock, structural, cross-field, policy, guarantees, readiness and closure. " +
+			"Each error sits under its stage with its file:line:column when Pacto can locate it. A failed load or lock stage skips every stage after it, and a failed structural or cross-field stage skips the stages after it up to policy. The guarantees, readiness and closure stages run even when an earlier stage fails. " +
+			"The last line, Next:, names the one command to run now. With --output-format json the same comes as stages and next.",
 		Example: `  # Validate a local contract
   pacto validate my-service
 
@@ -62,7 +65,7 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	}
 
 	cmd.Flags().Bool("readiness", false, "also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic")
-	cmd.Flags().Bool("closure", false, "also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved. Fetches each dependency once")
+	cmd.Flags().Bool("closure", false, "also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved and warns about deprecated interfaces of direct dependencies. Fetches each dependency once")
 	addOverrideFlags(cmd)
 
 	return cmd
