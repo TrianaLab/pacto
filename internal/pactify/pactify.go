@@ -1,8 +1,10 @@
 // Package pactify is what `pacto init` and the pacto_create MCP tool do to a
 // folder. An empty folder gets today's blank contract. A folder that already
 // holds a service gets a contract read from its Dockerfile and Kubernetes
-// manifests, publish section included, and with Delivery the cluster pieces
-// that ship it. Planning changes nothing. Applying only adds files and lines:
+// manifests: its environment as a configuration schema, the services its
+// environment points at as dependencies, its probe as a health check and,
+// unless DescribeOnly, a publish section. With Delivery it also gets the
+// cluster pieces that ship it. Planning changes nothing. Applying only adds files and lines:
 // a file that is already there is the user's and is never rewritten, so
 // running it twice is safe.
 package pactify
@@ -16,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // Options says which folder to pactify and what the caller already knows.
@@ -36,6 +39,9 @@ type Options struct {
 	FleetRoots []string
 	// Plan only plans: nothing is written.
 	Plan bool
+	// DescribeOnly writes a contract that only describes the service: no
+	// publish section, so no signing key and nothing for pacto publish.
+	DescribeOnly bool
 	// NoTransparencyLog writes transparencyLog: false under publish.sign, for
 	// a key whose signatures do not belong in the public transparency log
 	// (a throwaway key, or offline signing).
@@ -49,7 +55,7 @@ type Options struct {
 	RegistrySecret string
 	// Inferred are dependencies seen at runtime (pacto init --cluster). One
 	// with a Version is written as an entry pinned to exactly that version;
-	// one without is only a comment, like a dependency read from the env.
+	// one without gets a placeholder range, like a dependency read from the env.
 	Inferred []Inferred
 }
 
@@ -149,13 +155,14 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 		r.Mode = modePactify
 	}
 	p := &planner{r: r, sc: sc, opts: opts, envs: envs}
+	if err := p.readFleet(ctx); err != nil {
+		return nil, err
+	}
 	if err := p.contract(); err != nil {
 		return nil, err
 	}
 	p.transparencyLog()
-	if err := p.consumers(ctx); err != nil {
-		return nil, err
-	}
+	p.consumers()
 	if opts.Delivery {
 		p.delivery()
 	}
@@ -174,6 +181,12 @@ func environments(opts Options) ([]string, error) {
 		if !nameRE.MatchString(e) {
 			return nil, fmt.Errorf("environment %q is not a valid namespace name", e)
 		}
+	}
+	if opts.DescribeOnly && opts.Delivery {
+		return nil, fmt.Errorf("delivery ships what publish builds, and describe-only writes no publish section: drop one of the two")
+	}
+	if opts.DescribeOnly && opts.NoTransparencyLog {
+		return nil, fmt.Errorf("transparencyLog goes under publish.sign, and describe-only writes no publish section: drop one of the two")
 	}
 	if opts.InsecureRegistry && !opts.Delivery {
 		return nil, fmt.Errorf("an insecure registry changes only the Flux OCIRepositories that delivery writes, so it needs delivery")
@@ -211,6 +224,8 @@ type planner struct {
 	envs []string
 	// pub is the publish section written or found; the cluster pieces read it.
 	pub             *contract.Publish
+	snap            *fleet.FleetSnapshot // the contracts in FleetRoots, nil when none were given
+	schema          string               // the configuration schema written, "" when none
 	contractNew     bool
 	deliveryPlanned bool
 }

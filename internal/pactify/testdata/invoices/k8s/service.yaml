@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: invoices
+spec:
+  selector: { app: invoices }
+  ports: [{ name: http, port: 80, targetPort: http }]

@@ -18,7 +18,8 @@
     "who uses fraud: no other services' contracts were given (--fleet), so none were looked at"
   ],
   "next": [
-    "put the signing key at cosign.key: a cosign PEM private key, decrypted with COSIGN_PASSWORD"
+    "put the signing key at cosign.key: a cosign PEM private key, decrypted with COSIGN_PASSWORD",
+    "the publish section is for pacto publish only: for a contract that only describes fraud, run pacto init --describe-only instead (describe_only: true with pacto_create)"
   ],
   "files": [
     {
