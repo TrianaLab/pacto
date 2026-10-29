@@ -114,8 +114,13 @@ pacto impact ./payments-api@1.4.0 ./payments-api@2.0.0 \
 
 The output reports the classification, then the breaking and potentially-breaking
 changes in separate lists, so a potential break never counts as a confirmed one.
-It then lists every affected consumer with its verdict and confidence, the active
-targets, the owners to notify and the snapshot's completeness.
+It then lists each affected consumer with its owner, verdict and confidence, the
+active targets and a warning when the snapshot is partial. The JSON output also
+carries `owners` and `completeness` as fields.
+
+Pacto finds consumers only in the sources you pass. With `--local` alone it
+sees only the contracts in those folders, so `No affected consumers.` is not
+evidence that the change is safe.
 
 ### Exit status: what makes a consumer *active*
 
@@ -169,7 +174,9 @@ supplies targets. Gate on the JSON instead (`--output-format json`, then
 `classification == "BREAKING"`) and you gate on the contract alone, which is what
 you want before anything is deployed. That JSON carries
 `schemaVersion: pacto.dev/impact/v1`, the compatibility contract to branch on
-before reading any other field. The file `--target-state` expects is documented
+before reading any other field.
+[Put it in your repository](ci.md#on-every-pull-request-who-breaks) has a
+pull-request step that gates on the JSON. The file `--target-state` expects is documented
 under [target-state
 fixtures](operational-graph-reference.md#what-a-target-state-fixture-looks-like).
 

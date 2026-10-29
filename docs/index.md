@@ -74,10 +74,8 @@ and 3.0.0 falls outside it. `reporting` accepts
 itself. `contractual` means the answer comes from the declared ranges alone,
 without a runtime observation of the call.
 
-`pacto impact` finds consumers only in the sources you give it. Pass the
-consumer contracts with `--root`, or read a live fleet with `--k8s` or
-`--evidence-url`. With `--local` alone it cannot know who else consumes the
-service, so "No affected consumers" is not evidence of safety.
+See [who breaks in CI](ci.md#on-every-pull-request-who-breaks) for the
+sources `pacto impact` needs.
 
 You check one file when you write it, compare it with the previous revision
 and then compare it with what is running.

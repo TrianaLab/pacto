@@ -8,9 +8,10 @@ request on a breaking change and publish the contract on release.
 
 ## Quick start
 
-The action is command-driven: `command: setup` installs the `pacto` binary for
-later `run:` steps, while `command: validate`, `diff`, `push` or `doc` run those
-operations natively.
+The action is command-driven. `command: setup` installs the `pacto` binary.
+Every other command (`validate`, `diff`, `push` and `doc`) runs the `pacto`
+that an earlier `command: setup` step in the same job installed, and so do your
+own `run:` steps.
 
 ```yaml
 name: Contract CI
@@ -56,11 +57,24 @@ non-zero on a `BREAKING` result (see
           comment-on-pr: 'true'
 ```
 
+This step follows the setup step from the Quick start job.
 `fail-on-breaking` defaults to `true`, so a breaking change fails the step.
 `comment-on-pr` posts the diff on the pull request. It posts with the workflow's
 `GITHUB_TOKEN`, which is read-only by default: grant the job
 `pull-requests: write`, or the comment fails with a `403` even when the diff
 passes.
+
+The action passes its `github-token` input, the workflow's token by default, to
+every command as `GH_TOKEN`. Pacto logs in to `ghcr.io` with that token through
+the `gh` CLI, which GitHub-hosted runners include, so a baseline on GHCR needs
+only `permissions: packages: read`. For any other registry, set
+`PACTO_REGISTRY_USERNAME` and `PACTO_REGISTRY_PASSWORD` on the step.
+
+### Find who a change breaks
+
+The action has no `impact` command. Run `pacto impact` in a `run:` step after
+`command: setup`, as
+[Put it in your repository](ci.md#on-every-pull-request-who-breaks) shows.
 
 ### Publish on release
 

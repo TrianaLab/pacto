@@ -76,15 +76,47 @@ it picks the highest published version. It exits 1 only when the change is
 [breaking change](glossary.md#breaking-change), so the check fails. Your branch protection rules decide whether a failed check
 blocks the merge.
 
-`pacto diff` works in any pull request and says whether a change is breaking.
-`pacto impact` says which consumers it breaks once Pacto can see your fleet:
-pass the consumer contracts with `--root`, or read a live fleet with `--k8s`
-or `--evidence-url`. With `--local` alone it sees only the contracts in that
-folder, so it cannot know who else consumes the service.
-
 Until the first version is published there is nothing to compare with and
 `pacto diff` fails, so add this step after your first `pacto publish`. To
 compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
+
+## On every pull request: who breaks
+
+`pacto diff` says whether a change is breaking. `pacto impact` says which
+consumers it breaks, from the consumer contracts it can see. Your repository
+holds only your contract, so name each consumer's published contract with
+`--root`, one per consumer. Keep that list up to date as teams start or stop
+using your service. The step needs `jq` on the runner, which
+GitHub-hosted runners include, and the same login variables:
+
+```yaml
+- name: Check who the change breaks
+  run: |
+    pacto impact oci://ghcr.io/acme/contracts/my-service . \
+      --root oci://ghcr.io/acme/contracts/checkout \
+      --root oci://ghcr.io/acme/contracts/reporting \
+      --output-format json > impact.json
+    jq -r '.consumers[] | select(.compatibilityVerdict == "incompatible") | "\(.service) (owner \(.owner // "unknown")) accepts \(.compatibility)"' impact.json
+    jq -e '.classification != "BREAKING" or all(.consumers[]; .compatibilityVerdict != "incompatible")' impact.json
+```
+
+The first `jq` lists each consumer whose `compatibility` range rejects the new
+version, with its owner. The second fails the step when the change is
+`BREAKING` and at least one consumer is `incompatible`. A consumer that
+declares no range reads `unknown` and does not fail the step.
+
+The step gates on the JSON because the exit code covers deployed consumers
+only. `pacto impact` exits `1` when the change is `BREAKING` and an
+incompatible consumer is active, which means the snapshot knows a target where
+it runs. Contracts from `--root` carry no targets, so this run exits `0`
+whatever it finds. To gate on what is deployed, keep the `--root` flags and
+add a source of targets: `--k8s` reads the Pacto resources in the current
+cluster and `--evidence-url` reads an Evidence Server. The exit code then fails
+the step when an incompatible consumer runs somewhere. `--target-state` reads
+targets from a fixture file, for demos and tests.
+
+With `--local` alone, `pacto impact` sees only the contracts in that folder,
+so `No affected consumers.` is not evidence that the change is safe.
 
 ## After a merge: publish
 

@@ -83,7 +83,7 @@ func main() {
 
 	// Exit codes (static section). Cross-cutting and needed before any single
 	// command's section, because no command's own note can say that the code
-	// space is only {0,1} and therefore ambiguous.
+	// space is {0,1} for every command but pacto run, and therefore ambiguous.
 	buf.WriteString(exitCodes)
 
 	// OCI version resolution (static section).
