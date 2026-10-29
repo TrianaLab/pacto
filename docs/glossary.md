@@ -60,7 +60,7 @@ words. Where the dashboard shows a different label, the last column gives it.
 | <a id="oras"></a>oras | A command-line tool that lists and fetches artifacts and [referrers](#referrer) in a registry. See [Check one record without Pacto](verify-a-record.md#check-one-record-without-pacto) | — |
 | <a id="owner-team"></a>Owner team | The team a contract names under `service.owner`. Pacto asks its members about that service. See [OwnerInfo](contract-reference/sections.md#ownerinfo) | Owner |
 | <a id="pactify"></a>Pactify | Give a service a contract and connect it to delivery. See [Pactify a service](pactify.md) | — |
-| <a id="pactoversion"></a>pactoVersion | The contract format version in each `pacto.yaml`, `"2.0"` or `"2.1"`. It is separate from the Pacto core and operator release versions. See [Versions](installation.md#versions) | — |
+| <a id="pactoversion"></a>pactoVersion | The contract format version in each `pacto.yaml`, `"2.0"`, `"2.1"` or `"2.2"`. It is separate from the Pacto core and operator release versions. See [Versions](installation.md#versions) | — |
 | <a id="plan"></a>Plan | What Pacto would do with a change, and who must agree, before anyone asks. See [Plan, propose and approve](integrations/kubernetes/delivery-operations.md) | Plan |
 | <a id="pointer"></a>Pointer | The digest a Stage moved its environment to (`status.pointer`). See [What the pointer guarantees](integrations/kubernetes/delivery-setup.md#what-the-pointer-guarantees) | — |
 | <a id="policy"></a>Policy | A rule a contract must follow, such as "every service names an owner", checked with the contract. See [`policies`](contract-reference/configuration-and-policy.md#policies) | Policy |

@@ -89,6 +89,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		resolver = s.PolicyResolver(ref)
 	}
 	stages = append(stages, validation.ValidateStagesWithResolver(ctx, bundle.Contract, rawYAML, bundle.FS, resolver)...)
+	stages = append(stages, s.guaranteeStage(ctx, ref, bundle.Contract))
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
 	if opts.Readiness {
@@ -108,8 +109,6 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		ce, cw := s.closureFindings(ctx, ref, bundle, resolver)
 		stages = append(stages, validation.RanStage("closure", validation.ValidationResult{Errors: ce, Warnings: cw}))
 	}
-
-	stages = append(stages, s.guaranteeStage(ctx, ref, bundle.Contract))
 
 	return newValidateResult(ref, opts, rawYAML, stages...), nil
 }

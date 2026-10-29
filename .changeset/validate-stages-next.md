@@ -3,7 +3,7 @@
 ---
 
 `pacto validate` reports one PASS, FAIL or SKIP line per stage (load, lock,
-structural, cross-field, policy, readiness and closure), lists each error
+structural, cross-field, policy, guarantees, readiness and closure), lists each error
 under its stage with its file:line:column when it can be located, and ends
 with a `Next:` line naming the one command to run now. A stage after a failed
 one is skipped. The JSON output adds `stages`, `next`, `file` and each error's

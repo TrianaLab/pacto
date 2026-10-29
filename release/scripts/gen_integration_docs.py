@@ -1233,7 +1233,8 @@ def gen_compatibility(repo_root: str, k8s: str) -> str:
     out.append("")
     out.append(
         'Contracts with `pactoVersion: "2.1"` need Pacto core 4.1.0 or later and operator '
-        "6.1.0 or later.\n"
+        '6.1.0 or later. Contracts with `pactoVersion: "2.2"` need Pacto core 4.3.0 or '
+        "later and operator 6.3.0 or later.\n"
     )
     out.append(
         f"This documentation set corresponds to Pacto core `{core}`. The integration's own "

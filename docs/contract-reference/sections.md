@@ -15,7 +15,8 @@ The contract specification version: `"2.0"`, `"2.1"` or `"2.2"`. 2.1 adds
 [`compatibilityEpoch`](#compatibility-epoch) and [`guarantees`](#guarantees), and
 [`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
 Every 2.0 contract is also valid under 2.1, and every 2.1 contract under 2.2.
-A 2.1 contract needs Pacto core 4.1.0 or later and operator 6.1.0 or later;
+A 2.1 contract needs Pacto core 4.1.0 or later and operator 6.1.0 or later.
+A 2.2 contract needs Pacto core 4.3.0 or later and operator 6.3.0 or later;
 see [Versions](../installation.md#versions).
 
 ```yaml
