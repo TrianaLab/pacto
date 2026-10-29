@@ -12,7 +12,7 @@ dependencies and state are in
 The contract specification version: `"2.0"`, `"2.1"` or `"2.2"`. 2.1 adds
 [`publish`](publish.md), [`checks`](checks.md), external dependencies and the `mcp` interface type.
 2.2 adds the [interface lifecycle](#interface-lifecycle), an interface's
-[`compatibilityEpoch`](#compatibility-epoch) and [`guarantees`](#guarantees), and
+[`compatibilityEpoch`](#compatibility-epoch), its [`guarantees`](#guarantees) and
 [`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
 Every 2.0 contract is also valid under 2.1, and every 2.1 contract under 2.2.
 A 2.1 contract needs Pacto core 4.1.0 or later and operator 6.1.0 or later.
