@@ -225,7 +225,7 @@ openapi.paths[/users].methods[GET].responses[200].content.application/json.schem
 | `asyncapi.channels` | Added | NON_BREAKING |
 | `asyncapi.channels` | Removed | **BREAKING** |
 
-A channel present on both sides is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change. Old and new publishers and subscribers run side by side, so a message's `payload` and `headers` schemas sit in [record position](#schema-position): adding an optional payload property is `NON_BREAKING` and every other schema difference is `BREAKING`. Documentation, `tags` included, is `NON_BREAKING`, and so is adding a 2.x `publish` or `subscribe` operation. Any other difference outside the schemas, such as a binding or a message `name`, is `POTENTIAL_BREAKING`. For that reason the table has no `asyncapi.channels` Modified row.
+A channel present on both sides is compared field by field, so each payload difference surfaces as its own change. Old and new publishers and subscribers run side by side, so a message's `payload` and `headers` schemas sit in [record position](#schema-position): a new optional property is `NON_BREAKING` and every other schema difference is `BREAKING`. Documentation, `tags` included, and a new 2.x `publish` or `subscribe` operation are `NON_BREAKING`. Any other difference, such as a binding or a message `name`, is `POTENTIAL_BREAKING`. For that reason the table has no `asyncapi.channels` Modified row.
 
 ### Operations
 
