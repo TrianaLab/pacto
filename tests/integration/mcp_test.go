@@ -149,7 +149,7 @@ func TestMCPSchema(t *testing.T) {
 	result := mcpCallTool(t, svc, "pacto_schema", map[string]any{})
 	text := mcpResultText(t, result)
 	assertContains(t, text, "pactoVersion")
-	assertContains(t, text, "continuous delivery driven by service contracts")
+	assertContains(t, text, "tells you which services a change breaks before it ships")
 }
 
 func TestMCPCommandHelp(t *testing.T) {

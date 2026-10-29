@@ -944,7 +944,9 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 
 Composes a semantic contract diff (old→new) with the operational graph to answer which consumers a change really affects, how strong the evidence is and whether their declared compatibility still holds.
 
-Exit status is non-zero when the change is BREAKING and at least one ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). Active means the snapshot knows at least one operational target where that consumer is deployed. An incompatible consumer with no visible target leaves the exit at 0, so a declared-only run over `--local` bundles alone always exits 0 whatever it classifies. Supply targets with --target-state (or query a live fleet with `pacto fleet`) to make the exit code meaningful.
+Exit status is non-zero when the change is BREAKING and at least one ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). Active means the snapshot knows at least one operational target where that consumer is deployed. An incompatible consumer with no visible target leaves the exit at 0, so a declared-only run over `--local` bundles alone always exits 0 whatever it classifies. Read a live fleet with --k8s or --evidence-url to make the exit code meaningful; --target-state supplies targets from a fixture file, for demos and tests.
+
+Pacto finds consumers only in the sources you pass, such as --local, --root, --oci, --cache, --k8s, --evidence-url and --traces. With --local alone Pacto sees only the contracts in those folders, so "No affected consumers" is not evidence of safety.
 
 ```
 pacto impact <old> <new> [flags]

@@ -29,8 +29,13 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"Active means the snapshot knows at least one operational target where that " +
 			"consumer is deployed. An incompatible consumer with no visible target " +
 			"leaves the exit at 0, so a declared-only run over `--local` bundles alone " +
-			"always exits 0 whatever it classifies. Supply targets with --target-state " +
-			"(or query a live fleet with `pacto fleet`) to make the exit code meaningful.",
+			"always exits 0 whatever it classifies. Read a live fleet with --k8s or " +
+			"--evidence-url to make the exit code meaningful; --target-state supplies " +
+			"targets from a fixture file, for demos and tests.\n\n" +
+			"Pacto finds consumers only in the sources you pass, such as --local, --root, " +
+			"--oci, --cache, --k8s, --evidence-url and --traces. With --local alone " +
+			"Pacto sees only the contracts in those folders, so \"No affected " +
+			"consumers\" is not evidence of safety.",
 		Example: `  # Impact of upgrading a local service against the local fleet
   pacto impact ./svc-v1 ./svc-v2 --local .
 

@@ -37,7 +37,7 @@ What the chart installs:
 - Optional: Prometheus `ServiceMonitor`
 - Optional: the node agent `DaemonSet` (`nodeAgent.enabled`, off by default), in its own namespace (`nodeAgent.namespace`, default `pacto-node-agent`) that the chart creates privileged for Pod Security, with a `ValidatingAdmissionPolicy` binding each agent's writes to its own node
 
-The operator never modifies your workloads. It only reads them and reports whether they match their contracts.
+The operator controller never modifies your workloads. It only reads them and reports whether they match their contracts. The same chart ships an opt-in delivery component (alpha, `delivery.enabled`), its own `Deployment`, which decides which version runs where and moves Flux or Argo CD source pointers. Its own admission policies guard each promotion. See [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/).
 
 ## Installation
 

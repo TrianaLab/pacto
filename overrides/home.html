@@ -24,18 +24,22 @@
       </div>
       {# The category. Not "standard": that word promises governance, a
          conformance suite and a second implementation. #}
-      <p class="pacto-hero__eyebrow">Continuous delivery, GitlessOps</p>
+      <p class="pacto-hero__eyebrow">Service contracts</p>
       {# This is the page's only <h1>. Material injects one when the rendered markdown
          has no h1, and here that lands as a meaningless "Home" below the hero.
          docs/index.md therefore opens with a `hidden` h1 whose only job is to suppress
          it. Change the headline here and there together. #}
-      <h1 class="pacto-hero__title">Describe your services once. Pacto decides what ships.</h1>
-      {# "Decides", never "delivers" or "deploys": Flux or Argo CD apply, Pacto
-         writes a digest. The graph is the reason it is safe, so it stays in the tagline. #}
+      <h1 class="pacto-hero__title">Know which services a change breaks before it ships.</h1>
+      {# The positioning sentence lives in the first paragraph of README.md, in mkdocs.yml
+         site_description, in `pacto --help` and in the MCP instructions. The hero
+         uses this tagline instead, so the H1 and the tagline do not repeat each
+         other. "Checks", never "proves": the runtime checks have documented limits.
+         Delivery is introduced below the hero, as opt-in alpha. #}
       <p class="pacto-hero__tagline">
-        Pacto reads the contract graph to see which services a change affects.
-        It starts by watching, earns autonomy one confirmed step at a time and
-        asks only the teams a change affects. Flux or Argo CD still apply.
+        One YAML contract per service. <code>pacto diff</code> flags breaking
+        changes in any pull request, <code>pacto impact</code> names the consumers
+        they break once Pacto can see your fleet, and eBPF checks what is actually
+        running.
       </p>
       {# Each label names its true destination: "Live demo" opens the running dashboard
          at /demo/ (built into the docs tree by `make docs`), not the page describing it.

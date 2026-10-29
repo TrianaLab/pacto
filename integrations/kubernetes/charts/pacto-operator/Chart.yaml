@@ -1,6 +1,6 @@
 apiVersion: v2
 name: pacto-operator
-description: Kubernetes operator for Pacto service contract validation
+description: Kubernetes operator that checks running workloads against their Pacto service contracts, with an opt-in delivery component (alpha)
 type: application
 version: 6.1.0
 appVersion: "6.1.0"
@@ -10,6 +10,8 @@ keywords:
   - contracts
   - kubernetes
   - validation
+  - delivery
+  - gitops
 # Optional, off by default: a registry and an identity provider for an
 # evaluation install (values-quickstart.yaml). The archives are vendored in
 # charts/ and pinned by Chart.lock, so the chart packages offline.

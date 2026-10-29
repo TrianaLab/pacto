@@ -8,8 +8,9 @@ can prove it, and it leaves the workloads it watches unchanged.
 
 The operator never modifies the workloads it observes: it does not restart pods,
 edit Deployments or change anything it was pointed at. Observation is read and
-report only. Deciding which version runs is [Pacto delivery](delivery.md), a
-separate opt-in chart; installing the operator grants none of it.
+report only. Deciding which version runs is [Pacto delivery](delivery.md), an
+opt-in component of the same chart (`delivery.enabled`); installing the
+operator without it grants none of it.
 
 The operator does write to its own components. At chart defaults it manages the Pacto
 dashboard for you, which means creating a Deployment, Service, ServiceAccount,

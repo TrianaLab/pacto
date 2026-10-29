@@ -19,8 +19,8 @@ the evidence runs out.
 
 ## What GitlessOps means
 
-GitlessOps sets which version runs where from signed artifacts in your
-registry and from evidence. Your code and manifests stay in git. GitlessOps is
+GitlessOps means signed artifacts in your registry and evidence decide which
+version runs where, while your code and manifests stay in git. GitlessOps is
 three principles, and each one holds only under its stated condition:
 
 1. **Desired versions are immutable artifacts in a registry.** Every version

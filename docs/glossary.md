@@ -42,7 +42,7 @@ words. Where the dashboard shows a different label, the last column gives it.
 | <a id="flux"></a>Flux | The GitOps tool that applies each version in the cluster. Pacto moves a version by writing its digest onto a Flux `OCIRepository`. See [How a change moves](integrations/kubernetes/delivery-setup.md#how-a-change-moves) | — |
 | <a id="follower"></a>Follower | A Stage in another cluster that takes the versions an upstream Stage verified, by reading that Stage's [stream](#stream). See [Follow a Stage in another cluster](integrations/kubernetes/delivery-reach.md#follow-a-stage-in-another-cluster) | — |
 | <a id="freeze"></a>Freeze | Stop automation moving a Stage until a person unfreezes it. See [When a Stage is frozen](pactify-decide.md#when-a-stage-is-frozen) | Frozen |
-| <a id="gitlessops"></a>GitlessOps | Deciding which version runs where from signed artifacts in your registry and from evidence. Your code stays in git. See [What GitlessOps means](manifesto.md#what-gitlessops-means) | — |
+| <a id="gitlessops"></a>GitlessOps | GitlessOps means signed artifacts in your registry and evidence decide which version runs where, while your code and manifests stay in git. See [What GitlessOps means](manifesto.md#what-gitlessops-means) | — |
 | <a id="gitops"></a>GitOps | Keeping a cluster in line with files in git, with a tool such as Flux or Argo CD. Pacto works with it | — |
 | <a id="held"></a>Held change | A change waiting for a person to decide. See [Why you were asked](pactify-decide.md#why-you-were-asked) | Inbox |
 | <a id="in-toto"></a>in-toto | A standard format for signed statements about software. Every [record](#record) is an in-toto statement. See [What a record says](verify-a-record.md#what-a-record-says) | — |

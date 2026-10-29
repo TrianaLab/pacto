@@ -2,7 +2,7 @@ site_name: Pacto
 # With no social-cards plugin and no og:image, this string is the whole of the
 # shared-link preview. Not "standard": that promises governance, a conformance
 # suite and a second implementation, none of which exist.
-site_description: Continuous delivery for the GitlessOps era — describe your services once as contracts, and Pacto decides what ships, asking only the teams a change affects.
+site_description: Pacto tells you which services a change breaks before it ships, and checks what is actually running.
 site_url: https://pacto.run/
 repo_url: https://github.com/TrianaLab/pacto
 repo_name: TrianaLab/pacto

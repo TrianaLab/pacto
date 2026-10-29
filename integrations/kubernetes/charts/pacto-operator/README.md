@@ -2,7 +2,7 @@
 
 ![Version: 6.1.0](https://img.shields.io/badge/Version-6.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.1.0](https://img.shields.io/badge/AppVersion-6.1.0-informational?style=flat-square)  [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator)
 
-Kubernetes operator for Pacto service contract validation
+Kubernetes operator that checks running workloads against their Pacto service contracts, with an opt-in delivery component (alpha)
 
 ## Documentation
 
@@ -37,7 +37,7 @@ What the chart installs:
 - Optional: Prometheus `ServiceMonitor`
 - Optional: the node agent `DaemonSet` (`nodeAgent.enabled`, off by default), in its own namespace (`nodeAgent.namespace`, default `pacto-node-agent`) that the chart creates privileged for Pod Security, with a `ValidatingAdmissionPolicy` binding each agent's writes to its own node
 
-The operator never modifies your workloads. It only reads them and reports whether they match their contracts.
+The operator controller never modifies your workloads. It only reads them and reports whether they match their contracts. The same chart ships an opt-in delivery component (alpha, `delivery.enabled`), its own `Deployment`, which decides which version runs where and moves Flux or Argo CD source pointers. Its own admission policies guard each promotion. See [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/).
 
 ## Installation
 

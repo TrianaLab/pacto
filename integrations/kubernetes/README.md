@@ -5,9 +5,11 @@
 
 # Pacto Operator
 
-**Kubernetes operator that checks whether running workloads match their declared [Pacto](https://github.com/TrianaLab/pacto) service contracts.**
+**Kubernetes operator that checks whether running workloads match their declared [Pacto](https://github.com/TrianaLab/pacto) service contracts, with an opt-in delivery component (alpha).**
 
-Teams declare operational intent in a contract — workload type, state and persistence, interfaces, capabilities, dependencies and configurations — then deploy separately through Helm or Kustomize, and nothing connects the two sides at runtime, so contracts drift from reality silently. The operator closes that gap: it watches `Pacto` custom resources, reads the referenced contract, observes the live workload and reports whether they align — continuously, read-only, never modifying your workloads.
+Teams declare operational intent in a contract, covering workload type, state and persistence, interfaces, capabilities, dependencies and configurations. They then deploy separately through Helm or Kustomize, and nothing connects the two sides at runtime, so contracts drift from reality silently. The operator closes that gap: it watches `Pacto` custom resources, reads the referenced contract, observes the live workload and reports whether they align, continuously. The operator controller never modifies your workloads.
+
+The same chart ships an opt-in delivery component (alpha), its own Deployment, that decides which version runs where and moves Flux or Argo CD source pointers. Its own admission policies guard each promotion. See [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/).
 
 **[Pacto](https://github.com/TrianaLab/pacto)** · **[Documentation](https://pacto.run)** · **[Contract reference](https://pacto.run/latest/contract-reference)** · **[Helm chart](charts/pacto-operator/)**
 
@@ -312,9 +314,9 @@ kubectl apply -f config/prometheus/alerts.yaml
 
 ---
 
-## What it does NOT do
+## Limits
 
-- **Enforce or block deployments.** The operator is read-only. It reports drift; it does not prevent it. Use admission webhooks or CI gates if you need enforcement.
+- **Enforcement.** The operator controller is read-only and reports drift. Use admission webhooks or CI gates for enforcement. The opt-in delivery component guards only the promotions it makes, through its promoter and its own admission policies.
 - **Author or publish contracts.** That is the [CLI](https://github.com/TrianaLab/pacto)'s job.
 - **Modify workloads.** It never patches, scales, restarts, or deletes your resources.
 - **Deep protocol validation.** It does not validate OpenAPI responses or run integration tests. It compares the contract's declared interfaces, capabilities, dependencies, configurations, workload type and persistence against observed runtime evidence; active endpoint probing is opt-in (`--enable-probing`).

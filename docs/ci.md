@@ -76,6 +76,12 @@ it picks the highest published version. It exits 1 only when the change is
 [breaking change](glossary.md#breaking-change), so the check fails. Your branch protection rules decide whether a failed check
 blocks the merge.
 
+`pacto diff` works in any pull request and says whether a change is breaking.
+`pacto impact` says which consumers it breaks once Pacto can see your fleet:
+pass the consumer contracts with `--root`, or read a live fleet with `--k8s`
+or `--evidence-url`. With `--local` alone it sees only the contracts in that
+folder, so it cannot know who else consumes the service.
+
 Until the first version is published there is nothing to compare with and
 `pacto diff` fails, so add this step after your first `pacto publish`. To
 compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
