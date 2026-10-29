@@ -18,7 +18,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 15 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 71 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 75 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 13 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -45,6 +45,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `interfaces[].type` | `partial` | `partial` | `partial` | `partial` | Compliant; INTERFACE_PROTOCOL_MISMATCH (error); listed in evaluationCoverage.unverified otherwise; SCHEMA_VIOLATION statically |
 | `interfaces[].ref` | `static-only` | - | - | - | FILE_NOT_FOUND, INVALID_INTERFACE_SPEC, INVALID_MCP_TOOLS |
 | `interfaces[].visibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; INTERFACE_VISIBILITY_MISMATCH (error); listed in evaluationCoverage.unverified otherwise; SCHEMA_VIOLATION statically |
+| `interfaces[].lifecycle` | `static-only` | - | - | - | SCHEMA_VIOLATION; NEEDS_PACTO_2_2 under 2.0 and 2.1; DEPENDENCY_INTERFACE_DEPRECATED or DEPENDENCY_INTERFACE_SUNSET (warnings) for a consumer |
+| `interfaces[].lifecycle.deprecated` | `static-only` | - | - | - | SCHEMA_VIOLATION, INVALID_INTERFACE_LIFECYCLE |
+| `interfaces[].lifecycle.sunset` | `static-only` | - | - | - | INVALID_INTERFACE_LIFECYCLE; DEPENDENCY_INTERFACE_SUNSET (warning) for a consumer from that date on |
+| `interfaces[].lifecycle.successor` | `static-only` | - | - | - | INTERFACE_SUCCESSOR_UNKNOWN |
 | `configurations` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
 | `configurations[]` | `partial` | `partial` | `unverified` | `unverified` | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically |
 | `configurations[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CONFIGURATION_NAME |
@@ -399,6 +403,54 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- | --- | --- | --- | --- | --- |
 | `internal` | `verified` | Only callers inside the cluster may reach it. | internal satisfies; external contradicts | Compliant or INTERFACE_VISIBILITY_MISMATCH | unknown exposure is unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceVisibilityFacet`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].visibility=internal`; e2e: `tests/acceptance/kind/runtime-conformance.sh:conforming-workload`, `tests/acceptance/kind/runtime-conformance.sh:visibility-mismatch` |
 | `public` | `partial` | Meant to be reachable from outside the cluster. | external satisfies; internal and unknown are unverified, never a violation | Compliant or unverified | a public interface behind an external gateway looks internal | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceVisibilityFacet`, `integrations/kubernetes/internal/observer/exposure_test.go:TestInterfaceFacts_ProtocolAndExposure`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].visibility=public`; e2e: `tests/acceptance/kind/runtime-conformance.sh:visibility-mismatch` |
+
+### `interfaces[].lifecycle`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Marks the interface deprecated and schedules its removal; pactoVersion 2.2 only. |
+| Runtime | `static-only` |
+| Evidence | none: a schedule, not a runtime fact |
+| Rule | schema: object with deprecated; diff: deprecating is non-breaking, removing before the sunset says so in the reason; a consumer resolving the contract with --closure is warned |
+| Outcomes | SCHEMA_VIOLATION; NEEDS_PACTO_2_2 under 2.0 and 2.1; DEPENDENCY_INTERFACE_DEPRECATED or DEPENDENCY_INTERFACE_SUNSET (warnings) for a consumer |
+| Limitations | a dependency does not say which interfaces it calls, so a consumer is warned about every deprecated interface of its provider |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestNeeds22Lifecycle`, `pkg/validation/lifecycle_test.go:TestDeprecatedInterfaceWarnings`, `pkg/diff/interfaces_test.go:TestDiffInterfaces_Lifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle/invalid-2.1` |
+
+### `interfaces[].lifecycle.deprecated`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Date the interface was deprecated (YYYY-MM-DD). |
+| Runtime | `static-only` |
+| Evidence | none: a date the provider declares |
+| Rule | schema: required; cross-field: a canonical YYYY-MM-DD date |
+| Outcomes | SCHEMA_VIOLATION, INVALID_INTERFACE_LIFECYCLE |
+| Limitations | no check that the date is in the past |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestValidateInterfaceLifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.deprecated/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.deprecated/invalid` |
+
+### `interfaces[].lifecycle.sunset`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Date from which the interface may be removed (YYYY-MM-DD). |
+| Runtime | `static-only` |
+| Evidence | none: a date the provider declares |
+| Rule | cross-field: a canonical date not before deprecated; diff: an earlier sunset is potentially breaking |
+| Outcomes | INVALID_INTERFACE_LIFECYCLE; DEPENDENCY_INTERFACE_SUNSET (warning) for a consumer from that date on |
+| Limitations | read in UTC |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestValidateInterfaceLifecycle`, `pkg/contract/contract_test.go:TestInterfaceLifecycle_SunsetReached`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.sunset/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.sunset/invalid` |
+
+### `interfaces[].lifecycle.successor`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The interface that replaces this one, named locally or as an absolute URL. |
+| Runtime | `static-only` |
+| Evidence | none: a pointer for consumers |
+| Rule | cross-field: names another interface of the service, or is an absolute URL with a host |
+| Outcomes | INTERFACE_SUCCESSOR_UNKNOWN |
+| Limitations | a URL successor is not fetched |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestValidateInterfaceLifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.successor/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.successor/invalid` |
 
 ### `configurations`
 

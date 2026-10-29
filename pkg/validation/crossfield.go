@@ -26,6 +26,7 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 
 	validateServiceVersion(c, &result)
 	validateInterfaceNamesUnique(c, &result)
+	validateInterfaceLifecycle(c, &result)
 	validateConfigurationNamesUnique(c, &result)
 	validatePolicyNamesUnique(c, &result)
 	validateDependencyNamesUnique(c, &result)

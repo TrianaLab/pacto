@@ -80,6 +80,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	logging.LoggerFromContext(ctx).Debug("validation complete", "valid", result.IsValid(), "errors", len(result.Errors), "warnings", len(result.Warnings))
 
 	errors := result.Errors
+	warnings := result.Warnings
 	valid := result.IsValid()
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
@@ -100,24 +101,27 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	}
 
 	if opts.Closure {
-		if ce := s.closureErrors(ctx, ref, bundle, resolver); len(ce) > 0 {
+		ce, cw := s.closureFindings(ctx, ref, bundle, resolver)
+		if len(ce) > 0 {
 			errors = append(errors, ce...)
 			valid = false
 		}
+		warnings = append(warnings, cw...)
 	}
 
 	return &ValidateResult{
 		Path:     ref,
 		Valid:    valid,
 		Errors:   errors,
-		Warnings: result.Warnings,
+		Warnings: warnings,
 	}, nil
 }
 
-// closureErrors checks every contract in the root's dependency closure against
+// closureFindings checks every contract in the root's dependency closure against
 // the policies the root resolves. It fails closed: a dependency that cannot be
 // resolved, or whose contract cannot be read, is an error. External
-// dependencies carry no contract and are skipped.
+// dependencies carry no contract and are skipped. It also warns about each
+// deprecated interface of a provider the root depends on directly.
 //
 // A root whose own policies fail to resolve is already invalid, so the closure
 // is then checked for resolution failures only.
@@ -125,7 +129,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 // ponytail: the closure is resolved again after verifyLockIfPresent resolved it
 // for the lock check, so a tag re-pushed between the two reads is not caught;
 // a lock-pinned fetcher closes that window if it matters.
-func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contract.Bundle, resolver validation.BundleResolver) []contract.ValidationError {
+func (s *Service) closureFindings(ctx context.Context, ref string, bundle *contract.Bundle, resolver validation.BundleResolver) ([]contract.ValidationError, []contract.ValidationWarning) {
 	policies, pr := validation.ResolvePoliciesWithResolver(ctx, bundle.Contract, bundle.FS, resolver)
 	if !pr.IsValid() {
 		policies = nil
@@ -138,6 +142,13 @@ func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contrac
 	// content too: a local copy with edits and the published bundle can share a
 	// name and version.
 	checked := map[string]bool{}
+	// A shared edge carries no contract, so the root's direct providers are
+	// looked up among the nodes the walk resolved.
+	// ponytail: keyed on name, version and ref, so two different bundles under one
+	// relative ref in different directories collapse; key on the resolver's base if
+	// that ever matters.
+	contracts := map[string]*contract.Contract{}
+	nodeID := func(n *graph.Node) string { return n.Name + "@" + n.Version + "@" + n.Ref }
 	var walk func(n *graph.Node)
 	walk = func(n *graph.Node) {
 		for _, e := range n.Dependencies {
@@ -159,6 +170,7 @@ func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contrac
 				if e.Node.FS != nil {
 					data, err = fs.ReadFile(e.Node.FS, DefaultContractPath)
 				}
+				contracts[nodeID(e.Node)] = e.Node.Contract
 				sum := sha256.Sum256(data)
 				if id := e.Node.Name + "@" + e.Node.Version + "@" + hex.EncodeToString(sum[:]); !checked[id] {
 					checked[id] = true
@@ -169,7 +181,14 @@ func (s *Service) closureErrors(ctx context.Context, ref string, bundle *contrac
 		}
 	}
 	walk(res.Root)
-	return errs
+
+	var warns []contract.ValidationWarning
+	for i, e := range res.Root.Dependencies {
+		if e.Node != nil && contracts[nodeID(e.Node)] != nil {
+			warns = append(warns, validation.DeprecatedInterfaceWarnings(fmt.Sprintf("dependencies[%d]", i), contracts[nodeID(e.Node)], s.env().now())...)
+		}
+	}
+	return errs, warns
 }
 
 // checkClosureNode checks one resolved dependency's contract data, read with

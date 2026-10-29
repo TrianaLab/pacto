@@ -15,7 +15,7 @@ broken field can hide the rest.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json` or `pacto-v2.1.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json` or `pacto-v2.2.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
@@ -26,10 +26,12 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 
 Structural failures report `SCHEMA_VIOLATION`. A `"2.0"` contract that uses
 `publish`, `checks`, an external dependency or an `mcp` interface reports `NEEDS_PACTO_2_1` for each
-instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field.
+instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
+`"2.1"` contract that uses an interface `lifecycle` reports `NEEDS_PACTO_2_2`:
+set `pactoVersion: "2.2"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"` or `"2.1"`, fails before any layer runs and reports
+`pactoVersion` other than `"2.0"`, `"2.1"` or `"2.2"`, fails before any layer runs and reports
 `PARSE_ERROR`. Loading is the parse step that turns `pacto.yaml` into a
 contract. Validation starts once it succeeds.
 
@@ -41,6 +43,8 @@ Validates semantic references and consistency:
 |---|---|
 | `service.version` [parses as semver](sections.md#service), leniently: `1`, `0.1` and `v0.1` all pass | `INVALID_SEMVER` |
 | Interface names are unique | `DUPLICATE_INTERFACE_NAME` |
+| `interfaces[].lifecycle` dates are strict `YYYY-MM-DD` and `sunset` is not before `deprecated` | `INVALID_INTERFACE_LIFECYCLE` |
+| `interfaces[].lifecycle.successor` names another interface or is an absolute URL | `INTERFACE_SUCCESSOR_UNKNOWN` |
 | Configuration names are unique | `DUPLICATE_CONFIGURATION_NAME` |
 | Policy names are unique | `DUPLICATE_POLICY_NAME` |
 | Dependency names are unique | `DUPLICATE_DEPENDENCY_NAME` |
@@ -118,11 +122,19 @@ per dependency. External dependencies carry no contract and are skipped.
 |---|---|
 | A dependency violates a policy the root resolves | `CLOSURE_POLICY_VIOLATION` |
 | A dependency cannot be resolved, sits in a dependency cycle or has an unreadable contract | `CLOSURE_DEPENDENCY_UNRESOLVED` |
+| A direct dependency declares a [deprecated interface](sections.md#interface-lifecycle) | `DEPENDENCY_INTERFACE_DEPRECATED` (warning) |
+| That interface has reached its sunset | `DEPENDENCY_INTERFACE_SUNSET` (warning) |
 
 A policy finding names the dependency in its path, for example
 `dependencies[ledger@1.0.0]`. A dependency that cannot be resolved is named in
 the message. When a dependency declared it, the path names that dependency. An
-unresolvable dependency fails the run, so the check fails closed. When `pacto.lock` is present, the lock is verified first and
+unresolvable dependency fails the run, so the check fails closed.
+
+A deprecated interface is a warning that names the interface, its sunset and its
+successor, with the path of the dependency that resolved to it, for example
+`dependencies[1]`. Both codes stay warnings so the verdict does not change with
+the date the check runs. To fail a pipeline after the sunset, gate on
+`DEPENDENCY_INTERFACE_SUNSET` in `--output-format json`. When `pacto.lock` is present, the lock is verified first and
 a drifted closure fails with the lock error before the closure is checked.
 
 ---

@@ -151,6 +151,31 @@
               "public": "accessible from outside the cluster or network boundary",
               "internal": "only accessible within the cluster or internal network"
             }
+          },
+          "lifecycle": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "deprecated"
+            ],
+            "description": "Marks the interface deprecated and schedules its removal (pactoVersion 2.2 and later). Consumers that resolve this contract are warned.",
+            "properties": {
+              "deprecated": {
+                "type": "string",
+                "format": "date",
+                "description": "Date the interface was deprecated (YYYY-MM-DD)."
+              },
+              "sunset": {
+                "type": "string",
+                "format": "date",
+                "description": "Date from which the interface may be removed (YYYY-MM-DD). Must not be before deprecated."
+              },
+              "successor": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The interface that replaces this one: the name of another interface of this service, or an absolute URL such as an oci:// reference to another service."
+              }
+            }
           }
         }
       }

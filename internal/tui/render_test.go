@@ -302,6 +302,7 @@ func TestRenderExplainWithCapabilitiesInterfacesDependencies(t *testing.T) {
 		},
 		Interfaces: []app.ExplainInterface{
 			{Name: "api", Type: "grpc", Ref: "api.proto"},
+			{Name: "old", Type: "grpc", Ref: "old.proto", Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-15", Successor: "api"}},
 		},
 		Dependencies: []app.ExplainDependency{
 			{Name: "auth-svc", Ref: "oci://example.com/auth:1.0", Required: true, Compatibility: "^1.0"},
@@ -317,6 +318,9 @@ func TestRenderExplainWithCapabilitiesInterfacesDependencies(t *testing.T) {
 	}
 	if !strings.Contains(got, "api") {
 		t.Fatal("render should include interfaces")
+	}
+	if !strings.Contains(got, "old (grpc, deprecated 2026-01-15, successor api)") {
+		t.Fatalf("render should include an interface lifecycle: %s", got)
 	}
 	if !strings.Contains(got, "auth-svc") {
 		t.Fatal("render should include dependencies")

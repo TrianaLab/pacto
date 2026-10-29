@@ -82,14 +82,15 @@ const (
 	schemaViolation = "SCHEMA_VIOLATION"
 	parseError      = "PARSE_ERROR"
 	needs21         = "NEEDS_PACTO_2_1" // a 2.1-only part in a 2.0 contract
+	needs22         = "NEEDS_PACTO_2_2" // a 2.2-only part in a 2.0 or 2.1 contract
 )
 
 var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
 	valid("pactoVersion=2.2", set("pactoVersion", "2.2")),
-	valid("pactoVersion=2.1", set("pactoVersion", "2.1")),
-	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("checks")),
+	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("interfaces.0.lifecycle")),
+	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("checks"), del("interfaces.0.lifecycle")),
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
@@ -146,6 +147,16 @@ var fieldCoverageCases = []fcCase{
 	invalid("interfaces[].visibility/invalid", schemaViolation, set("interfaces.0.visibility", "private")),
 	valid("interfaces[].visibility=public", set("interfaces.0.visibility", "public")),
 	valid("interfaces[].visibility=internal", set("interfaces.0.visibility", "internal")),
+	valid("interfaces[].lifecycle/valid", del("interfaces.0.lifecycle")),
+	invalid("interfaces[].lifecycle/invalid", schemaViolation, set("interfaces.0.lifecycle", map[string]any{})),
+	invalid("interfaces[].lifecycle/invalid-2.1", needs22, set("pactoVersion", "2.1")),
+	valid("interfaces[].lifecycle.deprecated/valid", set("interfaces.0.lifecycle.deprecated", "2025-12-01")),
+	invalid("interfaces[].lifecycle.deprecated/invalid", "INVALID_INTERFACE_LIFECYCLE", set("interfaces.0.lifecycle.deprecated", "2026-1-15")),
+	valid("interfaces[].lifecycle.sunset/valid", del("interfaces.0.lifecycle.sunset")),
+	invalid("interfaces[].lifecycle.sunset/invalid", "INVALID_INTERFACE_LIFECYCLE", set("interfaces.0.lifecycle.sunset", "2025-01-01")),
+	valid("interfaces[].lifecycle.successor/valid", set("interfaces.1", map[string]any{"name": "api-v2", "type": "openapi", "ref": "interfaces/openapi.yaml"}),
+		set("interfaces.0.lifecycle.successor", "api-v2")),
+	invalid("interfaces[].lifecycle.successor/invalid", "INTERFACE_SUCCESSOR_UNKNOWN", set("interfaces.0.lifecycle.successor", "api")),
 
 	valid("configurations/valid", del("configurations")),
 	invalid("configurations/invalid", parseError, set("configurations", "app")),
@@ -399,6 +410,10 @@ interfaces:
     type: openapi
     ref: interfaces/openapi.yaml
     visibility: internal
+    lifecycle:
+      deprecated: "2026-01-15"
+      sunset: "2099-12-31"
+      successor: oci://ghcr.io/acme/orders-v2
 configurations:
   - name: app
     schema: configuration/schema.json

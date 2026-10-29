@@ -1,9 +1,11 @@
 package diff
 
 import (
+	"fmt"
 	"io/fs"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -21,9 +23,10 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 		oldIface := oldByName[name]
 		newIface, exists := newByName[name]
 		if !exists {
-			changes = append(changes, newChange("interfaces", Removed, name, nil))
+			changes = append(changes, removedInterface(oldIface))
 			continue
 		}
+		changes = append(changes, diffLifecycle(name, oldIface.Lifecycle, newIface.Lifecycle)...)
 
 		if oldIface.Type != newIface.Type {
 			changes = append(changes, newChange("interfaces.type", Modified, name+": "+oldIface.Type, name+": "+newIface.Type))
@@ -60,6 +63,57 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 		}
 	}
 
+	return changes
+}
+
+// removedInterface is the Breaking removal of iface. Its reason says so when
+// the interface is removed before the sunset it announced.
+func removedInterface(iface contract.Interface) Change {
+	c := newChange("interfaces", Removed, iface.Name, nil)
+	if l := iface.Lifecycle; l != nil && l.Sunset != "" && !l.SunsetReached(now()) {
+		c.Reason += fmt.Sprintf(": %s removed before its sunset %s, so consumers still inside the announced window break", iface.Name, l.Sunset)
+	}
+	return c
+}
+
+// now is the clock that decides whether a removed interface's sunset has been
+// reached. Only the reason text reads it; no classification does.
+var now = time.Now
+
+// diffLifecycle compares the lifecycle of one interface. Deprecating, moving the
+// deprecation date, adding or dropping a sunset and naming a successor are
+// notices that change nothing a consumer calls, so they are NonBreaking. An
+// earlier sunset shortens the window consumers were promised to migrate in and
+// is PotentialBreaking; a later one only extends it.
+func diffLifecycle(name string, o, n *contract.InterfaceLifecycle) []Change {
+	switch {
+	case o == nil && n == nil:
+		return nil
+	case o == nil:
+		c := newChange("interfaces.lifecycle", Added, nil, name+": deprecated "+n.Deprecated)
+		c.Reason += ": " + name + " " + n.String()
+		return []Change{c}
+	case n == nil:
+		return []Change{newChange("interfaces.lifecycle", Removed, name+": deprecated "+o.Deprecated, nil)}
+	}
+	var changes []Change
+	if o.Deprecated != n.Deprecated {
+		changes = append(changes, newChange("interfaces.lifecycle.deprecated", Modified, name+": "+o.Deprecated, name+": "+n.Deprecated))
+	}
+	if o.Sunset != n.Sunset {
+		c := newChange("interfaces.lifecycle.sunset", strChangeType(o.Sunset, n.Sunset), name+": "+o.Sunset, name+": "+n.Sunset)
+		if c.Type == Modified {
+			direction := "earlier"
+			if n.Sunset > o.Sunset { // canonical dates compare as strings
+				direction, c.Classification = "later", NonBreaking
+			}
+			c.Reason += fmt.Sprintf(": %s sunset moved %s, from %s to %s", name, direction, o.Sunset, n.Sunset)
+		}
+		changes = append(changes, c)
+	}
+	if o.Successor != n.Successor {
+		changes = append(changes, newChange("interfaces.lifecycle.successor", strChangeType(o.Successor, n.Successor), name+": "+o.Successor, name+": "+n.Successor))
+	}
 	return changes
 }
 

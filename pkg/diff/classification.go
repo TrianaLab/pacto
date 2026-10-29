@@ -71,6 +71,18 @@ var rules = map[classificationKey]Classification{
 	{"interfaces.ref", Modified}:        PotentialBreaking,
 	{"interfaces.visibility", Modified}: PotentialBreaking,
 
+	// Interface lifecycle (2.2): notices, except a sunset moved earlier, which
+	// diffLifecycle downgrades to NonBreaking when it moves later instead.
+	{"interfaces.lifecycle", Added}:               NonBreaking,
+	{"interfaces.lifecycle", Removed}:             NonBreaking,
+	{"interfaces.lifecycle.deprecated", Modified}: NonBreaking,
+	{"interfaces.lifecycle.sunset", Added}:        NonBreaking,
+	{"interfaces.lifecycle.sunset", Removed}:      NonBreaking,
+	{"interfaces.lifecycle.sunset", Modified}:     PotentialBreaking,
+	{"interfaces.lifecycle.successor", Added}:     NonBreaking,
+	{"interfaces.lifecycle.successor", Modified}:  NonBreaking,
+	{"interfaces.lifecycle.successor", Removed}:   NonBreaking,
+
 	// Configurations (name-indexed). A source that gains a schema where it had
 	// none is deliberately absent: it newly constrains a consumer who was
 	// unconstrained, which is the PotentialBreaking default, and a row restating

@@ -257,6 +257,19 @@ func colorClassification(w io.Writer, s string) string {
 	}
 }
 
+// interfaceDetails is the ", visibility, lifecycle" tail of an explained
+// interface, leaving out what is not set.
+func interfaceDetails(iface app.ExplainInterface) string {
+	var s string
+	if iface.Visibility != "" {
+		s += ", " + iface.Visibility
+	}
+	if iface.Lifecycle != nil {
+		s += ", " + iface.Lifecycle.String()
+	}
+	return s
+}
+
 func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
@@ -291,11 +304,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		if len(result.Interfaces) > 0 {
 			_, _ = fmt.Fprintf(w, "\nInterfaces (%d):\n", len(result.Interfaces))
 			for _, iface := range result.Interfaces {
-				_, _ = fmt.Fprintf(w, "  - %s (%s: %s", iface.Name, iface.Type, iface.Ref)
-				if iface.Visibility != "" {
-					_, _ = fmt.Fprintf(w, ", %s", iface.Visibility)
-				}
-				_, _ = fmt.Fprintln(w, ")")
+				_, _ = fmt.Fprintf(w, "  - %s (%s: %s%s)\n", iface.Name, iface.Type, iface.Ref, interfaceDetails(iface))
 			}
 		}
 

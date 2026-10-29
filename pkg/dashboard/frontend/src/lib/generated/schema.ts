@@ -1038,10 +1038,16 @@ export interface components {
             platforms?: string[] | null;
         };
         "Contract.Interface": {
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             ref: string;
             type: string;
             visibility?: string;
+        };
+        "Contract.InterfaceLifecycle": {
+            deprecated: string;
+            successor?: string;
+            sunset?: string;
         };
         "Contract.Owner": {
             contacts?: components["schemas"]["Contract.OwnerContact"][] | null;

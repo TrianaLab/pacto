@@ -549,6 +549,69 @@ fields:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].visibility=public
           e2e:
           - tests/acceptance/kind/runtime-conformance.sh:visibility-mismatch
+  interfaces[].lifecycle:
+    meaning: Marks the interface deprecated and schedules its removal; pactoVersion 2.2 only.
+    runtime: static-only
+    evidence: 'none: a schedule, not a runtime fact'
+    rule: 'schema: object with deprecated; diff: deprecating is non-breaking, removing before the sunset says so in the
+      reason; a consumer resolving the contract with --closure is warned'
+    outcomes: SCHEMA_VIOLATION; NEEDS_PACTO_2_2 under 2.0 and 2.1; DEPENDENCY_INTERFACE_DEPRECATED or DEPENDENCY_INTERFACE_SUNSET
+      (warnings) for a consumer
+    limitations: a dependency does not say which interfaces it calls, so a consumer is warned about every deprecated interface
+      of its provider
+    tests:
+      unit:
+      - pkg/validation/lifecycle_test.go:TestNeeds22Lifecycle
+      - pkg/validation/lifecycle_test.go:TestDeprecatedInterfaceWarnings
+      - pkg/diff/interfaces_test.go:TestDiffInterfaces_Lifecycle
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle/invalid-2.1
+      e2e: []
+  interfaces[].lifecycle.deprecated:
+    meaning: Date the interface was deprecated (YYYY-MM-DD).
+    runtime: static-only
+    evidence: 'none: a date the provider declares'
+    rule: 'schema: required; cross-field: a canonical YYYY-MM-DD date'
+    outcomes: SCHEMA_VIOLATION, INVALID_INTERFACE_LIFECYCLE
+    limitations: no check that the date is in the past
+    tests:
+      unit:
+      - pkg/validation/lifecycle_test.go:TestValidateInterfaceLifecycle
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.deprecated/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.deprecated/invalid
+      e2e: []
+  interfaces[].lifecycle.sunset:
+    meaning: Date from which the interface may be removed (YYYY-MM-DD).
+    runtime: static-only
+    evidence: 'none: a date the provider declares'
+    rule: 'cross-field: a canonical date not before deprecated; diff: an earlier sunset is potentially breaking'
+    outcomes: INVALID_INTERFACE_LIFECYCLE; DEPENDENCY_INTERFACE_SUNSET (warning) for a consumer from that date on
+    limitations: read in UTC
+    tests:
+      unit:
+      - pkg/validation/lifecycle_test.go:TestValidateInterfaceLifecycle
+      - pkg/contract/contract_test.go:TestInterfaceLifecycle_SunsetReached
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.sunset/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.sunset/invalid
+      e2e: []
+  interfaces[].lifecycle.successor:
+    meaning: The interface that replaces this one, named locally or as an absolute URL.
+    runtime: static-only
+    evidence: 'none: a pointer for consumers'
+    rule: 'cross-field: names another interface of the service, or is an absolute URL with a host'
+    outcomes: INTERFACE_SUCCESSOR_UNKNOWN
+    limitations: a URL successor is not fetched
+    tests:
+      unit:
+      - pkg/validation/lifecycle_test.go:TestValidateInterfaceLifecycle
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.successor/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].lifecycle.successor/invalid
+      e2e: []
   configurations:
     meaning: Configuration inputs the service consumes.
     runtime: not-applicable

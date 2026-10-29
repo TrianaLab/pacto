@@ -1304,6 +1304,9 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 
 	for _, iface := range c.Interfaces {
 		desc := fmt.Sprintf("%s (%s)", iface.Name, iface.Type)
+		if iface.Lifecycle != nil {
+			desc = fmt.Sprintf("%s (%s, %s)", iface.Name, iface.Type, iface.Lifecycle)
+		}
 		s.Interfaces = append(s.Interfaces, desc)
 	}
 

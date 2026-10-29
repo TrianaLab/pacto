@@ -42,8 +42,17 @@ modification. `service` carries identity only, so the contract has no `image` or
 | `interfaces.type` | Modified | **BREAKING** |
 | `interfaces.ref` | Modified | POTENTIAL_BREAKING |
 | `interfaces.visibility` | Modified | POTENTIAL_BREAKING |
+| `interfaces.lifecycle` | Added / Removed | NON_BREAKING |
+| `interfaces.lifecycle.deprecated` | Modified | NON_BREAKING |
+| `interfaces.lifecycle.sunset` | Added / Removed | NON_BREAKING |
+| `interfaces.lifecycle.sunset` | Modified, earlier | POTENTIAL_BREAKING |
+| `interfaces.lifecycle.sunset` | Modified, later | NON_BREAKING |
+| `interfaces.lifecycle.successor` | Added / Modified / Removed | NON_BREAKING |
 
-Interfaces are keyed by `name`. The `type` enum is `openapi`/`asyncapi`/`grpc`, and the spec pointer is `ref`.
+Interfaces are keyed by `name`. Deprecating an interface changes nothing a
+consumer calls, so it is a notice. An earlier sunset shortens the time consumers
+have to migrate. Removing an interface before its sunset is still **BREAKING**,
+and the reason says that the sunset has not been reached. The `type` enum is `openapi`/`asyncapi`/`grpc`, and the spec pointer is `ref`.
 
 ## Configurations
 

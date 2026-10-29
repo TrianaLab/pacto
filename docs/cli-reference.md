@@ -1678,7 +1678,7 @@ pacto validate [dir | oci://ref] [flags]
 **Flags:**
 
 ```
-      --closure              also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved. Fetches each dependency once
+      --closure              also check every contract in the dependency closure against the policies this contract resolves. Fails when a dependency cannot be resolved and warns about deprecated interfaces of direct dependencies. Fetches each dependency once
   -h, --help                 help for validate
       --readiness            also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)

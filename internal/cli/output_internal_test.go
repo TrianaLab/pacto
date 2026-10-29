@@ -440,7 +440,7 @@ func TestPrintExplainResult_Full(t *testing.T) {
 		},
 		Interfaces: []app.ExplainInterface{
 			{Name: "api", Type: "openapi", Ref: "openapi.yaml", Visibility: "internal"},
-			{Name: "events", Type: "grpc", Ref: "service.proto"},
+			{Name: "events", Type: "grpc", Ref: "service.proto", Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-15", Sunset: "2026-07-01", Successor: "api"}},
 		},
 		Dependencies: []app.ExplainDependency{
 			{Name: "dep", Ref: "ghcr.io/dep:1.0.0", Required: true, Compatibility: "^1.0.0"},
@@ -467,7 +467,7 @@ func TestPrintExplainResult_Full(t *testing.T) {
 	if !strings.Contains(out, "  - model: external, version claude-sonnet-4-5 (cannot be checked, required)") {
 		t.Errorf("expected the external dependency's version, got %q", out)
 	}
-	if !strings.Contains(out, "events (grpc: service.proto") {
+	if !strings.Contains(out, "events (grpc: service.proto, deprecated 2026-01-15, sunset 2026-07-01, successor api)") {
 		t.Errorf("expected grpc interface with ref, got %q", out)
 	}
 	if !strings.Contains(out, "required") {

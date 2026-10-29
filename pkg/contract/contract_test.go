@@ -4,9 +4,32 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestInterfaceLifecycle_SunsetReached(t *testing.T) {
+	noon := func(s string) time.Time { d, _ := time.Parse(time.DateOnly, s); return d.Add(12 * time.Hour) }
+	l := &InterfaceLifecycle{Deprecated: "2026-01-15", Sunset: "2026-07-01"}
+	if l.SunsetReached(noon("2026-06-30")) {
+		t.Error("the day before the sunset")
+	}
+	if !l.SunsetReached(noon("2026-07-01")) || !l.SunsetReached(noon("2026-07-02")) {
+		t.Error("on and after the sunset")
+	}
+	if got := l.String(); got != "deprecated 2026-01-15, sunset 2026-07-01" {
+		t.Errorf("String() = %q", got)
+	}
+	if got := (&InterfaceLifecycle{Deprecated: "2026-01-15", Successor: "v2"}).String(); got != "deprecated 2026-01-15, successor v2" {
+		t.Errorf("String() = %q", got)
+	}
+	for _, s := range []string{"", "soon"} {
+		if (&InterfaceLifecycle{Sunset: s}).SunsetReached(noon("2099-01-01")) {
+			t.Errorf("sunset %q is never reached", s)
+		}
+	}
+}
 
 func TestRequired_SerializationRoundTrip(t *testing.T) {
 	// required is MANDATORY in the v2 schema, so a false value MUST survive marshaling

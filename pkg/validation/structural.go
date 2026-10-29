@@ -110,6 +110,9 @@ func ValidateStructural(data any) ValidationResult {
 	if version == "2.0" {
 		data, mcp = needs21(&result, data)
 	}
+	if version == "2.0" || version == "2.1" {
+		data = needs22(&result, data)
+	}
 	addSchemaError(&result, schema.Validate(data))
 	if len(mcp) > 0 {
 		result.Errors = slices.DeleteFunc(result.Errors, func(e contract.ValidationError) bool {
@@ -170,6 +173,35 @@ func needs21(result *ValidationResult, data any) (any, []int) {
 		}
 	}
 	return out, mcp
+}
+
+// needs22 records a NEEDS_PACTO_2_2 error for each interface lifecycle in a 2.0
+// or 2.1 contract, in place of the older schema's generic "not allowed", and
+// returns data without those lifecycles for the rest of the schema to check.
+func needs22(result *ValidationResult, data any) any {
+	m, _ := data.(map[string]any) // a 2.0 or 2.1 pactoVersion was read from it
+	ifaces, _ := m["interfaces"].([]any)
+	var kept []any
+	for i, it := range ifaces {
+		im, _ := it.(map[string]any)
+		if _, ok := im["lifecycle"]; !ok {
+			continue
+		}
+		result.AddError(fmt.Sprintf("interfaces.%d.lifecycle", i), string(finding.CodeNeedsPacto22),
+			`an interface lifecycle needs pactoVersion "2.2"; set pactoVersion: "2.2", which keeps every earlier field`)
+		if kept == nil {
+			kept = slices.Clone(ifaces)
+		}
+		im = maps.Clone(im)
+		delete(im, "lifecycle")
+		kept[i] = im
+	}
+	if kept == nil {
+		return data
+	}
+	out := maps.Clone(m)
+	out["interfaces"] = kept
+	return out
 }
 
 // addSchemaError records a schema validation outcome: nothing for nil, every
