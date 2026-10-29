@@ -41,9 +41,10 @@ You need:
 
 Pacto writes the contract from your service.
 
-If you only want the contract and its CI checks, leave out `--delivery`, stop after
-step 2 and go on to [Put it in your repository](ci.md): `pacto push` uploads
-the contract alone.
+If you only want the contract and its CI checks, run
+`pacto init --describe-only`: the contract has no publish section and needs no
+signing key. Then go on to [Put it in your repository](ci.md): `pacto push`
+uploads the contract alone.
 
 ## 1. See what Pacto would add
 
@@ -93,11 +94,17 @@ service:
   version: 1.0.0            # from the image tag (0.1.0 and an Unknown if none)
   owner:
     team: payments
-# dependencies:             # one per service yours calls; init leaves them commented
-#   - name: billing
-#     ref: oci://ghcr.io/acme/contracts/billing   # its publish.bundle
-#     required: true                              # yours cannot run without it
-#     compatibility: "^2.0.0"                     # the versions yours accepts
+capabilities:               # from a readiness, liveness or startup probe
+  - type: health
+dependencies:               # one per service a URL in the environment names
+  - name: billing
+    ref: oci://ghcr.io/acme/contracts/billing   # its publish.bundle
+    required: true                              # yours cannot run without it
+    compatibility: "^1.0.0"                     # a placeholder: the versions yours accepts
+configurations:             # the environment, ConfigMaps included, values as defaults
+  - name: env
+    schema: configuration/schema.json
+    required: true
 publish:
   bundle: oci://ghcr.io/acme/contracts/my-service   # where the contract goes
   deploy: manifests                                 # what Flux applies
@@ -118,9 +125,10 @@ Leave the long `command` line as it is. It copies your Kubernetes files with
 the image pinned to the digest this version built, in every manifest that runs
 it, and names any file it cannot rewrite. `k8s/deployment.yaml` stays as it is.
 
-Fill in what the plan marked Unknown, above all the dependencies: uncomment
-one entry per service yours calls whose contract is published, and set
-`compatibility` to the versions it accepts, such as `^2.0.0` for any 2.x. This
+Fill in what the plan marked Unknown, above all the dependencies: set each
+placeholder `compatibility` to the versions yours accepts, such as `^2.0.0`
+for any 2.x. With that service's contract in `--fleet`, `init` reads its
+bundle and version instead. This
 version range lets Pacto ask the right team about a change. Declare an OpenAPI
 document under `interfaces` ([how](ci.md#declare-your-api-first)): Pacto sees
 API changes only there. Every field is in [Publish](contract-reference/publish.md)
@@ -274,7 +282,7 @@ pacto init --cluster --namespace shop --out drafts --plan
 With the Pacto node agent running, the services a workload was seen calling
 become dependencies, pinned to exactly the version seen running
 (`compatibility: "=2.3.0"`) for you to widen. Until you do, every new version
-of that service asks your team. A service with no contract stays a comment.
+of that service asks your team. A service with no contract gets a placeholder range.
 Drafts are never published, and an invalid one fails the command. The MCP tool
 `pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,
 and only plans unless `dry_run` is false.

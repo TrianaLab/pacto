@@ -51,6 +51,24 @@ that relies on it is Unknown and never passes. A dependency with no `ref` and no
 `external: true` fails validation with `DEPENDENCY_REF_REQUIRED`. An external
 dependency with no `ref` and no `version` fails with `EXTERNAL_VERSION_REQUIRED`.
 
+### A dependency whose contract is not published yet
+
+For a service your Pacto system delivers whose contract nobody has published
+yet, leave `external` out. Set `ref` to the repository its contract will be
+published at and `compatibility` to the versions you accept:
+
+```yaml
+dependencies:
+  - name: ledger
+    ref: oci://ghcr.io/acme/contracts/ledger   # published later
+    compatibility: "^1.0.0"
+    required: true
+```
+
+The contract validates. Until `ledger` publishes, Pacto lists the dependency
+as unresolved, so the gap stays visible. With `external: true` and a `version`
+in its place, compatibility stays Unknown for good.
+
 ### Dependency reference schemes
 
 | Scheme | Example | Description |

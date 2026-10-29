@@ -142,10 +142,17 @@ Catalog mode registers nothing else, so a server started for read-only discovery
 
 `pacto_create` with `pactify: true` does what `pacto init` does for a folder
 holding a service: it reads the Dockerfile and Kubernetes files and writes the
-contract. With `delivery: true` it also writes the cluster files. `registry`,
-`environments`, `fleet_roots`, `no_transparency_log`, `insecure_registry` and
-`registry_secret` match the CLI flags, and `dry_run` plans without writing. See
+contract. `describe_only: true` leaves out the publish section, for a request
+to describe or document a service. With `delivery: true` it also writes the
+cluster files. `registry`, `environments`, `fleet_roots`,
+`no_transparency_log`, `insecure_registry` and `registry_secret` match the CLI
+flags, and `dry_run` plans without writing. See
 [Pactify a service](pactify.md).
+
+`pacto_create` and `pacto_edit` return `warnings` for a value that validates
+but is likely wrong, such as an owner written as `team/billing`.
+`pacto_schema` returns the JSON Schema and, under `agents`, how to describe an
+AI agent as a service.
 
 ## Publish and delivery servers
 
