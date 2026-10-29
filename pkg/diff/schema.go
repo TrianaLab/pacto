@@ -243,6 +243,9 @@ func classifySchemaChange(dir schemaDirection, path string, elem bool, ct Change
 	if isDocOnly(segs) {
 		return NonBreaking
 	}
+	if isExtension(segs) {
+		return PotentialBreaking
+	}
 	// Removing a whole response header grades PotentialBreaking, so nothing
 	// nested inside one may grade Breaking: dropping a single field of a header
 	// would otherwise be worse than dropping the header entirely. A header owns a
@@ -297,6 +300,27 @@ var docKeywords = map[string]bool{
 func isDocOnly(segs []string) bool {
 	for i, s := range segs {
 		if docKeywords[s] && (i == 0 || segs[i-1] != "properties") {
+			return true
+		}
+	}
+	return false
+}
+
+// nameKeys hold maps keyed by a name the author chose, so a key under one
+// that starts with x- is a name, not an extension.
+//
+// ponytail: a fixed list; a name under any other map (an AsyncAPI channel, a
+// security scheme) that starts with x- reads as an extension.
+var nameKeys = map[string]bool{"properties": true, "patternProperties": true,
+	"$defs": true, "definitions": true, "schemas": true, "headers": true}
+
+// isExtension reports whether segs passes through an x- extension keyword.
+// Tools read extensions (code generators, gateways), but no reader of the
+// data has to, so Pacto cannot tell whether an edit to one breaks anybody:
+// it is POTENTIAL_BREAKING in every position.
+func isExtension(segs []string) bool {
+	for i, s := range segs {
+		if strings.HasPrefix(s, "x-") && (i == 0 || !nameKeys[segs[i-1]]) {
 			return true
 		}
 	}

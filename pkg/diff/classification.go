@@ -186,11 +186,12 @@ var rules = map[classificationKey]Classification{
 	{"grpc.messages.fields", Removed}:  Breaking,
 	{"grpc.messages.fields", Modified}: Breaking,
 	// A proto enum may sit in a request, a response or a stream, and the text
-	// scan cannot tell which, so a value appearing fails closed: a reader that
-	// switches exhaustively over the enum has no case for it.
+	// scan cannot tell which. A value appearing breaks a reader that switches
+	// exhaustively over the enum only when the enum reaches it, so it is
+	// POTENTIAL_BREAKING: Pacto does not claim a contradiction it cannot see.
 	{"grpc.enums", Added}:           NonBreaking,
 	{"grpc.enums", Removed}:         Breaking,
-	{"grpc.enums.values", Added}:    Breaking,
+	{"grpc.enums.values", Added}:    PotentialBreaking,
 	{"grpc.enums.values", Removed}:  Breaking,
 	{"grpc.enums.values", Modified}: Breaking,
 

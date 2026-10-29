@@ -267,9 +267,10 @@ asyncapi.operations[sendOrder].action
 | `grpc.messages.fields` | Modified | **BREAKING** |
 | `grpc.enums` | Added | NON_BREAKING |
 | `grpc.enums` | Removed | **BREAKING** |
-| `grpc.enums.values` | Added / Removed / Modified | **BREAKING** |
+| `grpc.enums.values` | Added | POTENTIAL_BREAKING |
+| `grpc.enums.values` | Removed / Modified | **BREAKING** |
 
-proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. An added enum value is `BREAKING`: the scan cannot tell whether the enum travels in a request or a response, and a reader that switches over every value has no case for the new one. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. For that reason a modified field is `BREAKING`.
+proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. An added enum value is `POTENTIAL_BREAKING`: a reader that switches over every value has no case for the new one, and the scan cannot tell whether the enum travels in a request, where that reader never sees it, or a response. A removed or renumbered value is `BREAKING`. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. For that reason a modified field is `BREAKING`.
 
 Change paths pinpoint the exact location, for example:
 
@@ -328,13 +329,14 @@ edit helps one side of an exchange and hurts the other.
 | `required` entry removed, or `allOf` member removed | widens |
 | the mirror of each row above | narrows |
 | `pattern`, `format`, `const` or `multipleOf` rewritten, or `type` changed to an unrelated type | breaks in every position |
-| anything inside `not` or `if`, a `$ref` repointed, a `default` changed, any other keyword | breaks in every position |
+| anything inside `not` or `if`, a `$ref` repointed, a `default`, `readOnly` or `discriminator` changed, any other keyword | breaks in every position |
+| an `x-` extension keyword added, removed or changed | POTENTIAL_BREAKING in every position |
 | `description`, `title`, `summary`, `example`, `examples`, `$comment`, `externalDocs` or `deprecated` | NON_BREAKING in every position |
 
 Properties have their own rules:
 
 - Adding an optional property is `NON_BREAKING` in every position, because a reader tolerates a field it does not know.
-- Removing one is `BREAKING` from a response or a record whether or not `required` listed it. Most payload schemas list nothing, and the field is data a reader may use.
+- Removing an optional property is `BREAKING` from a response or a record whether or not `required` listed it. Most payload schemas list nothing, and the field is data a reader may use.
 - Removing one from a request is `POTENTIAL_BREAKING`: the provider drops the caller's field unread.
 - An object with `additionalProperties: false` accepts no undeclared field, so adding a property widens it and removing one narrows it.
 - Inside a response header every grade stops at `POTENTIAL_BREAKING`, because removing the whole header is `POTENTIAL_BREAKING`.

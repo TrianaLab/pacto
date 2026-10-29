@@ -707,9 +707,9 @@ func TestExtractProto_DemoFixture(t *testing.T) {
 }
 
 // A proto enum is compared like a message: an enum or one of its values going
-// away breaks readers, and so does a value appearing, because a message can
-// travel in either direction and a reader that switches over the enum
-// exhaustively has no case for it.
+// away, or renumbered, breaks readers. A value appearing is POTENTIAL_BREAKING:
+// it breaks a reader that switches over the enum exhaustively only when the
+// enum travels to it, and the text scan cannot tell which way it travels.
 func TestDiffGRPC_Enums(t *testing.T) {
 	old := `enum Status {
   STATUS_UNSPECIFIED = 0;
@@ -733,7 +733,7 @@ enum Fresh {
 		got[c.Path+" "+c.Type.String()] = c.Classification
 	}
 	want := map[string]Classification{
-		"grpc.enums[Status].values[STATUS_CLOSED] added": Breaking,
+		"grpc.enums[Status].values[STATUS_CLOSED] added": PotentialBreaking,
 		"grpc.enums[Gone] removed":                       Breaking,
 		"grpc.enums[Fresh] added":                        NonBreaking,
 	}
