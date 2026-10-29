@@ -137,7 +137,7 @@ export function provenanceIsImplied(difference: string | undefined, provenance: 
 // dimension of triage (declared contract preparedness), not a separate workspace,
 // so this list is also the Overview's set of entry points into the triage view.
 export const ATTENTION_CATEGORIES = [
-  'non-compliant', 'unknown', 'stale', 'invalid', 'readiness', 'unresolved',
+  'non-compliant', 'unknown', 'stale', 'invalid', 'readiness', 'unresolved', 'out-of-range',
 ] as const;
 
 export function attentionCategoryLabel(c: string | undefined): string {
@@ -148,6 +148,7 @@ export function attentionCategoryLabel(c: string | undefined): string {
     case 'invalid': return 'Invalid contract';
     case 'readiness': return 'Readiness gate';
     case 'unresolved': return 'Unresolved revision';
+    case 'out-of-range': return 'Version out of range';
     default: return c || 'Other';
   }
 }
