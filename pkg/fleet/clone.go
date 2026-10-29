@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"encoding/json"
+	"slices"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/lock"
@@ -52,6 +53,12 @@ func cloneTarget(t *TargetRecord) *TargetRecord {
 		return nil
 	}
 	return jsonClone(t)
+}
+
+// cloneOwner copies an owner so its contact list never aliases snapshot state.
+func cloneOwner(o contract.Owner) contract.Owner {
+	o.Contacts = slices.Clone(o.Contacts)
+	return o
 }
 
 func cloneService(s *ServiceRecord) *ServiceRecord {

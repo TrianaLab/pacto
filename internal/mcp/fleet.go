@@ -23,7 +23,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"tools (derived from a bundle's OpenAPI interfaces) invoke LIVE service operations; " +
 	"fleet tools read the operational system and its state. Fleet tools only " +
 	"OBSERVE: they never modify contracts, deploy, invoke services or grant " +
-	"authorization. Every fleet answer includes " +
+	"authorization. A dependency marked 'resolved' only names a provider that exists; read its " +
+	"'rangeStatus' before saying the dependency is met. Every fleet answer includes " +
 	"'asOf' and 'completeness'. Treat a 'partial' or stale answer as incomplete " +
 	"knowledge: when source coverage is incomplete, a missing result means unknown."
 
@@ -92,7 +93,8 @@ func fleetSearchTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_search",
 		Description: "Search logical services in the operational graph. Read-only. " +
-			"Returns a bounded, deterministically ordered list with an asOf time and completeness.",
+			"Returns a bounded, deterministically ordered list with an asOf time and completeness. " +
+			"Each service's 'owner' is the structured owner (team, dri, contacts), as in pacto_fleet_get.",
 		InputSchema: inputSchema(map[string]property{
 			"text":  {Type: "string", Description: "Substring over service name and owner"},
 			"owner": {Type: "string", Description: "Filter by owner team, DRI or contact"},
@@ -152,8 +154,11 @@ func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, a
 func fleetGetTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_get",
-		Description: "Inspect a logical service (revisions, targets, dependencies, dependents, tools, skills) " +
-			"or an operational target (compliance, findings, coverage, freshness). Read-only.",
+		Description: "Inspect a logical service (owner, revisions, targets, dependencies, dependents, tools, skills) " +
+			"or an operational target (compliance, findings, coverage, freshness). A dependency's 'resolved' " +
+			"only says the provider exists in the fleet; its 'rangeStatus' (satisfied, unsatisfied, unknown) " +
+			"says whether the provider version satisfies the declared range. 'owner' has the same shape " +
+			"(team, dri, contacts) here and in pacto_fleet_search. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service": {Type: "string", Description: "Logical service name"},
 			"target":  {Type: "string", Description: "Operational target key or name (use instead of service)"},
@@ -240,16 +245,19 @@ func fleetStatusTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_status",
 		Description: "Report services and targets needing attention: non-compliant, unknown, invalid, " +
-			"stale evidence, missing readiness, unresolved dependencies. Read-only.",
+			"stale evidence, missing readiness, unresolved dependencies and dependencies whose provider " +
+			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED). With no category " +
+			"selected, including empty input, it reports every category. Read-only.",
 		InputSchema: inputSchema(map[string]property{
-			"needs_attention":   {Type: "boolean", Description: "Report every attention category"},
-			"non_compliant":     {Type: "boolean", Description: "Non-compliant targets"},
-			"unknown":           {Type: "boolean", Description: "Targets with unknown compliance"},
-			"invalid":           {Type: "boolean", Description: "Structurally invalid contracts"},
-			"stale":             {Type: "boolean", Description: "Targets with stale evidence"},
-			"missing_readiness": {Type: "boolean", Description: "Revisions without a readiness assessment"},
-			"unresolved_deps":   {Type: "boolean", Description: "Unresolved declared dependencies"},
-			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
+			"needs_attention":    {Type: "boolean", Description: "Report every attention category"},
+			"non_compliant":      {Type: "boolean", Description: "Non-compliant targets"},
+			"unknown":            {Type: "boolean", Description: "Targets with unknown compliance"},
+			"invalid":            {Type: "boolean", Description: "Structurally invalid contracts"},
+			"stale":              {Type: "boolean", Description: "Targets with stale evidence"},
+			"missing_readiness":  {Type: "boolean", Description: "Revisions without a readiness assessment"},
+			"unresolved_deps":    {Type: "boolean", Description: "Unresolved declared dependencies"},
+			"unsatisfied_ranges": {Type: "boolean", Description: "Dependencies whose provider version is outside the declared range"},
+			"limit":              {Type: "integer", Description: "Maximum results (bounded)"},
 		}, nil),
 	}
 }
@@ -262,7 +270,9 @@ type fleetStatusArgs struct {
 	Stale            bool `json:"stale"`
 	MissingReadiness bool `json:"missing_readiness"`
 	UnresolvedDeps   bool `json:"unresolved_deps"`
-	Limit            int  `json:"limit"`
+	// UnsatisfiedRanges selects DEPENDENCY_RANGE_UNSATISFIED items.
+	UnsatisfiedRanges bool `json:"unsatisfied_ranges"`
+	Limit             int  `json:"limit"`
 }
 
 func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetStatusArgs, any] {
@@ -271,7 +281,7 @@ func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetStatusArgs, a
 			NeedsAttention: a.NeedsAttention, NonCompliant: a.NonCompliant,
 			Unknown: a.Unknown, Invalid: a.Invalid,
 			StaleEvidence: a.Stale, MissingReadiness: a.MissingReadiness,
-			UnresolvedDeps: a.UnresolvedDeps, Limit: a.Limit,
+			UnresolvedDeps: a.UnresolvedDeps, UnsatisfiedRanges: a.UnsatisfiedRanges, Limit: a.Limit,
 		}))
 		return r, nil, err
 	}

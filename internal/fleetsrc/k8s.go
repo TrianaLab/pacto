@@ -123,11 +123,15 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 	st := item.Status
 	service := item.Metadata.Name
 	resolvedRef := ""
+	var owner contract.Owner
 	if st.Contract != nil {
 		if st.Contract.ServiceName != "" {
 			service = st.Contract.ServiceName
 		}
 		resolvedRef = st.Contract.ResolvedRef
+		if st.Contract.Owner != nil {
+			owner = *st.Contract.Owner
+		}
 	}
 	// The operator inspects the live cluster and evaluates it in one reconcile
 	// pass, so lastReconciledAt answers both questions the fleet asks separately of
@@ -151,6 +155,7 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		ResolvedRef:     resolvedRef,
 		Digest:          digestFromRef(resolvedRef),
 		Compliance:      st.ContractStatus,
+		Owner:           owner,
 		Findings:        findingsFromK8s(st.Findings),
 		Readiness:       st.Readiness.result(),
 		ObservedRuntime: st.ObservedRuntime,
@@ -265,6 +270,9 @@ func (r *k8sReadiness) result() *readiness.Result {
 type k8sContract struct {
 	ServiceName string `json:"serviceName"`
 	ResolvedRef string `json:"resolvedRef"`
+	// Owner is status.contract.owner. The operator publishes it with the
+	// contract's own field names (team, dri, contacts), so it decodes directly.
+	Owner *contract.Owner `json:"owner"`
 }
 
 type k8sCoverage struct {

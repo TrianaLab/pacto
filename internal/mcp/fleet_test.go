@@ -243,6 +243,24 @@ func TestFleetStatusHandler(t *testing.T) {
 	}
 }
 
+// An agent that asks pacto_fleet_status with no arguments means "everything that
+// needs attention", exactly as `pacto fleet status` with no flags does. The
+// handler used to pass the all-false query through, so the answer was items:null
+// while the CLI listed every item.
+func TestFleetStatusHandler_EmptyInputMeansAll(t *testing.T) {
+	q := buildFleetQuery(t)
+	res := callHandler(t, fleetStatusTool(), fleetStatusHandler(q), map[string]any{})
+	if strings.Contains(resultText(t, res), `"items": null`) {
+		t.Fatalf("empty input answered items:null: %s", resultText(t, res))
+	}
+	var out fleet.StatusResult
+	decode(t, res, &out)
+	want := q.Status(fleet.StatusQuery{NeedsAttention: true})
+	if len(out.Items) == 0 || len(out.Items) != len(want.Items) {
+		t.Fatalf("empty input reported %d items, the union reports %d", len(out.Items), len(want.Items))
+	}
+}
+
 func TestFleetExplainHandler(t *testing.T) {
 	q := buildFleetQuery(t)
 	res := callHandler(t, fleetExplainTool(), fleetExplainHandler(q), map[string]any{"subject": "orders"})

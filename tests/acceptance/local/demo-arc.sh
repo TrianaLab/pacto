@@ -93,7 +93,11 @@ assert_contains "$OUT" "Classification: POTENTIAL_BREAKING" "an additive change 
 assert_contains "$OUT" "Changes (6):"                       "every change is counted"
 
 echo "== beat 7: blast radius, declared evidence only =="
-OUT="$("$BIN" $(beat_args 7))" || fail "beat 7: impact failed"
+# Declared evidence knows no targets, so a breaking change with consumers is
+# unverified: exit 2, never the 0 that would read as safe.
+rc=0; OUT="$("$BIN" $(beat_args 7))" || rc=$?
+[ "$rc" -eq 2 ] || fail "beat 7: impact should exit 2 (unverified), got $rc"
+assert_contains "$OUT" "Release gate: unverified" "an unproven breaking change is not cleared"
 assert_contains "$OUT" "Classification: BREAKING"      "the change is breaking"
 assert_contains "$OUT" "Affected consumers (4):"       "four consumers are affected"
 assert_contains "$OUT" "confidence=contractual"        "declared consumers are graded contractual"
@@ -101,7 +105,8 @@ assert_contains "$OUT" "confidence=inferred"           "transitive consumers are
 assert_contains "$OUT" "compat=incompatible"           "a direct consumer is incompatible with the new version"
 
 echo "== beat 8: the same change, with runtime evidence =="
-OUT="$("$BIN" $(beat_args 8))" || fail "beat 8: impact failed"
+rc=0; OUT="$("$BIN" $(beat_args 8))" || rc=$?
+[ "$rc" -eq 2 ] || fail "beat 8: impact should exit 2 (unverified), got $rc"
 assert_contains "$OUT" "Affected consumers (5):" "observed traffic surfaces a consumer nobody declared"
 assert_contains "$OUT" "audit-log"               "the shadow consumer is named"
 assert_contains "$OUT" "confidence=observed"     "an observed-only consumer is graded observed"
@@ -114,6 +119,7 @@ else
   pass "impact exits non-zero when a breaking change reaches an active consumer"
 fi
 assert_contains "$OUT" "Active targets" "the active targets are named"
+assert_contains "$OUT" "Release gate: blocked" "a breaking change on an active consumer is blocked"
 
 echo "== beat 10: declared versus observed =="
 OUT="$("$BIN" $(beat_args 10))" || fail "beat 10: fleet reconcile failed"

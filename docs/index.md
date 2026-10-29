@@ -65,11 +65,15 @@ Potentially breaking changes: 0
 Affected consumers (2):
   checkout                     direct     confidence=contractual  compat=incompatible owner=commerce
   reporting                    direct     confidence=contractual  compat=compatible   owner=analytics
+    note: compatible only means the range >=2.0.0 <4.0.0 accepts 3.0.0; this change is BREAKING, so check that reporting does not use what it removes or changes
+Release gate: unverified
+unverified: the change is BREAKING and 2 consumers depend on auth, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
 ```
 
 `pacto diff` lists the breaking change itself. `checkout` accepts `^2.0.0`
 and 3.0.0 falls outside it. `reporting` accepts
-`>=2.0.0 <4.0.0` and 3.0.0 is inside. `direct` means each one declares auth
+`>=2.0.0 <4.0.0` and 3.0.0 is inside, though a range match does not prove
+reporting avoids what changed. `direct` means each one declares auth
 itself. `contractual` means the answer comes from the declared ranges alone,
 without a runtime observation of the call.
 

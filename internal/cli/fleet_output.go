@@ -18,7 +18,7 @@ func printFleetSearch(cmd *cobra.Command, res *fleet.SearchResult, format string
 		_, _ = fmt.Fprintf(w, "%d of %d service(s):\n", res.Count, res.Total)
 		for _, s := range res.Services {
 			_, _ = fmt.Fprintf(w, "  %-28s %-12s owner=%-14s revs=%d targets=%d\n",
-				s.Name, orDash(s.Status), orDash(s.Owner), s.RevisionCount, s.TargetCount)
+				s.Name, orDash(s.Status), orDash(s.Owner.DisplayString()), s.RevisionCount, s.TargetCount)
 		}
 		warnPartial(cmd, res.Meta)
 		return nil
