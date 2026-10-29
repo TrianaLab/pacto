@@ -129,6 +129,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `INVALID_READINESS_REVISION` | `InvalidReadiness` |
 | `INVALID_SEMVER` | `InvalidVersion` |
 | `NEEDS_PACTO_2_1` | `InvalidVersion` |
+| `NEEDS_PACTO_2_2` | `InvalidVersion` |
 | `PERSISTENCE_MISMATCH` | `RuntimeDrift` |
 | `POLICY_ENFORCEMENT_ERROR` | `PolicyViolation` |
 | `POLICY_REF_CYCLE` | `ReferenceCycle` |

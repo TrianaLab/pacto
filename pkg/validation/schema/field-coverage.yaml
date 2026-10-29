@@ -1,4 +1,4 @@
-# Field coverage inventory for the Pacto v2.1 contract schema (2.0 plus publish, checks, external dependencies and mcp).
+# Field coverage inventory for the Pacto v2.2 contract schema (2.1 plus the 2.2 additions).
 #
 # One entry per schema path (dotted, [] for array items) and, under values, one per
 # enum value. pkg/validation/fieldcoverage_test.go walks the schema and fails when a
@@ -29,9 +29,9 @@ fields:
     meaning: Contract format version; selects the JSON Schema the contract is validated against.
     runtime: not-applicable
     evidence: 'none: the field has no runtime counterpart'
-    rule: parse rejects anything but "2.0" and "2.1" before any other layer runs; the version selects the schema
+    rule: parse rejects anything but "2.0", "2.1" and "2.2" before any other layer runs; the version selects the schema
     outcomes: PARSE_ERROR when unsupported
-    limitations: 2.0 has its own schema without publish, checks, external dependencies or mcp; this inventory walks 2.1, the superset
+    limitations: 2.0 and 2.1 have their own schemas without the fields later versions add; this inventory walks 2.2, the superset
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_UnsupportedVersion
@@ -41,12 +41,13 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid
       e2e: []
     values:
-      '2.1':
-        meaning: the newest Operational Contract format, which adds publish, agent and the mcp interface type; 2.0 contracts keep working unchanged
+      '2.2':
+        meaning: the newest Operational Contract format; 2.0 and 2.1 contracts keep working unchanged
         runtime: static-only
         tests:
           unit: []
           integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0
           e2e: []

@@ -9,6 +9,7 @@ const (
 	// Durable v2 codes (may occur for v2 Operational Contracts).
 	CodeUnsupportedPactoVersion      Code = "UNSUPPORTED_PACTO_VERSION"
 	CodeNeedsPacto21                 Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
+	CodeNeedsPacto22                 Code = "NEEDS_PACTO_2_2" // a 2.0 or 2.1 contract uses a field only 2.2 has
 	CodeSchemaError                  Code = "SCHEMA_ERROR"
 	CodeSchemaViolation              Code = "SCHEMA_VIOLATION"
 	CodeYamlParseError               Code = "YAML_PARSE_ERROR"
@@ -88,6 +89,7 @@ var registry = map[Code]codeMeta{
 	// Durable v2
 	CodeUnsupportedPactoVersion:      {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto21:                 {CategoryInvalidVersion, SeverityError},
+	CodeNeedsPacto22:                 {CategoryInvalidVersion, SeverityError},
 	CodeSchemaError:                  {CategorySchemaViolation, SeverityError},
 	CodeSchemaViolation:              {CategorySchemaViolation, SeverityError},
 	CodeYamlParseError:               {CategorySchemaViolation, SeverityError},
