@@ -862,6 +862,51 @@ func TestBuildSuggestions(t *testing.T) {
 			t.Error("expected suggestions for missing sections")
 		}
 	})
+
+	t.Run("owner with a team/ prefix and an external dependency with no ref", func(t *testing.T) {
+		bundle := testutil.TestBundle()
+		bundle.Contract.Service.Owner = contract.Owner{Team: "team/billing"}
+		bundle.Contract.Dependencies = []contract.Dependency{{Name: "ledger", External: true, Version: "v1"}, {Name: "auth", Ref: "oci://r.example/auth", External: true}}
+		var owner, external []Suggestion
+		for _, sg := range buildSuggestions(bundle.Contract, true) {
+			if strings.Contains(sg.Message, "owner.team") {
+				owner = append(owner, sg)
+			}
+			if strings.Contains(sg.Message, "external with no ref") {
+				external = append(external, sg)
+			}
+		}
+		if len(owner) != 1 || owner[0].ToolCall == nil || owner[0].ToolCall.Params["owner"] != "billing" {
+			t.Errorf("owner suggestion: %+v", owner)
+		}
+		if len(external) != 1 || !strings.Contains(external[0].Message, `"ledger"`) || !strings.Contains(external[0].Message, "the OCI repository its contract will be published at") {
+			t.Errorf("external suggestion: %+v", external)
+		}
+	})
+}
+
+// TestOwnerWarnings: create and edit warn about an owner that is not a bare
+// team name, dry run or not.
+func TestOwnerWarnings(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "svc")
+	for _, dry := range []bool{true, false} {
+		r, err := Create(CreateInput{Name: "svc", Path: dir, Owner: "team/billing", DryRun: dry})
+		if err != nil || len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], `so write "billing"`) {
+			t.Fatalf("create (dry run %v): %+v %v", dry, r, err)
+		}
+	}
+	for _, dry := range []bool{true, false} {
+		r, err := Edit(EditInput{Path: dir, Owner: strPtr("teams/risk"), DryRun: dry})
+		if err != nil || len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], `so write "risk"`) {
+			t.Fatalf("edit (dry run %v): %+v %v", dry, r, err)
+		}
+	}
+	if r, err := Edit(EditInput{Path: dir, Version: strPtr("0.2.0")}); err != nil || r.Warnings != nil {
+		t.Fatalf("an edit that leaves the owner: %+v %v", r, err)
+	}
+	if r, err := Create(CreateInput{Name: "svc", Path: filepath.Join(t.TempDir(), "x"), Owner: "billing", DryRun: true}); err != nil || r.Warnings != nil {
+		t.Fatalf("a bare team name: %+v %v", r, err)
+	}
 }
 
 func TestCollectDerived(t *testing.T) {

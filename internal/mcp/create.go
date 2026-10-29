@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing/fstest"
 
+	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 	"gopkg.in/yaml.v3"
@@ -98,6 +99,8 @@ type CreateResult struct {
 	Summary   ContractSummary `json:"summary"`
 	Derived   []string        `json:"derived"`
 	FileCount int             `json:"fileCount"`
+	// Warnings are what the contract says that is valid but likely wrong.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // EditInput holds the parameters for editing an existing contract.
@@ -131,6 +134,8 @@ type EditResult struct {
 	Path    string          `json:"path"`
 	Summary ContractSummary `json:"summary"`
 	Changes []string        `json:"changes"`
+	// Warnings are what the edit wrote that is valid but likely wrong.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // CheckResult holds the result of a check operation.
@@ -290,6 +295,7 @@ func (o fileOps) create(input CreateInput) (*CreateResult, error) {
 			Summary:   summarizeContract(c),
 			Derived:   derived,
 			FileCount: 0,
+			Warnings:  ownerWarnings(input.Owner),
 		}, nil
 	}
 
@@ -304,6 +310,7 @@ func (o fileOps) create(input CreateInput) (*CreateResult, error) {
 		Summary:   summarizeContract(c),
 		Derived:   derived,
 		FileCount: fileCount,
+		Warnings:  ownerWarnings(input.Owner),
 	}, nil
 }
 
@@ -521,12 +528,17 @@ func (o fileOps) edit(input EditInput) (*EditResult, error) {
 	}
 
 	summary := summarizeContract(c)
+	var warnings []string
+	if input.Owner != nil {
+		warnings = ownerWarnings(*input.Owner)
+	}
 
 	if input.DryRun {
 		return &EditResult{
-			Path:    pactoPath,
-			Summary: summary,
-			Changes: changes,
+			Path:     pactoPath,
+			Summary:  summary,
+			Changes:  changes,
+			Warnings: warnings,
 		}, nil
 	}
 
@@ -548,9 +560,10 @@ func (o fileOps) edit(input EditInput) (*EditResult, error) {
 	}
 
 	return &EditResult{
-		Path:    pactoPath,
-		Summary: summary,
-		Changes: changes,
+		Path:     pactoPath,
+		Summary:  summary,
+		Changes:  changes,
+		Warnings: warnings,
 	}, nil
 }
 
@@ -1383,7 +1396,33 @@ func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
 		})
 	}
 
+	if team := c.Service.Owner.Team; pactify.OwnerHint(team) != "" {
+		suggestions = append(suggestions, Suggestion{
+			Message:  pactify.OwnerHint(team) + ".",
+			ToolCall: &ToolCall{Tool: "pacto_edit", Params: map[string]any{"owner": team[strings.Index(team, "/")+1:]}},
+		})
+	}
+
+	for _, d := range c.Dependencies {
+		if d.External && d.Ref == "" {
+			suggestions = append(suggestions, Suggestion{
+				Message: fmt.Sprintf("Dependency %q is external with no ref, so Pacto can never confirm its compatibility. "+
+					"If your company runs it with Pacto and its contract is not published yet, give ref as the OCI repository "+
+					"its contract will be published at and compatibility as the versions you accept, and drop external and version: "+
+					"Pacto then reports it as unresolved until it is published. Keep it as it is for a service outside your Pacto system, such as a SaaS API or a model.", d.Name),
+			})
+		}
+	}
+
 	return suggestions
+}
+
+// ownerWarnings warns about an owner that is not a bare team name.
+func ownerWarnings(team string) []string {
+	if hint := pactify.OwnerHint(team); hint != "" {
+		return []string{hint}
+	}
+	return nil
 }
 
 // --- Helpers ---
