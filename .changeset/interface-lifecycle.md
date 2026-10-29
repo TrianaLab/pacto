@@ -4,7 +4,11 @@
 ---
 
 Add `pactoVersion: "2.2"` and an interface lifecycle, so a provider can retire
-an interface on a schedule its consumers can see.
+an interface on a schedule its consumers can see. Every 2.1 contract is valid
+under 2.2, which also carries an interface's `compatibilityEpoch` and
+`guarantees` and a dependency's `requires`. A 2.2 contract needs Pacto core
+4.3.0 or later and operator 6.3.0 or later. A `"2.0"` or `"2.1"` contract that
+uses a 2.2 field reports `NEEDS_PACTO_2_2` for each.
 
 ```yaml
 pactoVersion: "2.2"
