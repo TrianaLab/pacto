@@ -48,8 +48,9 @@ Pacto answers three questions about each service:
 
 The kernel watcher never reads message contents, request bodies, files,
 environment variables or secrets. The optional probes call the health, metrics
-and interface ports and read only the response they need to decide. A listener is recorded as an address, a port and a process name; a
-connection as a peer address and port, with counts and timestamps.
+and interface ports and read only the response they need to decide. A listener
+is recorded as an address, a port and a process name; a connection as a peer
+address and port, with counts and timestamps.
 
 The watching is done with *eBPF*: a small program the Linux kernel runs safely
 each time a TCP connection changes state. It sees connections open, close and

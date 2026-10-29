@@ -241,9 +241,10 @@ kubectl get stages.delivery.pacto.trianalab.io -A \
 ```
 
 `ReferrersUnsupported` means the streams repository's registry does not serve
-the OCI Referrers API, and the message starts with `the registry has no
-Referrers API`. The recorder has no tag fallback, so the Stage stays below the automatic
-levels. GHCR and released `distribution` behave this way. Move
-`delivery.recorder.streamsRepository`, and the versions and contracts your
-Stages apply, to a registry that serves the API natively, such as zot.
-[Check it works](delivery-records.md#check-it-works) lists the other reasons.
+the OCI Referrers API, and the message starts with
+`the registry has no Referrers API`. The recorder has no tag fallback, so the
+Stage stays below the automatic levels. GHCR and released `distribution` behave
+this way. Move `delivery.recorder.streamsRepository`, and the versions and
+contracts your Stages apply, to a registry that serves the API natively, such as
+zot. [Check it works](delivery-records.md#check-it-works) lists the other
+reasons.

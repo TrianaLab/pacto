@@ -159,10 +159,11 @@ cluster returns them, without namespace, uid or status. It also holds a
 Pacto targets is skipped.
 
 Without the [node agent](runtime-agent.md), dependencies come only from
-environment values, as in a folder. The draft holds no ConfigMaps, so each one the workload reads is named under
-`unknown` and its keys stay out of the configuration schema.
-A value such as `host:6443` matches whether or not `host` is a Service, so a
-control-plane endpoint can become a dependency. Check each one.
+environment values, as in a folder. The draft holds no ConfigMaps, so each one
+the workload reads is named under `unknown` and its keys stay out of the
+configuration schema. A value such as `host:6443` matches whether or not `host`
+is a Service, so a control-plane endpoint can become a dependency. Check each
+one.
 
 ## From an agent
 

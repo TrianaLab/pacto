@@ -26,10 +26,11 @@ You need:
   the image there and pushes it itself:
   `docker buildx create --use --driver docker-container`;
 - a container registry, and a login to it:
-  `pacto login registry.example -u <user>` (or `docker login`). Any registry works
-  for this page. The optional signed [record](glossary.md#record) of each
+  `pacto login registry.example -u <user>` (or `docker login`). Any registry
+  works for this page. The optional signed [record](glossary.md#record) of each
   change is stored next to what you publish, in a registry that serves OCI
-  Referrers. Without records a Stage stops at advise; see [What delivery needs](index.md#what-delivery-needs);
+  Referrers. Without records a Stage stops at advise; see
+  [What delivery needs](index.md#what-delivery-needs);
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
@@ -56,14 +57,14 @@ pacto init --delivery --plan
 
 `pacto init` reads what is already there, such as the Dockerfile and the
 Kubernetes files, and fills in a contract from it. It reads your registry from
-the image name in your Deployment; pass `--registry registry.example/acme` if it cannot,
-or if the image is a bare name such as `checkout`: a Docker Hub official
-image only Docker can push to.
-`--delivery` adds the cluster files of step 4, so the first version you publish
-already carries them. With `--plan` it shows exactly what it would add and
-changes nothing. For a private registry, add `--registry-secret registry-creds`
-(step 4 creates that Secret). For a local registry that speaks plain HTTP, add
-`--insecure-registry`; to keep a throwaway key's signatures out of the public
+the image name in your Deployment; pass `--registry registry.example/acme` if it
+cannot, or if the image is a bare name such as `checkout`: a Docker Hub official
+image only Docker can push to. `--delivery` adds the cluster files of step 4, so
+the first version you publish already carries them. With `--plan` it shows
+exactly what it would add and changes nothing. For a private registry, add
+`--registry-secret registry-creds` (step 4 creates that Secret). For a local
+registry that speaks plain HTTP, add `--insecure-registry`; to keep a throwaway
+key's signatures out of the public
 [transparency log](glossary.md#transparency-log), add `--no-transparency-log`.
 
 The plan lists the services yours depends on, what Pacto could not work out,
@@ -83,9 +84,10 @@ echo cosign.key >> .gitignore
 `--owner` names the team that owns the service: the name of its group in your
 company login, whose members Pacto asks about this service
 ([Decide, unfreeze and roll back](pactify-decide.md)). `init` writes
-`pacto.yaml`, the `delivery/` folder and a `.pactoignore` that keeps the
-signing key out of what is published, and never overwrites your edits. For an image `registry.example/acme/my-service:1.0.0` and
-the files `k8s/deployment.yaml` and `k8s/service.yaml`, the contract is:
+`pacto.yaml`, the `delivery/` folder and a `.pactoignore` that keeps the signing
+key out of what is published, and never overwrites your edits. For an image
+`registry.example/acme/my-service:1.0.0` and the files `k8s/deployment.yaml` and
+`k8s/service.yaml`, the contract is:
 
 ```yaml
 pactoVersion: "2.1"
@@ -287,10 +289,10 @@ pacto init --cluster --namespace shop --out drafts --plan
 
 With the Pacto node agent running, the services a workload was seen calling
 become dependencies, pinned to exactly the version seen running
-(`compatibility: "=2.3.0"`) for you to widen. Until you do, every new version
-of that service asks your team. Without the agent, environment URLs name
-dependencies, and one with no contract gets a placeholder range.
-Drafts are never published, and an invalid one fails the command. The MCP tool
+(`compatibility: "=2.3.0"`) for you to widen. Until you do, every new version of
+that service asks your team. Without the agent, environment URLs name
+dependencies, and one with no contract gets a placeholder range. Drafts are
+never published, and an invalid one fails the command. The MCP tool
 `pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,
 and only plans unless `dry_run` is false.
 [Generate contracts from what you already have](bootstrap-contracts.md#draft-from-a-running-cluster)

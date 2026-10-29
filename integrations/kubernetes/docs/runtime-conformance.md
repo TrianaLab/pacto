@@ -189,7 +189,8 @@ A pod's kernel view is usable at one of four levels:
 
 `Degraded` carries the reason `PodLimitExceeded`, `ResyncFailed` or
 `EventsDropped`. `Failed` carries `LoadFailed`, `AttachFailed` or
-`RingBufferFailed`; a kernel without BTF fails to load, and one older than 5.11 can fail to load.
+`RingBufferFailed`; a kernel without BTF fails to load, and one older than 5.11
+can fail to load.
 
 ## Complementary checks
 

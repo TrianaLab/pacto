@@ -123,14 +123,14 @@ minute after start, `inventory` shows `INTERFACE_ABSENT` on `api`, seen by
 `pacto-agent+ebpf` (the kernel). Docker reports only that the container is
 up, so the kernel view is what finds this.
 
-The agent needs more access than the rest of the demo:
-a privileged container in the host's PID and cgroup namespaces, running as root,
-with the Docker socket and `/sys/fs/cgroup` mounted. Those two paths are the
-only host paths the demo mounts. On Linux that means kernel 5.8 or later with BTF
-and cgroup v2. On Docker Desktop (macOS and Windows) the "host" is Docker's own
-Linux VM. On macOS its current kernel ships BTF and cgroup v2. Where the kernel cannot load the program, the
-agent says so in `docker compose -p pacto-demo logs agent` and `inventory` stays
-without that finding; everything else works unchanged.
+The agent needs more access than the rest of the demo: a privileged container in
+the host's PID and cgroup namespaces, running as root, with the Docker socket
+and `/sys/fs/cgroup` mounted. Those two paths are the only host paths the demo
+mounts. On Linux that means kernel 5.8 or later with BTF and cgroup v2. On
+Docker Desktop (macOS and Windows) the "host" is Docker's own Linux VM. On macOS
+its current kernel ships BTF and cgroup v2. Where the kernel cannot load the
+program, the agent says so in `docker compose -p pacto-demo logs agent` and
+`inventory` stays without that finding; everything else works unchanged.
 
 ## Ports
 

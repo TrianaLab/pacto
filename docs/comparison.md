@@ -30,8 +30,8 @@ Each column asks one question:
 - **Deploys?**: the tool applies workloads itself.
 
 A cell holds ✅ for first-class, Partial for adjacent or limited and a dash (—)
-when the source page covers the area and describes no such feature. A cell holds "not
-verified" when the source page alone does not settle it.
+when the source page covers the area and describes no such feature. A cell holds
+"not verified" when the source page alone does not settle it.
 
 ## The table
 
@@ -58,9 +58,9 @@ What each source page shows:
 - **Kratix**: Kratix keeps each Promise version as a Promise Revision, a
   Promise lists the Promises it requires and Kratix schedules resources to
   matching Destinations.
-- **Kargo**: Freight is a Kargo resource that references specific revisions
-  of images, charts and commits. Stages form a promotion pipeline, and a GitOps agent such as Argo CD
-  does the deploying.
+- **Kargo**: Freight is a Kargo resource that references specific revisions of
+  images, charts and commits. Stages form a promotion pipeline, and a GitOps
+  agent such as Argo CD does the deploying.
 
 ## Pacto's own row
 

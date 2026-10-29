@@ -185,16 +185,16 @@ $ echo $?
 
 In CI that is one of two deliberate choices. Fail on any non-zero exit and an
 unverified breaking change stops the job as a blocked one does. A promotion
-pipeline that gates on *deployed* impact alone can treat `2` as a pass, as long as
-the job supplies targets. Gate on the JSON instead (`--output-format json`, then
-`classification == "BREAKING"`) and you gate on the contract alone, which is what
-you want before anything is deployed. That JSON carries
+pipeline that gates on *deployed* impact alone can treat `2` as a pass, as long
+as the job supplies targets. Gate on the JSON instead (`--output-format json`,
+then `classification == "BREAKING"`) and you gate on the contract alone, which
+is what you want before anything is deployed. That JSON carries
 `schemaVersion: pacto.dev/impact/v1`, the compatibility contract to branch on
 before reading any other field.
 [Put it in your repository](ci.md#on-every-pull-request-who-breaks) has a
-pull-request step that gates on the JSON. The file `--target-state` expects is documented
-under [target-state
-fixtures](operational-graph-reference.md#what-a-target-state-fixture-looks-like).
+pull-request step that gates on the JSON. The file `--target-state` expects is
+documented under
+[target-state fixtures](operational-graph-reference.md#what-a-target-state-fixture-looks-like).
 
 ## The MCP tool and the dashboard
 
