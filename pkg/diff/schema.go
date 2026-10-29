@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -172,10 +173,9 @@ func diffJSONObjects(dir schemaDirection, at *refAt, prefix string, old, new map
 }
 
 func diffJSONArrays(dir schemaDirection, at *refAt, prefix string, old, new []any) []Change {
-	// For small arrays (like `required`), compare as sets of strings.
-	oldStrs, newStrs := toStringSlice(old), toStringSlice(new)
-	if oldStrs != nil && newStrs != nil {
-		return diffStringArrayAsSets(dir, prefix, oldStrs, newStrs)
+	// An array of scalars (`required`, `enum`) is compared as a set.
+	if scalars(old) && scalars(new) {
+		return diffScalarArrayAsSets(dir, prefix, old, new)
 	}
 
 	// Fallback: positional comparison.
@@ -202,12 +202,23 @@ func diffJSONArrays(dir schemaDirection, at *refAt, prefix string, old, new []an
 	return changes
 }
 
-func diffStringArrayAsSets(dir schemaDirection, prefix string, old, new []string) []Change {
-	oldSet := make(map[string]bool, len(old))
+// scalars reports whether every element of arr is a scalar.
+func scalars(arr []any) bool {
+	for _, v := range arr {
+		switch v.(type) {
+		case map[string]any, map[any]any, []any:
+			return false
+		}
+	}
+	return true
+}
+
+func diffScalarArrayAsSets(dir schemaDirection, prefix string, old, new []any) []Change {
+	oldSet := make(map[any]bool, len(old))
 	for _, s := range old {
 		oldSet[s] = true
 	}
-	newSet := make(map[string]bool, len(new))
+	newSet := make(map[any]bool, len(new))
 	for _, s := range new {
 		newSet[s] = true
 	}
@@ -216,18 +227,18 @@ func diffStringArrayAsSets(dir schemaDirection, prefix string, old, new []string
 	for _, s := range new {
 		if !oldSet[s] {
 			changes = append(changes, Change{
-				Path: fmt.Sprintf("%s[%s]", prefix, s), Type: Added, NewValue: s,
+				Path: fmt.Sprintf("%s[%v]", prefix, s), Type: Added, NewValue: jsonSafe(s),
 				Classification: classifySchemaChange(dir, prefix, true, Added, nil, s),
-				Reason:         fmt.Sprintf("%s %s added", prefix, s),
+				Reason:         fmt.Sprintf("%s %v added", prefix, s),
 			})
 		}
 	}
 	for _, s := range old {
 		if !newSet[s] {
 			changes = append(changes, Change{
-				Path: fmt.Sprintf("%s[%s]", prefix, s), Type: Removed, OldValue: s,
+				Path: fmt.Sprintf("%s[%v]", prefix, s), Type: Removed, OldValue: jsonSafe(s),
 				Classification: classifySchemaChange(dir, prefix, true, Removed, s, nil),
-				Reason:         fmt.Sprintf("%s %s removed", prefix, s),
+				Reason:         fmt.Sprintf("%s %v removed", prefix, s),
 			})
 		}
 	}
@@ -259,7 +270,7 @@ func classifySchemaChange(dir schemaDirection, path string, elem bool, ct Change
 	// would otherwise be worse than dropping the header entirely. A header owns a
 	// `schema` and may own a `content` block of its own, so both escalations below
 	// have to exclude it. The payload sits beside `headers`, never inside it.
-	inResponseHeader := dir == dirResponse && strings.Contains(path, ".headers.")
+	inResponseHeader := dir == dirResponse && inResponseHeaders(path)
 	if (dir == dirRecord && inRecordSchema(segs)) || ((dir == dirRequest || dir == dirResponse) && inSchema(segs)) {
 		c := positional(dir, segs, elem, ct, old, new)
 		if inResponseHeader {
@@ -294,6 +305,15 @@ func classifySchemaChange(dir schemaDirection, path string, elem bool, ct Change
 	return PotentialBreaking
 }
 
+// responseHeadersRe matches the headers map of an OpenAPI response.
+var responseHeadersRe = regexp.MustCompile(`\.responses\[[^\]]*\]\.headers\.`)
+
+// inResponseHeaders reports whether path lies inside a response's headers
+// map. A body property named headers does not count.
+func inResponseHeaders(path string) bool {
+	return responseHeadersRe.MatchString(path)
+}
+
 // docKeywords annotate a schema or a spec without changing what data is
 // valid, so editing one never breaks anybody. Everything nested under one
 // (an example's body, a named example) is documentation too.
@@ -304,11 +324,11 @@ var docKeywords = map[string]bool{
 }
 
 // isDocOnly reports whether segs passes through a documentation keyword. A
-// segment right after `properties` is a property name, so a property called
-// `description` is data, not documentation.
+// segment right after a name map (see nameKeys) is a name the author chose,
+// so a property or a $defs entry called `description` is data.
 func isDocOnly(segs []string) bool {
 	for i, s := range segs {
-		if docKeywords[s] && (i == 0 || segs[i-1] != "properties") {
+		if docKeywords[s] && (i == 0 || !nameKeys[segs[i-1]]) {
 			return true
 		}
 	}
@@ -433,7 +453,7 @@ var (
 	// one widens, and rewriting one cannot be ranked.
 	presenceKeywords = map[string]bool{"pattern": true, "format": true, "const": true,
 		"enum": true, "multipleOf": true, "allOf": true, "anyOf": true, "oneOf": true,
-		"not": true, "contains": true, "propertyNames": true}
+		"not": true, "contains": true, "propertyNames": true, "required": true}
 )
 
 // keywordEffect says how editing keyword kw changes the accepted set.

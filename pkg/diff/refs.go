@@ -107,7 +107,7 @@ func (a *refAt) diffRef(dir schemaDirection, prefix string, old, new any) []Chan
 	r.uses[pair] = append(r.uses[pair], positionNames[dir]+" at "+prefix)
 	// A component inside a response header is capped the way the header is,
 	// so it is judged apart from the same component in the body.
-	walk := fmt.Sprintf("%s\n%d\n%t", pair, dir, strings.Contains(prefix, ".headers."))
+	walk := fmt.Sprintf("%s\n%d\n%t", pair, dir, inResponseHeaders(prefix))
 	if r.walked[walk] {
 		return changes
 	}

@@ -389,6 +389,10 @@ func TestPositionalCompatibility(t *testing.T) {
 		{"multipleOf changed", `{"multipleOf":2}`, `{"multipleOf":3}`, br, br, br},
 		{"required added", `{"required":["a"]}`, `{"required":["a","b"]}`, br, nb, br},
 		{"required removed", `{"required":["a","b"]}`, `{"required":["a"]}`, nb, br, br},
+		{"required introduced", `{}`, `{"required":["a"]}`, br, nb, br},
+		{"required dropped", `{"required":["a"]}`, `{}`, nb, br, br},
+		{"$defs entry named title widened", `{"$defs":{"title":{"enum":["a"]}}}`, `{"$defs":{"title":{"enum":["a","b"]}}}`, nb, br, br},
+		{"boolean enum value added", `{"enum":[true]}`, `{"enum":[true,false]}`, nb, br, br},
 		{"additionalProperties closed", `{"type":"object"}`, `{"type":"object","additionalProperties":false}`, br, nb, br},
 		{"additionalProperties opened", `{"type":"object","additionalProperties":false}`, `{"type":"object"}`, nb, br, br},
 		{"additionalProperties true to false", `{"additionalProperties":true}`, `{"additionalProperties":false}`, br, nb, br},
@@ -493,5 +497,29 @@ func TestUnknownDirection_KeepsDefaultsButIgnoresDocs(t *testing.T) {
 	}
 	if got["schema.enum[y]"] != PotentialBreaking {
 		t.Errorf("enum: got %s", got["schema.enum[y]"])
+	}
+}
+
+// Scalar enum values are compared as a set, so removing one is one removed
+// entry and reordering is no change.
+func TestDiffJSON_ScalarArraysAsSets(t *testing.T) {
+	var old, new any
+	_ = json.Unmarshal([]byte(`{"enum":[1,2,3]}`), &old)
+	_ = json.Unmarshal([]byte(`{"enum":[3,1]}`), &new)
+	changes := diffJSON(dirResponse, nil, "body.schema", old, new)
+	if len(changes) != 1 || changes[0].Path != "body.schema.enum[2]" || changes[0].Type != Removed || changes[0].Classification != NonBreaking {
+		t.Fatalf("got %+v", changes)
+	}
+}
+
+// A response header caps what is nested in it at POTENTIAL_BREAKING. A body
+// property that happens to be named headers is body data.
+func TestResponseHeaderCap_MatchesTheHeadersMap(t *testing.T) {
+	const resp = "openapi.paths[/x].methods[GET].responses[200]"
+	if got := classifySchemaChange(dirResponse, resp+".headers.X-Rate.schema.enum", true, Added, nil, "a"); got != PotentialBreaking {
+		t.Errorf("response header: got %s", got)
+	}
+	if got := classifySchemaChange(dirResponse, resp+".content.application/json.schema.properties.headers.properties.b", false, Removed, "a", nil); got != Breaking {
+		t.Errorf("body property named headers: got %s", got)
 	}
 }
