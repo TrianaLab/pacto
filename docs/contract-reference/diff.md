@@ -238,7 +238,7 @@ An operation present on both sides is deep-diffed exactly like a channel, so fli
 
 Top-level `operations` are an AsyncAPI 3.x concept. A 2.x document has no `operations` map, so only its channels are compared.
 
-Only `channels` and `operations` are compared. The diff ignores `info`, `servers`, `components` and `defaultContentType` for the same reason it ignores `metadata`: they change on most releases and leave what a consumer can publish or subscribe to unchanged.
+The diff ignores `info`, `servers` and `defaultContentType`, which change on most releases and leave what a consumer can publish or subscribe to unchanged. Components are compared [where they are used](#references).
 
 Change paths pinpoint the exact location, for example:
 
@@ -328,7 +328,8 @@ edit helps one side of an exchange and hurts the other.
 | `required` entry removed, or `allOf` member removed | widens |
 | the mirror of each row above | narrows |
 | `pattern`, `format`, `const` or `multipleOf` rewritten, or `type` changed to an unrelated type | breaks in every position |
-| anything inside `not` or `if`, a `$ref` repointed, a `default`, `readOnly` or `discriminator` changed, any other keyword | breaks in every position |
+| anything inside `not` or `if`, a `default`, `readOnly` or `discriminator` changed, any other keyword | breaks in every position |
+| a `$ref` Pacto cannot resolve | POTENTIAL_BREAKING in every position |
 | an `x-` extension keyword added, removed or changed | POTENTIAL_BREAKING in every position |
 | `description`, `title`, `summary`, `example`, `examples`, `$comment`, `externalDocs` or `deprecated` | NON_BREAKING in every position |
 
@@ -339,6 +340,18 @@ Properties have their own rules:
 - Removing one from a request is `POTENTIAL_BREAKING`: the provider drops the caller's field unread.
 - An object with `additionalProperties: false` accepts no undeclared field, so adding a property widens it and removing one narrows it.
 - Inside a response header every grade stops at `POTENTIAL_BREAKING`, because removing the whole header is `POTENTIAL_BREAKING`.
+
+### References and components { #references }
+
+Each `$ref` is resolved first, so a component is judged where it is used:
+
+- A component used in more than one position, such as a schema in a request body and in a response, is judged in each one. Pacto reports one change with the worst grade, at the usage path where that grade applies. The reason names the component and its usages.
+- Pacto compares what a ref resolves to. Renaming a component with identical content is no change, and a ref pointed at a different schema is graded by the structural difference.
+- Local refs (`#/components/...`, `#/definitions/...`, `#/$defs/...`) and relative file refs inside the bundle resolve, and a ref inside another file resolves against that file. Request bodies, responses, parameters and headers resolve the same way as schemas.
+- A remote (`http` or `https`) ref, or one whose target is missing, is `POTENTIAL_BREAKING`, and the reason says Pacto could not resolve it. The same unresolved ref in both revisions reports no change, because Pacto sees nothing change.
+- A recursive schema is compared once per position, so cycles terminate.
+- A component that no path, channel or operation reaches through a `$ref` is reported as one `NON_BREAKING` change, because no consumer reads it. Security schemes are named without a `$ref`, so that report leaves them out.
+- In AsyncAPI 3 a ref from an operation to its channel or message is compared as text, because the channel is compared on its own.
 
 ## Readiness
 
