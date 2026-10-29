@@ -92,6 +92,9 @@ type DependencyView struct {
 	Compatibility string `json:"compatibility"`
 	External      bool   `json:"external,omitempty"`
 	Version       string `json:"version,omitempty"`
+	// Requires is what the dependency relies on from the provider. The
+	// operator status does not record it yet, so it is empty until it does.
+	Requires []contract.Requirement `json:"requires,omitempty"`
 }
 
 // EvaluatedView is Pacto.status.evaluatedRevision: the exact contract and
@@ -290,7 +293,7 @@ func revisionFromStatus(p PactoView) (fleet.RawRevision, string) {
 		ct.Service.Owner = *c.Owner
 	}
 	for _, d := range p.Status.Dependencies {
-		ct.Dependencies = append(ct.Dependencies, contract.Dependency{Name: d.Name, Ref: d.Ref, Required: d.Required, Compatibility: d.Compatibility, External: d.External, Version: d.Version})
+		ct.Dependencies = append(ct.Dependencies, contract.Dependency{Name: d.Name, Ref: d.Ref, Required: d.Required, Compatibility: d.Compatibility, External: d.External, Version: d.Version, Requires: d.Requires})
 	}
 	digest := ""
 	if e := p.Status.EvaluatedRevision; e != nil {
