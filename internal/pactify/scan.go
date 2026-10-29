@@ -103,22 +103,7 @@ func scanDir(dir string) (*scan, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if rel != "." && (strings.HasPrefix(d.Name(), ".") || skipDirs[d.Name()] || rel == "delivery") {
-				return fs.SkipDir
-			}
-			// A Helm chart's templates are not manifests until rendered, so a
-			// chart folder is never read. When the folder itself is a chart,
-			// only its templates, subcharts and CRDs are left out.
-			if _, err := os.Stat(filepath.Join(p, "Chart.yaml")); err == nil {
-				sc.charts = append(sc.charts, rel)
-				if rel != "." {
-					return fs.SkipDir
-				}
-			}
-			if slices.Contains(sc.charts, ".") && (rel == "templates" || rel == "charts" || rel == "crds") {
-				return fs.SkipDir
-			}
-			return nil
+			return sc.dir(p, rel, d.Name())
 		}
 		sc.file(p, rel, d.Name())
 		return nil
@@ -133,6 +118,27 @@ func scanDir(dir string) (*scan, error) {
 	sc.workload = pickWorkload(sc.workloads, filepath.Base(dir))
 	sc.resolveEnv()
 	return sc, nil
+}
+
+// dir decides whether scanDir walks into a folder: fs.SkipDir to leave it
+// out, nil to read it.
+func (sc *scan) dir(p, rel, name string) error {
+	if rel != "." && (strings.HasPrefix(name, ".") || skipDirs[name] || rel == "delivery") {
+		return fs.SkipDir
+	}
+	// A Helm chart's templates are not manifests until rendered, so a
+	// chart folder is never read. When the folder itself is a chart,
+	// only its templates, subcharts and CRDs are left out.
+	if _, err := os.Stat(filepath.Join(p, "Chart.yaml")); err == nil {
+		sc.charts = append(sc.charts, rel)
+		if rel != "." {
+			return fs.SkipDir
+		}
+	}
+	if slices.Contains(sc.charts, ".") && (rel == "templates" || rel == "charts" || rel == "crds") {
+		return fs.SkipDir
+	}
+	return nil
 }
 
 // dockerRank orders Dockerfiles shallowest first, a plain Dockerfile first.

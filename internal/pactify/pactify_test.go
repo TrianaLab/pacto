@@ -1102,20 +1102,10 @@ func TestHelmChartIsNotRead(t *testing.T) {
 				t.Fatalf("service %q, mode %q", r.Service, r.Mode)
 			}
 			for _, c := range tc.chartDirs {
-				n := 0
-				for _, l := range r.Unknown {
-					if strings.HasPrefix(l, "the Helm chart in "+c+" is not read: render it with helm template --include-crds checkout "+c+" > k8s/rendered.yaml") {
-						n++
-					}
-				}
-				if n != 1 {
-					t.Fatalf("want chart %s named once in Unknown, got %d: %q", c, n, r.Unknown)
-				}
+				assertChartNamedOnce(t, r.Unknown, c)
 			}
 			text := file(t, r, "pacto.yaml").Content
-			if strings.Contains(text, "templates/") || strings.Contains(text, "Release.Name") || strings.Contains(text, "crds/") || hasLine(r.Found, "templates/") {
-				t.Fatalf("a chart template was read:\n%s\n%+v", text, r.Found)
-			}
+			assertNoChartRead(t, text, r.Found)
 			if tc.header != "" && !strings.HasPrefix(text, "# Written by pacto init from "+tc.header+".\n") {
 				t.Fatalf("header:\n%s", text)
 			}
@@ -1128,6 +1118,30 @@ func TestHelmChartIsNotRead(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// assertNoChartRead fails when pacto.yaml or Found carries a chart template
+// or CRD.
+func assertNoChartRead(t *testing.T, text string, found []string) {
+	t.Helper()
+	if strings.Contains(text, "templates/") || strings.Contains(text, "Release.Name") || strings.Contains(text, "crds/") || hasLine(found, "templates/") {
+		t.Fatalf("a chart template was read:\n%s\n%+v", text, found)
+	}
+}
+
+// assertChartNamedOnce fails unless Unknown tells the user exactly once how
+// to render the chart in dir.
+func assertChartNamedOnce(t *testing.T, unknown []string, dir string) {
+	t.Helper()
+	n := 0
+	for _, l := range unknown {
+		if strings.HasPrefix(l, "the Helm chart in "+dir+" is not read: render it with helm template --include-crds checkout "+dir+" > k8s/rendered.yaml") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("want chart %s named once in Unknown, got %d: %q", dir, n, unknown)
 	}
 }
 
