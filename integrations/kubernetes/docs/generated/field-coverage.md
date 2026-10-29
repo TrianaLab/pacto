@@ -495,7 +495,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
 | Rule | schema: boolean; pacto diff compares it with the old value |
 | Outcomes | SCHEMA_VIOLATION when not a boolean |
-| Limitations | covers the whole interface, not single operations; a declaration: Pacto never measures whether the interface keeps it |
+| Limitations | applies to every operation of the interface; a declaration: Pacto never measures whether the interface keeps it |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.idempotent/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.idempotent/invalid` |
 
 ### `interfaces[].guarantees.timeout`
@@ -507,7 +507,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Evidence | none: no runtime fact shows how an interface delivers, orders, deduplicates, retains or answers |
 | Rule | schema: Go duration with ms, s, m or h units; pacto diff compares it with the old value |
 | Outcomes | SCHEMA_VIOLATION when not a duration |
-| Limitations | a declared budget, not a measured latency; a declaration: Pacto never measures whether the interface keeps it |
+| Limitations | a declared latency budget; Pacto never measures whether the interface keeps it |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`, `pkg/diff/guarantee_test.go:TestDiffGuarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.timeout/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].guarantees.timeout/invalid` |
 
 ### `interfaces[].compatibilityEpoch`
@@ -551,7 +551,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Marks the interface deprecated and schedules its removal; pactoVersion 2.2 only. |
 | Runtime | `static-only` |
-| Evidence | none: a schedule, not a runtime fact |
+| Evidence | none: a declared schedule |
 | Rule | schema: object with deprecated; diff: deprecating is non-breaking, removing before the sunset says so in the reason; a consumer resolving the contract with --closure is warned |
 | Outcomes | SCHEMA_VIOLATION; NEEDS_PACTO_2_2 under 2.0 and 2.1; DEPENDENCY_INTERFACE_DEPRECATED or DEPENDENCY_INTERFACE_SUNSET (warnings) for a consumer |
 | Limitations | a dependency does not say which interfaces it calls, so a consumer is warned about every deprecated interface of its provider |
@@ -885,7 +885,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Behavior this service relies on from the provider interfaces. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | pacto validate reads the provider bundle of the dependency and checks each requirement against the named interface guarantees; pactoVersion 2.2 only |
 | Outcomes | GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read; NEEDS_PACTO_2_2 under 2.0 and 2.1 |
 | Limitations | only direct dependencies are checked; pacto graph and pacto impact report the rest |
@@ -897,7 +897,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | One requirement on one provider interface. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | pacto validate reads the provider bundle of the dependency and checks each requirement against the named interface guarantees |
 | Outcomes | PARSE_ERROR when not an object; GUARANTEE_UNMET, an error on a required dependency and a warning on an optional one; GUARANTEE_UNVERIFIED, a warning, when the provider bundle cannot be read |
 | Limitations | every unmet guarantee is reported at once |
@@ -909,7 +909,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Name of the provider interface the requirement is about. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | schema: required; the provider must declare an interface with this name |
 | Outcomes | GUARANTEE_UNMET when the provider declares none |
 | Limitations | interface names are matched exactly |
@@ -921,7 +921,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Requires: version of the guarantee vocabulary; omitted means 1. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | schema: enum; the provider must offer this value or a stronger one |
 | Outcomes | SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less |
 | Limitations | only 1 exists, so profiles are not compared yet |
@@ -937,7 +937,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Requires: what happens to an event when a delivery fails partway. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | schema: enum; the provider must offer this value or a stronger one |
 | Outcomes | SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less |
 | Limitations | the two values trade loss for duplicates, so neither satisfies the other |
@@ -954,7 +954,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Requires: scope in which events arrive in the order sent; global also orders every key. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | schema: enum; the provider must offer this value or a stronger one |
 | Outcomes | SCHEMA_VIOLATION when unknown; GUARANTEE_UNMET when the provider offers less |
 | Limitations | per-key does not name the key |
@@ -971,7 +971,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Requires: how long a repeated event is recognised and dropped; longer is stronger. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | schema: Go duration with ms, s, m or h units; the provider must offer this value or a stronger one |
 | Outcomes | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
 | Limitations | days are written in hours |
@@ -983,7 +983,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Requires: how long an event stays available for replay; longer is stronger. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | schema: Go duration with ms, s, m or h units; the provider must offer this value or a stronger one |
 | Outcomes | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
 | Limitations | days are written in hours |
@@ -995,10 +995,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Requires: repeating a call has the effect of making it once. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | schema: boolean; the provider must offer this value or a stronger one |
 | Outcomes | SCHEMA_VIOLATION when not a boolean; GUARANTEE_UNMET when the provider offers less |
-| Limitations | covers the whole interface, not single operations |
+| Limitations | applies to every operation of the interface |
 | Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].idempotent/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].idempotent/invalid` |
 
 ### `dependencies[].requires[].timeout`
@@ -1007,10 +1007,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- |
 | Meaning | Requires: the longest a call takes to answer; shorter is stronger. |
 | Runtime | `static-only` |
-| Evidence | none: checked against the provider contract, not against runtime |
+| Evidence | none: checked against the provider contract |
 | Rule | schema: Go duration with ms, s, m or h units; the provider must offer this value or a stronger one |
 | Outcomes | SCHEMA_VIOLATION when not a duration; GUARANTEE_UNMET when the provider offers less |
-| Limitations | a declared budget, not a measured latency |
+| Limitations | a declared latency budget that Pacto never measures |
 | Tests | unit: `pkg/contract/guarantee_test.go:TestUnmet`, `pkg/validation/structural_test.go:TestValidateStructural_V22Guarantees`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].timeout/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].requires[].timeout/invalid` |
 
 ### `dependencies[].version`
