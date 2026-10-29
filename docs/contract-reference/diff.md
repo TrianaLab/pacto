@@ -224,6 +224,7 @@ openapi.paths[/users].methods[GET].responses[200].content.application/json.schem
 |-------|--------|----------------|
 | `asyncapi.channels` | Added | NON_BREAKING |
 | `asyncapi.channels` | Removed | **BREAKING** |
+| `asyncapi.channels.publish`, `subscribe` (a 2.x flip removes one) | Removed | **BREAKING** |
 
 A channel present on both sides is compared field by field, so each payload difference surfaces as its own change. Old and new publishers and subscribers run side by side, so a message's `payload` and `headers` schemas sit in [record position](#schema-position): a new optional property is `NON_BREAKING` and every other schema difference is `BREAKING`. Documentation, `tags` included, and a new 2.x `publish` or `subscribe` operation are `NON_BREAKING`. Any other difference, such as a binding or a message `name`, is `POTENTIAL_BREAKING`. For that reason the table has no `asyncapi.channels` Modified row.
 
@@ -233,8 +234,9 @@ A channel present on both sides is compared field by field, so each payload diff
 |-------|--------|----------------|
 | `asyncapi.operations` | Added | NON_BREAKING |
 | `asyncapi.operations` | Removed | **BREAKING** |
+| `asyncapi.operations.action`, `channel.$ref` | Modified | **BREAKING** |
 
-An operation present on both sides is deep-diffed exactly like a channel, so flipping `action` from `send` to `receive` surfaces as `asyncapi.operations[sendOrder].action` (`POTENTIAL_BREAKING`).
+An operation present on both sides is deep-diffed exactly like a channel, so flipping `action` from `send` to `receive` surfaces as `asyncapi.operations[sendOrder].action` (`BREAKING`).
 
 Top-level `operations` are an AsyncAPI 3.x concept. A 2.x document has no `operations` map, so only its channels are compared.
 

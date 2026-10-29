@@ -485,7 +485,7 @@ func TestRefs_AsyncAPI(t *testing.T) {
 	}
 	relinked := edit(t, refAsyncV3, "channel: {$ref: '#/channels/orders'}", "channel: {$ref: '#/channels/other'}")
 	c := onlyChange(t, diffAsync(t, refAsyncV3, relinked))
-	if c.Path != "asyncapi.operations[send].channel.$ref" || c.Classification != PotentialBreaking {
+	if c.Path != "asyncapi.operations[send].channel.$ref" || c.Classification != Breaking {
 		t.Fatalf("relinked operation: got %s %s", c.Path, c.Classification)
 	}
 }

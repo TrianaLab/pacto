@@ -17,8 +17,10 @@ these was `POTENTIAL_BREAKING` or went unreported:
 - An AsyncAPI message's `payload` and `headers` schemas are records that old
   and new code read and write at once, so widening and narrowing both break
   there. Only a new optional property passes. Removing a payload property is
-  `BREAKING`, as it already was from a response. Other edits to a channel or
-  an operation, such as a binding, stay `POTENTIAL_BREAKING`.
+  `BREAKING`, as it already was from a response. A flipped operation
+  `action`, a 2.x `publish`/`subscribe` flip and an operation linked to a
+  different channel are `BREAKING`. Other edits to a channel or an operation,
+  such as a binding, stay `POTENTIAL_BREAKING`.
 - Inside an interface schema, an edit the rules cannot rank, such as a new
   `default` or anything under `not`, is `BREAKING`.
 - A change to a component, or to a path item, reached through `$ref` was

@@ -239,9 +239,8 @@ func TestDiffAsyncAPI_OperationModified(t *testing.T) {
 
 // A channel or operation present on both sides is never reported as one opaque
 // Modified change: it is deep-diffed, and every inner difference is classified
-// by its own rules: a retyped payload field is unsafe in one direction, so it
-// is BREAKING, and a flipped action lies outside the payload, so it keeps the
-// POTENTIAL_BREAKING default. This is why the rule table carries no
+// by its own rules: a retyped payload field is unsafe in one direction and a
+// flipped action changes who sends, so both are BREAKING. This is why the rule table carries no
 // {"asyncapi.channels", Modified} / {"asyncapi.operations", Modified} entry —
 // nothing would ever consult it.
 func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
@@ -265,7 +264,7 @@ func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
 			name: "operation", prefix: "asyncapi.operations[sendOrder]",
 			old: baseAsyncAPIV3, new: opDoc,
 			deepPath: "asyncapi.operations[sendOrder].action",
-			wantDeep: PotentialBreaking,
+			wantDeep: Breaking,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -426,5 +425,19 @@ channels:
 		if w, ok := want[c.Path]; !ok || c.Classification != w {
 			t.Errorf("%s: got %s, want %s", c.Path, c.Classification, w)
 		}
+	}
+}
+
+// A 2.x channel that flips from publish to subscribe changes who sends: the
+// removed operation is BREAKING. A 2.x operationId rename stays
+// POTENTIAL_BREAKING.
+func TestDiffAsyncAPI_V2ActionFlip(t *testing.T) {
+	flipped := strings.Replace(baseAsyncAPI, "  order.cancelled:\n    publish:", "  order.cancelled:\n    subscribe:", 1)
+	changes := diffAsync(t, baseAsyncAPI, flipped)
+	if c, ok := findChange(changes, "asyncapi.channels[order.cancelled].publish", Removed); !ok || c.Classification != Breaking {
+		t.Fatalf("publish removed: got %+v", changes)
+	}
+	if c, ok := findChange(changes, "asyncapi.channels[order.cancelled].subscribe", Added); !ok || c.Classification != NonBreaking {
+		t.Fatalf("subscribe added: got %+v", changes)
 	}
 }

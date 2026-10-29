@@ -164,10 +164,16 @@ var rules = map[classificationKey]Classification{
 	{"asyncapi.operations", Added}:   NonBreaking,
 	{"asyncapi.operations", Removed}: Breaking,
 	// An AsyncAPI 2.x operation lives inside its channel, so the deep diff
-	// reaches it. Adding one is as harmless as adding a channel; removing one
-	// is the record default, Breaking.
-	{"asyncapi.channels.publish", Added}:   NonBreaking,
-	{"asyncapi.channels.subscribe", Added}: NonBreaking,
+	// reaches it. Adding one is as harmless as adding a channel. Removing one,
+	// which is also how a publish/subscribe flip reads, changes who sends.
+	{"asyncapi.channels.publish", Added}:     NonBreaking,
+	{"asyncapi.channels.subscribe", Added}:   NonBreaking,
+	{"asyncapi.channels.publish", Removed}:   Breaking,
+	{"asyncapi.channels.subscribe", Removed}: Breaking,
+	// A 3.x operation whose action flips changes who sends, and one linked to
+	// another channel changes where the consumer listens.
+	{"asyncapi.operations.action", Modified}:       Breaking,
+	{"asyncapi.operations.channel.$ref", Modified}: Breaking,
 
 	// gRPC service surface. proto3 has no `required`, so an added rpc, message
 	// or field is always wire-compatible. Everything else here is Breaking:
