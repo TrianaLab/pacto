@@ -73,7 +73,7 @@ func newRunCommand(svc *app.Service, v *viper.Viper, version string, d deps) *co
 			"is appended to it in a single write, so a reader following it sees whole rounds (with json, one " +
 			"object per line).\n\n" +
 			"With root (or BPF, PERFMON, SYS_PTRACE and write access to its own cgroup) on Linux 5.11 or later with " +
-			"BTF and cgroup v2 (or 5.8 or later with root or CAP_SYS_RESOURCE), the command starts inside a new cgroup pacto-run-<pid> and an eBPF program sees " +
+			"BTF and cgroup v2 (or 5.8 or later with BTF and root or CAP_SYS_RESOURCE), the command starts inside a new cgroup pacto-run-<pid> and an eBPF program sees " +
 			"every listener and every connection outcome of the tree, failures included (collector pacto-run+ebpf). " +
 			"Otherwise it falls back to polling /proc every second and says so (collector pacto-run): listeners are " +
 			"seen in full, so a missing one is still confirmed, but a connection is seen only while it is open at a " +
