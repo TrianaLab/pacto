@@ -234,38 +234,85 @@ func (d *Delivery) Get(ctx context.Context, ns, name string) (*delivery.Operatio
 	return o, nil
 }
 
-// PlanStaleError is a propose refused because something moved since the plan
-// the caller made. Plan is the fresh one.
-type PlanStaleError struct{ Plan delivery.Plan }
-
-func (e *PlanStaleError) Error() string {
-	return "PlanStale: the Stage moved since you planned (intent digest is now " + e.Plan.IntentDigest + "); review the fresh plan and propose again"
+// PlanStaleError is a propose refused because its intent digest is not the
+// one this request has now. Plan is the fresh plan; Differs names the
+// parameter that explains the difference when Pacto can tell (the propose
+// passes a reason or an on-behalf-of person the plan did not have), and
+// Spec is what the request asks now.
+type PlanStaleError struct {
+	Plan    delivery.PlanAnswer
+	Spec    delivery.OperationSpec
+	Differs string
 }
 
-// Plan builds the operation a request describes and plans it.
-func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Plan, delivery.OperationSpec, error) {
+func (e *PlanStaleError) Error() string {
+	if e.Differs != "" {
+		return "PlanStale: you planned with no " + e.Differs + ", and this propose passes one. The intent digest binds the " +
+			e.Differs + ", so pass the same value you planned with, or propose with the fresh plan's intent digest " + e.Plan.IntentDigest
+	}
+	behalf := ""
+	if e.Spec.OnBehalfOf != nil {
+		behalf = e.Spec.OnBehalfOf.User
+	}
+	return fmt.Sprintf("PlanStale: the intent digest you passed is not this request's (now %s). It binds the type, Stage, from, to, "+
+		"reason, on-behalf-of person and the Stage's policy. This request passes reason %q and on-behalf-of %q: if you planned "+
+		"with other values, propose with those; otherwise the Stage changed since you planned, so review the fresh plan and propose again",
+		e.Plan.IntentDigest, e.Spec.Reason, behalf)
+}
+
+// Plan builds the operation a request describes and plans it, with what the
+// plan means for the caller.
+func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, delivery.OperationSpec, error) {
+	plan, spec, _, err := d.plan(ctx, req)
+	return plan, spec, err
+}
+
+// plan is Plan, plus the Stage it planned against.
+func (d *Delivery) plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, delivery.OperationSpec, *delivery.StageObject, error) {
 	stage, err := d.Stage(ctx, req.Namespace, req.Stage)
 	if err != nil {
-		return delivery.Plan{}, delivery.OperationSpec{}, err
+		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, err
 	}
 	caller, err := d.WhoAmI(ctx)
 	if err != nil {
-		return delivery.Plan{}, delivery.OperationSpec{}, err
+		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, err
 	}
 	spec, err := d.spec(ctx, req, stage, caller)
 	if err != nil {
-		return delivery.Plan{}, delivery.OperationSpec{}, err
+		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, err
 	}
 	in, err := delivery.AssemblePlanInput(ctx, planSources{d}, spec, *stage, caller.Class, d.Now())
 	if err != nil {
-		return delivery.Plan{}, delivery.OperationSpec{}, err
+		return delivery.PlanAnswer{}, delivery.OperationSpec{}, nil, err
 	}
 	in.RequireOwnerTeam, in.Gates = caller.Policy.RequireOwnerTeam, caller.Policy.PlanGates()
 	plan := delivery.PlanFor(ctx, in)
 	if spec.Facet == delivery.FacetPointer && spec.Params.To != "" {
 		plan.Precedent = d.precedent(ctx, stage, spec.Params.To)
 	}
-	return plan, spec, nil
+	return delivery.AnswerPlan(plan, caller.Class, stage.Spec), spec, stage, nil
+}
+
+// Candidates lists the versions a Stage may be promoted to, newest first:
+// what its candidate source offers that pacto publish published, with the
+// version each contract declares.
+func (d *Delivery) Candidates(ctx context.Context, ns, name string) (*delivery.CandidateVersions, error) {
+	stage, err := d.Stage(ctx, ns, name)
+	if err != nil {
+		return nil, err
+	}
+	c, err := d.candidates(ctx, stage)
+	return &c, err
+}
+
+func (d *Delivery) candidates(ctx context.Context, stage *delivery.StageObject) (delivery.CandidateVersions, error) {
+	up, why, err := planSources{d}.Upstream(ctx, *stage)
+	if err != nil {
+		return delivery.CandidateVersions{}, err
+	}
+	return delivery.ListCandidates(ctx, *stage, up, why, func(ctx context.Context, digest string) delivery.Revision {
+		return d.Describe(ctx, stage, digest)
+	}), nil
 }
 
 // planSources is delivery.PlanSources over the client's own reads, so a plan
@@ -383,26 +430,44 @@ func (d *Delivery) spec(ctx context.Context, req delivery.Request, stage *delive
 	return spec, nil
 }
 
-// digest validates to as a manifest digest. A tag is refused, and the refusal
-// names the digest the tag resolves to right now.
+// digest turns to into the manifest digest the operation moves to. A digest
+// is taken as is: the published gate judges it. A version or a tag must name
+// exactly one of the Stage's candidates, the versions pacto publish published
+// that its candidate source offers; anything else is refused with the reason.
 func (d *Delivery) digest(ctx context.Context, stage *delivery.StageObject, to string) (string, error) {
 	if _, err := delivery.ParseDigest(to); err == nil {
 		return to, nil
 	}
 	if to == "" {
-		return "", errors.New("--to is required: the sha256 digest of the artifact to move to")
+		return "", errors.New("to is required: name the version to move to, as a version (3.0.0), a tag or a sha256 digest; " + delivery.CandidatesHint)
 	}
+	to = strings.TrimPrefix(to, ":")
+	c, err := d.candidates(ctx, stage)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := c.Resolve(to, d.tagDigest(ctx, stage, to))
+	if err != nil {
+		return "", fmt.Errorf("%w; %s", err, delivery.CandidatesHint)
+	}
+	return resolved, nil
+}
+
+// tagDigest is the digest tag points at in the Stage's apply repository, or
+// "" when it names no tag there or cannot be read: only a digest that is
+// also a candidate counts, so an unread tag only narrows what matches.
+func (d *Delivery) tagDigest(ctx context.Context, stage *delivery.StageObject, tag string) string {
 	repo, reg, err := d.applyRegistry(ctx, stage)
 	if err != nil {
-		return "", fmt.Errorf("%q is not a digest, and the tag could not be resolved: %w", to, err)
+		return ""
 	}
 	bounded, cancel := delivery.WithRegistryTimeout(ctx)
 	defer cancel()
-	resolved, err := reg.Resolve(bounded, repo+":"+strings.TrimPrefix(to, ":"))
+	resolved, err := reg.Resolve(bounded, repo+":"+tag)
 	if err != nil {
-		return "", fmt.Errorf("%q is not a digest, and the tag could not be resolved: %w", to, err)
+		return ""
 	}
-	return "", fmt.Errorf("tags are refused, delivery moves digests only: %s currently resolves to %s", to, resolved)
+	return resolved
 }
 
 // applyRegistry reads the Stage's OCIRepository: its repository and a registry
@@ -456,13 +521,13 @@ func (d *Delivery) kustomizations(ctx context.Context) ([]delivery.Kustomization
 // from an earlier plan, it refuses with a *PlanStaleError if anything moved. A
 // plan predicted to be rejected is still proposed: the promoter's refusal is a
 // decision too, and it leaves a record.
-func (d *Delivery) Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error) {
-	plan, spec, err := d.Plan(ctx, req)
+func (d *Delivery) Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.PlanAnswer, error) {
+	plan, spec, stage, err := d.plan(ctx, req)
 	if err != nil {
 		return nil, plan, err
 	}
 	if req.IntentDigest != "" && req.IntentDigest != plan.IntentDigest {
-		return nil, plan, &PlanStaleError{Plan: plan}
+		return nil, plan, &PlanStaleError{Plan: plan, Spec: spec, Differs: delivery.IntentDiffers(spec, stage.Spec, req.IntentDigest)}
 	}
 	meta := map[string]any{"namespace": req.Namespace, "finalizers": []any{recordFinalizer},
 		"labels": map[string]any{"delivery.pacto.trianalab.io/stage": req.Stage}}

@@ -69,6 +69,7 @@ func placeCandidate(ctx context.Context, in PlanInput, m *MoveFirst, newVersion,
 		return ""
 	}
 	m.Stage = &StageRef{Name: stage.Metadata.Name, Namespace: stage.Metadata.Namespace}
+	here, provider := m.Stage.Namespace+"/"+m.Stage.Name, in.Stage.Service.Name
 	if r := stage.Spec.Candidates.UpstreamRecords; r != nil {
 		// ponytail: a plan does not read another cluster's records to place a
 		// candidate; it says so, and the downstream Stage still promotes on them.
@@ -77,8 +78,8 @@ func placeCandidate(ctx context.Context, in PlanInput, m *MoveFirst, newVersion,
 	}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
-		return m.Service + " takes its versions straight from its candidate source here, so no version of it is verified ahead of " +
-			in.Stage.Environment + ". Ship one that accepts " + newVersion + " first"
+		return "No Stage tests " + m.Service + " before " + in.Stage.Environment + ", so Pacto has no tested version of it to suggest. " +
+			"Publish a version of " + m.Service + " that accepts " + provider + " " + newVersion + " and promote it on " + here + " first"
 	}
 	ref := StageRef{Name: up.Name, Namespace: cmp.Or(up.Namespace, stage.Metadata.Namespace)}
 	i := slices.IndexFunc(in.Stages, func(s StageObject) bool {
@@ -96,15 +97,15 @@ func placeCandidate(ctx context.Context, in PlanInput, m *MoveFirst, newVersion,
 		m.Unknown = "Pacto could not read every version " + ref.Namespace + "/" + ref.Name + " verified (" + strings.Join(unreadable, "; ") + ")"
 		return ""
 	}
-	both := newVersion
+	both, upName := provider+" "+newVersion, ref.Namespace+"/"+ref.Name
 	if running != "" {
-		both = "both " + newVersion + " and the " + running + " running here"
+		both = "both " + provider + " " + newVersion + " and the " + running + " running here"
 	}
 	if len(rejected) > 0 {
-		return "No version of " + m.Service + " that " + ref.Namespace + "/" + ref.Name + " verified can move first yet (" +
-			strings.Join(rejected, "; ") + "). Ship a newer one that accepts " + both + " and what else runs here first"
+		return "None of the versions of " + m.Service + " that " + upName + " verified can move first yet (" + strings.Join(rejected, "; ") +
+			"). Get a newer one verified on " + upName + " that accepts " + both + ", and works with what else runs here, then promote it on " + here + " first"
 	}
-	return "No version of " + m.Service + " that " + ref.Namespace + "/" + ref.Name + " verified accepts " + both + " yet. Ship one that does first"
+	return upName + " has not verified a version of " + m.Service + " that accepts " + both + ". Get one verified there, then promote it on " + here + " first"
 }
 
 // consumerStage is the one Stage that delivers the consumer in this

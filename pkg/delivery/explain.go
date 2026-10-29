@@ -48,7 +48,7 @@ func Summarize(op *OperationObject) string {
 		}
 		return strings.Join(parts, ": ")
 	case PhaseHeld:
-		return what + " waits for a person: " + s.Question
+		return strings.TrimSpace(what + " waits for a person: " + s.Question + " " + DeadlineNote(op))
 	case "":
 		return what + " is not admitted yet"
 	}

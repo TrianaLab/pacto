@@ -222,7 +222,7 @@ type dashDelivery struct {
 func refusal(err error) error {
 	var stale *app.PlanStaleError
 	if errors.As(err, &stale) {
-		return &dashboard.DeliveryError{Status: http.StatusConflict, Code: "PlanStale", Detail: err.Error(), Plan: &stale.Plan}
+		return &dashboard.DeliveryError{Status: http.StatusConflict, Code: "PlanStale", Detail: err.Error(), Plan: &stale.Plan.Plan}
 	}
 	var api apierrors.APIStatus
 	if errors.As(err, &api) {
@@ -288,12 +288,12 @@ func (a dashDelivery) History(ctx context.Context, ns, stage string, listed *del
 
 func (a dashDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error) {
 	p, _, err := a.act.Plan(ctx, req)
-	return p, refusal(err)
+	return p.Plan, refusal(err)
 }
 
 func (a dashDelivery) Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error) {
 	o, p, err := a.act.Propose(ctx, req)
-	return o, p, refusal(err)
+	return o, p.Plan, refusal(err)
 }
 
 func (a dashDelivery) Approve(ctx context.Context, ns, name string, decision delivery.Decision, note string) (string, error) {

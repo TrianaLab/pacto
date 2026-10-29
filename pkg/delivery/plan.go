@@ -138,6 +138,10 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 	}
 	holdForRecords(in, &p)
 	p.Predicted = predict(in, &p)
+	if p.Predicted == PredictRejected {
+		// A refused change never reaches a person: nobody is asked anything.
+		p.Floor, p.Question = Floor{}, ""
+	}
 	return p
 }
 
@@ -400,7 +404,7 @@ func publishedGate(in PlanInput) Verdict {
 	case c.OCIRepositoryRef != nil:
 		candidatePublished(in, &v)
 	default:
-		v.Message = "this Stage names no candidate source, so nothing it could promote was verified as published by pacto publish"
+		v.Message = "this Stage names no candidate source, so nothing it could promote was verified as published by pacto publish: set spec.candidates on the Stage"
 	}
 	return v
 }
@@ -426,10 +430,11 @@ func upstreamOffers(in PlanInput, v *Verdict) {
 	case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Offered, to):
 		v.Result, v.Message = Pass, short(to)+" passed pacto.published and verified on the upstream Stage"
 	case slices.Contains(in.Upstream.FailedDigests, to):
-		v.Message = short(to) + " failed after release on the upstream Stage " + v.Citation["upstream"] + ", so it is not a candidate here"
+		v.Message = short(to) + " failed after release on the upstream Stage " + v.Citation["upstream"] + ", so it is not a candidate here: ship a fixed version through " + v.Citation["upstream"] + " first"
 	default:
 		v.Message = short(to) + " is not offered by the upstream Stage " + v.Citation["upstream"] +
-			": it never passed pacto.published there or never verified, so it is not a candidate here"
+			": it never passed pacto.published there or never verified, so it is not a candidate here. Promote it on " +
+			v.Citation["upstream"] + " first, and plan again here once it verifies there"
 	}
 }
 

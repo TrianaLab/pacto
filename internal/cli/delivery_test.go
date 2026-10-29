@@ -41,7 +41,13 @@ func (cliRegistry) Pull(context.Context, string) (*contract.Bundle, error) {
 	return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments", Version: "1.0.0"}}}, nil
 }
 
-func (cliRegistry) Resolve(context.Context, string) (string, error) { return cliB, nil }
+// Resolve knows one tag, v2, which points at B.
+func (cliRegistry) Resolve(_ context.Context, ref string) (string, error) {
+	if strings.HasSuffix(ref, ":v2") {
+		return cliB, nil
+	}
+	return "", errors.New("manifest unknown")
+}
 
 func u(apiVersion, kind, name string, fields map[string]any) *unstructured.Unstructured {
 	o := &unstructured.Unstructured{Object: map[string]any{"apiVersion": apiVersion, "kind": kind,
@@ -75,6 +81,7 @@ func deliveryDeps(user string, dynErr error) deps {
 			u("delivery.pacto.trianalab.io/v1alpha1", "Operation", "held", map[string]any{
 				"spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "intentDigest": "sha256:i"},
 				"status": map[string]any{"phase": "Held", "question": "Approve?", "reason": "AwaitingHuman", "message": "m",
+					"times": map[string]any{"approvalDeadline": "2026-10-30T09:00:00Z"},
 					"plan": map[string]any{"intentDigest": "sha256:i", "type": delivery.TypePromote, "predicted": "Held",
 						"floor": map[string]any{"human": true, "decision": "accept-unknown", "owners": []any{"team-payments"}}, "order": map[string]any{
 							"moveFirst": []any{map[string]any{"service": "orders", "message": "Ship orders first."}}, "unknown": []any{"the graph is partial"}}},
@@ -172,13 +179,24 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"text", []string{"describe", "rollback"}, false, []string{"inverse:        delivery.pacto.trianalab.io/promote"}},
 		{"text", []string{"describe", "delivery.pacto.trianalab.io/unfreeze"}, false, []string{"inverse:        none"}},
 		{"text", []string{"describe", "scale"}, true, []string{"unknown operation type"}},
-		{"text", append(plan, "--to", cliB), false, []string{"predicted: Waits", "pacto.impact", "StageFrozen"}},
+		{"text", append(plan, "--to", cliB), false, []string{"predicted: Waits", "pacto.impact", "StageFrozen",
+			"next:      Nobody needs to approve it, but once proposed it waits until the conflict clears."}},
 		{"json", append(plan, "--to", cliB), false, []string{`"intentDigest": "sha256:`}},
-		{"text", append(plan, "--to", "v2"), true, []string{cliB}},
+		{"text", append(plan, "--to", "v2"), false, []string{"-> " + cliB}},
+		{"text", append(plan, "--to", "1.0.0"), false, []string{"-> " + cliB}},
+		{"text", append(plan, "--to", "9.9.9"), true, []string{`no version "9.9.9" was published for Stage prod/payments-prod. It may take 1.0.0 (` + cliB + ")",
+			"pacto delivery candidates --stage <stage>"}},
+		{"text", plan, true, []string{"to is required: name the version to move to"}},
+		{"text", []string{"candidates", "-n", "prod", "--stage", "payments-prod"}, false, []string{
+			"stage prod/payments-prod (payments) runs " + cliA + ", candidates from the candidate OCIRepository payments", "VERSION", "1.0.0", cliB}},
+		{"json", []string{"candidates", "-n", "prod", "--stage", "payments-prod"}, false, []string{`"version": "1.0.0"`, `"digest": "` + cliB + `"`}},
+		{"text", []string{"candidates", "-n", "prod", "--stage", "missing"}, true, nil},
 		{"text", append(plan, "--to", cliB, "--from", cliB), false, []string{"conflict:  PointerMoved"}},
 		{"text", append(plan, "--type", "acknowledge", "--record", "sha256:"+strings.Repeat("e", 64), "--reason", "checked"), false,
 			[]string{"conflict:  NoUpstreamRecords"}},
-		{"text", []string{"get", "-n", "prod", "held"}, false, []string{"question:  Approve?", "reason:    AwaitingHuman: m", "pacto.diff"}},
+		{"text", []string{"get", "-n", "prod", "held"}, false, []string{"question:  Approve?", "reason:    AwaitingHuman: m", "pacto.diff",
+			"next:      If nobody decides by 2026-10-30T09:00:00Z (the approval deadline), the operation concludes Expired"}},
+		{"json", []string{"get", "-n", "prod", "held"}, false, []string{`"next": "If nobody decides by`, `"metadata"`}},
 		{"text", []string{"get", "-n", "prod", "missing"}, true, nil},
 		{"text", append(plan, "--to", cliB, "--cause-verdict", "{"), true, []string{"--cause-verdict is not a verdict"}},
 		{"text", []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--cause-verdict", "{"}, true, []string{"--cause-verdict is not a verdict"}},
@@ -312,8 +330,10 @@ func TestDeliveryApproveFreshLogin(t *testing.T) {
 
 func TestPrintPlanQuestion(t *testing.T) {
 	out := &strings.Builder{}
-	printPlan(out, delivery.Plan{Predicted: delivery.PredictHeld, Question: "Approve? Asked of: team-checkout"})
-	if !strings.Contains(out.String(), "question:  Approve? Asked of: team-checkout") || !strings.Contains(out.String(), " none -> none") {
+	printPlan(out, delivery.PlanAnswer{Plan: delivery.Plan{Predicted: delivery.PredictHeld, Question: "Approve? Asked of: team-checkout"},
+		Next: []string{"Held until a person decides."}})
+	if !strings.Contains(out.String(), "question:  Approve? Asked of: team-checkout") || !strings.Contains(out.String(), " none -> none") ||
+		!strings.Contains(out.String(), "next:      Held until a person decides.") {
 		t.Fatal(out.String())
 	}
 }
@@ -321,7 +341,7 @@ func TestPrintPlanQuestion(t *testing.T) {
 func TestDeliveryCommandClusterUnreachable(t *testing.T) {
 	d := approveDeps("alice", errors.New("no kubeconfig"))
 	for _, args := range [][]string{
-		{"plan", "--stage", "s", "--to", cliB}, {"propose", "--stage", "s", "--to", cliB}, {"get", "x"}, {"cancel", "x"},
+		{"plan", "--stage", "s", "--to", cliB}, {"propose", "--stage", "s", "--to", cliB}, {"get", "x"}, {"cancel", "x"}, {"candidates", "--stage", "s"},
 		{"approve", "x", "--oidc-issuer-url", "https://idp"},
 		{"explain", "x"}, {"history", "--stage", "s"}, {"blame", "--stage", "s"}, {"undo", "x"}, {"record", "verify", "--stage", "s"},
 	} {
@@ -387,5 +407,17 @@ func TestPrintVerificationNamesTheRunner(t *testing.T) {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("lacks %q:\n%s", want, b.String())
 		}
+	}
+}
+
+// A candidate list that may be incomplete says why, and an unread version
+// shows as unknown.
+func TestPrintCandidatesNote(t *testing.T) {
+	out := &strings.Builder{}
+	printCandidates(out, &delivery.CandidateVersions{Namespace: "prod", Stage: "s", Service: "payments", Source: "candidate OCIRepository c",
+		Versions: []delivery.CandidateVersion{{Digest: cliB, Unreadable: "manifest unknown"}}, Note: "some candidates could not be read"})
+	if !strings.Contains(out.String(), "runs none,") || !strings.Contains(out.String(), "?        "+cliB+"  manifest unknown") ||
+		!strings.Contains(out.String(), "note: some candidates could not be read") {
+		t.Fatal(out.String())
 	}
 }

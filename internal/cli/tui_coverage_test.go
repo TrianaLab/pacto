@@ -54,6 +54,7 @@ var excludedFromTUI = map[string]string{
 	// proposes, cancels or approves would be the one place it acts; these stay explicit shell commands.
 	"delivery approve":       "a person's decision, made deliberately at a prompt",
 	"delivery blame":         "reads a Stage's records, which are not a fleet entity",
+	"delivery candidates":    "lists the versions a Stage may take, which are not fleet entities",
 	"delivery cancel":        "changes what runs; the TUI never acts",
 	"delivery describe":      "describes an operation type, not a fleet entity a row could name",
 	"delivery explain":       "explains a delivery Operation, which is not a fleet entity",
