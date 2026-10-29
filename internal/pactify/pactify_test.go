@@ -1119,3 +1119,45 @@ func TestHelmChartIsNotRead(t *testing.T) {
 		})
 	}
 }
+
+// TestOnlyClusterFilesAreManifests: tool configs written like Kubernetes
+// objects (a Backstage catalog-info.yaml, a skaffold.yaml) are not manifests,
+// and a file .pactoignore lists is not read (#433).
+func TestOnlyClusterFilesAreManifests(t *testing.T) {
+	const (
+		catalog  = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata: {name: checkout}\nspec: {type: service, owner: payments}\n"
+		skaffold = "apiVersion: skaffold/v4beta11\nkind: Config\nmetadata: {name: checkout}\nmanifests: {rawYaml: [k8s/deploy.yaml]}\n"
+		deploy   = "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\nspec: {template: {spec: {containers: [{name: checkout, image: 'ghcr.io/acme/checkout:1.0.0'}]}}}\n"
+		extra    = "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: extra}\n"
+	)
+	for _, tc := range []struct {
+		name   string
+		files  map[string]string
+		header string
+	}{
+		{name: "tool configs beside a manifest", header: "Dockerfile, k8s/deploy.yaml",
+			files: map[string]string{"Dockerfile": "FROM scratch\n", "catalog-info.yaml": catalog, "skaffold.yaml": skaffold, "k8s/deploy.yaml": deploy}},
+		{name: "a manifest .pactoignore lists", header: "Dockerfile, k8s/deploy.yaml",
+			files: map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deploy, "k8s/extra.yaml": extra, "local/dev.yaml": extra,
+				".pactoignore": "k8s/extra.yaml\nlocal/\n"}},
+		{name: "an ignored Dockerfile", header: "k8s/deploy.yaml",
+			files: map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deploy, ".pactoignore": "Dockerfile\n"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writeTree(t, filepath.Join(t.TempDir(), "checkout"), tc.files)
+			r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := file(t, r, "pacto.yaml").Content
+			if !strings.HasPrefix(text, "# Written by pacto init from "+tc.header+".\n") || !strings.Contains(text, `cp k8s/deploy.yaml "$PACTO_OUT"/`) {
+				t.Fatalf("pacto.yaml:\n%s", text)
+			}
+			for _, s := range []string{"catalog-info.yaml", "skaffold.yaml", "extra.yaml", "local/"} {
+				if strings.Contains(text, s) {
+					t.Errorf("pacto.yaml names %s:\n%s", s, text)
+				}
+			}
+		})
+	}
+}

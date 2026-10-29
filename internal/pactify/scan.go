@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/trianalab/pacto/v4/pkg/ignore"
 )
 
 // scan is what a folder says about the service in it.
@@ -53,7 +55,12 @@ var skipDirs = map[string]bool{"node_modules": true, "vendor": true}
 
 func scanDir(dir string) (*scan, error) {
 	sc := &scan{objects: map[string]bool{}, services: map[string]bool{}}
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	// What .pactoignore leaves out of the bundle is not read either.
+	ign, err := ignore.Load(os.DirFS(dir))
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", filepath.Join(dir, ignore.IgnoreFileName), err)
+	}
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && p == dir {
 			return fs.SkipAll // a folder that is not there yet is empty
 		}
@@ -62,6 +69,12 @@ func scanDir(dir string) (*scan, error) {
 		}
 		rel, _ := filepath.Rel(dir, p) // ponytail: p is always under dir
 		rel = filepath.ToSlash(rel)
+		if rel != "." && ign.Ignored(rel, d.IsDir()) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
 			if rel != "." && (strings.HasPrefix(d.Name(), ".") || skipDirs[d.Name()] || rel == "delivery") {
 				return fs.SkipDir
@@ -135,6 +148,13 @@ func (sc *scan) file(p, rel, base string) {
 	}
 }
 
+// toolGroups are apiVersion groups of tool configs written like Kubernetes
+// objects that never go to a cluster: a Backstage catalog-info.yaml and a
+// skaffold.yaml. Flux would refuse a kind the cluster does not serve.
+// ponytail: a denylist of the collisions seen so far; .pactoignore keeps out
+// the next one until it is added here.
+var toolGroups = map[string]bool{"backstage.io": true, "skaffold": true}
+
 // manifest reads every Kubernetes object in one YAML file. A file that is not
 // YAML, or holds no object with apiVersion and kind, is not a manifest.
 func (sc *scan) manifest(rel string, data []byte) {
@@ -154,7 +174,8 @@ func (sc *scan) manifest(rel string, data []byte) {
 		}
 		kind, _ := doc["kind"].(string)
 		secret = secret || holdsSecret(kust, kind, doc)
-		if _, ok := doc["apiVersion"].(string); !ok || kind == "" {
+		api, ok := doc["apiVersion"].(string)
+		if group, _, _ := strings.Cut(api, "/"); !ok || kind == "" || toolGroups[group] {
 			continue
 		}
 		found = true
