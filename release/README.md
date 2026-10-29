@@ -163,6 +163,8 @@ pending changesets and that version holds `latest` (`docs_publish_gate.sh`). So 
 breaking PR merged before its Version PR can never mislabel the stable docs. There is no published `next` snapshot in the
 version selector; preview unreleased docs locally with `make docs` / `mkdocs serve`.
 
+Each minor release, re-check `docs/comparison.md` and bump its date.
+
 ## Demo bundle immutability
 
 Demo bundles are published per service:version with the same absent/identical/conflict

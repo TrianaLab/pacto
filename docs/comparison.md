@@ -6,8 +6,8 @@ core makes no deployment decisions. The opt-in delivery component decides
 which version runs where and leaves applying it to Flux or Argo CD.
 
 This page grades Pacto and several nearby projects on the same criteria.
-Reviewed on 2026-10-29. These projects move fast, so check the source page
-before you rely on a cell.
+Reviewed on 2026-10-29. Maintainers review this page at every minor release.
+These projects move fast, so check the source page before you rely on a cell.
 
 ## Criteria
 
