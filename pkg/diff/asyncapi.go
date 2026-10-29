@@ -13,10 +13,11 @@ import (
 // and (AsyncAPI 3.x) operations.
 //
 // Only `channels` and `operations` are compared: they are the consumer-facing
-// surface. `info`, `servers`, `components` and `defaultContentType` are skipped
-// for the same reason `metadata` is — they are documentation and wiring detail
-// that churns on every release without changing what a consumer can subscribe to
-// or publish.
+// surface. `info`, `servers` and `defaultContentType` are skipped for the same
+// reason `metadata` is — they are documentation and wiring detail that churns
+// on every release without changing what a consumer can subscribe to or
+// publish. A component is compared where a channel or operation uses it, and
+// one nothing uses is reported as NON_BREAKING.
 func diffAsyncAPI(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 	if oldFS == nil || newFS == nil || oldPath == "" || newPath == "" {
 		return nil
@@ -28,9 +29,11 @@ func diffAsyncAPI(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 		return nil
 	}
 
-	changes := diffAsyncAPISection("asyncapi.channels", "channel", oldDoc.Channels, newDoc.Channels)
-	return append(changes,
-		diffAsyncAPISection("asyncapi.operations", "operation", oldDoc.Operations, newDoc.Operations)...)
+	refs := newSpecRefs(oldFS, newFS, oldPath, newPath)
+	changes := diffAsyncAPISection(refs.at("/channels"), "asyncapi.channels", "channel", oldDoc.Channels, newDoc.Channels)
+	changes = append(changes,
+		diffAsyncAPISection(refs.at("/operations"), "asyncapi.operations", "operation", oldDoc.Operations, newDoc.Operations)...)
+	return append(refs.merge(changes), refs.unused("asyncapi", "channel or operation", "channels", "operations")...)
 }
 
 // asyncAPIDoc holds the consumer-facing sections of an AsyncAPI document.
@@ -61,7 +64,7 @@ func readAsyncAPIDoc(fsys fs.FS, path string) (*asyncAPIDoc, error) {
 // diffJSON so a payload property, a type change or a `required` entry surfaces
 // as its own change instead of one opaque blob. diffJSON already returns nil
 // for equal values, so no separate equality guard is needed here.
-func diffAsyncAPISection(prefix, noun string, old, new map[string]any) []Change {
+func diffAsyncAPISection(at *refAt, prefix, noun string, old, new map[string]any) []Change {
 	var changes []Change
 
 	for _, name := range slices.Sorted(maps.Keys(old)) {
@@ -79,7 +82,7 @@ func diffAsyncAPISection(prefix, noun string, old, new map[string]any) []Change 
 		// dirRecord: a message is written by one service and read by another
 		// while old and new versions of both run side by side, so an edit has to
 		// be safe in both directions.
-		changes = append(changes, diffJSON(dirRecord, fmt.Sprintf("%s[%s]", prefix, name), old[name], newVal)...)
+		changes = append(changes, diffJSON(dirRecord, at.child(name), fmt.Sprintf("%s[%s]", prefix, name), old[name], newVal)...)
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(new)) {

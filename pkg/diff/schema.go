@@ -53,14 +53,19 @@ func diffSchema(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 		return nil
 	}
 
-	return diffJSON(dirUnknown, "schema", oldDoc, newDoc)
+	return diffJSON(dirUnknown, nil, "schema", oldDoc, newDoc)
 }
 
 // diffJSON recursively compares two JSON values and produces changes. dir says
 // which side supplies the data, which decides how a `required` change reads.
-func diffJSON(dir schemaDirection, prefix string, old, new any) []Change {
-	if valueEqual(old, new) {
+// at, when set, resolves each $ref the walk meets (see refAt); two equal
+// subtrees can then still differ behind a ref, so only scalars short-circuit.
+func diffJSON(dir schemaDirection, at *refAt, prefix string, old, new any) []Change {
+	if at == nil && valueEqual(old, new) {
 		return nil
+	}
+	if at.hasRef(old, new) {
+		return at.diffRef(dir, prefix, old, new)
 	}
 
 	oldMap, oldOk := old.(map[string]any)
@@ -68,7 +73,7 @@ func diffJSON(dir schemaDirection, prefix string, old, new any) []Change {
 
 	// Both are objects — recurse into keys.
 	if oldOk && newOk {
-		return diffJSONObjects(dir, prefix, oldMap, newMap)
+		return diffJSONObjects(dir, at, prefix, oldMap, newMap)
 	}
 
 	oldArr, oldIsArr := old.([]any)
@@ -76,7 +81,10 @@ func diffJSON(dir schemaDirection, prefix string, old, new any) []Change {
 
 	// Both are arrays — compare elements.
 	if oldIsArr && newIsArr {
-		return diffJSONArrays(dir, prefix, oldArr, newArr)
+		return diffJSONArrays(dir, at, prefix, oldArr, newArr)
+	}
+	if valueEqual(old, new) {
+		return nil
 	}
 
 	// Scalar or type mismatch — report as modified.
@@ -130,7 +138,7 @@ func jsonSafe(v any) any {
 	return v
 }
 
-func diffJSONObjects(dir schemaDirection, prefix string, old, new map[string]any) []Change {
+func diffJSONObjects(dir schemaDirection, at *refAt, prefix string, old, new map[string]any) []Change {
 	var changes []Change
 	keys := mergedKeys(old, new)
 
@@ -156,14 +164,14 @@ func diffJSONObjects(dir schemaDirection, prefix string, old, new map[string]any
 				Reason:         fmt.Sprintf("%s removed", path),
 			})
 		} else {
-			changes = append(changes, diffJSON(dir, path, oldVal, newVal)...)
+			changes = append(changes, diffJSON(dir, at.child(k), path, oldVal, newVal)...)
 		}
 	}
 	closedObject(dir, prefix, old, changes)
 	return changes
 }
 
-func diffJSONArrays(dir schemaDirection, prefix string, old, new []any) []Change {
+func diffJSONArrays(dir schemaDirection, at *refAt, prefix string, old, new []any) []Change {
 	// For small arrays (like `required`), compare as sets of strings.
 	oldStrs, newStrs := toStringSlice(old), toStringSlice(new)
 	if oldStrs != nil && newStrs != nil {
@@ -188,7 +196,7 @@ func diffJSONArrays(dir schemaDirection, prefix string, old, new []any) []Change
 				Reason:         fmt.Sprintf("%s[%d] removed", prefix, i),
 			})
 		} else {
-			changes = append(changes, diffJSON(dir, path, old[i], new[i])...)
+			changes = append(changes, diffJSON(dir, at.child(strconv.Itoa(i)), path, old[i], new[i])...)
 		}
 	}
 	return changes

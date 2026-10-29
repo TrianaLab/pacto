@@ -755,21 +755,21 @@ paths:
 }
 
 func TestDiffOpenAPI_OperationBothNilMaps(t *testing.T) {
-	changes := diffOperation("/test", "GET", nil, nil, nil, nil)
+	changes := diffOperation(nil, "/test", "GET", nil, nil, nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for nil operations, got %d", len(changes))
 	}
 }
 
 func TestDiffOpenAPI_OperationOneNilMap(t *testing.T) {
-	changes := diffOperation("/test", "GET", map[string]any{"summary": "test"}, nil, nil, nil)
+	changes := diffOperation(nil, "/test", "GET", map[string]any{"summary": "test"}, nil, nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes when new op is nil (no responses/requestBody), got %d", len(changes))
 	}
 }
 
 func TestDiffOpenAPI_ResponsesNilBothSides(t *testing.T) {
-	changes := diffResponses("/test", "GET", nil, nil)
+	changes := diffResponses(nil, "/test", "GET", nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for nil responses, got %d", len(changes))
 	}
@@ -833,7 +833,7 @@ func TestYamlEqual(t *testing.T) {
 func TestDiffOpenAPISpecs_BothEmpty(t *testing.T) {
 	old := &openAPISpec{Paths: map[string]map[string]any{}}
 	new := &openAPISpec{Paths: map[string]map[string]any{}}
-	changes := diffOpenAPISpecs(old, new)
+	changes := diffOpenAPISpecs(nil, old, new)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d", len(changes))
 	}
@@ -842,7 +842,7 @@ func TestDiffOpenAPISpecs_BothEmpty(t *testing.T) {
 func TestDiffPathMethods_NoHTTPMethods(t *testing.T) {
 	old := map[string]any{"summary": "old", "description": "old desc"}
 	new := map[string]any{"summary": "new", "description": "new desc"}
-	changes := diffPathMethods("/test", old, new)
+	changes := diffPathMethods(nil, "/test", old, new)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for non-HTTP keys, got %d", len(changes))
 	}
@@ -1152,18 +1152,14 @@ paths:
 }
 
 func TestDiffParameters_BothNil(t *testing.T) {
-	changes := diffParameters("/test", "GET", nil, nil)
+	changes := diffParameters(nil, "/test", "GET", nil, nil)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for nil parameters, got %d", len(changes))
 	}
 }
 
 func TestIndexParams_SkipsInvalidEntries(t *testing.T) {
-	params := []any{
-		"not a map",
-		map[string]any{},
-	}
-	result := indexParams(params)
+	result := indexParams(params(nil, 0, []any{"not a map", map[string]any{}}))
 	if len(result) != 0 {
 		t.Errorf("expected 0 indexed params, got %d", len(result))
 	}

@@ -208,7 +208,7 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 // structural diff but reclassifying every change as NonBreaking: values are the
 // provider's own defaults, not part of the consumer-facing contract surface.
 func diffConfigValues(field, name string, old, new map[string]any) []Change {
-	changes := diffJSON(dirUnknown, field+"["+name+"].values", old, new)
+	changes := diffJSON(dirUnknown, nil, field+"["+name+"].values", old, new)
 	for i := range changes {
 		changes[i].Classification = NonBreaking
 	}

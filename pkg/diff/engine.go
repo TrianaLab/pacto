@@ -104,6 +104,10 @@ type Change struct {
 	NewValue       any            `json:"newValue,omitempty"`
 	Classification Classification `json:"classification"`
 	Reason         string         `json:"reason"`
+
+	// refPair and refRel name the component edit a change came from while one
+	// interface spec is diffed, so specRefs.merge can fold its usages.
+	refPair, refRel string
 }
 
 // Result holds the output of comparing two contracts.

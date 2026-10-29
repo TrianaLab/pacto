@@ -450,7 +450,7 @@ func TestPositionalCompatibility(t *testing.T) {
 				dir  schemaDirection
 				want Classification
 			}{{dirRequest, tt.req}, {dirResponse, tt.resp}, {dirRecord, tt.rc}} {
-				got, changed := worst(diffJSON(pos.dir, "body.schema", old, new))
+				got, changed := worst(diffJSON(pos.dir, nil, "body.schema", old, new))
 				if !changed {
 					t.Fatalf("no change detected")
 				}
@@ -481,7 +481,7 @@ func TestUnknownDirection_KeepsDefaultsButIgnoresDocs(t *testing.T) {
 	_ = json.Unmarshal([]byte(`{"description":"a","enum":["x"]}`), &old)
 	_ = json.Unmarshal([]byte(`{"description":"b","enum":["x","y"]}`), &new)
 	got := map[string]Classification{}
-	for _, c := range diffJSON(dirUnknown, "schema", old, new) {
+	for _, c := range diffJSON(dirUnknown, nil, "schema", old, new) {
 		got[c.Path] = c.Classification
 	}
 	if got["schema.description"] != NonBreaking {
