@@ -111,8 +111,8 @@ that comparison before it concludes anything.
 
 An agent, like any automation, reaches its goal by whatever path is open to
 it. A golden path it can skip protects little. Pacto gives agents building
-blocks that it checks, and records when the recorder is on, and makes those
-blocks the way a change is made.
+blocks that it checks and, with the recorder on, records. Those blocks are the
+only way Pacto makes a change.
 
 Every change Pacto makes goes through the same checks for its type and the
 same admission policies, whether a person, a CI job or an agent over MCP asks

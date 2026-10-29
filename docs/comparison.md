@@ -21,10 +21,9 @@ Each column asks one question:
 - **Dependency graph**: the tool records which services depend on which.
   Dependencies between platform packages, or inside one application, are
   Partial.
-- **Transitive policy**: rules the platform publishes are followed through
-  every policy that references another, fail closed, and evaluated across the
-  dependency closure. Following the references without evaluating the closure
-  is Partial.
+- **Transitive policy**: the platform's rules follow every policy reference,
+  fail closed and are evaluated across the dependency closure. Following the
+  references without evaluating the closure is Partial.
 - **Runtime verify**: the tool checks running workloads against an
   independently declared contract. Reconciling toward the tool's own desired
   state is Partial.

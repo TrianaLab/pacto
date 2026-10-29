@@ -41,7 +41,7 @@ jq -r '.results[] | .service as $s | .unknown[] | "\($s): \(.)"' plan.json
 | Input | Contract fields |
 |---|---|
 | `Dockerfile` (or `Dockerfile.*`, `*.Dockerfile`) | an image artifact under `publish.artifacts`, built from the Dockerfile |
-| Kubernetes YAML with a Deployment, StatefulSet, DaemonSet, Job or CronJob | `service.name` from the workload, `service.version` from the image tag, the registry from the image, `workload`, and a manifests artifact that copies the YAML files |
+| Kubernetes YAML with a Deployment, StatefulSet, DaemonSet, Job or CronJob | `service.name` from the workload, `service.version` from the image tag, the registry from the image, `workload` and a manifests artifact that copies the YAML files |
 | The `team` label on the workload | `service.owner.team` |
 | The workload's environment, with the ConfigMaps in the folder that it reads | a configuration schema at `configuration/schema.json`, each value as its default |
 | An environment value that names another in-cluster service | `dependencies`, with the range from that service's contract in `--fleet`, or the placeholder `^1.0.0` |
