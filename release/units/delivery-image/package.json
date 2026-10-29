@@ -1,6 +1,6 @@
 {
   "name": "@pacto/delivery-image",
-  "version": "6.2.0",
+  "version": "6.3.0",
   "private": true,
   "pacto": {
     "releaseUnit": "delivery-image",
