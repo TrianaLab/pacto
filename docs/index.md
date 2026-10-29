@@ -107,7 +107,7 @@ contract says, on Linux, and reports only what it can confirm:
 | --- | --- |
 | A process reports healthy but nothing listens on the declared port | `INTERFACE_ABSENT` |
 | A declared dependency the service keeps failing to reach | `DEPENDENCY_UNREACHABLE` |
-| A call to another Pacto service no dependency declares (seen by the node agent or `pacto agent`; a warning that never fails the contract) | `DEPENDENCY_UNDECLARED` |
+| A call to another Pacto service no dependency declares (seen by the node agent or `pacto agent`; a warning, so the contract reads Warning rather than NonCompliant) | `DEPENDENCY_UNDECLARED` |
 
 ```bash
 pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./payments-server

@@ -102,8 +102,9 @@ GitHub-hosted runners include, and the same login variables:
 
 The first `jq` lists each consumer whose `compatibility` range rejects the new
 version, with its owner. The second fails the step when the change is
-`BREAKING` and at least one consumer is `incompatible`. A consumer that
-declares no range reads `unknown` and does not fail the step.
+`BREAKING` and at least one consumer is `incompatible`. A consumer whose range
+Pacto cannot evaluate, such as one with an invalid contract, reads `unknown`
+and does not fail the step.
 
 `pacto impact` ends in a release gate and exits on it: `0` clear, `1` blocked
 and `2` unverified. Contracts from `--root` carry no targets, so a `BREAKING`

@@ -45,8 +45,8 @@ delivery, unless a row names another setting. Each one fails closed.
 | `promoter-writes` | The promoter writes only to labelled pointers, and only their digest. `promoter-writes-argocd` does the same for the target revision of an Application. Installed with `delivery.argocd.enabled`. |
 
 Only break-glass, `system:masters`, the GitOps controllers in
-`admissionPolicies.gitopsUsers`, the namespace controller and the garbage collector create or delete a
-labelled pointer or Kustomization.
+`delivery.admissionPolicies.gitopsUsers`, the namespace controller and the
+garbage collector create or delete a labelled pointer or Kustomization.
 
 ## When a policy is missing
 
@@ -56,8 +56,9 @@ operation and counts no approval. Cluster-admin and `system:masters` can
 delete the policies. The promoter then holds every operation until they are
 back.
 
-With `admissionPolicies.enabled: false` and `allowUnguarded: true`, the chart
-installs no policies, and nothing checks who wrote an Operation or Approval.
+With `delivery.admissionPolicies.enabled: false` and
+`delivery.admissionPolicies.allowUnguarded: true`, the chart installs no
+policies, and nothing checks who wrote an Operation or Approval.
 The chart refuses `enabled: false` without `allowUnguarded`.
 
 ## The checks each operation type runs

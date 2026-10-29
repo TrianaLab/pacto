@@ -63,10 +63,11 @@ listens on, or a declared dependency the service keeps failing to reach.
 operator can deploy the same agent on every node (opt-in,
 `nodeAgent.enabled`).
 
-Full results need Linux 5.11 or later with BTF (kernel type information),
-and root or the `BPF`, `PERFMON` and `SYS_PTRACE` capabilities. Off
+Full results need Linux 5.11 or later with BTF (kernel type information) and
+cgroup v2. They also need root or the `BPF`, `PERFMON` and `SYS_PTRACE`
+capabilities. Off
 Kubernetes, Linux 5.8 to 5.10 also works with the `SYS_RESOURCE` capability.
-On Kubernetes the node agent has no `SYS_RESOURCE`, so nodes need 5.11 or
+On Kubernetes the node agent has no `SYS_RESOURCE`, so plan for 5.11 or
 later. See
 [Runtime conformance](https://pacto.run/latest/runtime-conformance/#requirements).
 

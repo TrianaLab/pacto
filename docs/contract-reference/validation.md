@@ -119,9 +119,10 @@ per dependency. External dependencies carry no contract and are skipped.
 | A dependency violates a policy the root resolves | `CLOSURE_POLICY_VIOLATION` |
 | A dependency cannot be resolved, sits in a dependency cycle or has an unreadable contract | `CLOSURE_DEPENDENCY_UNRESOLVED` |
 
-Each finding names the dependency in its path, for example
-`dependencies[ledger@1.0.0]`. An unresolvable dependency fails the run, so the
-check fails closed. When `pacto.lock` is present, the lock is verified first and
+A policy finding names the dependency in its path, for example
+`dependencies[ledger@1.0.0]`. A dependency that cannot be resolved is named in
+the message. When a dependency declared it, the path names that dependency. An
+unresolvable dependency fails the run, so the check fails closed. When `pacto.lock` is present, the lock is verified first and
 a drifted closure fails with the lock error before the closure is checked.
 
 ---

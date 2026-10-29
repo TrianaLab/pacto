@@ -54,8 +54,8 @@ What each source page shows:
   packages it depends on with version constraints. Crossplane installs and
   reconciles its contents and reports them `Healthy`.
 - **KubeVela**: an ApplicationRevision keeps a snapshot of each published
-  version, `vela live-diff` prints a line diff between revisions and KubeVela
-  rolls back to a past revision.
+  version, `vela live-diff` prints a line diff between the edited application
+  and its current revision and KubeVela rolls back to a past revision.
 - **Kratix**: Kratix keeps each Promise version as a Promise Revision, a
   Promise lists the Promises it requires and Kratix schedules resources to
   matching Destinations.
