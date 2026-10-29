@@ -157,7 +157,7 @@ command is `propose`. It also clears `HOLD`, so run it on a Stage that is on hol
 only the team that owns the service (the owner team in the contract running on
 the Stage) or break-glass may unfreeze it: a person of another team is refused
 with `NotYourTeam`, even with a cluster-wide approver binding. In the dashboard, the
-**Environments** view has an **Unfreeze** button on each frozen Stage, shown
+**Stages** view has an **Unfreeze** button on each frozen Stage, shown
 only to the people the same rule lets unfreeze it.
 
 ## Roll back by hand

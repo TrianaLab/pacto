@@ -7,7 +7,7 @@
 
   const tabs = [
     { view: 'delivery-inbox', label: 'Inbox', href: deliveryInboxUrl() },
-    { view: 'delivery-environments', label: 'Environments', href: deliveryEnvironmentsUrl() },
+    { view: 'delivery-environments', label: 'Stages', href: deliveryEnvironmentsUrl() },
     { view: 'delivery-autonomy', label: 'Autonomy', href: deliveryAutonomyUrl() },
     { view: 'delivery-history', label: 'History', href: deliveryHistoryUrl() },
     { view: 'delivery-publish', label: 'Published', href: deliveryPublishUrl() },

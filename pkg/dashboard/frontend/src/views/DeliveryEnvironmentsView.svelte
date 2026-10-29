@@ -184,14 +184,14 @@
 
 <div class="product-page">
   <PageHeader
-    title="Environments"
+    title="Stages"
     count={data ? `${countOf(serviceTotal, 'service')}, ${countOf(environments.length, 'environment')}` : ''}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
   >
     {#if data && rows.length}
-      <DeliveryLead head={lead.head} rest={lead.rest} tipLabel="Environments"
+      <DeliveryLead head={lead.head} rest={lead.rest} tipLabel="Stages"
         tip="Every service in every environment: the version it runs and whether it is verified, failed, frozen or waiting. A Stage is one service in one environment." />
     {/if}
   </PageHeader>
@@ -218,7 +218,7 @@
       <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{tier ? ` has a Stage in a ${tier} environment` : ''}.</p></div>
     {:else if rows.length === 0}
       <div class="state-box" data-testid="environments-empty">
-        <h2>No environments yet</h2>
+        <h2>No Stages yet</h2>
         <p>No Stage exists {data.completeness === 'partial' ? 'that you can see' : 'in this cluster'}. A Stage is one service in one environment. Install pacto-operator with <code>delivery.enabled=true</code>, then create one.</p>
       </div>
     {:else}

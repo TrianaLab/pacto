@@ -281,6 +281,11 @@ describe('environments', () => {
     expect(text(board as HTMLElement)).not.toMatch(/pause|kept by a person/i);
     // The count names services and environments, never one as the other.
     expect(text(target)).toContain('1 service, 2 environments');
+    // The page and its tab name the rows Stages, as the glossary does; the URL keeps its old name.
+    expect(text(target.querySelector('h1') as HTMLElement)).toBe('Stages');
+    const tab = target.querySelector('nav[aria-label="Delivery"] [aria-current="page"]')!;
+    expect(tab.textContent).toBe('Stages');
+    expect(tab.getAttribute('href')).toBe('#/delivery/environments');
     // The page answers its question first: what failed or froze, and what waits.
     expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('1 frozen. 1 Stage waits for a person.');
     expect(text(board as HTMLElement)).toContain('1 waiting');
