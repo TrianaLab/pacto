@@ -94,7 +94,7 @@ func (a *refAt) diffRef(dir schemaDirection, prefix string, old, new any) []Chan
 	o, oLoc, oErr := r.side[0].deref(a.loc[0], old)
 	n, nLoc, nErr := r.side[1].deref(a.loc[1], new)
 	if oErr != nil || nErr != nil {
-		return unresolvedRef(prefix, old, new, nErr != nil)
+		return unresolvedRef(prefix, old, new, oErr != nil, nErr != nil)
 	}
 	oRef, nRef := oLoc != a.loc[0], nLoc != a.loc[1]
 	// Keywords beside a $ref belong to the usage, not the component.
@@ -123,14 +123,15 @@ func (a *refAt) diffRef(dir schemaDirection, prefix string, old, new any) []Chan
 
 // unresolvedRef reports a $ref Pacto could not follow. A target it cannot
 // read is a missing observation, so the change is POTENTIAL_BREAKING and never
-// a confirmed break. The same unresolved ref on both sides shows no change
-// Pacto can see, so it reports none.
-func unresolvedRef(prefix string, old, new any, inNew bool) []Change {
+// a confirmed break. Only the same ref failing on both sides shows no change
+// Pacto can see: the same ref text that resolved before and no longer does
+// (a component renamed, a file dropped from the bundle) is reported.
+func unresolvedRef(prefix string, old, new any, oldErr, newErr bool) []Change {
+	if oldErr && newErr && refOf(old) == refOf(new) {
+		return nil
+	}
 	ref, rev := refOf(old), "old"
-	if inNew {
-		if refOf(new) == ref {
-			return nil
-		}
+	if newErr {
 		ref, rev = refOf(new), "new"
 	}
 	return []Change{{

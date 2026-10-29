@@ -231,22 +231,35 @@ type param struct {
 }
 
 // params lists the parameters v holds, side 0 or 1 of at. A $ref is
-// resolved; one Pacto cannot resolve stays a bare reference, which
-// indexParams keys by its text.
+// resolved, through a chain of refs; one Pacto cannot resolve, or a cycle,
+// stays a bare reference, which indexParams keys by its text.
 func params(at *refAt, side int, v any) []param {
 	var out []param
 	for i, p := range toSlice(v) {
 		loc := ""
 		if at != nil {
-			s := at.refs.side[side]
 			loc = fmt.Sprintf("%s/parameters/%d", at.loc[side], i)
-			if t, tLoc, err := s.deref(loc, p); err == nil {
-				p, loc = t, tLoc
-			}
+			p, loc = derefAll(at.refs.side[side], loc, p)
 		}
 		out = append(out, param{toStringMap(p), loc})
 	}
 	return out
+}
+
+// derefAll follows node's $ref until it reaches a node without one. When a
+// ref fails or loops it returns the last node it reached, which still
+// carries the ref.
+func derefAll(s *refSide, loc string, node any) (any, string) {
+	seen := map[string]bool{loc: true}
+	for refOf(node) != "" {
+		t, tLoc, err := s.deref(loc, node)
+		if err != nil || seen[tLoc] {
+			break
+		}
+		seen[tLoc] = true
+		node, loc = t, tLoc
+	}
+	return node, loc
 }
 
 // diffParameters compares operation parameters identified by name+in.

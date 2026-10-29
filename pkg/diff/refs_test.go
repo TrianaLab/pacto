@@ -150,6 +150,25 @@ func TestRefs_RepointedRefIsStructural(t *testing.T) {
 // A ref Pacto cannot resolve is a missing observation: POTENTIAL_BREAKING
 // with a reason saying so, never a confirmed break. The same unresolved ref
 // on both sides shows no change.
+// assertUnresolved wants at least one change at a usage path, and every one
+// of them POTENTIAL_BREAKING with a reason naming the revision that failed.
+func assertUnresolved(t *testing.T, changes []Change, rev string) {
+	t.Helper()
+	used := 0
+	for _, c := range changes {
+		if strings.HasPrefix(c.Path, "openapi.components") {
+			continue // a component nothing uses
+		}
+		used++
+		if c.Classification != PotentialBreaking || !strings.Contains(c.Reason, "could not resolve $ref") || !strings.Contains(c.Reason, "in the "+rev+" revision") {
+			t.Errorf("%s %s: %s", c.Path, c.Classification, c.Reason)
+		}
+	}
+	if used == 0 {
+		t.Errorf("no change at a usage path: %+v", changes)
+	}
+}
+
 func TestRefs_Unresolvable(t *testing.T) {
 	remote := strings.Replace(refSpec, "'#/components/schemas/Order'}\n      responses", "'https://example.com/order.yaml'}\n      responses", 1)
 	tests := []struct{ name, old, new, rev string }{
@@ -161,20 +180,19 @@ func TestRefs_Unresolvable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			changes := diffRefSpecs(t, tt.old, tt.new, refReceipt, refReceipt)
-			for _, c := range changes {
-				if strings.HasPrefix(c.Path, "openapi.components") {
-					continue // Gone, which nothing uses
-				}
-				if c.Classification != PotentialBreaking || !strings.Contains(c.Reason, "could not resolve $ref") || !strings.Contains(c.Reason, "in the "+tt.rev+" revision") {
-					t.Errorf("%s %s: %s", c.Path, c.Classification, c.Reason)
-				}
-			}
-			if len(changes) == 0 {
-				t.Error("no change")
-			}
+			assertUnresolved(t, diffRefSpecs(t, tt.old, tt.new, refReceipt, refReceipt), tt.rev)
 		})
 	}
+	// The ref text stays the same while its target goes away: the receipt
+	// file dropped from the new bundle.
+	t.Run("file dropped from bundle", func(t *testing.T) {
+		nw := fstest.MapFS{"api/openapi.yaml": {Data: []byte(refSpec)}}
+		assertUnresolved(t, diffOpenAPI("api/openapi.yaml", "api/openapi.yaml", refFS(refSpec, refReceipt), nw), "new")
+	})
+	t.Run("file added to bundle", func(t *testing.T) {
+		old := fstest.MapFS{"api/openapi.yaml": {Data: []byte(refSpec)}}
+		assertUnresolved(t, diffOpenAPI("api/openapi.yaml", "api/openapi.yaml", old, refFS(refSpec, refReceipt)), "old")
+	})
 	if changes := diffRefSpecs(t, remote, remote, refReceipt, refReceipt); len(changes) != 0 {
 		t.Errorf("same unresolved ref: %+v", changes)
 	}
@@ -336,6 +354,24 @@ func TestRefs_UnresolvedParameter(t *testing.T) {
 			t.Fatalf("got %+v", changes)
 		}
 	})
+}
+
+// A parameter ref that points at another ref resolves through the chain, so
+// it does not hide a confirmed break of an unrelated parameter. A cycle never
+// resolves.
+func TestRefs_ChainedParameter(t *testing.T) {
+	chained := edit(t, refSpec, "    Id: {name: id,", "    Id: {$ref: '#/components/parameters/IdBase'}\n    IdBase: {name: id,")
+	withQ := edit(t, chained, "        - $ref: '#/components/parameters/Id'\n", "        - $ref: '#/components/parameters/Id'\n        - {name: q, in: query, schema: {type: string}}\n")
+	c, ok := findChange(diffRefSpecs(t, withQ, chained, refReceipt, refReceipt), "openapi.paths[/orders/{id}].methods[GET].parameters[q:query]", Removed)
+	if !ok || c.Classification != Breaking {
+		t.Fatalf("chained ref: got %+v", c)
+	}
+	cyclic := edit(t, chained, "    IdBase: {name: id,", "    IdBase: {$ref: '#/components/parameters/Id'}\n    Unused: {name: id,")
+	cyclicQ := edit(t, withQ, "    IdBase: {name: id,", "    IdBase: {$ref: '#/components/parameters/Id'}\n    Unused: {name: id,")
+	c, ok = findChange(diffRefSpecs(t, cyclicQ, cyclic, refReceipt, refReceipt), "openapi.paths[/orders/{id}].methods[GET].parameters[q:query]", Removed)
+	if !ok || c.Classification != PotentialBreaking {
+		t.Fatalf("cyclic ref: got %+v", c)
+	}
 }
 
 const refAsyncV2 = `asyncapi: 2.6.0
