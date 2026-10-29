@@ -12,11 +12,11 @@ Published artifact coordinates for the Kubernetes integration. All coordinates a
 
 | Artifact | Kind | Coordinate | Version |
 | --- | --- | --- | --- |
-| Controller image | oci-image | `ghcr.io/trianalab/pacto/operator` | `6.2.0` |
-| Helm chart | helm-chart | `ghcr.io/trianalab/pacto/charts/pacto-operator` | `6.2.0` |
-| Delivery image (opt-in) | oci-image | `ghcr.io/trianalab/pacto/delivery` | `6.2.0` |
-| Go module | go-module | `github.com/trianalab/pacto/integrations/kubernetes/v6` | `6.2.0` |
-| Documentation | docs | `mkdocs:integrations/kubernetes` | `6.2.0` |
+| Controller image | oci-image | `ghcr.io/trianalab/pacto/operator` | `6.3.0` |
+| Helm chart | helm-chart | `ghcr.io/trianalab/pacto/charts/pacto-operator` | `6.3.0` |
+| Delivery image (opt-in) | oci-image | `ghcr.io/trianalab/pacto/delivery` | `6.3.0` |
+| Go module | go-module | `github.com/trianalab/pacto/integrations/kubernetes/v6` | `6.3.0` |
+| Documentation | docs | `mkdocs:integrations/kubernetes` | `6.3.0` |
 
 ## Verify a published artifact
 
@@ -26,7 +26,7 @@ The controller image, the opt-in delivery image and the Helm chart are signed ke
 cosign verify \
   --certificate-identity-regexp '^https://github\.com/TrianaLab/pacto/\.github/workflows/release\.yml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/trianalab/pacto/operator:6.2.0
+  ghcr.io/trianalab/pacto/operator:6.3.0
 ```
 
 Anything other than a successful verification -- including `no signatures found` -- means do not deploy it. Not every Pacto artifact is signed; see [what is signed and what is not](../../installation.md#supply-chain-what-is-signed-and-what-is-not).
@@ -38,9 +38,9 @@ Anything other than a successful verification -- including `no signatures found`
 
 ```yaml
 - name: pacto-controller
-  image: ghcr.io/trianalab/pacto/operator:6.2.0
+  image: ghcr.io/trianalab/pacto/operator:6.3.0
 - name: pacto-delivery
-  image: ghcr.io/trianalab/pacto/delivery:6.2.0
+  image: ghcr.io/trianalab/pacto/delivery:6.3.0
 ```
 
 ## Install from the published chart
@@ -48,6 +48,6 @@ Anything other than a successful verification -- including `no signatures found`
 ```bash
 helm install pacto-operator \
   oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
-  --version 6.2.0 \
+  --version 6.3.0 \
   --namespace pacto-operator-system --create-namespace
 ```

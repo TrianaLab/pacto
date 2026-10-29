@@ -44,20 +44,33 @@
     "operator-image": "ghcr.io/trianalab/pacto/operator"
   },
   "expectedTags": {
-    "cli": "v4.2.0",
-    "core": "v4.2.0",
-    "dashboard-contract-bundle": "4.2.0",
-    "dashboard-image": "4.2.0",
-    "delivery-image": "6.2.0",
-    "demo-bundles": "4.2.0",
-    "demo-compose": "4.2.0",
-    "k8s-docs": "6.2.0",
-    "k8s-module": "integrations/kubernetes/v6.2.0",
-    "operator-chart": "6.2.0",
-    "operator-image": "6.2.0"
+    "cli": "v4.3.0",
+    "core": "v4.3.0",
+    "dashboard-contract-bundle": "4.3.0",
+    "dashboard-image": "4.3.0",
+    "delivery-image": "6.3.0",
+    "demo-bundles": "4.3.0",
+    "demo-compose": "4.3.0",
+    "k8s-docs": "6.3.0",
+    "k8s-module": "integrations/kubernetes/v6.3.0",
+    "operator-chart": "6.3.0",
+    "operator-image": "6.3.0"
   },
-  "manifestSha": "9b5b2abba6a9c798a1723715a289ce33835eb9a6b825ee60a733ea941c9acc67",
+  "manifestSha": "8c2b2f053c43ee259a06cbcb0fa064ecc4d831b79ab19c83d4e2ae528f0bed58",
   "newVersions": {
+    "cli": "4.3.0",
+    "core": "4.3.0",
+    "dashboard-contract-bundle": "4.3.0",
+    "dashboard-image": "4.3.0",
+    "delivery-image": "6.3.0",
+    "demo-bundles": "4.3.0",
+    "demo-compose": "4.3.0",
+    "k8s-docs": "6.3.0",
+    "k8s-module": "6.3.0",
+    "operator-chart": "6.3.0",
+    "operator-image": "6.3.0"
+  },
+  "previousVersions": {
     "cli": "4.2.0",
     "core": "4.2.0",
     "dashboard-contract-bundle": "4.2.0",
@@ -70,23 +83,10 @@
     "operator-chart": "6.2.0",
     "operator-image": "6.2.0"
   },
-  "previousVersions": {
-    "cli": "4.1.0",
-    "core": "4.1.0",
-    "dashboard-contract-bundle": "4.1.0",
-    "dashboard-image": "4.1.0",
-    "delivery-image": "6.1.0",
-    "demo-bundles": "4.1.0",
-    "demo-compose": "4.1.0",
-    "k8s-docs": "6.1.0",
-    "k8s-module": "6.1.0",
-    "operator-chart": "6.1.0",
-    "operator-image": "6.1.0"
-  },
   "ready": true,
   "schema": "pacto-release-transaction/v1",
   "sourceSha": "",
-  "transactionId": "e6a8a357a18731cd",
+  "transactionId": "f86dda1d53987ef3",
   "units": {
     "cli": {
       "status": "pending"

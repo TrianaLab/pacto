@@ -1,5 +1,121 @@
 # @pacto/core
 
+## 4.3.0
+
+### Minor Changes
+
+- 039d160: Contracts can declare behavioral guarantees (`pactoVersion: "2.2"`). An
+  interface lists what consumers may rely on in `guarantees`: `delivery`,
+  `ordering`, `dedupeWindow` and `retention` for events, `idempotent` and
+  `timeout` for calls. A dependency lists what it relies on in `requires`.
+  A `"2.0"` or `"2.1"` contract that uses either reports `NEEDS_PACTO_2_2`.
+  `pacto validate` reads the provider contract and reports every unmet guarantee
+  as `GUARANTEE_UNMET` in its `guarantees` stage, or warns with `GUARANTEE_UNVERIFIED` when it cannot read
+  it. The stage passes only when every requirement was checked, and is skipped
+  with a reason naming the dependency otherwise. `pacto graph` marks refused edges, `pacto diff` classifies a removed or
+  weakened guarantee as breaking and `pacto impact` names the consumers whose
+  requirement a change breaks, in its text and JSON output.
+- 039d160: Contracts can declare an interface's `compatibilityEpoch`
+  (`pactoVersion: "2.2"`), an explicit marker for a breaking change no spec shows, such as an amount switching from
+  cents to euros.
+  
+  - Raise `interfaces[].compatibilityEpoch` and `pacto diff` reports
+    `interfaces.compatibilityEpoch` as `BREAKING`, naming the interface, so
+    `pacto impact` lists its consumers. Lowering it is `BREAKING` too: consumers
+    that adapted to the higher epoch break in turn.
+  - A `"2.0"` or `"2.1"` contract that sets it reports `NEEDS_PACTO_2_2`.
+- 039d160: Add `pactoVersion: "2.2"` and an interface lifecycle, so a provider can retire
+  an interface on a schedule its consumers can see. Every 2.1 contract is valid
+  under 2.2, which also carries an interface's `compatibilityEpoch` and
+  `guarantees` and a dependency's `requires`. A 2.2 contract needs Pacto core
+  4.3.0 or later and operator 6.3.0 or later. A `"2.0"` or `"2.1"` contract that
+  uses a 2.2 field reports `NEEDS_PACTO_2_2` for each.
+  
+  ```yaml
+  pactoVersion: "2.2"
+  interfaces:
+    - name: orders-v1
+      type: openapi
+      ref: interfaces/orders-v1.yaml
+      lifecycle:
+        deprecated: "2026-10-01"
+        sunset: "2027-04-01"
+        successor: orders-v2
+  ```
+  
+  - `pacto validate` checks that both dates are `YYYY-MM-DD`, that the sunset is
+    not before the deprecation (`INVALID_INTERFACE_LIFECYCLE`) and that the
+    successor names another interface or is an absolute URL
+    (`INTERFACE_SUCCESSOR_UNKNOWN`). A 2.0 or 2.1 contract with a lifecycle
+    reports `NEEDS_PACTO_2_2`.
+  - `pacto validate --closure` warns a consumer about each deprecated interface
+    of a service it depends on directly, naming the interface, its sunset and its
+    successor (`DEPENDENCY_INTERFACE_DEPRECATED`). From the sunset date the code
+    is `DEPENDENCY_INTERFACE_SUNSET`.
+  - `pacto diff` reports deprecating an interface as non-breaking and moving its
+    sunset earlier as potentially breaking. Removing an interface before its
+    sunset stays breaking, and the reason says so.
+  - `pacto explain`, the MCP contract summary and the dashboard API show an
+    interface's lifecycle.
+- 039d160: `pacto diff` judges every interface schema change by the position the schema
+  sits in, and resolves `$ref` first, so a schema defined under OpenAPI or
+  AsyncAPI `components` is judged where an operation or a message uses it.
+  
+  **`pacto diff` and `pacto impact` report more changes as `BREAKING`.** A CI
+  job that gates on `BREAKING` can fail on a change it passed before. Each of
+  these was `POTENTIAL_BREAKING` or went unreported:
+  
+  - In a response or an MCP `outputSchema`, widening breaks: a new `enum` value
+    or `oneOf` variant, a looser limit, a dropped `pattern`, a wider `type`.
+  - In a request body, a parameter or an MCP `inputSchema`, narrowing breaks: a
+    dropped `enum` value, a tighter limit, a new `pattern`.
+  - An AsyncAPI message's `payload` and `headers` schemas are records that old
+    and new code read and write at once, so widening and narrowing both break
+    there. Only a new optional property passes. Removing a payload property is
+    `BREAKING`, as it already was from a response. A flipped operation
+    `action`, a 2.x `publish`/`subscribe` flip and an operation linked to a
+    different channel are `BREAKING`. Other edits to a channel or an operation,
+    such as a binding, stay `POTENTIAL_BREAKING`.
+  - Inside an interface schema, an edit the rules cannot rank, such as a new
+    `default` or anything under `not`, is `BREAKING`.
+  - A change to a component, or to a path item, reached through `$ref` was
+    never reported. It is
+    now judged in every position that uses it, and one change carries the
+    worst grade, with a reason naming the component and its usages.
+  - A top-level proto `enum` is compared for the first time: a removed enum and a removed
+    or renumbered value are `BREAKING`. An added value is `POTENTIAL_BREAKING`,
+    because the scan cannot tell whether the enum travels in a request or a
+    response. An enum nested inside a message is still skipped.
+  
+  Some changes grade lower than before. A `$ref` that points at a different
+  component is graded by the structural difference, so renaming a component
+  with identical content is no change. A remote ref, or one whose target is
+  missing, is `POTENTIAL_BREAKING` with a reason saying Pacto could not
+  resolve it, and so is a ref whose target goes away while its text stays the
+  same. A component nothing references is reported as `NON_BREAKING`. An
+  `x-` extension keyword inside an interface schema is `POTENTIAL_BREAKING` in
+  every position: tools read it, and Pacto cannot tell whether a change to one
+  reaches a reader of the data. The safe direction of each edit above is
+  `NON_BREAKING`, and so is a new optional property in a request or a
+  response. Documentation edits (`description`, `title`, `summary`, `example`,
+  `examples`, `$comment`, `externalDocs`, `deprecated`, `tags`) are `NON_BREAKING`
+  everywhere, configuration and policy schemas included.
+- 039d160: `pacto validate` reports one PASS, FAIL or SKIP line per stage (load, lock,
+  structural, cross-field, policy, guarantees, readiness and closure), lists each error
+  under its stage with its file:line:column when it can be located (never
+  with `--set` or `-f`, which validate a merged document), and ends
+  with a `Next:` line naming the one command to run now. A failed
+  load or lock stage skips every stage after it, and a failed structural or
+  cross-field stage skips the stages after it up to policy. The guarantees,
+  readiness and closure stages run even when an earlier stage fails. The JSON output adds `stages`, `next`, `file` and each error's
+  `line` and `column`, and `pacto_check` returns the same `stages`, `next` and
+  locations. An unknown field or a mistyped enum value carries a `did you mean`
+  hint naming the closest valid one.
+  
+  The text output of `pacto validate` now goes to stdout as one stream: the
+  error and warning lines moved there from stderr. The one-line failure summary
+  stays on stderr, and exit codes are unchanged.
+
 ## 4.2.0
 
 ### Minor Changes

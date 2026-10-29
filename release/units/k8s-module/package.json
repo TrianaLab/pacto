@@ -1,6 +1,6 @@
 {
   "name": "@pacto/k8s-module",
-  "version": "6.2.0",
+  "version": "6.3.0",
   "private": true,
   "pacto": {
     "releaseUnit": "k8s-module",
