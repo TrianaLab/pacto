@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -73,7 +74,11 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	if _, err := os.Stat(lockPath); local && err == nil {
 		stages = append(stages, validation.RanStage("lock", validation.ValidationResult{}))
 	} else {
-		stages = append(stages, validation.SkippedStages("no "+lock.FileName, "lock")...)
+		reason := "no " + lock.FileName
+		if !local {
+			reason = "not checked for registry references"
+		}
+		stages = append(stages, validation.SkippedStages(reason, "lock")...)
 	}
 
 	// Raw YAML for structural validation. Unreadable is fatal here: unlike the
@@ -141,6 +146,11 @@ func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...v
 		}
 		for j := range stages[i].Errors {
 			e := &stages[i].Errors[j]
+			// With overrides, raw is the merged document, whose lines are not
+			// the file's, so an error there carries no position.
+			if !opts.Overrides.IsEmpty() {
+				continue
+			}
 			e.Line, e.Column = contract.Locate(raw, e.Path)
 			if m := parseLineRe.FindStringSubmatch(e.Message); e.Code == "PARSE_ERROR" && m != nil {
 				e.Line, _ = strconv.Atoi(m[1])
@@ -187,6 +197,9 @@ func nextFix(r *ValidateResult, rerun string) string {
 	e := r.Errors[0]
 	if m := fixCommandRe.FindStringSubmatch(e.Message); strings.HasPrefix(e.Code, "LOCK_") && m != nil {
 		return m[1] + " " + r.Path
+	}
+	if _, err := os.Stat(r.Path); !isOCIRef(r.Path) && errors.Is(err, fs.ErrNotExist) {
+		return r.Path + " does not exist: run pacto validate on the directory that holds " + DefaultContractPath
 	}
 	return fmt.Sprintf("fix %s [%s], then run %s", r.Where(e), e.Code, rerun)
 }

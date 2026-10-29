@@ -131,8 +131,52 @@ func TestValidateStages_OCIFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.File != "pacto.yaml" || r.Stages[1].Status != validation.StageSkip {
+	if r.File != "pacto.yaml" || r.Stages[1].Status != validation.StageSkip || r.Stages[1].Reason != "not checked for registry references" {
 		t.Errorf("file = %q, lock = %+v", r.File, r.Stages[1])
+	}
+}
+
+// TestValidateStages_MissingDirectory: Next says the path does not exist
+// rather than pointing at a file to fix.
+func TestValidateStages_MissingDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	r, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := dir + " does not exist: run pacto validate on the directory that holds pacto.yaml"; r.Next != want {
+		t.Errorf("next = %q, want %q", r.Next, want)
+	}
+}
+
+// TestValidateStages_OverridesUnlocated: with --set or -f the errors are
+// found in the merged document, whose lines are not the file's, so they
+// carry no position and Next names the path alone.
+func TestValidateStages_OverridesUnlocated(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("# header\n\npactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: 1.0.0\ninterfaces:\n  - {name: api, type: openapi, ref: missing.yaml}\n"+
+		"workload: service\nstate:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := ValidateOptions{Path: dir}
+	r, err := NewService(nil, nil).Validate(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := r.Errors[0]; e.Path != "interfaces[0].ref" || e.Line != 8 || e.Column != 32 {
+		t.Errorf("without overrides: %+v", e)
+	}
+	opts.Overrides = override.Overrides{SetValues: []string{"service.version=2.0.0"}}
+	if r, err = NewService(nil, nil).Validate(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range r.Errors {
+		if e.Line != 0 || e.Column != 0 {
+			t.Errorf("with overrides: %+v", e)
+		}
+	}
+	if want := "fix interfaces[0].ref at " + filepath.Join(dir, "pacto.yaml") + " [FILE_NOT_FOUND], then run pacto validate --set service.version=2.0.0 " + dir; r.Next != want {
+		t.Errorf("next = %q, want %q", r.Next, want)
 	}
 }
 
