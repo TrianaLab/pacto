@@ -166,9 +166,9 @@ the detail.
 
 | You want to | Read |
 |---|---|
-| Know what Pacto is and whether it fits | [Who breaks when a dependency ships](#who-breaks-when-a-dependency-ships-a-new-version), the [live demo](examples/dashboard-demo.md) and [the autonomy ladder](autonomy.md) |
-| Pactify your first service (give it a contract and connect it to delivery) | [Quickstart](quickstart.md), then [Pactify a service](pactify.md) |
+| Know what Pacto is and whether it fits | [Who breaks when a dependency ships](#who-breaks-when-a-dependency-ships-a-new-version), [How Pacto relates to other tools](comparison.md) and the [live demo](examples/dashboard-demo.md) |
 | Give many existing services a contract | [Generate contracts from what you already have](bootstrap-contracts.md) |
+| Pactify your first service (give it a contract and connect it to delivery) | [Quickstart](quickstart.md), then [Pactify a service](pactify.md) |
 | Approve or unblock a change | [Decide, unfreeze and roll back](pactify-decide.md) |
 | Verify a record | [Check a record without Pacto](verify-a-record.md) |
 | Drive Pacto from an AI agent | [AI assistants (MCP)](mcp-integration.md) |
