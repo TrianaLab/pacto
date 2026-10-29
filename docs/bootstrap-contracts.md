@@ -19,8 +19,8 @@ jq -r '.results[] | [.service, .mode, (.unknown | length)] | @tsv' plan.json
 ```
 
 ```text
-checkout  pactify  2
-ledger    blank    0
+checkout  pactify  3
+ledger    blank    1
 notifier  blank    0
 payments  pactify  3
 ```
@@ -50,12 +50,18 @@ jq -r '.results[] | .service as $s | .unknown[] | "\($s): \(.)"' plan.json
 Init reads only these. A file such as `api/openapi.v1.yaml` is missed, and
 configuration schemas, state and dependency ranges stay for you to write.
 
+Init skips the files and folders that the service's
+[`.pactoignore`](pactoignore.md) lists. It also skips every folder that holds a
+`Chart.yaml`, and documents in the `backstage.io` and `skaffold` API groups,
+such as `catalog-info.yaml` and `skaffold.yaml`.
+
 ## 2. Prepare the folders init cannot read
 
 Init keeps a `pacto.yaml` that is already there, so prepare these folders
 before step 3.
 
-**Helm charts.** Init does not render charts, and a chart-only folder plans as
+**Helm charts.** Init does not render charts. It skips the chart's templates
+and names the chart once under `unknown`, so a chart-only folder plans as
 `blank`. Render the chart into the folder, then init reads the result:
 
 ```bash
@@ -64,7 +70,9 @@ helm template ledger services/ledger/chart > services/ledger/k8s/rendered.yaml
 ```
 
 The contract then publishes the rendered file, so render again when the chart
-changes.
+changes. The `unknown` line that names the chart stays after you render it. To
+publish the chart itself, add it under `publish.artifacts` as a `chart`
+([Publish](contract-reference/publish.md)).
 
 **Compose files.** Init does not read `compose.yaml`. A Compose-only folder
 gets the blank template. The blank template writes `pactoVersion: "2.0"` and
@@ -83,12 +91,12 @@ adds files and missing `.pactoignore` lines, so you can run it again after you
 fix a folder.
 
 !!! warning "Check the build command before you publish"
-    Init treats every YAML file in the folder with an `apiVersion` and a `kind`
-    as a Kubernetes manifest. Chart templates that parse as YAML,
-    `catalog-info.yaml` and `skaffold.yaml` end up in the manifests artifact's
-    `build.command`, and `.pactoignore` does not change that command. Read the
-    `cp` list in each `pacto.yaml` and remove any file that is not a manifest
-    your cluster applies.
+    Init treats any other YAML file with an `apiVersion` and a `kind` as a
+    Kubernetes manifest, such as a kind cluster configuration, and lists it in
+    the manifests artifact's `build.command`. List such a file in the folder's
+    `.pactoignore` before you run init. In a `pacto.yaml` that init already
+    wrote, read the `cp` list and remove any file that is not a manifest your
+    cluster applies.
 
 ## 4. Fill in what init could not tell
 
@@ -137,7 +145,17 @@ workload in the namespace that no Pacto resource describes, in
 `--namespace` it reads every namespace, `kube-system` included. It lists
 Services, EndpointSlices, Pactos and node runtime observations in every
 namespace even with `--namespace`, so your identity needs cluster-wide `list`
-on them.
+on them. It needs that permission even when the Pacto CRDs are not installed.
+
+Each draft holds a `manifests.yaml` with the workload and its Services as the
+cluster returns them, without namespace, uid or status. It also holds a
+`pacto.yaml` and a `.pactoignore`. `--plan` writes nothing. A workload that a
+Pacto targets is skipped.
+
+Without the [node agent](runtime-agent.md), dependencies come only from
+environment values, as in a folder: commented out, with the range `^1.0.0`.
+A value such as `host:6443` matches whether or not `host` is a Service, so a
+control-plane endpoint can become a dependency. Check each one.
 
 ## From an agent
 

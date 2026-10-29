@@ -115,8 +115,8 @@ takes from each.
   [registry conformance](https://pacto.run/latest/evidence/#registry-conformance).
 - Delivery is alpha and runs only on Kubernetes; see
   [delivery](https://pacto.run/latest/integrations/kubernetes/delivery/).
-- `pacto init` does not read Helm charts or Compose files; see
-  [Pactify a service](https://pacto.run/latest/pactify/).
+- `pacto init` skips Helm chart templates and does not read Compose files; see
+  [Generate contracts from what you already have](https://pacto.run/latest/bootstrap-contracts/).
 
 The operator's limits are listed in
 [Limitations](https://pacto.run/latest/integrations/kubernetes/limitations/).

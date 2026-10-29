@@ -174,6 +174,8 @@ policies:
 
 The `ref` row above lists the schemas a referenced contract contributes. [Layer 3](validation.md#layer-3-policy-checks) lists the commands that walk that chain and what happens when a link in it fails to fetch.
 
+The policies apply to the contract that references them. `pacto validate --closure` also checks every contract in its dependency closure against them; see [Dependency closure](validation.md#dependency-closure).
+
 !!! tip
     Like `configurations[].ref`, policy references create **reference edges** in the dependency graph (`pacto graph --with-references`) and are pinned in [`pacto.lock`](../lockfile.md) alongside dependencies.
 

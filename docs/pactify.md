@@ -270,8 +270,7 @@ pacto delivery approve -n prod <name> --decision approve
 `--cluster` drafts a contract for every workload no Pacto describes yet, from
 your current kubeconfig context, in `<out>/<namespace>/<name>`. Pass
 `--namespace`: without it, `--cluster` reads every namespace, system ones
-included. Even with `--namespace` it lists Services, EndpointSlices and Pactos
-in every namespace, so your identity needs cluster-wide `list` on them:
+included:
 
 ```bash
 pacto init --plan services/checkout services/payments
@@ -281,12 +280,14 @@ pacto init --cluster --namespace shop --out drafts --plan
 With the Pacto node agent running, the services a workload was seen calling
 become dependencies, pinned to exactly the version seen running
 (`compatibility: "=2.3.0"`) for you to widen. Until you do, every new version
-of that service asks your team. A service with no contract stays a comment.
+of that service asks your team. Without the agent, dependencies come only from
+environment values, commented out. A service with no contract stays a comment.
 Drafts are never published, and an invalid one fails the command. The MCP tool
 `pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,
 and only plans unless `dry_run` is false.
-[Generate contracts from what you already have](bootstrap-contracts.md) walks
-through a whole folder of services, and what init cannot read.
+[Generate contracts from what you already have](bootstrap-contracts.md#draft-from-a-running-cluster)
+lists the permissions `--cluster` needs and walks through a whole folder of
+services.
 
 ## What's next
 

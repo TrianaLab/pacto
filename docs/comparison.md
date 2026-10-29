@@ -43,7 +43,7 @@ verified" when the source page alone does not settle it.
 | **KubeVela** | Partial | Partial | not verified | not verified | not verified | Yes | [Version control](https://kubevela.io/docs/end-user/version-control/) |
 | **Kratix** | Partial | not verified | Partial | not verified | not verified | Yes | [Promise reference](https://docs.kratix.io/main/reference/promises/intro) |
 | **Kargo** | Partial | not verified | — | not verified | not verified | No | [Core concepts](https://docs.kargo.io/user-guide/core-concepts/) |
-| **Pacto** | ✅ | ✅ | ✅ | Partial | ✅ | No (delivery promotes, alpha) | This site |
+| **Pacto** | ✅ | ✅ | ✅ | ✅ (opt-in) | ✅ | No (delivery promotes, alpha) | This site |
 
 What each source page shows:
 
@@ -67,11 +67,13 @@ What each source page shows:
 
 We graded our own row on the same criteria:
 
-- **Transitive policy** is Partial. Pacto follows policy references from one
-  policy contract to the next and fails closed when one cannot be resolved. It
-  evaluates the policies against the root contract only. A check across the closure is tracked as
-  a future option. See [`policies`](contract-reference/configuration-and-policy.md#policies)
-  and [Layer 3](contract-reference/validation.md#layer-3-policy-checks).
+- **Transitive policy** is ✅ and opt-in. Pacto follows policy references from
+  one policy contract to the next and fails closed when one cannot be resolved.
+  By default it checks the policies against the root contract only.
+  `pacto validate --closure` also checks every contract in the dependency
+  closure against them, and fails when a dependency cannot be resolved. The
+  flag is on `pacto validate` only. See
+  [Dependency closure](contract-reference/validation.md#dependency-closure).
 - **Semantic diff** classifies each change as non-breaking, potentially
   breaking or breaking ([diff](contract-reference/diff.md)).
 - **Runtime verify** compares running workloads with the contract
