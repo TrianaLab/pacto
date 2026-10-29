@@ -222,7 +222,7 @@ func (r *Result) gate() (string, string) {
 			"Add the directory or registry that holds the services depending on it as a fleet source and run the analysis again"
 	}
 	if r.Completeness != fleet.CompletenessComplete {
-		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break. " +
+		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break" + r.unmetNote() + ". " +
 			"Fix the sources named in limitations and run the analysis again"
 	}
 	if len(r.Consumers) > 0 {
@@ -231,10 +231,25 @@ func (r *Result) gate() (string, string) {
 			n = "1 consumer depends"
 		}
 		return GateUnverified, "the change is BREAKING and " + n + " on " + r.Service +
-			", but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run " +
+			", but none is shown to be both incompatible and running" + r.unmetNote() + ". Review each consumer, and add a source that knows where services run " +
 			"(for example --target-state) to tell deployed impact apart"
 	}
 	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
+}
+
+// unmetNote names the consumers the new revision refuses a guarantee they
+// require, as a sentence to add to a gate reason; it is empty when none does.
+func (r *Result) unmetNote() string {
+	var names []string
+	for _, c := range r.Consumers {
+		if len(c.Unmet) > 0 {
+			names = append(names, c.Service)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return ". " + r.Service + " " + r.NewVersion + " does not meet a guarantee required by " + strings.Join(names, ", ")
 }
 
 func hasCode(ls []fleet.Limitation, code string) bool {

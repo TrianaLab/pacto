@@ -706,6 +706,7 @@ func TestAnalyze_UncontractedCallers(t *testing.T) {
 func TestGate(t *testing.T) {
 	active := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/web"}}
 	paper := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityIncompatible}
+	refused := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityCompatible, Unmet: []contract.Mismatch{{Consumer: "web"}}}
 	tests := []struct {
 		name, gate, reason string
 		r                  Result
@@ -718,6 +719,10 @@ func TestGate(t *testing.T) {
 		{"partial", GateUnverified, "the answer is partial", Result{Classification: "BREAKING", Completeness: fleet.CompletenessPartial}},
 		{"one consumer", GateUnverified, "1 consumer depends on api", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper}}},
 		{"two consumers", GateUnverified, "2 consumers depend on api", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper, paper}}},
+		{"refused guarantee", GateUnverified, "on api, but none is shown to be both incompatible and running. api 2.0.0 does not meet a guarantee required by web. Review each consumer",
+			Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{refused}}},
+		{"refused guarantee, partial", GateUnverified, "may break. api 2.0.0 does not meet a guarantee required by web. Fix the sources",
+			Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Completeness: fleet.CompletenessPartial, Consumers: []AffectedConsumer{refused}}},
 		{"nobody depends", GateClear, "no service in the complete fleet snapshot depends on api", Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete}},
 	}
 	for _, tt := range tests {
