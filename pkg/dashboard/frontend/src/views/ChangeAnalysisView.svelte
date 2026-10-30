@@ -13,7 +13,6 @@
   import EmptyState from '../components/EmptyState.svelte';
   import PreviewSection from '../components/PreviewSection.svelte';
   import EntityRefList from '../components/EntityRefList.svelte';
-  import IdentityBadge from '../components/IdentityBadge.svelte';
   import RequirementList from '../components/RequirementList.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
   import DiffChangesTable from '../DiffChangesTable.svelte';
@@ -342,13 +341,15 @@
     const newLabel = result.newRevision?.version || result.newRevision?.label || 'the new revision';
     const parts = [
       verdictCount('incompatible') ? `${formatCount(verdictCount('incompatible'))} ${verdictCount('incompatible') === 1 ? 'does' : 'do'} not accept ${newLabel}` : '',
+      // A refused consumer breaks whatever its range verdict, so it is named on its own.
+      consumers.refused ? `${formatCount(consumers.refused)} ${consumers.refused === 1 ? 'requires' : 'require'} a guarantee ${newLabel} does not offer` : '',
       verdictCount('unknown') ? `${formatCount(verdictCount('unknown'))} unknown` : '',
     ].filter(Boolean);
     return `${what} ${countOf(consumers.total, 'consumer')} affected${parts.length ? `: ${parts.join(', ')}` : ''}.`;
   });
   const consumerMeta = $derived(
     consumers.total
-      ? `${formatCount(consumers.total)}${verdictCount('incompatible') ? ` · ${formatCount(verdictCount('incompatible'))} incompatible` : ''}`
+      ? `${formatCount(consumers.total)}${verdictCount('incompatible') ? ` · ${formatCount(verdictCount('incompatible'))} incompatible` : ''}${consumers.refused ? ` · ${formatCount(consumers.refused)} refused` : ''}`
       : 'None',
   );
   const cShownFrom = $derived(consumers.total === 0 ? 0 : (consumers.offset ?? 0) + 1);
@@ -580,10 +581,11 @@
                     <td data-label="Path" class="path-cell">
                       {#if (c.path?.length ?? 0) > 0}{c.path.map((p) => p.label).join(' → ')}{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
                     </td>
-                    <td data-label="Verdict"><span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
+                    <!-- A refused guarantee breaks the consumer whatever its range accepts, so its
+                         range verdict is never shown as a plain pass next to the refusal. -->
+                    <td data-label="Verdict">{#if c.unmet?.length}<span class="badge badge-neutral" title="The range verdict. The new revision still refuses a guarantee this consumer requires.">range {c.compatibilityVerdict}</span>{:else}<span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{/if}{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
                       {#if c.unmet?.length}
-                        <!-- A refused guarantee breaks the consumer whatever its range accepts. -->
-                        <div class="consumer-refused" data-testid="consumer-refused"><IdentityBadge label="Refused" tone="err" title="The new revision does not offer what this consumer requires." /><RequirementList unmet={c.unmet} /></div>
+                        <div class="consumer-refused" data-testid="consumer-refused"><RequirementList unmet={c.unmet} /></div>
                       {/if}</td>
                     <td data-label="Confidence"><span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span></td>
                     <td data-label="Owner">{#if c.owner}<span class="cell-clip" title={c.owner}>{c.owner}</span>{:else}<span class="text-dim">—</span>{/if}</td>

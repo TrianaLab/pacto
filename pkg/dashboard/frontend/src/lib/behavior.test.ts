@@ -81,6 +81,8 @@ describe('environment and stage words', () => {
   it('names each stage and keeps its reason', () => {
     expect(stageBadge({ name: 'structural', status: 'pass' })).toEqual({ label: 'Structure passed', tone: 'ok', title: 'Structure passed' });
     expect(stageBadge({ name: 'environments', status: 'skip', reason: 'policy failed' })).toEqual({ label: 'Environments not run', tone: 'neutral', title: 'Environments: policy failed' });
+    // A stage that ran and could not check everything is not verified, apart from one that never ran.
+    expect(stageBadge({ name: 'environments', status: 'skip', reason: 'could not verify: prod', unverified: true })).toEqual({ label: 'Environments not verified', tone: 'neutral', title: 'Environments: could not verify: prod' });
     expect(stageBadge({ name: 'policy', status: 'fail' }).tone).toBe('err');
     expect(stageBadge({ name: 'novel', status: 'odd' })).toMatchObject({ label: 'novel odd', tone: 'neutral' });
   });

@@ -13,7 +13,10 @@
   // says which earlier stage stopped it). Neither of the last two is a pass.
   let { items = [] } = $props();
   // Every message names its environment, which this card already does.
-  const message = (env, f) => (f.message?.startsWith(`environment ${env.name}: `) ? f.message.slice(env.name.length + 13) : f.message);
+  const message = (env, f) => {
+    const prefix = `environment ${env.name}: `;
+    return f.message?.startsWith(prefix) ? f.message.slice(prefix.length) : f.message;
+  };
 </script>
 
 <ul class="env-list">

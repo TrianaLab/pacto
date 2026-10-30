@@ -184,6 +184,29 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
+  it('counts a refused consumer in the answer and never shows it as plainly compatible', async () => {
+    const res = impactResult();
+    res.classification = 'NON_BREAKING';
+    res.changes = { total: 1, count: 1, truncated: false, breaking: 0, potential: 0, nonBreaking: 1, items: [res.changes.items[2]] };
+    res.consumers.items[0].compatibilityVerdict = 'compatible';
+    res.consumers.items[0].unmet = [{ consumer: 'billing', provider: 'payments', interface: 'events', guarantee: 'delivery', required: 'at-least-once', offered: 'at-most-once' }];
+    res.consumers.byVerdict = [{ key: 'compatible', count: 1 }, { key: 'unknown', count: 1 }];
+    res.consumers.refused = 1;
+    impactFn.mockResolvedValue(res);
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="consumer-refused"]')).toBeTruthy());
+    flushSync();
+    const answer = target.querySelector('[data-testid="changes-answer"] .ca-answer-line')?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(answer).toContain('2 consumers affected: 1 requires a guarantee payments 2.0.0 does not offer, 1 unknown.');
+    expect(target.querySelector('[data-testid="changes-consumers"] summary')?.textContent).toContain('2 · 1 refused');
+    const cell = target.querySelector('[data-testid="consumer-refused"]')!.closest('td')!;
+    expect(cell.querySelector('.badge-ok')).toBeNull();
+    expect(cell.textContent?.match(/Refused/g)).toHaveLength(1);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('shows the release gate with its reason, and none when the answer carries no gate', async () => {
     const { target, component } = mountView({ svc: 'domain-a/payments' });
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());

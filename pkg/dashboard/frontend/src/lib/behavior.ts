@@ -98,9 +98,10 @@ const STAGE: Record<string, { word: string; tone: Tone }> = {
 };
 const STAGE_NAME: Record<string, string> = { structural: 'Structure', 'cross-field': 'Cross-field', policy: 'Policy', environments: 'Environments' };
 
-/** stageBadge names one validation stage and how it ended. */
-export function stageBadge(st: { name: string; status: string; reason?: string }): { label: string; tone: Tone; title: string } {
-  const s = STAGE[st.status] ?? { word: st.status, tone: 'neutral' as Tone };
+/** stageBadge names one validation stage and how it ended. A skip from a stage that ran
+ *  but could not check everything (unverified) is "not verified", apart from "not run". */
+export function stageBadge(st: { name: string; status: string; reason?: string; unverified?: boolean }): { label: string; tone: Tone; title: string } {
+  const s = st.unverified ? { word: 'not verified', tone: 'neutral' as Tone } : STAGE[st.status] ?? { word: st.status, tone: 'neutral' as Tone };
   const name = STAGE_NAME[st.name] ?? st.name;
   return { label: `${name} ${s.word}`, tone: s.tone, title: st.reason ? `${name}: ${st.reason}` : `${name} ${s.word}` };
 }

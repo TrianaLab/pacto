@@ -122,6 +122,7 @@ describe('EnvironmentList', () => {
     // The card names the environment, so its messages do not repeat it.
     expect(target.textContent).toContain('configuration app at /app/replicas: got string, want integer');
     expect(target.textContent).not.toContain('environment production: configuration');
+    expect(target.querySelector('.env-msg')?.textContent).toBe('configuration app at /app/replicas: got string, want integer');
     expect(target.textContent).toContain('ENVIRONMENT_VALUES_INVALID');
     expect(target.textContent).toContain('Not checked: policy failed.');
   });
