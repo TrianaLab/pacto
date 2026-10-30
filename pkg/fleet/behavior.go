@@ -40,8 +40,8 @@ type InterfaceDeprecation struct {
 	Successor  string `json:"successor,omitempty"`
 }
 
-// clone copies b so the copy shares no slice with b.
-func (b DependencyBehavior) clone() DependencyBehavior {
+// copyBehavior copies b so the copy shares no slice with b.
+func (b DependencyBehavior) copyBehavior() DependencyBehavior {
 	b.Requires = slices.Clone(b.Requires)
 	b.Unmet = slices.Clone(b.Unmet)
 	return b
@@ -145,6 +145,6 @@ func declaredClaim(rel Relationship) DeclaredClaim {
 		SourceRevision: rel.FromRevision, Required: rel.Required, Compatibility: rel.Compatibility,
 		Reconciliation: rel.Reconciliation, RequestedRef: rel.RequestedRef,
 		LockedVersion: rel.LockedVersion, LockedDigest: rel.LockedDigest,
-		DependencyBehavior: rel.DependencyBehavior.clone(),
+		DependencyBehavior: rel.copyBehavior(),
 	}
 }

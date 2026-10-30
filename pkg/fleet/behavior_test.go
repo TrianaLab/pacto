@@ -135,7 +135,9 @@ func TestEdgeBehaviorFold(t *testing.T) {
 	if c := got["late"].DeclaredClaims.Items[0]; c.GuaranteeStatus != GuaranteeUnmet || len(c.Unmet) != 1 {
 		t.Errorf("late claim = %+v", c)
 	}
+}
 
+func TestFoldBehavior(t *testing.T) {
 	// The worst status wins and deprecations union by interface, whatever the order.
 	e := &NeighborhoodEdge{}
 	b := InterfaceDeprecation{Interface: "b", Deprecated: "2026-01-01"}
