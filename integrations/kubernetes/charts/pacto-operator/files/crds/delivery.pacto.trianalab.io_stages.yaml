@@ -169,6 +169,13 @@ spec:
                     type: string
                 type: object
               environment:
+                description: |-
+                  Environment is the environment the Stage delivers to, such as prod.
+                  A promote matches it against the environments the version's contract
+                  declares (environments[].name): a contract that declares environments
+                  must declare this one, with values that satisfy its configuration
+                  schemas, or the promote waits for a person (pacto.environment). It
+                  also places the Pactos and Stages a change's consumers run on.
                 type: string
               gates:
                 description: |-

@@ -180,7 +180,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.deadlines` | `object` | no |  |  | Deadlines override the operation type's defaults (Go durations). |
 | `status.policy.deadlines.approval` | `string` | no |  |  |  |
 | `status.policy.deadlines.execution` | `string` | no |  |  |  |
-| `status.policy.environment` | `string` | yes |  |  |  |
+| `status.policy.environment` | `string` | yes |  |  | Environment is the environment the Stage delivers to, such as prod. A promote matches it against the environments the version's contract declares (environments[].name): a contract that declares environments must declare this one, with values that satisfy its configuration schemas, or the promote waits for a person (pacto.environment). It also places the Pactos and Stages a change's consumers run on. |
 | `status.policy.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
 | `status.policy.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
 | `status.policy.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |
@@ -275,7 +275,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.deadlines` | `object` | no |  |  | Deadlines override the operation type's defaults (Go durations). |
 | `spec.deadlines.approval` | `string` | no |  |  |  |
 | `spec.deadlines.execution` | `string` | no |  |  |  |
-| `spec.environment` | `string` | yes |  |  |  |
+| `spec.environment` | `string` | yes |  |  | Environment is the environment the Stage delivers to, such as prod. A promote matches it against the environments the version's contract declares (environments[].name): a contract that declares environments must declare this one, with values that satisfy its configuration schemas, or the promote waits for a person (pacto.environment). It also places the Pactos and Stages a change's consumers run on. |
 | `spec.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
 | `spec.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
 | `spec.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |

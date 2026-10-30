@@ -198,3 +198,21 @@ breaking changes detected
 | An environment added | Non-breaking: it only adds values to check |
 | An environment removed | Potentially breaking: the environment may still run the service |
 | A value in an environment's file added, removed or changed, at `environments[<name>].<configuration>.<path>` | Non-breaking: the values are this service's own inputs, and only the service reads them |
+
+### Environments and Stages
+
+When [delivery](../integrations/kubernetes/delivery.md) promotes a version, it
+matches the Stage's `spec.environment` against the environment names the
+version's contract declares. The `pacto.environment` check runs the same
+`environments` stage as `pacto validate`, on the version's own bundle:
+
+| The version's contract | The promote |
+|---|---|
+| Declares no `environments` | Goes on. The check says it does not apply |
+| Declares environments, but none named like the Stage's `spec.environment` | Waits for the service's team to approve it |
+| Declares that environment, and its values fail with an error from the table above | Waits for the service's team to approve it, with each error located in the file |
+| Declares that environment, and its values are `ENVIRONMENT_VALUES_UNVERIFIED` | Waits for a person to [accept the unknown](../glossary.md#accept-the-unknown) |
+| Declares that environment, and its values pass | Goes on |
+
+Name each environment after the `spec.environment` of the Stages that deliver
+the service there, such as `staging` and `production`.

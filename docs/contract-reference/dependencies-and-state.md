@@ -55,6 +55,8 @@ refuses them, and a warning is shown in their output. `pacto pack` builds an
 archive offline and does not fetch providers. `pacto graph`
 marks each refused edge. [`pacto impact`](../impact.md) lists the consumers
 whose requirement a change breaks and blocks the release when one of them runs.
+[Delivery](../integrations/kubernetes/delivery.md) holds a promote that leaves
+a running consumer's required guarantee unmet, for that consumer's team.
 
 ### External dependencies
 
