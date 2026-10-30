@@ -952,9 +952,9 @@ fields:
     meaning: One environment and the bundle file holding its configuration values.
     runtime: static-only
     evidence: 'none: the values are checked when the contract is validated'
-    rule: 'schema: object with name and values; no other key'
+    rule: 'schema: object with name and file; no other key'
     outcomes: SCHEMA_VIOLATION
-    limitations: values hold references to secrets, never secret material
+    limitations: values hold references to secrets; secret material stays out of the file
     tests:
       unit:
       - pkg/validation/structural_test.go:TestNeeds23
@@ -980,8 +980,9 @@ fields:
     meaning: Bundle file mapping each configuration name to the values this environment uses for it.
     runtime: static-only
     evidence: 'none: the values are checked against each configuration schema when the contract is validated'
-    rule: 'cross-field: the file exists in the bundle; environments stage: every configuration it names is declared and its
-      values merged over the defaults satisfy the schema; a required configuration it omits is satisfied by its defaults'
+    rule: 'cross-field: a path in the bundle and the file exists; environments stage: every configuration it names is declared
+      and its values merged over the defaults, a null removing its key, satisfy the schema; a required configuration it omits
+      is satisfied by its defaults'
     outcomes: FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING;
       ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref
     limitations: a configuration declared by ref has no schema in the bundle, so its values stay unverified
@@ -990,6 +991,7 @@ fields:
       - pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles
       - pkg/validation/environments_test.go:TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile
       - pkg/validation/environments_test.go:TestEnvironmentStage_Unverified
+      - pkg/validation/environments_test.go:TestEnvironmentStage_NullDeletesAKey
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/invalid

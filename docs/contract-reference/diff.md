@@ -95,7 +95,7 @@ values are the provider's own inputs. Pacto diffs them key by key (for example
 |-------|--------|----------------|
 | `environments[]` | Added | NON_BREAKING |
 | `environments[]` | Removed | POTENTIAL_BREAKING |
-| `environments[].values.*`, for example `environments[production].values.chart.ingress.host` | Added / Modified / Removed | NON_BREAKING |
+| `environments[].*`, a value in the environment's file, for example `environments[production].chart.ingress.host` | Added / Modified / Removed | NON_BREAKING |
 
 ## Policy
 

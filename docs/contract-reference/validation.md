@@ -7,9 +7,10 @@ relies on it. Run it in the bundle directory:
 pacto validate .
 ```
 
-It runs three checks in order, and so does anything else that has to trust a
-contract. `pack` and `push` both refuse before they
-write or transmit a byte, and the operator revalidates every bundle it loads.
+It runs three checks in order and then the
+[environments stage](#environments-stage), and so does anything else that has
+to trust a contract. `pack`, `push` and `publish` refuse before they write or
+transmit a byte, and the operator revalidates every bundle it loads.
 Each layer short-circuits: if it fails, the layers after it are skipped, so one
 broken field can hide the rest.
 
@@ -76,7 +77,7 @@ Validates semantic references and consistency:
 | `policies[].schema` file is valid JSON Schema | `INVALID_POLICY_SCHEMA` |
 | `policies[].ref` is a valid OCI reference | `INVALID_POLICY_REF` |
 | Environment names are unique | `DUPLICATE_ENVIRONMENT_NAME` |
-| `environments[].values` file exists in the bundle | `FILE_NOT_FOUND` |
+| `environments[].file` is a path in the bundle and the file exists | `FILE_NOT_FOUND` |
 | `readiness.claims[].id` are unique within the contract | `DUPLICATE_READINESS_ID` |
 | `readiness.claims[].evidence` has non-whitespace content | `EMPTY_READINESS_EVIDENCE` |
 | `readiness.claims[].description` (when present) has non-whitespace content | `EMPTY_READINESS_DESCRIPTION` |
@@ -94,17 +95,19 @@ Layer 1. Build CI rules only on codes in this table.
 ## Environments stage
 
 After the policy layer, the `environments` stage checks each environment's
-values file against the schema of every configuration it names. It runs only
+file against the schema of every configuration it names. It runs only
 when every stage before it passed, and reports `SKIP no environments declared`
 for a contract without `environments`. [Environments](environments.md#how-values-are-checked)
 lists the rules and the codes it reports: `ENVIRONMENT_UNKNOWN_CONFIGURATION`,
 `ENVIRONMENT_VALUES_INVALID`, `ENVIRONMENT_VALUES_MISSING` and the
 `ENVIRONMENT_VALUES_UNVERIFIED` warning.
 
-An error in a values file carries that file in `file`, with `line` and `column`
-pointing into it. The stage passes only when Pacto checked every value set and
-found no error. A configuration whose schema is behind a `ref` leaves its values
-unchecked, so a stage with no error and an unchecked value set reports
+An error in an environment's file carries that file in `file`, with `line` and
+`column` pointing into it, also when `--set` or `-f` is given. The stage passes
+only when Pacto checked every value set and found no error. A configuration
+whose schema is behind a `ref` leaves its values unchecked, and so does a run
+with no bundle files to read, such as the operator loading an inline contract.
+A stage with no error and an unchecked value set reports
 `SKIP could not verify:` and names each environment and configuration.
 
 ## Layer 3: Policy checks

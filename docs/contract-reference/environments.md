@@ -29,18 +29,18 @@ configurations:
     required: true
 environments:
   - name: staging
-    values: environments/staging.yaml
+    file: environments/staging.yaml
   - name: production
-    values: environments/production.yaml
+    file: environments/production.yaml
 ```
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Lowercase alphanumeric and hyphens, at most 63 characters. Unique in the contract (`DUPLICATE_ENVIRONMENT_NAME` otherwise) |
-| `values` | string | Yes | Path to a YAML or JSON file in the bundle (`FILE_NOT_FOUND` when missing). The path stays inside the bundle |
+| `file` | string | Yes | Path to a YAML or JSON file, from the bundle root, with no leading `/` or `./` and no `..` (`FILE_NOT_FOUND` otherwise, or when the file is missing) |
 
-The values file maps each configuration name to the values that environment
-uses for it:
+The file maps each configuration name to the values that environment uses for
+it:
 
 ```yaml
 # environments/production.yaml
@@ -52,6 +52,9 @@ chart:
     host: shop.example.com
 ```
 
+The `-f`/`--values` and `--set` flags change the contract itself; an
+environment's values live in its file.
+
 The file is part of the bundle, so `pacto pack` and `pacto push` ship it with
 the contract. A [`.pactoignore`](../pactoignore.md) entry that hides it makes
 validation report `FILE_NOT_FOUND`.
@@ -61,29 +64,42 @@ validation report `FILE_NOT_FOUND`.
 For each environment, and for each configuration its file names, Pacto merges
 the environment's values over the configuration's default `values` and checks
 the result against the configuration's `schema`. Objects merge key by key, and
-the environment's value wins. A `required: true` configuration that the file
-leaves out must pass its schema with its defaults alone. A configuration that
-is optional and left out is not checked.
+the environment's value wins. A `null` removes its key from the merged values,
+at any depth, so an environment can drop a default:
+
+```yaml
+# environments/staging.yaml
+chart:
+  ingress:
+    className: null  # staging uses the cluster's default ingress class
+```
+
+A configuration named with no values, such as `app:`, keeps its defaults. A
+`required: true` configuration that the file leaves out must pass its schema
+with its defaults alone. A configuration that is optional and left out is not
+checked.
 
 | Condition | Code |
 |---|---|
 | The file names a configuration the contract does not declare | `ENVIRONMENT_UNKNOWN_CONFIGURATION` |
-| The merged values fail the configuration's schema, or the file is not a mapping of configuration names | `ENVIRONMENT_VALUES_INVALID` |
+| The merged values fail the configuration's schema, or the file does not parse, is not a mapping of configuration names or has a key that is not a string | `ENVIRONMENT_VALUES_INVALID` |
 | A required configuration has no values in the file and its defaults fail its schema | `ENVIRONMENT_VALUES_MISSING` |
-| The configuration names its schema by `ref`, so the bundle holds no schema to check against | `ENVIRONMENT_VALUES_UNVERIFIED` (warning) |
+| The configuration names its schema by `ref`, so the bundle holds no schema to check against, or there are no bundle files to read | `ENVIRONMENT_VALUES_UNVERIFIED` (warning) |
 
-Each error names the environment, the configuration and the JSON path, and
-points at the line in the values file. The checks run in the `environments`
+Each error names the environment, the configuration and the JSON Pointer of
+the value, and points at its line in the environment's file. A key that holds a
+dot or a slash, such as `prometheus.io/scrape`, is one step of the pointer, with
+`/` written as `~1` and `~` as `~0`. The checks run in the `environments`
 stage of [`pacto validate`](validation.md#environments-stage).
 
 Values hold references to secrets, such as a Secret or ExternalSecret name.
-Keep secret material out of the values files, as you keep it out of the
+Keep secret material out of the environment files, as you keep it out of the
 contract; see [Secret references](configuration-and-policy.md#secret-references).
 
 ### Catch a chart change that breaks an environment
 
 A Helm chart's `values.schema.json` is a JSON Schema, so you can reference it as
-a configuration and keep one values file per environment. Version 1.4.0 of the
+a configuration and keep one file per environment. Version 1.4.0 of the
 `web` service ships this chart schema:
 
 ```json
@@ -114,9 +130,9 @@ configurations:
     required: true
 environments:
   - name: staging
-    values: environments/staging.yaml
+    file: environments/staging.yaml
   - name: production
-    values: environments/production.yaml
+    file: environments/production.yaml
 ```
 
 Staging sets an ingress host. Production sets only a class name:
@@ -149,15 +165,15 @@ PASS structural
 PASS cross-field
 PASS policy
 FAIL environments
-  web-1.5.0/environments/production.yaml:3:3: ERROR [ENVIRONMENT_VALUES_INVALID] environments[1].values: environment production: configuration chart at /chart/ingress: missing property 'host'
+  web-1.5.0/environments/production.yaml:3:3: ERROR [ENVIRONMENT_VALUES_INVALID] environments[1].file: environment production: configuration chart at /chart/ingress: missing property 'host'
 SKIP guarantees   no dependency declares requires
 SKIP readiness    not requested (--readiness)
 SKIP closure      not requested (--closure)
-Next: fix environments[1].values at web-1.5.0/environments/production.yaml:3:3 [ENVIRONMENT_VALUES_INVALID], then run pacto validate web-1.5.0
+Next: fix environments[1].file at web-1.5.0/environments/production.yaml:3:3 [ENVIRONMENT_VALUES_INVALID], then run pacto validate web-1.5.0
 validation failed with 1 error(s)
 ```
 
-The command exits 1. Add the host to the production values file and run
+The command exits 1. Add the host to the production file and run
 `pacto validate` again. `pacto diff` then lists the schema change and the new
 value:
 
@@ -169,7 +185,7 @@ Changes (4):
   [NON_BREAKING] service.version (modified): service.version modified [1.4.0 -> 1.5.0]
   [POTENTIAL_BREAKING] schema.properties.ingress.properties.className (added): schema.properties.ingress.properties.className added [+ map[type:string]]
   [BREAKING] schema.properties.ingress.required (added): schema.properties.ingress.required added [+ [host]]
-  [NON_BREAKING] environments[production].values.chart.ingress.host (added): environments[production].values.chart.ingress.host added [+ shop.example.com]
+  [NON_BREAKING] environments[production].chart.ingress.host (added): environments[production].chart.ingress.host added [+ shop.example.com]
 breaking changes detected
 ```
 
@@ -181,4 +197,4 @@ breaking changes detected
 |---|---|
 | An environment added | Non-breaking: it only adds values to check |
 | An environment removed | Potentially breaking: the environment may still run the service |
-| A value in an environment's file added, removed or changed | Non-breaking: the values are this service's own inputs, and no consumer reads them |
+| A value in an environment's file added, removed or changed, at `environments[<name>].<configuration>.<path>` | Non-breaking: the values are this service's own inputs, and only the service reads them |
