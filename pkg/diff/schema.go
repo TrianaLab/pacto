@@ -734,7 +734,7 @@ func valueEqual(a, b any) bool {
 }
 
 func mergedKeys(a, b map[string]any) []string {
-	seen := make(map[string]bool, len(a)+len(b))
+	seen := map[string]bool{}
 	for k := range a {
 		seen[k] = true
 	}
