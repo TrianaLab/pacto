@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -219,6 +220,9 @@ func TestCheck_EnvironmentErrorCarriesItsFile(t *testing.T) {
 		}
 		if len(res.Errors) != 1 || res.Errors[0].Code != "ENVIRONMENT_VALUES_INVALID" || !strings.HasSuffix(res.Errors[0].File, "production.yaml") || res.Errors[0].Line != 1 {
 			t.Errorf("%s: errors = %+v", name, res.Errors)
+		}
+		if !slices.Equal(res.Summary.Environments, []string{"production (production.yaml)"}) {
+			t.Errorf("%s: summary environments = %v", name, res.Summary.Environments)
 		}
 	}
 }

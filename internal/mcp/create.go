@@ -159,6 +159,7 @@ type ContractSummary struct {
 	Owner        string            `json:"owner,omitempty"`
 	Interfaces   []string          `json:"interfaces,omitempty"`
 	Dependencies []string          `json:"dependencies,omitempty"`
+	Environments []string          `json:"environments,omitempty"`
 	Workload     string            `json:"workload,omitempty"`
 	StateType    string            `json:"stateType,omitempty"`
 	Sections     map[string]string `json:"sections"`
@@ -1342,6 +1343,10 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 			ref = dep.Name + " (external " + dep.Version + ")"
 		}
 		s.Dependencies = append(s.Dependencies, ref)
+	}
+
+	for _, env := range c.Environments {
+		s.Environments = append(s.Environments, env.Name+" ("+env.File+")")
 	}
 
 	return s

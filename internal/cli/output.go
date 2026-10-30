@@ -279,6 +279,17 @@ func interfaceDetails(iface app.ExplainInterface) string {
 	return s
 }
 
+// printEnvironments lists each environment and its file, when there are any.
+func printEnvironments(w io.Writer, envs []contract.Environment) {
+	if len(envs) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nEnvironments (%d):\n", len(envs))
+	for _, env := range envs {
+		_, _ = fmt.Fprintf(w, "  - %s: %s\n", env.Name, env.File)
+	}
+}
+
 func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
@@ -331,6 +342,8 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 				_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, dep.Compatibility, req)
 			}
 		}
+
+		printEnvironments(w, result.Environments)
 
 		if result.Readiness != nil {
 			printReadiness(w, result.Readiness)

@@ -212,3 +212,13 @@ func TestExplain_NotFound(t *testing.T) {
 		t.Error("expected error for nonexistent path")
 	}
 }
+
+func TestExplain_WithEnvironments(t *testing.T) {
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: writeEnvironmentBundle(t, "")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Environments) != 1 || result.Environments[0].Name != "production" || result.Environments[0].File != "environments/production.yaml" {
+		t.Fatalf("environments = %+v", result.Environments)
+	}
+}

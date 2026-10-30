@@ -458,11 +458,15 @@ func TestPrintExplainResult_Full(t *testing.T) {
 			{Name: "opt", Ref: "ghcr.io/opt:2.0.0", Required: false, Compatibility: "^2.0.0"},
 			{Name: "model", External: true, Version: "claude-sonnet-4-5", Required: true},
 		},
+		Environments: []contract.Environment{{Name: "production", File: "environments/production.yaml"}},
 	}
 	if err := printExplainResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
+	if !strings.Contains(out, "\nEnvironments (1):\n  - production: environments/production.yaml\n") {
+		t.Errorf("expected environments, got %q", out)
+	}
 	if !strings.Contains(out, "Service: svc@1.0.0") {
 		t.Errorf("expected service header, got %q", out)
 	}

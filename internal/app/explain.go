@@ -26,8 +26,10 @@ type ExplainResult struct {
 	Capabilities []ExplainCapability `json:"capabilities,omitempty"`
 	Interfaces   []ExplainInterface  `json:"interfaces,omitempty"`
 	Dependencies []ExplainDependency `json:"dependencies,omitempty"`
-	Readiness    *ExplainReadiness   `json:"readiness,omitempty"`
-	Metadata     map[string]any      `json:"metadata,omitempty"`
+	// Environments lists each environment and the file holding its values.
+	Environments []contract.Environment `json:"environments,omitempty"`
+	Readiness    *ExplainReadiness      `json:"readiness,omitempty"`
+	Metadata     map[string]any         `json:"metadata,omitempty"`
 }
 
 // ExplainReadiness is a derived readiness summary for the explain output.
@@ -122,6 +124,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		Owner:        c.Service.Owner,
 		PactoVersion: c.PactoVersion,
 		Workload:     c.Workload,
+		Environments: c.Environments,
 		Metadata:     c.Metadata,
 	}
 
