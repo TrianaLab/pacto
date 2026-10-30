@@ -163,7 +163,13 @@
       if (a) { a.click(); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
     }
   }, {
-    text: "You have now seen what runs, what state it is in and who a change reaches, all from contracts and observations.",
+    // Nothing to do here, only something to read, so it keeps a real button like the
+    // opening notice: an auto-advance would flash the rows past unread.
+    text: "What a provider promises: each service that uses inventory-service shows whether it gets the guarantees it requires (met, refused or not verified), and the stock-feed interface is marked past its sunset.",
+    hash: "#/fleet/services/inventory-service",
+    target: "#sec-observed-traffic-and-differences"
+  }, {
+    text: "You have now seen what runs, what state it is in, who a change reaches and what a provider promises, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];

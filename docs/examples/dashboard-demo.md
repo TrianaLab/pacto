@@ -35,7 +35,8 @@ browser keeps a copy afterwards.
   analysis from 2.1.0 to 3.0.0 lists the consumers it refuses, and the
   operational graph marks the refused edges. `storefront-web` 1.2.0 checks three
   environments: one passes, one fails at a line of its values file and one is
-  not verified.
+  not verified. The guided tour stops on `inventory-service` before
+  it hands off to the CLI tour.
 - **Delivery, simulated**: press **Play the delivery story**. First
   `pacto init` gives a plain service a contract. Then a safe change ships on
   its own, a bad release is rolled back, a breaking change asks only the
