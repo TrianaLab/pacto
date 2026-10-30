@@ -605,7 +605,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Stages:          append([]ValidationStage{}, rev.Stages...),
 		Environments:    environmentsPreview(rev.Environments),
 		Capabilities:    capabilitiesPreview(rev.Contract.Capabilities),
-		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead),
+		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
 		Configurations:  withConfigResolutions(rev.configurations, cfgRefs),
 		Policies:        policiesPreview(rev.Contract.Policies, polRefs),
 		Workload:        rev.Contract.Workload,

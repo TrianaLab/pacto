@@ -74,10 +74,15 @@ func TestEnvironmentResultsBounded(t *testing.T) {
 		t.Errorf("findings preview = total %d count %d truncated %v", f.Total, f.Count, f.Truncated)
 	}
 	many := make([]EnvironmentResult, MaxDetailPreview+1)
+	for i := range many {
+		many[i].Status = EnvironmentPass
+	}
 	many[0].Findings.Items = []LocatedFinding{{Message: "x"}}
+	// The counts cover every environment: the last one, past the preview, failed.
+	many[MaxDetailPreview].Status, many[1].Status, many[2].Status = EnvironmentFail, EnvironmentUnverified, EnvironmentSkip
 	p := environmentsPreview(many)
-	if p.Total != MaxDetailPreview+1 || p.Count != MaxDetailPreview || !p.Truncated {
-		t.Errorf("environments preview = %+v", p)
+	if p.Total != MaxDetailPreview+1 || p.Count != MaxDetailPreview || !p.Truncated || p.Failed != 1 || p.Unverified != 1 || p.Skipped != 1 {
+		t.Errorf("environments preview = total %d count %d failed %d unverified %d skipped %d", p.Total, p.Count, p.Failed, p.Unverified, p.Skipped)
 	}
 	p.Items[0].Findings.Items[0].Message = "changed"
 	if many[0].Findings.Items[0].Message != "x" {
@@ -151,5 +156,20 @@ func TestBuildEnvironments(t *testing.T) {
 		if len(rev.Stages) != 0 || rev.Environments[0].Status != EnvironmentSkip {
 			t.Errorf("unread revision = stages %+v environments %+v", rev.Stages, rev.Environments)
 		}
+	}
+}
+
+// A stage that ran and could not verify everything is skipped like one that
+// never ran, but says so: only it carries the warnings that name what it could
+// not check.
+func TestStageSummariesMarkUnverified(t *testing.T) {
+	got := StageSummaries([]validation.Stage{
+		{Name: "environments", Status: validation.StageSkip, Reason: "could not verify: prod",
+			Warnings: []contract.ValidationWarning{{Code: "ENVIRONMENT_VALUES_UNVERIFIED"}}},
+		{Name: "policy", Status: validation.StageSkip, Reason: "structural failed"},
+		{Name: "structural", Status: validation.StagePass, Warnings: []contract.ValidationWarning{{Code: "W"}}},
+	})
+	if !got[0].Unverified || got[1].Unverified || got[2].Unverified {
+		t.Fatalf("unverified marks: %+v", got)
 	}
 }

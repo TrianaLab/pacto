@@ -1821,10 +1821,16 @@ export interface components {
         "Fleet.EnvironmentsPreview": {
             /** Format: int64 */
             count: number;
+            /** Format: int64 */
+            failed: number;
             items: components["schemas"]["Fleet.EnvironmentResult"][] | null;
+            /** Format: int64 */
+            skipped: number;
             /** Format: int64 */
             total: number;
             truncated: boolean;
+            /** Format: int64 */
+            unverified: number;
         };
         "Fleet.EvidenceWindow": {
             /** Format: date-time */
@@ -1908,7 +1914,11 @@ export interface components {
         "Fleet.InterfacesPreview": {
             /** Format: int64 */
             count: number;
+            /** Format: int64 */
+            deprecated: number;
             items: components["schemas"]["Fleet.InterfaceSummary"][] | null;
+            /** Format: int64 */
+            pastSunset: number;
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -2481,6 +2491,7 @@ export interface components {
             reason?: string;
             /** @enum {string} */
             status: "pass" | "fail" | "skip";
+            unverified?: boolean;
         };
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
@@ -3052,6 +3063,8 @@ export interface components {
             nextOffset?: number;
             /** Format: int64 */
             offset: number;
+            /** Format: int64 */
+            refused: number;
             /** Format: int64 */
             total: number;
             truncated: boolean;

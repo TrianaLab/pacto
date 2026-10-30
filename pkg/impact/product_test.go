@@ -198,6 +198,10 @@ func TestBuildProduct_CarriesGateAndNote(t *testing.T) {
 	if p.Gate != GateUnverified || p.GateReason != "why" {
 		t.Errorf("gate = %q %q", p.Gate, p.GateReason)
 	}
+	// Refused counts every consumer left with a guarantee unmet, not the page.
+	if second := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, boundedResult(), 1, 1).Consumers; second.Refused != 1 || len(second.Items[0].Unmet) != 0 {
+		t.Errorf("refused tally over a page without it = %d", second.Refused)
+	}
 	if p.Consumers.Items[0].Note != "range only" {
 		t.Errorf("note = %q", p.Consumers.Items[0].Note)
 	}

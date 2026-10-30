@@ -46,6 +46,10 @@ type InterfacesPreview struct {
 	Count     int                `json:"count"`
 	Truncated bool               `json:"truncated"`
 	Items     []InterfaceSummary `json:"items"`
+	// Deprecated counts EVERY deprecated interface, not the preview, and
+	// PastSunset those of them whose sunset the snapshot's asOf reached.
+	Deprecated int `json:"deprecated"`
+	PastSunset int `json:"pastSunset"`
 }
 
 // RefResolution is the backend's verdict on a contract reference: does the
@@ -149,7 +153,7 @@ type RevisionProvenance struct {
 	FetchedAt *time.Time     `json:"fetchedAt,omitempty"`
 }
 
-func interfacesPreview(ifaces []contract.Interface, tools []ToolSummary, specsRead []string) InterfacesPreview {
+func interfacesPreview(ifaces []contract.Interface, tools []ToolSummary, specsRead []string, asOf time.Time) InterfacesPreview {
 	read := make(map[string]bool, len(specsRead))
 	for _, n := range specsRead {
 		read[n] = true
@@ -167,7 +171,16 @@ func interfacesPreview(ifaces []contract.Interface, tools []ToolSummary, specsRe
 			Lifecycle: clonePtr(i.Lifecycle), Guarantees: clonePtr(i.Guarantees), CompatibilityEpoch: i.CompatibilityEpoch,
 		})
 	}
-	return InterfacesPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
+	p := InterfacesPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
+	for _, i := range ifaces {
+		if i.Lifecycle != nil {
+			p.Deprecated++
+			if i.Lifecycle.SunsetReached(asOf) {
+				p.PastSunset++
+			}
+		}
+	}
+	return p
 }
 
 // configurationsPreview projects the declared configuration scopes. It is called

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -217,12 +218,20 @@ func TestRestrictHidesProviderBehavior(t *testing.T) {
 func TestInterfaceSummaryBehavior(t *testing.T) {
 	l := &contract.InterfaceLifecycle{Deprecated: "2026-01-01"}
 	g := &contract.Guarantees{Idempotent: true}
-	p := interfacesPreview([]contract.Interface{{Name: "a", Lifecycle: l, Guarantees: g, CompatibilityEpoch: 2}, {Name: "b"}}, nil, nil)
+	p := interfacesPreview([]contract.Interface{{Name: "a", Lifecycle: l, Guarantees: g, CompatibilityEpoch: 2}, {Name: "b"}}, nil, nil, time.Time{})
 	a := p.Items[0]
 	if a.Lifecycle == l || *a.Lifecycle != *l || a.Guarantees == g || !a.Guarantees.Idempotent || a.CompatibilityEpoch != 2 {
 		t.Errorf("interface a = %+v", a)
 	}
 	if b := p.Items[1]; b.Lifecycle != nil || b.Guarantees != nil {
 		t.Errorf("interface b = %+v", b)
+	}
+	// The deprecation counts cover every interface, past the preview too, with
+	// the sunset judged as of the snapshot.
+	ifaces := make([]contract.Interface, MaxDetailPreview+2)
+	ifaces[0].Lifecycle = l
+	ifaces[MaxDetailPreview+1].Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2026-02-01"}
+	if p := interfacesPreview(ifaces, nil, nil, time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)); p.Deprecated != 2 || p.PastSunset != 1 {
+		t.Errorf("deprecated %d past sunset %d", p.Deprecated, p.PastSunset)
 	}
 }

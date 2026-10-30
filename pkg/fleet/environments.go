@@ -28,6 +28,10 @@ type ValidationStage struct {
 	Name   string `json:"name"`
 	Status string `json:"status" enum:"pass,fail,skip"`
 	Reason string `json:"reason,omitempty"`
+	// Unverified marks a skip from a stage that ran but could not check
+	// everything: Reason says what it could not verify. A stage that never
+	// ran is skipped without it.
+	Unverified bool `json:"unverified,omitempty"`
 }
 
 // LocatedFinding is a validation finding about one environment, with the line
@@ -69,6 +73,11 @@ type EnvironmentsPreview struct {
 	Count     int                 `json:"count"`
 	Truncated bool                `json:"truncated"`
 	Items     []EnvironmentResult `json:"items"`
+	// Failed, Unverified and Skipped count EVERY environment by status, not
+	// the preview, so a summary never reads a truncated list as all passed.
+	Failed     int `json:"failed"`
+	Unverified int `json:"unverified"`
+	Skipped    int `json:"skipped"`
 }
 
 // StageSummaries drops each stage's findings: they are already the revision's
@@ -76,7 +85,8 @@ type EnvironmentsPreview struct {
 func StageSummaries(stages []validation.Stage) []ValidationStage {
 	out := make([]ValidationStage, len(stages))
 	for i, st := range stages {
-		out[i] = ValidationStage{Name: st.Name, Status: st.Status, Reason: st.Reason}
+		out[i] = ValidationStage{Name: st.Name, Status: st.Status, Reason: st.Reason,
+			Unverified: st.Status == validation.StageSkip && len(st.Warnings) > 0}
 	}
 	return out
 }
@@ -147,5 +157,16 @@ func environmentsPreview(rs []EnvironmentResult) EnvironmentsPreview {
 	for i := range items {
 		items[i].Findings.Items = append([]LocatedFinding{}, items[i].Findings.Items...)
 	}
-	return EnvironmentsPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
+	p := EnvironmentsPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
+	for _, r := range rs {
+		switch r.Status {
+		case EnvironmentFail:
+			p.Failed++
+		case EnvironmentUnverified:
+			p.Unverified++
+		case EnvironmentSkip:
+			p.Skipped++
+		}
+	}
+	return p
 }
