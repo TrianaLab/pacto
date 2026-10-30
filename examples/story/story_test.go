@@ -20,6 +20,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/signing"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -68,6 +69,43 @@ func TestEveryContractValidates(t *testing.T) {
 	})
 	if err != nil || n != 12 {
 		t.Fatalf("walked %d contracts: %v", n, err)
+	}
+}
+
+// TestNoConfigurationLeavesRuntimeUnknown: the Kubernetes demo's Pacto
+// resources bind no configuration, and the operator reports a required
+// configuration it has no binding for as OBSERVATION_UNSUPPORTED, which makes
+// the contract Unknown and holds every verify gate on it. So no story contract
+// may require a configuration: payments declares one for its environments to
+// check, and it stays optional at runtime.
+func TestNoConfigurationLeavesRuntimeUnknown(t *testing.T) {
+	err := fs.WalkDir(Files, "contracts", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.Name() != "pacto.yaml" {
+			return err
+		}
+		dir := path.Dir(p)
+		b, err := Bundle(path.Base(path.Dir(dir)), path.Base(dir))
+		if err != nil {
+			return err
+		}
+		var unbound []evidence.Observation
+		for _, c := range b.Contract.Configurations {
+			if c.Required { // what the operator's observer emits for a configuration with no binding
+				o, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, evidence.SubjectRef{Kind: "configuration", Name: c.Name},
+					evidence.Unsupported, evidence.Provenance{Collector: "kubernetes", DetectedAt: Now})
+				unbound = append(unbound, o)
+			}
+		}
+		findings, _ := validation.Evaluate(*b.Contract, evidence.EvidenceSet{Observations: unbound})
+		for _, f := range findings {
+			if f.Subject.Kind == "configuration" {
+				t.Errorf("%s: %s %s: %s", p, f.Code, f.Severity, f.Message)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
