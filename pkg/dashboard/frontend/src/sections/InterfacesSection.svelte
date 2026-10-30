@@ -4,6 +4,10 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
   import { methodClass } from '../lib/format.ts';
+  import IdentityBadge from '../components/IdentityBadge.svelte';
+  import LifecycleBadge from '../components/LifecycleBadge.svelte';
+  import GuaranteeTerms from '../components/GuaranteeTerms.svelte';
+  import { lifecycleText } from '../lib/behavior.ts';
 
   let { interfaces = [], open = $bindable(true), id = '' } = $props();
 
@@ -35,11 +39,20 @@
             <span class="detail-card-title">{iface.name}</span>
             {#if iface.port != null}<span class="pill">:{iface.port}</span>{/if}
             {#if iface.visibility}<span class="pill">{iface.visibility}</span>{/if}
+            <LifecycleBadge lifecycle={iface.lifecycle} detail={false} />
+            {#if iface.compatibilityEpoch}<IdentityBadge label={`Epoch ${iface.compatibilityEpoch}`} tone="neutral" title="Raised each time this interface's behavior changes incompatibly while its spec stays the same." />{/if}
           </div>
           {#if iface.hasContractFile}
             <span class="detail-card-sub" title={iface.contractFile || undefined}>{iface.contractFile || 'has contract'}</span>
           {/if}
         </button>
+
+        {#if iface.lifecycle || iface.guarantees}
+          <div class="iface-behavior">
+            {#if iface.lifecycle}<p class="iface-lifecycle">{lifecycleText(iface.lifecycle)}</p>{/if}
+            {#if iface.guarantees}<GuaranteeTerms guarantees={iface.guarantees} label={`Guarantees of ${iface.name}`} />{/if}
+          </div>
+        {/if}
 
         {#if expanded[i] && hasDetails(iface)}
           <div class="detail-card-body">
@@ -79,6 +92,8 @@
   /* The contract file ellipsizes rather than pushing the interface name to one word per line. */
   .detail-card-sub { max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .text-2 { color: var(--c-text-2); }
+  .iface-behavior { display: flex; flex-direction: column; gap: var(--sp-1); padding: 0 var(--sp-3) var(--sp-3); min-width: 0; }
+  .iface-lifecycle { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
   .contract-content { margin-top: var(--sp-2); }
   .contract-content summary { cursor: pointer; color: var(--c-text-3); font-size: var(--text-sm); }
 </style>

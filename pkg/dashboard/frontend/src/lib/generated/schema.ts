@@ -1515,13 +1515,19 @@ export interface components {
         };
         DependencyInfo: {
             compatibility?: string;
+            deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
             driftStatus?: string;
             external?: boolean;
+            guaranteeReason?: string;
+            /** @enum {string} */
+            guaranteeStatus?: "met" | "unmet" | "unknown";
             lockedDigest?: string;
             lockedVersion?: string;
             name: string;
             ref: string;
             required: boolean;
+            requires?: components["schemas"]["Contract.Requirement"][] | null;
+            unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             version?: string;
         };
         DependentInfo: {
@@ -2691,10 +2697,14 @@ export interface components {
             summary?: string;
         };
         InterfaceInfo: {
+            /** Format: int64 */
+            compatibilityEpoch?: number;
             contractContent?: string;
             contractFile?: string;
             endpoints?: components["schemas"]["InterfaceEndpoint"][] | null;
+            guarantees?: components["schemas"]["Contract.Guarantees"];
             hasContractFile?: boolean;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             type: string;
             visibility?: string;
@@ -3491,6 +3501,7 @@ export interface components {
             currentRevision?: string;
             dependencies?: components["schemas"]["DependencyInfo"][] | null;
             docs?: components["schemas"]["DocInfo"][] | null;
+            environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             insights?: components["schemas"]["Insight"][] | null;
             interfaces?: components["schemas"]["InterfaceInfo"][] | null;
@@ -3513,6 +3524,7 @@ export interface components {
             skills?: components["schemas"]["SkillInfo"][] | null;
             source: string;
             sources?: string[] | null;
+            stages?: components["schemas"]["Fleet.ValidationStage"][] | null;
             state?: components["schemas"]["StateInfo"];
             tools?: components["schemas"]["CapabilityTool"][] | null;
             validation?: components["schemas"]["ValidationInfo"];

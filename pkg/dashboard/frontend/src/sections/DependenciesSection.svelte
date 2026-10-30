@@ -5,6 +5,8 @@
   import SectionState from './SectionState.svelte';
   import GraphPanel from '../GraphPanel.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
+  import BehaviorBadges from '../components/BehaviorBadges.svelte';
+  import RequirementList from '../components/RequirementList.svelte';
   import { reasonLabel, reasonTooltip, reasonBadgeClass, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
   import { navigate, serviceUrl } from '../lib/router.ts';
 
@@ -35,6 +37,9 @@
     const node = graphData.nodes.find((n) => n.id === depName || n.serviceName === depName);
     return node?.status === 'external' ? node.reason : undefined;
   }
+  // What a dependency requires of its provider gets its own row under the dependency,
+  // so the table keeps its columns however many requirements there are.
+  const hasBehavior = (dep) => (dep.requires?.length ?? 0) > 0 || (dep.unmet?.length ?? 0) > 0;
   // Twelve hundred dependents show the first twenty-five.
   const dependentRows = cap(25);
   const depRows = cap(25);
@@ -87,6 +92,9 @@
                     {:else}
                       {dep.name} <span class="badge {reasonBadgeClass(reason)}" data-tip={reasonTooltip(reason)}>{reasonLabel(reason)}</span>
                     {/if}
+                    {#if dep.guaranteeStatus || dep.deprecatedInterfaces?.length}
+                      <div class="dep-behavior" data-testid="dep-behavior"><BehaviorBadges status={dep.guaranteeStatus} reason={dep.guaranteeReason} deprecated={dep.deprecatedInterfaces ?? []} /></div>
+                    {/if}
                   </td>
                   <td><code class="text-3">{dep.ref}</code></td>
                   <td>{dep.required ? 'Yes' : 'No'}</td>
@@ -110,6 +118,11 @@
                     {/if}
                   </td>
                 </tr>
+                {#if hasBehavior(dep)}
+                  <tr class="dep-requires-row">
+                    <td colspan="5"><RequirementList requires={dep.requires ?? []} unmet={dep.unmet ?? []} status={dep.guaranteeStatus} reason={dep.guaranteeReason} /></td>
+                  </tr>
+                {/if}
               {/each}
             </tbody>
           </table>
@@ -241,6 +254,10 @@
   .dt3-status { width: 24%; }
   .dt3-required { width: 18%; }
   .deps-table td code { word-break: break-all; }
+  .dep-behavior { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-1); }
+  /* The requirements row continues the dependency above it, so it drops the rule between them. */
+  .deps-table tr:has(+ .dep-requires-row) td { border-bottom: none; }
+  .dep-requires-row td { padding-top: 0; padding-left: var(--sp-5); }
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }

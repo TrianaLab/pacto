@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/sbom"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
@@ -172,6 +173,14 @@ type ServiceDetails struct {
 
 	Validation *ValidationInfo `json:"validation,omitempty"`
 
+	// Stages is how each stage of the validation run ended, in run order. Empty
+	// when the contract document could not be read, so nothing was validated.
+	Stages []fleet.ValidationStage `json:"stages,omitempty"`
+
+	// Environments is each declared environment (pactoVersion 2.3) and the
+	// check of its values, with findings located in its values file.
+	Environments []fleet.EnvironmentResult `json:"environments,omitempty"`
+
 	// Lock surfaces the committed pacto.lock pins. Nil when no lockfile is present
 	// (or for sources that cannot read it from disk, e.g. OCI/cache/k8s).
 	Lock *LockInfo `json:"lock,omitempty"`
@@ -241,6 +250,13 @@ type InterfaceInfo struct {
 	ContractFile    string              `json:"contractFile,omitempty"`
 	ContractContent string              `json:"contractContent,omitempty"`
 	Endpoints       []InterfaceEndpoint `json:"endpoints,omitempty"`
+	// Lifecycle is the interface's retirement schedule, nil when it is not
+	// deprecated. Guarantees is the behavior it promises its consumers, and
+	// CompatibilityEpoch counts its incompatible behavior changes (all three
+	// pactoVersion 2.2).
+	Lifecycle          *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	Guarantees         *contract.Guarantees         `json:"guarantees,omitempty"`
+	CompatibilityEpoch int                          `json:"compatibilityEpoch,omitempty"`
 }
 
 // ConfigValue is a flattened key/value/type entry for display. It aliases
@@ -282,6 +298,14 @@ type DependencyInfo struct {
 	// DriftStatus compares the locked digest against the dependency target's
 	// runtime digest: "locked", "drift", "unlocked", "unknown". Empty when not computed.
 	DriftStatus string `json:"driftStatus,omitempty"`
+	// DependencyBehavior is what the dependency requires of its provider's
+	// interfaces and whether the provider contract `pacto doc` fetched meets
+	// it. Unknown means it was not checked, never a refusal (see
+	// [ApplyDependencyGraph]).
+	fleet.DependencyBehavior
+	// DeprecatedInterfaces lists the deprecated interfaces of the fetched
+	// provider contract.
+	DeprecatedInterfaces []fleet.InterfaceDeprecation `json:"deprecatedInterfaces,omitempty"`
 }
 
 // LockInfo surfaces pacto.lock content for the service detail view. It is set

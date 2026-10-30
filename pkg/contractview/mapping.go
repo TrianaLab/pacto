@@ -9,6 +9,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/capability"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	depgraph "github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/openapi"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -63,8 +65,11 @@ func serviceDetailsAt(bundle *contract.Bundle, source string, now time.Time) *Se
 	// service keeps StatusUnknown from ServiceFromContract and the export still
 	// renders, rather than the whole page failing over one bad bundle.
 	if raw, rawErr := bundle.Raw(); rawErr == nil {
-		result := validation.Validate(c, raw, bundle.FS)
+		stages := validation.ValidateDocumentStages(c, contract.DecodeDocument(raw), bundle.FS)
+		result := validation.Merged(stages)
 		svc.Validation = validationInfoFromResult(result)
+		svc.Stages = fleet.StageSummaries(stages)
+		svc.Environments = fleet.EnvironmentResults(c.Environments, stages)
 		if result.IsValid() {
 			// Valid offline/OCI/local bundle with no runtime evaluation is NotEvaluated,
 			// not Compliant (B8 fix). A reference-only contract declares no workload.
@@ -77,6 +82,8 @@ func serviceDetailsAt(bundle *contract.Bundle, source string, now time.Time) *Se
 			// Structurally invalid bundle.
 			svc.ContractStatus = StatusInvalid
 		}
+	} else {
+		svc.Environments = fleet.EnvironmentResults(c.Environments, nil)
 	}
 
 	svc.Compliance = ComputeCompliance(svc.ContractStatus)
@@ -232,11 +239,14 @@ func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
 	var out []InterfaceInfo
 	for _, iface := range c.Interfaces {
 		info := InterfaceInfo{
-			Name:            iface.Name,
-			Type:            iface.Type,
-			Visibility:      iface.Visibility,
-			HasContractFile: iface.Ref != "",
-			ContractFile:    iface.Ref,
+			Name:               iface.Name,
+			Type:               iface.Type,
+			Visibility:         iface.Visibility,
+			HasContractFile:    iface.Ref != "",
+			ContractFile:       iface.Ref,
+			Lifecycle:          iface.Lifecycle,
+			Guarantees:         iface.Guarantees,
+			CompatibilityEpoch: iface.CompatibilityEpoch,
 		}
 		if iface.Ref != "" && fsys != nil {
 			if iface.Type == contract.InterfaceTypeOpenAPI {
@@ -352,17 +362,79 @@ func configsFromContract(c *contract.Contract, fsys fs.FS) []ConfigurationInfo {
 	return out
 }
 
+// Why a dependency's requirements were not checked (see [fleet.DependencyBehavior]).
+const (
+	reasonNotFetched  = "the provider's contract was not fetched"
+	reasonNoContract  = "an external dependency has no contract to check against"
+	reasonFetchFailed = "the provider's contract could not be fetched: "
+)
+
+// depsFromContract maps the declared dependencies. What one requires is
+// Unknown until [ApplyDependencyGraph] checks it against a provider contract.
 func depsFromContract(c *contract.Contract) []DependencyInfo {
 	var out []DependencyInfo
 	for _, dep := range c.Dependencies {
-		out = append(out, DependencyInfo{
+		d := DependencyInfo{
 			Name:          dep.Name,
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,
 			External:      dep.External,
 			Version:       dep.Version,
-		})
+		}
+		d.Requires = dep.Requires
+		if len(dep.Requires) > 0 {
+			d.GuaranteeStatus, d.GuaranteeReason = fleet.GuaranteeUnknown, reasonNotFetched
+			if dep.Ref == "" {
+				d.GuaranteeReason = reasonNoContract
+			}
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// ApplyDependencyGraph checks each dependency of d against the provider
+// contract the resolver fetched for it: what the dependency requires is met or
+// refused (contract.Unmet, computed by the resolver), and the provider's
+// deprecated interfaces are listed. A dependency whose provider was not fetched
+// stays Unknown with the reason. gr must be the graph resolved from the same
+// contract as d: its root's first edges are that contract's dependencies, in
+// order.
+func ApplyDependencyGraph(d *ServiceDetails, gr *depgraph.Result) {
+	if gr == nil || gr.Root == nil {
+		return
+	}
+	edges := gr.Root.Dependencies
+	for i := range d.Dependencies {
+		if i >= len(edges) {
+			return
+		}
+		dep, e := &d.Dependencies[i], edges[i]
+		if e.Node != nil && e.Node.Contract != nil {
+			dep.DeprecatedInterfaces = deprecatedInterfaces(e.Node.Contract)
+		}
+		switch {
+		case len(dep.Requires) == 0:
+		case e.Error != "":
+			dep.GuaranteeReason = reasonFetchFailed + e.Error
+		case e.Node == nil: // not fetched, or external: the default reason stands
+		case len(e.Unmet) > 0:
+			dep.GuaranteeStatus, dep.GuaranteeReason, dep.Unmet = fleet.GuaranteeUnmet, "", e.Unmet
+		default:
+			dep.GuaranteeStatus, dep.GuaranteeReason = fleet.GuaranteeMet, ""
+		}
+	}
+}
+
+// deprecatedInterfaces lists a provider's deprecated interfaces. A contract
+// does not say which of them it calls, so every deprecated one is listed.
+func deprecatedInterfaces(c *contract.Contract) []fleet.InterfaceDeprecation {
+	var out []fleet.InterfaceDeprecation
+	for _, iface := range c.Interfaces {
+		if l := iface.Lifecycle; l != nil {
+			out = append(out, fleet.InterfaceDeprecation{Interface: iface.Name, Deprecated: l.Deprecated, Sunset: l.Sunset, Successor: l.Successor})
+		}
 	}
 	return out
 }

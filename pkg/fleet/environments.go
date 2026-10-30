@@ -71,9 +71,9 @@ type EnvironmentsPreview struct {
 	Items     []EnvironmentResult `json:"items"`
 }
 
-// stageSummaries drops each stage's findings: they are already the revision's
+// StageSummaries drops each stage's findings: they are already the revision's
 // Validation, and the summary only says which stage ran and how it ended.
-func stageSummaries(stages []validation.Stage) []ValidationStage {
+func StageSummaries(stages []validation.Stage) []ValidationStage {
 	out := make([]ValidationStage, len(stages))
 	for i, st := range stages {
 		out[i] = ValidationStage{Name: st.Name, Status: st.Status, Reason: st.Reason}
@@ -81,13 +81,13 @@ func stageSummaries(stages []validation.Stage) []ValidationStage {
 	return out
 }
 
-// environmentResults reads each declared environment's verdict back out of the
+// EnvironmentResults reads each declared environment's verdict back out of the
 // validation stages: every finding whose path is under environments[i], from
 // any stage, belongs to environment i. The environments stage did not run when
 // it is skipped with nothing reported; a run that could not verify a value set
 // is skipped too, but it always carries the ENVIRONMENT_VALUES_UNVERIFIED
 // warning that says so. A nil stages means the document was never validated.
-func environmentResults(envs []contract.Environment, stages []validation.Stage) []EnvironmentResult {
+func EnvironmentResults(envs []contract.Environment, stages []validation.Stage) []EnvironmentResult {
 	if len(envs) == 0 {
 		return nil
 	}
