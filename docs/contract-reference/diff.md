@@ -85,9 +85,17 @@ being validated. Introducing a schema where there was none is
 `POTENTIAL_BREAKING`, because a configuration that was unchecked before can now
 fail validation.
 
-Inline configuration `values` are the provider's own defaults and sit outside the
-consumer-facing contract surface. Value changes are diffed key by key (for example
-`configurations[app].values.replicas`) and classified `NON_BREAKING`.
+Inline configuration `values` and [environment](environments.md#what-a-change-needs)
+values are the provider's own inputs. Pacto diffs them key by key (for example
+`configurations[app].values.replicas`) and classifies each change `NON_BREAKING`.
+
+## Environments
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `environments[]` | Added | NON_BREAKING |
+| `environments[]` | Removed | POTENTIAL_BREAKING |
+| `environments[].values.*`, for example `environments[production].values.chart.ingress.host` | Added / Modified / Removed | NON_BREAKING |
 
 ## Policy
 

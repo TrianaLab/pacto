@@ -9,14 +9,17 @@ dependencies and state are in
 
 ## `pactoVersion`
 
-The contract specification version: `"2.0"`, `"2.1"` or `"2.2"`. 2.1 adds
+The contract specification version: `"2.0"`, `"2.1"`, `"2.2"` or `"2.3"`. 2.1 adds
 [`publish`](publish.md), [`checks`](checks.md), external dependencies and the `mcp` interface type.
 2.2 adds the [interface lifecycle](#interface-lifecycle), an interface's
 [`compatibilityEpoch`](#compatibility-epoch), its [`guarantees`](#guarantees) and
 [`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
-Every 2.0 contract is also valid under 2.1, and every 2.1 contract under 2.2.
+2.3 adds [`environments`](environments.md).
+Every 2.0 contract is also valid under 2.1, every 2.1 contract under 2.2 and
+every 2.2 contract under 2.3.
 A 2.1 contract needs Pacto core 4.1.0 or later and operator 6.1.0 or later.
-A 2.2 contract needs Pacto core 4.3.0 or later and operator 6.3.0 or later;
+A 2.2 contract needs Pacto core 4.3.0 or later and operator 6.3.0 or later.
+A 2.3 contract needs Pacto core 4.4.0 or later and operator 6.4.0 or later;
 see [Versions](../installation.md#versions).
 
 ```yaml
@@ -25,12 +28,13 @@ pactoVersion: "2.0"
 
 The version picks the JSON Schema the contract is validated against:
 [`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json),
-[`pacto-v2.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.1.schema.json)
+[`pacto-v2.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.1.schema.json),
+[`pacto-v2.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.2.schema.json)
 or
-[`pacto-v2.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.2.schema.json).
+[`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json).
 Any other value is a hard error: the contract fails to load before validation
 runs and reports `PARSE_ERROR` (`unsupported pactoVersion "3.0"; supported: 2.0,
-2.1, 2.2`). See [Validation layers](validation.md).
+2.1, 2.2, 2.3`). See [Validation layers](validation.md).
 
 ---
 
