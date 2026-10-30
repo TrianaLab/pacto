@@ -230,7 +230,7 @@ var Beats = []Beat{
 	// and it declares only test. pacto publish validated those values; only the
 	// prod Stage knows it delivers to prod, so the pacto.environment gate holds
 	// the promote for team payments. 2.4.2 declares every environment.
-	// Unit-proven (TestBeats/environment, TestEnvironmentGateAcrossTheStory)
+	// Covered by unit tests (TestBeats/environment, TestEnvironmentGateAcrossTheStory)
 	// and played by the browser demo; the Kubernetes demo never publishes 2.4.1.
 	{
 		ID:      "environment",

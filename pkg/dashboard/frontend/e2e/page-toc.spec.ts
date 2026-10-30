@@ -25,8 +25,8 @@ const TOC = '[data-testid="page-toc"]';
 
 /**
  * A revision of api-gateway: a long page whose ten sections are what the rail is sized
- * for. Named, not "the fleet's first revision": that is whichever service sorts first,
- * and when the demo gained analytics-pipeline, a dozen-line contract that fits a laptop
+ * for. It is picked by name because the fleet's first revision is whichever service
+ * sorts first, and when the demo gained analytics-pipeline, a dozen-line contract that fits a laptop
  * screen with nothing to scroll, every claim below silently moved onto it.
  */
 async function longRevision(page: Page): Promise<string> {
