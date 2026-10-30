@@ -1,0 +1,55 @@
+pactoVersion: '2.1'
+service:
+  name: fulfillment-service
+  version: 1.0.0
+  owner:
+    team: logistics-team
+    dri: tomas.novak
+    contacts:
+    - type: email
+      value: logistics-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#logistics-team'
+      purpose: support
+    - type: oncall
+      value: logistics-oncall
+      purpose: oncall
+interfaces:
+- name: shipments
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+- name: shipment-events
+  type: asyncapi
+  ref: interfaces/events.json
+  visibility: internal
+dependencies:
+- name: inventory-service
+  ref: oci://ghcr.io/trianalab/pacto/inventory-service
+  required: true
+  compatibility: ^2.0.0
+- name: shipping-rates
+  ref: oci://ghcr.io/trianalab/pacto/shipping-rates
+  required: true
+  compatibility: ^1.0.0
+- name: event-bus
+  ref: oci://ghcr.io/trianalab/pacto/event-bus
+  required: true
+  compatibility: ^3.6.0
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+metadata:
+  tier: domain
+  category: logistics
+  criticality: medium
+  summary: Picks, packs and dispatches shipments
+  repo: github.com/trianalab/pacto-demo/fulfillment-service
+  tags:
+  - fulfillment
+  - shipping

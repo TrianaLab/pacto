@@ -33,7 +33,10 @@ func TestEmbeddedFixturesAreIndexed(t *testing.T) {
 	if !slices.IsSorted(src.names) {
 		t.Errorf("service names must be sorted, got %v", src.names)
 	}
-	for _, name := range []string{"pacto-demo", "frontend", "payments-service", "orders-service"} {
+	// The last five carry the behavior and environment features: lifecycle,
+	// guarantees and refusals, compatibilityEpoch, a $ref enum and environments.
+	for _, name := range []string{"pacto-demo", "frontend", "payments-service", "orders-service",
+		"inventory-service", "pricing-service", "shipping-rates", "catalog-service", "storefront-web"} {
 		if !slices.Contains(src.names, name) {
 			t.Errorf("expected service %q in the embedded fleet, got %v", name, src.names)
 		}

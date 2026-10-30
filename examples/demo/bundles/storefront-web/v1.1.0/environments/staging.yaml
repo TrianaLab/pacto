@@ -1,0 +1,6 @@
+app:
+  LOG_LEVEL: debug
+chart:
+  replicaCount: 1
+  ingress:
+    host: staging.shop.example.com

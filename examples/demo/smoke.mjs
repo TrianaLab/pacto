@@ -178,6 +178,29 @@ check("owner detail carries a complete-population summary",
   own.summary && own.summary.services >= 1 && own.summary.targets >= 1,
   own.summary && `${own.summary.services} services / ${own.summary.targets} targets`);
 
+// ── Behavior (pactoVersion 2.2) and environments (2.3) ──
+// inventory-service is the provider the behavior features hang off: its
+// consumers cover every guarantee status, its 2.1.0 retires one interface past
+// its sunset and one before it, and 3.0.0 stops promising a guarantee
+// fulfillment-service requires while fulfillment-service runs in prod.
+const invRevs = (json(call("GET", "/api/fleet/service?key=inventory-service")).revisions || []);
+const invRev = (v) => invRevs.find((r) => r.version === v) || {};
+const invRels = ((entity("service", "inventory-service").service || {}).relationships || {}).items || [];
+const gStatus = new Set(invRels.map((e) => e.guaranteeStatus).filter(Boolean));
+check("inventory consumers are met, refused and not verified", ["met", "unmet", "unknown"].every((s) => gStatus.has(s)), [...gStatus].join(","));
+const sunsets = new Set(invRels.flatMap((e) => (e.deprecatedInterfaces || []).map((d) => d.sunset)));
+check("its consumers see one interface past sunset and one before it", sunsets.has("2026-01-01") && sunsets.has("2031-06-01"), [...sunsets].join(","));
+const inv3 = (entity("revision", invRev("3.0.0").key).revision || {}).interfaces || {};
+check("inventory 3.0.0 declares a compatibilityEpoch", (inv3.items || []).some((i) => i.compatibilityEpoch >= 1));
+const invImp = json(call("GET", `/api/fleet/impact?old=${encodeURIComponent(invRev("2.1.0").resolvedRef)}&new=${encodeURIComponent(invRev("3.0.0").resolvedRef)}&includeObserved=false`));
+check("inventory 2.1.0→3.0.0 refuses fulfillment-service and is blocked",
+  invImp.gate === "blocked" && (invImp.consumers || []).some((c) => c.service === "fulfillment-service" && (c.unmet || []).length > 0), invImp.gate);
+const sfRev = (json(call("GET", "/api/fleet/service?key=storefront-web")).revisions || []).find((r) => r.version === "1.2.0") || {};
+const sfEnvs = ((entity("revision", sfRev.key).revision || {}).environments || {}).items || [];
+check("storefront-web 1.2.0 environments pass, fail at a line and stay unverified",
+  sfEnvs.map((e) => e.status).join(",") === "pass,fail,unverified" && sfEnvs[1].findings.items[0].line > 0,
+  sfEnvs.map((e) => `${e.name}=${e.status}`).join(","));
+
 const attn = json(call("GET", "/api/fleet/attention"));
 const sevs = new Set((attn.items || []).map((i) => i.severity));
 check("attention spans more than one severity", sevs.size >= 2, [...sevs].join(","));

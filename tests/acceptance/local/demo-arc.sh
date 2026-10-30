@@ -43,15 +43,16 @@ go build -o "$BIN" "$ROOT/cmd/pacto"
 
 echo "== beat 1: the fleet exists =="
 OUT="$("$BIN" $(beat_args 1))" || fail "beat 1: fleet search failed"
-assert_contains "$OUT" "16 of 16 service(s):" "every demo service is in the snapshot"
+assert_contains "$OUT" "36 of 36 service(s):" "every demo service is in the snapshot"
 assert_contains "$OUT" "payments-service" "the service the arc changes is present"
 
-echo "== beat 2: four compliance states at once =="
+echo "== beat 2: five states at once =="
 OUT="$("$BIN" $(beat_args 2))" || fail "beat 2: fleet search failed"
 assert_contains "$OUT" "auth-service                 Unknown"      "no evidence reads as Unknown, not as a pass"
 assert_contains "$OUT" "fraud-service                Compliant"    "evidenced and conformant reads as Compliant"
 assert_contains "$OUT" "orders-service               NonCompliant" "a confirmed violation reads as NonCompliant"
 assert_contains "$OUT" "api-gateway                  NotEvaluated" "a service with no target is not evaluated"
+assert_contains "$OUT" "storefront-web               Invalid"      "a newest contract that fails validation reads as Invalid"
 
 echo "== beat 3: Unknown is an absence of evidence, not a violation =="
 OUT="$("$BIN" $(beat_args 3))" || fail "beat 3: fleet explain failed"
@@ -188,5 +189,32 @@ assert_contains "$MCP_OUT" '\\\"status\\\":\\\"ok\\\"'   "and gets that server's
 kill "$DASH" 2>/dev/null || true
 wait "$DASH" 2>/dev/null || true
 DASH=""
+
+echo "== beat 13: validate names each stage and the next step =="
+if OUT="$("$BIN" $(beat_args 13) 2>&1)"; then
+  fail "validate should exit non-zero on a failing environment"
+else
+  pass "validate exits non-zero"
+fi
+assert_contains "$OUT" "FAIL environments" "the environments stage fails on its own line"
+assert_contains "$OUT" "storefront-web/v1.2.0/environments/production.yaml:5:3: ERROR [ENVIRONMENT_VALUES_INVALID]" "the error points at the line in the values file"
+assert_contains "$OUT" "[ENVIRONMENT_VALUES_UNVERIFIED] environments[2].file: environment preview" "values for a ref-only configuration are not verified"
+assert_contains "$OUT" "Next: fix environments[1].file" "Next names what to fix first"
+
+echo "== beat 14: an enum value behind a \$ref, and a raised compatibility epoch =="
+rc=0; OUT="$("$BIN" $(beat_args 14) 2>&1)" || rc=$?
+[ "$rc" -eq 1 ] || fail "beat 14: diff should exit 1 on a breaking change, got $rc"
+assert_contains "$OUT" "Classification: BREAKING" "an enum value added in response position is breaking"
+assert_contains "$OUT" "(in #/components/schemas/ProductStatus)" "the change names the component behind the \$ref"
+rc=0; OUT="$("$BIN" $(beat_args 14-epoch) 2>&1)" || rc=$?
+[ "$rc" -eq 1 ] || fail "beat 14: an epoch raise should exit 1, got $rc"
+assert_contains "$OUT" "Changes (2):" "the epoch is the only change besides the version"
+assert_contains "$OUT" "interface rates: compatibilityEpoch raised from 0 to 1" "the raised epoch is named with its interface"
+
+echo "== beat 15: a dropped guarantee refuses the consumers that require it =="
+rc=0; OUT="$("$BIN" $(beat_args 15))" || rc=$?
+[ "$rc" -eq 2 ] || fail "beat 15: impact should exit 2 (unverified), got $rc"
+assert_contains "$OUT" "refused: fulfillment-service requires stock-events dedupeWindow >= 5m from inventory-service, which offers nothing" "the dropped guarantee is named"
+assert_contains "$OUT" "refused: pricing-service requires stock-v2 timeout <= 2s from inventory-service, which offers 5s" "a weaker guarantee refuses too"
 
 echo "== demo-arc acceptance PASSED =="

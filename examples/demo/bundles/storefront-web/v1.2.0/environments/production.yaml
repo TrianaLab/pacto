@@ -1,0 +1,9 @@
+app:
+  LOG_LEVEL: warn
+chart:
+  replicaCount: 6
+  ingress:
+    className: nginx
+  resources:
+    cpu: 500m
+    memory: 512Mi

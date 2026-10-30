@@ -68,5 +68,8 @@ emit _beat-07.md 7
 emit _beat-08.md 8
 emit _beat-09.md 9
 emit _beat-10.md 10
+emit _beat-13.md 13
+emit _beat-14.md 14 14-epoch
+emit _beat-15.md 15
 
 echo "==> wrote $(ls "$OUT" | wc -l | tr -d ' ') transcripts to $OUT"

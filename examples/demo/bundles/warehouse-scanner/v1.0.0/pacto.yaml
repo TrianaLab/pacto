@@ -1,0 +1,38 @@
+pactoVersion: '2.0'
+service:
+  name: warehouse-scanner
+  version: 1.0.0
+  owner:
+    team: logistics-team
+    dri: tomas.novak
+    contacts:
+    - type: email
+      value: logistics-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#logistics-team'
+      purpose: support
+    - type: oncall
+      value: logistics-oncall
+      purpose: oncall
+dependencies:
+- name: inventory-service
+  ref: oci://ghcr.io/trianalab/pacto/inventory-service
+  required: true
+  compatibility: ^2.0.0
+workload: scheduled
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: logistics
+  criticality: medium
+  summary: Reconciles shelf scans with stock every night
+  repo: github.com/trianalab/pacto-demo/warehouse-scanner
+  tags:
+  - warehouse
+  - batch

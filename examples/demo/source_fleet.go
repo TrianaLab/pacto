@@ -253,6 +253,29 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			Coverage: cov(2, 2), EvidenceAt: at(older), ReconciledAt: at(older),
 			Labels:          prod(map[string]string{"app.kubernetes.io/name": "audit-log"}),
 			ObservedRuntime: map[string]any{"schedule": "*/15 * * * *", "lastSuccessful": older.Format(time.RFC3339)}},
+		// The synthetic catalog and logistics domains. fulfillment-service running in
+		// prod is what makes inventory-service 3.0.0, which stops promising the dedupe
+		// window fulfillment-service requires, a blocked change rather than an
+		// unverified one in Change analysis.
+		{Scope: "prod", Kind: "StatefulSet", Name: "inventory-service", Service: "inventory-service", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "inventory-service:2.1.0", Coverage: cov(5, 5), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels:          prod(map[string]string{"app.kubernetes.io/name": "inventory-service", "tier": "critical"}),
+			ObservedRuntime: map[string]any{"replicas": 3, "image": demoRegistry + "inventory-service:2.1.0"}},
+		{Scope: "prod", Kind: "Deployment", Name: "fulfillment-service", Service: "fulfillment-service", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "fulfillment-service:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(older), ReconciledAt: at(older),
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "fulfillment-service"})},
+		{Scope: "prod", Kind: "Deployment", Name: "catalog-service", Service: "catalog-service", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "catalog-service:1.1.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "catalog-service"})},
+		{Scope: "prod", Kind: "Deployment", Name: "storefront-web", Service: "storefront-web", Compliance: fleet.StatusCompliant,
+			ResolvedRef: demoRegistry + "storefront-web:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
+			Labels:          prod(map[string]string{"app.kubernetes.io/name": "storefront-web", "tier": "edge"}),
+			ObservedRuntime: map[string]any{"replicas": 6, "ingress": "https://shop.example.com"}},
+		{Scope: "prod", Kind: "Deployment", Name: "pricing-service", Service: "pricing-service", Compliance: fleet.StatusUnknown,
+			ResolvedRef: demoRegistry + "pricing-service:1.1.0", Coverage: cov(2, 4), EvidenceAt: at(stale), ReconciledAt: at(stale),
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "pricing-service"})},
+		{Scope: "staging", Kind: "Deployment", Name: "search-indexer", Service: "search-indexer", Compliance: fleet.StatusUnknown,
+			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "search-indexer"}},
 	}
 }
 

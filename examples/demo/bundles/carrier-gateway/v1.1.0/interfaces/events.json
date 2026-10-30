@@ -1,0 +1,32 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Carrier tracking",
+    "version": "1"
+  },
+  "channels": {
+    "parcel.tracked": {
+      "publish": {
+        "operationId": "parcelTracked",
+        "summary": "A carrier reported a tracking update",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "tracking": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tracking",
+              "status"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

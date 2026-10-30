@@ -1,0 +1,32 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Loyalty events",
+    "version": "1"
+  },
+  "channels": {
+    "loyalty.points.earned": {
+      "publish": {
+        "operationId": "pointsEarned",
+        "summary": "A customer earned points",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string"
+              },
+              "points": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "customer_id",
+              "points"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

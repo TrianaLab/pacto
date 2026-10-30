@@ -1,0 +1,43 @@
+pactoVersion: '2.0'
+service:
+  name: experiment-service
+  version: 1.0.0
+  owner:
+    team: growth-team
+    dri: priya.raman
+    contacts:
+    - type: email
+      value: growth-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#growth-team'
+      purpose: support
+    - type: oncall
+      value: growth-oncall
+      purpose: oncall
+interfaces:
+- name: http
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+dependencies:
+- name: redis
+  ref: oci://ghcr.io/trianalab/pacto/redis
+  required: true
+  compatibility: ^7.0.0
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: growth
+  criticality: medium
+  summary: Feature flags and A/B experiment assignment
+  repo: github.com/trianalab/pacto-demo/experiment-service
+  tags:
+  - experiments
+  - flags

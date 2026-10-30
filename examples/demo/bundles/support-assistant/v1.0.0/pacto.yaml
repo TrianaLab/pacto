@@ -1,0 +1,51 @@
+pactoVersion: '2.1'
+service:
+  name: support-assistant
+  version: 1.0.0
+  owner:
+    team: support-team
+    dri: ana.silva
+    contacts:
+    - type: email
+      value: support-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#support-team'
+      purpose: support
+    - type: oncall
+      value: support-oncall
+      purpose: oncall
+interfaces:
+- name: tools
+  type: mcp
+  ref: interfaces/tools.json
+  visibility: internal
+dependencies:
+- name: ticketing-service
+  ref: oci://ghcr.io/trianalab/pacto/ticketing-service
+  required: true
+  compatibility: ^1.0.0
+- name: returns-service
+  ref: oci://ghcr.io/trianalab/pacto/returns-service
+  required: false
+  compatibility: ^1.0.0
+- name: model
+  external: true
+  version: hosted-llm/2026-06
+  required: true
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: support
+  criticality: medium
+  summary: An AI agent that answers customers' where-is-my-parcel questions
+  repo: github.com/trianalab/pacto-demo/support-assistant
+  tags:
+  - support
+  - agent

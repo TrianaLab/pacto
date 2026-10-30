@@ -1,0 +1,39 @@
+pactoVersion: '2.1'
+service:
+  name: event-bus
+  version: 3.7.0
+  owner:
+    team: data-platform
+    dri: kenji.mori
+    contacts:
+    - type: email
+      value: data-platform@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#data-platform'
+      purpose: support
+    - type: oncall
+      value: data-oncall
+      purpose: oncall
+interfaces:
+- name: events
+  type: asyncapi
+  ref: interfaces/events.json
+  visibility: internal
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+metadata:
+  tier: domain
+  category: infrastructure
+  criticality: high
+  summary: The shared event log every domain publishes to
+  repo: github.com/trianalab/pacto-demo/event-bus
+  tags:
+  - events
+  - streaming
+  - infrastructure

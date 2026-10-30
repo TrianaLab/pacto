@@ -1,0 +1,35 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Carrier gateway API",
+    "version": "1"
+  },
+  "paths": {
+    "/labels": {
+      "post": {
+        "operationId": "createLabel",
+        "summary": "Buy a shipping label",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "label_id": {
+                      "type": "string"
+                    },
+                    "tracking": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

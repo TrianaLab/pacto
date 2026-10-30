@@ -1,0 +1,34 @@
+{
+  "tools": [
+    {
+      "name": "find_ticket",
+      "description": "Find a customer's open tickets",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "customer"
+        ],
+        "properties": {
+          "customer": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "track_return",
+      "description": "Where a return is",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "return_id"
+        ],
+        "properties": {
+          "return_id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

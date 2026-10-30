@@ -1,0 +1,42 @@
+pactoVersion: '2.1'
+service:
+  name: analytics-pipeline
+  version: 1.0.0
+  owner:
+    team: data-platform
+    dri: kenji.mori
+    contacts:
+    - type: email
+      value: data-platform@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#data-platform'
+      purpose: support
+    - type: oncall
+      value: data-oncall
+      purpose: oncall
+dependencies:
+- name: event-bus
+  ref: oci://ghcr.io/trianalab/pacto/event-bus
+  required: true
+  compatibility: ^3.6.0
+- name: postgresql
+  ref: oci://ghcr.io/trianalab/pacto/postgresql
+  required: true
+  compatibility: ^16.0.0
+workload: scheduled
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: data
+  criticality: medium
+  summary: Nightly batch of domain events into the warehouse
+  repo: github.com/trianalab/pacto-demo/analytics-pipeline
+  tags:
+  - analytics
+  - batch
