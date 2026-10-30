@@ -24,9 +24,15 @@ func Validate(c *contract.Contract, rawYAML []byte, bundleFS fs.FS) ValidationRe
 // ValidateDocument is [Validate] over a document a loader already decoded
 // ([contract.ParseDocument]), so the YAML is not read twice.
 func ValidateDocument(c *contract.Contract, doc *contract.Document, bundleFS fs.FS) ValidationResult {
-	return Merged(runLayers(c, doc, bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
+	return Merged(ValidateDocumentStages(c, doc, bundleFS))
+}
+
+// ValidateDocumentStages is [ValidateDocument] reported layer by layer: one
+// [Stage] each for structural, cross-field, policy and environments.
+func ValidateDocumentStages(c *contract.Contract, doc *contract.Document, bundleFS fs.FS) []Stage {
+	return runLayers(c, doc, bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
 		return ResolvePoliciesFromBundle(c, bundleFS)
-	}))
+	})
 }
 
 // ValidateWithResolver runs all three validation layers and the environments

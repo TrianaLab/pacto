@@ -31,6 +31,13 @@ type InterfaceSummary struct {
 	Visibility      string       `json:"visibility,omitempty"`
 	OperationsKnown bool         `json:"operationsKnown"`
 	Operations      ToolsPreview `json:"operations"`
+	// Lifecycle is the interface's retirement schedule, nil when it is not
+	// deprecated. Guarantees is the behavior it promises its consumers, and
+	// CompatibilityEpoch counts its incompatible behavior changes (all three
+	// pactoVersion 2.2).
+	Lifecycle          *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	Guarantees         *contract.Guarantees         `json:"guarantees,omitempty"`
+	CompatibilityEpoch int                          `json:"compatibilityEpoch,omitempty"`
 }
 
 // InterfacesPreview is a bounded preview of declared interfaces.
@@ -157,6 +164,7 @@ func interfacesPreview(ifaces []contract.Interface, tools []ToolSummary, specsRe
 		items = append(items, InterfaceSummary{
 			Name: i.Name, Type: i.Type, Ref: i.Ref, Visibility: i.Visibility,
 			OperationsKnown: read[i.Name], Operations: toolsPreview(byIface[i.Name]),
+			Lifecycle: clonePtr(i.Lifecycle), Guarantees: clonePtr(i.Guarantees), CompatibilityEpoch: i.CompatibilityEpoch,
 		})
 	}
 	return InterfacesPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}

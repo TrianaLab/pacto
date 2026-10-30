@@ -283,6 +283,11 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 		existing.Valid = add.Valid
 		existing.validated = existing.validated || add.validated
 	}
+	// A contribution that validated fills in the stage verdicts one that could
+	// not read the document lacks; two that both validated read the same bytes.
+	if len(existing.Stages) == 0 && len(add.Stages) > 0 {
+		existing.Stages, existing.Environments = add.Stages, add.Environments
+	}
 	if len(existing.Tools) == 0 {
 		existing.Tools = add.Tools
 	}
@@ -739,10 +744,15 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		if doc == nil {
 			doc = contract.DecodeDocument(yml)
 		}
-		res := validation.ValidateDocument(c, doc, b.FS)
+		stages := validation.ValidateDocumentStages(c, doc, b.FS)
+		res := validation.Merged(stages)
 		rev.Valid = res.IsValid()
 		rev.Validation = res.Findings()
+		rev.Stages = stageSummaries(stages)
+		rev.Environments = environmentResults(c.Environments, stages)
 		rev.validated = true
+	} else {
+		rev.Environments = environmentResults(c.Environments, nil)
 	}
 	rev.Readiness = readiness.Evaluate(c.Readiness, now)
 	rev.Tools, rev.SpecsRead = toolsFrom(c, b.FS)
@@ -1779,6 +1789,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			snap.reverseDeps[toSvc] = appendUnique(snap.reverseDeps[toSvc], rev.ServiceKey)
 			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
 			rel.RangeStatus = dependencyRangeStatus(snap, rel)
+			rel.DeprecatedInterfaces = providerDeprecations(snap, rel)
 			// A contested lock reaches this edge exactly as a missing one does — nil —
 			// so the pin is absent either way and only the reason distinguishes them.
 			// mergeRevisionLock deterministically discards BOTH sides of a lock
@@ -1792,6 +1803,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			// problem is that it names no service at all.
 			rel.Reason = rev.lockConflict
 		}
+		rel.DependencyBehavior = dependencyBehavior(snap, rev.Service, dep, rel)
 		out = append(out, rel)
 	}
 	return out

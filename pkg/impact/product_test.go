@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -149,7 +150,8 @@ func boundedResult() *Result {
 		Classification: "BREAKING",
 		Consumers: []AffectedConsumer{
 			{Service: "web", Path: longPath, Confidence: ConfidenceDeclared, CompatibilityVerdict: CompatibilityIncompatible},
-			{Service: "api", Domain: "acme", Path: []string{"acme/api"}, Confidence: "novel", CompatibilityVerdict: CompatibilityCompatible, Note: "range only"},
+			{Service: "api", Domain: "acme", Path: []string{"acme/api"}, Confidence: "novel", CompatibilityVerdict: CompatibilityCompatible, Note: "range only",
+				Unmet: []contract.Mismatch{{Consumer: "api", Provider: "api", Interface: "events", Guarantee: "delivery", Required: "at-least-once"}}},
 		},
 		Gate:          GateUnverified,
 		GateReason:    "why",
@@ -198,6 +200,9 @@ func TestBuildProduct_CarriesGateAndNote(t *testing.T) {
 	}
 	if p.Consumers.Items[0].Note != "range only" {
 		t.Errorf("note = %q", p.Consumers.Items[0].Note)
+	}
+	if u := p.Consumers.Items[0].Unmet; len(u) != 1 || u[0].Guarantee != "delivery" {
+		t.Errorf("unmet = %+v", u)
 	}
 }
 

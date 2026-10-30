@@ -198,6 +198,9 @@ type DeclaredClaim struct {
 	RequestedRef   string      `json:"requestedRef,omitempty"`
 	LockedVersion  string      `json:"lockedVersion,omitempty"`
 	LockedDigest   string      `json:"lockedDigest,omitempty"`
+	// DependencyBehavior is what this revision's dependency requires of the
+	// provider's behavior and whether the provider meets it.
+	DependencyBehavior
 }
 
 // NeighborhoodEdge is a merged declared+observed edge between two in-scope
@@ -234,8 +237,14 @@ type NeighborhoodEdge struct {
 	// (fromService,toService) pair, surfaced as CONTEXT on a fine-grained
 	// (revision/target) dependency edge. It never claims the fine-grained edge itself
 	// was observed; it says whether the LOGICAL service relationship was corroborated.
-	ServiceCorroboration string                    `json:"serviceCorroboration,omitempty" enum:"matched,expected-not-observed,insufficient"`
-	DeclaredClaims       DeclaredClaimsPreview     `json:"declaredClaims"`
+	ServiceCorroboration string                `json:"serviceCorroboration,omitempty" enum:"matched,expected-not-observed,insufficient"`
+	DeclaredClaims       DeclaredClaimsPreview `json:"declaredClaims"`
+	// GuaranteeStatus is the worst guarantee status over every declared claim
+	// (unmet, then unknown, then met; see [DependencyBehavior]), empty when no
+	// claim requires anything. DeprecatedInterfaces is every deprecated
+	// interface of the provider the claims reach. Both are declared knowledge.
+	GuaranteeStatus      string                    `json:"guaranteeStatus,omitempty" enum:"met,unmet,unknown"`
+	DeprecatedInterfaces []InterfaceDeprecation    `json:"deprecatedInterfaces,omitempty"`
 	ObservationSources   ObservationSourcesPreview `json:"observationSources"`
 	Count                int                       `json:"count,omitempty"`
 	FirstSeen            *time.Time                `json:"firstSeen,omitempty"`
@@ -402,6 +411,7 @@ func projectEdgeForViews(e *NeighborhoodEdge, views []KnowledgeView) {
 	if !wantDeclared {
 		e.Expected = false
 		e.DeclaredClaims = DeclaredClaimsPreview{}
+		e.GuaranteeStatus, e.DeprecatedInterfaces = "", nil
 	}
 	if !wantObserved {
 		e.Observed = false
@@ -845,15 +855,8 @@ func (q *Query) foldRelationshipIntoEdge(e *NeighborhoodEdge, rel Relationship) 
 	switch rel.Provenance {
 	case ProvenanceDeclared:
 		e.Expected = true
-		e.DeclaredClaims.Items = append(e.DeclaredClaims.Items, DeclaredClaim{
-			SourceRevision: rel.FromRevision,
-			Required:       rel.Required,
-			Compatibility:  rel.Compatibility,
-			Reconciliation: rel.Reconciliation,
-			RequestedRef:   rel.RequestedRef,
-			LockedVersion:  rel.LockedVersion,
-			LockedDigest:   rel.LockedDigest,
-		})
+		e.DeclaredClaims.Items = append(e.DeclaredClaims.Items, declaredClaim(rel))
+		foldBehavior(e, rel)
 	case ProvenanceObserved:
 		e.Observed = true
 		e.Count += rel.ObservedCount
