@@ -36,6 +36,10 @@ const (
 	// GateSuites holds a promote of a version that does not ship a suite
 	// one of the Stage's checks runs.
 	GateSuites = "pacto.suites"
+	// GateEnvironment holds a promote of a version whose contract declares
+	// environments but does not back the Stage's: no environment of its
+	// name, or values that fail their configuration schemas.
+	GateEnvironment = "pacto.environment"
 	// GateAutonomy judges a change of level.
 	GateAutonomy = "pacto.autonomy"
 )
@@ -102,9 +106,9 @@ var tier0 = []OperationType{
 		Description:       "Move the Stage pointer to a new digest. The only way to ship a version.",
 		Params:            []string{"from", "to"},
 		Raisers:           []ActorClass{ClassAgent, ClassHuman, ClassController},
-		PreGates:          []string{GatePublished, GateDiff, GateImpact, GateSuites},
+		PreGates:          []string{GatePublished, GateDiff, GateImpact, GateSuites, GateEnvironment},
 		VerifyGates:       []string{GateContract},
-		ApprovalFloor:     "pkg/impact: no person when no consumer is incompatible or unknown, the analysis is complete and the version to roll back to is verified; an incompatible consumer asks its owners; anything Pacto cannot see, or a suite a Stage check runs that the version does not ship, asks a person to accept the unknown; with spec.records.required, an agent or promoter promote asks a person while the Stage's records are not being written",
+		ApprovalFloor:     "pkg/impact: no person when no consumer is incompatible or unknown, the analysis is complete and the version to roll back to is verified; an incompatible consumer, or one whose required guarantee the version does not meet, asks its owners; a version whose contract declares environments but none for the Stage's spec.environment, or values there that fail their schemas, asks the service's team; anything Pacto cannot see, a suite a Stage check runs that the version does not ship or environment values Pacto cannot check, asks a person to accept the unknown; with spec.records.required, an agent or promoter promote asks a person while the Stage's records are not being written",
 		Inverse:           TypeRollback,
 		Cancellable:       "until the pointer moves",
 		ApprovalDeadline:  defaultApprovalDeadline,

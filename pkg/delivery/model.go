@@ -267,8 +267,14 @@ type RecordsPolicy struct {
 
 // StageSpec is one service in one environment.
 type StageSpec struct {
-	Service     ServiceRef `json:"service"`
-	Environment string     `json:"environment"`
+	Service ServiceRef `json:"service"`
+	// Environment is the environment the Stage delivers to, such as prod.
+	// A promote matches it against the environments the version's contract
+	// declares (environments[].name): a contract that declares environments
+	// must declare this one, with values that satisfy its configuration
+	// schemas, or the promote waits for a person (pacto.environment). It
+	// also places the Pactos and Stages a change's consumers run on.
+	Environment string `json:"environment"`
 	// ApplyRef is the object the promoter points at a version: a Flux
 	// OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it
 	// sets spec.source.targetRevision). Nothing else is ever written on it.
