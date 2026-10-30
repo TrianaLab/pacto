@@ -34,9 +34,12 @@ type PactoStatusView struct {
 	ObservedGeneration int64             `json:"observedGeneration"`
 	LastReconciledAt   string            `json:"lastReconciledAt"`
 	Contract           *ContractInfoView `json:"contract"`
-	Dependencies       []DependencyView  `json:"dependencies"`
-	EvaluatedRevision  *EvaluatedView    `json:"evaluatedRevision"`
-	Findings           []FindingView     `json:"findings"`
+	// Interfaces are status.interfaces. The operator writes them under the
+	// contract's own field names, guarantees, lifecycle and epoch included.
+	Interfaces        []contract.Interface `json:"interfaces"`
+	Dependencies      []DependencyView     `json:"dependencies"`
+	EvaluatedRevision *EvaluatedView       `json:"evaluatedRevision"`
+	Findings          []FindingView        `json:"findings"`
 	// ObservedCallers are workloads the node agent saw calling the target's
 	// Service that no Pacto describes.
 	ObservedCallers []ObservedCallerView `json:"observedCallers"`
@@ -92,8 +95,8 @@ type DependencyView struct {
 	Compatibility string `json:"compatibility"`
 	External      bool   `json:"external,omitempty"`
 	Version       string `json:"version,omitempty"`
-	// Requires is what the dependency relies on from the provider. The
-	// operator status does not record it yet, so it is empty until it does.
+	// Requires is what the dependency relies on from the provider. A status
+	// written by an operator older than 6.4.0 does not record it.
 	Requires []contract.Requirement `json:"requires,omitempty"`
 }
 
@@ -282,8 +285,9 @@ func CallerName(namespace, kind, name string) string {
 	return "k8s:" + namespace + "/" + kind + "/" + name
 }
 
-// revisionFromStatus rebuilds the declared part of a contract (service, owner
-// and dependency ranges) from a Pacto's status. Its identity is the evaluated
+// revisionFromStatus rebuilds the declared part of a contract (service, owner,
+// interfaces with their guarantees and dependencies with their ranges and
+// requirements) from a Pacto's status. Its identity is the evaluated
 // contract digest when the operator recorded one, else a hash of the rebuilt
 // contract, which is stable for as long as the status is.
 func revisionFromStatus(p PactoView) (fleet.RawRevision, string) {
@@ -292,6 +296,7 @@ func revisionFromStatus(p PactoView) (fleet.RawRevision, string) {
 	if c.Owner != nil {
 		ct.Service.Owner = *c.Owner
 	}
+	ct.Interfaces = p.Status.Interfaces
 	for _, d := range p.Status.Dependencies {
 		ct.Dependencies = append(ct.Dependencies, contract.Dependency{Name: d.Name, Ref: d.Ref, Required: d.Required, Compatibility: d.Compatibility, External: d.External, Version: d.Version, Requires: d.Requires})
 	}

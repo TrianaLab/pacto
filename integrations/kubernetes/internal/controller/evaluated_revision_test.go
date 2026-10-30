@@ -114,3 +114,50 @@ func hasKernelFinding(fs []delivery.FindingView) bool {
 	}
 	return false
 }
+
+// TestStatusCarriesGuaranteesToDelivery proves the status records what each
+// interface promises, its lifecycle and epoch, and what each dependency
+// requires, under the names delivery decodes back into the contract types: a
+// fleet rebuilt from status then evaluates guarantees as one built from
+// bundles does.
+func TestStatusCarriesGuaranteesToDelivery(t *testing.T) {
+	ifaces := []contract.Interface{
+		{Name: "events", Type: "asyncapi", Ref: "asyncapi.yaml", CompatibilityEpoch: 2,
+			Guarantees: &contract.Guarantees{Profile: "1", Delivery: "at-least-once", Ordering: "per-key", DedupeWindow: "5m", Retention: "168h"},
+			Lifecycle:  &contract.InterfaceLifecycle{Deprecated: "2026-09-01", Sunset: "2027-03-01", Successor: "events-v2"}},
+		{Name: "api", Type: "openapi", Ref: "openapi.yaml", Guarantees: &contract.Guarantees{Idempotent: true, Timeout: "30s"}},
+		{Name: "plain", Type: "grpc", Ref: "plain.proto"},
+	}
+	requires := []contract.Requirement{
+		{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true, Timeout: "1m"}},
+		{Interface: "events", Guarantees: contract.Guarantees{Delivery: "at-least-once"}},
+	}
+	p := &pactov1alpha1.Pacto{}
+	newReconciler().populateContractStatus(p, &loader.LoadResult{Contract: &contract.Contract{
+		Service:    contract.Service{Name: "payments", Version: "1.0.0"},
+		Interfaces: ifaces,
+		Dependencies: []contract.Dependency{
+			{Name: "ledger", Ref: "oci://r/ledger", Compatibility: "^1", Requires: requires},
+			{Name: "fraud", Ref: "oci://r/fraud"},
+		},
+	}})
+	if g := p.Status.Interfaces[0]; g.CompatibilityEpoch != 2 || g.Lifecycle == nil || g.Lifecycle.Successor != "events-v2" ||
+		g.Guarantees == nil || g.Guarantees.Retention != "168h" || p.Status.Interfaces[2].Guarantees != nil || p.Status.Interfaces[2].Lifecycle != nil {
+		t.Fatalf("status.interfaces lost a field: %+v", p.Status.Interfaces)
+	}
+	if d := p.Status.Dependencies; len(d[0].Requires) != 2 || d[0].Requires[0].Timeout != "1m" || len(d[1].Requires) != 0 {
+		t.Fatalf("status.dependencies lost requires: %+v", d)
+	}
+	data, _ := json.Marshal(p)
+	var v delivery.PactoView
+	if err := json.Unmarshal(data, &v); err != nil {
+		t.Fatal(err)
+	}
+	gi, _ := json.Marshal(v.Status.Interfaces)
+	wi, _ := json.Marshal(ifaces)
+	gr, _ := json.Marshal(v.Status.Dependencies[0].Requires)
+	wr, _ := json.Marshal(requires)
+	if string(gi) != string(wi) || string(gr) != string(wr) {
+		t.Fatalf("delivery decodes\n%s\n%s\nwant\n%s\n%s", gi, gr, wi, wr)
+	}
+}
