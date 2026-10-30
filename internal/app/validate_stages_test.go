@@ -311,3 +311,22 @@ func TestEnvironmentFailureRefusesPackAndPush(t *testing.T) {
 		t.Fatalf("push: %v", err)
 	}
 }
+
+// TestValidateStages_OverridesKeepEnvironmentPositions: --set and -f change
+// pacto.yaml alone, so an error in an environment's file keeps its file,
+// line and column, and Next points at it.
+func TestValidateStages_OverridesKeepEnvironmentPositions(t *testing.T) {
+	dir := writeEnvironmentBundle(t, "")
+	opts := ValidateOptions{Path: dir, Overrides: override.Overrides{SetValues: []string{"service.version=1.0.1"}}}
+	r, err := NewService(nil, nil).Validate(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "environments/production.yaml")
+	if e := r.Errors[0]; e.File != file || e.Line != 3 || e.Column != 3 {
+		t.Fatalf("error = %+v", e)
+	}
+	if want := "fix environments[0].file at " + file + ":3:3 [ENVIRONMENT_VALUES_INVALID], then run pacto validate --set service.version=1.0.1 " + dir; r.Next != want {
+		t.Fatalf("next = %q, want %q", r.Next, want)
+	}
+}

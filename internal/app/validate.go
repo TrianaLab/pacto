@@ -145,7 +145,8 @@ func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...v
 			failed = stages[i].Name
 		}
 		// With overrides, raw is the merged document, whose lines are not the
-		// file's, so an error there carries no position.
+		// file's, so an error there carries no position. An error in another
+		// file keeps the position its reporter gave it.
 		if opts.Overrides.IsEmpty() {
 			locate(raw, stages[i].Errors)
 		}
@@ -221,7 +222,9 @@ func nextFix(r *ValidateResult, rerun string, overridden bool) string {
 	if _, err := os.Stat(r.Path); !isOCIRef(r.Path) && errors.Is(err, fs.ErrNotExist) {
 		return r.Path + " does not exist: run pacto validate on the directory that holds " + DefaultContractPath
 	}
-	if overridden {
+	// An error in another file, such as an environment's, is where its
+	// reporter located it: overrides change pacto.yaml alone.
+	if overridden && e.File == "" {
 		return fmt.Sprintf("fix %s [%s] in %s or in the --set and -f values, then run %s", e.Path, e.Code, r.File, rerun)
 	}
 	return fmt.Sprintf("fix %s [%s], then run %s", r.Where(e), e.Code, rerun)
