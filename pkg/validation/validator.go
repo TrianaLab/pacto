@@ -11,8 +11,9 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
-// Validate runs all three validation layers in order on the given contract.
-// If structural validation fails, subsequent layers are skipped.
+// Validate runs all three validation layers in order on the given contract,
+// then the environments stage. If structural validation fails, subsequent
+// layers are skipped.
 // The rawYAML parameter is the original YAML bytes for JSON Schema validation.
 // The bundleFS parameter provides access to bundle files for cross-field validation.
 func Validate(c *contract.Contract, rawYAML []byte, bundleFS fs.FS) ValidationResult {
@@ -35,7 +36,8 @@ func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []b
 }
 
 // ValidateStagesWithResolver is [ValidateWithResolver] reported layer by
-// layer: one [Stage] each for structural, cross-field and policy.
+// layer: one [Stage] each for structural, cross-field, policy and
+// environments.
 func ValidateStagesWithResolver(ctx context.Context, c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolver BundleResolver) []Stage {
 	return runLayers(c, contract.DecodeDocument(rawYAML), bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
 		return ResolvePoliciesWithResolver(ctx, c, bundleFS, resolver)
@@ -86,21 +88,22 @@ func Merged(stages []Stage) ValidationResult {
 	return r
 }
 
-// runLayers runs the three-layer validation pipeline, short-circuiting on
-// structural and cross-field failures. Layer 3 policy resolution is delegated to
+// runLayers runs the three-layer validation pipeline and then the
+// environments stage, short-circuiting on structural and cross-field failures
+// and running environments only when every layer passed. Layer 3 policy resolution is delegated to
 // resolvePolicies, which is the only step that differs between the local-only
 // Validate and the resolver-based ValidateWithResolver.
 func runLayers(c *contract.Contract, doc *contract.Document, bundleFS fs.FS, resolvePolicies func() ([]ResolvedPolicy, ValidationResult)) []Stage {
 	// Layer 1: Structural validation via JSON Schema.
 	structural := RanStage("structural", validateStructuralDoc(doc))
 	if structural.Status == StageFail {
-		return append([]Stage{structural}, SkippedStages("structural failed", "cross-field", "policy")...)
+		return append([]Stage{structural}, SkippedStages("structural failed", "cross-field", "policy", "environments")...)
 	}
 
 	// Layer 2: Cross-field validation.
 	crossField := RanStage("cross-field", ValidateCrossField(c, bundleFS))
 	if crossField.Status == StageFail {
-		return append([]Stage{structural, crossField}, SkippedStages("cross-field failed", "policy")...)
+		return append([]Stage{structural, crossField}, SkippedStages("cross-field failed", "policy", "environments")...)
 	}
 
 	// Layer 3: Policy resolution + enforcement.
@@ -108,7 +111,14 @@ func runLayers(c *contract.Contract, doc *contract.Document, bundleFS fs.FS, res
 	if policyResult.IsValid() {
 		policyResult.Merge(enforcePolicies(doc, policies))
 	}
-	return []Stage{structural, crossField, RanStage("policy", policyResult)}
+	policy := RanStage("policy", policyResult)
+	if policy.Status == StageFail {
+		return append([]Stage{structural, crossField, policy}, SkippedStages("policy failed", "environments")...)
+	}
+
+	// The environments stage reads the files cross-field checked, so it runs
+	// only when every layer before it passed.
+	return []Stage{structural, crossField, policy, EnvironmentStage(c, bundleFS)}
 }
 
 // ValidateStructuralRaw performs Layer 1 (JSON Schema) validation on raw YAML bytes.

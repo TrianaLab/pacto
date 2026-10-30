@@ -161,3 +161,39 @@ func TestEnvironmentStage_Unverified(t *testing.T) {
 		t.Fatalf("got %+v", st)
 	}
 }
+
+// TestValidateRunsTheEnvironmentsStage: every entry point runs the
+// environments stage after policy, so pack, push, publish, the operator and
+// the dashboard refuse what validate refuses.
+func TestValidateRunsTheEnvironmentsStage(t *testing.T) {
+	raw := []byte(`pactoVersion: "2.3"
+service: {name: svc, version: 1.0.0}
+configurations:
+  - {name: app, schema: app.json, required: false, values: {LOG_LEVEL: info}}
+  - {name: chart, schema: chart.json, required: true}
+environments:
+  - {name: staging, file: staging.yaml}
+`)
+	c, err := contract.Parse(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fsys := envFS(map[string]string{"staging.yaml": "chart: {}\n"})
+	if r := Validate(c, raw, fsys); r.IsValid() || r.Errors[0].Code != "ENVIRONMENT_VALUES_INVALID" {
+		t.Fatalf("Validate: %+v", r)
+	}
+	stages := ValidateStagesWithResolver(t.Context(), c, raw, fsys, nil)
+	if last := stages[len(stages)-1]; len(stages) != 4 || last.Name != "environments" || last.Status != StageFail {
+		t.Fatalf("stages: %+v", stages)
+	}
+	// An earlier failure skips it.
+	stages = ValidateStagesWithResolver(t.Context(), c, []byte("pactoVersion: \"2.3\"\n"), fsys, nil)
+	if last := stages[len(stages)-1]; last.Name != "environments" || last.Status != StageSkip || last.Reason != "structural failed" {
+		t.Fatalf("stages: %+v", stages)
+	}
+	delete(fsys, "chart.json")
+	stages = ValidateStagesWithResolver(t.Context(), c, raw, fsys, nil)
+	if last := stages[len(stages)-1]; last.Name != "environments" || last.Reason != "cross-field failed" {
+		t.Fatalf("stages: %+v", stages)
+	}
+}

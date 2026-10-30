@@ -94,11 +94,6 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		resolver = s.PolicyResolver(ref)
 	}
 	stages = append(stages, validation.ValidateStagesWithResolver(ctx, bundle.Contract, rawYAML, bundle.FS, resolver)...)
-	// The environments stage reads the files cross-field checked, so it runs
-	// only when every stage before it passed.
-	if !slices.ContainsFunc(stages, func(st validation.Stage) bool { return st.Status == validation.StageFail }) {
-		stages = append(stages, validation.EnvironmentStage(bundle.Contract, bundle.FS))
-	}
 	stages = append(stages, s.guaranteeStage(ctx, ref, bundle.Contract))
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.

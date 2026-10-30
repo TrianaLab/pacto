@@ -703,3 +703,16 @@ func TestExecRun(t *testing.T) {
 		t.Fatal("the default registry")
 	}
 }
+
+// TestPublishRefusesAnEnvironmentFailure: publish, and publish --plan, report
+// a version whose values break an environment as invalid.
+func TestPublishRefusesAnEnvironmentFailure(t *testing.T) {
+	host, reg := publishRegistry(t)
+	dir := writeEnvironmentBundle(t, "publish:\n  bundle: oci://"+host+"/pacto/svc\n")
+	for _, plan := range []bool{true, false} {
+		_, err := publishService(&fakeRun{}, reg).Publish(context.Background(), PublishOptions{Path: dir, Plan: plan})
+		if err == nil || !strings.Contains(err.Error(), "contract validation failed") {
+			t.Fatalf("plan %v: %v", plan, err)
+		}
+	}
+}

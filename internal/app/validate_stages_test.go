@@ -234,31 +234,7 @@ func TestValidationReport_CarriesStages(t *testing.T) {
 // TestValidateStages_Environments: an environment's invalid values fail the
 // environments stage, and the error and Next point into the values file.
 func TestValidateStages_Environments(t *testing.T) {
-	dir := t.TempDir()
-	files := map[string]string{
-		"pacto.yaml": `pactoVersion: "2.3"
-service:
-  name: svc
-  version: 1.0.0
-configurations:
-  - name: chart
-    schema: chart/values.schema.json
-    required: true
-environments:
-  - name: production
-    file: environments/production.yaml
-`,
-		"chart/values.schema.json":     `{"type":"object","properties":{"ingress":{"type":"object","required":["host"]}}}`,
-		"environments/production.yaml": "chart:\n  replicaCount: 5\n  ingress:\n    tls: true\n",
-	}
-	for name, data := range files {
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	dir := writeEnvironmentBundle(t, "")
 	r, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: dir})
 	if err != nil {
 		t.Fatal(err)
@@ -285,5 +261,53 @@ environments:
 	}
 	if st := r.Stages[5]; st.Name != "environments" || st.Reason != "cross-field failed" || r.Errors[0].Code != "FILE_NOT_FOUND" {
 		t.Fatalf("stages = %+v", r.Stages)
+	}
+}
+
+// envContract is a 2.3 contract whose production environment fails the chart
+// schema: its values file sets no ingress host. extra goes before environments.
+const envContract = `pactoVersion: "2.3"
+service:
+  name: svc
+  version: 1.0.0
+configurations:
+  - name: chart
+    schema: chart/values.schema.json
+    required: true
+`
+
+// writeEnvironmentBundle writes a bundle whose production environment fails
+// its configuration's schema, with extra appended to pacto.yaml.
+func writeEnvironmentBundle(t *testing.T, extra string) string {
+	t.Helper()
+	dir := t.TempDir()
+	files := map[string]string{
+		"pacto.yaml":                   envContract + extra + "environments:\n  - name: production\n    file: environments/production.yaml\n",
+		"chart/values.schema.json":     `{"type":"object","properties":{"ingress":{"type":"object","required":["host"]}}}`,
+		"environments/production.yaml": "chart:\n  replicaCount: 5\n  ingress:\n    tls: true\n",
+	}
+	for name, data := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// TestEnvironmentFailureRefusesPackAndPush: pack and push run the
+// environments check, so a version whose values break an environment is
+// never packed or pushed.
+func TestEnvironmentFailureRefusesPackAndPush(t *testing.T) {
+	dir := writeEnvironmentBundle(t, "")
+	if _, err := NewService(nil, nil).Pack(context.Background(), PackOptions{Path: dir, Output: filepath.Join(t.TempDir(), "b.tar.gz")}); err == nil ||
+		!strings.Contains(err.Error(), "contract validation failed") {
+		t.Fatalf("pack: %v", err)
+	}
+	if _, err := NewService(&mockBundleStore{}, nil).Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: dir}); err == nil ||
+		!strings.Contains(err.Error(), "contract validation failed") {
+		t.Fatalf("push: %v", err)
 	}
 }
