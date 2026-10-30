@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 const (
@@ -790,5 +792,64 @@ func TestRevisionFromStatus_KeepsRequires(t *testing.T) {
 	got := rev.Bundle.Contract.Dependencies[0].Requires
 	if len(got) != 1 || got[0].Interface != "events" || got[0].Delivery != "at-least-once" {
 		t.Fatalf("requires = %+v", got)
+	}
+}
+
+// A fleet rebuilt from Pacto status checks what a consumer requires against
+// the interfaces the provider's status records, as a fleet built from bundles
+// does: unmet when the provider does not promise it, met when it does and
+// unknown when no Pacto of the provider is in the cluster.
+func TestSnapshotFromStatusEvaluatesGuarantees(t *testing.T) {
+	checkout := checkoutPacto("^1.0.0")
+	checkout.Status.Dependencies[0].Requires = []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}
+	payments := func(g *contract.Guarantees) PactoView {
+		p := paymentsPacto(nil)
+		p.Status.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Guarantees: g,
+			Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-09-01"}, CompatibilityEpoch: 2}}
+		return p
+	}
+	for _, tc := range []struct {
+		name   string
+		pactos []PactoView
+		want   string
+	}{
+		{"unmet", []PactoView{checkout, payments(nil)}, fleet.GuaranteeUnmet},
+		{"met", []PactoView{checkout, payments(&contract.Guarantees{Idempotent: true})}, fleet.GuaranteeMet},
+		{"provider absent", []PactoView{checkout}, fleet.GuaranteeUnknown},
+	} {
+		snap, err := Snapshot(context.Background(), tc.pactos, nil, nil, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(snap.Relationships, func(r fleet.Relationship) bool { return r.To == "payments" })
+		if i < 0 {
+			t.Fatalf("%s: no checkout -> payments relationship", tc.name)
+		}
+		r := snap.Relationships[i]
+		if r.GuaranteeStatus != tc.want {
+			t.Errorf("%s: guarantee status = %q (%s), want %q", tc.name, r.GuaranteeStatus, r.GuaranteeReason, tc.want)
+		}
+		if tc.want == fleet.GuaranteeUnmet && (len(r.Unmet) != 1 || r.Unmet[0].Guarantee != "idempotent" ||
+			len(r.DeprecatedInterfaces) != 1 || r.DeprecatedInterfaces[0].Deprecated != "2026-09-01") {
+			t.Errorf("%s: the provider interface from status was lost: %+v", tc.name, r)
+		}
+	}
+}
+
+// Impact over a fleet rebuilt from Pacto status names the guarantee a
+// candidate refuses to a consumer whose status records the requirement.
+func TestImpactFromStatusSeesUnmetGuarantee(t *testing.T) {
+	checkout := checkoutPacto("^1.0.0")
+	checkout.Status.Dependencies[0].Requires = []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}
+	old, nu := bundle("payments", "1.0.0"), bundle("payments", "1.1.0")
+	old.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Guarantees: &contract.Guarantees{Idempotent: true}}}
+	nu.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi"}}
+	snap, err := Snapshot(context.Background(), []PactoView{checkout}, nil, []Revision{rev(dA, c1, old), rev(dB, c2, nu)}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := impact.Analyze(context.Background(), old.Contract, nu.Contract, nil, nil, snap, impact.Options{Domain: "reg.example/pactos"})
+	if len(res.Consumers) != 1 || len(res.Consumers[0].Unmet) != 1 || res.Consumers[0].Unmet[0].Guarantee != "idempotent" {
+		t.Fatalf("impact lost the requirement the status records: %+v", res.Consumers)
 	}
 }

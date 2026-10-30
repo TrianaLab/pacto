@@ -563,6 +563,15 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.dependencies[].name` | `string` | yes |  |  | Name is the dependency name (required, unique within contract). |
 | `status.dependencies[].ref` | `string` | no |  |  | Ref is the dependency reference (OCI URI). Empty for an external dependency that has no contract. |
 | `status.dependencies[].required` | `boolean` | yes |  |  | Required indicates whether this dependency is mandatory. |
+| `status.dependencies[].requires` | `[]object` | no |  |  | Requires lists the behavior this service relies on from the provider's interfaces. |
+| `status.dependencies[].requires[].dedupeWindow` | `string` | no |  |  | DedupeWindow is how long a repeated message is recognised and dropped. |
+| `status.dependencies[].requires[].delivery` | `string` | no |  |  | Delivery is what happens when a delivery fails partway. |
+| `status.dependencies[].requires[].idempotent` | `boolean` | no |  |  | Idempotent means repeating a call has the effect of making it once. |
+| `status.dependencies[].requires[].interface` | `string` | yes |  |  | Interface names the provider's interface. |
+| `status.dependencies[].requires[].ordering` | `string` | no |  |  | Ordering is the scope in which messages arrive in the order sent. |
+| `status.dependencies[].requires[].profile` | `string` | no |  |  | Profile is the version of the guarantee vocabulary. |
+| `status.dependencies[].requires[].retention` | `string` | no |  |  | Retention is how long a message stays available for replay. |
+| `status.dependencies[].requires[].timeout` | `string` | no |  |  | Timeout is the longest a call takes to answer. |
 | `status.dependencies[].version` | `string` | no |  |  | Version is the free-text version an external dependency without a ref declares. |
 | `status.evaluatedRevision` | `object` | no |  |  | EvaluatedRevision ties this status to the exact contract and workload generation it was computed from, so a result for an old version is never read as the answer for a new one. A consumer acting on contractStatus (the opt-in Pacto delivery promoter) must check it first. |
 | `status.evaluatedRevision.contractDigest` | `string` | no |  |  | ContractDigest is the OCI manifest digest of the evaluated contract bundle. Empty for inline contracts. |
@@ -589,6 +598,19 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.findings[].severity` | `string` | yes |  | `error`, `warning`, `info`, `unknown` | Severity is error, warning, info, or unknown. |
 | `status.findings[].subject` | `string` | no |  |  | Subject identifies what the finding is about. |
 | `status.interfaces` | `[]object` | no |  |  | Interfaces lists the parsed interfaces from the contract. |
+| `status.interfaces[].compatibilityEpoch` | `integer` | no |  |  | CompatibilityEpoch is raised when the interface's behavior changes incompatibly while its specification stays the same. Absent is 0. |
+| `status.interfaces[].guarantees` | `object` | no |  |  | Guarantees is the behavior the interface promises its consumers. |
+| `status.interfaces[].guarantees.dedupeWindow` | `string` | no |  |  | DedupeWindow is how long a repeated message is recognised and dropped. |
+| `status.interfaces[].guarantees.delivery` | `string` | no |  |  | Delivery is what happens when a delivery fails partway. |
+| `status.interfaces[].guarantees.idempotent` | `boolean` | no |  |  | Idempotent means repeating a call has the effect of making it once. |
+| `status.interfaces[].guarantees.ordering` | `string` | no |  |  | Ordering is the scope in which messages arrive in the order sent. |
+| `status.interfaces[].guarantees.profile` | `string` | no |  |  | Profile is the version of the guarantee vocabulary. |
+| `status.interfaces[].guarantees.retention` | `string` | no |  |  | Retention is how long a message stays available for replay. |
+| `status.interfaces[].guarantees.timeout` | `string` | no |  |  | Timeout is the longest a call takes to answer. |
+| `status.interfaces[].lifecycle` | `object` | no |  |  | Lifecycle is the retirement schedule of a deprecated interface. Absent for an interface that is not deprecated. |
+| `status.interfaces[].lifecycle.deprecated` | `string` | yes |  |  | Deprecated is the date the interface was deprecated (YYYY-MM-DD). |
+| `status.interfaces[].lifecycle.successor` | `string` | no |  |  | Successor names the interface that replaces this one, or holds an absolute URL when the replacement lives in another service. |
+| `status.interfaces[].lifecycle.sunset` | `string` | no |  |  | Sunset is the date the interface is removed (YYYY-MM-DD). |
 | `status.interfaces[].name` | `string` | yes |  |  | Name is the interface name. |
 | `status.interfaces[].ref` | `string` | no |  |  | Ref is the bundle-relative path to the interface specification file. |
 | `status.interfaces[].type` | `string` | yes |  | `openapi`, `asyncapi`, `grpc`, `mcp` | Type is the interface type: openapi, asyncapi, grpc or mcp. |
