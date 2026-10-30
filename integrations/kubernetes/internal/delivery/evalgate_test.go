@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -82,6 +83,30 @@ func TestMissingSuiteHoldsThePromote(t *testing.T) {
 	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Floor.Decision != delivery.AcceptUnknown ||
 		!strings.Contains(o.Status.Question, "the check quality runs the suite evals, but the contract of") {
 		t.Fatalf("want Held for accept-unknown: %s %+v %q", o.Status.Phase, o.Status.Plan, o.Status.Question)
+	}
+	if e.getStage().Status.Pointer != dA {
+		t.Fatal("a held promote must not move anything")
+	}
+}
+
+// TestEnvironmentHoldsThePromote: a version whose contract declares
+// environments but none for the Stage's spec.environment is held before
+// anything moves, and the Operation status records why for the service's team.
+func TestEnvironmentHoldsThePromote(t *testing.T) {
+	e := baseEnv(t, nil)
+	b := bundle("1.1.0")
+	b.Contract.PactoVersion = "2.3"
+	b.Contract.Environments = []contract.Environment{{Name: "staging", File: "staging.yaml"}}
+	e.reg.bundles[contractRef(c2)] = b
+	op := opObj("p1", delivery.TypePromote, dA, dB, bot)
+	op.Spec.IntentDigest = delivery.IntentDigest(op.Spec, e.getStage().Spec)
+	e.create(op)
+	o := e.drive("p1")
+	const why = "version 1.1.0 declares no environment prod for Stage payments-prod (it declares staging)"
+	i := slices.IndexFunc(o.Status.Plan.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateEnvironment })
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Floor.Decision != delivery.Approve || i < 0 ||
+		o.Status.Plan.Verdicts[i].Message != why || !strings.Contains(o.Status.Question, why) || !strings.Contains(o.Status.Question, "Asked of: team-payments") {
+		t.Fatalf("want Held for the service's team naming the environment: %s %+v %q", o.Status.Phase, o.Status.Plan, o.Status.Question)
 	}
 	if e.getStage().Status.Pointer != dA {
 		t.Fatal("a held promote must not move anything")
