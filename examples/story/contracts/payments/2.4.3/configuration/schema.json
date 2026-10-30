@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "LOG_LEVEL": {"enum": ["debug", "info", "warn", "error"]},
+    "CHARGE_TIMEOUT_SECONDS": {"type": "integer", "minimum": 1}
+  },
+  "required": ["LOG_LEVEL", "CHARGE_TIMEOUT_SECONDS"],
+  "additionalProperties": false
+}

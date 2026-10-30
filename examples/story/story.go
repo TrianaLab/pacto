@@ -27,7 +27,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/diff"
 )
 
-// Files holds contracts/<service>/<version>/ (real pactoVersion 2.1 and 2.2
+// Files holds contracts/<service>/<version>/ (real pactoVersion 2.1 to 2.3
 // bundles with a publish section) and plain/fraud/ (a service with a Dockerfile and
 // Kubernetes manifests and no pacto.yaml: the starting point of the pactify act).
 //
@@ -225,6 +225,20 @@ var Beats = []Beat{
 		Why:     "Lowering a level needs no approval, and the record names the failure that caused it.",
 		Service: "payments", Environment: Prod, Type: delivery.TypeAutonomy, Actor: Promoter, From: "autonomous", To: "auto-nonbreaking", Version: "2.3.0",
 		Expect: Outcome{Predicted: delivery.PredictProceeds},
+	},
+	// environment: payments 2.4.1 is the first version to declare environments,
+	// and it declares only test. pacto publish validated those values; only the
+	// prod Stage knows it delivers to prod, so the pacto.environment gate holds
+	// the promote for team payments. 2.4.2 declares every environment.
+	// Unit-proven (TestBeats/environment, TestEnvironmentGateAcrossTheStory)
+	// and played by the browser demo; the Kubernetes demo never publishes 2.4.1.
+	{
+		ID:      "environment",
+		Says:    "payments 2.4.1 declares values for test but none for prod, so its promote to prod waits for team payments.",
+		Why:     "A contract that declares environments says what each one runs, and 2.4.1 names no environment for the prod Stage.",
+		Service: "payments", Environment: Prod, Actor: PayAgent, From: "2.3.0", To: "2.4.1", Running: before3,
+		Expect: Outcome{Classification: "NON_BREAKING", RequiredBump: diff.BumpPatch, Predicted: delivery.PredictHeld,
+			Decision: delivery.Approve, Asked: []string{"payments"}},
 	},
 	// B3: the story proves that a failed 2.4.2 is refused on test again and
 	// that prod refuses a version its test Stage never offered. That the
