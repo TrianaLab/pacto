@@ -45,6 +45,9 @@ type PushResult struct {
 	Version string `json:"version"`
 	// Unchanged is true when the registry already held exactly this bundle.
 	Unchanged bool `json:"unchanged,omitempty"`
+	// Warnings are the guarantees check's warnings, such as a provider it
+	// could not fetch (GUARANTEE_UNVERIFIED).
+	Warnings []contract.ValidationWarning `json:"warnings,omitempty"`
 }
 
 // Push validates a contract bundle, builds an OCI artifact, and pushes it to a registry.
@@ -77,13 +80,19 @@ func (s *Service) Push(ctx context.Context, opts PushOptions) (*PushResult, erro
 		return nil, err
 	}
 
+	// Push resolves remote references, so it checks guarantees as publish does.
+	guarantees := s.guaranteeStage(ctx, path, c)
+	if len(guarantees.Errors) > 0 {
+		return nil, fmt.Errorf("contract validation failed: %s", validationCheck(guarantees).Message)
+	}
+
 	ref := parsed.Location
 	if !hasTagOrDigest(ref) {
 		ref = ref + ":" + c.Service.Version
 	}
 
 	bundle := &contract.Bundle{Contract: c, FS: bundleFS}
-	result := &PushResult{Ref: ref, Name: c.Service.Name, Version: c.Service.Version}
+	result := &PushResult{Ref: ref, Name: c.Service.Name, Version: c.Service.Version, Warnings: guarantees.Warnings}
 
 	// The same content again is a successful no-op; different content under
 	// an existing reference is refused unless --force.

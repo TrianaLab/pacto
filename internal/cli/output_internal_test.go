@@ -211,6 +211,12 @@ func TestPrintPushResult_Text(t *testing.T) {
 	if !strings.Contains(out, "sha256:abc") {
 		t.Errorf("expected digest in output, got %q", out)
 	}
+	cmd, buf = testCmd()
+	result.Warnings = []contract.ValidationWarning{{Code: "GUARANTEE_UNVERIFIED", Path: "dependencies[0].requires", Message: "cannot check"}}
+	_ = printPushResult(cmd, result, "text")
+	if !strings.Contains(buf.String(), "  WARN  [GUARANTEE_UNVERIFIED] dependencies[0].requires: cannot check\n") {
+		t.Errorf("expected the warning in push output, got %q", buf.String())
+	}
 }
 
 func TestPrintPullResult_Text(t *testing.T) {

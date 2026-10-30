@@ -49,7 +49,10 @@ values. It is an error on a required dependency and a warning on an optional
 one. When Pacto cannot read the provider contract, nothing confirms the
 requirement, so validation warns with `GUARANTEE_UNVERIFIED` and reports the
 `guarantees` stage as `SKIP` with a reason naming the dependency. The stage
-passes only when every requirement was checked. `pacto graph`
+passes only when every requirement was checked. `pacto publish` and
+`pacto push` run the same check: an unmet guarantee of a required dependency
+refuses them, and a warning is shown in their output. `pacto pack` builds an
+archive offline and does not fetch providers. `pacto graph`
 marks each refused edge. [`pacto impact`](../impact.md) lists the consumers
 whose requirement a change breaks and blocks the release when one of them runs.
 
