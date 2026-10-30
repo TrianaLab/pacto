@@ -50,6 +50,9 @@ export interface GraphEdge {
   // never re-inferred. Empty = a plain declared edge (no comparison in view). See
   // lib/neighborhoodGraph.ts, which derives it from difference/serviceCorroboration.
   edgeState?: string;
+  /** The provider refuses a guarantee this dependency requires (the backend's
+   *  guaranteeStatus "unmet"). Drawn apart from the reconciliation state. */
+  refused?: boolean;
   /** Words drawn on the edge: set on an edge that stands for many (see laneGraph). */
   label?: string;
 }
@@ -390,6 +393,7 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
           required: e.required ? 1 : 0,
           drift: state === 'drift' ? 1 : 0,
           state,
+          refused: e.refused ? 1 : 0,
           ...(e.label ? { elabel: e.label } : {}),
         },
       });
@@ -419,6 +423,7 @@ export const LEGEND_SELECTORS: Record<string, string> = {
   'state:expected-not-observed': 'edge[state = "expected-not-observed"]',
   'state:drift': 'edge[state = "drift"]',
   'state:insufficient': 'edge[state = "insufficient"]',
+  'behavior:refused': 'edge[refused = 1]',
 };
 
 /**
@@ -731,6 +736,13 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       selector: "edge[etype='runs']",
       style: { 'line-color': pal.info, 'target-arrow-color': pal.info, 'line-style': 'dashed' },
     },
+    {
+      // The provider refuses a guarantee the dependency requires: a confirmed
+      // contradiction between two contracts. The err tone, a thicker line and a bar
+      // where the arrow was, so it reads as blocked without color alone.
+      selector: 'edge[refused = 1]',
+      style: { 'line-color': pal.err, 'target-arrow-color': pal.err, 'target-arrow-shape': 'tee', width: 3 },
+    },
     // The node the page is ABOUT, marked once and permanently. A 3px border is the same
     // 3px the hover state uses, so on arrival the subject of the graph was the one thing
     // the graph did not point at. A standing halo says it without moving: no pulse, so
@@ -769,7 +781,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         label: 'data(elabel)', 'font-size': 14, 'font-weight': 600, color: pal.text, 'text-rotation': 'none', 'text-wrap': 'wrap', 'text-max-width': '130px',
         'text-background-color': pal.surface, 'text-background-opacity': 1, 'text-background-padding': '4px',
         'text-background-shape': 'roundrectangle', 'text-border-opacity': 1, 'text-border-width': 1,
-        'text-border-color': (ele: EdgeSingular) => ({ matched: pal.ok, 'expected-not-observed': pal.info, drift: pal.warn, insufficient: pal.neutral } as Record<string, string>)[ele.data('state')] || pal.textDim, opacity: 1, 'target-arrow-shape': 'triangle',
+        'text-border-color': (ele: EdgeSingular) => ele.data('refused') ? pal.err : ({ matched: pal.ok, 'expected-not-observed': pal.info, drift: pal.warn, insufficient: pal.neutral } as Record<string, string>)[ele.data('state')] || pal.textDim, opacity: 1, 'target-arrow-shape': 'triangle',
       },
     },
     { selector: 'edge.pacto-dense', style: { opacity: 0.16 } },
@@ -1385,6 +1397,7 @@ export function renderGraph(
           const state = e.edgeState || (e.driftStatus === 'drift' ? 'drift' : '');
           ce.data('state', state);
           ce.data('drift', state === 'drift' ? 1 : 0);
+          ce.data('refused', e.refused ? 1 : 0);
           if (e.label) ce.data('elabel', e.label); else ce.removeData('elabel');
         }
       }

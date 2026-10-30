@@ -13,6 +13,8 @@
   import EmptyState from '../components/EmptyState.svelte';
   import PreviewSection from '../components/PreviewSection.svelte';
   import EntityRefList from '../components/EntityRefList.svelte';
+  import IdentityBadge from '../components/IdentityBadge.svelte';
+  import RequirementList from '../components/RequirementList.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
@@ -578,7 +580,11 @@
                     <td data-label="Path" class="path-cell">
                       {#if (c.path?.length ?? 0) > 0}{c.path.map((p) => p.label).join(' → ')}{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
                     </td>
-                    <td data-label="Verdict"><span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}</td>
+                    <td data-label="Verdict"><span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
+                      {#if c.unmet?.length}
+                        <!-- A refused guarantee breaks the consumer whatever its range accepts. -->
+                        <div class="consumer-refused" data-testid="consumer-refused"><IdentityBadge label="Refused" tone="err" title="The new revision does not offer what this consumer requires." /><RequirementList unmet={c.unmet} /></div>
+                      {/if}</td>
                     <td data-label="Confidence"><span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span></td>
                     <td data-label="Owner">{#if c.owner}<span class="cell-clip" title={c.owner}>{c.owner}</span>{:else}<span class="text-dim">—</span>{/if}</td>
                   </tr>
@@ -667,6 +673,7 @@
 
   .ca-answer { display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-4) 0 var(--sp-3); }
   .ca-answer-line { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: 0; font-size: var(--text-md); color: var(--c-text); }
+  .consumer-refused { display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; margin-top: var(--sp-1); }
   .consumer-note { margin: var(--sp-1) 0 0; font-size: var(--text-xs); }
   .impact-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
   .ca-stack { border-top: 1px solid var(--c-border); }

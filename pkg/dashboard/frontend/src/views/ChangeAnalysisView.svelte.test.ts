@@ -169,6 +169,21 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
+  it('names the guarantees a consumer requires that the new revision refuses', async () => {
+    const res = impactResult();
+    res.consumers.items[0].unmet = [{ consumer: 'billing', provider: 'payments', interface: 'events', guarantee: 'delivery', required: 'at-least-once', offered: 'at-most-once' }];
+    impactFn.mockResolvedValue(res);
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="consumer-refused"]')).toBeTruthy());
+    const cells = target.querySelectorAll('[data-testid="consumer-refused"]');
+    expect(cells).toHaveLength(1);
+    expect(cells[0].textContent).toContain('Refused');
+    expect(cells[0].textContent).toContain('events: Delivery at-least-once required, at-most-once offered');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('shows the release gate with its reason, and none when the answer carries no gate', async () => {
     const { target, component } = mountView({ svc: 'domain-a/payments' });
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());

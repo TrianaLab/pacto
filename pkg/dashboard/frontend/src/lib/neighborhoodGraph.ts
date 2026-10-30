@@ -98,6 +98,7 @@ export function neighborhoodToGraph(nb: NeighborhoodLike | null | undefined): Gr
       type: edgeType(e.relation),
       edgeState: state || undefined,
       driftStatus: state === 'drift' ? 'drift' : undefined,
+      refused: e.guaranteeStatus === 'unmet' || undefined,
     };
     src.edges!.push(edge);
   }
@@ -125,7 +126,7 @@ export function presentationSignature(gd: GraphData): string {
     .map((n) => `${n.id}:${n.status}:${n.kind || 'service'}:${n.serviceName}:${n.version || ''}`)
     .sort().join(',');
   const es = gd.nodes
-    .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || 'dependency'}:${e.edgeState || ''}:${e.label || ''}`))
+    .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || 'dependency'}:${e.edgeState || ''}:${e.refused ? 'refused' : ''}:${e.label || ''}`))
     .sort().join(',');
   return `${ns}||${es}`;
 }
@@ -285,7 +286,7 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
   // their link with the focus, then the worst status) and holds the rest back. They are
   // not drawn: the "Show N more" button above the canvas brings them in.
   const attention = (n: GraphNode) => Math.max(0, ...[...(focus.edges ?? []).filter((e) => e.targetId === n.id), ...(n.edges ?? []).filter((e) => e.targetId === focus.id)]
-    .map((e) => STATE_RANK[e.edgeState || ''] ?? 0)) * 10 + (TONE_RANK[statusTone(n.status)] ?? 0);
+    .map((e) => (e.refused ? 5 : STATE_RANK[e.edgeState || ''] ?? 0))) * 10 + (TONE_RANK[statusTone(n.status)] ?? 0);
   const more: LaneGroup[] = [];
   for (const s of ['depends-on', 'used-by'] as Side[]) {
     const id = `${GROUP_PREFIX}${s}${MORE_SUFFIX}`;
@@ -322,11 +323,12 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
 
   // Edges between two drawn entities stay exactly as they are; an edge touching a group
   // is counted into that group's one edge.
-  const agg = new Map<string, { count: number; worst: string; worstCount: number; runs: boolean }>();
+  const agg = new Map<string, { count: number; worst: string; worstCount: number; runs: boolean; refused: number }>();
   const tally = (g: string, e: GraphEdge) => {
-    const a = agg.get(g) ?? { count: 0, worst: '', worstCount: 0, runs: true };
+    const a = agg.get(g) ?? { count: 0, worst: '', worstCount: 0, runs: true, refused: 0 };
     const st = e.edgeState || '';
     a.count++;
+    if (e.refused) a.refused++;
     a.runs &&= e.type === 'runs';
     if ((STATE_RANK[st] ?? 0) > (STATE_RANK[a.worst] ?? 0)) { a.worst = st; a.worstCount = 1; } else if (st && st === a.worst) a.worstCount++;
     agg.set(g, a);
@@ -349,8 +351,11 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
       targetId: g.side === -1 ? g.id : inner,
       type: a.runs ? 'runs' : 'dependency',
       ...(a.worst ? { edgeState: a.worst } : {}),
+      ...(a.refused ? { refused: true } : {}),
       // A "+N more" edge sits in the narrow gap by the focus: no room for words there.
-      label: a.worst ? `${STATE_WORDS[a.worst]} (${formatCount(a.worstCount)})` : `${formatCount(a.count)} ${a.count === 1 ? 'link' : 'links'}`,
+      // A refusal is the confirmed contradiction among them, so it is named first.
+      label: a.refused ? `refused (${formatCount(a.refused)})`
+        : a.worst ? `${STATE_WORDS[a.worst]} (${formatCount(a.worstCount)})` : `${formatCount(a.count)} ${a.count === 1 ? 'link' : 'links'}`,
     };
     // Depends-on: the lane points out at the group. Used-by: the group points in.
     if (g.side === -1) (inner === focus.id ? byId.get(focus.id)! : lanes.find((l) => l.id === inner)!).edges!.push(edge);
