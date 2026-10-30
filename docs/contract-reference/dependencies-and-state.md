@@ -56,13 +56,12 @@ archive offline and does not fetch providers. `pacto graph`
 marks each refused edge. [`pacto impact`](../impact.md) lists the consumers
 whose requirement a change breaks and blocks the release when one of them runs.
 [Delivery](../integrations/kubernetes/delivery.md) holds a promote that leaves
-a consumer's required guarantee unmet, for that consumer's team. As for a
-range that refuses the version, it holds wherever the consumer runs, including
-when Pacto cannot place it. Right after an operator upgrade, a Pacto status
-the older operator wrote records no guarantees and no `requires` until the new
-operator reconciles it. Delivery reads such a status as unknown: a requirement
-on that provider is not refused, and a breaking or possibly breaking change to one
-of its providers waits for a person to accept the unknown.
+a consumer's required guarantee unmet for that consumer's team, wherever the
+consumer runs. A Pacto status an older operator wrote records no guarantees or
+`requires`, so delivery reads it as unknown until the new operator reconciles
+it: a requirement on that provider is not refused, and a breaking or possibly
+breaking change to one of its providers waits for a person to accept the
+unknown.
 
 ### External dependencies
 
