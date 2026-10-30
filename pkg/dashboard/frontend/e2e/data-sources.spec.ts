@@ -96,9 +96,11 @@ test.describe('overview to inventory to source and back', () => {
     await page.locator('.lv-item a', { hasText: 'local' }).first().click();
     await expect(page.locator('main h1')).toContainText('local');
 
-    // 3. The trail says how it got here, and the last crumb is not a link.
+    // 3. The trail says how it got here, and the last crumb is not a link. The h1 names
+    //    the source from the route while its record loads, and until then the trail is
+    //    the loading one ("Overview › Data source"), so the trail is awaited, not read.
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
-    expect(flat(await crumbs.textContent()).replace(/\s*›\s*/g, ' > ')).toContain('Overview > Data sources > local');
+    await expect(crumbs).toContainText(/Overview\s*›\s*Data sources\s*›\s*local/);
     await expect(crumbs.getByRole('link', { name: 'Data sources' })).toHaveAttribute('href', '#/fleet/sources');
 
     // 4. ...and there is a route back to the inventory in the page itself, not only in
