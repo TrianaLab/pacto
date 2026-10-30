@@ -486,13 +486,14 @@
     target: '[data-testid="propose-panel"]'
   }, {
     text: "pay-agent ships like any other service: its runner ran the eval suite and signed the count, and 1.1.0 passed 1 of 2, so it rolled back in test.",
-    hash: "#/delivery/changes/test/pay-agent-promote-14",
+    hash: "#/delivery/changes/test/pay-agent-promote-17",
     target: '[data-testid="verdict-runner"]'
   }, {
     text: "Explore more on your own, or see the same story on a real cluster.",
     links: [
       ["#/delivery/publish", "The refused 2.4.3 and the bump it needed"],
       ["#/delivery/history?namespace=test&stage=payments", "The claim check that caught payments calling fraud"],
+      ["#/delivery/changes/prod/payments-promote-6", "Why prod held payments 2.4.1: it declares no prod environment"],
       ["#/delivery/autonomy", "What stands in the way of each next level"]
     ],
     href: "../examples/kubernetes-demo/",
