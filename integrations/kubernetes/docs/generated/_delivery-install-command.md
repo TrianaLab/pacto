@@ -6,7 +6,7 @@
 ```bash
 helm upgrade pacto-operator \
   oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
-  --version 6.3.0 \
+  --version 6.4.0 \
   --namespace pacto-operator-system \
   --reset-then-reuse-values --set delivery.enabled=true \
   --set delivery.identities.humanGroups={staff}

@@ -4,68 +4,68 @@
     "cli": {
       "artifactKind": "binaries",
       "coordinate": "github.com/trianalab/pacto releases",
-      "tag": "v4.3.0",
-      "version": "4.3.0"
+      "tag": "v4.4.0",
+      "version": "4.4.0"
     },
     "core": {
       "artifactKind": "go-module",
       "coordinate": "github.com/trianalab/pacto/v4",
-      "tag": "v4.3.0",
-      "version": "4.3.0"
+      "tag": "v4.4.0",
+      "version": "4.4.0"
     },
     "dashboard-contract-bundle": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/dashboard-contract",
-      "tag": "4.3.0",
-      "version": "4.3.0"
+      "tag": "4.4.0",
+      "version": "4.4.0"
     },
     "dashboard-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/dashboard",
-      "tag": "4.3.0",
-      "version": "4.3.0"
+      "tag": "4.4.0",
+      "version": "4.4.0"
     },
     "delivery-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/delivery",
-      "tag": "6.3.0",
-      "version": "6.3.0"
+      "tag": "6.4.0",
+      "version": "6.4.0"
     },
     "demo-bundles": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto",
-      "tag": "4.3.0",
-      "version": "4.3.0"
+      "tag": "4.4.0",
+      "version": "4.4.0"
     },
     "demo-compose": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/demo",
-      "tag": "4.3.0",
-      "version": "4.3.0"
+      "tag": "4.4.0",
+      "version": "4.4.0"
     },
     "k8s-docs": {
       "artifactKind": "docs",
       "coordinate": "mkdocs:integrations/kubernetes",
-      "tag": "6.3.0",
-      "version": "6.3.0"
+      "tag": "6.4.0",
+      "version": "6.4.0"
     },
     "k8s-module": {
       "artifactKind": "go-module",
       "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v6",
-      "tag": "integrations/kubernetes/v6.3.0",
-      "version": "6.3.0"
+      "tag": "integrations/kubernetes/v6.4.0",
+      "version": "6.4.0"
     },
     "operator-chart": {
       "artifactKind": "helm-chart",
       "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-operator",
-      "tag": "6.3.0",
-      "version": "6.3.0"
+      "tag": "6.4.0",
+      "version": "6.4.0"
     },
     "operator-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/operator",
-      "tag": "6.3.0",
-      "version": "6.3.0"
+      "tag": "6.4.0",
+      "version": "6.4.0"
     }
   }
 }

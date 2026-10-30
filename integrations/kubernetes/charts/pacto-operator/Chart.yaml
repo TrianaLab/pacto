@@ -2,8 +2,8 @@ apiVersion: v2
 name: pacto-operator
 description: Pacto tells you which services a change breaks before it ships, and checks what is actually running. This chart installs the operator that checks running workloads, with an opt-in delivery component (alpha).
 type: application
-version: 6.3.0
-appVersion: "6.3.0"
+version: 6.4.0
+appVersion: "6.4.0"
 keywords:
   - pacto
   - operator
@@ -41,6 +41,6 @@ annotations:
       url: https://pacto.run/latest/integrations/kubernetes/overview/
   artifacthub.io/images: |
     - name: pacto-controller
-      image: ghcr.io/trianalab/pacto/operator:6.3.0
+      image: ghcr.io/trianalab/pacto/operator:6.4.0
     - name: pacto-delivery
-      image: ghcr.io/trianalab/pacto/delivery:6.3.0
+      image: ghcr.io/trianalab/pacto/delivery:6.4.0
