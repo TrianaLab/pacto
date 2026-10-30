@@ -626,6 +626,30 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('names a refused guarantee and a deprecated interface on the edge, in the list and the drawer', async () => {
+    const base = neighborhood();
+    const refused = {
+      ...base.edges[0], guaranteeStatus: 'unmet', deprecatedInterfaces: [{ interface: 'orders', deprecated: '2026-01-01' }],
+      declaredClaims: { total: 2, count: 2, truncated: false, items: [
+        { sourceRevision: 'domain-a/web@sha256:1', guaranteeStatus: 'unmet', unmet: [{ consumer: 'web', provider: 'api', interface: 'orders', guarantee: 'timeout', required: '1s', offered: '5s' }] },
+        { sourceRevision: 'domain-a/web@sha256:2', guaranteeStatus: 'unmet', unmet: [{ consumer: 'web', provider: 'api', interface: 'orders', guarantee: 'timeout', required: '1s', offered: '5s' }] },
+      ] },
+    };
+    neighborhoodFn.mockResolvedValue(neighborhood({ edges: [refused, base.edges[1]] }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="edge-behavior"]')).toBeTruthy());
+    expect(q(target, '[data-testid="edge-behavior"]')?.textContent).toMatch(/Refused.*orders: deprecated/);
+    expect(target.textContent).toContain('Refuses a required guarantee'); // the legend names the canvas mark
+    expect(target.textContent).toContain('1 dependency has a refused guarantee'); // and the answer counts it
+    (qa(target, '[data-testid="graph-edge"]')[0] as HTMLButtonElement).click();
+    flushSync();
+    const drawer = q(target, '[data-testid="graph-drawer"]')!;
+    expect(q(drawer, '[data-testid="drawer-behavior"]')?.textContent).toContain('Refused');
+    // Two claims refusing the same guarantee list it once.
+    expect(qa(drawer, '.rq-m').map((m) => m.textContent)).toEqual(['orders: Timeout at most 1s required, 5s offered']);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('says once that unresolved dependencies have no provider, not on every row', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-unresolved"]')).toBeTruthy());

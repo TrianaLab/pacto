@@ -27,6 +27,15 @@ func jsonClone[T any](src T) T {
 	return dst
 }
 
+// clonePtr copies the value p points at, so the copy never aliases p's target.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
 func cloneContract(c *contract.Contract) *contract.Contract {
 	if c == nil {
 		return nil

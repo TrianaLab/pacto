@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -43,6 +45,9 @@ type ProductConsumer struct {
 	Owner                string            `json:"owner,omitempty"`
 	// Note qualifies the verdict, as [AffectedConsumer.Note] does.
 	Note string `json:"note,omitempty"`
+	// Unmet lists the guarantees the consumer requires that the new revision
+	// refuses, as [AffectedConsumer.Unmet] does.
+	Unmet []contract.Mismatch `json:"unmet,omitempty"`
 }
 
 // TallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
@@ -205,6 +210,7 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 			CompatibilityVerdict: c.CompatibilityVerdict,
 			Owner:                c.Owner,
 			Note:                 c.Note,
+			Unmet:                slices.Clone(c.Unmet),
 		})
 	}
 	// Deterministic order so paging is stable across identical requests.

@@ -1,6 +1,8 @@
 <script>
   import EntityLink from './EntityLink.svelte';
   import IdentityBadge from './IdentityBadge.svelte';
+  import BehaviorBadges from './BehaviorBadges.svelte';
+  import RequirementList from './RequirementList.svelte';
   import { provenanceLabel, provenanceIsImplied } from '../lib/entityLabels.ts';
   import { corroborationLabel, corroborationTone, differenceLabel, differenceTone } from '../lib/graphState.ts';
   import { shortDigest } from '../lib/format.ts';
@@ -56,6 +58,11 @@
   const verdictLabel = (e) => (scoped(e) ? corroborationLabel(e.serviceCorroboration) : differenceLabel(e.difference));
   const verdictTone = (e) => (scoped(e) ? corroborationTone(e.serviceCorroboration) : differenceTone(e.difference));
 
+  // The edge carries the worst guarantee status over its claims; the reason a check
+  // could not run lives on the claim that could not be checked.
+  const guaranteeReason = (e) => (e.declaredClaims?.items ?? []).find((c) => c.guaranteeReason)?.guaranteeReason ?? '';
+  const hasBehavior = (c) => (c.requires?.length ?? 0) > 0 || (c.unmet?.length ?? 0) > 0;
+
   const claimFacts = (c) => {
     const out = [];
     if (c.requestedRef) out.push(['Ref', c.requestedRef]);
@@ -76,6 +83,7 @@
         <IdentityBadge label={verdictLabel(e)} tone={verdictTone(e)} />
         {#if e.provenance && !provenanceIsImplied(e.difference, e.provenance)}<span class="rel-prov">{provenanceLabel(e.provenance)}</span>{/if}
         {#if e.stale}<span class="rel-stale">stale</span>{/if}
+        <BehaviorBadges status={e.guaranteeStatus} reason={guaranteeReason(e)} deprecated={e.deprecatedInterfaces ?? []} />
       </div>
       {#each claims(e) as c, ci (c.sourceRevision ?? ci)}
         <dl class="rel-claim">
@@ -86,6 +94,9 @@
             <dt>{label}</dt><dd>{value}</dd>
           {/each}
         </dl>
+        {#if hasBehavior(c)}
+          <div class="rel-behavior"><RequirementList requires={c.requires ?? []} unmet={c.unmet ?? []} status={c.guaranteeStatus} reason={c.guaranteeReason} /></div>
+        {/if}
       {/each}
       {#if claimsTruncated(e)}
         <p class="rel-more">More revisions declare this dependency than are shown here.</p>
@@ -113,5 +124,6 @@
   .rel-claim dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .rel-claim dd { margin: 0 var(--sp-2) 0 0; color: var(--c-text-2); word-break: break-all; }
   .rel-claim code { font-size: inherit; }
+  .rel-behavior { margin: 0 0 0 var(--sp-3); padding-left: var(--sp-3); border-left: 2px solid var(--c-border); }
   .rel-more { margin: 0 0 0 var(--sp-3); font-size: var(--text-xs); color: var(--c-text-3); }
 </style>
