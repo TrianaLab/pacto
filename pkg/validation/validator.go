@@ -1,6 +1,7 @@
 // Package validation checks a contract across three layers — structural (JSON
-// Schema), cross-field consistency, and policy enforcement — and reports errors
-// and warnings. It supports local-only policy resolution as well as recursive,
+// Schema), cross-field consistency, and policy enforcement — then checks each
+// environment's values in the environments stage, and reports errors and
+// warnings. It supports local-only policy resolution as well as recursive,
 // ref-based resolution through a pluggable BundleResolver.
 package validation
 
@@ -28,9 +29,10 @@ func ValidateDocument(c *contract.Contract, doc *contract.Document, bundleFS fs.
 	}))
 }
 
-// ValidateWithResolver runs all three validation layers, using the provided
-// BundleResolver for recursive ref-based policy resolution. If resolver is nil,
-// any ref-based policies produce a hard POLICY_REF_UNRESOLVED error (fail closed).
+// ValidateWithResolver runs all three validation layers and the environments
+// stage, using the provided BundleResolver for recursive ref-based policy
+// resolution. If resolver is nil, any ref-based policies produce a hard
+// POLICY_REF_UNRESOLVED error (fail closed).
 func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolver BundleResolver) ValidationResult {
 	return Merged(ValidateStagesWithResolver(ctx, c, rawYAML, bundleFS, resolver))
 }

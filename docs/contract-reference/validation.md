@@ -92,24 +92,6 @@ invariant. Layer 2 has
 its own check for each of those, but a contract that breaks them never gets past
 Layer 1. Build CI rules only on codes in this table.
 
-## Environments stage
-
-After the policy layer, the `environments` stage checks each environment's
-file against the schema of every configuration it names. It runs only
-when every stage before it passed, and reports `SKIP no environments declared`
-for a contract without `environments`. [Environments](environments.md#how-values-are-checked)
-lists the rules and the codes it reports: `ENVIRONMENT_UNKNOWN_CONFIGURATION`,
-`ENVIRONMENT_VALUES_INVALID`, `ENVIRONMENT_VALUES_MISSING` and the
-`ENVIRONMENT_VALUES_UNVERIFIED` warning.
-
-An error in an environment's file carries that file in `file`, with `line` and
-`column` pointing into it, also when `--set` or `-f` is given. The stage passes
-only when Pacto checked every value set and found no error. A configuration
-whose schema is behind a `ref` leaves its values unchecked, and so does a run
-with no bundle files to read, such as the operator loading an inline contract.
-A stage with no error and an unchecked value set reports
-`SKIP could not verify:` and names each environment and configuration.
-
 ## Layer 3: Policy checks
 
 Resolves every declared policy and checks the contract against it. Policies apply with strict **AND semantics**: the contract must satisfy all of them. Policies have no precedence or override logic, so contradictory policies fail.
@@ -159,5 +141,23 @@ successor, with the path of the dependency that resolved to it, for example
 the date the check runs. To fail a pipeline after the sunset, gate on
 `DEPENDENCY_INTERFACE_SUNSET` in `--output-format json`. When `pacto.lock` is present, the lock is verified first and
 a drifted closure fails with the lock error before the closure is checked.
+
+## Environments stage
+
+After the policy layer, the `environments` stage checks each environment's
+file against the schema of every configuration it names. It runs only
+when every stage before it passed, and reports `SKIP no environments declared`
+for a contract without `environments`. [Environments](environments.md#how-values-are-checked)
+lists the rules and the codes it reports: `ENVIRONMENT_UNKNOWN_CONFIGURATION`,
+`ENVIRONMENT_VALUES_INVALID`, `ENVIRONMENT_VALUES_MISSING` and the
+`ENVIRONMENT_VALUES_UNVERIFIED` warning.
+
+An error in an environment's file carries that file in `file`, with `line` and
+`column` pointing into it, also when `--set` or `-f` is given. The stage passes
+only when Pacto checked every value set and found no error. A configuration
+whose schema is behind a `ref` leaves its values unchecked, and so does a run
+with no bundle files to read, such as the operator loading an inline contract.
+A stage with no error and an unchecked value set reports
+`SKIP could not verify:` and names each environment and configuration.
 
 ---
