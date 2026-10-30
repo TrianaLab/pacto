@@ -191,6 +191,22 @@ version the fleet holds satisfies the consumer's `compatibility` range:
 A consumer that asks for `ledger ^2.0.0` while the fleet holds `ledger 1.6.2`
 is resolved and unsatisfied.
 
+A dependency that declares [`requires`](contract-reference/dependencies-and-state.md#required-guarantees)
+also carries `guaranteeStatus`, checked against every provider revision it can
+reach: the one `pacto.lock` pins, or else every revision inside its range.
+
+| `guaranteeStatus` | Meaning |
+|-------------------|---------|
+| `met` | Every revision it can reach offers what it requires. |
+| `unmet` | None does. `unmet` lists what the newest one refuses. |
+| `unknown` | The provider is not in the fleet, no revision is in range, its revisions disagree or the caller cannot see it. `guaranteeReason` says which. |
+| *absent* | The dependency requires nothing. |
+
+`deprecatedInterfaces` lists each deprecated interface of the newest provider
+revision the dependency reaches, with its `deprecated`, `sunset` and
+`successor`. The dashboard shows both on the dependency, on the consumer's page
+and on the provider's.
+
 ## Ownership and the canonical owner key
 
 The graph aggregates and navigates by a canonical owner key **namespaced by which
