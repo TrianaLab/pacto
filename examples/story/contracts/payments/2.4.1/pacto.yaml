@@ -1,0 +1,41 @@
+pactoVersion: "2.3"
+service:
+  name: payments
+  version: 2.4.1
+  owner:
+    team: payments
+workload: service
+interfaces:
+  - name: http
+    type: openapi
+    ref: interfaces/openapi.yaml
+    # Charges are retried, so the callers rely on a repeated call charging once.
+    guarantees:
+      idempotent: true
+      timeout: 5s
+configurations:
+  - name: app
+    schema: configuration/schema.json
+    # Optional at runtime: the demos bind no ConfigMap the operator could check.
+    required: false
+    values:
+      LOG_LEVEL: info
+      CHARGE_TIMEOUT_SECONDS: 5
+# Only test so far: no environment says what prod runs.
+environments:
+  - name: test
+    file: environments/test.yaml
+publish:
+  bundle: oci://registry.example/story/payments
+  deploy: manifests
+  artifacts:
+    - name: manifests
+      type: manifests
+      ref: oci://registry.example/story/deploy/payments
+      build:
+        command: [sh, -c, 'cp deploy/*.yaml "$PACTO_OUT"/']
+  sign:
+    key: cosign.key
+    transparencyLog: false
+metadata:
+  summary: "Takes payments and lists refunds, and declares its test values."

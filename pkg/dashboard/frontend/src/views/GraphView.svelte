@@ -23,6 +23,8 @@
   import EntityLink from '../components/EntityLink.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
+  import BehaviorBadges from '../components/BehaviorBadges.svelte';
+  import RequirementList from '../components/RequirementList.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import { kindLabelPlural } from '../lib/entityLabels.ts';
   import LimitationsList from '../components/LimitationsList.svelte';
@@ -213,7 +215,19 @@
       { key: 'state:drift', label: 'Observed, not expected', cls: 'lg-edge lg-drift' },
       { key: 'state:insufficient', label: 'Insufficient evidence', cls: 'lg-edge lg-insufficient' },
     ] },
+    { title: 'Behavior', items: [
+      { key: 'behavior:refused', label: 'Refuses a required guarantee', cls: 'lg-edge lg-refused' },
+    ] },
   ];
+  // The drawer lists every guarantee the edge's claims found refused, once each.
+  const edgeUnmet = (e) => {
+    const seen = new Set();
+    return (e?.declaredClaims?.items ?? []).flatMap((c) => c.unmet ?? []).filter((m) => {
+      const k = JSON.stringify(m);
+      return !seen.has(k) && seen.add(k);
+    });
+  };
+  const edgeReason = (e) => (e?.declaredClaims?.items ?? []).find((c) => c.guaranteeReason)?.guaranteeReason ?? '';
   let hiddenKeys = $state([]);
   const legendShown = (k) => !hiddenKeys.includes(k);
   function toggleLegend(k) {
@@ -253,13 +267,15 @@
 
   // The one question this page answers first: is anything wrong around this focus? Only
   // confirmed problems count -- an entity whose status is an error tone, or a call seen at
-  // runtime that no contract declares. "Expected, not observed" is not a problem (it is not
-  // proof of non-use), so it stays on the canvas and out of this line.
+  // runtime that no contract declares, or a dependency whose provider refuses a guarantee
+  // it requires. "Expected, not observed" is not a problem (it is not proof of non-use),
+  // and neither is a guarantee Pacto could not verify, so both stay out of this line.
   const problems = $derived.by(() => {
     if (!shown || carrying || neighborhoodIsEmpty(shown)) return null;
     const failing = shown.nodes.filter((n) => !n.focus && n.ref?.kind !== 'source' && n.status && statusTone(n.status) === 'err').length;
     const undeclared = shown.edges.filter((e) => e.relation !== 'runs' && e.difference === 'observed-not-expected').length;
-    return { failing, undeclared };
+    const refused = shown.edges.filter((e) => e.guaranteeStatus === 'unmet').length;
+    return { failing, undeclared, refused };
   });
   // The focus comes first: it is what the reader asked about. Then what is around it.
   const focusTone = $derived(focusNode?.status ? statusTone(focusNode.status) : '');
@@ -275,6 +291,7 @@
     const parts = [
       problems.failing ? `${countOf(problems.failing, 'entity', 'entities')} ${problems.failing === 1 ? 'breaks its' : 'break their'} contract` : '',
       problems.undeclared ? `${countOf(problems.undeclared, 'call')} ${problems.undeclared === 1 ? 'is' : 'are'} undeclared` : '',
+      problems.refused ? `${countOf(problems.refused, 'dependency', 'dependencies')} ${problems.refused === 1 ? 'has' : 'have'} a refused guarantee` : '',
     ].filter(Boolean);
     const it = focusSentence ? 'it' : focusRef?.label || focusRef?.key || gs.key;
     if (parts.length) return `Around ${it}, ${parts.join(' and ')}.`;
@@ -655,6 +672,8 @@
                         <span class="gv-diff" data-testid="edge-corroboration"><IdentityBadge label={corroborationLabel(e.serviceCorroboration)} tone={corroborationTone(e.serviceCorroboration)} /></span>
                       {/if}
                     </button>
+                    <!-- Beside the button, not in it: the badges carry their own "Show all" control. -->
+                    {#if e.guaranteeStatus || e.deprecatedInterfaces?.length}<div class="gv-edge-behavior" data-testid="edge-behavior"><BehaviorBadges status={e.guaranteeStatus} reason={edgeReason(e)} deprecated={e.deprecatedInterfaces ?? []} /></div>{/if}
                   </li>
                 {/each}
               </ul>
@@ -715,6 +734,13 @@
               {:else if selected.edge.serviceCorroboration}
                 <p class="gv-drow"><span class="gv-k">Corroboration</span> <IdentityBadge label={corroborationLabel(selected.edge.serviceCorroboration)} tone={corroborationTone(selected.edge.serviceCorroboration)} /></p>
                 <p class="gv-ddesc" data-testid="edge-scope-caveat">{serviceScopedCaveat(gs.perspective)}</p>
+              {/if}
+              {#if selected.edge.guaranteeStatus || selected.edge.deprecatedInterfaces?.length}
+                <div class="gv-drow gv-behavior" data-testid="drawer-behavior">
+                  <span class="gv-k">Behavior</span>
+                  <BehaviorBadges status={selected.edge.guaranteeStatus} reason={edgeReason(selected.edge)} deprecated={selected.edge.deprecatedInterfaces ?? []} />
+                </div>
+                <RequirementList unmet={edgeUnmet(selected.edge)} status={selected.edge.guaranteeStatus} reason={edgeReason(selected.edge)} />
               {/if}
               {#if (selected.edge.declaredClaims?.count ?? 0) > 0}
                 <details class="gv-claims disclosure">
@@ -819,6 +845,8 @@
   .lg-eno { border-top-color: var(--c-info); }
   .lg-drift { border-top-width: 3px; border-top-color: var(--c-warn); }
   .lg-insufficient { border-top-style: dotted; border-top-color: var(--c-neutral); }
+  .lg-refused { border-top-width: 3px; border-top-color: var(--c-err); }
+  .gv-behavior { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
 
   .gv-textalt { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-2) var(--sp-3); background: var(--c-surface); }
   /* Look and behaviour come from the shared .disclosure class. */
@@ -833,6 +861,7 @@
   .gv-textbtn.is-selected, .gv-edge.is-selected { border-color: var(--c-accent); box-shadow: inset 0 0 0 2px var(--c-accent); }
   .gv-edge { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); cursor: pointer; }
   .gv-edge:hover, .gv-textbtn:hover { border-color: var(--c-accent); }
+  .gv-edge-behavior { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin: var(--sp-1) 0 0 var(--sp-3); }
   .gv-rel { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-diff { margin-left: auto; }
   .gv-unresolved, .gv-limitations { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); }

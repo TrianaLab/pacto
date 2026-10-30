@@ -16,7 +16,7 @@ The Kubernetes integration is versioned independently from Pacto core. The table
 | Go module | `6.3.0` | `>=4.0.0` |
 | Integration docs | `6.3.0` | `>=4.0.0` |
 
-Contracts with `pactoVersion: "2.1"` need Pacto core 4.1.0 or later and operator 6.1.0 or later. Contracts with `pactoVersion: "2.2"` need Pacto core 4.3.0 or later and operator 6.3.0 or later.
+Contracts with `pactoVersion: "2.1"` need Pacto core 4.1.0 or later and operator 6.1.0 or later. Contracts with `pactoVersion: "2.2"` need Pacto core 4.3.0 or later and operator 6.3.0 or later. Contracts with `pactoVersion: "2.3"` need Pacto core 4.4.0 or later and operator 6.4.0 or later.
 
 This documentation set corresponds to Pacto core `4.3.0`. The integration's own version (currently operator/chart `6.3.0`, docs `6.3.0`) advances on its own release cadence.
 

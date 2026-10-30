@@ -1,0 +1,74 @@
+pactoVersion: '2.3'
+service:
+  name: storefront-web
+  version: 1.1.0
+  owner:
+    team: frontend-team
+    dri: noah.brown
+    contacts:
+    - type: email
+      value: frontend-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#frontend-team'
+      purpose: support
+    - type: oncall
+      value: frontend-oncall
+      purpose: oncall
+interfaces:
+- name: bff
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: public
+configurations:
+- name: platform
+  ref: oci://ghcr.io/trianalab/pacto/platform-app-config
+  required: false
+- name: app
+  schema: configuration/schema.json
+  required: true
+  values:
+    LOG_LEVEL: info
+- name: chart
+  schema: chart/values.schema.json
+  required: true
+  values:
+    replicaCount: 2
+dependencies:
+- name: catalog-service
+  ref: oci://ghcr.io/trianalab/pacto/catalog-service
+  required: true
+  compatibility: ^1.0.0
+- name: inventory-service
+  ref: oci://ghcr.io/trianalab/pacto/inventory-service
+  required: true
+  compatibility: ^2.0.0
+- name: auth-service
+  ref: oci://ghcr.io/trianalab/pacto/auth-service
+  required: true
+  compatibility: ^1.0.0
+environments:
+- name: staging
+  file: environments/staging.yaml
+- name: production
+  file: environments/production.yaml
+- name: preview
+  file: environments/preview.yaml
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: frontend
+  criticality: medium
+  summary: The web shop, with its staging, production and preview values checked on every
+    change
+  repo: github.com/trianalab/pacto-demo/storefront-web
+  tags:
+  - web
+  - storefront
+  - helm

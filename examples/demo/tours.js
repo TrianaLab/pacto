@@ -163,7 +163,13 @@
       if (a) { a.click(); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
     }
   }, {
-    text: "You have now seen what runs, what state it is in and who a change reaches, all from contracts and observations.",
+    // Nothing to do here, only something to read, so it keeps a real button like the
+    // opening notice: an auto-advance would flash the rows past unread.
+    text: "What a provider promises: each service that uses inventory-service shows whether it gets the guarantees it requires (met, refused or not verified), and the stock-feed interface is marked past its sunset.",
+    hash: "#/fleet/services/inventory-service",
+    target: "#sec-observed-traffic-and-differences"
+  }, {
+    text: "You have now seen what runs, what state it is in, who a change reaches and what a provider promises, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];
@@ -480,13 +486,14 @@
     target: '[data-testid="propose-panel"]'
   }, {
     text: "pay-agent ships like any other service: its runner ran the eval suite and signed the count, and 1.1.0 passed 1 of 2, so it rolled back in test.",
-    hash: "#/delivery/changes/test/pay-agent-promote-14",
+    hash: "#/delivery/changes/test/pay-agent-promote-17",
     target: '[data-testid="verdict-runner"]'
   }, {
     text: "Explore more on your own, or see the same story on a real cluster.",
     links: [
       ["#/delivery/publish", "The refused 2.4.3 and the bump it needed"],
       ["#/delivery/history?namespace=test&stage=payments", "The claim check that caught payments calling fraud"],
+      ["#/delivery/changes/prod/payments-promote-6", "Why prod held payments 2.4.1: it declares no prod environment"],
       ["#/delivery/autonomy", "What stands in the way of each next level"]
     ],
     href: "../examples/kubernetes-demo/",

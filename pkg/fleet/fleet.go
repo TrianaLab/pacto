@@ -422,7 +422,13 @@ type ContractRevision struct {
 	Readiness    *readiness.Result  `json:"readiness,omitempty"`
 	Validation   []finding.Finding  `json:"validation,omitempty"`
 	Valid        bool               `json:"valid"`
-	Tools        []ToolSummary      `json:"tools,omitempty"`
+	// Stages is how each stage of the validation run ended. Empty when the
+	// contract document could not be read, so nothing was validated.
+	Stages []ValidationStage `json:"stages,omitempty"`
+	// Environments is each declared environment with the result of checking its
+	// values (see [EnvironmentResult]), bounded per environment at Build.
+	Environments []EnvironmentResult `json:"environments,omitempty"`
+	Tools        []ToolSummary       `json:"tools,omitempty"`
 	// SpecsRead names the declared interfaces whose referenced document was
 	// successfully read at Build time. It exists so a consumer can distinguish an
 	// interface that declares no operations from one whose document was never
@@ -461,6 +467,8 @@ type ContractRevision struct {
 	// that changes after Build. The authority is the per-document digest recorded
 	// in Docs, which every read verifies.
 	bundle *contract.Bundle
+	// guaranteesUnseen is RawRevision.GuaranteesUnseen; see GuaranteesUnseen.
+	guaranteesUnseen string
 	// docConflict, when non-empty, is why this revision's documents cannot be
 	// served: two sources contributed the same immutable revision with different
 	// document content. It is set by mergeRevision, reported as a
@@ -629,6 +637,12 @@ type Relationship struct {
 	// is the free-text version an external dependency with no ref declares.
 	External bool   `json:"external,omitempty"`
 	Version  string `json:"version,omitempty"`
+	// DependencyBehavior is what a declared dependency requires of its
+	// provider's behavior and whether the provider meets it (pactoVersion 2.2).
+	DependencyBehavior
+	// DeprecatedInterfaces lists the deprecated interfaces of the provider
+	// revision a resolved dependency reaches (see [providerDeprecations]).
+	DeprecatedInterfaces []InterfaceDeprecation `json:"deprecatedInterfaces,omitempty"`
 	// Hidden marks a declared dependency that resolves to a service the
 	// caller's Kubernetes permissions hide: ToService and ResolvedRevision are
 	// blank, and To is only what the declaring contract itself says.

@@ -1,0 +1,32 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Inventory stock feed",
+    "version": "1"
+  },
+  "channels": {
+    "stock.changed": {
+      "publish": {
+        "operationId": "stockChanged",
+        "summary": "A SKU's stock level changed",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "sku": {
+                "type": "string"
+              },
+              "available": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "sku",
+              "available"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

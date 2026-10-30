@@ -312,11 +312,8 @@ func dependencyEdge(from, to EntityRef, rel Relationship) NeighborhoodEdge {
 		ObservationScope:     ObservationScopeService,
 		ServiceCorroboration: serviceCorroboration(rel.Reconciliation),
 	}
-	e.DeclaredClaims = declaredClaimsPreview([]DeclaredClaim{{
-		SourceRevision: rel.FromRevision, Required: rel.Required, Compatibility: rel.Compatibility,
-		Reconciliation: rel.Reconciliation, RequestedRef: rel.RequestedRef,
-		LockedVersion: rel.LockedVersion, LockedDigest: rel.LockedDigest,
-	}})
+	e.DeclaredClaims = declaredClaimsPreview([]DeclaredClaim{declaredClaim(rel)})
+	foldBehavior(&e, rel)
 	return e
 }
 

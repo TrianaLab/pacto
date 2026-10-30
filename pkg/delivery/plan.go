@@ -7,14 +7,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // IntentDigest is the hash of what was asked. Plans, approvals and records bind
@@ -156,24 +159,53 @@ func rollbackImpact(ctx context.Context, in PlanInput, p *Plan) {
 	}
 	res := impact.Analyze(ctx, in.From.Bundle.Contract, in.To.Bundle.Contract, in.From.Bundle.FS, in.To.Bundle.FS, in.Snapshot,
 		impact.Options{Domain: contract.OCIDomain(in.To.ContractRef), IncludeObserved: true})
-	var incompatible []impact.AffectedConsumer
-	for _, c := range res.Consumers {
-		if c.CompatibilityVerdict == impact.CompatibilityIncompatible {
-			incompatible = append(incompatible, c)
-		}
-	}
-	if len(incompatible) == 0 {
+	incompatible, unmet, _ := sortConsumers(res)
+	if len(incompatible) == 0 && len(unmet) == 0 {
 		return
 	}
-	names, owners := consumerNamesOwners(incompatible)
+	names, owners := consumerNamesOwners(append(slices.Clone(incompatible), unmet...))
 	if len(owners) == 0 {
 		owners = serviceTeam(in)
 	}
 	p.Verdicts = append(p.Verdicts, Verdict{Gate: GateImpact, Phase: "pre", Result: Pass, Message: "rolling back breaks " + strings.Join(names, ", "),
 		Citation: map[string]string{"classification": res.Classification, "completeness": string(res.Completeness)}})
 	p.Floor = Floor{Human: true, Decision: Approve, Owners: owners, Consumers: names}
-	p.Question = fmt.Sprintf("Rolling %s back to %s is not accepted by %s. Approve the rollback anyway? Asked of: %s",
-		in.Stage.Service.Name, res.NewVersion, describeRanges(incompatible), ownersOrAnyone(owners, in.RequireOwnerTeam))
+	p.Question = breaksQuestion("Rolling "+in.Stage.Service.Name+" back to "+res.NewVersion, incompatible, unmet) +
+		" Approve the rollback anyway? Asked of: " + ownersOrAnyone(owners, in.RequireOwnerTeam)
+}
+
+// unmetRequired reports whether the change leaves c, a consumer that requires
+// the service, with a guarantee it declares it needs and the version does not
+// meet. An optional dependency's unmet guarantee holds nothing, as in pacto
+// validate, where it is a warning.
+func unmetRequired(c impact.AffectedConsumer) bool {
+	return c.Required && len(c.Unmet) > 0
+}
+
+// breaksQuestion says which consumers the change (what) breaks: the ones
+// whose range does not accept it and the ones it leaves with a required
+// guarantee unmet.
+func breaksQuestion(what string, incompatible, unmet []impact.AffectedConsumer) string {
+	var parts []string
+	if len(incompatible) > 0 {
+		parts = append(parts, what+" is not accepted by "+describeRanges(incompatible)+".")
+	}
+	if len(unmet) > 0 {
+		parts = append(parts, what+" does not meet what its consumers require: "+describeUnmet(unmet)+".")
+	}
+	return strings.Join(parts, " ")
+}
+
+// describeUnmet names each guarantee the consumers require that the version
+// does not meet, naming consumer, provider and guarantee.
+func describeUnmet(cs []impact.AffectedConsumer) string {
+	var parts []string
+	for _, c := range cs {
+		for _, m := range c.Unmet {
+			parts = append(parts, m.String())
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // refusal is why an operation is rejected before any gate runs, or "".
@@ -312,7 +344,91 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	}
 	impactGate(ctx, in, p)
 	suitesGate(in, p)
+	environmentGate(in, p)
 	ownerGate(in, p)
+}
+
+// environmentGate holds a version whose contract does not back the Stage's
+// environment (spec.environment): it declares environments but none of that
+// name, or the values it declares there fail its configuration schemas. Both
+// are confirmed, so, as for a consumer the change breaks, the gate reports
+// what it found and the team of the service approves shipping it anyway.
+// Values Pacto could not check against a schema are Unknown, for a person to
+// accept. A contract that declares no environments is not judged: the gate
+// passes and says so. The check is pacto validate's environments stage, run on
+// the version's own bundle.
+func environmentGate(in PlanInput, p *Plan) {
+	c, env := in.To.Bundle.Contract, in.Stage.Environment
+	v := Verdict{Gate: GateEnvironment, Phase: "pre", Result: Pass, Citation: map[string]string{"environment": env, "contract": in.To.ContractRef}}
+	defer func() { p.Verdicts = append(p.Verdicts, v) }()
+	if len(c.Environments) == 0 {
+		v.Citation["applicable"] = "false"
+		v.Message = "not applicable: the contract of " + short(p.To) + " declares no environments"
+		return
+	}
+	var errs, unverified []string
+	if i := slices.IndexFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }); i >= 0 {
+		errs, unverified = environmentFindings(c, in.To.Bundle.FS, i)
+	} else {
+		names := make([]string, len(c.Environments))
+		for j, e := range c.Environments {
+			names[j] = e.Name
+		}
+		errs = []string{fmt.Sprintf("version %s declares no environment %s for Stage %s (it declares %s)",
+			c.Service.Version, env, in.Spec.Stage, strings.Join(names, ", "))}
+	}
+	switch {
+	case len(errs) > 0:
+		v.Message = strings.Join(errs, "; ")
+		holdFor(p, Approve, v.Message, v.Message+". Approve shipping "+short(p.To)+" anyway?")
+		askServiceTeam(in, p)
+	case len(unverified) > 0:
+		v.Result, v.Message = Unknown, strings.Join(unverified, "; ")
+		holdFor(p, AcceptUnknown, v.Message, "Pacto cannot verify the values of environment "+env+" in "+short(p.To)+": "+v.Message+". Accept the unknown?")
+		askServiceTeam(in, p)
+	default:
+		v.Message = "the values of environment " + env + " satisfy the configuration schemas"
+	}
+}
+
+// environmentFindings runs the environments stage on a contract and returns
+// the errors, located in their values file, and the unverified warnings it
+// reports for its environment i.
+func environmentFindings(c *contract.Contract, bundleFS fs.FS, i int) (errs, unverified []string) {
+	at := fmt.Sprintf("environments[%d]", i)
+	under := func(path string) bool {
+		rest, ok := strings.CutPrefix(path, at)
+		return ok && (rest == "" || rest[0] == '.')
+	}
+	st := validation.EnvironmentStage(c, bundleFS)
+	for _, e := range st.Errors {
+		if under(e.Path) {
+			loc := e.File
+			if e.Line > 0 {
+				loc += ":" + strconv.Itoa(e.Line)
+			}
+			errs = append(errs, loc+": "+e.Code+": "+e.Message)
+		}
+	}
+	for _, w := range st.Warnings {
+		if under(w.Path) && w.Code == string(finding.CodeEnvironmentValuesUnverified) {
+			unverified = append(unverified, w.Code+": "+w.Message)
+		}
+	}
+	return errs, unverified
+}
+
+// holdFor asks a person to decide, adding why to a question already asked:
+// approve is the stronger decision, so it is never lowered to accept-unknown.
+func holdFor(p *Plan, d Decision, why, question string) {
+	if p.Floor.Human {
+		p.Question = why + ". " + p.Question
+		if d == Approve {
+			p.Floor.Decision = Approve
+		}
+		return
+	}
+	p.Floor.Human, p.Floor.Decision, p.Question = true, d, question
 }
 
 // ownerGate holds, on every level and whoever raised it, a promote that
@@ -333,11 +449,23 @@ func ownerGate(in PlanInput, p *Plan) {
 		p.Question = msg + ". Approve " + short(p.To) + "?"
 	}
 	p.Floor.Human, p.Floor.Decision = true, Approve
+	askServiceTeam(in, p)
+}
+
+// askServiceTeam adds the service's team to the owners a held plan asks, and
+// to the question's "Asked of" when an earlier gate already named its owners:
+// a hold about the service itself is never left to its consumers' teams.
+func askServiceTeam(in PlanInput, p *Plan) {
+	if len(p.Floor.Owners) == 0 {
+		return // routeToServiceTeam asks the service's team
+	}
+	before := "Asked of: " + ownersOrAnyone(p.Floor.Owners, in.RequireOwnerTeam)
 	for _, t := range serviceTeam(in) {
 		if !slices.Contains(p.Floor.Owners, t) {
 			p.Floor.Owners = append(p.Floor.Owners, t)
 		}
 	}
+	p.Question = strings.Replace(p.Question, before, "Asked of: "+ownersOrAnyone(p.Floor.Owners, in.RequireOwnerTeam), 1)
 }
 
 // suitesGate holds a version whose contract does not ship a suite one of the
@@ -531,15 +659,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		"snapshot":       res.SnapshotID,
 	}}
 
-	var incompatible, unknown []impact.AffectedConsumer
-	for _, c := range res.Consumers {
-		switch {
-		case c.CompatibilityVerdict == impact.CompatibilityIncompatible:
-			incompatible = append(incompatible, c)
-		case unknownConsumer(res, c):
-			unknown = append(unknown, c)
-		}
-	}
+	incompatible, unmet, unknown := sortConsumers(res)
 	citeCallers(in, res, v.Citation)
 	unseenConsumers := unseenConsumersOf(in, res, unknown)
 	unseen := slices.Clone(unseenConsumers)
@@ -552,17 +672,19 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	}
 
 	switch {
-	case len(incompatible) > 0:
-		names, owners := consumerNamesOwners(incompatible)
+	case len(incompatible) > 0 || len(unmet) > 0:
+		names, owners := consumerNamesOwners(append(slices.Clone(incompatible), unmet...))
 		if len(owners) == 0 {
 			owners = serviceTeam(in)
 		}
 		v.Message = "breaks " + strings.Join(names, ", ")
 		p.Floor = Floor{Human: true, Decision: Approve, Owners: owners, Consumers: names}
-		p.Question = fmt.Sprintf("%s %s is not accepted by %s. Approve shipping it anyway? Asked of: %s",
-			in.Stage.Service.Name, res.NewVersion, describeRanges(incompatible), ownersOrAnyone(owners, in.RequireOwnerTeam))
-		p.Order = orderFor(ctx, in, res, incompatible, unseenConsumers)
-		p.Question += orderQuestion(p.Order)
+		p.Question = breaksQuestion(in.Stage.Service.Name+" "+res.NewVersion, incompatible, unmet) +
+			" Approve shipping it anyway? Asked of: " + ownersOrAnyone(owners, in.RequireOwnerTeam)
+		if len(incompatible) > 0 {
+			p.Order = orderFor(ctx, in, res, incompatible, unseenConsumers)
+			p.Question += orderQuestion(p.Order)
+		}
 	case len(unseen) > 0:
 		v.Result = Unknown
 		v.Message = strings.Join(unseen, "; ")
@@ -572,6 +694,25 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		v.Message = countOf(len(res.Consumers), "consumer") + ", none incompatible"
 	}
 	p.Verdicts = append(p.Verdicts, v)
+}
+
+// sortConsumers splits the consumers the change reaches: those whose range
+// does not accept it, those it leaves with a required guarantee unmet and
+// those Pacto cannot judge. Like a range, an unmet guarantee is a confirmed
+// contradiction wherever the consumer runs, including where Pacto cannot
+// place it.
+func sortConsumers(res *impact.Result) (incompatible, unmet, unknown []impact.AffectedConsumer) {
+	for _, c := range res.Consumers {
+		switch {
+		case c.CompatibilityVerdict == impact.CompatibilityIncompatible:
+			incompatible = append(incompatible, c)
+		case unmetRequired(c):
+			unmet = append(unmet, c)
+		case unknownConsumer(res, c):
+			unknown = append(unknown, c)
+		}
+	}
+	return incompatible, unmet, unknown
 }
 
 // versionDoubts are why the candidate, against the running version, cannot be
@@ -658,6 +799,10 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 		out = append(out, c.Service+" has no usable compatibility range for this change")
 	}
 	if res.Classification != diff.NonBreaking.String() {
+		// A non-breaking change weakens no guarantee, so it breaks no requirement.
+		out = append(out, requirementsUnseen(in.Snapshot, res)...)
+	}
+	if res.Classification != diff.NonBreaking.String() {
 		out = append(out, callersUnseen(in.Snapshot, fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name))...)
 	}
 	out = append(out, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
@@ -674,6 +819,29 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 	for _, m := range in.Misplaced {
 		if m.Service == "" || consumers[m.Service] { // a Pacto with no contract cannot be ruled out
 			out = append(out, m.Note)
+		}
+	}
+	return out
+}
+
+// requirementsUnseen says which direct consumers' requirements Pacto cannot
+// read: every revision of them the snapshot holds came from a status an older
+// operator wrote.
+func requirementsUnseen(snap *fleet.FleetSnapshot, res *impact.Result) []string {
+	var out []string
+	for _, c := range res.Consumers {
+		svc := snap.Services[fleet.NewServiceKeyDomain(c.Domain, c.Service)]
+		if !c.Direct || svc == nil || len(c.Unmet) > 0 {
+			continue
+		}
+		why := ""
+		for _, rk := range svc.Revisions {
+			if why = snap.Revisions[rk].GuaranteesUnseen(); why == "" {
+				break
+			}
+		}
+		if why != "" {
+			out = append(out, why)
 		}
 	}
 	return out

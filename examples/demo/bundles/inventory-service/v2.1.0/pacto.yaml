@@ -1,0 +1,78 @@
+pactoVersion: '2.2'
+service:
+  name: inventory-service
+  version: 2.1.0
+  owner:
+    team: catalog-team
+    dri: lena.fischer
+    contacts:
+    - type: email
+      value: catalog-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#catalog-team'
+      purpose: support
+    - type: oncall
+      value: catalog-oncall
+      purpose: oncall
+interfaces:
+- name: stock-v1
+  type: openapi
+  ref: interfaces/stock-v1.json
+  visibility: internal
+  lifecycle:
+    deprecated: '2026-06-01'
+    sunset: '2031-06-01'
+    successor: stock-v2
+- name: stock-v2
+  type: openapi
+  ref: interfaces/stock-v2.json
+  visibility: internal
+  guarantees:
+    idempotent: true
+    timeout: 5s
+  compatibilityEpoch: 1
+- name: stock-feed
+  type: asyncapi
+  ref: interfaces/stock-feed.json
+  visibility: internal
+  lifecycle:
+    deprecated: '2025-01-15'
+    sunset: '2026-01-01'
+    successor: stock-events
+- name: stock-events
+  type: asyncapi
+  ref: interfaces/stock-events.json
+  visibility: internal
+  guarantees:
+    delivery: at-least-once
+    ordering: per-key
+    dedupeWindow: 10m
+    retention: 168h
+dependencies:
+- name: postgresql
+  ref: oci://ghcr.io/trianalab/pacto/postgresql
+  required: true
+  compatibility: ^16.0.0
+- name: event-bus
+  ref: oci://ghcr.io/trianalab/pacto/event-bus
+  required: true
+  compatibility: ^3.6.0
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+metadata:
+  tier: domain
+  category: catalog
+  criticality: high
+  summary: Stock levels and reservations per warehouse, with a retirement schedule for the
+    v1 API and the old feed
+  repo: github.com/trianalab/pacto-demo/inventory-service
+  tags:
+  - inventory
+  - stock
+  - warehouse

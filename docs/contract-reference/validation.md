@@ -7,15 +7,16 @@ relies on it. Run it in the bundle directory:
 pacto validate .
 ```
 
-It runs three checks in order, and so does anything else that has to trust a
-contract. `pack` and `push` both refuse before they
-write or transmit a byte, and the operator revalidates every bundle it loads.
+It runs three checks in order and then the
+[environments stage](#environments-stage), and so does anything else that has
+to trust a contract. `pack`, `push` and `publish` refuse before they write or
+transmit a byte, and the operator revalidates every bundle it loads.
 Each layer short-circuits: if it fails, the layers after it are skipped, so one
 broken field can hide the rest.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json` or `pacto-v2.2.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json` or `pacto-v2.3.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
@@ -29,10 +30,11 @@ Structural failures report `SCHEMA_VIOLATION`. A `"2.0"` contract that uses
 instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
 `"2.1"` contract that uses an interface `lifecycle`, `compatibilityEpoch` or
 `guarantees` or a dependency `requires` reports `NEEDS_PACTO_2_2` for each: set
-`pactoVersion: "2.2"`.
+`pactoVersion: "2.2"`. A `"2.0"`, `"2.1"` or `"2.2"` contract that declares
+`environments` reports `NEEDS_PACTO_2_3`: set `pactoVersion: "2.3"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"`, `"2.1"` or `"2.2"`, fails before any layer runs and reports
+`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"` or `"2.3"`, fails before any layer runs and reports
 `PARSE_ERROR`. Loading is the parse step that turns `pacto.yaml` into a
 contract. Validation starts once it succeeds.
 
@@ -74,6 +76,8 @@ Validates semantic references and consistency:
 | `policies[].schema` file is valid JSON | `INVALID_POLICY_JSON` |
 | `policies[].schema` file is valid JSON Schema | `INVALID_POLICY_SCHEMA` |
 | `policies[].ref` is a valid OCI reference | `INVALID_POLICY_REF` |
+| Environment names are unique | `DUPLICATE_ENVIRONMENT_NAME` |
+| `environments[].file` is a path in the bundle and the file exists | `FILE_NOT_FOUND` |
 | `readiness.claims[].id` are unique within the contract | `DUPLICATE_READINESS_ID` |
 | `readiness.claims[].evidence` has non-whitespace content | `EMPTY_READINESS_EVIDENCE` |
 | `readiness.claims[].description` (when present) has non-whitespace content | `EMPTY_READINESS_DESCRIPTION` |
@@ -137,5 +141,23 @@ successor, with the path of the dependency that resolved to it, for example
 the date the check runs. To fail a pipeline after the sunset, gate on
 `DEPENDENCY_INTERFACE_SUNSET` in `--output-format json`. When `pacto.lock` is present, the lock is verified first and
 a drifted closure fails with the lock error before the closure is checked.
+
+## Environments stage
+
+After the policy layer, the `environments` stage checks each environment's
+file against the schema of every configuration it names. It runs only
+when every stage before it passed, and reports `SKIP no environments declared`
+for a contract without `environments`. [Environments](environments.md#how-values-are-checked)
+lists the rules and the codes it reports: `ENVIRONMENT_UNKNOWN_CONFIGURATION`,
+`ENVIRONMENT_VALUES_INVALID`, `ENVIRONMENT_VALUES_MISSING` and the
+`ENVIRONMENT_VALUES_UNVERIFIED` warning.
+
+An error in an environment's file carries that file in `file`, with `line` and
+`column` pointing into it, also when `--set` or `-f` is given. The stage passes
+only when Pacto checked every value set and found no error. A configuration
+whose schema is behind a `ref` leaves its values unchecked, and so does a run
+with no bundle files to read, such as the operator loading an inline contract.
+A stage with no error and an unchecked value set reports
+`SKIP could not verify:` and names each environment and configuration.
 
 ---

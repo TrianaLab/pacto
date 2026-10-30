@@ -23,6 +23,12 @@ on yours run a Pacto and operator that read 2.1: see
 Pacto runs no tests. It refuses to publish when one of its own checks fails:
 
 - the contract is invalid, or uses a local reference or breaks its `pacto.lock`;
+- a provider does not meet what a required dependency `requires`
+  (`GUARANTEE_UNMET`). Pacto fetches each provider that a dependency declares
+  `requires` for, as `pacto validate` does, and `--plan` shows the unmet
+  guarantee as the failed `validation` check. An unmet guarantee of an optional
+  dependency and a provider Pacto cannot fetch (`GUARANTEE_UNVERIFIED`) are
+  warnings: the `validation` check passes and names them;
 - `publish.sign` is missing, the signing key file would end up inside the
   bundle, or the signer does not open: a missing key file, a wrong
   `COSIGN_PASSWORD` or an unreachable KMS key refuses the plan, before

@@ -59,7 +59,7 @@ For each dependent the analysis records:
 | Field | Meaning |
 |-------|---------|
 | **service / domain / owner** | Who is affected and who owns them. |
-| **depth / direct / path** | `depth` 1 is a direct dependent, `>1` is transitive. `path` is the dependency chain from the consumer to the changed service. |
+| **depth / direct / path** | `depth` is the shortest distance from the consumer to the changed service: 1 is a direct dependent and `>1` is transitive. A consumer that depends on the changed service directly is direct even when it also reaches it through another dependent. `path` is a shortest dependency chain from the consumer to the changed service. |
 | **required** | Whether the consumer declared this dependency as required. |
 | **compatibility** | The consumer's declared compatibility range against the changed service. |
 | **compatibilityVerdict** | Whether the new version satisfies that range. `compatible` and `incompatible` both need a declared range *and* a range and version `semver` can parse; without all three the verdict is `unknown`, because an unreadable or absent range is uncertainty. |

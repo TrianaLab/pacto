@@ -1,0 +1,54 @@
+pactoVersion: '2.2'
+service:
+  name: loyalty-service
+  version: 2.0.0
+  owner:
+    team: growth-team
+    dri: priya.raman
+    contacts:
+    - type: email
+      value: growth-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#growth-team'
+      purpose: support
+    - type: oncall
+      value: growth-oncall
+      purpose: oncall
+interfaces:
+- name: http
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+- name: points-events
+  type: asyncapi
+  ref: interfaces/events.json
+  visibility: internal
+  guarantees:
+    delivery: at-least-once
+    ordering: per-key
+    retention: 720h
+dependencies:
+- name: postgresql
+  ref: oci://ghcr.io/trianalab/pacto/postgresql
+  required: true
+  compatibility: ^16.0.0
+- name: event-bus
+  ref: oci://ghcr.io/trianalab/pacto/event-bus
+  required: true
+  compatibility: ^3.6.0
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+metadata:
+  tier: domain
+  category: growth
+  criticality: medium
+  summary: Points and tiers for returning customers, as events
+  repo: github.com/trianalab/pacto-demo/loyalty-service
+  tags:
+  - loyalty

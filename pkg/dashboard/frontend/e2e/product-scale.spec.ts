@@ -256,7 +256,7 @@ test('render baseline for every product surface, on real demo data', async ({ pa
   // number can never be a measurement of an empty page.
   //
   // Cold boot is recorded once and separately, because it is dominated by instantiating
-  // the demo's 18.6 MB wasm bundle (4.6 MB gzipped) and says more about the demo than about the product.
+  // the demo's 19.3 MB wasm bundle (4.7 MB gzipped) and says more about the demo than about the product.
   // Everything after it is a warm client-side route render, which is what a user
   // experiences for every navigation after the first.
   await record(page, 'cold boot (wasm instantiate + Overview)', async () => {

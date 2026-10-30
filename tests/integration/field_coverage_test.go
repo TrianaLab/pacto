@@ -83,15 +83,17 @@ const (
 	parseError      = "PARSE_ERROR"
 	needs21         = "NEEDS_PACTO_2_1" // a 2.1-only part in a 2.0 contract
 	needs22         = "NEEDS_PACTO_2_2" // a 2.2-only part in a 2.0 or 2.1 contract
+	needs23         = "NEEDS_PACTO_2_3" // a 2.3-only part in an older contract
 	unmet           = "GUARANTEE_UNMET" // a requirement the provider bundle does not meet
 )
 
 var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
-	valid("pactoVersion=2.2", set("pactoVersion", "2.2")),
-	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
-	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("checks"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
+	valid("pactoVersion=2.3", set("pactoVersion", "2.3")),
+	valid("pactoVersion=2.2", set("pactoVersion", "2.2"), del("environments")),
+	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("environments"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
+	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("environments"), del("publish"), del("checks"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
@@ -146,7 +148,7 @@ var fieldCoverageCases = []fcCase{
 	invalid("interfaces[].ref/invalid", "FILE_NOT_FOUND", set("interfaces.0.ref", "interfaces/missing.yaml")),
 	valid("interfaces[].guarantees/valid", del("interfaces.0.guarantees")),
 	invalid("interfaces[].guarantees/invalid", parseError, set("interfaces.0.guarantees.latency", "1s")),
-	invalid("interfaces[].guarantees/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
+	invalid("interfaces[].guarantees/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
 	valid("interfaces[].guarantees.profile/valid", del("interfaces.0.guarantees.profile")),
 	invalid("interfaces[].guarantees.profile/invalid", schemaViolation, set("interfaces.0.guarantees.profile", "2")),
 	valid("interfaces[].guarantees.profile=1", set("interfaces.0.guarantees.profile", "1")),
@@ -168,14 +170,14 @@ var fieldCoverageCases = []fcCase{
 	invalid("interfaces[].guarantees.timeout/invalid", schemaViolation, set("interfaces.0.guarantees.timeout", "-1s")),
 	valid("interfaces[].compatibilityEpoch/valid", set("interfaces.0.compatibilityEpoch", 3)),
 	invalid("interfaces[].compatibilityEpoch/invalid", schemaViolation, set("interfaces.0.compatibilityEpoch", -1)),
-	invalid("interfaces[].compatibilityEpoch/needs-2.2", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
+	invalid("interfaces[].compatibilityEpoch/needs-2.2", needs22, set("pactoVersion", "2.1"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
 	valid("interfaces[].visibility/valid", del("interfaces.0.visibility")),
 	invalid("interfaces[].visibility/invalid", schemaViolation, set("interfaces.0.visibility", "private")),
 	valid("interfaces[].visibility=public", set("interfaces.0.visibility", "public")),
 	valid("interfaces[].visibility=internal", set("interfaces.0.visibility", "internal")),
 	valid("interfaces[].lifecycle/valid", del("interfaces.0.lifecycle")),
 	invalid("interfaces[].lifecycle/invalid", schemaViolation, set("interfaces.0.lifecycle", map[string]any{})),
-	invalid("interfaces[].lifecycle/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
+	invalid("interfaces[].lifecycle/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("environments"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
 	valid("interfaces[].lifecycle.deprecated/valid", set("interfaces.0.lifecycle.deprecated", "2025-12-01")),
 	invalid("interfaces[].lifecycle.deprecated/invalid", "INVALID_INTERFACE_LIFECYCLE", set("interfaces.0.lifecycle.deprecated", "2026-1-15")),
 	valid("interfaces[].lifecycle.sunset/valid", del("interfaces.0.lifecycle.sunset")),
@@ -184,11 +186,11 @@ var fieldCoverageCases = []fcCase{
 		set("interfaces.0.lifecycle.successor", "api-v2")),
 	invalid("interfaces[].lifecycle.successor/invalid", "INTERFACE_SUCCESSOR_UNKNOWN", set("interfaces.0.lifecycle.successor", "api")),
 
-	valid("configurations/valid", del("configurations")),
+	valid("configurations/valid", del("configurations"), del("environments")),
 	invalid("configurations/invalid", parseError, set("configurations", "app")),
 	valid("configurations[]/valid"),
 	invalid("configurations[]/invalid", "DUPLICATE_CONFIGURATION_NAME", set("configurations.1", map[string]any{"name": "app", "schema": "configuration/schema.json", "required": false})),
-	valid("configurations[].name/valid", set("configurations.0.name", "runtime")),
+	valid("configurations[].name/valid", set("configurations.0.name", "runtime"), set("environments.0.file", "environments/runtime.yaml")),
 	invalid("configurations[].name/invalid", schemaViolation, del("configurations.0.name")),
 	valid("configurations[].schema/valid", del("configurations.0.values")),
 	invalid("configurations[].schema/invalid", "FILE_NOT_FOUND", set("configurations.0.schema", "configuration/missing.json")),
@@ -198,6 +200,19 @@ var fieldCoverageCases = []fcCase{
 	invalid("configurations[].values/invalid", "CONFIG_VALUES_VALIDATION_FAILED", set("configurations.0.values.port", "eighty")),
 	valid("configurations[].required/valid", set("configurations.0.required", false)),
 	invalid("configurations[].required/invalid", schemaViolation, del("configurations.0.required")),
+
+	valid("environments/valid", del("environments")),
+	invalid("environments/invalid", parseError, set("environments", "staging")),
+	invalid("environments/needs-2.3", needs23, set("pactoVersion", "2.2")),
+	valid("environments[]/valid", set("environments.1", map[string]any{"name": "production", "file": "environments/production.json"})),
+	invalid("environments[]/invalid", parseError, set("environments.0.cluster", "eu-1")),
+	valid("environments[].name/valid", set("environments.0.name", "staging-eu-1")),
+	invalid("environments[].name/invalid", schemaViolation, set("environments.0.name", "Staging")),
+	invalid("environments[].name/duplicate", "DUPLICATE_ENVIRONMENT_NAME", set("environments.1", map[string]any{"name": "staging", "file": "environments/production.json"})),
+	valid("environments[].file/valid", set("environments.0.file", "environments/production.json")),
+	invalid("environments[].file/invalid", "ENVIRONMENT_VALUES_INVALID", set("environments.0.file", "environments/broken.yaml")),
+	invalid("environments[].file/missing", "FILE_NOT_FOUND", set("environments.0.file", "environments/qa.yaml")),
+	invalid("environments[].file/unknown-configuration", "ENVIRONMENT_UNKNOWN_CONFIGURATION", set("environments.0.file", "environments/typo.yaml")),
 
 	valid("policies/valid", del("policies")),
 	invalid("policies/invalid", parseError, set("policies", "base")),
@@ -230,7 +245,7 @@ var fieldCoverageCases = []fcCase{
 	invalid("dependencies[].external/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish"), del("checks"), set("dependencies.0.external", true)),
 	valid("dependencies[].requires/valid", del("dependencies.1.requires")),
 	invalid("dependencies[].requires/invalid", unmet, set("dependencies.1.requires.0.dedupeWindow", "1h")),
-	invalid("dependencies[].requires/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees")),
+	invalid("dependencies[].requires/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees")),
 	valid("dependencies[].requires[]/valid", set("dependencies.1.requires.1", map[string]any{"interface": "events", "idempotent": true})),
 	invalid("dependencies[].requires[]/invalid", parseError, set("dependencies.1.requires.0", "events")),
 	valid("dependencies[].requires[].interface/valid", set("dependencies.1.requires.0.interface", "events")),
@@ -442,9 +457,9 @@ var fieldCoverageCases = []fcCase{
 	invalid("extensions/invalid", parseError, set("extensions", "acme")),
 }
 
-// fieldCoverageBase declares every field of the v2.2 schema at least once
+// fieldCoverageBase declares every field of the v2.3 schema at least once
 // (publish.sign declares one of its three ways; the cases cover the others).
-const fieldCoverageBase = `pactoVersion: "2.2"
+const fieldCoverageBase = `pactoVersion: "2.3"
 service:
   name: orders
   version: 1.0.0
@@ -479,6 +494,9 @@ configurations:
     values:
       port: 8080
     required: true
+environments:
+  - name: staging
+    file: environments/staging.yaml
 policies:
   - name: base
     schema: policy/schema.json
@@ -580,6 +598,11 @@ var fieldCoverageFiles = map[string]string{
 	"interfaces/orders.proto":          "syntax = \"proto3\";\npackage orders;\n",
 	"interfaces/tools.json":            `{"tools":[{"name":"refund","inputSchema":{"type":"object"}}]}`,
 	"evals/suite.yaml":                 "cases: []\n",
+	"environments/staging.yaml":        "app:\n  port: 9090\n",
+	"environments/production.json":     `{"app": {"port": 443}}`,
+	"environments/broken.yaml":         "app:\n  port: high\n",
+	"environments/typo.yaml":           "apps:\n  port: 9090\n",
+	"environments/runtime.yaml":        "runtime:\n  port: 9090\n",
 	"configuration/schema.json":        `{"type":"object","properties":{"port":{"type":"integer"}}}`,
 	"policy/schema.json":               `{"type":"object","required":["service"]}`,
 	"policy-bundle/pacto.yaml":         "pactoVersion: \"2.0\"\nservice:\n  name: platform-policy\n  version: 1.0.0\n",

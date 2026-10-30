@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 const (
@@ -41,7 +44,7 @@ func checkoutPacto(rng string) PactoView {
 	var p PactoView
 	p.Metadata.Namespace, p.Metadata.Name = "prod", "checkout"
 	p.Status.ContractStatus = "Compliant"
-	p.Status.LastReconciledAt = now.Format(time.RFC3339)
+	p.Status.LastReconciledAt, p.Status.StatusFormat = now.Format(time.RFC3339), StatusFormatGuarantees
 	p.Status.Contract = &ContractInfoView{ServiceName: "checkout", Version: "1.0.0",
 		Owner: &contract.Owner{Team: "team-checkout"}, ResolvedRef: "oci://reg.example/pactos/checkout@" + c3}
 	p.Status.Dependencies = []DependencyView{{Name: "payments", Ref: "oci://reg.example/pactos/payments", Required: true, Compatibility: rng}}
@@ -790,5 +793,266 @@ func TestRevisionFromStatus_KeepsRequires(t *testing.T) {
 	got := rev.Bundle.Contract.Dependencies[0].Requires
 	if len(got) != 1 || got[0].Interface != "events" || got[0].Delivery != "at-least-once" {
 		t.Fatalf("requires = %+v", got)
+	}
+}
+
+// older is p as an operator that predates status.statusFormat wrote it: with
+// no guarantees and no requirements recorded.
+func older(p PactoView) PactoView {
+	p.Status.StatusFormat = 0
+	return p
+}
+
+// A fleet rebuilt from Pacto status checks what a consumer requires against
+// the interfaces the provider's status records, as a fleet built from bundles
+// does: unmet when the provider does not promise it, met when it does and
+// unknown when no Pacto of the provider is in the cluster or an older operator
+// wrote the provider's status, which then records no guarantees at all.
+func TestSnapshotFromStatusEvaluatesGuarantees(t *testing.T) {
+	checkout := checkoutPacto("^1.0.0")
+	checkout.Status.Dependencies[0].Requires = []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}
+	payments := func(g *contract.Guarantees) PactoView {
+		p := paymentsPacto(nil)
+		p.Status.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Guarantees: g,
+			Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-09-01"}, CompatibilityEpoch: 2}}
+		return p
+	}
+	for _, tc := range []struct {
+		name   string
+		pactos []PactoView
+		want   string
+	}{
+		{"unmet", []PactoView{checkout, payments(nil)}, fleet.GuaranteeUnmet},
+		{"met", []PactoView{checkout, payments(&contract.Guarantees{Idempotent: true})}, fleet.GuaranteeMet},
+		{"provider absent", []PactoView{checkout}, fleet.GuaranteeUnknown},
+		{"provider status predates guarantees", []PactoView{checkout, older(payments(nil))}, fleet.GuaranteeUnknown},
+	} {
+		snap, err := Snapshot(context.Background(), tc.pactos, nil, nil, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(snap.Relationships, func(r fleet.Relationship) bool { return r.To == "payments" })
+		if i < 0 {
+			t.Fatalf("%s: no checkout -> payments relationship", tc.name)
+		}
+		r := snap.Relationships[i]
+		if r.GuaranteeStatus != tc.want {
+			t.Errorf("%s: guarantee status = %q (%s), want %q", tc.name, r.GuaranteeStatus, r.GuaranteeReason, tc.want)
+		}
+		if tc.want == fleet.GuaranteeUnmet && (len(r.Unmet) != 1 || r.Unmet[0].Guarantee != "idempotent" ||
+			len(r.DeprecatedInterfaces) != 1 || r.DeprecatedInterfaces[0].Deprecated != "2026-09-01") {
+			t.Errorf("%s: the provider interface from status was lost: %+v", tc.name, r)
+		}
+	}
+}
+
+// Impact over a fleet rebuilt from Pacto status names the guarantee a
+// candidate refuses to a consumer whose status records the requirement.
+func TestImpactFromStatusSeesUnmetGuarantee(t *testing.T) {
+	checkout := checkoutPacto("^1.0.0")
+	checkout.Status.Dependencies[0].Requires = []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}
+	old, nu := bundle("payments", "1.0.0"), bundle("payments", "1.1.0")
+	old.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Guarantees: &contract.Guarantees{Idempotent: true}}}
+	nu.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi"}}
+	snap, err := Snapshot(context.Background(), []PactoView{checkout}, nil, []Revision{rev(dA, c1, old), rev(dB, c2, nu)}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := impact.Analyze(context.Background(), old.Contract, nu.Contract, nil, nil, snap, impact.Options{Domain: "reg.example/pactos"})
+	if len(res.Consumers) != 1 || len(res.Consumers[0].Unmet) != 1 || res.Consumers[0].Unmet[0].Guarantee != "idempotent" {
+		t.Fatalf("impact lost the requirement the status records: %+v", res.Consumers)
+	}
+}
+
+// TestPlanConsumerStatusPredatesRequires: a consumer whose status an older
+// operator wrote records no requirements, so Pacto cannot tell whether a
+// change that is not plainly non-breaking leaves one unmet: it asks a person
+// to accept the unknown. A non-breaking change weakens no guarantee, so it
+// cannot break a requirement and passes.
+func TestPlanConsumerStatusPredatesRequires(t *testing.T) {
+	old, major := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
+	old.Contract.Workload, major.Contract.Workload = "service", "job" // BREAKING
+	from := rev(dA, c1, old)
+	for _, tc := range []struct {
+		name     string
+		to       *contract.Bundle
+		consumer PactoView
+		unknown  bool
+	}{
+		{"breaking, older status", major, older(checkoutPacto(">=1.0.0")), true},
+		{"breaking, current status", major, checkoutPacto(">=1.0.0"), false},
+		{"non-breaking, older status", bundle("payments", "1.0.1"), older(checkoutPacto("^1.0.0")), false},
+	} {
+		if tc.to.Contract.Service.Version == "1.0.1" {
+			tc.to.Contract.Workload = "service"
+		}
+		p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, rev(dB, c2, tc.to), tc.consumer)
+		v := verdict(t, p, GateImpact)
+		if got := v.Result == Unknown && strings.Contains(v.Message, "checkout's status was written by an operator that does not record what it requires"); got != tc.unknown {
+			t.Errorf("%s: want unknown %v, got %+v", tc.name, tc.unknown, v)
+		}
+	}
+}
+
+// envBundle is payments 1.1.0 declaring environments with the values files
+// in files, against one configuration whose schema needs an integer replicas.
+func envBundle(envs map[string]string, files map[string]string, schema bool) *contract.Bundle {
+	b := bundle("payments", "1.1.0")
+	cfg := contract.Configuration{Name: "app", Schema: "app.json"}
+	if !schema {
+		cfg = contract.Configuration{Name: "app", Ref: "oci://reg.example/pactos/platform@" + c3}
+	}
+	b.Contract.PactoVersion, b.Contract.Configurations = "2.3", []contract.Configuration{cfg}
+	fsys := fstest.MapFS{"app.json": {Data: []byte(`{"type":"object","properties":{"replicas":{"type":"integer"}}}`)}}
+	for _, name := range slices.Sorted(maps.Keys(envs)) {
+		b.Contract.Environments = append(b.Contract.Environments, contract.Environment{Name: name, File: envs[name]})
+	}
+	for k, v := range files {
+		fsys[k] = &fstest.MapFile{Data: []byte(v)}
+	}
+	b.FS = fsys
+	return b
+}
+
+// TestPlanEnvironmentGate: a promote checks the version's values for the
+// Stage's environment with pacto validate's environments stage. A contract
+// with no environments is not judged; a missing environment or failing
+// values hold the change for the service's team to approve; values Pacto
+// cannot check hold it for a person to accept the unknown.
+func TestPlanEnvironmentGate(t *testing.T) {
+	prod := map[string]string{"prod.yaml": "app:\n  replicas: 3\n"}
+	for _, c := range []struct {
+		name     string
+		to       *contract.Bundle
+		result   Result
+		decision Decision
+		message  string
+	}{
+		{"no environments", bundle("payments", "1.1.0"), Pass, "", "not applicable: the contract of sha256:bbbbbbbbbbbb declares no environments"},
+		{"no matching environment", envBundle(map[string]string{"dev": "dev.yaml", "staging": "staging.yaml"}, nil, true), Pass, Approve,
+			"version 1.1.0 declares no environment prod for Stage payments-prod (it declares dev, staging)"},
+		{"invalid values", envBundle(map[string]string{"prod": "prod.yaml"}, map[string]string{"prod.yaml": "app:\n  replicas: many\n"}, true), Pass, Approve,
+			"prod.yaml:2: ENVIRONMENT_VALUES_INVALID: environment prod: configuration app at /app/replicas: got string, want integer"},
+		{"unknown configuration", envBundle(map[string]string{"prod": "prod.yaml"}, map[string]string{"prod.yaml": "ap: {}\n"}, true), Pass, Approve,
+			"prod.yaml:1: ENVIRONMENT_UNKNOWN_CONFIGURATION"},
+		{"unverified values", envBundle(map[string]string{"prod": "prod.yaml"}, prod, false), Unknown, AcceptUnknown,
+			"ENVIRONMENT_VALUES_UNVERIFIED: environment prod: cannot check the values for configuration app"},
+		{"values pass", envBundle(map[string]string{"prod": "prod.yaml"}, prod, true), Pass, "",
+			"the values of environment prod satisfy the configuration schemas"},
+	} {
+		from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, c.to)
+		p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to)
+		v := verdict(t, p, GateEnvironment)
+		if v.Result != c.result || !strings.HasPrefix(v.Message, c.message) || p.Floor.Decision != c.decision || p.Floor.Human != (c.decision != "") {
+			t.Errorf("%s: verdict %+v, floor %+v", c.name, v, p.Floor)
+		}
+		if c.decision != "" && (p.Predicted != PredictHeld || !strings.Contains(p.Question, c.message) ||
+			!strings.Contains(p.Question, "Asked of: team-payments")) {
+			t.Errorf("%s: want a hold for the service's team naming why, got %s %q", c.name, p.Predicted, p.Question)
+		}
+		if c.decision == "" && p.Predicted != PredictProceeds {
+			t.Errorf("%s: want Proceeds, got %+v", c.name, p)
+		}
+	}
+}
+
+// TestPlanEnvironmentGateRaisesAnUnknownToApprove: a confirmed environment gap
+// on a change already held for an unknown asks for an approval, which covers
+// both; it never lowers an approval to accepting an unknown.
+func TestPlanEnvironmentGateRaisesAnUnknownToApprove(t *testing.T) {
+	p := &Plan{Floor: Floor{Human: true, Decision: AcceptUnknown}, Question: "q"}
+	holdFor(p, Approve, "why", "")
+	if p.Floor.Decision != Approve || p.Question != "why. q" {
+		t.Fatalf("got %+v", p)
+	}
+	holdFor(p, AcceptUnknown, "unseen", "")
+	if p.Floor.Decision != Approve || p.Question != "unseen. why. q" {
+		t.Fatalf("got %+v", p)
+	}
+}
+
+// TestPlanUnmetRequiredGuaranteeHolds: a version that leaves a consumer
+// without a guarantee its required dependency declares is held for that
+// consumer's team, naming consumer, provider and guarantee, the consumers
+// pacto impact lists. An optional dependency's unmet
+// guarantee holds nothing. A rollback to such a version waits the same way.
+func TestPlanUnmetRequiredGuaranteeHolds(t *testing.T) {
+	old, nu := bundle("payments", "1.0.0"), bundle("payments", "1.1.0")
+	old.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi"}}
+	nu.Contract.Interfaces = old.Contract.Interfaces
+	consumer := func(required bool) PactoView {
+		p := checkoutPacto("^1.0.0")
+		p.Status.Dependencies[0].Required = required
+		p.Status.Dependencies[0].Requires = []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}
+		return p
+	}
+	const why = "checkout requires api idempotent true from payments, which offers nothing"
+	from, to := rev(dA, c1, old), rev(dB, c2, nu)
+	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to, consumer(true))
+	if v := verdict(t, p, GateImpact); p.Predicted != PredictHeld || p.Floor.Decision != Approve || v.Message != "breaks checkout" ||
+		!slices.Equal(p.Floor.Owners, []string{"team-checkout"}) || !slices.Equal(p.Floor.Consumers, []string{"checkout"}) ||
+		p.Question != "payments 1.1.0 does not meet what its consumers require: "+why+". Approve shipping it anyway? Asked of: team-checkout" {
+		t.Fatalf("an unmet required guarantee holds for the consumer's team: %+v", p)
+	}
+	if p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to, consumer(false)); p.Predicted != PredictProceeds {
+		t.Fatalf("an optional dependency's unmet guarantee holds nothing: %+v", p)
+	}
+	rb := promote(dB, dA)
+	rb.Type = TypeRollback
+	snap, err := Snapshot(context.Background(), []PactoView{consumer(true)}, nil, []Revision{to, from}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: to, To: from, Snapshot: snap, Class: ClassHuman})
+	if p.Predicted != PredictHeld || !strings.Contains(p.Question, "Rolling payments back to 1.0.0 does not meet what its consumers require: checkout requires api idempotent") {
+		t.Fatalf("a rollback that leaves a consumer's required guarantee unmet waits: %+v", p)
+	}
+}
+
+// TestPlanEnvironmentHoldAddsTheServiceTeam: a version held for a consumer's
+// team that also declares no environment for the Stage is not the consumer's
+// call alone: the service's team approves its environment too, and the
+// question names both teams.
+func TestPlanEnvironmentHoldAddsTheServiceTeam(t *testing.T) {
+	old := bundle("payments", "1.0.0")
+	old.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi"}}
+	nu := envBundle(map[string]string{"dev": "dev.yaml"}, map[string]string{"dev.yaml": "app:\n  replicas: 1\n"}, true)
+	nu.Contract.Interfaces = old.Contract.Interfaces
+	consumer := checkoutPacto("^1.0.0")
+	consumer.Status.Dependencies[0].Requires = []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}
+	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, rev(dA, c1, old), rev(dB, c2, nu), consumer)
+	if p.Floor.Decision != Approve || !slices.Equal(p.Floor.Owners, []string{"team-checkout", "team-payments"}) ||
+		!strings.Contains(p.Question, "Asked of: team-checkout, team-payments") || !strings.Contains(p.Question, "declares no environment prod") {
+		t.Fatalf("the environment hold must add the service's team: %+v", p)
+	}
+}
+
+// TestPlanUnmetGuaranteeNowhereSeenHolds: a consumer whose required
+// guarantee the version does not meet is a confirmed contradiction even when
+// Pacto cannot place it on any target, as a range that refuses the version
+// is: the change waits for that consumer's team to approve it, and so does a
+// rollback to it.
+func TestPlanUnmetGuaranteeNowhereSeenHolds(t *testing.T) {
+	old, nu := bundle("payments", "1.0.0"), bundle("payments", "1.1.0")
+	nu.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi"}}
+	checkout := bundle("checkout", "1.0.0", contract.Dependency{Name: "payments", Ref: "oci://reg.example/pactos/payments", Required: true,
+		Compatibility: "^1.0.0", Requires: []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}})
+	from, to := rev(dA, c1, old), rev(dB, c2, nu)
+	consumer := rev(dC, c3, checkout)
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to, consumer}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+		From: from, To: to, Snapshot: snap, Class: ClassAgent})
+	if v := verdict(t, p, GateImpact); v.Message != "breaks checkout" || p.Floor.Decision != Approve ||
+		!slices.Equal(p.Floor.Owners, []string{"team-checkout"}) || !strings.Contains(p.Question, "checkout requires api idempotent true from payments, which offers nothing") {
+		t.Fatalf("an unmet guarantee Pacto cannot place still holds for the consumer's team: %+v", p)
+	}
+	rb := promote(dB, dA)
+	rb.Type = TypeRollback
+	p = PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: to, To: from, Snapshot: snap, Class: ClassHuman})
+	if p.Predicted != PredictHeld || !slices.Equal(p.Floor.Owners, []string{"team-checkout"}) {
+		t.Fatalf("a rollback that leaves an unplaced consumer's guarantee unmet waits: %+v", p)
 	}
 }

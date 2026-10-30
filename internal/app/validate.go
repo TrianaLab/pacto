@@ -54,7 +54,7 @@ type ValidateResult struct {
 }
 
 // stageOrder is every stage of a validate run, in the order it runs them.
-var stageOrder = []string{"load", "lock", "structural", "cross-field", "policy", "guarantees", "readiness", "closure"}
+var stageOrder = []string{"load", "lock", "structural", "cross-field", "policy", "environments", "guarantees", "readiness", "closure"}
 
 // Validate loads a contract, runs validation, and returns the result.
 func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
@@ -145,10 +145,12 @@ func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...v
 			failed = stages[i].Name
 		}
 		// With overrides, raw is the merged document, whose lines are not the
-		// file's, so an error there carries no position.
+		// file's, so an error there carries no position. An error in another
+		// file keeps the position its reporter gave it.
 		if opts.Overrides.IsEmpty() {
 			locate(raw, stages[i].Errors)
 		}
+		inBundle(ref, stages[i].Errors)
 		// In file order, so the first error, the one Next names, is the same on
 		// every run: the schema layer reports its errors in no fixed order.
 		slices.SortStableFunc(stages[i].Errors, func(a, b contract.ValidationError) int {
@@ -184,10 +186,24 @@ func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...v
 	return res
 }
 
-// locate sets each error's line and column in raw.
+// inBundle names each error's own file by its path from the working
+// directory, as File names pacto.yaml.
+func inBundle(ref string, errs []contract.ValidationError) {
+	for j := range errs {
+		if errs[j].File != "" && !isOCIRef(ref) {
+			errs[j].File = filepath.Join(ref, errs[j].File)
+		}
+	}
+}
+
+// locate sets each error's line and column in raw, leaving an error in
+// another file where its reporter located it.
 func locate(raw []byte, errs []contract.ValidationError) {
 	for j := range errs {
 		e := &errs[j]
+		if e.File != "" {
+			continue
+		}
 		e.Line, e.Column = contract.Locate(raw, e.Path)
 		if m := parseLineRe.FindStringSubmatch(e.Message); e.Code == "PARSE_ERROR" && m != nil {
 			e.Line, _ = strconv.Atoi(m[1])
@@ -206,7 +222,9 @@ func nextFix(r *ValidateResult, rerun string, overridden bool) string {
 	if _, err := os.Stat(r.Path); !isOCIRef(r.Path) && errors.Is(err, fs.ErrNotExist) {
 		return r.Path + " does not exist: run pacto validate on the directory that holds " + DefaultContractPath
 	}
-	if overridden {
+	// An error in another file, such as an environment's, is where its
+	// reporter located it: overrides change pacto.yaml alone.
+	if overridden && e.File == "" {
 		return fmt.Sprintf("fix %s [%s] in %s or in the --set and -f values, then run %s", e.Path, e.Code, r.File, rerun)
 	}
 	return fmt.Sprintf("fix %s [%s], then run %s", r.Where(e), e.Code, rerun)
@@ -215,7 +233,7 @@ func nextFix(r *ValidateResult, rerun string, overridden bool) string {
 // Where is the place an error points at: its contract path, and its file
 // position when known.
 func (r *ValidateResult) Where(e contract.ValidationError) string {
-	at := r.File
+	at := cmp.Or(e.File, r.File)
 	if e.Line > 0 {
 		at += ":" + strconv.Itoa(e.Line)
 	}

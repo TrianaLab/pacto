@@ -341,3 +341,35 @@ describe('laneGraph', () => {
     expect(g.nodes.map((n) => [n.depth, n.owner])).toEqual([[0, undefined], [2, 'team-b'], [undefined, undefined]]);
   });
 });
+
+describe('refused guarantees on the canvas', () => {
+  it('marks only an edge whose guarantee status is unmet, and a refusal changes presentation only', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nb: any = {
+      nodes: [{ ref: ref('service', 'a') }, { ref: ref('service', 'b') }, { ref: ref('service', 'c') }],
+      edges: [
+        { from: ref('service', 'a'), to: ref('service', 'b'), relation: 'dependency', guaranteeStatus: 'unmet' },
+        { from: ref('service', 'a'), to: ref('service', 'c'), relation: 'dependency', guaranteeStatus: 'unknown' },
+      ],
+    };
+    const g = neighborhoodToGraph(nb);
+    const [toB, toC] = g.nodes[0].edges!;
+    expect(toB.refused).toBe(true);
+    expect(toC.refused).toBeUndefined();
+    const met = neighborhoodToGraph({ ...nb, edges: nb.edges.map((e: object) => ({ ...e, guaranteeStatus: 'met' })) });
+    expect(topoSignature(met)).toBe(topoSignature(g));
+    expect(presentationSignature(met)).not.toBe(presentationSignature(g));
+  });
+
+  it('names a refusal first on a folded edge and ranks a refused neighbor first in a capped lane', () => {
+    type N = GraphData['nodes'][number];
+    const node = (id: string, depth: number, owner?: string, edges: N['edges'] = []): N => ({ id, serviceName: id, status: 'Compliant', depth, ...(owner ? { owner } : {}), edges });
+    const nodes: N[] = [node('focus', 0, undefined, Array.from({ length: LANE_CAP + 4 }, (_, i) => ({ targetId: `n${i}`, ...(i === LANE_CAP + 3 ? { refused: true } : {}) })))];
+    for (let i = 0; i < LANE_CAP + 4; i++) nodes.push(node(`n${i}`, 1, 'team-a', i === 0 ? Array.from({ length: GROUP_THRESHOLD }, (_, k) => ({ targetId: `f${k}`, edgeState: 'matched', ...(k < 2 ? { refused: true } : {}) })) : []));
+    for (let k = 0; k < GROUP_THRESHOLD; k++) nodes.push(node(`f${k}`, 2, 'team-b'));
+    const { graph: out } = laneGraph({ nodes });
+    expect(out.nodes.filter((n) => n.parent === 'lane:depends-on').map((n) => n.id)).toContain(`n${LANE_CAP + 3}`);
+    const folded = out.nodes.find((n) => n.id === 'lane:depends-on')!.edges!.find((e) => e.targetId === 'group:depends-on:team-b')!;
+    expect(folded).toMatchObject({ refused: true, edgeState: 'matched', label: 'refused (2)' });
+  });
+});

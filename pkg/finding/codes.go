@@ -10,6 +10,7 @@ const (
 	CodeUnsupportedPactoVersion      Code = "UNSUPPORTED_PACTO_VERSION"
 	CodeNeedsPacto21                 Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
 	CodeNeedsPacto22                 Code = "NEEDS_PACTO_2_2" // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
+	CodeNeedsPacto23                 Code = "NEEDS_PACTO_2_3" // an older contract declares environments
 	CodeSchemaError                  Code = "SCHEMA_ERROR"
 	CodeSchemaViolation              Code = "SCHEMA_VIOLATION"
 	CodeYamlParseError               Code = "YAML_PARSE_ERROR"
@@ -44,6 +45,11 @@ const (
 	CodePolicyRefCycle               Code = "POLICY_REF_CYCLE"
 	CodeCapabilityRefInvalid         Code = "CAPABILITY_REF_INVALID"
 	CodeDuplicateCapability          Code = "DUPLICATE_CAPABILITY"
+	CodeDuplicateEnvironmentName     Code = "DUPLICATE_ENVIRONMENT_NAME"
+	CodeEnvironmentUnknownConfig     Code = "ENVIRONMENT_UNKNOWN_CONFIGURATION" // an environment file names a configuration the contract does not declare
+	CodeEnvironmentValuesInvalid     Code = "ENVIRONMENT_VALUES_INVALID"
+	CodeEnvironmentValuesMissing     Code = "ENVIRONMENT_VALUES_MISSING"    // a required configuration an environment leaves out fails its schema on its defaults
+	CodeEnvironmentValuesUnverified  Code = "ENVIRONMENT_VALUES_UNVERIFIED" // no schema file in the bundle to check an environment's values against
 
 	// Family 1 — confirmed violations (emitted only by Evaluate). Registry: {RuntimeDrift, Error}.
 	CodeWorkloadMismatch      Code = "WORKLOAD_MISMATCH"
@@ -90,6 +96,7 @@ var registry = map[Code]codeMeta{
 	CodeUnsupportedPactoVersion:      {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto21:                 {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto22:                 {CategoryInvalidVersion, SeverityError},
+	CodeNeedsPacto23:                 {CategoryInvalidVersion, SeverityError},
 	CodeSchemaError:                  {CategorySchemaViolation, SeverityError},
 	CodeSchemaViolation:              {CategorySchemaViolation, SeverityError},
 	CodeYamlParseError:               {CategorySchemaViolation, SeverityError},
@@ -125,6 +132,11 @@ var registry = map[Code]codeMeta{
 	CodePolicyRefCycle:               {CategoryReferenceCycle, SeverityError},
 	CodeCapabilityRefInvalid:         {CategoryInvalidCapability, SeverityError},
 	CodeDuplicateCapability:          {CategoryDuplicateName, SeverityError},
+	CodeDuplicateEnvironmentName:     {CategoryDuplicateName, SeverityError},
+	CodeEnvironmentUnknownConfig:     {CategoryInvalidReference, SeverityError},
+	CodeEnvironmentValuesInvalid:     {CategoryConfigurationViolation, SeverityError},
+	CodeEnvironmentValuesMissing:     {CategoryMissingConfiguration, SeverityError},
+	CodeEnvironmentValuesUnverified:  {CategoryUnresolvedReference, SeverityWarning},
 
 	// Family 1 — confirmed violations
 	CodeWorkloadMismatch:            {CategoryRuntimeDrift, SeverityError},

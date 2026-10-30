@@ -15,6 +15,7 @@ describe('ServiceDetailView — section defaults', () => {
     expect(o.interfaces).toBe(true);
     expect(o.dependencies).toBe(false);
     expect(o.config).toBe(false);
+    expect(o.environments).toBe(false);
     expect(o.policy).toBe(false);
     expect(o.readiness).toBe(false);
     expect(o.docs).toBe(false);
@@ -56,7 +57,7 @@ describe('ServiceDetailView — every listed section is on the page', () => {
     view.match(new RegExp(`<([A-Z]\\w+)[^<]{0,400}?id="section-${id}"`))?.[1];
 
   it('finds the section list', () => {
-    expect(ids).toHaveLength(11);
+    expect(ids).toHaveLength(12);
     expect(ids).toContain('sbom');
   });
 

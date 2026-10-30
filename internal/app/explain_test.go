@@ -212,3 +212,41 @@ func TestExplain_NotFound(t *testing.T) {
 		t.Error("expected error for nonexistent path")
 	}
 }
+
+func TestExplain_WithEnvironments(t *testing.T) {
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: writeEnvironmentBundle(t, "")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Environments) != 1 || result.Environments[0].Name != "production" || result.Environments[0].File != "environments/production.yaml" {
+		t.Fatalf("environments = %+v", result.Environments)
+	}
+}
+
+func TestExplain_WithGuaranteesEpochAndRequires(t *testing.T) {
+	dir := t.TempDir()
+	doc := `pactoVersion: "2.2"
+service: {name: checkout, version: 1.0.0}
+interfaces:
+  - {name: events, type: asyncapi, ref: events.yaml, compatibilityEpoch: 2, guarantees: {delivery: at-least-once}}
+dependencies:
+  - {name: orders, ref: oci://example.com/orders, compatibility: ^1.0.0, required: true, requires: [{interface: http, idempotent: true}]}
+`
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "events.yaml"), []byte("asyncapi: 3.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iface := r.Interfaces[0]
+	if iface.CompatibilityEpoch != 2 || iface.Guarantees == nil || iface.Guarantees.Delivery != "at-least-once" {
+		t.Errorf("interface = %+v", iface)
+	}
+	if req := r.Dependencies[0].Requires; len(req) != 1 || req[0].Interface != "http" || !req[0].Idempotent {
+		t.Errorf("requires = %+v", req)
+	}
+}

@@ -158,26 +158,7 @@ func renderExplain(r *app.ExplainResult) string {
 			}
 		}
 	}
-	if len(r.Interfaces) > 0 {
-		section(&b, fmt.Sprintf("Interfaces (%d)", len(r.Interfaces)))
-		for _, iface := range r.Interfaces {
-			fmt.Fprintf(&b, "  %s (%s%s)\n", safeText(iface.Name), safeText(iface.Type), safeText(lifecycleText(iface.Lifecycle)))
-		}
-	}
-	if len(r.Dependencies) > 0 {
-		section(&b, fmt.Sprintf("Dependencies (%d)", len(r.Dependencies)))
-		for _, dep := range r.Dependencies {
-			req := ""
-			if dep.Required {
-				req = " [required]"
-			}
-			ref := dep.Ref
-			if ref == "" {
-				ref = "external, version " + dep.Version
-			}
-			fmt.Fprintf(&b, "  %s: %s%s\n", safeText(dep.Name), safeText(ref), req)
-		}
-	}
+	renderExplainSurface(&b, r)
 	if r.Readiness != nil {
 		section(&b, "Readiness")
 		passing := okStyle.Render("passing")
@@ -190,6 +171,67 @@ func renderExplain(r *app.ExplainResult) string {
 			r.Readiness.DoneCount, r.Readiness.PartialCount, r.Readiness.NotDoneCount))
 	}
 	return b.String()
+}
+
+// renderExplainSurface lists what the contract offers and needs: its
+// interfaces, dependencies and environments, as `pacto explain` prints them.
+func renderExplainSurface(b *strings.Builder, r *app.ExplainResult) {
+	renderExplainInterfaces(b, r.Interfaces)
+	renderExplainDependencies(b, r.Dependencies)
+	if len(r.Environments) > 0 {
+		section(b, fmt.Sprintf("Environments (%d)", len(r.Environments)))
+		for _, env := range r.Environments {
+			fmt.Fprintf(b, "  %s: %s\n", safeText(env.Name), safeText(env.File))
+		}
+	}
+}
+
+// renderExplainInterfaces lists each interface, with the guarantees it offers
+// on a line of its own.
+func renderExplainInterfaces(b *strings.Builder, ifaces []app.ExplainInterface) {
+	if len(ifaces) == 0 {
+		return
+	}
+	section(b, fmt.Sprintf("Interfaces (%d)", len(ifaces)))
+	for _, iface := range ifaces {
+		tail := lifecycleText(iface.Lifecycle)
+		if iface.Visibility != "" {
+			tail = ", " + iface.Visibility + tail
+		}
+		if iface.CompatibilityEpoch != 0 {
+			tail += fmt.Sprintf(", compatibility epoch %d", iface.CompatibilityEpoch)
+		}
+		fmt.Fprintf(b, "  %s (%s%s)\n", safeText(iface.Name), safeText(iface.Type), safeText(tail))
+		if g := iface.Guarantees; g != nil && g.Text(false) != "" {
+			fmt.Fprintf(b, "    guarantees: %s\n", safeText(g.Text(false)))
+		}
+	}
+}
+
+// renderExplainDependencies lists each dependency and, as declared, what it
+// requires of each provider interface.
+func renderExplainDependencies(b *strings.Builder, deps []app.ExplainDependency) {
+	if len(deps) == 0 {
+		return
+	}
+	section(b, fmt.Sprintf("Dependencies (%d)", len(deps)))
+	for _, dep := range deps {
+		req := ""
+		if dep.Required {
+			req = " [required]"
+		}
+		ref := dep.Ref
+		switch {
+		case ref == "":
+			ref = "external, version " + dep.Version + " (cannot be checked)"
+		case dep.Compatibility != "":
+			ref += " (" + dep.Compatibility + ")"
+		}
+		fmt.Fprintf(b, "  %s: %s%s\n", safeText(dep.Name), safeText(ref), req)
+		for _, r := range dep.Requires {
+			fmt.Fprintf(b, "    requires from %s\n", safeText(r.String()))
+		}
+	}
 }
 
 // renderFleetExplain reports the structured reasons for a subject's state.

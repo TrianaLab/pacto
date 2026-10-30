@@ -3,10 +3,12 @@
   // status, revision-match certainty, content-retrievability and source-health
   // states through this one badge, so the `.tag`/tone markup is never reinvented
   // per page. Labels/tones come from lib/entityLabels.ts.
-  let { label = '', tone = 'neutral', title = '' } = $props();
+  // `describe` repeats a title that says more than the label as visually hidden text,
+  // so a screen reader or a touch screen reaches what a hover title alone would hide.
+  let { label = '', tone = 'neutral', title = '', describe = false } = $props();
 </script>
 
-<span class="tag tone-{tone}" {title}>{label}</span>
+<span class="tag tone-{tone}" {title}>{label}</span>{#if describe && title}<span class="visually-hidden">{title}</span>{/if}
 
 <style>
   .tag {

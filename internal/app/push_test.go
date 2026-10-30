@@ -579,3 +579,47 @@ func TestPush_Identical(t *testing.T) {
 		t.Fatalf("%+v %v", res, err)
 	}
 }
+
+// TestPush_ChecksGuarantees: push resolves remote references like publish, so
+// it runs the same guarantees check. An unmet guarantee of a required
+// dependency refuses the push; an unreachable provider is a warning.
+func TestPush_ChecksGuarantees(t *testing.T) {
+	provider, err := contract.Parse(strings.NewReader(guaranteeProvider))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(requires string) string {
+		dir := t.TempDir()
+		y := guaranteeConsumer("  - {name: orders, ref: oci://example.com/orders, compatibility: ^1.0.0, required: true, requires: [" + requires + "]}\n")
+		if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(y), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	notFound := func(context.Context, string) (string, error) { return "", &oci.ArtifactNotFoundError{Ref: "x"} }
+	pushed := false
+	store := &mockBundleStore{
+		ResolveFn:  notFound,
+		ListTagsFn: func(context.Context, string) ([]string, error) { return []string{"1.0.0"}, nil },
+		PullFn: func(context.Context, string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: provider}, nil
+		},
+		PushFn: func(context.Context, string, *contract.Bundle) (string, error) {
+			pushed = true
+			return "sha256:abc123", nil
+		},
+	}
+	_, err = NewService(store, nil).Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/checkout", Path: write("{interface: events, delivery: at-most-once}")})
+	if err == nil || !strings.Contains(err.Error(), "GUARANTEE_UNMET") || pushed {
+		t.Fatalf("an unmet required guarantee refuses the push: err %v, pushed %v", err, pushed)
+	}
+
+	store.ListTagsFn = func(context.Context, string) ([]string, error) { return nil, errors.New("registry down") }
+	res, err := NewService(store, nil).Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/checkout", Path: write("{interface: events, delivery: at-least-once}")})
+	if err != nil {
+		t.Fatalf("an unreachable provider does not refuse the push: %v", err)
+	}
+	if len(res.Warnings) != 1 || res.Warnings[0].Code != "GUARANTEE_UNVERIFIED" {
+		t.Fatalf("warnings %+v, want GUARANTEE_UNVERIFIED", res.Warnings)
+	}
+}

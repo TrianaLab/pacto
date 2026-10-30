@@ -1,0 +1,35 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Returns API",
+    "version": "1"
+  },
+  "paths": {
+    "/returns": {
+      "post": {
+        "operationId": "openReturn",
+        "summary": "Open a return",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "return_id": {
+                      "type": "string"
+                    },
+                    "label_url": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

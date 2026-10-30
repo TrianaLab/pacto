@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -166,7 +167,7 @@ func TestCheck_VerifiesTheLockfile(t *testing.T) {
 		t.Fatal("valid = true, want false for an unverifiable pacto.lock")
 	}
 	// The same stages and next step `pacto validate` reports.
-	if len(res.Stages) != 8 || res.Stages[1].Name != "lock" || res.Stages[1].Status != validation.StageFail || !strings.HasPrefix(res.Next, "fix ") {
+	if len(res.Stages) != 9 || res.Stages[1].Name != "lock" || res.Stages[1].Status != validation.StageFail || !strings.HasPrefix(res.Next, "fix ") {
 		t.Errorf("stages = %+v, next = %q", res.Stages, res.Next)
 	}
 }
@@ -195,5 +196,33 @@ func TestCheck_ValidatorErrorIsReturned(t *testing.T) {
 	}
 	if _, err := Check(context.Background(), failing, dir); err == nil {
 		t.Fatal("expected the validator error")
+	}
+}
+
+// TestCheck_EnvironmentErrorCarriesItsFile: an error in an environment's file
+// names that file, through the wired validator and the local fallback alike.
+func TestCheck_EnvironmentErrorCarriesItsFile(t *testing.T) {
+	dir := t.TempDir()
+	for name, data := range map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.3\"\nservice:\n  name: svc\n  version: 1.0.0\nconfigurations:\n  - name: chart\n    schema: chart.json\n    required: true\n" +
+			"environments:\n  - name: production\n    file: production.yaml\n",
+		"chart.json":      `{"type":"object","required":["host"]}`,
+		"production.yaml": "chart:\n  replicas: 2\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, validate := range map[string]Validator{"wired": app.NewService(nil, nil).ValidationReport, "fallback": nil} {
+		res, err := Check(context.Background(), validate, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Errors) != 1 || res.Errors[0].Code != "ENVIRONMENT_VALUES_INVALID" || !strings.HasSuffix(res.Errors[0].File, "production.yaml") || res.Errors[0].Line != 1 {
+			t.Errorf("%s: errors = %+v", name, res.Errors)
+		}
+		if !slices.Equal(res.Summary.Environments, []string{"production (production.yaml)"}) {
+			t.Errorf("%s: summary environments = %v", name, res.Summary.Environments)
+		}
 	}
 }

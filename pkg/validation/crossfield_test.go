@@ -1206,3 +1206,25 @@ func TestValidateDependencyForm(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateEnvironmentFiles(t *testing.T) {
+	c := validV20Contract()
+	c.Environments = []contract.Environment{{Name: "staging", File: "s.yaml"}, {Name: "staging", File: "../p.yaml"}}
+	var result ValidationResult
+	validateEnvironmentFiles(c, fstest.MapFS{"s.yaml": {}}, &result)
+	if len(result.Errors) != 2 || result.Errors[0].Code != "DUPLICATE_ENVIRONMENT_NAME" || result.Errors[1].Code != "FILE_NOT_FOUND" ||
+		result.Errors[1].Path != "environments[1].file" {
+		t.Fatalf("got %+v", result.Errors)
+	}
+	result = ValidationResult{}
+	validateEnvironmentFiles(c, nil, &result)
+	if len(result.Errors) != 2 || result.Errors[1].Message != `environment file "../p.yaml" is not a path in the bundle: write it from the bundle root with no leading / or ./ and no .., such as environments/staging.yaml` {
+		t.Fatalf("without a bundle the duplicate and the path are reported: %+v", result.Errors)
+	}
+	c.Environments = []contract.Environment{{Name: "a", File: "/etc/hosts"}, {Name: "b", File: "./a.yaml"}, {Name: "c", File: "a.yaml"}, {Name: "d", File: "d.yaml"}}
+	result = ValidationResult{}
+	validateEnvironmentFiles(c, fstest.MapFS{"a.yaml": {}}, &result)
+	if len(result.Errors) != 3 || result.Errors[2].Message != `environment file "d.yaml" not found in bundle` || !strings.Contains(result.Errors[0].Message, "not a path in the bundle") || !strings.Contains(result.Errors[1].Message, "not a path in the bundle") {
+		t.Fatalf("got %+v", result.Errors)
+	}
+}

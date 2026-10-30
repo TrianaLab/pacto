@@ -43,6 +43,15 @@ var roots = []string{"bundles", "pacto-dashboard"}
 
 const contractFile = "pacto.yaml"
 
+// expectInvalid lists the demo bundles that fail validation on purpose, each
+// with the only error code it may report. storefront-web 1.2.0 is the demo's
+// failing environment: its chart schema requires an ingress host that the
+// production values leave out. A listed bundle that passes, or fails with any
+// other code, fails this run.
+var expectInvalid = map[string]string{
+	filepath.Join("bundles", "storefront-web", "v1.2.0"): "ENVIRONMENT_VALUES_INVALID",
+}
+
 // svcVersion is one indexed bundle: its declaring contract, the raw contract
 // bytes (needed for structural + policy validation) and its on-disk directory.
 type svcVersion struct {
@@ -83,8 +92,17 @@ func run() error {
 	sort.Slice(all, func(i, j int) bool { return all[i].dir < all[j].dir })
 
 	var failed []string
+	onPurpose := 0
 	for _, sv := range all {
 		res := validation.ValidateWithResolver(ctx, sv.contract, sv.raw, os.DirFS(sv.dir), resolver)
+		if want, ok := expectInvalid[sv.dir]; ok {
+			if err := onlyCode(res, want); err != nil {
+				failed = append(failed, sv.dir)
+				fmt.Fprintf(os.Stderr, "UNEXPECTED %s: %v\n", sv.dir, err)
+			}
+			onPurpose++
+			continue
+		}
 		if res.IsValid() {
 			continue
 		}
@@ -98,7 +116,23 @@ func run() error {
 	if len(failed) > 0 {
 		return fmt.Errorf("%d/%d demo contract(s) invalid", len(failed), len(all))
 	}
-	fmt.Printf("DEMO-CONTRACTS VALID: %d/%d\n", len(all), len(all))
+	fmt.Printf("DEMO-CONTRACTS VALID: %d/%d\n", len(all)-onPurpose, len(all))
+	if onPurpose > 0 {
+		fmt.Printf("DEMO-CONTRACTS INVALID ON PURPOSE: %d\n", onPurpose)
+	}
+	return nil
+}
+
+// onlyCode reports whether res failed, and failed with code alone.
+func onlyCode(res validation.ValidationResult, code string) error {
+	if res.IsValid() {
+		return fmt.Errorf("expected %s, but it is valid", code)
+	}
+	for _, e := range res.Errors {
+		if e.Code != code {
+			return fmt.Errorf("expected only %s, got [%s] %s: %s", code, e.Code, e.Path, e.Message)
+		}
+	}
 	return nil
 }
 

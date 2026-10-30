@@ -19,6 +19,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // PublishOptions holds options for `pacto publish`.
@@ -68,7 +69,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	}
 	b := &contract.Bundle{Contract: c, RawYAML: raw, FS: fsys}
 	env := s.env()
-	in := publish.Input{Bundle: b, Revision: opts.Revision, Checks: []publish.Check{{Name: "validation", Passed: true, Message: "the contract is valid"}}}
+	in := publish.Input{Bundle: b, Revision: opts.Revision, Checks: []publish.Check{validationCheck(s.guaranteeStage(ctx, path, c))}}
 	if in.Revision == "" {
 		if abs, err := env.absPath(path); err == nil {
 			in.Revision = gitRevision(abs)
@@ -110,6 +111,29 @@ func preflight(ctx context.Context, env sysDeps, tools execTools, path string, c
 		}
 		return checks
 	}
+}
+
+// validationCheck is the validation check after the guarantees stage, the one
+// validation stage that reads other contracts. An unmet guarantee of a required
+// dependency fails it; a warning, such as a provider it could not fetch
+// (GUARANTEE_UNVERIFIED), passes it and leads its message, so the row never
+// reads as a clean pass.
+func validationCheck(st validation.Stage) publish.Check {
+	if len(st.Errors) > 0 {
+		msgs := make([]string, len(st.Errors))
+		for i, e := range st.Errors {
+			msgs[i] = e.Code + ": " + e.Message
+		}
+		return publish.Check{Name: "validation", Message: strings.Join(msgs, "; ")}
+	}
+	if len(st.Warnings) == 0 {
+		return publish.Check{Name: "validation", Passed: true, Message: "the contract is valid"}
+	}
+	msgs := make([]string, len(st.Warnings))
+	for i, w := range st.Warnings {
+		msgs[i] = "warning " + w.Code + ": " + w.Message
+	}
+	return publish.Check{Name: "validation", Passed: true, Message: strings.Join(msgs, "; ") + "; the contract is otherwise valid"}
 }
 
 // checkOf is a passed check, or a failed one carrying the first error.

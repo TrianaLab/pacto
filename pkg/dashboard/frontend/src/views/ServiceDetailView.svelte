@@ -8,6 +8,7 @@
       capabilities: false,
       dependencies: false,
       config: false,
+      environments: false,
       policy: false,
       readiness: false,
       docs: false,
@@ -52,8 +53,10 @@
   import SbomSection from '../sections/SbomSection.svelte';
   import SourcesPanel from '../sections/SourcesPanel.svelte';
   import ValidationSection from '../sections/ValidationSection.svelte';
+  import EnvironmentsSection from '../sections/EnvironmentsSection.svelte';
   import RuntimeDiffSection from '../sections/RuntimeDiffSection.svelte';
   import ObservedRuntimeSection from '../sections/ObservedRuntimeSection.svelte';
+  import { railToFold } from '../lib/tocRail.ts';
 
   let { name, version = null, services = [], refreshTick = 0, onServiceResolved } = $props();
 
@@ -69,7 +72,7 @@
   let depsError = $state(false);
 
   // Stable, ordered domain sections — the contents list and the page body render
-  // the same eleven, in this order. Each section decides for itself whether it
+  // the same twelve, in this order. Each section decides for itself whether it
   // has content and shows a placeholder when it does not, so this list needs no
   // per-section state of its own.
   const DOMAIN_SECTIONS = [
@@ -77,6 +80,7 @@
     { id: 'capabilities', label: 'Agent Capabilities' },
     { id: 'dependencies', label: 'Dependencies' },
     { id: 'config', label: 'Configurations' },
+    { id: 'environments', label: 'Environments' },
     { id: 'policy', label: 'Policies' },
     { id: 'readiness', label: 'Readiness' },
     { id: 'docs', label: 'Documentation' },
@@ -393,7 +397,9 @@
   <!-- Sticky TOC rail -->
   {#if availableSections?.length > 2}
     <div class="detail-layout">
-      <nav class="section-toc" aria-label="On this page">
+      <!-- More sections than the viewport has room for scroll within the rail, which
+           keeps the current one in view (railToFold). -->
+      <nav class="section-toc" aria-label="On this page" use:railToFold={activeSection}>
         <div class="section-toc-title">On this page</div>
         {#each availableSections as sec}
           <button
@@ -454,6 +460,8 @@
 
   <ConfigSection id="section-config" configs={detail.configurations || []} bind:open={openSections.config} />
 
+  <EnvironmentsSection id="section-environments" environments={detail.environments || []} bind:open={openSections.environments} />
+
   <PolicySection id="section-policy" policies={detail.policies || []} bind:open={openSections.policy} />
 
   <ReadinessSection id="section-readiness" readiness={detail.readiness} docs={detail.docs || []} bind:open={openSections.readiness} />
@@ -462,7 +470,10 @@
 
   <SbomSection id="section-sbom" sbom={detail.sbom} bind:open={openSections.sbom} />
 
-  <ValidationSection id="section-validation" validation={detail.validation} bind:open={openSections.validation} />
+  <!-- The environments stage of a contract that declares none has nothing to say. -->
+  <ValidationSection id="section-validation" validation={detail.validation}
+    stages={(detail.stages || []).filter((st) => st.name !== 'environments' || detail.environments?.length > 0)}
+    bind:open={openSections.validation} />
 
   <RuntimeDiffSection id="section-runtimeDiff" runtimeDiff={detail.runtimeDiff || []} bind:open={openSections.runtimeDiff} />
 
@@ -625,6 +636,9 @@
     flex-direction: column;
     gap: var(--sp-1);
     padding: var(--sp-3) 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
   }
 
   .section-toc-title {
@@ -771,6 +785,7 @@
 
     .section-toc {
       position: static;
+      overflow-y: visible;
       flex-direction: row;
       flex-wrap: wrap;
       border-bottom: 1px solid var(--c-border);

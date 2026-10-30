@@ -1,0 +1,43 @@
+pactoVersion: '2.1'
+service:
+  name: catalog-service
+  version: 1.1.0
+  owner:
+    team: catalog-team
+    dri: lena.fischer
+    contacts:
+    - type: email
+      value: catalog-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#catalog-team'
+      purpose: support
+    - type: oncall
+      value: catalog-oncall
+      purpose: oncall
+interfaces:
+- name: catalog
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: public
+dependencies:
+- name: postgresql
+  ref: oci://ghcr.io/trianalab/pacto/postgresql
+  required: true
+  compatibility: ^16.0.0
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+metadata:
+  tier: domain
+  category: catalog
+  criticality: medium
+  summary: 'The product catalog: names, brands, status and variants'
+  repo: github.com/trianalab/pacto-demo/catalog-service
+  tags:
+  - catalog
+  - products

@@ -1,4 +1,4 @@
-# Contract Reference (v2.2)
+# Contract Reference (v2.3)
 
 A Pacto contract is one YAML file, `pacto.yaml`, that says what a service is and
 what it needs to run: its interfaces, dependencies, configuration, capabilities
@@ -12,7 +12,7 @@ service:
   version: 1.0.0
 ```
 
-The fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md), [readiness](readiness.md), [publish](publish.md) and [checks](checks.md). The rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). This page covers the bundle layout all of them assume.
+The fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md), [readiness](readiness.md), [publish](publish.md), [checks](checks.md) and [environments](environments.md). The rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). This page covers the bundle layout all of them assume.
 
 Each `interfaces`, `configurations` and `policies` entry points at a schema you already have: an OpenAPI document, an AsyncAPI event definition, a gRPC service descriptor or a JSON Schema. Every referenced file must parse as JSON or YAML; see [interface types](sections.md#interface-types).
 
@@ -28,7 +28,9 @@ which adds `publish`, `checks`, external dependencies and the `mcp` interface ty
 and
 [`pacto-v2.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.2.schema.json),
 which adds the interface `lifecycle`, `compatibilityEpoch` and `guarantees` and
-dependency `requires`. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
+dependency `requires`, and
+[`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json),
+which adds `environments`. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
 
 ---
 
@@ -45,6 +47,9 @@ A Pacto bundle is a self-contained directory (or OCI artifact) with the followin
 │   └── events.yaml
 ├── configuration/           ← optional
 │   └── schema.json
+├── environments/            ← optional
+│   ├── staging.yaml
+│   └── production.yaml
 ├── policy/                  ← optional
 │   └── schema.json
 ├── docs/                    ← optional
@@ -94,6 +99,6 @@ Use any standard tool ([Syft](https://github.com/anchore/syft), [Trivy](https://
 
 ## Minimal contract
 
-Only `pactoVersion` and `service` are required, as in the four-line example at the top of this page. All other sections are optional: `workload`, `state`, `interfaces`, `configurations`, `policies`, `dependencies`, `capabilities`, `readiness`, `metadata` and `extensions`. A minimal contract is useful for lightweight dependency declarations, shared libraries or contracts where runtime semantics are managed externally.
+Only `pactoVersion` and `service` are required, as in the four-line example at the top of this page. All other sections are optional: `workload`, `state`, `interfaces`, `configurations`, `environments`, `policies`, `dependencies`, `capabilities`, `readiness`, `metadata` and `extensions`. A minimal contract is useful for lightweight dependency declarations, shared libraries or contracts where runtime semantics are managed externally.
 
 ---

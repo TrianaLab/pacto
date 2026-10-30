@@ -4,9 +4,11 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/contractview"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/sbom"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
@@ -857,5 +859,147 @@ func TestGenerate_ExternalDependencyWithoutRef(t *testing.T) {
 		if !strings.Contains(md, want) {
 			t.Errorf("missing %q\n%s", want, md)
 		}
+	}
+}
+
+// ── interface lifecycle, guarantees, requirements, validation, environments ──
+
+func behaviorSnapshot() *contractview.ServiceDetails {
+	return &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "checkout", Version: "1.0.0"},
+		Interfaces: []contractview.InterfaceInfo{
+			{Name: "http", Type: "openapi", Guarantees: &contract.Guarantees{Idempotent: true, Timeout: "5s"}, CompatibilityEpoch: 2},
+			{Name: "v1", Type: "openapi", Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2026-06-01", Successor: "http"}},
+			{Name: "beta", Type: "openapi", Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-09-01", Sunset: "2027-01-01"}},
+			{Name: "plain", Type: "grpc", Guarantees: &contract.Guarantees{}},
+		},
+		Dependencies: []contractview.DependencyInfo{
+			{Name: "payments", Ref: "oci://r/payments", Required: true, DependencyBehavior: fleet.DependencyBehavior{
+				Requires: []contract.Requirement{{Interface: "http", Guarantees: contract.Guarantees{Idempotent: true, Timeout: "5s"}}, {Interface: "admin"}}, GuaranteeStatus: fleet.GuaranteeMet}},
+			{Name: "orders", Ref: "oci://r/orders", DependencyBehavior: fleet.DependencyBehavior{
+				Requires:        []contract.Requirement{{Interface: "events", Guarantees: contract.Guarantees{Delivery: "at-least-once"}}},
+				GuaranteeStatus: fleet.GuaranteeUnmet,
+				Unmet: []contract.Mismatch{
+					{Interface: "events", Guarantee: "delivery", Required: "at-least-once", Offered: "at-most-once"},
+					{Interface: "audit", Guarantee: "interface", Required: "audit"},
+					{Interface: "events", Guarantee: "retention", Required: "168h"},
+				}}},
+			{Name: "ledger", Ref: "oci://r/ledger", DependencyBehavior: fleet.DependencyBehavior{
+				Requires:        []contract.Requirement{{Interface: "http", Guarantees: contract.Guarantees{Timeout: "2s"}}},
+				GuaranteeStatus: fleet.GuaranteeUnknown, GuaranteeReason: "the provider's contract was not fetched"}},
+			{Name: "legacy", Ref: "oci://r/legacy", DeprecatedInterfaces: []fleet.InterfaceDeprecation{{Interface: "v1", Deprecated: "2026-01-01", Sunset: "2026-03-01"}}},
+			{Name: "quiet", Ref: "oci://r/quiet"},
+		},
+		Stages: []fleet.ValidationStage{
+			{Name: "structural", Status: "pass"}, {Name: "cross-field", Status: "fail"},
+			{Name: "policy", Status: "skip", Reason: "no policies declared"}, {Name: "custom", Status: "odd"},
+		},
+		Validation: &contractview.ValidationInfo{
+			Errors:   []contractview.ValidationIssue{{Code: "BAD_REF", Path: "interfaces[0].ref", Message: "file | missing"}},
+			Warnings: []contractview.ValidationIssue{{Code: "OLD", Path: "service", Message: "old"}},
+		},
+		Environments: []fleet.EnvironmentResult{
+			{Name: "production", File: "envs/production.yaml", Status: fleet.EnvironmentFail, Findings: fleet.LocatedFindingsPreview{
+				Total: 7, Count: 2, Truncated: true, Items: []fleet.LocatedFinding{
+					{Code: "ENVIRONMENT_VALUES_INVALID", Severity: "error", Path: "environments[0]", Message: "environment production: replicas must be >= 1", File: "envs/production.yaml", Line: 3, Column: 5},
+					{Code: "ENVIRONMENT_VALUES_INVALID", Severity: "error", Path: "environments[0]", Message: "host missing", File: "envs/production.yaml"},
+				}}},
+			{Name: "staging", File: "envs/staging.yaml", Status: fleet.EnvironmentPass},
+			{Name: "preview", File: "envs/preview.yaml", Status: fleet.EnvironmentUnverified},
+			{Name: "dev", File: "envs/dev.yaml", Status: fleet.EnvironmentSkip, Reason: "the policy stage failed"},
+		},
+	}
+}
+
+func TestGenerate_Behavior(t *testing.T) {
+	defer func(f func() time.Time) { now = f }(now)
+	now = func() time.Time { return time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC) }
+	md, err := Generate(behaviorSnapshot(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- **`http`**\n  - Guarantees: Timeout `5s` · Idempotent `yes`\n  - Compatibility epoch `2`\n",
+		"- **`v1`**\n  - **Past sunset**: deprecated `2026-01-01` · sunset `2026-06-01` · successor `http`. It may be removed in any release.\n",
+		"- **`beta`**\n  - **Deprecated**: deprecated `2026-09-01` · sunset `2027-01-01`\n",
+		"- **`payments`**: Guarantees met\n  - Requires from `http`: Timeout at most `5s` · Idempotent `yes`\n  - Requires from `admin`\n",
+		"- **`orders`**: Refused\n  - Requires from `events`: Delivery `at-least-once`\n" +
+			"  - Refused: `events`: Delivery `at-least-once` required, `at-most-once` offered\n" +
+			"  - Refused: `audit`: the provider declares no such interface\n" +
+			"  - Refused: `events`: Retention at least `168h` required, nothing offered\n",
+		"- **`ledger`**: Not verified: the provider's contract was not fetched.\n  - Requires from `http`: Timeout at most `2s`\n",
+		"- **`legacy`**\n  - Interface `v1` · **Past sunset**: deprecated `2026-01-01` · sunset `2026-03-01`. It may be removed in any release.\n",
+		"## 5. Validation\n\n| Stage | Result | Reason |\n|-------|--------|--------|\n" +
+			"| Structure | passed | — |\n| Cross-field | failed | — |\n| Policy | not run | no policies declared |\n| custom | odd | — |\n",
+		"**Errors**\n\n| Code | Path | Message |\n|------|------|---------|\n| `BAD_REF` | `interfaces[0].ref` | file \\| missing |\n",
+		"**Warnings**\n\n| Code | Path | Message |\n|------|------|---------|\n| `OLD` | `service` | old |\n",
+		"## 3. Environments\n\n1 failed, 1 not verified and 1 not checked.\n\n" +
+			"| Environment | File | Check |\n|-------------|------|-------|\n" +
+			"| `production` | `envs/production.yaml` | Failed |\n| `staging` | `envs/staging.yaml` | Passed |\n" +
+			"| `preview` | `envs/preview.yaml` | Not verified |\n| `dev` | `envs/dev.yaml` | Not checked: the policy stage failed |\n",
+		"| Environment | Severity | Code | Message | Location |\n|-------------|----------|------|---------|----------|\n" +
+			"| `production` | error | `ENVIRONMENT_VALUES_INVALID` | replicas must be >= 1 | `envs/production.yaml:3:5` |\n" +
+			"| `production` | error | `ENVIRONMENT_VALUES_INVALID` | host missing | `envs/production.yaml` |\n",
+		"_`production`: showing 2 of 7 findings._",
+		"- [3. Environments](#3-environments)", "- [5. Validation](#5-validation)",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing %q\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "`quiet`**") || strings.Contains(md, "`plain`**") {
+		t.Errorf("a dependency or interface with no behavior got a behavior line\n%s", md)
+	}
+}
+
+func TestGenerate_EveryEnvironmentPassedAndNoValidationIssues(t *testing.T) {
+	d := &contractview.ServiceDetails{
+		Service:      contractview.Service{Name: "svc", Version: "1.0.0"},
+		Interfaces:   []contractview.InterfaceInfo{{Name: "api", Type: "openapi"}},
+		Stages:       []fleet.ValidationStage{{Name: "structural", Status: "pass"}},
+		Validation:   &contractview.ValidationInfo{Valid: true},
+		Environments: []fleet.EnvironmentResult{{Name: "prod", File: "prod.yaml", Status: fleet.EnvironmentPass}},
+	}
+	md, err := Generate(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Every environment passed.", "| Structure | passed | — |"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing %q\n%s", want, md)
+		}
+	}
+	for _, unwanted := range []string{"**Errors**", "**Warnings**", "| Severity |", "- **`api`**"} {
+		if strings.Contains(md, unwanted) {
+			t.Errorf("unexpected %q\n%s", unwanted, md)
+		}
+	}
+}
+
+func TestGenerate_ValidationIssuesWithoutStages(t *testing.T) {
+	d := &contractview.ServiceDetails{
+		Service:    contractview.Service{Name: "svc", Version: "1.0.0"},
+		Validation: &contractview.ValidationInfo{Warnings: []contractview.ValidationIssue{{Code: "W", Path: "p", Message: "m"}}},
+	}
+	md, _ := Generate(d, nil)
+	if !strings.Contains(md, "## 2. Validation\n\n**Warnings**") || strings.Contains(md, "| Stage |") {
+		t.Errorf("want a warnings-only validation section\n%s", md)
+	}
+}
+
+func TestBehaviorWordingEdges(t *testing.T) {
+	if got := guaranteeStatus(contractview.DependencyInfo{DependencyBehavior: fleet.DependencyBehavior{GuaranteeStatus: fleet.GuaranteeUnknown}}); got != ": Not verified" {
+		t.Errorf("unknown without a reason = %q", got)
+	}
+	if got := environmentSummary([]fleet.EnvironmentResult{{Status: fleet.EnvironmentFail}, {Status: fleet.EnvironmentFail}}); got != "2 failed." {
+		t.Errorf("summary = %q", got)
+	}
+	if got := locationText(fleet.LocatedFinding{File: "e.yaml", Line: 4}) + locationText(fleet.LocatedFinding{}); got != "e.yaml:4" {
+		t.Errorf("location = %q", got)
+	}
+	var b strings.Builder
+	writeEnvironments(&b, &contractview.ServiceDetails{Environments: []fleet.EnvironmentResult{{Name: "x", File: "x.yaml", Status: "odd"}}}, &sectionNumberer{})
+	if !strings.Contains(b.String(), "| `x` | `x.yaml` | Unknown |") {
+		t.Errorf("an unknown status reads Unknown\n%s", b.String())
 	}
 }

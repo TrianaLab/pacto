@@ -1,0 +1,47 @@
+pactoVersion: '2.2'
+service:
+  name: shipping-rates
+  version: 2.0.0
+  owner:
+    team: logistics-team
+    dri: tomas.novak
+    contacts:
+    - type: email
+      value: logistics-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#logistics-team'
+      purpose: support
+    - type: oncall
+      value: logistics-oncall
+      purpose: oncall
+interfaces:
+- name: rates
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+  guarantees:
+    idempotent: true
+    timeout: 800ms
+  compatibilityEpoch: 1
+dependencies:
+- name: carrier-gateway
+  ref: oci://ghcr.io/trianalab/pacto/carrier-gateway
+  required: true
+  compatibility: ^1.0.0
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: logistics
+  criticality: medium
+  summary: Quotes carrier rates for a parcel, idempotently
+  repo: github.com/trianalab/pacto-demo/shipping-rates
+  tags:
+  - shipping
+  - rates

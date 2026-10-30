@@ -28,15 +28,27 @@ type PactoView struct {
 	Status PactoStatusView `json:"status"`
 }
 
+// StatusFormatGuarantees is the first Pacto.status.statusFormat: the status
+// records interface guarantees and dependency requirements. A status without
+// statusFormat was written by an older operator and records neither, so what
+// it would say about them is unknown.
+const StatusFormatGuarantees = 1
+
 // PactoStatusView is the part of Pacto.status the promoter reads.
 type PactoStatusView struct {
+	// StatusFormat is the layout the operator wrote the status in (see
+	// StatusFormatGuarantees); 0 when an older operator wrote it.
+	StatusFormat       int               `json:"statusFormat"`
 	ContractStatus     string            `json:"contractStatus"`
 	ObservedGeneration int64             `json:"observedGeneration"`
 	LastReconciledAt   string            `json:"lastReconciledAt"`
 	Contract           *ContractInfoView `json:"contract"`
-	Dependencies       []DependencyView  `json:"dependencies"`
-	EvaluatedRevision  *EvaluatedView    `json:"evaluatedRevision"`
-	Findings           []FindingView     `json:"findings"`
+	// Interfaces are status.interfaces. The operator writes them under the
+	// contract's own field names, guarantees, lifecycle and epoch included.
+	Interfaces        []contract.Interface `json:"interfaces"`
+	Dependencies      []DependencyView     `json:"dependencies"`
+	EvaluatedRevision *EvaluatedView       `json:"evaluatedRevision"`
+	Findings          []FindingView        `json:"findings"`
 	// ObservedCallers are workloads the node agent saw calling the target's
 	// Service that no Pacto describes.
 	ObservedCallers []ObservedCallerView `json:"observedCallers"`
@@ -92,8 +104,8 @@ type DependencyView struct {
 	Compatibility string `json:"compatibility"`
 	External      bool   `json:"external,omitempty"`
 	Version       string `json:"version,omitempty"`
-	// Requires is what the dependency relies on from the provider. The
-	// operator status does not record it yet, so it is empty until it does.
+	// Requires is what the dependency relies on from the provider. A status
+	// written by an operator older than 6.4.0 does not record it.
 	Requires []contract.Requirement `json:"requires,omitempty"`
 }
 
@@ -282,8 +294,10 @@ func CallerName(namespace, kind, name string) string {
 	return "k8s:" + namespace + "/" + kind + "/" + name
 }
 
-// revisionFromStatus rebuilds the declared part of a contract (service, owner
-// and dependency ranges) from a Pacto's status. Its identity is the evaluated
+// revisionFromStatus rebuilds the declared part of a contract (service, owner,
+// interfaces with their guarantees and dependencies with their ranges and
+// requirements) from a Pacto's status. A status an older operator wrote
+// records no guarantees or requirements, and the revision says so. Its identity is the evaluated
 // contract digest when the operator recorded one, else a hash of the rebuilt
 // contract, which is stable for as long as the status is.
 func revisionFromStatus(p PactoView) (fleet.RawRevision, string) {
@@ -292,6 +306,7 @@ func revisionFromStatus(p PactoView) (fleet.RawRevision, string) {
 	if c.Owner != nil {
 		ct.Service.Owner = *c.Owner
 	}
+	ct.Interfaces = p.Status.Interfaces
 	for _, d := range p.Status.Dependencies {
 		ct.Dependencies = append(ct.Dependencies, contract.Dependency{Name: d.Name, Ref: d.Ref, Required: d.Required, Compatibility: d.Compatibility, External: d.External, Version: d.Version, Requires: d.Requires})
 	}
@@ -303,10 +318,20 @@ func revisionFromStatus(p PactoView) (fleet.RawRevision, string) {
 		b, _ := json.Marshal(ct)
 		digest = sha256Hex(b)
 	}
-	return fleet.RawRevision{
+	raw := fleet.RawRevision{
 		Bundle: &contract.Bundle{Contract: ct}, Domain: contract.OCIDomain(c.ResolvedRef),
 		RequestedRef: c.ResolvedRef, ResolvedRef: c.ResolvedRef, Digest: digest,
-	}, digest
+	}
+	if p.Status.StatusFormat < StatusFormatGuarantees {
+		raw.GuaranteesUnseen = statusPredatesGuarantees(c.ServiceName)
+	}
+	return raw, digest
+}
+
+// statusPredatesGuarantees is why a status without statusFormat says nothing
+// about guarantees: until the operator rewrites it, Pacto cannot see them.
+func statusPredatesGuarantees(service string) string {
+	return service + "'s status was written by an operator that does not record what it requires or guarantees, so Pacto cannot see it until the operator reconciles it again"
 }
 
 func parseTime(s string) *time.Time {

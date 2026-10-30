@@ -108,7 +108,7 @@ async function playTour(page: Page, reload: boolean) {
   await expect(text).toContainText('its runner ran the eval suite and signed the count');
   await expect(page.getByTestId('verdict-runner')).toContainText('Run and signed by story-evals', { timeout: T });
   await next.click();
-  await expect(page.getByTestId('demo-tour-explore').getByRole('link')).toHaveCount(3);
+  await expect(page.getByTestId('demo-tour-explore').getByRole('link')).toHaveCount(4);
   await expect(page.getByTestId('demo-tour-more')).toHaveAttribute('href', '../examples/kubernetes-demo/');
   await next.click();
   await expect(bubble).toHaveCount(0);
@@ -206,7 +206,7 @@ test.describe('Browser demo: the delivery story', () => {
     await page.getByRole('button', { name: 'Propose Advise for fraud in test' }).click();
     await expect(page.getByTestId('propose-panel')).toContainText('Only risk may answer it.', { timeout: T });
 
-    await page.goto('/#/delivery/changes/test/pay-agent-promote-14');
+    await page.goto('/#/delivery/changes/test/pay-agent-promote-17');
     await expect(page.getByTestId('verdict-runner')).toContainText('Run and signed by story-evals', { timeout: T });
     await expect(page.getByTestId('actual-verdicts')).toContainText('1 of 2 cases passed');
   });

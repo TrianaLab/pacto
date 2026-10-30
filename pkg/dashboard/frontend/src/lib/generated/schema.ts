@@ -1009,6 +1009,7 @@ export interface components {
             checks?: components["schemas"]["Contract.Check"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
             dependencies?: components["schemas"]["Contract.Dependency"][] | null;
+            environments?: components["schemas"]["Contract.Environment"][] | null;
             extensions?: {
                 [key: string]: unknown;
             };
@@ -1037,6 +1038,10 @@ export interface components {
             context: string;
             file?: string;
             platforms?: string[] | null;
+        };
+        "Contract.Environment": {
+            file: string;
+            name: string;
         };
         "Contract.Guarantees": {
             dedupeWindow?: string;
@@ -1510,13 +1515,19 @@ export interface components {
         };
         DependencyInfo: {
             compatibility?: string;
+            deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
             driftStatus?: string;
             external?: boolean;
+            guaranteeReason?: string;
+            /** @enum {string} */
+            guaranteeStatus?: "met" | "unmet" | "unknown";
             lockedDigest?: string;
             lockedVersion?: string;
             name: string;
             ref: string;
             required: boolean;
+            requires?: components["schemas"]["Contract.Requirement"][] | null;
+            unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             version?: string;
         };
         DependentInfo: {
@@ -1701,6 +1712,7 @@ export interface components {
             digest?: string;
             docs?: components["schemas"]["Fleet.DocRef"][] | null;
             domain?: string;
+            environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
             /** Format: date-time */
             fetchedAt?: string;
             key: string;
@@ -1718,6 +1730,7 @@ export interface components {
             source: string;
             sources?: string[] | null;
             specsRead?: string[] | null;
+            stages?: components["schemas"]["Fleet.ValidationStage"][] | null;
             tools?: components["schemas"]["Fleet.ToolSummary"][] | null;
             valid: boolean;
             validation?: components["schemas"]["Finding.Finding"][] | null;
@@ -1731,12 +1744,17 @@ export interface components {
         };
         "Fleet.DeclaredClaim": {
             compatibility?: string;
+            guaranteeReason?: string;
+            /** @enum {string} */
+            guaranteeStatus?: "met" | "unmet" | "unknown";
             lockedDigest?: string;
             lockedVersion?: string;
             reconciliation?: string;
             requestedRef?: string;
             required?: boolean;
+            requires?: components["schemas"]["Contract.Requirement"][] | null;
             sourceRevision?: string;
+            unmet?: components["schemas"]["Contract.Mismatch"][] | null;
         };
         "Fleet.DeclaredClaimsPreview": {
             /** Format: int64 */
@@ -1791,6 +1809,28 @@ export interface components {
             targets: number;
             /** Format: int64 */
             unidentifiedOwnership?: number;
+        };
+        "Fleet.EnvironmentResult": {
+            file: string;
+            findings: components["schemas"]["Fleet.LocatedFindingsPreview"];
+            name: string;
+            reason?: string;
+            /** @enum {string} */
+            status: "pass" | "fail" | "unverified" | "skip";
+        };
+        "Fleet.EnvironmentsPreview": {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            failed: number;
+            items: components["schemas"]["Fleet.EnvironmentResult"][] | null;
+            /** Format: int64 */
+            skipped: number;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+            /** Format: int64 */
+            unverified: number;
         };
         "Fleet.EvidenceWindow": {
             /** Format: date-time */
@@ -1853,7 +1893,17 @@ export interface components {
             truncated?: boolean;
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
         };
+        "Fleet.InterfaceDeprecation": {
+            deprecated: string;
+            interface: string;
+            successor?: string;
+            sunset?: string;
+        };
         "Fleet.InterfaceSummary": {
+            /** Format: int64 */
+            compatibilityEpoch?: number;
+            guarantees?: components["schemas"]["Contract.Guarantees"];
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             operations: components["schemas"]["Fleet.ToolsPreview"];
             operationsKnown: boolean;
@@ -1864,7 +1914,11 @@ export interface components {
         "Fleet.InterfacesPreview": {
             /** Format: int64 */
             count: number;
+            /** Format: int64 */
+            deprecated: number;
             items: components["schemas"]["Fleet.InterfaceSummary"][] | null;
+            /** Format: int64 */
+            pastSunset: number;
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -1896,6 +1950,25 @@ export interface components {
             inferred: number;
             /** Format: int64 */
             unresolved: number;
+        };
+        "Fleet.LocatedFinding": {
+            code: string;
+            /** Format: int64 */
+            column?: number;
+            file?: string;
+            /** Format: int64 */
+            line?: number;
+            message: string;
+            path: string;
+            severity: string;
+        };
+        "Fleet.LocatedFindingsPreview": {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["Fleet.LocatedFinding"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
         };
         "Fleet.Meta": {
             /** Format: date-time */
@@ -2121,11 +2194,15 @@ export interface components {
         };
         "Fleet.Relationship": {
             compatibility?: string;
+            deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
             external?: boolean;
             /** Format: date-time */
             firstSeen?: string;
             fromRevision?: string;
             fromService: string;
+            guaranteeReason?: string;
+            /** @enum {string} */
+            guaranteeStatus?: "met" | "unmet" | "unknown";
             hidden?: boolean;
             /** Format: date-time */
             lastSeen?: string;
@@ -2141,12 +2218,14 @@ export interface components {
             reconciliation?: string;
             requestedRef?: string;
             required?: boolean;
+            requires?: components["schemas"]["Contract.Requirement"][] | null;
             resolved: boolean;
             resolvedRevision?: string;
             source?: string;
             to: string;
             toService?: string;
             type: string;
+            unmet?: components["schemas"]["Contract.Mismatch"][] | null;
             version?: string;
         };
         "Fleet.RevisionCapabilities": {
@@ -2407,6 +2486,13 @@ export interface components {
             sources: string[] | null;
             toService: string;
         };
+        "Fleet.ValidationStage": {
+            name: string;
+            reason?: string;
+            /** @enum {string} */
+            status: "pass" | "fail" | "skip";
+            unverified?: boolean;
+        };
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
@@ -2622,10 +2708,14 @@ export interface components {
             summary?: string;
         };
         InterfaceInfo: {
+            /** Format: int64 */
+            compatibilityEpoch?: number;
             contractContent?: string;
             contractFile?: string;
             endpoints?: components["schemas"]["InterfaceEndpoint"][] | null;
+            guarantees?: components["schemas"]["Contract.Guarantees"];
             hasContractFile?: boolean;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             type: string;
             visibility?: string;
@@ -2852,12 +2942,15 @@ export interface components {
             /** Format: int64 */
             count?: number;
             declaredClaims: components["schemas"]["Fleet.DeclaredClaimsPreview"];
+            deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
             /** @enum {string} */
             difference?: "matched" | "expected-not-observed" | "observed-not-expected" | "insufficient";
             expected: boolean;
             /** Format: date-time */
             firstSeen?: string;
             from: components["schemas"]["ProductRef"];
+            /** @enum {string} */
+            guaranteeStatus?: "met" | "unmet" | "unknown";
             href: string;
             id: string;
             /** Format: date-time */
@@ -2956,6 +3049,7 @@ export interface components {
             pathTotal: number;
             pathTruncated: boolean;
             service: components["schemas"]["ProductRef"];
+            unmet?: components["schemas"]["Contract.Mismatch"][] | null;
         };
         ProductImpactConsumersPage: {
             byConfidence: components["schemas"]["Impact.TallyBucket"][] | null;
@@ -2969,6 +3063,8 @@ export interface components {
             nextOffset?: number;
             /** Format: int64 */
             offset: number;
+            /** Format: int64 */
+            refused: number;
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -3095,6 +3191,7 @@ export interface components {
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             dependencies: components["schemas"]["ProductRelationshipsPreview"];
             docs: components["schemas"]["Fleet.DocsPreview"];
+            environments: components["schemas"]["Fleet.EnvironmentsPreview"];
             exactTargets: components["schemas"]["ProductRefPreview"];
             identity: components["schemas"]["Fleet.RevisionIdentity"];
             inferredTargets: components["schemas"]["ProductRefPreview"];
@@ -3111,6 +3208,7 @@ export interface components {
             sbom?: components["schemas"]["Fleet.SBOMSummary"];
             service: components["schemas"]["ProductRef"];
             skills: components["schemas"]["Fleet.StringsPreview"];
+            stages: components["schemas"]["Fleet.ValidationStage"][] | null;
             state?: components["schemas"]["Fleet.StateSummary"];
             tools: components["schemas"]["Fleet.ToolsPreview"];
             valid: boolean;
@@ -3416,6 +3514,7 @@ export interface components {
             currentRevision?: string;
             dependencies?: components["schemas"]["DependencyInfo"][] | null;
             docs?: components["schemas"]["DocInfo"][] | null;
+            environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             insights?: components["schemas"]["Insight"][] | null;
             interfaces?: components["schemas"]["InterfaceInfo"][] | null;
@@ -3438,6 +3537,7 @@ export interface components {
             skills?: components["schemas"]["SkillInfo"][] | null;
             source: string;
             sources?: string[] | null;
+            stages?: components["schemas"]["Fleet.ValidationStage"][] | null;
             state?: components["schemas"]["StateInfo"];
             tools?: components["schemas"]["CapabilityTool"][] | null;
             validation?: components["schemas"]["ValidationInfo"];

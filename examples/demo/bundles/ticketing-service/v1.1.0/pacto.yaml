@@ -1,0 +1,50 @@
+pactoVersion: '2.1'
+service:
+  name: ticketing-service
+  version: 1.1.0
+  owner:
+    team: support-team
+    dri: ana.silva
+    contacts:
+    - type: email
+      value: support-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#support-team'
+      purpose: support
+    - type: oncall
+      value: support-oncall
+      purpose: oncall
+interfaces:
+- name: http
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+dependencies:
+- name: postgresql
+  ref: oci://ghcr.io/trianalab/pacto/postgresql
+  required: true
+  compatibility: ^16.0.0
+- name: auth-service
+  ref: oci://ghcr.io/trianalab/pacto/auth-service
+  required: true
+  compatibility: ^1.0.0
+- name: fulfillment-service
+  ref: oci://ghcr.io/trianalab/pacto/fulfillment-service
+  required: false
+  compatibility: ^1.0.0
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+metadata:
+  tier: domain
+  category: support
+  criticality: medium
+  summary: Customer support tickets, linked to shipments
+  repo: github.com/trianalab/pacto-demo/ticketing-service
+  tags:
+  - support

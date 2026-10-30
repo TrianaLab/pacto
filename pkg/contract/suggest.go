@@ -98,12 +98,21 @@ var pathIndexRe = regexp.MustCompile(`\[([^]]*)\]`)
 // (dependencies[0].ref or dependencies.0.ref). It returns 0, 0 when raw does
 // not parse or no part of path is found.
 func Locate(raw []byte, path string) (line, column int) {
+	if path == "" {
+		return 0, 0
+	}
+	return LocateSegments(raw, strings.Split(pathIndexRe.ReplaceAllString(path, ".$1"), "."))
+}
+
+// LocateSegments is [Locate] over a path already split into its keys and
+// indexes, so a key holding a dot is one segment.
+func LocateSegments(raw []byte, segments []string) (line, column int) {
 	var root yaml.Node
-	if yaml.Unmarshal(raw, &root) != nil || len(root.Content) == 0 || path == "" {
+	if yaml.Unmarshal(raw, &root) != nil || len(root.Content) == 0 {
 		return 0, 0
 	}
 	n := root.Content[0]
-	for _, part := range strings.Split(pathIndexRe.ReplaceAllString(path, ".$1"), ".") {
+	for _, part := range segments {
 		next := child(n, part)
 		if next == nil {
 			break

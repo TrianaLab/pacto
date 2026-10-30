@@ -1,7 +1,7 @@
 # Every beat of the guided demo arc, written once.
 #
 # A beat is ONE recorded command — the unit CI runs and asserts. The tour groups
-# them into six user stories, so the mapping to the page is many-to-one and the
+# them into seven user stories, so the mapping to the page is many-to-one and the
 # two vocabularies are deliberate: renumbering a beat here is a mechanical change,
 # regrouping the stories is an editorial one, and neither should force the other.
 #
@@ -37,6 +37,11 @@ beat_args() {
     11) echo "mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1" ;;
     11-writes)
         echo "mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1 --allow-writes" ;;
+    13) echo "validate examples/demo/bundles/storefront-web/v1.2.0" ;;
+    14) echo "diff examples/demo/bundles/catalog-service/v1.1.0 examples/demo/bundles/catalog-service/v1.2.0" ;;
+    14-epoch)
+        echo "diff examples/demo/bundles/shipping-rates/v1.1.0 examples/demo/bundles/shipping-rates/v2.0.0" ;;
+    15) echo "impact examples/demo/bundles/inventory-service/v2.1.0 examples/demo/bundles/inventory-service/v3.0.0 --local examples/demo/bundles" ;;
     *)  echo "beats.sh: no such beat: $1" >&2; exit 1 ;;
   esac
 }

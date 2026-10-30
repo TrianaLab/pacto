@@ -180,7 +180,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.deadlines` | `object` | no |  |  | Deadlines override the operation type's defaults (Go durations). |
 | `status.policy.deadlines.approval` | `string` | no |  |  |  |
 | `status.policy.deadlines.execution` | `string` | no |  |  |  |
-| `status.policy.environment` | `string` | yes |  |  |  |
+| `status.policy.environment` | `string` | yes |  |  | Environment is the environment the Stage delivers to, such as prod. A promote matches it against the environments the version's contract declares (environments[].name): a contract that declares environments must declare this one, with values that satisfy its configuration schemas, or the promote waits for a person (pacto.environment). It also places the Pactos and Stages a change's consumers run on. |
 | `status.policy.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
 | `status.policy.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
 | `status.policy.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |
@@ -275,7 +275,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.deadlines` | `object` | no |  |  | Deadlines override the operation type's defaults (Go durations). |
 | `spec.deadlines.approval` | `string` | no |  |  |  |
 | `spec.deadlines.execution` | `string` | no |  |  |  |
-| `spec.environment` | `string` | yes |  |  |  |
+| `spec.environment` | `string` | yes |  |  | Environment is the environment the Stage delivers to, such as prod. A promote matches it against the environments the version's contract declares (environments[].name): a contract that declares environments must declare this one, with values that satisfy its configuration schemas, or the promote waits for a person (pacto.environment). It also places the Pactos and Stages a change's consumers run on. |
 | `spec.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
 | `spec.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
 | `spec.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |
@@ -563,6 +563,15 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.dependencies[].name` | `string` | yes |  |  | Name is the dependency name (required, unique within contract). |
 | `status.dependencies[].ref` | `string` | no |  |  | Ref is the dependency reference (OCI URI). Empty for an external dependency that has no contract. |
 | `status.dependencies[].required` | `boolean` | yes |  |  | Required indicates whether this dependency is mandatory. |
+| `status.dependencies[].requires` | `[]object` | no |  |  | Requires lists the behavior this service relies on from the provider's interfaces. |
+| `status.dependencies[].requires[].dedupeWindow` | `string` | no |  |  | DedupeWindow is how long a repeated message is recognised and dropped. |
+| `status.dependencies[].requires[].delivery` | `string` | no |  |  | Delivery is what happens when a delivery fails partway. |
+| `status.dependencies[].requires[].idempotent` | `boolean` | no |  |  | Idempotent means repeating a call has the effect of making it once. |
+| `status.dependencies[].requires[].interface` | `string` | yes |  |  | Interface names the provider's interface. |
+| `status.dependencies[].requires[].ordering` | `string` | no |  |  | Ordering is the scope in which messages arrive in the order sent. |
+| `status.dependencies[].requires[].profile` | `string` | no |  |  | Profile is the version of the guarantee vocabulary. |
+| `status.dependencies[].requires[].retention` | `string` | no |  |  | Retention is how long a message stays available for replay. |
+| `status.dependencies[].requires[].timeout` | `string` | no |  |  | Timeout is the longest a call takes to answer. |
 | `status.dependencies[].version` | `string` | no |  |  | Version is the free-text version an external dependency without a ref declares. |
 | `status.evaluatedRevision` | `object` | no |  |  | EvaluatedRevision ties this status to the exact contract and workload generation it was computed from, so a result for an old version is never read as the answer for a new one. A consumer acting on contractStatus (the opt-in Pacto delivery promoter) must check it first. |
 | `status.evaluatedRevision.contractDigest` | `string` | no |  |  | ContractDigest is the OCI manifest digest of the evaluated contract bundle. Empty for inline contracts. |
@@ -589,6 +598,19 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.findings[].severity` | `string` | yes |  | `error`, `warning`, `info`, `unknown` | Severity is error, warning, info, or unknown. |
 | `status.findings[].subject` | `string` | no |  |  | Subject identifies what the finding is about. |
 | `status.interfaces` | `[]object` | no |  |  | Interfaces lists the parsed interfaces from the contract. |
+| `status.interfaces[].compatibilityEpoch` | `integer` | no |  |  | CompatibilityEpoch is raised when the interface's behavior changes incompatibly while its specification stays the same. Absent is 0. |
+| `status.interfaces[].guarantees` | `object` | no |  |  | Guarantees is the behavior the interface promises its consumers. |
+| `status.interfaces[].guarantees.dedupeWindow` | `string` | no |  |  | DedupeWindow is how long a repeated message is recognised and dropped. |
+| `status.interfaces[].guarantees.delivery` | `string` | no |  |  | Delivery is what happens when a delivery fails partway. |
+| `status.interfaces[].guarantees.idempotent` | `boolean` | no |  |  | Idempotent means repeating a call has the effect of making it once. |
+| `status.interfaces[].guarantees.ordering` | `string` | no |  |  | Ordering is the scope in which messages arrive in the order sent. |
+| `status.interfaces[].guarantees.profile` | `string` | no |  |  | Profile is the version of the guarantee vocabulary. |
+| `status.interfaces[].guarantees.retention` | `string` | no |  |  | Retention is how long a message stays available for replay. |
+| `status.interfaces[].guarantees.timeout` | `string` | no |  |  | Timeout is the longest a call takes to answer. |
+| `status.interfaces[].lifecycle` | `object` | no |  |  | Lifecycle is the retirement schedule of a deprecated interface. Absent for an interface that is not deprecated. |
+| `status.interfaces[].lifecycle.deprecated` | `string` | yes |  |  | Deprecated is the date the interface was deprecated (YYYY-MM-DD). |
+| `status.interfaces[].lifecycle.successor` | `string` | no |  |  | Successor names the interface that replaces this one, or holds an absolute URL when the replacement lives in another service. |
+| `status.interfaces[].lifecycle.sunset` | `string` | no |  |  | Sunset is the date the interface is removed (YYYY-MM-DD). |
 | `status.interfaces[].name` | `string` | yes |  |  | Name is the interface name. |
 | `status.interfaces[].ref` | `string` | no |  |  | Ref is the bundle-relative path to the interface specification file. |
 | `status.interfaces[].type` | `string` | yes |  | `openapi`, `asyncapi`, `grpc`, `mcp` | Type is the interface type: openapi, asyncapi, grpc or mcp. |
@@ -668,6 +690,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.resources.workload.exists` | `boolean` | yes |  |  | Exists indicates whether the resource was found in the cluster. |
 | `status.resources.workload.kind` | `string` | no |  |  | Kind of the resource (only set for workloads). |
 | `status.resources.workload.name` | `string` | yes |  |  | Name of the resource. |
+| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. A status without it was written by an older operator, so readers treat what it would record about them as unknown until the operator reconciles the Pacto again. |
 | `status.summary` | `object` | no |  |  | Summary provides severity-based finding counts. |
 | `status.summary.errorCount` | `integer` | yes |  |  | ErrorCount is the number of error-severity findings. |
 | `status.summary.infoCount` | `integer` | yes |  |  | InfoCount is the number of info-severity findings. |

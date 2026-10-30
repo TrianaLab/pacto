@@ -203,7 +203,7 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"text", append(plan, "--to", cliB, "--cause-verdict", `{"gate":"health","result":"Fail"}`), false, []string{"predicted: Waits"}},
 		{"text", []string{"explain", "-n", "prod", "held"}, false, []string{"prod/held", "waits for a person: Approve?",
 			"pacto.diff", "query: {}", "re-run: pacto delivery plan", "stage payments-prod runs " + cliA, "frozen: a rollback failed",
-			"on auto-hold", "last re-check 2026-10-20T10:00:00Z of " + cliA, "health         Unknown  too few spans",
+			"on auto-hold", "last re-check 2026-10-20T10:00:00Z of " + cliA, "health            Unknown  too few spans",
 			"move first: Ship orders first.", "may be incomplete: the graph is partial"}},
 		{"json", []string{"explain", "-n", "prod", "held"}, false, []string{`"summary"`, `"rerun"`, `"moveFirst"`}},
 		{"text", []string{"explain", "-n", "prod", "missing"}, true, nil},

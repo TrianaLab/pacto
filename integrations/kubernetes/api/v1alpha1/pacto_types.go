@@ -373,6 +373,76 @@ type InterfaceInfo struct {
 	// Visibility is the declared visibility: public or internal.
 	// +optional
 	Visibility string `json:"visibility,omitempty"`
+
+	// Lifecycle is the retirement schedule of a deprecated interface. Absent
+	// for an interface that is not deprecated.
+	// +optional
+	Lifecycle *InterfaceLifecycleInfo `json:"lifecycle,omitempty"`
+
+	// Guarantees is the behavior the interface promises its consumers.
+	// +optional
+	Guarantees *GuaranteesInfo `json:"guarantees,omitempty"`
+
+	// CompatibilityEpoch is raised when the interface's behavior changes
+	// incompatibly while its specification stays the same. Absent is 0.
+	// +optional
+	CompatibilityEpoch int32 `json:"compatibilityEpoch,omitempty"`
+}
+
+// InterfaceLifecycleInfo is the retirement schedule of a deprecated interface.
+type InterfaceLifecycleInfo struct {
+	// Deprecated is the date the interface was deprecated (YYYY-MM-DD).
+	Deprecated string `json:"deprecated"`
+
+	// Sunset is the date the interface is removed (YYYY-MM-DD).
+	// +optional
+	Sunset string `json:"sunset,omitempty"`
+
+	// Successor names the interface that replaces this one, or holds an
+	// absolute URL when the replacement lives in another service.
+	// +optional
+	Successor string `json:"successor,omitempty"`
+}
+
+// GuaranteesInfo is behavior an interface promises or a dependency requires.
+// Durations are Go durations such as 30s, 5m or 168h.
+type GuaranteesInfo struct {
+	// Profile is the version of the guarantee vocabulary.
+	// +optional
+	Profile string `json:"profile,omitempty"`
+
+	// Delivery is what happens when a delivery fails partway.
+	// +optional
+	Delivery string `json:"delivery,omitempty"`
+
+	// Ordering is the scope in which messages arrive in the order sent.
+	// +optional
+	Ordering string `json:"ordering,omitempty"`
+
+	// DedupeWindow is how long a repeated message is recognised and dropped.
+	// +optional
+	DedupeWindow string `json:"dedupeWindow,omitempty"`
+
+	// Retention is how long a message stays available for replay.
+	// +optional
+	Retention string `json:"retention,omitempty"`
+
+	// Idempotent means repeating a call has the effect of making it once.
+	// +optional
+	Idempotent bool `json:"idempotent,omitempty"`
+
+	// Timeout is the longest a call takes to answer.
+	// +optional
+	Timeout string `json:"timeout,omitempty"`
+}
+
+// RequirementInfo is the behavior a dependency requires from one interface of
+// its provider.
+type RequirementInfo struct {
+	// Interface names the provider's interface.
+	Interface string `json:"interface"`
+
+	GuaranteesInfo `json:",inline"`
 }
 
 // ConfigurationInfo describes a single named configuration scope from the contract.
@@ -448,6 +518,11 @@ type DependencyInfo struct {
 	// declares.
 	// +optional
 	Version string `json:"version,omitempty"`
+
+	// Requires lists the behavior this service relies on from the provider's
+	// interfaces.
+	// +optional
+	Requires []RequirementInfo `json:"requires,omitempty"`
 }
 
 // PolicyInfo describes a single named policy source from the contract.
@@ -675,10 +750,20 @@ type EvaluatedWorkload struct {
 	Generation int64  `json:"generation"`
 }
 
+// PactoStatusFormat is the StatusFormat this operator writes.
+const PactoStatusFormat = 1
+
 // PactoStatus defines the observed state of Pacto.
 // All contract data is exposed as structured fields so external consumers
 // can read the CR status directly without parsing contracts themselves.
 type PactoStatus struct {
+	// StatusFormat is the layout this status is written in. Format 1 records
+	// interface guarantees and dependency requirements. A status without it
+	// was written by an older operator, so readers treat what it would record
+	// about them as unknown until the operator reconciles the Pacto again.
+	// +optional
+	StatusFormat int32 `json:"statusFormat,omitempty"`
+
 	// ContractStatus is the high-level contract compliance state.
 	// This reflects contract validation/compliance and is NOT runtime health.
 	// +kubebuilder:validation:Enum=Compliant;Warning;NonCompliant;Reference;Unknown;Invalid;NotEvaluated

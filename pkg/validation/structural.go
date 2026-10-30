@@ -24,15 +24,18 @@ var schemaV21Bytes []byte
 //go:embed schema/pacto-v2.2.schema.json
 var schemaV22Bytes []byte
 
+//go:embed schema/pacto-v2.3.schema.json
+var schemaV23Bytes []byte
+
 // SchemaBytes returns the raw embedded JSON Schema bytes of the newest version
-// (2.2, a superset of 2.1 and 2.0). The doc package extracts field descriptions
+// (2.3, a superset of 2.2, 2.1 and 2.0). The doc package extracts field descriptions
 // from it.
-func SchemaBytes() []byte { return schemaV22Bytes }
+func SchemaBytes() []byte { return schemaV23Bytes }
 
 // schemaBytes is the embedded JSON Schema of each pactoVersion. The versions
 // supported are contract.SupportedVersions; init panics on one without a
 // schema here.
-var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes}
+var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
 var compiledSchemas = map[string]*jsonschema.Schema{}
@@ -108,6 +111,9 @@ func ValidateStructural(data any) ValidationResult {
 	}
 
 	var mcp []int
+	if version != "2.3" {
+		data = needs23(&result, data)
+	}
 	if version == "2.0" || version == "2.1" {
 		data = needs22(&result, data)
 	}
@@ -130,6 +136,21 @@ func ValidateStructural(data any) ValidationResult {
 		})
 	}
 	return result
+}
+
+// needs23 records a NEEDS_PACTO_2_3 error for environments, the section only
+// pactoVersion 2.3 has, in an older contract in place of the older schema's
+// generic "not allowed", and returns data without it for that schema to check
+// the rest.
+func needs23(result *ValidationResult, data any) any {
+	m, _ := data.(map[string]any) // an older pactoVersion was read from it
+	if _, ok := m["environments"]; !ok {
+		return data
+	}
+	result.AddError("environments", string(finding.CodeNeedsPacto23), `environments need pactoVersion "2.3"; set pactoVersion: "2.3", which keeps every older field`)
+	out := maps.Clone(m)
+	delete(out, "environments")
+	return out
 }
 
 // needs22 records a NEEDS_PACTO_2_2 error for each field only pactoVersion 2.2

@@ -327,11 +327,24 @@ func TestReplayPaymentsStepsDown(t *testing.T) {
 	}
 }
 
+// TestReplayEnvironmentHeld: payments 2.4.1 declares environments but none
+// for prod, so the prod promote waited for team payments, and alice rejected it.
+func TestReplayEnvironmentHeld(t *testing.T) {
+	d, _ := demoServer(t)
+	o := d.op(story.Prod, "payments-promote-6")
+	i := slices.IndexFunc(o.Status.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateEnvironment })
+	if o.Status.Outcome != delivery.Rejected || len(o.Status.Approvals) != 1 || o.Status.Approvals[0].Decision != delivery.Reject ||
+		!slices.Equal(o.Status.Plan.Floor.Owners, []string{"payments"}) || i < 0 ||
+		o.Status.Verdicts[i].Message != "version 2.4.1 declares no environment prod for Stage payments (it declares test)" {
+		t.Fatalf("payments 2.4.1 in prod: %+v", o.Status)
+	}
+}
+
 // TestReplayUnknownCallerAccepted: a workload with no contract held the
 // breaking 3.0.0 in test until alice accepted that unknown.
 func TestReplayUnknownCallerAccepted(t *testing.T) {
 	d, _ := demoServer(t)
-	b4 := d.op(story.Test, "payments-promote-9")
+	b4 := d.op(story.Test, "payments-promote-12")
 	if len(b4.Status.Approvals) != 1 || b4.Status.Approvals[0].Decision != delivery.AcceptUnknown || b4.Status.Outcome != delivery.Succeeded ||
 		!strings.Contains(b4.Status.Plan.Question, "ledger-export calls payments at runtime") {
 		t.Fatalf("B4 waits on ledger-export's missing contract: %+v", b4.Status)
@@ -342,7 +355,7 @@ func TestReplayUnknownCallerAccepted(t *testing.T) {
 // its count.
 func TestReplaySignedEvals(t *testing.T) {
 	d, _ := demoServer(t)
-	failed := d.op(story.Test, "pay-agent-promote-14")
+	failed := d.op(story.Test, "pay-agent-promote-17")
 	i := slices.IndexFunc(failed.Status.Verdicts, func(v delivery.Verdict) bool { return v.Gate == "evals" })
 	if failed.Status.Outcome != delivery.Failed || i < 0 {
 		t.Fatalf("pay-agent 1.1.0: %+v", failed.Status)

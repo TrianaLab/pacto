@@ -1,0 +1,47 @@
+pactoVersion: '2.0'
+service:
+  name: campaign-service
+  version: 1.1.0
+  owner:
+    team: growth-team
+    dri: priya.raman
+    contacts:
+    - type: email
+      value: growth-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#growth-team'
+      purpose: support
+    - type: oncall
+      value: growth-oncall
+      purpose: oncall
+interfaces:
+- name: http
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+dependencies:
+- name: email-provider
+  ref: oci://ghcr.io/trianalab/pacto/email-provider
+  required: true
+  compatibility: ^1.0.0
+- name: recommendations
+  ref: oci://ghcr.io/trianalab/pacto/recommendations
+  required: false
+  compatibility: ^1.0.0
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: growth
+  criticality: medium
+  summary: Runs email campaigns with audience segments
+  repo: github.com/trianalab/pacto-demo/campaign-service
+  tags:
+  - marketing
+  - email

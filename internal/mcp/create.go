@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -158,6 +159,7 @@ type ContractSummary struct {
 	Owner        string            `json:"owner,omitempty"`
 	Interfaces   []string          `json:"interfaces,omitempty"`
 	Dependencies []string          `json:"dependencies,omitempty"`
+	Environments []string          `json:"environments,omitempty"`
 	Workload     string            `json:"workload,omitempty"`
 	StateType    string            `json:"stateType,omitempty"`
 	Sections     map[string]string `json:"sections"`
@@ -170,6 +172,9 @@ type ValidationItem struct {
 	Message string `json:"message"`
 	Line    int    `json:"line,omitempty"`
 	Column  int    `json:"column,omitempty"`
+	// File is the bundle file Line and Column point into when it is not
+	// pacto.yaml, such as an environment's file.
+	File string `json:"file,omitempty"`
 }
 
 // Suggestion represents an improvement suggestion with an optional tool call.
@@ -968,6 +973,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string) (*C
 			Message: e.Message,
 			Line:    e.Line,
 			Column:  e.Column,
+			File:    e.File,
 		})
 	}
 	for _, w := range vr.Warnings {
@@ -985,16 +991,26 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string) (*C
 
 // --- YAML marshaling with ordered keys ---
 
+// topLevelKeyOrder is the order marshalContract writes the top-level fields
+// in: the newest schema's order.
 var topLevelKeyOrder = []string{
-	"pactoVersion", "service", "interfaces", "configurations",
-	"policies", "dependencies", "state", "workload", "capabilities", "readiness", "metadata", "extensions",
+	"pactoVersion", "service", "interfaces", "configurations", "environments",
+	"policies", "dependencies", "state", "workload", "capabilities", "readiness", "publish", "checks", "metadata", "extensions",
 }
 
+// marshalContract writes m with its top-level keys in topLevelKeyOrder, then
+// any key that order does not list, sorted, so it never drops one.
 func (o fileOps) marshalContract(m map[string]any) ([]byte, error) {
 	doc := &yaml.Node{Kind: yaml.DocumentNode}
 	mapping := &yaml.Node{Kind: yaml.MappingNode}
 
-	for _, key := range topLevelKeyOrder {
+	keys := slices.Clone(topLevelKeyOrder)
+	for _, key := range slices.Sorted(maps.Keys(m)) {
+		if !slices.Contains(topLevelKeyOrder, key) {
+			keys = append(keys, key)
+		}
+	}
+	for _, key := range keys {
 		val, ok := m[key]
 		if !ok {
 			continue
@@ -1314,11 +1330,7 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 	}
 
 	for _, iface := range c.Interfaces {
-		desc := fmt.Sprintf("%s (%s)", iface.Name, iface.Type)
-		if iface.Lifecycle != nil {
-			desc = fmt.Sprintf("%s (%s, %s)", iface.Name, iface.Type, iface.Lifecycle)
-		}
-		s.Interfaces = append(s.Interfaces, desc)
+		s.Interfaces = append(s.Interfaces, summarizeInterface(iface))
 	}
 
 	for _, dep := range c.Dependencies {
@@ -1326,10 +1338,43 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 		if ref == "" {
 			ref = dep.Name + " (external " + dep.Version + ")"
 		}
+		if reqs := summarizeRequires(dep.Requires); reqs != "" {
+			ref += " (" + reqs + ")"
+		}
 		s.Dependencies = append(s.Dependencies, ref)
 	}
 
+	for _, env := range c.Environments {
+		s.Environments = append(s.Environments, env.Name+" ("+env.File+")")
+	}
+
 	return s
+}
+
+// summarizeInterface is "name (type, lifecycle, compatibility epoch N,
+// guarantees: ...)", leaving out what is not set.
+func summarizeInterface(iface contract.Interface) string {
+	parts := []string{iface.Type}
+	if iface.Lifecycle != nil {
+		parts = append(parts, iface.Lifecycle.String())
+	}
+	if iface.CompatibilityEpoch != 0 {
+		parts = append(parts, fmt.Sprintf("compatibility epoch %d", iface.CompatibilityEpoch))
+	}
+	if g := iface.Guarantees; g != nil && g.Text(false) != "" {
+		parts = append(parts, "guarantees: "+g.Text(false))
+	}
+	return iface.Name + " (" + strings.Join(parts, ", ") + ")"
+}
+
+// summarizeRequires is what a dependency requires, as declared:
+// "requires from http: idempotent; requires from admin".
+func summarizeRequires(reqs []contract.Requirement) string {
+	parts := make([]string, 0, len(reqs))
+	for _, r := range reqs {
+		parts = append(parts, "requires from "+r.String())
+	}
+	return strings.Join(parts, "; ")
 }
 
 func assessSections(c *contract.Contract) map[string]string {

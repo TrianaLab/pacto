@@ -47,6 +47,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		info.OwnerDisplay = c.Service.Owner.DisplayString()
 	}
 	pacto.Status.Contract = info
+	pacto.Status.StatusFormat = pactov1alpha1.PactoStatusFormat
 
 	// Interfaces (v2: Type is openapi/asyncapi/grpc, Ref not Contract, no Port)
 	for _, iface := range c.Interfaces {
@@ -55,6 +56,15 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 			Type:       iface.Type,
 			Ref:        iface.Ref,
 			Visibility: iface.Visibility,
+			// ponytail: plain conversions; a field added to the contract type
+			// without one here stops the build instead of drifting silently.
+			CompatibilityEpoch: int32(iface.CompatibilityEpoch),
+		}
+		if l := iface.Lifecycle; l != nil {
+			ii.Lifecycle = new(pactov1alpha1.InterfaceLifecycleInfo(*l))
+		}
+		if g := iface.Guarantees; g != nil {
+			ii.Guarantees = new(pactov1alpha1.GuaranteesInfo(*g))
 		}
 		pacto.Status.Interfaces = append(pacto.Status.Interfaces, ii)
 	}
@@ -95,7 +105,12 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 
 	// Dependencies
 	for _, dep := range c.Dependencies {
+		requires := make([]pactov1alpha1.RequirementInfo, 0, len(dep.Requires))
+		for _, req := range dep.Requires {
+			requires = append(requires, pactov1alpha1.RequirementInfo{Interface: req.Interface, GuaranteesInfo: pactov1alpha1.GuaranteesInfo(req.Guarantees)})
+		}
 		pacto.Status.Dependencies = append(pacto.Status.Dependencies, pactov1alpha1.DependencyInfo{
+			Requires:      requires,
 			Name:          dep.Name,
 			Ref:           dep.Ref,
 			Required:      dep.Required,

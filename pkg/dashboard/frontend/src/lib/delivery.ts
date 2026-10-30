@@ -368,8 +368,11 @@ export function authTimeText(s: string | undefined): string {
 
 // ── What a check concluded ──────────────────────────────────────────────────
 
-/** The checks that gather evidence: they pass once they ran, whatever they found. */
-const EVIDENCE_GATES = new Set(['pacto.diff', 'pacto.impact']);
+/**
+ * The checks that gather evidence: they pass once they ran, whatever they
+ * found. What they found that holds the change is in the plan's question.
+ */
+const EVIDENCE_GATES = new Set(['pacto.diff', 'pacto.impact', 'pacto.environment']);
 
 const CLASSIFICATION_CHIPS: Record<string, string> = { BREAKING: 'Breaking', POTENTIAL_BREAKING: 'May break' };
 
@@ -381,12 +384,14 @@ export interface VerdictBadge {
 }
 
 /**
- * verdictBadge says what a check concluded. A diff or impact check passes as
- * soon as it ran, so its Pass reads Checked, never a green Pass, and what it
- * found that can break a consumer gets its own warning chip.
+ * verdictBadge says what a check concluded. A diff, impact or environment
+ * check passes as soon as it ran, so its Pass reads Checked, never a green
+ * Pass, and what it found that can break a consumer gets its own warning chip.
+ * A check that does not apply to the version reads N/A.
  */
 export function verdictBadge(v: { gate?: string; result?: string; citation?: Record<string, string> }): VerdictBadge {
   const chip = CLASSIFICATION_CHIPS[v.citation?.classification ?? ''] ?? '';
+  if (v.citation?.applicable === 'false') return { label: 'N/A', tone: 'badge-neutral', chip };
   if (v.result === 'Pass' && EVIDENCE_GATES.has(v.gate ?? '')) return { label: 'Checked', tone: 'badge-neutral', chip };
   const tone = ({ Pass: 'badge-ok', Fail: 'badge-err', Unknown: 'badge-warn' } as Record<string, string>)[v.result ?? ''] ?? 'badge-neutral';
   return { label: v.result ?? '', tone, chip };
@@ -398,6 +403,7 @@ const GATE_LABELS: Record<string, string> = {
   'pacto.contract': 'Contract readable',
   'pacto.published': 'Published and signed',
   'pacto.suites': 'Test suites shipped',
+  'pacto.environment': 'Environment values',
   'pacto.autonomy': 'Level change',
   'pacto.runtime': 'Runtime callers',
   'pacto.preempted': 'Superseded',

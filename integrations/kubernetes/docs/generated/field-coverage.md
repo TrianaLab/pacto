@@ -18,8 +18,8 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 15 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 94 |
-| `not-applicable` | Identity, container or open object with nothing to verify. | 13 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 97 |
+| `not-applicable` | Identity, container or open object with nothing to verify. | 14 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
 
@@ -65,6 +65,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `configurations[].ref` | `static-only` | - | - | - | INVALID_CONFIG_REF; at runtime a ref-only configuration stays Insufficient |
 | `configurations[].values` | `static-only` | - | - | - | CONFIG_VALUES_VALIDATION_FAILED |
 | `configurations[].required` | `partial` | `partial` | `unverified` | `unverified` | EVIDENCE_MISSING and friends only when required; CONFIGURATION_* as warning when optional; SCHEMA_VIOLATION when omitted |
+| `environments` | `static-only` | - | - | - | NEEDS_PACTO_2_3 in a 2.0, 2.1 or 2.2 contract; the environments stage skips with no environments declared |
+| `environments[]` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `environments[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_ENVIRONMENT_NAME |
+| `environments[].file` | `static-only` | - | - | - | FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING; ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref |
 | `policies` | `static-only` | - | - | - | PARSE_ERROR when not a list |
 | `policies[]` | `static-only` | - | - | - | DUPLICATE_POLICY_NAME |
 | `policies[].name` | `static-only` | - | - | - | SCHEMA_VIOLATION |
@@ -163,14 +167,14 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Contract format version; selects the JSON Schema the contract is validated against. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | parse rejects anything but "2.0", "2.1" and "2.2" before any other layer runs; the version selects the schema |
+| Rule | parse rejects anything but "2.0", "2.1", "2.2" and "2.3" before any other layer runs; the version selects the schema |
 | Outcomes | PARSE_ERROR when unsupported |
-| Limitations | 2.0 and 2.1 have their own schemas without the fields later versions add; this inventory walks 2.2, the superset |
+| Limitations | 2.0, 2.1 and 2.2 have their own schemas without the fields later versions add; this inventory walks 2.3, the superset |
 | Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid` |
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| `2.2` | `static-only` | the newest Operational Contract format; 2.0 and 2.1 contracts keep working unchanged | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
+| `2.3` | `static-only` | the newest Operational Contract format; 2.0, 2.1 and 2.2 contracts keep working unchanged | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
 
 ### `service`
 
@@ -694,6 +698,54 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Kubernetes (the operator with its node agent) | `partial` | sets the severity axis of the configuration evidence | the e2e scenarios above |
 | `pacto agent` (a Docker host or a server) | `unverified` | no source off Kubernetes; required makes the missing configuration read EVIDENCE_MISSING (Unknown) instead of being skipped | - |
 | `pacto run` (one wrapped command) | `unverified` | no source off Kubernetes; required makes the missing configuration read EVIDENCE_MISSING (Unknown) instead of being skipped | - |
+
+### `environments`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The environments the service runs in, each with the configuration values it uses there (pactoVersion 2.3). |
+| Runtime | `static-only` |
+| Evidence | none: pacto validate checks the declared values against the configuration schemas |
+| Rule | schema: array; an older pactoVersion refuses it |
+| Outcomes | NEEDS_PACTO_2_3 in a 2.0, 2.1 or 2.2 contract; the environments stage skips with no environments declared |
+| Limitations | container; each item names one values file |
+| Tests | unit: `pkg/validation/structural_test.go:TestNeeds23`, `pkg/validation/environments_test.go:TestEnvironmentStage_NoEnvironments`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments/invalid` |
+
+### `environments[]`
+
+| Key | Value |
+| --- | --- |
+| Meaning | One environment and the bundle file holding its configuration values. |
+| Runtime | `static-only` |
+| Evidence | none: the values are checked when the contract is validated |
+| Rule | schema: object with name and file; no other key |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | values hold references to secrets; secret material stays out of the file |
+| Tests | unit: `pkg/validation/structural_test.go:TestNeeds23`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[]/invalid` |
+
+### `environments[].name`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Environment identifier. |
+| Runtime | `not-applicable` |
+| Evidence | identity only |
+| Rule | schema: DNS label; cross-field: unique |
+| Outcomes | SCHEMA_VIOLATION, DUPLICATE_ENVIRONMENT_NAME |
+| Limitations | identity only |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].name/invalid` |
+
+### `environments[].file`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Bundle file mapping each configuration name to the values this environment uses for it. |
+| Runtime | `static-only` |
+| Evidence | none: the values are checked against each configuration schema when the contract is validated |
+| Rule | cross-field: a path in the bundle and the file exists; environments stage: every configuration it names is declared and its values merged over the defaults, a null removing its key, satisfy the schema; a required configuration it omits is satisfied by its defaults |
+| Outcomes | FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING; ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref |
+| Limitations | a configuration declared by ref has no schema in the bundle, so its values stay unverified |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles`, `pkg/validation/environments_test.go:TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile`, `pkg/validation/environments_test.go:TestEnvironmentStage_Unverified`, `pkg/validation/environments_test.go:TestEnvironmentStage_NullDeletesAKey`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/invalid` |
 
 ### `policies`
 

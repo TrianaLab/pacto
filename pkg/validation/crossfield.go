@@ -40,6 +40,7 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validatePolicySchemaContent(c, bundleFS, &result)
 	validateDependencyRefs(c, &result)
 	validateConfigValues(c, bundleFS, &result)
+	validateEnvironmentFiles(c, bundleFS, &result)
 	validateStatePersistenceInvariants(c, &result)
 	validateReadiness(c, &result)
 	validatePublish(c, &result)
@@ -356,6 +357,28 @@ func validateConfigFiles(c *contract.Contract, bundleFS fs.FS, result *Validatio
 				"FILE_NOT_FOUND",
 				fmt.Sprintf("configuration schema file %q not found in bundle", cfg.Schema),
 			)
+		}
+	}
+}
+
+// validateEnvironmentFiles checks that environment names are unique and that
+// each environment's file is a path in the bundle that exists. What the file holds is
+// the environments stage's to check.
+func validateEnvironmentFiles(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	seen := make(map[string]int)
+	for i, env := range c.Environments {
+		if prev, exists := seen[env.Name]; exists {
+			result.AddError(fmt.Sprintf("environments[%d].name", i), "DUPLICATE_ENVIRONMENT_NAME",
+				fmt.Sprintf("environment name %q is already declared at environments[%d]", env.Name, prev))
+		}
+		seen[env.Name] = i
+		path := fmt.Sprintf("environments[%d].file", i)
+		switch {
+		case !fs.ValidPath(env.File):
+			result.AddError(path, "FILE_NOT_FOUND", fmt.Sprintf(
+				"environment file %q is not a path in the bundle: write it from the bundle root with no leading / or ./ and no .., such as environments/staging.yaml", env.File))
+		case bundleFS != nil && missingFile(bundleFS, env.File):
+			result.AddError(path, "FILE_NOT_FOUND", fmt.Sprintf("environment file %q not found in bundle", env.File))
 		}
 	}
 }

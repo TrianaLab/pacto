@@ -68,7 +68,7 @@ Pacto uses three version numbers:
 
 | Version | What it versions | Current major |
 |---|---|---|
-| `pactoVersion` | The contract format, set in each `pacto.yaml` | `"2.0"`, `"2.1"` and `"2.2"` |
+| `pactoVersion` | The contract format, set in each `pacto.yaml` | `"2.0"`, `"2.1"`, `"2.2"` and `"2.3"` |
 | Pacto core | The `pacto` CLI and the Go library `github.com/trianalab/pacto/v4` | 4.x |
 | Kubernetes integration | The operator, its Helm chart and delivery | 6.x |
 
@@ -76,7 +76,8 @@ The version selector at the top of these docs follows Pacto core.
 
 A contract with `pactoVersion: "2.1"` needs Pacto core 4.1.0 or later and
 operator 6.1.0 or later. A contract with `pactoVersion: "2.2"` needs Pacto core
-4.3.0 or later and operator 6.3.0 or later. Older releases reject it. The integration's
+4.3.0 or later and operator 6.3.0 or later. A contract with `pactoVersion: "2.3"`
+needs Pacto core 4.4.0 or later and operator 6.4.0 or later. Older releases reject it. The integration's
 [version compatibility table](integrations/kubernetes/upgrade.md#version-compatibility)
 lists the current releases.
 

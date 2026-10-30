@@ -106,12 +106,16 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `DUPLICATE_CAPABILITY` | `DuplicateName` |
 | `DUPLICATE_CONFIGURATION_NAME` | `DuplicateName` |
 | `DUPLICATE_DEPENDENCY_NAME` | `DuplicateName` |
+| `DUPLICATE_ENVIRONMENT_NAME` | `DuplicateName` |
 | `DUPLICATE_INTERFACE_NAME` | `DuplicateName` |
 | `DUPLICATE_POLICY_NAME` | `DuplicateName` |
 | `DUPLICATE_READINESS_ID` | `DuplicateName` |
 | `EMPTY_COMPATIBILITY` | `InvalidDependency` |
 | `EMPTY_READINESS_DESCRIPTION` | `MissingEvidence` |
 | `EMPTY_READINESS_EVIDENCE` | `MissingEvidence` |
+| `ENVIRONMENT_UNKNOWN_CONFIGURATION` | `InvalidReference` |
+| `ENVIRONMENT_VALUES_INVALID` | `ConfigurationViolation` |
+| `ENVIRONMENT_VALUES_MISSING` | `MissingConfiguration` |
 | `FILE_NOT_FOUND` | `InvalidFile` |
 | `INTERFACE_ABSENT` | `RuntimeDrift` |
 | `INTERFACE_PROTOCOL_MISMATCH` | `RuntimeDrift` |
@@ -130,6 +134,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `INVALID_SEMVER` | `InvalidVersion` |
 | `NEEDS_PACTO_2_1` | `InvalidVersion` |
 | `NEEDS_PACTO_2_2` | `InvalidVersion` |
+| `NEEDS_PACTO_2_3` | `InvalidVersion` |
 | `PERSISTENCE_MISMATCH` | `RuntimeDrift` |
 | `POLICY_ENFORCEMENT_ERROR` | `PolicyViolation` |
 | `POLICY_REF_CYCLE` | `ReferenceCycle` |
@@ -152,6 +157,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `DEPENDENCY_UNDECLARED` | `RuntimeDrift` |
 | `DEPENDENCY_UNREACHABLE` | `RuntimeDrift` |
 | `DEPENDENCY_VERSION_MISMATCH` | `RuntimeDrift` |
+| `ENVIRONMENT_VALUES_UNVERIFIED` | `UnresolvedReference` |
 | `POLICY_REF_NOT_ENFORCED` | `UnresolvedReference` |
 | `TAG_NOT_DIGEST` | `InvalidReference` |
 

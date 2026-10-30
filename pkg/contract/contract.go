@@ -17,6 +17,7 @@ type Contract struct {
 	Service        Service         `yaml:"service" json:"service"`
 	Interfaces     []Interface     `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
 	Configurations []Configuration `yaml:"configurations,omitempty" json:"configurations,omitempty"`
+	Environments   []Environment   `yaml:"environments,omitempty" json:"environments,omitempty"`
 	Dependencies   []Dependency    `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
 	State          *State          `yaml:"state,omitempty" json:"state,omitempty"`
 	Workload       string          `yaml:"workload,omitempty" json:"workload,omitempty"`

@@ -122,6 +122,10 @@ flowchart LR
   `pacto.suites` holds a version that does not ship a suite one of the Stage's
   checks names, for a person to accept the unknown. It also holds a version
   that changes a suite it ships, on every level.
+  `pacto.environment` holds a version whose contract declares
+  [environments](../../contract-reference/environments.md#environments-and-stages)
+  but none named like the Stage's `spec.environment`, or values there that
+  fail their schemas. A contract with no environments passes it.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`

@@ -150,6 +150,7 @@ func TestPrintValidateResult_Invalid(t *testing.T) {
 			{Name: "structural", Status: validation.StageFail, Errors: []contract.ValidationError{
 				{Code: "TEST_ERR", Path: "service.name", Message: "bad name", Line: 3, Column: 3},
 				{Code: "LOOSE_ERR", Path: "", Message: "nowhere"},
+				{Code: "FILE_ERR", Path: "environments[0].values", Message: "in values", File: "svc/env.yaml"},
 			}, Warnings: []contract.ValidationWarning{
 				{Code: "TEST_WARN", Path: "runtime", Message: "check this"},
 			}},
@@ -165,8 +166,9 @@ PASS load
 FAIL structural
   svc/pacto.yaml:3:3: ERROR [TEST_ERR] service.name: bad name
   ERROR [LOOSE_ERR] : nowhere
+  svc/env.yaml: ERROR [FILE_ERR] environments[0].values: in values
   WARN  [TEST_WARN] runtime: check this
-SKIP policy      structural failed
+SKIP policy       structural failed
 Next: fix service.name at svc/pacto.yaml:3:3 [TEST_ERR], then run pacto validate svc
 `
 	if got := buf.String(); got != want {
@@ -208,6 +210,12 @@ func TestPrintPushResult_Text(t *testing.T) {
 	}
 	if !strings.Contains(out, "sha256:abc") {
 		t.Errorf("expected digest in output, got %q", out)
+	}
+	cmd, buf = testCmd()
+	result.Warnings = []contract.ValidationWarning{{Code: "GUARANTEE_UNVERIFIED", Path: "dependencies[0].requires", Message: "cannot check"}}
+	_ = printPushResult(cmd, result, "text")
+	if !strings.Contains(buf.String(), "  WARN  [GUARANTEE_UNVERIFIED] dependencies[0].requires: cannot check\n") {
+		t.Errorf("expected the warning in push output, got %q", buf.String())
 	}
 }
 
@@ -456,11 +464,15 @@ func TestPrintExplainResult_Full(t *testing.T) {
 			{Name: "opt", Ref: "ghcr.io/opt:2.0.0", Required: false, Compatibility: "^2.0.0"},
 			{Name: "model", External: true, Version: "claude-sonnet-4-5", Required: true},
 		},
+		Environments: []contract.Environment{{Name: "production", File: "environments/production.yaml"}},
 	}
 	if err := printExplainResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
+	if !strings.Contains(out, "\nEnvironments (1):\n  - production: environments/production.yaml\n") {
+		t.Errorf("expected environments, got %q", out)
+	}
 	if !strings.Contains(out, "Service: svc@1.0.0") {
 		t.Errorf("expected service header, got %q", out)
 	}
@@ -1450,5 +1462,44 @@ func TestRootRejectsUnknownOutputFormat(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported output format") {
 		t.Errorf("expected the format error, got: %v", err)
+	}
+}
+
+func TestPrintExplainResult_GuaranteesEpochAndRequires(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name: "svc", Version: "1.0.0", PactoVersion: "2.2",
+		Interfaces: []app.ExplainInterface{
+			{Name: "events", Type: "asyncapi", Ref: "events.yaml", CompatibilityEpoch: 2, Guarantees: &contract.Guarantees{Delivery: "at-least-once", Retention: "168h"}},
+			{Name: "plain", Type: "grpc", Ref: "p.proto", Guarantees: &contract.Guarantees{}},
+		},
+		Dependencies: []app.ExplainDependency{
+			{Name: "orders", Ref: "oci://r/orders", Compatibility: "^1.0.0", Required: true, Requires: []contract.Requirement{
+				{Interface: "http", Guarantees: contract.Guarantees{Idempotent: true, Timeout: "5s"}},
+				{Interface: "admin"},
+				{Interface: "events", Guarantees: contract.Guarantees{Delivery: "at-least-once"}},
+			}},
+			{Name: "model", External: true, Version: "v1", Requires: []contract.Requirement{{Interface: "chat", Guarantees: contract.Guarantees{Timeout: "30s"}}}},
+		},
+	}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	want := `
+Interfaces (2):
+  - events (asyncapi: events.yaml, compatibility epoch 2)
+      guarantees: delivery at-least-once, retention 168h
+  - plain (grpc: p.proto)
+
+Dependencies (2):
+  - orders: oci://r/orders (^1.0.0, required)
+      requires from http: timeout at most 5s, idempotent
+      requires from admin
+      requires from events: delivery at-least-once
+  - model: external, version v1 (cannot be checked, optional)
+      requires from chat: timeout at most 30s
+`
+	if out := buf.String(); !strings.Contains(out, want) {
+		t.Errorf("got %q\nwant it to contain %q", out, want)
 	}
 }

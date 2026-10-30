@@ -19,6 +19,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
@@ -44,7 +45,10 @@ func plan(t *testing.T, b Beat) delivery.Plan {
 }
 
 // TestEveryContractValidates walks every story contract: it parses, passes
-// validation and is a 2.1 contract with a publish section.
+// validation and is a 2.1, 2.2 or 2.3 contract with a publish section.
+// payments and its callers are 2.2 or later: payments promises an idempotent
+// http interface and orders and checkout require it. payments from 2.4.1 is
+// 2.3: it declares environments.
 func TestEveryContractValidates(t *testing.T) {
 	n := 0
 	err := fs.WalkDir(Files, "contracts", func(p string, d fs.DirEntry, err error) error {
@@ -57,14 +61,80 @@ func TestEveryContractValidates(t *testing.T) {
 			return err
 		}
 		res := validation.Validate(b.Contract, b.RawYAML, b.FS)
-		if !res.IsValid() || b.Contract.PactoVersion != "2.1" || b.Contract.Publish == nil {
+		if !res.IsValid() || !slices.Contains([]string{"2.1", "2.2", "2.3"}, b.Contract.PactoVersion) || b.Contract.Publish == nil {
 			t.Errorf("%s: version %s, publish %v, errors %v", p, b.Contract.PactoVersion, b.Contract.Publish != nil, res.Errors)
 		}
 		n++
 		return nil
 	})
-	if err != nil || n != 11 {
+	if err != nil || n != 12 {
 		t.Fatalf("walked %d contracts: %v", n, err)
+	}
+}
+
+// TestNoConfigurationLeavesRuntimeUnknown: the Kubernetes demo's Pacto
+// resources bind no configuration, and the operator reports a required
+// configuration it has no binding for as OBSERVATION_UNSUPPORTED, which makes
+// the contract Unknown and holds every verify gate on it. So no story contract
+// may require a configuration: payments declares one for its environments to
+// check, and it stays optional at runtime.
+func TestNoConfigurationLeavesRuntimeUnknown(t *testing.T) {
+	err := fs.WalkDir(Files, "contracts", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.Name() != "pacto.yaml" {
+			return err
+		}
+		dir := path.Dir(p)
+		b, err := Bundle(path.Base(path.Dir(dir)), path.Base(dir))
+		if err != nil {
+			return err
+		}
+		var unbound []evidence.Observation
+		for _, c := range b.Contract.Configurations {
+			if c.Required { // what the operator's observer emits for a configuration with no binding
+				o, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, evidence.SubjectRef{Kind: "configuration", Name: c.Name},
+					evidence.Unsupported, evidence.Provenance{Collector: "kubernetes", DetectedAt: Now})
+				unbound = append(unbound, o)
+			}
+		}
+		findings, _ := validation.Evaluate(*b.Contract, evidence.EvidenceSet{Observations: unbound})
+		for _, f := range findings {
+			if f.Subject.Kind == "configuration" {
+				t.Errorf("%s: %s %s: %s", p, f.Code, f.Severity, f.Message)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCallersRequirementsAreMetByEveryPayments keeps refusals out of the story:
+// orders and checkout require payments' idempotent http, and every payments
+// version promises it, so no beat's plan turns on a refused guarantee.
+func TestCallersRequirementsAreMetByEveryPayments(t *testing.T) {
+	versions, err := fs.ReadDir(Files, "contracts/payments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, caller := range []struct{ svc, ver string }{{"orders", "1.4.0"}, {"checkout", "1.8.0"}, {"checkout", "1.9.0"}} {
+		c, err := Bundle(caller.svc, caller.ver)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dep := c.Contract.Dependencies[0]
+		if len(dep.Requires) == 0 {
+			t.Fatalf("%s %s requires nothing of payments", caller.svc, caller.ver)
+		}
+		for _, v := range versions {
+			p, err := Bundle("payments", v.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m := contract.Unmet(caller.svc, dep, p.Contract); len(m) > 0 {
+				t.Errorf("payments %s refuses %s %s: %v", v.Name(), caller.svc, caller.ver, m)
+			}
+		}
 	}
 }
 
@@ -328,6 +398,76 @@ func TestAgentPassingItsEvalsShips(t *testing.T) {
 	b, err := Bundle("pay-agent", "1.1.0")
 	if err != nil || len(b.Contract.Checks) != 1 || b.Contract.Checks[0].File == "" {
 		t.Fatalf("pay-agent ships its eval suite as a check: %v", err)
+	}
+}
+
+// environmentVerdict is the pacto.environment verdict of the plan of b.
+func environmentVerdict(t *testing.T, b Beat) delivery.Verdict {
+	t.Helper()
+	for _, v := range plan(t, b).Verdicts {
+		if v.Gate == delivery.GateEnvironment {
+			return v
+		}
+	}
+	t.Fatalf("%s: no %s verdict", b.ID, delivery.GateEnvironment)
+	return delivery.Verdict{}
+}
+
+// TestEnvironmentGateAcrossTheStory: payments before 2.4.1 declares no
+// environments, so the gate does not apply to B1; 2.4.1 declares only test, so
+// prod holds it and the question names the environment it lacks; 3.0.0
+// declares prod and its values pass, so B5 holds only for its consumers.
+func TestEnvironmentGateAcrossTheStory(t *testing.T) {
+	if v := environmentVerdict(t, beat(t, "B1")); v.Result != delivery.Pass || v.Citation["applicable"] != "false" {
+		t.Errorf("B1: the gate must not apply to 2.4.0: %+v", v)
+	}
+	b := beat(t, "environment")
+	v := environmentVerdict(t, b)
+	want := "version 2.4.1 declares no environment prod for Stage payments (it declares test)"
+	if v.Result != delivery.Pass || v.Message != want {
+		t.Errorf("environment: verdict %+v, want the message %q", v, want)
+	}
+	if q := plan(t, b).Question; !strings.HasPrefix(q, want+". Approve shipping") {
+		t.Errorf("environment: question %q", q)
+	}
+	test := b
+	test.Environment, test.From, test.Running = Test, "2.4.0", nil
+	if v := environmentVerdict(t, test); v.Message != "the values of environment test satisfy the configuration schemas" {
+		t.Errorf("2.4.1 in test: %+v", v)
+	}
+	if v := environmentVerdict(t, beat(t, "B5")); v.Message != "the values of environment prod satisfy the configuration schemas" {
+		t.Errorf("B5: %+v", v)
+	}
+}
+
+// TestOnlyPayments241LacksProd: every payments version that declares
+// environments declares one for each Stage a demo delivers it to (test, prod,
+// and the Kubernetes demo's prod-eu and prod-us), except 2.4.1, the version
+// the environment beat holds.
+func TestOnlyPayments241LacksProd(t *testing.T) {
+	versions, err := fs.ReadDir(Files, "contracts/payments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range versions {
+		b, err := Bundle("payments", v.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, e := range b.Contract.Environments {
+			names = append(names, e.Name)
+		}
+		want := []string{Test, Prod, "prod-eu", "prod-us"}
+		switch {
+		case v.Name() == "2.4.1":
+			want = []string{Test}
+		case v.Name() < "2.4.1":
+			want = nil
+		}
+		if !slices.Equal(names, want) {
+			t.Errorf("payments %s declares environments %v, want %v", v.Name(), names, want)
+		}
 	}
 }
 

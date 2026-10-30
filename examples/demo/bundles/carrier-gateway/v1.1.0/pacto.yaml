@@ -1,0 +1,47 @@
+pactoVersion: '2.1'
+service:
+  name: carrier-gateway
+  version: 1.1.0
+  owner:
+    team: logistics-team
+    dri: tomas.novak
+    contacts:
+    - type: email
+      value: logistics-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#logistics-team'
+      purpose: support
+    - type: oncall
+      value: logistics-oncall
+      purpose: oncall
+interfaces:
+- name: labels
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+- name: tracking
+  type: asyncapi
+  ref: interfaces/events.json
+  visibility: internal
+dependencies:
+- name: parcel-carrier
+  external: true
+  version: carrier-api/v3
+  required: true
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: logistics
+  criticality: medium
+  summary: One API in front of every parcel carrier, with tracking updates
+  repo: github.com/trianalab/pacto-demo/carrier-gateway
+  tags:
+  - shipping
+  - carriers

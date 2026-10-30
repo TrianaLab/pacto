@@ -1,0 +1,47 @@
+pactoVersion: '2.1'
+service:
+  name: reporting-api
+  version: 1.0.0
+  owner:
+    team: data-platform
+    dri: kenji.mori
+    contacts:
+    - type: email
+      value: data-platform@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#data-platform'
+      purpose: support
+    - type: oncall
+      value: data-oncall
+      purpose: oncall
+interfaces:
+- name: http
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+dependencies:
+- name: analytics-pipeline
+  ref: oci://ghcr.io/trianalab/pacto/analytics-pipeline
+  required: true
+  compatibility: ^1.0.0
+- name: auth-service
+  ref: oci://ghcr.io/trianalab/pacto/auth-service
+  required: true
+  compatibility: ^1.0.0
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: data
+  criticality: medium
+  summary: Business reports over the warehouse
+  repo: github.com/trianalab/pacto-demo/reporting-api
+  tags:
+  - analytics
+  - reports

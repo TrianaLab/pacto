@@ -320,7 +320,15 @@ func TestRenderExplainWithCapabilitiesInterfacesDependencies(t *testing.T) {
 			{Name: "model", External: true, Version: "v1"},
 		},
 	}
+	r.Interfaces[0].Visibility = "internal"
+	r.Environments = []contract.Environment{{Name: "staging", File: "envs/staging.yaml"}, {Name: "prod", File: "envs/prod.yaml"}}
 	got := renderExplain(r)
+	for _, want := range []string{"api (grpc, internal)", "auth-svc: oci://example.com/auth:1.0 (^1.0) [required]",
+		"model: external, version v1 (cannot be checked)", "Environments (2)", "staging: envs/staging.yaml", "prod: envs/prod.yaml"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("render should include %q: %s", want, got)
+		}
+	}
 	if !strings.Contains(got, "model: external, version v1") {
 		t.Fatal("render should show an external dependency's version")
 	}
@@ -392,8 +400,9 @@ func TestRenderersEscapeHostileContractText(t *testing.T) {
 			Name:         hostile,
 			Version:      "1.0.0",
 			Capabilities: []app.ExplainCapability{{Type: hostile, Ref: hostile}, {Type: hostile}},
-			Interfaces:   []app.ExplainInterface{{Name: hostile, Type: hostile}},
-			Dependencies: []app.ExplainDependency{{Name: hostile, Ref: hostile}},
+			Interfaces:   []app.ExplainInterface{{Name: hostile, Type: hostile, Visibility: hostile}},
+			Dependencies: []app.ExplainDependency{{Name: hostile, Ref: hostile, Compatibility: hostile}},
+			Environments: []contract.Environment{{Name: hostile, File: hostile}},
 		})},
 		{"fleet explain subject and reasons", renderFleetExplain(&fleet.ExplainResult{
 			Kind:    "service",
@@ -546,5 +555,27 @@ func TestRenderDiffSkipsAnEmptyGraphSection(t *testing.T) {
 	}
 	if !strings.Contains(got, "No changes detected") {
 		t.Fatalf("a diff with nothing in any channel must say so:\n%s", got)
+	}
+}
+
+func TestRenderExplainGuaranteesEpochAndRequires(t *testing.T) {
+	r := &app.ExplainResult{
+		Name: "svc", Version: "1.0.0",
+		Interfaces: []app.ExplainInterface{
+			{Name: "events", Type: "asyncapi", CompatibilityEpoch: 2, Guarantees: &contract.Guarantees{Delivery: "at-least-once"}},
+			{Name: "plain", Type: "grpc", Guarantees: &contract.Guarantees{}},
+		},
+		Dependencies: []app.ExplainDependency{
+			{Name: "orders", Ref: "oci://r/orders", Requires: []contract.Requirement{{Interface: "http", Guarantees: contract.Guarantees{Timeout: "5s"}}, {Interface: "admin"}}},
+		},
+	}
+	got := renderExplain(r)
+	for _, want := range []string{
+		"  events (asyncapi, compatibility epoch 2)\n    guarantees: delivery at-least-once\n  plain (grpc)\n",
+		"  orders: oci://r/orders\n    requires from http: timeout at most 5s\n    requires from admin\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("render should include %q:\n%s", want, got)
+		}
 	}
 }

@@ -1,0 +1,50 @@
+pactoVersion: '2.2'
+service:
+  name: returns-service
+  version: 1.1.0
+  owner:
+    team: logistics-team
+    dri: tomas.novak
+    contacts:
+    - type: email
+      value: logistics-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#logistics-team'
+      purpose: support
+    - type: oncall
+      value: logistics-oncall
+      purpose: oncall
+interfaces:
+- name: returns
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: public
+  guarantees:
+    idempotent: true
+    timeout: 3s
+dependencies:
+- name: shipping-rates
+  ref: oci://ghcr.io/trianalab/pacto/shipping-rates
+  required: true
+  compatibility: ^2.0.0
+  requires:
+  - interface: rates
+    idempotent: true
+    timeout: 1s
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: logistics
+  criticality: medium
+  summary: Opens returns and books the pickup
+  repo: github.com/trianalab/pacto-demo/returns-service
+  tags:
+  - returns
+  - shipping

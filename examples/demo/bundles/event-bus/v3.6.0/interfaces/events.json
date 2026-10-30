@@ -1,0 +1,31 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Event bus",
+    "version": "3"
+  },
+  "channels": {
+    "bus.topic.created": {
+      "publish": {
+        "operationId": "topicCreated",
+        "summary": "A topic was provisioned",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "topic": {
+                "type": "string"
+              },
+              "partitions": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "topic"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

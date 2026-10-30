@@ -194,7 +194,69 @@ var _ = Describe("Pacto Controller", func() {
 		})
 	})
 
+	Context("Contract whose interfaces promise and whose dependencies require guarantees", func() {
+		const name = "test-guarantees"
+
+		BeforeEach(func() {
+			pacto := &pactov1alpha1.Pacto{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec:       pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{Inline: guaranteesContract}},
+			}
+			Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			deleteResource(name, "default")
+		})
+
+		// The API server prunes status fields its CRD schema does not declare,
+		// so reading the object back proves the schema keeps every one.
+		It("keeps guarantees, lifecycle, epoch and requires in the stored status", func() {
+			Eventually(func(g Gomega) {
+				pacto := &pactov1alpha1.Pacto{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
+				g.Expect(pacto.Status.Interfaces).To(HaveLen(1))
+				iface := pacto.Status.Interfaces[0]
+				g.Expect(iface.CompatibilityEpoch).To(Equal(int32(2)))
+				g.Expect(iface.Guarantees).To(Equal(&pactov1alpha1.GuaranteesInfo{Delivery: "at-least-once", Retention: "168h"}))
+				g.Expect(iface.Lifecycle).To(Equal(&pactov1alpha1.InterfaceLifecycleInfo{Deprecated: "2026-09-01", Successor: "oci://reg.example/pactos/events-v2"}))
+				g.Expect(pacto.Status.Dependencies).To(HaveLen(1))
+				g.Expect(pacto.Status.Dependencies[0].Requires).To(Equal([]pactov1alpha1.RequirementInfo{
+					{Interface: "api", GuaranteesInfo: pactov1alpha1.GuaranteesInfo{Idempotent: true, Timeout: "30s"}}}))
+			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
+		})
+	})
+
 })
+
+const guaranteesContract = `
+pactoVersion: "2.2"
+service:
+  name: guarantee-svc
+  version: 1.0.0
+  owner:
+    team: team-a
+interfaces:
+  - name: events
+    type: asyncapi
+    ref: asyncapi.yaml
+    compatibilityEpoch: 2
+    guarantees:
+      delivery: at-least-once
+      retention: 168h
+    lifecycle:
+      deprecated: "2026-09-01"
+      successor: oci://reg.example/pactos/events-v2
+dependencies:
+  - name: ledger
+    ref: oci://reg.example/pactos/ledger
+    required: true
+    compatibility: ^1.0.0
+    requires:
+      - interface: api
+        idempotent: true
+        timeout: 30s
+`
 
 // Helper functions to create/delete resources for testing
 

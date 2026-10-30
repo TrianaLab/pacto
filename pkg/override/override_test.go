@@ -350,41 +350,6 @@ func TestSplitKeyPath(t *testing.T) {
 	}
 }
 
-func TestDeepMerge(t *testing.T) {
-	dst := map[string]any{
-		"a": map[string]any{
-			"x": 1,
-			"y": 2,
-		},
-		"b": "keep",
-	}
-	src := map[string]any{
-		"a": map[string]any{
-			"y": 3,
-			"z": 4,
-		},
-		"c": "new",
-	}
-	deepMerge(dst, src)
-
-	a := dst["a"].(map[string]any)
-	if a["x"] != 1 {
-		t.Errorf("expected a.x=1, got %v", a["x"])
-	}
-	if a["y"] != 3 {
-		t.Errorf("expected a.y=3 (overridden), got %v", a["y"])
-	}
-	if a["z"] != 4 {
-		t.Errorf("expected a.z=4 (new), got %v", a["z"])
-	}
-	if dst["b"] != "keep" {
-		t.Errorf("expected b=keep, got %v", dst["b"])
-	}
-	if dst["c"] != "new" {
-		t.Errorf("expected c=new, got %v", dst["c"])
-	}
-}
-
 func TestApply_EmptyBaseYAML(t *testing.T) {
 	// Empty YAML produces nil map — should still work.
 	out, err := Apply([]byte(""), Overrides{SetValues: []string{"a=b"}})
@@ -478,5 +443,23 @@ func TestApply_PreserveTimestamps(t *testing.T) {
 	event := m["event"].(map[string]any)
 	if event["created"] != "2099-01-01T00:00:00Z" {
 		t.Errorf("created: got %v, want 2099-01-01T00:00:00Z", event["created"])
+	}
+}
+
+// TestApply_ValueFileNullStaysNull: a -f file's null sets the key to null, as
+// it always has; only an environment file's null deletes a key.
+func TestApply_ValueFileNullStaysNull(t *testing.T) {
+	base := []byte("service:\n  name: svc\n  owner: team-a\n")
+	valuesFile := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(valuesFile, []byte("service:\n  owner: null\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Apply(base, Overrides{ValueFiles: []string{valuesFile}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := mustParseYAML(t, out)["service"].(map[string]any)
+	if v, ok := svc["owner"]; !ok || v != nil {
+		t.Fatalf("owner = %v, %v; want a null owner", v, ok)
 	}
 }

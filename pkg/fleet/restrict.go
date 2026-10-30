@@ -152,6 +152,11 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 				continue // runtime evidence about the hidden service, not the caller's declaration
 			}
 			rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus = "", "", true, hiddenMessage, ""
+			// What the hidden provider offers and deprecates is its own contract.
+			rel.Unmet, rel.DeprecatedInterfaces = nil, nil
+			if rel.GuaranteeStatus != "" {
+				rel.GuaranteeStatus, rel.GuaranteeReason = GuaranteeUnknown, hiddenMessage
+			}
 		}
 		out.Relationships = append(out.Relationships, rel)
 	}

@@ -6,7 +6,7 @@ search:
 
 # Guided tour
 
-This tour answers six questions people ask about services they did not
+This tour answers seven questions people ask about services they did not
 build. Each answer uses one or two `pacto` commands on a fixed set of example
 contracts and explains the output. The tour covers contracts and the checks on
 them. Delivery has its own demos.
@@ -23,7 +23,7 @@ You need the [Pacto CLI](../installation.md) on your `PATH` and a clone:
 git clone https://github.com/TrianaLab/pacto.git && cd pacto
 ```
 
-Every command below is written to be pasted from the repository root.
+Paste every command below from the repository root.
 
 To drive a real stack, see the [Docker Compose demo](compose-demo.md). It
 needs neither a clone nor the CLI.
@@ -35,7 +35,7 @@ node agent on a Kubernetes cluster.
 
 ## The fleet
 
-Sixteen services are in the snapshot. Five carry the stories:
+Thirty-six services are in the snapshot. Nine carry the stories:
 
 | Service | Owner | Its part |
 |---------|-------|----------|
@@ -44,6 +44,10 @@ Sixteen services are in the snapshot. Five carry the stories:
 | `api-gateway` | platform-foundations | declares the same dependency, and has an expired readiness assessment |
 | `auth-service` | identity-team | deployed and never observed: the Unknown target |
 | `audit-log` | platform-foundations-security | calls payments and declares nothing: the shadow consumer |
+| `storefront-web` | frontend-team | a production environment whose values fail the chart schema |
+| `catalog-service` | catalog-team | an enum value added behind a `$ref` |
+| `shipping-rates` | logistics-team | a raised `compatibilityEpoch` |
+| `inventory-service` | catalog-team | stops promising a guarantee two consumers rely on |
 
 A target is one running deployment of a service. A readiness assessment is a
 dated list of claims in a contract, and a shadow consumer is a service seen
@@ -60,7 +64,7 @@ the service is deployed stays in its own files. The
 
 --8<-- "examples/demo/generated/_beat-01.md"
 
-Sixteen services, each with its owner, how many contract revisions it has
+Thirty-six services, each with its owner, how many contract revisions it has
 published and how many deployed targets are running it. `NotEvaluated` means
 Pacto knows no deployment of the service yet, so it has nothing to evaluate.
 
@@ -99,9 +103,10 @@ targets:
 
 --8<-- "examples/demo/generated/_beat-02.md"
 
-Four states in one screen. `Compliant` is a verdict backed by evidence,
+Five states in one screen. `Compliant` is a verdict backed by evidence,
 `NonCompliant` is a confirmed contradiction, `Unknown` is evidence that never
 arrived and `NotEvaluated` means nobody is deployed there to evaluate.
+`Invalid` means the newest contract fails validation; story 7 shows why.
 
 ## Story 2: Find the reason behind an Unknown
 
@@ -179,10 +184,10 @@ Then ask where the change actually lands:
 --8<-- "examples/demo/generated/_beat-09.md"
 
 The consumer list is identical. The active targets are new, and the gate turns
-from `unverified` to `blocked`. Two deployed targets sit in the path of this
-change: `orders-service`, one of the five consumers, and `payments-service`
-itself. The command exits 1. Story 3
-refused a change for what it is. This command refuses it for where it lands.
+from `unverified` to `blocked`. Two deployed targets sit in its path:
+`orders-service`, one of the five consumers, and `payments-service` itself. The
+command exits 1. Story 3 refused a change for what it is. This command refuses
+it for where it lands.
 
 ## Story 5: Compare declared and observed dependencies
 
@@ -199,9 +204,8 @@ risk: an edge in the diagram that no traffic has taken.
 
 *Serve a contract as MCP tools, and check what the default withholds.*
 
-`pacto mcp` turns a bundle's OpenAPI interface into MCP tools. By default it
-turns only the read-only operations into tools. Point a human and an agent at
-one process:
+`pacto mcp` turns the read-only operations of a bundle's OpenAPI interface
+into MCP tools. Point a human and an agent at one process:
 
 ```bash
 pacto dashboard examples/demo/bundles --port 8899
@@ -209,17 +213,13 @@ pacto mcp examples/demo/pacto-dashboard --base-url http://127.0.0.1:8899
 ```
 
 Then open <http://127.0.0.1:8899/#/fleet>, and connect your MCP client to the
-second command. The dashboard is itself a Pacto
-bundle with a real OpenAPI contract, so the agent's tools are generated from the
-contract of the very server the human is looking at. The tools come from the
-dashboard's OpenAPI interface, one per read-only operation. Beside the interface
-operations, the server always registers Pacto's own authoring tools:
-`pacto_create` and `pacto_edit` write contract files to disk.
+second command. The dashboard is itself a Pacto bundle with a real OpenAPI
+contract, so the agent's tools are generated from the contract of the very
+server the human is looking at. The server also registers Pacto's own authoring
+tools: `pacto_create` and `pacto_edit` write contract files to disk.
 
-Every bundle withholds mutating operations by default. Serve the demo's
-payments service, and Pacto drops its five mutating operations, every `POST`,
-`PUT`, `PATCH` and `DELETE` that bundle's interface declares, with a warning on
-stderr:
+Serve the demo's payments service, and Pacto drops its five mutating
+operations, every `POST`, `PUT`, `PATCH` and `DELETE`, with a warning on stderr:
 
 ```bash
 pacto mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1
@@ -232,6 +232,28 @@ Add `--allow-writes` and both the warning and the restriction disappear.
 `--allow-writes` governs the interface tools only. To withhold the authoring
 tools, register this server only where you want contracts written. See
 [MCP integration](../mcp-integration.md) for the full wiring.
+
+## Story 7: Check what a provider promises
+
+*Check behavior, retirement schedules and environment values.*
+
+--8<-- "examples/demo/generated/_beat-13.md"
+
+Each stage has its own line, and `Next` names the first fix: the new chart
+schema requires an ingress host that production leaves out. `preview` sets
+values for `platform`, whose schema is in another bundle, so Pacto could not
+check them.
+
+--8<-- "examples/demo/generated/_beat-14.md"
+
+Every product response reaches `ProductStatus` through a `$ref`, so one new
+enum value is breaking in a minor release. The rates document did not change,
+and the raised `compatibilityEpoch` says its meaning did.
+
+--8<-- "examples/demo/generated/_beat-15.md"
+
+3.0.0 drops the dedupe window fulfillment-service requires, and its 5s timeout
+already refuses pricing-service, which requires 2s.
 
 ## What's next
 

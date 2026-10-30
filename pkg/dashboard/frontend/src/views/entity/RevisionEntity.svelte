@@ -14,6 +14,10 @@
   import LimitationsSection from '../../components/LimitationsSection.svelte';
   import HorizontalBars from '../../components/viz/HorizontalBars.svelte';
   import HelpTip from '../../components/HelpTip.svelte';
+  import LifecycleBadge from '../../components/LifecycleBadge.svelte';
+  import GuaranteeTerms from '../../components/GuaranteeTerms.svelte';
+  import EnvironmentList from '../../components/EnvironmentList.svelte';
+  import { lifecycleText, stageBadge } from '../../lib/behavior.ts';
   import { joinAnd } from '../../lib/answers.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import { fleetEntityListUrl } from '../../lib/router.ts';
@@ -67,7 +71,37 @@
     (d.interfaces?.count ?? 0) === 0 ? 'interfaces' : '',
     (d.configurations?.count ?? 0) === 0 ? 'configuration' : '',
     (d.policies?.count ?? 0) === 0 ? 'policies' : '',
+    (d.environments?.total ?? 0) === 0 ? 'environments' : '',
   ].filter(Boolean), 'or'));
+
+  // The interfaces section opens on request, so its closed line says when some of them
+  // are being retired: that is the part of the list a consumer has to act on.
+  // The counts come from the backend over every interface, not the bounded preview.
+  const ifaceSummary = $derived.by(() => {
+    const all = d.interfaces?.deprecated ?? 0;
+    const past = d.interfaces?.pastSunset ?? 0;
+    return joinAnd([
+      all - past ? `${formatCount(all - past)} deprecated` : '',
+      past ? `${formatCount(past)} past sunset` : '',
+    ].filter(Boolean), 'and');
+  });
+
+  // The environments stage of a revision that declares none has nothing to say.
+  const stages = $derived((d.stages ?? []).filter((st) => st.name !== 'environments' || (d.environments?.total ?? 0) > 0));
+
+  // The environments check: a failure or a value set Pacto could not check stays open;
+  // a clean run is inspection detail.
+  const envItems = $derived(d.environments?.items ?? []);
+  // The counts come from the backend over every environment, not the bounded preview, so
+  // a failure past the preview never reads as "Every environment passed".
+  const envCounts = $derived({ fail: d.environments?.failed ?? 0, unverified: d.environments?.unverified ?? 0, skip: d.environments?.skipped ?? 0 });
+  const envCount = (status) => envCounts[status];
+  const envFailed = $derived(envCounts.fail);
+  const envOpen = $derived(envCounts.fail + envCounts.unverified + envCounts.skip > 0);
+  const envSummary = $derived(envOpen
+    ? joinAnd([['fail', 'failed'], ['unverified', 'not verified'], ['skip', 'not checked']]
+      .map(([st, word]) => (envCount(st) ? `${formatCount(envCount(st))} ${word}` : '')).filter(Boolean), 'and')
+    : 'Every environment passed');
 </script>
 
 <div class="rev-entity">
@@ -79,6 +113,16 @@
          "Pacto version". -->
     {#if d.pactoVersion}<div class="re-fact"><span class="re-k">Pacto version</span><span>{d.pactoVersion}</span></div>{/if}
     <div class="re-fact"><span class="re-k">Valid</span><span>{d.valid ? 'Yes' : 'No'}</span></div>
+    {#if stages.length > 0}
+      <!-- How each validation stage ended, so "No" above says where it stopped and a
+           stage that did not run is never read as a pass. -->
+      <div class="re-fact" data-testid="revision-stages">
+        <span class="re-k">Checks</span>
+        <ul class="re-stages" aria-label="Validation stages">
+          {#each stages as st (st.name)}{@const b = stageBadge(st)}<li><IdentityBadge label={b.label} tone={b.tone} title={b.title} /></li>{/each}
+        </ul>
+      </div>
+    {/if}
     <div class="re-fact"><span class="re-k">Content</span><IdentityBadge label={retrievabilityLabel(id.identityClass, id.retrievable)} tone={retrievabilityTone(id.identityClass, id.retrievable)} /></div>
     {#if o}
       <div class="re-fact">
@@ -183,6 +227,22 @@
     </PreviewSection>
   {/if}
 
+  {#if (d.environments?.total ?? 0) > 0}
+    <PreviewSection
+      title="Environments"
+      tone={envFailed ? 'err' : ''}
+      collapsible
+      open={envOpen}
+      summary={envSummary}
+      help="Each environment's values file, checked against the schemas of the configurations it sets."
+      total={d.environments?.total ?? 0}
+      count={d.environments?.count ?? 0}
+      truncated={d.environments?.truncated}
+    >
+      <EnvironmentList items={envItems} />
+    </PreviewSection>
+  {/if}
+
   <!-- ── what this revision declares ────────────────────────────────────────── -->
 
   {#if declaredEmpty}
@@ -194,6 +254,7 @@
     title="Interfaces"
     collapsible
     open={false}
+    summary={ifaceSummary}
     total={d.interfaces?.total ?? 0}
     count={d.interfaces?.count ?? 0}
     truncated={d.interfaces?.truncated}
@@ -206,7 +267,11 @@
             <span class="ri-name">{i.name}</span>
             {#if i.type}<IdentityBadge label={i.type} tone="info" />{/if}
             {#if i.visibility}<IdentityBadge label={i.visibility} tone="neutral" />{/if}
+            <LifecycleBadge lifecycle={i.lifecycle} detail={false} />
+            {#if i.compatibilityEpoch}<IdentityBadge label={`Epoch ${i.compatibilityEpoch}`} tone="neutral" title="Raised each time this interface's behavior changes incompatibly while its spec stays the same." describe />{/if}
           </div>
+          {#if i.lifecycle}<p class="ri-note ri-lifecycle">{lifecycleText(i.lifecycle)}</p>{/if}
+          {#if i.guarantees}<div class="ri-ref"><span class="re-k">Guarantees</span><GuaranteeTerms guarantees={i.guarantees} label={`Guarantees of ${i.name}`} /></div>{/if}
           {#if i.ref}<div class="ri-ref"><span class="re-k">Document</span><CopyableIdentifier value={i.ref} /></div>{/if}
           {#if (i.operations?.count ?? 0) > 0}
             <!-- The operations were derived from the referenced document at build time,
@@ -501,6 +566,8 @@
 
 <style>
   .re-none { margin: 0; color: var(--c-text-3); }
+  .re-stages { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--sp-1); flex-wrap: wrap; }
+  .ri-lifecycle { overflow-wrap: anywhere; }
   .rev-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
   .re-facts, .re-idrows, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .re-fact, .re-idrow, .re-adj { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }

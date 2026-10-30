@@ -13,14 +13,14 @@ directly. The demo needs no server, and all its data stays in the tab.
 
 <a href="../../demo/#/fleet" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
-The first visit downloads about 4.6 MB (18.6 MB unpacked). On a slow
+The first visit downloads about 4.7 MB (19.3 MB unpacked). On a slow
 connection give it a moment: the loading strip counts the seconds, and the
 browser keeps a copy afterwards.
 
 ## What to look at
 
-- **Fleet overview**: eighteen made-up services and who calls whom: the
-  sixteen of the [CLI tour](demo-tour.md) plus two from a partner registry,
+- **Fleet overview**: thirty-eight made-up services and who calls whom: the
+  thirty-six of the [CLI tour](demo-tour.md) plus two from a partner registry,
   a second domain. The page opens on its answer to **Is anything wrong?**
   and says some of the information is missing. Posture, ownership and data
   sources stay open below it. Pacto always reports what it could not see.
@@ -29,6 +29,14 @@ browser keeps a copy afterwards.
   reach.
 - **Change analysis**: the `v1.2.1 → v2.0.1` step removes the `/charges` API
   and shows which [consumers](../glossary.md#consumer) the break reaches.
+- **Promises, schedules and environments**: `inventory-service` retires one
+  interface past its sunset and one before it, and each consumer shows whether
+  it gets the guarantees it requires: met, refused or not verified. Change
+  analysis from 2.1.0 to 3.0.0 lists the consumers it refuses, and the
+  operational graph marks the refused edges. `storefront-web` 1.2.0 checks three
+  environments: one passes, one fails at a line of its values file and one is
+  not verified. The guided tour stops on `inventory-service` before
+  it hands off to the CLI tour.
 - **Delivery, simulated**: press **Play the delivery story**. First
   `pacto init` gives a plain service a contract. Then a safe change ships on
   its own, a bad release is rolled back, a breaking change asks only the
@@ -62,6 +70,11 @@ screens show:
   the Stage down one level, to auto for non-breaking changes. Lowering a level
   needs no approval. payments in test stepped down the same way when 2.4.2
   failed.
+- **A version that names no prod environment.** payments 2.4.1 is the first
+  version to declare [environments](../contract-reference/environments.md#environments-and-stages),
+  and it declares only test. It shipped to test, but its promote to prod
+  waited for team payments, and Alice rejected it. 2.4.2 declares every
+  environment, and its values pass the same check.
 - **A caller with no contract.** ledger-export runs in test with no contract
   and calls payments. So the breaking payments 3.0.0 waited in test until
   Alice accepted that unknown, and the Autonomy tab lists the missing

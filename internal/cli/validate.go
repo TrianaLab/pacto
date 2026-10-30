@@ -13,8 +13,9 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "validate [dir | oci://ref]",
 		Short: "Validate a pacto contract",
 		Long: "Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field and policy.\n\n" +
-			"The output has one PASS, FAIL or SKIP line per stage, in order: load, lock, structural, cross-field, policy, guarantees, readiness and closure. " +
-			"Each error sits under its stage with its file:line:column when Pacto can locate it. A failed load or lock stage skips every stage after it, and a failed structural or cross-field stage skips the stages after it up to policy. The guarantees, readiness and closure stages run even when an earlier stage fails. " +
+			"The output has one PASS, FAIL or SKIP line per stage, in order: load, lock, structural, cross-field, policy, environments, guarantees, readiness and closure. " +
+			"The environments stage checks each environment's file against the schema of every configuration it names. " +
+			"Each error sits under its stage with its file:line:column when Pacto can locate it. A failed load or lock stage skips every stage after it, and a failed structural or cross-field stage skips the stages after it up to policy. Any failed stage skips environments. The guarantees, readiness and closure stages run even when an earlier stage fails. " +
 			"The last line, Next:, names the one command to run now. With --output-format json the same comes as stages and next.",
 		Example: `  # Validate a local contract
   pacto validate my-service

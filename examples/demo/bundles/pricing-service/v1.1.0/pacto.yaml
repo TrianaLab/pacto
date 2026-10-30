@@ -1,0 +1,54 @@
+pactoVersion: '2.2'
+service:
+  name: pricing-service
+  version: 1.1.0
+  owner:
+    team: catalog-team
+    dri: lena.fischer
+    contacts:
+    - type: email
+      value: catalog-team@acme.com
+      purpose: ownership
+    - type: chat
+      value: '#catalog-team'
+      purpose: support
+    - type: oncall
+      value: catalog-oncall
+      purpose: oncall
+interfaces:
+- name: prices
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: internal
+dependencies:
+- name: catalog-service
+  ref: oci://ghcr.io/trianalab/pacto/catalog-service
+  required: true
+  compatibility: ^1.0.0
+- name: inventory-service
+  ref: oci://ghcr.io/trianalab/pacto/inventory-service
+  required: true
+  compatibility: ^2.1.0
+  requires:
+  - interface: stock-v2
+    idempotent: true
+    timeout: 2s
+- name: redis
+  ref: oci://ghcr.io/trianalab/pacto/redis
+  required: false
+  compatibility: ^7.0.0
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: medium
+metadata:
+  tier: domain
+  category: catalog
+  criticality: medium
+  summary: Prices per SKU and market, checked against live stock
+  repo: github.com/trianalab/pacto-demo/pricing-service
+  tags:
+  - pricing

@@ -15,12 +15,15 @@
   // ARIA of our own -- the open/closed state is native, and so is keyboard and touch.
   import { tick } from 'svelte';
   import { prefersReducedMotion } from '../lib/motion.ts';
+  import { railMaxHeight, revealScrollTop } from '../lib/tocRail.ts';
 
   let { label = 'On this page', minEntries = 3, wide = '(min-width: 1100px)' } = $props();
 
   let entries = $state([]);
   let open = $state(false);
   let current = $state('');
+  let wideNow = $state(false);
+  let listEl = $state(null);
 
   // The rail is open by default; the mobile disclosure is closed by default, because
   // there it costs a screenful. After a reader touches it, their choice stands.
@@ -28,7 +31,7 @@
   $effect(() => {
     const mq = window.matchMedia?.(wide);
     if (!mq) return;
-    const apply = () => { if (!touched) open = mq.matches; };
+    const apply = () => { wideNow = mq.matches; if (!touched) open = mq.matches; };
     apply();
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
@@ -108,8 +111,35 @@
   let pinned = false;
   function schedule() {
     if (frame || typeof requestAnimationFrame === 'undefined') return;
-    frame = requestAnimationFrame(() => { frame = 0; pick(); });
+    frame = requestAnimationFrame(() => { frame = 0; pick(); fit(); });
   }
+
+  // A rail with more entries than the viewport has room for scrolls WITHIN ITSELF,
+  // rather than running past the fold where its last entries could only be reached by
+  // scrolling the page away from the section being read. The list runs from wherever
+  // the rail starts down to the fold, so it grows as the rail rises to its sticky
+  // place. Below the breakpoint the list is a closed disclosure in the page flow and
+  // keeps its natural height.
+  const FOLD_GAP = 16;
+  function fit() {
+    if (!listEl) return;
+    listEl.style.maxHeight = wideNow && open
+      ? `${railMaxHeight(window.innerHeight, listEl.getBoundingClientRect().top, FOLD_GAP)}px`
+      : '';
+  }
+
+  // The current entry is kept in view inside the rail, moving the list as little as
+  // possible. Only the LIST scrolls: scrollIntoView would also scroll the page, which
+  // is the reader's, and would fight the scroll that made this entry current.
+  function reveal() {
+    const btn = listEl?.querySelector('.toc-link.current');
+    if (btn) listEl.scrollTop = revealScrollTop(listEl.scrollTop, listEl.clientHeight, btn.offsetTop, btn.offsetHeight);
+  }
+  $effect(() => {
+    void [entries, open, wideNow, current];
+    fit();
+    reveal();
+  });
 
   // The same three events scrollRestore treats as "the reader is driving now". Any of
   // them releases a pinned choice, because from then on the geometry is the truth again.
@@ -168,7 +198,7 @@
       <!-- Buttons, not links. An href="#section-id" would introduce a SECOND meaning for
            the URL fragment in a hash-routed application: clicking one would leave the
            route, and Back would walk through jump targets instead of pages. -->
-      <ul class="toc-list">
+      <ul class="toc-list" bind:this={listEl}>
         {#each entries as e (e.id)}
           <!-- aria-current is the state itself, not a description of it: a screen reader
                announces "current" on the one entry, and it stays right when the list is
@@ -218,7 +248,11 @@
   @media (min-width: 1100px) {
     .toc { position: sticky; top: calc(var(--navbar-h) + var(--sp-4)); align-self: start; }
     /* A pointer rail, not a touch list: 30px rows still clear the 24px target minimum
-       (WCAG 2.5.8) and keep a revision page's ten entries above the fold. */
+       (WCAG 2.5.8) and fit a revision page's ten entries above the fold without scrolling the list. */
     .toc-link { min-height: 30px; padding: var(--sp-1) var(--sp-2); line-height: 1.35; }
+    /* The list is the offset parent its entries are measured against, and it scrolls on
+       its own once fit() caps its height. A scroll that reaches the end of the list does
+       not carry on into the page. */
+    .toc-list { position: relative; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
   }
 </style>

@@ -31,6 +31,9 @@ type ValidationError struct {
 	// when the reporter knows where it is.
 	Line   int `json:"line,omitempty"`
 	Column int `json:"column,omitempty"`
+	// File is the bundle file the failure is in, with Line and Column pointing
+	// into it, when that file is not pacto.yaml.
+	File string `json:"file,omitempty"`
 }
 
 // Error formats the failure as "[CODE] path: message".

@@ -351,14 +351,19 @@ type ServiceDetailData struct {
 // (bounded, not merely counted), bounded tools/skills/docs, exact/inferred
 // targets, and the previous/next known revisions of the same logical service.
 type RevisionDetailData struct {
-	Service        EntityRef             `json:"service"`
-	Version        string                `json:"version,omitempty"`
-	PactoVersion   string                `json:"pactoVersion,omitempty"`
-	Identity       RevisionIdentity      `json:"identity"`
-	Provenance     RevisionProvenance    `json:"provenance"`
-	Valid          bool                  `json:"valid"`
-	Readiness      *ProductReadiness     `json:"readiness,omitempty"`
-	Validation     FindingsPreview       `json:"validation"`
+	Service      EntityRef          `json:"service"`
+	Version      string             `json:"version,omitempty"`
+	PactoVersion string             `json:"pactoVersion,omitempty"`
+	Identity     RevisionIdentity   `json:"identity"`
+	Provenance   RevisionProvenance `json:"provenance"`
+	Valid        bool               `json:"valid"`
+	Readiness    *ProductReadiness  `json:"readiness,omitempty"`
+	Validation   FindingsPreview    `json:"validation"`
+	// Stages is how each stage of the validation run ended, in run order. Empty
+	// when the contract document was never validated.
+	Stages []ValidationStage `json:"stages"`
+	// Environments is each declared environment and the check of its values.
+	Environments   EnvironmentsPreview   `json:"environments"`
 	Interfaces     InterfacesPreview     `json:"interfaces"`
 	Configurations ConfigurationsPreview `json:"configurations"`
 	Policies       PoliciesPreview       `json:"policies"`
@@ -597,8 +602,10 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Valid:           rev.Valid,
 		Readiness:       productReadiness(rev.Readiness),
 		Validation:      findingsPreview(rev.Validation),
+		Stages:          append([]ValidationStage{}, rev.Stages...),
+		Environments:    environmentsPreview(rev.Environments),
 		Capabilities:    capabilitiesPreview(rev.Contract.Capabilities),
-		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead),
+		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
 		Configurations:  withConfigResolutions(rev.configurations, cfgRefs),
 		Policies:        policiesPreview(rev.Contract.Policies, polRefs),
 		Workload:        rev.Contract.Workload,

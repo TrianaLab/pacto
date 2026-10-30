@@ -1,4 +1,4 @@
-pactoVersion: "2.1"
+pactoVersion: "2.3"
 service:
   name: payments
   version: 3.0.0
@@ -9,6 +9,27 @@ interfaces:
   - name: http
     type: openapi
     ref: interfaces/openapi.yaml
+    # Charges are retried, so the callers rely on a repeated call charging once.
+    guarantees:
+      idempotent: true
+      timeout: 5s
+configurations:
+  - name: app
+    schema: configuration/schema.json
+    # Optional at runtime: the demos bind no ConfigMap the operator could check.
+    required: false
+    values:
+      LOG_LEVEL: info
+      CHARGE_TIMEOUT_SECONDS: 5
+environments:
+  - name: test
+    file: environments/test.yaml
+  - name: prod
+    file: environments/prod.yaml
+  - name: prod-eu
+    file: environments/prod-eu.yaml
+  - name: prod-us
+    file: environments/prod-us.yaml
 publish:
   bundle: oci://registry.example/story/payments
   deploy: manifests

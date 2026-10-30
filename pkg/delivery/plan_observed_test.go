@@ -17,7 +17,7 @@ func paymentsPacto(cov *CallerCoverageView, callers ...ObservedCallerView) Pacto
 	var p PactoView
 	p.Metadata.Namespace, p.Metadata.Name = "prod", "payments"
 	p.Status.ContractStatus = "Compliant"
-	p.Status.LastReconciledAt = now.Format(time.RFC3339)
+	p.Status.LastReconciledAt, p.Status.StatusFormat = now.Format(time.RFC3339), StatusFormatGuarantees
 	p.Status.Contract = &ContractInfoView{ServiceName: "payments", Version: "1.0.0",
 		Owner: &contract.Owner{Team: "team-payments"}, ResolvedRef: "oci://reg.example/pactos/payments@" + c1}
 	p.Status.ObservedCallers = callers

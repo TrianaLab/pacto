@@ -99,3 +99,28 @@ dependencies:
 		t.Errorf("guarantees = %+v", g)
 	}
 }
+
+func TestGuaranteesTermsAndText(t *testing.T) {
+	g := Guarantees{Profile: "1", Delivery: "at-least-once", Ordering: "per-key", DedupeWindow: "10m", Retention: "168h", Timeout: "5s", Idempotent: true}
+	var names []string
+	for _, term := range g.Terms() {
+		names = append(names, term.Name+"="+term.Value+"/"+term.Bound)
+	}
+	want := "delivery=at-least-once/ ordering=per-key/ dedupe window=10m/at least retention=168h/at least timeout=5s/at most idempotent=true/"
+	if got := strings.Join(names, " "); got != want {
+		t.Errorf("Terms = %q, want %q", got, want)
+	}
+	if got := g.Text(false); got != "delivery at-least-once, ordering per-key, dedupe window 10m, retention 168h, timeout 5s, idempotent" {
+		t.Errorf("Text(false) = %q", got)
+	}
+	r := Requirement{Interface: "http", Guarantees: Guarantees{Timeout: "5s", Idempotent: true}}
+	if got := r.String(); got != "http: timeout at most 5s, idempotent" {
+		t.Errorf("String = %q", got)
+	}
+	if got := (Requirement{Interface: "admin"}).String(); got != "admin" {
+		t.Errorf("interface-only String = %q", got)
+	}
+	if got := (Guarantees{}).Text(false); got != "" {
+		t.Errorf("empty Text = %q", got)
+	}
+}

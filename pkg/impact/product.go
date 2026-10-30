@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -43,6 +45,9 @@ type ProductConsumer struct {
 	Owner                string            `json:"owner,omitempty"`
 	// Note qualifies the verdict, as [AffectedConsumer.Note] does.
 	Note string `json:"note,omitempty"`
+	// Unmet lists the guarantees the consumer requires that the new revision
+	// refuses, as [AffectedConsumer.Unmet] does.
+	Unmet []contract.Mismatch `json:"unmet,omitempty"`
 }
 
 // TallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
@@ -66,6 +71,10 @@ type ConsumersPage struct {
 	// would present "the first 50 consumers" as the blast radius.
 	ByVerdict    []TallyBucket `json:"byVerdict"`
 	ByConfidence []TallyBucket `json:"byConfidence"`
+	// Refused counts, over EVERY consumer, those the new revision leaves with
+	// a guarantee they require unmet. They break whatever their verdict, which
+	// judges only the range.
+	Refused int `json:"refused"`
 }
 
 // ProductChange is one field-level semantic difference between the two revisions,
@@ -205,6 +214,7 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 			CompatibilityVerdict: c.CompatibilityVerdict,
 			Owner:                c.Owner,
 			Note:                 c.Note,
+			Unmet:                slices.Clone(c.Unmet),
 		})
 	}
 	// Deterministic order so paging is stable across identical requests.
@@ -241,8 +251,15 @@ func pageConsumers(all []ProductConsumer, limit, offset int) ConsumersPage {
 	// The two tallies cover EVERY consumer, not this page. A consumer chart drawn from
 	// a page reads exactly like a chart of the whole blast radius, so the complete
 	// distributions are computed here and the page carries them.
+	refused := 0
+	for i := range all {
+		if len(all[i].Unmet) > 0 {
+			refused++
+		}
+	}
 	return ConsumersPage{
-		Total: len(all), Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
+		Refused: refused,
+		Total:   len(all), Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
 		Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
 		ByVerdict:    tallyConsumers(all, verdictOrder, func(c ProductConsumer) string { return c.CompatibilityVerdict }),
 		ByConfidence: tallyConsumers(all, confidenceOrder, func(c ProductConsumer) string { return c.Confidence }),

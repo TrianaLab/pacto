@@ -703,3 +703,81 @@ func TestExecRun(t *testing.T) {
 		t.Fatal("the default registry")
 	}
 }
+
+// TestPublishRefusesAnEnvironmentFailure: publish, and publish --plan, report
+// a version whose values break an environment as invalid.
+func TestPublishRefusesAnEnvironmentFailure(t *testing.T) {
+	host, reg := publishRegistry(t)
+	dir := writeEnvironmentBundle(t, "publish:\n  bundle: oci://"+host+"/pacto/svc\n")
+	for _, plan := range []bool{true, false} {
+		_, err := publishService(&fakeRun{}, reg).Publish(context.Background(), PublishOptions{Path: dir, Plan: plan})
+		if err == nil || !strings.Contains(err.Error(), "contract validation failed") {
+			t.Fatalf("plan %v: %v", plan, err)
+		}
+	}
+}
+
+// TestPublishChecksGuarantees: publish runs the guarantees check validate
+// runs. An unmet guarantee of a required dependency is a failed validation
+// check, so publish refuses; an optional one and an unreachable provider are
+// warnings the passed check names.
+func TestPublishChecksGuarantees(t *testing.T) {
+	provider, err := contract.Parse(strings.NewReader(guaranteeProvider))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reachable := &mockBundleStore{
+		ListTagsFn: func(context.Context, string) ([]string, error) { return []string{"1.0.0"}, nil },
+		PullFn: func(context.Context, string) (*contract.Bundle, error) {
+			return &contract.Bundle{Contract: provider}, nil
+		},
+	}
+	unreachable := &mockBundleStore{
+		ListTagsFn: func(context.Context, string) ([]string, error) { return nil, errors.New("registry down") },
+	}
+	dep := func(required bool, requires string) string {
+		return fmt.Sprintf("dependencies: [{name: orders, ref: oci://example.com/orders, compatibility: ^1.0.0, required: %v, requires: [%s]}]\n", required, requires)
+	}
+	tests := []struct {
+		name    string
+		store   *mockBundleStore
+		deps    string
+		ready   bool
+		message string
+	}{
+		{"required unmet refuses", reachable, dep(true, "{interface: events, delivery: at-most-once}"), false,
+			"GUARANTEE_UNMET: checkout requires events delivery at-most-once from orders, which offers at-least-once"},
+		{"optional unmet warns", reachable, dep(false, "{interface: events, idempotent: true}"), true,
+			"warning GUARANTEE_UNMET: checkout requires events idempotent true from orders, which offers nothing; the contract is otherwise valid"},
+		{"unreachable provider warns", unreachable, dep(true, "{interface: events, delivery: at-least-once}"), true,
+			"warning GUARANTEE_UNVERIFIED: cannot check what checkout requires from orders: "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host, reg := publishRegistry(t)
+			dir := writePublishBundle(t, host, tt.deps)
+			raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+			raw = []byte(strings.Replace(strings.Replace(string(raw), `"2.1"`, `"2.2"`, 1), "name: payments", "name: checkout", 1))
+			if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), raw, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			signingKey(t, dir)
+			writeGit(t, dir, map[string]string{"HEAD": "ref: refs/heads/main\n", "refs/heads/main": commitA + "\n"})
+			svc := publishService(&fakeRun{}, reg)
+			svc.BundleStore = tt.store
+			res, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Plan: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := res.Plan.Checks[0]
+			if res.Plan.Ready != tt.ready || v.Name != "validation" || v.Passed != tt.ready || !strings.HasPrefix(v.Message, tt.message) {
+				t.Fatalf("ready %v, validation %+v; want ready %v and message %q", res.Plan.Ready, v, tt.ready, tt.message)
+			}
+			if !tt.ready {
+				if _, err := svc.Publish(context.Background(), PublishOptions{Path: dir}); !errors.Is(err, publish.ErrNotReady) {
+					t.Fatalf("publish of an unmet required guarantee: %v", err)
+				}
+			}
+		})
+	}
+}

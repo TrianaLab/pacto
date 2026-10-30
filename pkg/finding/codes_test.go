@@ -13,6 +13,12 @@ func TestCategoryOf(t *testing.T) {
 		CodeInvalidSemver:                CategoryInvalidVersion,
 		CodeNeedsPacto21:                 CategoryInvalidVersion,
 		CodeNeedsPacto22:                 CategoryInvalidVersion,
+		CodeNeedsPacto23:                 CategoryInvalidVersion,
+		CodeDuplicateEnvironmentName:     CategoryDuplicateName,
+		CodeEnvironmentUnknownConfig:     CategoryInvalidReference,
+		CodeEnvironmentValuesInvalid:     CategoryConfigurationViolation,
+		CodeEnvironmentValuesMissing:     CategoryMissingConfiguration,
+		CodeEnvironmentValuesUnverified:  CategoryUnresolvedReference,
 		CodeTagNotDigest:                 CategoryInvalidReference,
 		CodeEmptyCompatibility:           CategoryInvalidDependency,
 		CodeInvalidConfigRef:             CategoryInvalidReference,
@@ -62,9 +68,10 @@ func TestCategoryOf(t *testing.T) {
 func expectedSeverities() map[Code]Severity {
 	m := map[Code]Severity{
 		// Warning-severity codes.
-		CodeTagNotDigest:         SeverityWarning,
-		CodePolicyRefNotEnforced: SeverityWarning,
-		CodeDependencyUndeclared: SeverityWarning,
+		CodeTagNotDigest:                SeverityWarning,
+		CodePolicyRefNotEnforced:        SeverityWarning,
+		CodeEnvironmentValuesUnverified: SeverityWarning,
+		CodeDependencyUndeclared:        SeverityWarning,
 		// Family 2 — uncertainty -> Unknown.
 		CodeEvidenceMissing:        SeverityUnknown,
 		CodeObservationUnsupported: SeverityUnknown,

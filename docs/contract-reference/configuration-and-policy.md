@@ -22,7 +22,7 @@ With `schema`, the configuration schema is a local file, and validation checks t
 
 Required configuration keys are derived from the JSON Schema's `required` array.
 
-The optional `values` field provides default configuration values validated against the local `schema`. A `ref:` entry carries no `values`. To attach values, vendor a local `schema:`. Values document expected defaults or provide environment-specific overrides through the `--set` and `--values` flags (see [Contract overrides](overrides.md#contract-overrides)).
+The optional `values` field provides default configuration values validated against the local `schema`. A `ref:` entry carries no `values`. To attach values, vendor a local `schema:`. Values document expected defaults or provide environment-specific overrides through the `--set` and `--values` flags (see [Contract overrides](overrides.md#contract-overrides)). To check the values each environment uses against the schema, list them in [`environments`](environments.md).
 
 !!! tip
     `pacto push` packages every file the contract references, the configuration schema included, into a self-contained OCI artifact.

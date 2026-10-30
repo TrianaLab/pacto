@@ -953,6 +953,48 @@ spec:
                     required:
                       description: Required indicates whether this dependency is mandatory.
                       type: boolean
+                    requires:
+                      description: |-
+                        Requires lists the behavior this service relies on from the provider's
+                        interfaces.
+                      items:
+                        description: |-
+                          RequirementInfo is the behavior a dependency requires from one interface of
+                          its provider.
+                        properties:
+                          dedupeWindow:
+                            description: DedupeWindow is how long a repeated message
+                              is recognised and dropped.
+                            type: string
+                          delivery:
+                            description: Delivery is what happens when a delivery
+                              fails partway.
+                            type: string
+                          idempotent:
+                            description: Idempotent means repeating a call has the
+                              effect of making it once.
+                            type: boolean
+                          interface:
+                            description: Interface names the provider's interface.
+                            type: string
+                          ordering:
+                            description: Ordering is the scope in which messages arrive
+                              in the order sent.
+                            type: string
+                          profile:
+                            description: Profile is the version of the guarantee vocabulary.
+                            type: string
+                          retention:
+                            description: Retention is how long a message stays available
+                              for replay.
+                            type: string
+                          timeout:
+                            description: Timeout is the longest a call takes to answer.
+                            type: string
+                        required:
+                        - interface
+                        type: object
+                      type: array
                     version:
                       description: |-
                         Version is the free-text version an external dependency without a ref
@@ -1113,6 +1155,64 @@ spec:
                   description: InterfaceInfo describes a single interface declared
                     in the contract.
                   properties:
+                    compatibilityEpoch:
+                      description: |-
+                        CompatibilityEpoch is raised when the interface's behavior changes
+                        incompatibly while its specification stays the same. Absent is 0.
+                      format: int32
+                      type: integer
+                    guarantees:
+                      description: Guarantees is the behavior the interface promises
+                        its consumers.
+                      properties:
+                        dedupeWindow:
+                          description: DedupeWindow is how long a repeated message
+                            is recognised and dropped.
+                          type: string
+                        delivery:
+                          description: Delivery is what happens when a delivery fails
+                            partway.
+                          type: string
+                        idempotent:
+                          description: Idempotent means repeating a call has the effect
+                            of making it once.
+                          type: boolean
+                        ordering:
+                          description: Ordering is the scope in which messages arrive
+                            in the order sent.
+                          type: string
+                        profile:
+                          description: Profile is the version of the guarantee vocabulary.
+                          type: string
+                        retention:
+                          description: Retention is how long a message stays available
+                            for replay.
+                          type: string
+                        timeout:
+                          description: Timeout is the longest a call takes to answer.
+                          type: string
+                      type: object
+                    lifecycle:
+                      description: |-
+                        Lifecycle is the retirement schedule of a deprecated interface. Absent
+                        for an interface that is not deprecated.
+                      properties:
+                        deprecated:
+                          description: Deprecated is the date the interface was deprecated
+                            (YYYY-MM-DD).
+                          type: string
+                        successor:
+                          description: |-
+                            Successor names the interface that replaces this one, or holds an
+                            absolute URL when the replacement lives in another service.
+                          type: string
+                        sunset:
+                          description: Sunset is the date the interface is removed
+                            (YYYY-MM-DD).
+                          type: string
+                      required:
+                      - deprecated
+                      type: object
                     name:
                       description: Name is the interface name.
                       type: string
@@ -1546,6 +1646,14 @@ spec:
                     - name
                     type: object
                 type: object
+              statusFormat:
+                description: |-
+                  StatusFormat is the layout this status is written in. Format 1 records
+                  interface guarantees and dependency requirements. A status without it
+                  was written by an older operator, so readers treat what it would record
+                  about them as unknown until the operator reconciles the Pacto again.
+                format: int32
+                type: integer
               summary:
                 description: Summary provides severity-based finding counts.
                 properties:

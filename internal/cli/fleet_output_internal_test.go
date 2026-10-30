@@ -46,3 +46,32 @@ func TestSeenBy(t *testing.T) {
 		t.Errorf("seenBy without collector = %q", got)
 	}
 }
+
+// The graph answer lists nodes breadth-first; the text view indents by depth,
+// so it prints them in path order to keep each node under the parent it was
+// reached through.
+func TestPrintFleetGraph_IndentsUnderShortestPathParent(t *testing.T) {
+	res := &fleet.GraphResult{Root: "r", Direction: fleet.DirectionDependencies, Nodes: []fleet.GraphNode{
+		{Key: "a", Name: "a", Depth: 1, Path: []fleet.ServiceKey{"r", "a"}},
+		{Key: "z", Name: "z", Depth: 1, Path: []fleet.ServiceKey{"r", "z"}},
+		{Key: "b", Name: "b", Depth: 2, Path: []fleet.ServiceKey{"r", "a", "b"}},
+		{Key: "t", Name: "t", Depth: 2, Path: []fleet.ServiceKey{"r", "z", "t"}},
+	}}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := printFleetGraph(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	want := "dependencies of r (4 node(s)):\n" +
+		"    a (depth 1)\n" +
+		"      b (depth 2)\n" +
+		"    z (depth 1)\n" +
+		"      t (depth 2)\n"
+	if out.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", out.String(), want)
+	}
+	if res.Nodes[1].Key != "z" {
+		t.Error("printing must not reorder the caller's answer")
+	}
+}

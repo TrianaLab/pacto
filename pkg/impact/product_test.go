@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -149,7 +150,8 @@ func boundedResult() *Result {
 		Classification: "BREAKING",
 		Consumers: []AffectedConsumer{
 			{Service: "web", Path: longPath, Confidence: ConfidenceDeclared, CompatibilityVerdict: CompatibilityIncompatible},
-			{Service: "api", Domain: "acme", Path: []string{"acme/api"}, Confidence: "novel", CompatibilityVerdict: CompatibilityCompatible, Note: "range only"},
+			{Service: "api", Domain: "acme", Path: []string{"acme/api"}, Confidence: "novel", CompatibilityVerdict: CompatibilityCompatible, Note: "range only",
+				Unmet: []contract.Mismatch{{Consumer: "api", Provider: "api", Interface: "events", Guarantee: "delivery", Required: "at-least-once"}}},
 		},
 		Gate:          GateUnverified,
 		GateReason:    "why",
@@ -196,8 +198,15 @@ func TestBuildProduct_CarriesGateAndNote(t *testing.T) {
 	if p.Gate != GateUnverified || p.GateReason != "why" {
 		t.Errorf("gate = %q %q", p.Gate, p.GateReason)
 	}
+	// Refused counts every consumer left with a guarantee unmet, not the page.
+	if second := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, boundedResult(), 1, 1).Consumers; second.Refused != 1 || len(second.Items[0].Unmet) != 0 {
+		t.Errorf("refused tally over a page without it = %d", second.Refused)
+	}
 	if p.Consumers.Items[0].Note != "range only" {
 		t.Errorf("note = %q", p.Consumers.Items[0].Note)
+	}
+	if u := p.Consumers.Items[0].Unmet; len(u) != 1 || u[0].Guarantee != "delivery" {
+		t.Errorf("unmet = %+v", u)
 	}
 }
 

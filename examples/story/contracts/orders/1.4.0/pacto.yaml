@@ -1,4 +1,4 @@
-pactoVersion: "2.1"
+pactoVersion: "2.2"
 service:
   name: orders
   version: 1.4.0
@@ -10,6 +10,9 @@ dependencies:
     ref: oci://registry.example/story/payments
     required: true
     compatibility: "^2"
+    requires:
+      - interface: http
+        idempotent: true
 publish:
   bundle: oci://registry.example/story/orders
   deploy: manifests

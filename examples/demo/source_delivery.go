@@ -192,7 +192,7 @@ func versionOf(service, digest string) string {
 }
 
 var storyVersions = map[string][]string{
-	"payments":  {"2.3.0", "2.4.0", "2.4.2", "2.4.3", "3.0.0"},
+	"payments":  {"2.3.0", "2.4.0", "2.4.1", "2.4.2", "2.4.3", "3.0.0"},
 	"checkout":  {"1.8.0", "1.9.0"},
 	"orders":    {"1.4.0"},
 	"fraud":     {"1.0.0"},
@@ -268,6 +268,8 @@ func (d *demoDelivery) replay(start time.Time) error {
 	steps := []struct{ svc, env, to string }{
 		{"payments", story.Test, "2.4.0"}, // B1 in test
 		{"payments", story.Prod, "2.4.0"}, // B1, then the health check fails, B2 rolls it back and prod steps down
+		{"payments", story.Test, "2.4.1"}, // the environment beat: 2.4.1 declares test values only
+		{"payments", story.Prod, "2.4.1"}, // so prod holds it for team payments, who reject it
 		{"payments", story.Test, "2.4.2"}, // B3: the claim check fails, and test steps down
 		{"checkout", story.Test, "1.9.0"},
 		{"payments", story.Test, "3.0.0"}, // B4: the signed 3.0.0, which ledger-export's missing contract holds
@@ -282,12 +284,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 		if err != nil {
 			return err
 		}
-		if o.Status.Phase == delivery.PhaseHeld {
-			// Test auto-promotes only non-breaking changes since 2.4.2 failed,
-			// and a workload with no contract calls payments: alice, on its
-			// team, accepts that unknown.
-			d.decide(o, d.callerOf(story.Alice), o.Status.Plan.Floor.Decision, "ledger-export only reads payment ids, which 3.0.0 keeps")
-		}
+		d.decideHeld(o, s.to)
 		if s.to == "2.4.2" {
 			d.gapAndStranger(d.stage(s.env, s.svc))
 		}
@@ -296,6 +293,20 @@ func (d *demoDelivery) replay(start time.Time) error {
 		s.Status.Proposal = d.proposal(s)
 	}
 	return nil
+}
+
+// decideHeld is alice's answer to a replayed change the plan held.
+func (d *demoDelivery) decideHeld(o *delivery.OperationObject, to string) {
+	switch {
+	case o.Status.Phase != delivery.PhaseHeld:
+	case to == "2.4.1":
+		d.decide(o, d.callerOf(story.Alice), delivery.Reject, "2.4.2 declares the prod values")
+	default:
+		// Test auto-promotes only non-breaking changes since 2.4.2 failed,
+		// and a workload with no contract calls payments: alice, on its
+		// team, accepts that unknown.
+		d.decide(o, d.callerOf(story.Alice), o.Status.Plan.Floor.Decision, "ledger-export only reads payment ids, which 3.0.0 keeps")
+	}
 }
 
 // observe is the stage reconciler on a Stage that observes, after GitOps
