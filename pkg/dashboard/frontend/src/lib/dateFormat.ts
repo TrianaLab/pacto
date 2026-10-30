@@ -16,7 +16,16 @@ export function formatDate(iso: string | null | undefined): string {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    // A bare YYYY-MM-DD is a calendar date, parsed as UTC midnight: read in local time
+    // it printed the day before west of Greenwich.
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? { timeZone: 'UTC' } : {}),
   });
+}
+
+/** todayUTC is the current calendar date in UTC as YYYY-MM-DD, the form contract dates
+ *  take, so the two compare as text. `now` is a parameter so tests do not read the clock. */
+export function todayUTC(now: number = Date.now()): string {
+  return new Date(now).toISOString().slice(0, 10);
 }
 
 /**
