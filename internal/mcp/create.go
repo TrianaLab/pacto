@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -170,6 +171,9 @@ type ValidationItem struct {
 	Message string `json:"message"`
 	Line    int    `json:"line,omitempty"`
 	Column  int    `json:"column,omitempty"`
+	// File is the bundle file Line and Column point into when it is not
+	// pacto.yaml, such as an environment's file.
+	File string `json:"file,omitempty"`
 }
 
 // Suggestion represents an improvement suggestion with an optional tool call.
@@ -968,6 +972,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string) (*C
 			Message: e.Message,
 			Line:    e.Line,
 			Column:  e.Column,
+			File:    e.File,
 		})
 	}
 	for _, w := range vr.Warnings {
@@ -985,16 +990,26 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string) (*C
 
 // --- YAML marshaling with ordered keys ---
 
+// topLevelKeyOrder is the order marshalContract writes the top-level fields
+// in: the newest schema's order.
 var topLevelKeyOrder = []string{
-	"pactoVersion", "service", "interfaces", "configurations",
-	"policies", "dependencies", "state", "workload", "capabilities", "readiness", "metadata", "extensions",
+	"pactoVersion", "service", "interfaces", "configurations", "environments",
+	"policies", "dependencies", "state", "workload", "capabilities", "readiness", "publish", "checks", "metadata", "extensions",
 }
 
+// marshalContract writes m with its top-level keys in topLevelKeyOrder, then
+// any key that order does not list, sorted, so it never drops one.
 func (o fileOps) marshalContract(m map[string]any) ([]byte, error) {
 	doc := &yaml.Node{Kind: yaml.DocumentNode}
 	mapping := &yaml.Node{Kind: yaml.MappingNode}
 
-	for _, key := range topLevelKeyOrder {
+	keys := slices.Clone(topLevelKeyOrder)
+	for _, key := range slices.Sorted(maps.Keys(m)) {
+		if !slices.Contains(topLevelKeyOrder, key) {
+			keys = append(keys, key)
+		}
+	}
+	for _, key := range keys {
 		val, ok := m[key]
 		if !ok {
 			continue

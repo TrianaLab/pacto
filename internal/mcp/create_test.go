@@ -16,6 +16,8 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/validation"
+	"gopkg.in/yaml.v3"
 )
 
 func TestCreate_Minimal(t *testing.T) {
@@ -1239,14 +1241,13 @@ interfaces:
   - name: api
     type: openapi
     ref: interfaces/api.yaml
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
@@ -2163,14 +2164,13 @@ func TestEdit_BuildFSError(t *testing.T) {
 service:
   name: test
   version: "1.0.0"
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
 
@@ -2303,14 +2303,13 @@ service:
   name: test
   version: "1.0.0"
   unknownField: bad
-runtime:
-  workload: service
-  state:
-    type: stateless
-    persistence:
-      scope: local
-      durability: ephemeral
-    dataCriticality: low
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yamlContent), 0644)
 	_, err := Edit(EditInput{Path: dir, Version: strPtr("2.0.0")})
@@ -2852,5 +2851,43 @@ func TestDependencyEntry(t *testing.T) {
 	}
 	if needs21(map[string]any{"pactoVersion": "2.0"}, []DependencyInput{{Ref: "r"}}) {
 		t.Error("no external dependency needs no 2.1")
+	}
+}
+
+// TestMarshalContract_KeepsEveryTopLevelKey: pacto_edit rewrites the whole
+// contract, so every top-level field of the newest schema, and any key it
+// does not list, survives the round trip in schema order.
+func TestMarshalContract_KeepsEveryTopLevelKey(t *testing.T) {
+	var schema struct {
+		Properties map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal(validation.SchemaBytes(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	m := map[string]any{"zz-unlisted": "kept"}
+	for key := range schema.Properties {
+		m[key] = key
+	}
+	data, err := osFileOps().marshalContract(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := yaml.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if len(back) != len(m) {
+		t.Fatalf("got keys %v, want %d keys:\n%s", slices.Sorted(maps.Keys(back)), len(m), data)
+	}
+	if !strings.HasPrefix(string(data), "pactoVersion:") || !strings.HasSuffix(string(data), "zz-unlisted: kept\n") {
+		t.Fatalf("order:\n%s", data)
+	}
+	for _, key := range topLevelKeyOrder {
+		if _, ok := schema.Properties[key]; !ok {
+			t.Errorf("%s is not a top-level field of the schema", key)
+		}
+	}
+	if len(topLevelKeyOrder) != len(schema.Properties) {
+		t.Errorf("topLevelKeyOrder has %d keys, the schema %d", len(topLevelKeyOrder), len(schema.Properties))
 	}
 }
