@@ -46,23 +46,23 @@ func EnvironmentStage(c *contract.Contract, bundleFS fs.FS) Stage {
 // checkEnvironment checks one environment's values file into r and returns
 // each environment/configuration pair it could not verify.
 func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bundleFS fs.FS, r *ValidationResult) []string {
-	path := fmt.Sprintf("environments[%d].values", i)
+	path := fmt.Sprintf("environments[%d].file", i)
 	if bundleFS == nil {
-		r.AddWarning(path, "ENVIRONMENT_VALUES_UNVERIFIED", fmt.Sprintf("environment %s: no bundle files to read %s from", env.Name, env.Values))
+		r.AddWarning(path, "ENVIRONMENT_VALUES_UNVERIFIED", fmt.Sprintf("environment %s: no bundle files to read %s from", env.Name, env.File))
 		return []string{env.Name}
 	}
 	fail := func(code, at string, raw []byte, msg string) {
-		e := contract.ValidationError{Path: path, Code: code, Message: "environment " + env.Name + ": " + msg, File: env.Values}
+		e := contract.ValidationError{Path: path, Code: code, Message: "environment " + env.Name + ": " + msg, File: env.File}
 		e.Line, e.Column = contract.Locate(raw, at)
 		r.Errors = append(r.Errors, e)
 	}
-	raw, err := fs.ReadFile(bundleFS, env.Values)
+	raw, err := fs.ReadFile(bundleFS, env.File)
 	var values map[string]any
 	if err == nil {
 		values, err = contract.ParseEnvironmentValues(raw)
 	}
 	if err != nil {
-		fail("ENVIRONMENT_VALUES_INVALID", "", nil, fmt.Sprintf("cannot read %s: %v", env.Values, err))
+		fail("ENVIRONMENT_VALUES_INVALID", "", nil, fmt.Sprintf("cannot read %s: %v", env.File, err))
 		return nil
 	}
 

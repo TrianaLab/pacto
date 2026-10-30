@@ -8,10 +8,10 @@ import (
 )
 
 // diffEnvironments reports environments added and removed by name and, for an
-// environment on both sides, every value that changed in its values file. A
-// value change is NonBreaking: the values are this service's own deploy
-// inputs, not surface its consumers read. A values file that cannot be read on
-// one side compares as empty.
+// environment on both sides, every value that changed in its file, at
+// environments[name].<configuration>.<path>. A value change is NonBreaking:
+// the values are this service's own inputs, and only the service reads them.
+// A file that cannot be read on one side compares as empty.
 func diffEnvironments(old, new []contract.Environment, oldFS, newFS fs.FS) []Change {
 	var changes []Change
 	for _, o := range old {
@@ -20,7 +20,11 @@ func diffEnvironments(old, new []contract.Environment, oldFS, newFS fs.FS) []Cha
 			changes = append(changes, newChange("environments", Removed, o.Name, nil))
 			continue
 		}
-		changes = append(changes, diffConfigValues("environments", o.Name, environmentValues(oldFS, o.Values), environmentValues(newFS, new[i].Values))...)
+		valueChanges := diffJSON(dirUnknown, nil, "environments["+o.Name+"]", environmentValues(oldFS, o.File), environmentValues(newFS, new[i].File))
+		for j := range valueChanges {
+			valueChanges[j].Classification = NonBreaking
+		}
+		changes = append(changes, valueChanges...)
 	}
 	for _, n := range new {
 		if !slices.ContainsFunc(old, func(o contract.Environment) bool { return o.Name == n.Name }) {

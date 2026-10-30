@@ -161,7 +161,7 @@ def is_local_ref(val) -> bool:
 def collect_local_refs(obj, out: set[str]) -> None:
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if k in ("ref", "schema", "file", "values") and is_local_ref(v):
+            if k in ("ref", "schema", "file") and is_local_ref(v):
                 out.add(v)
             else:
                 collect_local_refs(v, out)

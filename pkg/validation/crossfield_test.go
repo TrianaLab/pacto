@@ -1209,11 +1209,11 @@ func TestValidateDependencyForm(t *testing.T) {
 
 func TestValidateEnvironmentFiles(t *testing.T) {
 	c := validV20Contract()
-	c.Environments = []contract.Environment{{Name: "staging", Values: "s.yaml"}, {Name: "staging", Values: "../p.yaml"}}
+	c.Environments = []contract.Environment{{Name: "staging", File: "s.yaml"}, {Name: "staging", File: "../p.yaml"}}
 	var result ValidationResult
 	validateEnvironmentFiles(c, fstest.MapFS{"s.yaml": {}}, &result)
 	if len(result.Errors) != 2 || result.Errors[0].Code != "DUPLICATE_ENVIRONMENT_NAME" || result.Errors[1].Code != "FILE_NOT_FOUND" ||
-		result.Errors[1].Path != "environments[1].values" {
+		result.Errors[1].Path != "environments[1].file" {
 		t.Fatalf("got %+v", result.Errors)
 	}
 	result = ValidationResult{}

@@ -190,7 +190,7 @@ var fieldCoverageCases = []fcCase{
 	invalid("configurations/invalid", parseError, set("configurations", "app")),
 	valid("configurations[]/valid"),
 	invalid("configurations[]/invalid", "DUPLICATE_CONFIGURATION_NAME", set("configurations.1", map[string]any{"name": "app", "schema": "configuration/schema.json", "required": false})),
-	valid("configurations[].name/valid", set("configurations.0.name", "runtime"), set("environments.0.values", "environments/runtime.yaml")),
+	valid("configurations[].name/valid", set("configurations.0.name", "runtime"), set("environments.0.file", "environments/runtime.yaml")),
 	invalid("configurations[].name/invalid", schemaViolation, del("configurations.0.name")),
 	valid("configurations[].schema/valid", del("configurations.0.values")),
 	invalid("configurations[].schema/invalid", "FILE_NOT_FOUND", set("configurations.0.schema", "configuration/missing.json")),
@@ -204,15 +204,15 @@ var fieldCoverageCases = []fcCase{
 	valid("environments/valid", del("environments")),
 	invalid("environments/invalid", parseError, set("environments", "staging")),
 	invalid("environments/needs-2.3", needs23, set("pactoVersion", "2.2")),
-	valid("environments[]/valid", set("environments.1", map[string]any{"name": "production", "values": "environments/production.json"})),
+	valid("environments[]/valid", set("environments.1", map[string]any{"name": "production", "file": "environments/production.json"})),
 	invalid("environments[]/invalid", parseError, set("environments.0.cluster", "eu-1")),
 	valid("environments[].name/valid", set("environments.0.name", "staging-eu-1")),
 	invalid("environments[].name/invalid", schemaViolation, set("environments.0.name", "Staging")),
-	invalid("environments[].name/duplicate", "DUPLICATE_ENVIRONMENT_NAME", set("environments.1", map[string]any{"name": "staging", "values": "environments/production.json"})),
-	valid("environments[].values/valid", set("environments.0.values", "environments/production.json")),
-	invalid("environments[].values/invalid", "ENVIRONMENT_VALUES_INVALID", set("environments.0.values", "environments/broken.yaml")),
-	invalid("environments[].values/missing", "FILE_NOT_FOUND", set("environments.0.values", "environments/qa.yaml")),
-	invalid("environments[].values/unknown-configuration", "ENVIRONMENT_UNKNOWN_CONFIGURATION", set("environments.0.values", "environments/typo.yaml")),
+	invalid("environments[].name/duplicate", "DUPLICATE_ENVIRONMENT_NAME", set("environments.1", map[string]any{"name": "staging", "file": "environments/production.json"})),
+	valid("environments[].file/valid", set("environments.0.file", "environments/production.json")),
+	invalid("environments[].file/invalid", "ENVIRONMENT_VALUES_INVALID", set("environments.0.file", "environments/broken.yaml")),
+	invalid("environments[].file/missing", "FILE_NOT_FOUND", set("environments.0.file", "environments/qa.yaml")),
+	invalid("environments[].file/unknown-configuration", "ENVIRONMENT_UNKNOWN_CONFIGURATION", set("environments.0.file", "environments/typo.yaml")),
 
 	valid("policies/valid", del("policies")),
 	invalid("policies/invalid", parseError, set("policies", "base")),
@@ -496,7 +496,7 @@ configurations:
     required: true
 environments:
   - name: staging
-    values: environments/staging.yaml
+    file: environments/staging.yaml
 policies:
   - name: base
     schema: policy/schema.json

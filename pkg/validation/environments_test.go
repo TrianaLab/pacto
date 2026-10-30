@@ -21,7 +21,7 @@ func envContract(values ...string) *contract.Contract {
 		},
 	}
 	for i, v := range values {
-		c.Environments = append(c.Environments, contract.Environment{Name: []string{"staging", "production"}[i], Values: v})
+		c.Environments = append(c.Environments, contract.Environment{Name: []string{"staging", "production"}[i], File: v})
 	}
 	return c
 }
@@ -82,7 +82,7 @@ func TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile(t *testing.T) {
 	}
 	byMsg := map[string]contract.ValidationError{}
 	for _, e := range st.Errors {
-		if e.File != "prod.yaml" || e.Path != "environments[1].values" {
+		if e.File != "prod.yaml" || e.Path != "environments[1].file" {
 			t.Fatalf("file/path: %+v", e)
 		}
 		byMsg[e.Message] = e

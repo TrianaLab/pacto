@@ -318,7 +318,7 @@
         "type": "object",
         "required": [
           "name",
-          "values"
+          "file"
         ],
         "additionalProperties": false,
         "properties": {
@@ -328,10 +328,10 @@
             "maxLength": 63,
             "description": "A unique, DNS-compatible name for the environment (lowercase alphanumeric and hyphens)."
           },
-          "values": {
+          "file": {
             "type": "string",
             "minLength": 1,
-            "description": "Path to a YAML or JSON file within the bundle that maps each configuration name to the values this environment uses for it. Values hold references to secrets, never secret material."
+            "description": "Path to a YAML or JSON file within the bundle that maps each configuration name to the values this environment uses for it. Values hold references to secrets, such as a Secret name. Keep secret material out of the file."
           }
         }
       }

@@ -976,7 +976,7 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].name/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].name/invalid
       e2e: []
-  environments[].values:
+  environments[].file:
     meaning: Bundle file mapping each configuration name to the values this environment uses for it.
     runtime: static-only
     evidence: 'none: the values are checked against each configuration schema when the contract is validated'
@@ -991,8 +991,8 @@ fields:
       - pkg/validation/environments_test.go:TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile
       - pkg/validation/environments_test.go:TestEnvironmentStage_Unverified
       integration:
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].values/valid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].values/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/invalid
       e2e: []
   policies:
     meaning: Policies the contract itself must satisfy.

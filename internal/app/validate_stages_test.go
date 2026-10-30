@@ -246,7 +246,7 @@ configurations:
     required: true
 environments:
   - name: production
-    values: environments/production.yaml
+    file: environments/production.yaml
 `,
 		"chart/values.schema.json":     `{"type":"object","properties":{"ingress":{"type":"object","required":["host"]}}}`,
 		"environments/production.yaml": "chart:\n  replicaCount: 5\n  ingress:\n    tls: true\n",
@@ -271,7 +271,7 @@ environments:
 	if e.File != values || e.Line != 3 || e.Column != 3 {
 		t.Fatalf("error = %+v", e)
 	}
-	if want := "fix environments[0].values at " + values + ":3:3 [ENVIRONMENT_VALUES_INVALID], then run pacto validate " + dir; r.Next != want {
+	if want := "fix environments[0].file at " + values + ":3:3 [ENVIRONMENT_VALUES_INVALID], then run pacto validate " + dir; r.Next != want {
 		t.Fatalf("next = %q, want %q", r.Next, want)
 	}
 

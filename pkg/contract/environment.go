@@ -12,8 +12,8 @@ import (
 // maps a configuration name to that configuration's values, which validation
 // checks against the configuration's schema.
 type Environment struct {
-	Name   string `yaml:"name" json:"name"`
-	Values string `yaml:"values" json:"values"`
+	Name string `yaml:"name" json:"name"`
+	File string `yaml:"file" json:"file"`
 }
 
 // ParseEnvironmentValues decodes an environment values file, YAML or JSON, into

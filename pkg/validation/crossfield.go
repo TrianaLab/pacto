@@ -372,9 +372,9 @@ func validateEnvironmentFiles(c *contract.Contract, bundleFS fs.FS, result *Vali
 				fmt.Sprintf("environment name %q is already declared at environments[%d]", env.Name, prev))
 		}
 		seen[env.Name] = i
-		if bundleFS != nil && missingFile(bundleFS, env.Values) {
-			result.AddError(fmt.Sprintf("environments[%d].values", i), "FILE_NOT_FOUND",
-				fmt.Sprintf("environment values file %q not found in bundle", env.Values))
+		if bundleFS != nil && missingFile(bundleFS, env.File) {
+			result.AddError(fmt.Sprintf("environments[%d].file", i), "FILE_NOT_FOUND",
+				fmt.Sprintf("environment values file %q not found in bundle", env.File))
 		}
 	}
 }
