@@ -27,8 +27,8 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/diff"
 )
 
-// Files holds contracts/<service>/<version>/ (real pactoVersion 2.1 bundles
-// with a publish section) and plain/fraud/ (a service with a Dockerfile and
+// Files holds contracts/<service>/<version>/ (real pactoVersion 2.1 and 2.2
+// bundles with a publish section) and plain/fraud/ (a service with a Dockerfile and
 // Kubernetes manifests and no pacto.yaml: the starting point of the pactify act).
 //
 //go:embed all:contracts all:plain

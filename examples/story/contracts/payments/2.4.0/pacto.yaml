@@ -1,4 +1,4 @@
-pactoVersion: "2.1"
+pactoVersion: "2.2"
 service:
   name: payments
   version: 2.4.0
@@ -9,6 +9,10 @@ interfaces:
   - name: http
     type: openapi
     ref: interfaces/openapi.yaml
+    # Charges are retried, so the callers rely on a repeated call charging once.
+    guarantees:
+      idempotent: true
+      timeout: 5s
 publish:
   bundle: oci://registry.example/story/payments
   deploy: manifests

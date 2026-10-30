@@ -44,7 +44,9 @@ func plan(t *testing.T, b Beat) delivery.Plan {
 }
 
 // TestEveryContractValidates walks every story contract: it parses, passes
-// validation and is a 2.1 contract with a publish section.
+// validation and is a 2.1 or 2.2 contract with a publish section. payments
+// and its callers are 2.2: payments promises an idempotent http interface and
+// orders and checkout require it.
 func TestEveryContractValidates(t *testing.T) {
 	n := 0
 	err := fs.WalkDir(Files, "contracts", func(p string, d fs.DirEntry, err error) error {
@@ -57,7 +59,7 @@ func TestEveryContractValidates(t *testing.T) {
 			return err
 		}
 		res := validation.Validate(b.Contract, b.RawYAML, b.FS)
-		if !res.IsValid() || b.Contract.PactoVersion != "2.1" || b.Contract.Publish == nil {
+		if !res.IsValid() || (b.Contract.PactoVersion != "2.1" && b.Contract.PactoVersion != "2.2") || b.Contract.Publish == nil {
 			t.Errorf("%s: version %s, publish %v, errors %v", p, b.Contract.PactoVersion, b.Contract.Publish != nil, res.Errors)
 		}
 		n++
@@ -65,6 +67,35 @@ func TestEveryContractValidates(t *testing.T) {
 	})
 	if err != nil || n != 11 {
 		t.Fatalf("walked %d contracts: %v", n, err)
+	}
+}
+
+// TestCallersRequirementsAreMetByEveryPayments keeps refusals out of the story:
+// orders and checkout require payments' idempotent http, and every payments
+// version promises it, so no beat's plan turns on a refused guarantee.
+func TestCallersRequirementsAreMetByEveryPayments(t *testing.T) {
+	versions, err := fs.ReadDir(Files, "contracts/payments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, caller := range []struct{ svc, ver string }{{"orders", "1.4.0"}, {"checkout", "1.8.0"}, {"checkout", "1.9.0"}} {
+		c, err := Bundle(caller.svc, caller.ver)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dep := c.Contract.Dependencies[0]
+		if len(dep.Requires) == 0 {
+			t.Fatalf("%s %s requires nothing of payments", caller.svc, caller.ver)
+		}
+		for _, v := range versions {
+			p, err := Bundle("payments", v.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m := contract.Unmet(caller.svc, dep, p.Contract); len(m) > 0 {
+				t.Errorf("payments %s refuses %s %s: %v", v.Name(), caller.svc, caller.ver, m)
+			}
+		}
 	}
 }
 
