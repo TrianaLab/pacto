@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { boot } from './typographyChecks';
+import { DOC_ORIGIN } from './ports';
 
 /**
  * The shared "On this page" navigator, measured in a browser.
@@ -331,4 +332,112 @@ test('below the rail breakpoint it is the same control, closed, under the title'
   expect(m.summary).toContain('On this page');
   expect(m.afterHeader).toBe(true);
   expect(m.sticky).not.toBe('sticky');
+});
+
+/**
+ * A revision with more sections than the rail used to be sized for: a payments-service
+ * revision with deploy targets carries eleven or more. The first such revision is found
+ * by counting, so the claim does not depend on which revision key sorts first.
+ */
+async function crowdedRevisionPage(page: Page): Promise<number> {
+  await boot(page, '#/fleet');
+  const keys: string[] = await page.evaluate(async () => {
+    const r = await (await fetch('/api/fleet/entities?kinds=revision&service=payments-service&limit=50')).json();
+    return (r.entities || []).map((e: { key: string }) => e.key);
+  });
+  for (const key of keys) {
+    await boot(page, `#/fleet/revisions/${encodeURIComponent(key)}`);
+    await expect(page.locator(TOC)).toBeVisible({ timeout: 30_000 });
+    const n = await page.locator(`${TOC} .toc-link`).count();
+    if (n >= 11) return n;
+  }
+  throw new Error('no payments-service revision in the demo has eleven or more sections');
+}
+
+/** Where the rail's list ends and where the current entry sits, against the fold. */
+function railGeometry(page: Page) {
+  return page.evaluate(() => {
+    const nav = document.querySelector('[data-testid="page-toc"]')!;
+    const list = nav.querySelector('.toc-list')!.getBoundingClientRect();
+    const cur = nav.querySelector('.toc-link[aria-current="true"]');
+    const c = cur?.getBoundingClientRect();
+    return {
+      bottom: Math.round(nav.getBoundingClientRect().bottom),
+      viewport: window.innerHeight,
+      current: cur?.textContent?.trim() ?? '',
+      currentInList: !!c && c.top >= list.top - 1 && c.bottom <= list.bottom + 1,
+      currentOnScreen: !!c && c.top >= 0 && c.bottom <= window.innerHeight,
+    };
+  });
+}
+
+test('a rail with more entries than fit still fits, and keeps the current one in view', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const n = await crowdedRevisionPage(page);
+  await page.getByTestId('demo-strip-close').click();
+  const labels = (await page.locator(`${TOC} .toc-link`).allTextContents()).map((s) => s.trim());
+  expect(labels.length).toBe(n);
+
+  // On arrival: above the fold, with the first section current and visible.
+  await expect.poll(async () => (await railGeometry(page)).current, { timeout: 15_000 }).toBe(labels[0]);
+  let g = await railGeometry(page);
+  expect(g.bottom, `the contents rail runs past the fold (${g.bottom} > ${g.viewport}) with ${n} entries`).toBeLessThanOrEqual(g.viewport);
+  expect(g.currentInList && g.currentOnScreen, 'the current entry is scrolled out of sight').toBe(true);
+
+  // Not vacuous: at this size the entries do not all fit, so the list scrolls itself.
+  expect(await page.$eval(`${TOC} .toc-list`, (l) => l.scrollHeight > l.clientHeight), 'every entry fits, so this proves nothing').toBe(true);
+
+  // The reader scrolls to the end of the page: whichever section the marker reaches, the
+  // rail shows it and still ends above the fold.
+  for (let i = 0; i < 20; i++) await page.mouse.wheel(0, 4000);
+  await expect.poll(async () => labels.indexOf((await railGeometry(page)).current), { timeout: 15_000 }).toBeGreaterThan(0);
+  g = await railGeometry(page);
+  expect(g.bottom).toBeLessThanOrEqual(g.viewport);
+  expect(g.currentInList && g.currentOnScreen, `"${g.current}" is current but scrolled out of sight in the rail`).toBe(true);
+
+  // Every entry stays reachable by keyboard, and choosing the last one keeps it in view
+  // as the current entry.
+  const lastLabel = labels[labels.length - 1];
+  const last = page.getByRole('button', { name: lastLabel, exact: true });
+  await last.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await railGeometry(page)).current).toBe(lastLabel);
+  g = await railGeometry(page);
+  expect(g.bottom).toBeLessThanOrEqual(g.viewport);
+  expect(g.currentInList && g.currentOnScreen, `the chosen "${lastLabel}" is hidden inside the rail`).toBe(true);
+});
+
+test('the pacto doc page rail fits too, however many sections the contract fills', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(`${DOC_ORIGIN}/index.html`);
+  const rail = page.locator('nav.section-toc');
+  await expect(rail).toBeVisible({ timeout: 60_000 });
+  const m = await rail.evaluate((nav) => {
+    const cur = nav.querySelector('[aria-current="true"]')!.getBoundingClientRect();
+    const box = nav.getBoundingClientRect();
+    return {
+      entries: nav.querySelectorAll('.section-toc-item').length,
+      overflows: nav.scrollHeight > nav.clientHeight,
+      bottom: Math.round(box.bottom),
+      viewport: window.innerHeight,
+      currentInRail: cur.top >= box.top - 1 && cur.bottom <= box.bottom + 1,
+    };
+  });
+  expect(m.entries).toBeGreaterThanOrEqual(11);
+  expect(m.overflows, 'every entry fits, so this proves nothing').toBe(true);
+  expect(m.bottom, `the doc page rail runs past the fold (${m.bottom} > ${m.viewport})`).toBeLessThanOrEqual(m.viewport);
+  expect(m.currentInRail).toBe(true);
+
+  // At the end of the page the marker has moved down the list, and the rail moved with it.
+  const first = await rail.locator('[aria-current="true"]').textContent();
+  for (let i = 0; i < 20; i++) await page.mouse.wheel(0, 4000);
+  await expect.poll(() => rail.locator('[aria-current="true"]').textContent(), { timeout: 15_000 }).not.toBe(first);
+  expect(await rail.evaluate((nav) => {
+    const r = nav.querySelector('[aria-current="true"]')!.getBoundingClientRect();
+    const box = nav.getBoundingClientRect();
+    return r.top >= box.top - 1 && r.bottom <= box.bottom + 1 && box.bottom <= window.innerHeight;
+  }), 'the current entry is hidden inside the rail').toBe(true);
 });

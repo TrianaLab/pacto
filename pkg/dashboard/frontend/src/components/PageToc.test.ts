@@ -363,4 +363,47 @@ describe('PageToc', () => {
     expect(() => links(target)[0].click()).not.toThrow();
     unmount(c);
   });
+
+  it('caps the rail list at the fold where there is room for a rail, and only there', async () => {
+    body = page(['A', 'B', 'C']);
+    const c = mountToc();
+    const list = target.querySelector('.toc-list') as HTMLElement;
+    list.getBoundingClientRect = () => ({ top: 300 }) as DOMRect;
+    expect(list.style.maxHeight).toBe('');
+
+    mq.get(WIDE)!.fire(true);
+    flushSync();
+    expect(list.style.maxHeight).toBe(`${window.innerHeight - 300 - 16}px`);
+
+    // As the rail rises to its sticky place the list may grow with it.
+    list.getBoundingClientRect = () => ({ top: 80 }) as DOMRect;
+    await scrolled();
+    expect(list.style.maxHeight).toBe(`${window.innerHeight - 80 - 16}px`);
+
+    mq.get(WIDE)!.fire(false);
+    flushSync();
+    expect(list.style.maxHeight).toBe('');
+    unmount(c);
+  });
+
+  it('scrolls the rail list, never the page, to keep the current entry in view', () => {
+    body = page(['A', 'B', 'C', 'D']);
+    const c = mountToc();
+    const list = target.querySelector('.toc-list') as HTMLElement;
+    Object.defineProperty(list, 'clientHeight', { value: 60, configurable: true });
+    links(target).forEach((b, i) => {
+      Object.defineProperty(b, 'offsetTop', { value: i * 30, configurable: true });
+      Object.defineProperty(b, 'offsetHeight', { value: 30, configurable: true });
+    });
+    const pageScroll = vi.spyOn(window, 'scrollTo');
+
+    links(target)[3].click();
+    flushSync();
+    expect(list.scrollTop).toBe(60);
+    links(target)[0].click();
+    flushSync();
+    expect(list.scrollTop).toBe(0);
+    expect(pageScroll).not.toHaveBeenCalled();
+    unmount(c);
+  });
 });

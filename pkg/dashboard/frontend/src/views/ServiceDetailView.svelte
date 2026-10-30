@@ -56,6 +56,7 @@
   import EnvironmentsSection from '../sections/EnvironmentsSection.svelte';
   import RuntimeDiffSection from '../sections/RuntimeDiffSection.svelte';
   import ObservedRuntimeSection from '../sections/ObservedRuntimeSection.svelte';
+  import { railToFold } from '../lib/tocRail.ts';
 
   let { name, version = null, services = [], refreshTick = 0, onServiceResolved } = $props();
 
@@ -396,7 +397,9 @@
   <!-- Sticky TOC rail -->
   {#if availableSections?.length > 2}
     <div class="detail-layout">
-      <nav class="section-toc" aria-label="On this page">
+      <!-- More sections than the viewport has room for scroll within the rail, which
+           keeps the current one in view (railToFold). -->
+      <nav class="section-toc" aria-label="On this page" use:railToFold={activeSection}>
         <div class="section-toc-title">On this page</div>
         {#each availableSections as sec}
           <button
@@ -633,6 +636,9 @@
     flex-direction: column;
     gap: var(--sp-1);
     padding: var(--sp-3) 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
   }
 
   .section-toc-title {
@@ -779,6 +785,7 @@
 
     .section-toc {
       position: static;
+      overflow-y: visible;
       flex-direction: row;
       flex-wrap: wrap;
       border-bottom: 1px solid var(--c-border);
