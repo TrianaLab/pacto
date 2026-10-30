@@ -158,26 +158,7 @@ func renderExplain(r *app.ExplainResult) string {
 			}
 		}
 	}
-	if len(r.Interfaces) > 0 {
-		section(&b, fmt.Sprintf("Interfaces (%d)", len(r.Interfaces)))
-		for _, iface := range r.Interfaces {
-			fmt.Fprintf(&b, "  %s (%s%s)\n", safeText(iface.Name), safeText(iface.Type), safeText(lifecycleText(iface.Lifecycle)))
-		}
-	}
-	if len(r.Dependencies) > 0 {
-		section(&b, fmt.Sprintf("Dependencies (%d)", len(r.Dependencies)))
-		for _, dep := range r.Dependencies {
-			req := ""
-			if dep.Required {
-				req = " [required]"
-			}
-			ref := dep.Ref
-			if ref == "" {
-				ref = "external, version " + dep.Version
-			}
-			fmt.Fprintf(&b, "  %s: %s%s\n", safeText(dep.Name), safeText(ref), req)
-		}
-	}
+	renderExplainSurface(&b, r)
 	if r.Readiness != nil {
 		section(&b, "Readiness")
 		passing := okStyle.Render("passing")
@@ -190,6 +171,44 @@ func renderExplain(r *app.ExplainResult) string {
 			r.Readiness.DoneCount, r.Readiness.PartialCount, r.Readiness.NotDoneCount))
 	}
 	return b.String()
+}
+
+// renderExplainSurface lists what the contract offers and needs: its
+// interfaces, dependencies and environments, as `pacto explain` prints them.
+func renderExplainSurface(b *strings.Builder, r *app.ExplainResult) {
+	if len(r.Interfaces) > 0 {
+		section(b, fmt.Sprintf("Interfaces (%d)", len(r.Interfaces)))
+		for _, iface := range r.Interfaces {
+			vis := ""
+			if iface.Visibility != "" {
+				vis = ", " + iface.Visibility
+			}
+			fmt.Fprintf(b, "  %s (%s%s%s)\n", safeText(iface.Name), safeText(iface.Type), safeText(vis), safeText(lifecycleText(iface.Lifecycle)))
+		}
+	}
+	if len(r.Dependencies) > 0 {
+		section(b, fmt.Sprintf("Dependencies (%d)", len(r.Dependencies)))
+		for _, dep := range r.Dependencies {
+			req := ""
+			if dep.Required {
+				req = " [required]"
+			}
+			ref := dep.Ref
+			switch {
+			case ref == "":
+				ref = "external, version " + dep.Version + " (cannot be checked)"
+			case dep.Compatibility != "":
+				ref += " (" + dep.Compatibility + ")"
+			}
+			fmt.Fprintf(b, "  %s: %s%s\n", safeText(dep.Name), safeText(ref), req)
+		}
+	}
+	if len(r.Environments) > 0 {
+		section(b, fmt.Sprintf("Environments (%d)", len(r.Environments)))
+		for _, env := range r.Environments {
+			fmt.Fprintf(b, "  %s: %s\n", safeText(env.Name), safeText(env.File))
+		}
+	}
 }
 
 // renderFleetExplain reports the structured reasons for a subject's state.
