@@ -8,9 +8,12 @@
 </script>
 
 {#if terms.length}
-  <dl class="gt" aria-label={label}>
-    {#each terms as t (t.label)}<div class="gt-term"><dt>{t.label}</dt><dd>{#if t.bound}<span class="gt-bound">{t.bound}</span>{' '}{/if}<code>{t.value}</code></dd></div>{/each}
-  </dl>
+  <!-- A dl takes no accessible name, so a named group carries the label. -->
+  <div role="group" aria-label={label}>
+    <dl class="gt">
+      {#each terms as t (t.label)}<div class="gt-term"><dt>{t.label}</dt><dd>{#if t.bound}<span class="gt-bound">{t.bound}</span>{' '}{/if}<code>{t.value}</code></dd></div>{/each}
+    </dl>
+  </div>
 {/if}
 
 <style>

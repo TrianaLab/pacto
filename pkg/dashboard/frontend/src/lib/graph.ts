@@ -781,7 +781,9 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         label: 'data(elabel)', 'font-size': 14, 'font-weight': 600, color: pal.text, 'text-rotation': 'none', 'text-wrap': 'wrap', 'text-max-width': '130px',
         'text-background-color': pal.surface, 'text-background-opacity': 1, 'text-background-padding': '4px',
         'text-background-shape': 'roundrectangle', 'text-border-opacity': 1, 'text-border-width': 1,
-        'text-border-color': (ele: EdgeSingular) => ele.data('refused') ? pal.err : ({ matched: pal.ok, 'expected-not-observed': pal.info, drift: pal.warn, insufficient: pal.neutral } as Record<string, string>)[ele.data('state')] || pal.textDim, opacity: 1, 'target-arrow-shape': 'triangle',
+        'text-border-color': (ele: EdgeSingular) => ele.data('refused') ? pal.err : ({ matched: pal.ok, 'expected-not-observed': pal.info, drift: pal.warn, insufficient: pal.neutral } as Record<string, string>)[ele.data('state')] || pal.textDim, opacity: 1,
+        // A labelled edge comes after the refused rule, so it keeps the refused bar itself.
+        'target-arrow-shape': (ele: EdgeSingular) => (ele.data('refused') ? 'tee' : 'triangle'),
       },
     },
     { selector: 'edge.pacto-dense', style: { opacity: 0.16 } },

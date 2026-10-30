@@ -29,8 +29,10 @@ describe('InterfacesSection — behavior', () => {
       { name: 'plain', type: 'openapi' },
     ] } });
     expect(tags()).toEqual(['Past sunset', 'Epoch 3']);
+    // What an epoch is, as text a screen reader reaches.
+    expect([...target.querySelectorAll('.visually-hidden')].map((e) => e.textContent)).toContain("Raised each time this interface's behavior changes incompatibly while its spec stays the same.");
     expect(target.querySelector('.iface-lifecycle')?.textContent).toContain('successor orders-v2');
-    expect(target.querySelector('dl')?.getAttribute('aria-label')).toBe('Guarantees of orders');
+    expect(target.querySelector('dl')?.closest('[role="group"]')?.getAttribute('aria-label')).toBe('Guarantees of orders');
     expect(target.querySelectorAll('.iface-behavior')).toHaveLength(1);
   });
 });
@@ -45,7 +47,7 @@ describe('DependenciesSection — requirements', () => {
       { name: 'unknown', ref: 'oci://r/unknown', required: true, requires: req, guaranteeStatus: 'unknown', guaranteeReason: "the provider's contract was not fetched" },
       { name: 'plain', ref: 'oci://r/plain', required: false },
     ] } });
-    const badges = [...target.querySelectorAll('[data-testid="dep-behavior"]')].map((b) => b.textContent?.trim());
+    const badges = [...target.querySelectorAll('[data-testid="dep-behavior"]')].map((b) => [...b.querySelectorAll('.tag')].map((t) => t.textContent).join(' '));
     expect(badges).toEqual(['Guarantees met old: deprecated', 'Refused', 'Not verified']);
     const rows = [...target.querySelectorAll('.dep-requires-row')];
     expect(rows).toHaveLength(3);

@@ -15,9 +15,15 @@
   }));
 </script>
 
-{#if guarantee}<IdentityBadge label={guarantee.label} tone={guarantee.tone} title={guarantee.title} />{/if}
+{#if guarantee}<IdentityBadge label={guarantee.label} tone={guarantee.tone} title={guarantee.title} describe={status === 'unknown' && !!reason} />{/if}
 {#if badges.length}
   <CappedList items={badges} max={2} row label="Deprecated interfaces of the provider">
-    {#snippet item(b)}<IdentityBadge label={b.label} tone={b.tone} title={b.title} />{/snippet}
+    {#snippet item(b)}<span class="bb-dep"><IdentityBadge label={b.label} tone={b.tone} title={b.title} describe /></span>{/snippet}
   </CappedList>
 {/if}
+
+<style>
+  /* A long interface name is cut to a readable width; its title and hidden text keep the whole. */
+  .bb-dep { display: inline-flex; max-width: 100%; min-width: 0; }
+  .bb-dep :global(.tag) { max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>

@@ -51,7 +51,9 @@ describe('GuaranteeTerms', () => {
   it('pairs each label with its value', () => {
     comp = mount(GuaranteeTerms, { target, props: { guarantees: { delivery: 'at-least-once', timeout: '1s' }, required: true, label: 'Required from orders' } });
     const dl = target.querySelector('dl')!;
-    expect(dl.getAttribute('aria-label')).toBe('Required from orders');
+    // A dl takes no accessible name, so the group around it carries the label.
+    expect(dl.hasAttribute('aria-label')).toBe(false);
+    expect(dl.closest('[role="group"]')?.getAttribute('aria-label')).toBe('Required from orders');
     expect([...dl.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['Delivery', 'Timeout']);
     expect([...dl.querySelectorAll('dd')].map((d) => d.textContent)).toEqual(['at-least-once', 'at most 1s']);
   });
@@ -72,6 +74,8 @@ describe('BehaviorBadges', () => {
     expect(t.textContent).toBe('Not verified');
     expect(t.classList.contains('tone-neutral')).toBe(true);
     expect(t.getAttribute('title')).toBe('Not verified: the provider is hidden.');
+    // The reason is text a screen reader reaches, not only a hover title.
+    expect(target.querySelector('.visually-hidden')?.textContent).toBe('Not verified: the provider is hidden.');
   });
   it('caps a provider that deprecates hundreds of interfaces', () => {
     const deprecated = Array.from({ length: 500 }, (_, i) => ({ interface: `iface-${i}-${long}`, deprecated: '2026-01-01' }));
@@ -80,6 +84,9 @@ describe('BehaviorBadges', () => {
     const more = target.querySelector('button.cl-more') as HTMLButtonElement;
     expect(more.textContent).toBe('Show all 500');
     expect(target.querySelector('.tag')!.getAttribute('title')).toContain(`iface-0-${long}`);
+    // A long name is cut to the badge's width, and its full value stays readable.
+    expect(target.querySelector('.tag')!.closest('.bb-dep')).toBeTruthy();
+    expect(target.querySelector('.bb-dep .visually-hidden')?.textContent).toContain(`iface-0-${long}`);
   });
 });
 

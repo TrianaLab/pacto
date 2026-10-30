@@ -639,6 +639,10 @@ describe('GraphView — product Operational Graph', () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="edge-behavior"]')).toBeTruthy());
     expect(q(target, '[data-testid="edge-behavior"]')?.textContent).toMatch(/Refused.*orders: deprecated/);
+    // The badges sit beside the edge's button, never in it: a "Show all" inside a button
+    // is invalid nesting and would select the edge.
+    expect(qa(target, '[data-testid="graph-edge"] button, [data-testid="graph-edge"] ul').length).toBe(0);
+    expect(q(target, '[data-testid="edge-behavior"]')?.closest('button')).toBeNull();
     expect(target.textContent).toContain('Refuses a required guarantee'); // the legend names the canvas mark
     expect(target.textContent).toContain('1 dependency has a refused guarantee'); // and the answer counts it
     (qa(target, '[data-testid="graph-edge"]')[0] as HTMLButtonElement).click();

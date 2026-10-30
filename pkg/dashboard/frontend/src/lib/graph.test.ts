@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import cytoscape from 'cytoscape';
-import { extractSubgraph, nodeLabel, fitLines, graphLabels, buildVersionSubgraph, renderGraph, buildElements, cyLayout, LEGEND_SELECTORS, fullName, spread, seedPositions, laneLayout, type GraphData } from './graph.ts';
+import { cyStylesheet, extractSubgraph, nodeLabel, fitLines, graphLabels, buildVersionSubgraph, renderGraph, buildElements, cyLayout, LEGEND_SELECTORS, fullName, spread, seedPositions, laneLayout, type GraphData } from './graph.ts';
 import { laneGraph } from './neighborhoodGraph.ts';
 
 const sampleGraph = {
@@ -561,5 +561,22 @@ describe('renderGraph in lanes (headless)', () => {
       vi.useRealTimers();
       mm.mockRestore();
     }
+  });
+});
+
+describe('cyStylesheet', () => {
+  it('keeps the bar on a refused edge that also carries a label', () => {
+    const pal = { surface: '#fff', text: '#000', textDim: '#666', border: '#ccc', ok: '#0a0', warn: '#aa0', err: '#a00', info: '#00a', neutral: '#888', accent: '#05f' };
+    const cy = cytoscape({
+      headless: true, styleEnabled: true, style: cyStylesheet(pal, 'force'),
+      elements: [
+        { data: { id: 'a' } }, { data: { id: 'b' } },
+        { data: { id: 'r', source: 'a', target: 'b', refused: 1, elabel: '3 refused' } },
+        { data: { id: 'p', source: 'b', target: 'a', refused: 0, elabel: '3 matched' } },
+      ],
+    });
+    expect(cy.getElementById('r').style('target-arrow-shape')).toBe('tee');
+    expect(cy.getElementById('p').style('target-arrow-shape')).toBe('triangle');
+    cy.destroy();
   });
 });

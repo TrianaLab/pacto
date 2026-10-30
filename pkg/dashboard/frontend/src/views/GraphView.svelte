@@ -671,8 +671,9 @@
                       {:else if e.relation !== 'runs' && e.serviceCorroboration}
                         <span class="gv-diff" data-testid="edge-corroboration"><IdentityBadge label={corroborationLabel(e.serviceCorroboration)} tone={corroborationTone(e.serviceCorroboration)} /></span>
                       {/if}
-                      {#if e.guaranteeStatus || e.deprecatedInterfaces?.length}<span class="gv-diff" data-testid="edge-behavior"><BehaviorBadges status={e.guaranteeStatus} reason={edgeReason(e)} deprecated={e.deprecatedInterfaces ?? []} /></span>{/if}
                     </button>
+                    <!-- Beside the button, not in it: the badges carry their own "Show all" control. -->
+                    {#if e.guaranteeStatus || e.deprecatedInterfaces?.length}<div class="gv-edge-behavior" data-testid="edge-behavior"><BehaviorBadges status={e.guaranteeStatus} reason={edgeReason(e)} deprecated={e.deprecatedInterfaces ?? []} /></div>{/if}
                   </li>
                 {/each}
               </ul>
@@ -860,6 +861,7 @@
   .gv-textbtn.is-selected, .gv-edge.is-selected { border-color: var(--c-accent); box-shadow: inset 0 0 0 2px var(--c-accent); }
   .gv-edge { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); cursor: pointer; }
   .gv-edge:hover, .gv-textbtn:hover { border-color: var(--c-accent); }
+  .gv-edge-behavior { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin: var(--sp-1) 0 0 var(--sp-3); }
   .gv-rel { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-diff { margin-left: auto; }
   .gv-unresolved, .gv-limitations { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); }

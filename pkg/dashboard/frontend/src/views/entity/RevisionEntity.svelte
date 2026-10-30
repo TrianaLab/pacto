@@ -17,7 +17,7 @@
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import GuaranteeTerms from '../../components/GuaranteeTerms.svelte';
   import EnvironmentList from '../../components/EnvironmentList.svelte';
-  import { lifecycleText, sunsetPassed, stageBadge } from '../../lib/behavior.ts';
+  import { lifecycleText, stageBadge } from '../../lib/behavior.ts';
   import { joinAnd } from '../../lib/answers.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import { fleetEntityListUrl } from '../../lib/router.ts';
@@ -76,11 +76,12 @@
 
   // The interfaces section opens on request, so its closed line says when some of them
   // are being retired: that is the part of the list a consumer has to act on.
+  // The counts come from the backend over every interface, not the bounded preview.
   const ifaceSummary = $derived.by(() => {
-    const ls = (d.interfaces?.items ?? []).map((i) => i.lifecycle).filter(Boolean);
-    const past = ls.filter((l) => sunsetPassed(l)).length;
+    const all = d.interfaces?.deprecated ?? 0;
+    const past = d.interfaces?.pastSunset ?? 0;
     return joinAnd([
-      ls.length - past ? `${formatCount(ls.length - past)} deprecated` : '',
+      all - past ? `${formatCount(all - past)} deprecated` : '',
       past ? `${formatCount(past)} past sunset` : '',
     ].filter(Boolean), 'and');
   });
@@ -91,9 +92,12 @@
   // The environments check: a failure or a value set Pacto could not check stays open;
   // a clean run is inspection detail.
   const envItems = $derived(d.environments?.items ?? []);
-  const envCount = (status) => envItems.filter((e) => e.status === status).length;
-  const envFailed = $derived(envCount('fail'));
-  const envOpen = $derived(envItems.some((e) => e.status !== 'pass'));
+  // The counts come from the backend over every environment, not the bounded preview, so
+  // a failure past the preview never reads as "Every environment passed".
+  const envCounts = $derived({ fail: d.environments?.failed ?? 0, unverified: d.environments?.unverified ?? 0, skip: d.environments?.skipped ?? 0 });
+  const envCount = (status) => envCounts[status];
+  const envFailed = $derived(envCounts.fail);
+  const envOpen = $derived(envCounts.fail + envCounts.unverified + envCounts.skip > 0);
   const envSummary = $derived(envOpen
     ? joinAnd([['fail', 'failed'], ['unverified', 'not verified'], ['skip', 'not checked']]
       .map(([st, word]) => (envCount(st) ? `${formatCount(envCount(st))} ${word}` : '')).filter(Boolean), 'and')
@@ -264,7 +268,7 @@
             {#if i.type}<IdentityBadge label={i.type} tone="info" />{/if}
             {#if i.visibility}<IdentityBadge label={i.visibility} tone="neutral" />{/if}
             <LifecycleBadge lifecycle={i.lifecycle} detail={false} />
-            {#if i.compatibilityEpoch}<IdentityBadge label={`Epoch ${i.compatibilityEpoch}`} tone="neutral" title="Raised each time this interface's behavior changes incompatibly while its spec stays the same." />{/if}
+            {#if i.compatibilityEpoch}<IdentityBadge label={`Epoch ${i.compatibilityEpoch}`} tone="neutral" title="Raised each time this interface's behavior changes incompatibly while its spec stays the same." describe />{/if}
           </div>
           {#if i.lifecycle}<p class="ri-note ri-lifecycle">{lifecycleText(i.lifecycle)}</p>{/if}
           {#if i.guarantees}<div class="ri-ref"><span class="re-k">Guarantees</span><GuaranteeTerms guarantees={i.guarantees} label={`Guarantees of ${i.name}`} /></div>{/if}

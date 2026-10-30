@@ -40,14 +40,14 @@ describe('RevisionEntity behavior', () => {
       { name: 'orders', type: 'asyncapi', operationsKnown: true, operations: preview([]), lifecycle: { deprecated: '2026-01-01', sunset: '2026-06-01', successor: 'orders-v2' }, guarantees: { delivery: 'at-least-once', ordering: 'per-key' }, compatibilityEpoch: 2 },
       { name: 'orders-v2', type: 'asyncapi', operationsKnown: true, operations: preview([]), lifecycle: { deprecated: '2026-09-01', sunset: '2027-01-01' } },
       { name: 'plain', type: 'openapi', operationsKnown: true, operations: preview([]) },
-    ]) }) } });
+    ], { deprecated: 2, pastSunset: 1 }) }) } });
     expect(target.textContent).toContain('1 deprecated and 1 past sunset');
     open('Interfaces');
     const text = target.textContent!;
     expect(text).toContain('Past sunset');
     expect(text).toContain('Deprecated Jan 1, 2026 · sunset Jun 1, 2026 · successor orders-v2');
     expect(text).toContain('Epoch 2');
-    expect(target.querySelector('dl[aria-label="Guarantees of orders"]')?.textContent).toContain('per-key');
+    expect(target.querySelector('[role="group"][aria-label="Guarantees of orders"] dl')?.textContent).toContain('per-key');
   });
 
   const stages = [
@@ -55,7 +55,7 @@ describe('RevisionEntity behavior', () => {
   ];
   const stageTags = () => [...target.querySelectorAll('[data-testid="revision-stages"] .tag')];
   it('lists the validation stages', () => {
-    comp = mount(RevisionEntity, { target, props: { detail: detail({ valid: false, stages, environments: preview([env('staging', 'skip', { reason: 'policy failed' })]) }) } });
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ valid: false, stages, environments: preview([env('staging', 'skip', { reason: 'policy failed' })], { skipped: 1 }) }) } });
     expect(stageTags().map((t) => t.textContent)).toEqual(['Structure passed', 'Cross-field passed', 'Policy failed', 'Environments not run']);
     expect(stageTags()[3].getAttribute('title')).toBe('Environments: policy failed');
     expect(target.textContent).toContain('Not checked: policy failed.');
@@ -71,7 +71,7 @@ describe('RevisionEntity behavior', () => {
       env('staging', 'pass'),
       env('production', 'fail', { findings: preview([{ code: 'ENVIRONMENT_VALUES_INVALID', severity: 'error', path: 'environments[1].file', message: 'bad replicas', file: 'envs/production.yaml', line: 2 }]) }),
       env('dev', 'unverified'),
-    ]) }) } });
+    ], { failed: 1, unverified: 1 }) }) } });
     expect(target.textContent).toContain('1 failed and 1 not verified');
     expect(target.textContent).toContain('envs/production.yaml:2');
     expect(target.querySelector('[data-testid="revision-declares-none"]')?.textContent).not.toContain('environments');
@@ -81,6 +81,13 @@ describe('RevisionEntity behavior', () => {
     comp = mount(RevisionEntity, { target, props: { detail: detail({ environments: preview([env('staging', 'pass')]) }) } });
     expect(target.textContent).toContain('Every environment passed');
     expect(target.querySelector('[data-testid="environment"]')).toBeNull();
+  });
+
+  it('counts every environment, not the preview it shows', () => {
+    const shown = Array.from({ length: 200 }, (_, i) => env(`env-${i}`, 'pass'));
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ environments: preview(shown, { total: 300, truncated: true, failed: 1 }) }) } });
+    expect(target.textContent).toContain('1 failed');
+    expect(target.textContent).not.toContain('Every environment passed');
   });
 
   it('says when a revision declares no environments', () => {
