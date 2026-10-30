@@ -146,7 +146,7 @@ func TestEnvironmentStage_Unverified(t *testing.T) {
 	fsys := envFS(map[string]string{"staging.yaml": "chart:\n  ingress: {host: h}\nplatform: {region: eu}\n"})
 	st := EnvironmentStage(c, fsys)
 	if st.Status != StageSkip || st.Reason != "could not verify: staging/platform" || codes(st) != "ENVIRONMENT_VALUES_UNVERIFIED" ||
-		!strings.Contains(st.Warnings[0].Message, "oci://ghcr.io/acme/platform:1.0.0") {
+		!strings.Contains(st.Warnings[0].Message, "configuration platform: its schema comes from the contract oci://ghcr.io/acme/platform:1.0.0, and Pacto checks values only against a schema file in this bundle") {
 		t.Fatalf("got %+v", st)
 	}
 	// An error still fails the stage.
@@ -195,5 +195,56 @@ environments:
 	stages = ValidateStagesWithResolver(t.Context(), c, raw, fsys, nil)
 	if last := stages[len(stages)-1]; last.Name != "environments" || last.Reason != "cross-field failed" {
 		t.Fatalf("stages: %+v", stages)
+	}
+}
+
+// TestEnvironmentStage_NullDeletesAKey: a null in an environment's file
+// removes that key from the effective values, at any depth.
+func TestEnvironmentStage_NullDeletesAKey(t *testing.T) {
+	c := envContract("staging.yaml")
+	c.Configurations[1].Values = map[string]any{"replicaCount": 2, "ingress": map[string]any{"host": "h"}}
+	strict := `{"type":"object","properties":{"replicaCount":{"type":"integer"},
+"ingress":{"type":"object","required":["host"],"additionalProperties":false,"properties":{"host":{"type":"string"}}}}}`
+	for file, want := range map[string]string{
+		"chart:\n  replicaCount: null\n":                        "",
+		"chart:\n  ingress: {host: null}\n":                     "missing property 'host'",
+		"chart:\n  ingress: {host: h2, tls: null}\n":            "",
+		"chart:\n  replicaCount: 3\n  ingress: {tls: {a: 1}}\n": "additional properties 'tls' not allowed",
+		"chart:\n  ingress: {tls: {a: null}}\n":                 "additional properties 'tls' not allowed",
+	} {
+		fsys := envFS(map[string]string{"staging.yaml": file})
+		fsys["chart.json"].Data = []byte(strict)
+		st := EnvironmentStage(c, fsys)
+		got := ""
+		if len(st.Errors) > 0 {
+			got = st.Errors[0].Message
+		}
+		if (want == "") != (got == "") || !strings.Contains(got, want) {
+			t.Errorf("%q: got %q, want %q", file, got, want)
+		}
+	}
+	if c.Configurations[1].Values["replicaCount"] != 2 {
+		t.Fatal("the contract's defaults were changed")
+	}
+}
+
+// TestEnvironmentStage_DottedKey: a key holding a dot or a slash is one
+// segment: the path escapes it as a JSON Pointer and the line is its own.
+func TestEnvironmentStage_DottedKey(t *testing.T) {
+	fsys := envFS(map[string]string{"staging.yaml": "chart:\n  ingress: {host: h}\n  podAnnotations:\n    prometheus.io/scrape: true\n"})
+	fsys["chart.json"].Data = []byte(`{"type":"object","properties":{"podAnnotations":{"additionalProperties":{"type":"string"}}}}`)
+	st := EnvironmentStage(envContract("staging.yaml"), fsys)
+	if len(st.Errors) != 1 || !strings.Contains(st.Errors[0].Message, "at /chart/podAnnotations/prometheus.io~1scrape: ") ||
+		st.Errors[0].Line != 4 || st.Errors[0].Column != 5 {
+		t.Fatalf("got %+v", st.Errors)
+	}
+}
+
+// TestEnvironmentStage_SyntaxErrorLine: a file that does not parse is
+// located at the line the parser names.
+func TestEnvironmentStage_SyntaxErrorLine(t *testing.T) {
+	st := EnvironmentStage(envContract("staging.yaml"), envFS(map[string]string{"staging.yaml": "chart:\n  - [\n"}))
+	if len(st.Errors) != 1 || st.Errors[0].Line != 2 {
+		t.Fatalf("got %+v", st.Errors)
 	}
 }

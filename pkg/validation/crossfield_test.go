@@ -1218,7 +1218,13 @@ func TestValidateEnvironmentFiles(t *testing.T) {
 	}
 	result = ValidationResult{}
 	validateEnvironmentFiles(c, nil, &result)
-	if len(result.Errors) != 1 {
-		t.Fatalf("without a bundle only the duplicate is reported: %+v", result.Errors)
+	if len(result.Errors) != 2 || result.Errors[1].Message != `environment file "../p.yaml" is not a path in the bundle: write it from the bundle root with no leading / or ./ and no .., such as environments/staging.yaml` {
+		t.Fatalf("without a bundle the duplicate and the path are reported: %+v", result.Errors)
+	}
+	c.Environments = []contract.Environment{{Name: "a", File: "/etc/hosts"}, {Name: "b", File: "./a.yaml"}, {Name: "c", File: "a.yaml"}, {Name: "d", File: "d.yaml"}}
+	result = ValidationResult{}
+	validateEnvironmentFiles(c, fstest.MapFS{"a.yaml": {}}, &result)
+	if len(result.Errors) != 3 || result.Errors[2].Message != `environment file "d.yaml" not found in bundle` || !strings.Contains(result.Errors[0].Message, "not a path in the bundle") || !strings.Contains(result.Errors[1].Message, "not a path in the bundle") {
+		t.Fatalf("got %+v", result.Errors)
 	}
 }

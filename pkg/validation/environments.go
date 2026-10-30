@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -21,7 +23,7 @@ import (
 //
 // Values for a configuration the contract does not declare are an error. A
 // configuration with no schema in the bundle (a ref) leaves its values
-// unchecked: ENVIRONMENT_VALUES_UNVERIFIED, a warning, never a pass. The stage
+// unchecked and reports ENVIRONMENT_VALUES_UNVERIFIED, a warning. The stage
 // passes only when every value set was checked and none failed, and is skipped
 // with a reason naming what it could not verify otherwise.
 //
@@ -51,9 +53,9 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 		r.AddWarning(path, "ENVIRONMENT_VALUES_UNVERIFIED", fmt.Sprintf("environment %s: no bundle files to read %s from", env.Name, env.File))
 		return []string{env.Name}
 	}
-	fail := func(code, at string, raw []byte, msg string) {
+	fail := func(code string, at []string, raw []byte, msg string) {
 		e := contract.ValidationError{Path: path, Code: code, Message: "environment " + env.Name + ": " + msg, File: env.File}
-		e.Line, e.Column = contract.Locate(raw, at)
+		e.Line, e.Column = contract.LocateSegments(raw, at)
 		r.Errors = append(r.Errors, e)
 	}
 	raw, err := fs.ReadFile(bundleFS, env.File)
@@ -62,7 +64,12 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 		values, err = contract.ParseEnvironmentValues(raw)
 	}
 	if err != nil {
-		fail("ENVIRONMENT_VALUES_INVALID", "", nil, fmt.Sprintf("cannot read %s: %v", env.File, err))
+		e := contract.ValidationError{Path: path, Code: "ENVIRONMENT_VALUES_INVALID", File: env.File,
+			Message: fmt.Sprintf("environment %s: cannot read %s: %v", env.Name, env.File, err)}
+		if m := lineRe.FindStringSubmatch(err.Error()); m != nil {
+			e.Line, _ = strconv.Atoi(m[1])
+		}
+		r.Errors = append(r.Errors, e)
 		return nil
 	}
 
@@ -72,7 +79,7 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 	}
 	for _, name := range slices.Sorted(maps.Keys(values)) {
 		if !slices.Contains(declared, name) {
-			fail("ENVIRONMENT_UNKNOWN_CONFIGURATION", name, raw,
+			fail("ENVIRONMENT_UNKNOWN_CONFIGURATION", []string{name}, raw,
 				fmt.Sprintf("values for configuration %q, which the contract does not declare%s", name, contract.DidYouMean(name, declared)))
 		}
 	}
@@ -93,15 +100,13 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 		if !ok {
 			code = "ENVIRONMENT_VALUES_MISSING"
 		}
-		var violations ValidationResult
-		addSchemaError(&violations, schema.Validate(effectiveValues(cfg.Values, given)))
-		for _, v := range violations.Errors {
-			at := strings.TrimSuffix(cfg.Name+"."+v.Path, ".")
-			_, msg, _ := strings.Cut(v.Message, "': ")
+		for _, v := range schemaViolations(schema.Validate(effectiveValues(cfg.Values, given))) {
+			at := append([]string{cfg.Name}, v.InstanceLocation...)
+			_, msg, _ := strings.Cut(v.Error()+enumSuggestion(v.ErrorKind), "': ")
 			if !ok {
 				msg = "required configuration " + cfg.Name + " has no values here and its defaults fail its schema: " + msg
 			}
-			fail(code, at, raw, fmt.Sprintf("configuration %s at /%s: %s", cfg.Name, strings.ReplaceAll(at, ".", "/"), msg))
+			fail(code, at, raw, fmt.Sprintf("configuration %s at %s: %s", cfg.Name, jsonPointer(at), msg))
 		}
 	}
 	return unverified
@@ -111,13 +116,42 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 // configuration that names its schema by ref has none in the bundle.
 func loadConfigSchema(cfg contract.Configuration, bundleFS fs.FS) (*jsonschema.Schema, error) {
 	if cfg.Schema == "" {
-		return nil, fmt.Errorf("its schema is in the contract at %s, and Pacto checks values only against a schema in this bundle", cfg.Ref)
+		return nil, fmt.Errorf("its schema comes from the contract %s, and Pacto checks values only against a schema file in this bundle", cfg.Ref)
 	}
 	data, err := fs.ReadFile(bundleFS, cfg.Schema)
 	if err != nil {
 		return nil, err
 	}
 	return compileConfigSchema(data)
+}
+
+// lineRe finds the line a YAML decode error names.
+var lineRe = regexp.MustCompile(`line (\d+):`)
+
+// schemaViolations is each leaf violation in err, the result of validating
+// JSON-decoded values, so every error it holds is a *jsonschema.ValidationError.
+func schemaViolations(err error) []*jsonschema.ValidationError {
+	ve, _ := err.(*jsonschema.ValidationError)
+	if ve == nil {
+		return nil
+	}
+	if len(ve.Causes) == 0 {
+		return []*jsonschema.ValidationError{ve}
+	}
+	var out []*jsonschema.ValidationError
+	for _, cause := range ve.Causes {
+		out = append(out, schemaViolations(cause)...)
+	}
+	return out
+}
+
+// jsonPointer renders segments as a JSON Pointer (RFC 6901).
+func jsonPointer(segments []string) string {
+	var b strings.Builder
+	for _, s := range segments {
+		b.WriteString("/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(s))
+	}
+	return b.String()
 }
 
 // effectiveValues is a configuration's default values with an environment's
@@ -137,6 +171,26 @@ func effectiveValues(defaults map[string]any, given any) any {
 	if !ok {
 		return given
 	}
-	contract.DeepMerge(out, m)
+	mergeValues(out, m)
 	return out
+}
+
+// mergeValues merges an environment's values src over dst. Objects merge key
+// by key and src wins. A null in src removes its key from dst, at any depth.
+func mergeValues(dst, src map[string]any) {
+	for k, v := range src {
+		switch v := v.(type) {
+		case nil:
+			delete(dst, k)
+		case map[string]any:
+			d, ok := dst[k].(map[string]any)
+			if !ok {
+				d = map[string]any{}
+				dst[k] = d
+			}
+			mergeValues(d, v)
+		default:
+			dst[k] = v
+		}
+	}
 }

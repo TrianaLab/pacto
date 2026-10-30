@@ -56,9 +56,27 @@ func TestParseEnvironmentValues(t *testing.T) {
 		"not a mapping":      "- app\n",
 		"non-string key":     "1: a\n",
 		"nested numeric key": "app:\n  1: a\n",
+		"merge of a scalar":  "app:\n  <<: 1\n",
 	} {
 		if _, err := ParseEnvironmentValues([]byte(data)); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+	}
+}
+
+func TestParseEnvironmentValues_KeepsDatesAsWritten(t *testing.T) {
+	got, err := ParseEnvironmentValues([]byte("chart:\n  since: 2024-01-01\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := got["chart"].(map[string]any)["since"]; v != "2024-01-01" {
+		t.Fatalf("since = %#v, want the text as written", v)
+	}
+}
+
+func TestParseEnvironmentValues_NonStringKey(t *testing.T) {
+	_, err := ParseEnvironmentValues([]byte("chart:\n  1: a\n"))
+	if err == nil || err.Error() != `line 2: key 1 is not a string; quote it, as in "1"` {
+		t.Fatalf("err = %v", err)
 	}
 }

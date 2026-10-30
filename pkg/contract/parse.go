@@ -89,10 +89,15 @@ func DecodeYAML(data []byte, out any) error {
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return err
 	}
+	return decodeNode(&root, out)
+}
+
+// decodeNode is DecodeYAML over a document already parsed into root.
+func decodeNode(root *yaml.Node, out any) error {
 	if root.Kind == 0 {
 		return nil // empty document: leave out at its zero value, as yaml.Unmarshal does
 	}
-	untagTimestamps(&root)
+	untagTimestamps(root)
 	return root.Decode(out)
 }
 

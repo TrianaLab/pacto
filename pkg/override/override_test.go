@@ -445,3 +445,21 @@ func TestApply_PreserveTimestamps(t *testing.T) {
 		t.Errorf("created: got %v, want 2099-01-01T00:00:00Z", event["created"])
 	}
 }
+
+// TestApply_ValueFileNullStaysNull: a -f file's null sets the key to null, as
+// it always has; only an environment file's null deletes a key.
+func TestApply_ValueFileNullStaysNull(t *testing.T) {
+	base := []byte("service:\n  name: svc\n  owner: team-a\n")
+	valuesFile := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(valuesFile, []byte("service:\n  owner: null\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Apply(base, Overrides{ValueFiles: []string{valuesFile}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := mustParseYAML(t, out)["service"].(map[string]any)
+	if v, ok := svc["owner"]; !ok || v != nil {
+		t.Fatalf("owner = %v, %v; want a null owner", v, ok)
+	}
+}
