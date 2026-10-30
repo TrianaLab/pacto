@@ -1040,8 +1040,8 @@ export interface components {
             platforms?: string[] | null;
         };
         "Contract.Environment": {
+            file: string;
             name: string;
-            values: string;
         };
         "Contract.Guarantees": {
             dedupeWindow?: string;

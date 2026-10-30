@@ -68,7 +68,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `environments` | `static-only` | - | - | - | NEEDS_PACTO_2_3 in a 2.0, 2.1 or 2.2 contract; the environments stage skips with no environments declared |
 | `environments[]` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `environments[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_ENVIRONMENT_NAME |
-| `environments[].values` | `static-only` | - | - | - | FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING; ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref |
+| `environments[].file` | `static-only` | - | - | - | FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING; ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref |
 | `policies` | `static-only` | - | - | - | PARSE_ERROR when not a list |
 | `policies[]` | `static-only` | - | - | - | DUPLICATE_POLICY_NAME |
 | `policies[].name` | `static-only` | - | - | - | SCHEMA_VIOLATION |
@@ -718,9 +718,9 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | One environment and the bundle file holding its configuration values. |
 | Runtime | `static-only` |
 | Evidence | none: the values are checked when the contract is validated |
-| Rule | schema: object with name and values; no other key |
+| Rule | schema: object with name and file; no other key |
 | Outcomes | SCHEMA_VIOLATION |
-| Limitations | values hold references to secrets, never secret material |
+| Limitations | values hold references to secrets; secret material stays out of the file |
 | Tests | unit: `pkg/validation/structural_test.go:TestNeeds23`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[]/invalid` |
 
 ### `environments[].name`
@@ -735,17 +735,17 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Limitations | identity only |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].name/invalid` |
 
-### `environments[].values`
+### `environments[].file`
 
 | Key | Value |
 | --- | --- |
 | Meaning | Bundle file mapping each configuration name to the values this environment uses for it. |
 | Runtime | `static-only` |
 | Evidence | none: the values are checked against each configuration schema when the contract is validated |
-| Rule | cross-field: the file exists in the bundle; environments stage: every configuration it names is declared and its values merged over the defaults satisfy the schema; a required configuration it omits is satisfied by its defaults |
+| Rule | cross-field: a path in the bundle and the file exists; environments stage: every configuration it names is declared and its values merged over the defaults, a null removing its key, satisfy the schema; a required configuration it omits is satisfied by its defaults |
 | Outcomes | FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING; ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref |
 | Limitations | a configuration declared by ref has no schema in the bundle, so its values stay unverified |
-| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles`, `pkg/validation/environments_test.go:TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile`, `pkg/validation/environments_test.go:TestEnvironmentStage_Unverified`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].values/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].values/invalid` |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles`, `pkg/validation/environments_test.go:TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile`, `pkg/validation/environments_test.go:TestEnvironmentStage_Unverified`, `pkg/validation/environments_test.go:TestEnvironmentStage_NullDeletesAKey`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/invalid` |
 
 ### `policies`
 
