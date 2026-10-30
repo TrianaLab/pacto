@@ -53,6 +53,7 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 
 	logging.LoggerFromContext(ctx).Debug("generating markdown documentation")
 	details := contractview.ServiceDetailsFromBundle(bundle, "local")
+	contractview.ApplyDependencyGraph(details, gr)
 	details.GenerateInsights()
 	markdown, err := s.env().generateDoc(details, gr)
 	if err != nil {

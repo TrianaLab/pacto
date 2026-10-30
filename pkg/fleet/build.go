@@ -748,11 +748,11 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		res := validation.Merged(stages)
 		rev.Valid = res.IsValid()
 		rev.Validation = res.Findings()
-		rev.Stages = stageSummaries(stages)
-		rev.Environments = environmentResults(c.Environments, stages)
+		rev.Stages = StageSummaries(stages)
+		rev.Environments = EnvironmentResults(c.Environments, stages)
 		rev.validated = true
 	} else {
-		rev.Environments = environmentResults(c.Environments, nil)
+		rev.Environments = EnvironmentResults(c.Environments, nil)
 	}
 	rev.Readiness = readiness.Evaluate(c.Readiness, now)
 	rev.Tools, rev.SpecsRead = toolsFrom(c, b.FS)

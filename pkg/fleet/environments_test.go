@@ -20,15 +20,15 @@ func envs(names ...string) []contract.Environment {
 }
 
 func TestEnvironmentResultsNotRun(t *testing.T) {
-	if environmentResults(nil, nil) != nil {
+	if EnvironmentResults(nil, nil) != nil {
 		t.Error("no environments, no results")
 	}
-	r := environmentResults(envs("staging"), nil)
+	r := EnvironmentResults(envs("staging"), nil)
 	if r[0].Status != EnvironmentSkip || r[0].Reason != notReadReason || r[0].File != "envs/staging.yaml" {
 		t.Errorf("unread document = %+v", r[0])
 	}
 	stages := append([]validation.Stage{{Name: "policy", Status: validation.StageFail}}, validation.SkippedStages("policy failed", "environments")...)
-	if r := environmentResults(envs("staging"), stages); r[0].Status != EnvironmentSkip || r[0].Reason != "policy failed" {
+	if r := EnvironmentResults(envs("staging"), stages); r[0].Status != EnvironmentSkip || r[0].Reason != "policy failed" {
 		t.Errorf("skipped stage = %+v", r[0])
 	}
 }
@@ -48,7 +48,7 @@ func TestEnvironmentResultsPerEnvironment(t *testing.T) {
 				{Path: "environments[2]", Code: "SOMETHING_ELSE", Message: "note"},
 			}},
 	}
-	r := environmentResults(envs(names...), stages)
+	r := EnvironmentResults(envs(names...), stages)
 	want := map[int]string{0: EnvironmentFail, 1: EnvironmentUnverified, 2: EnvironmentPass, 3: EnvironmentPass, 10: EnvironmentFail}
 	for i, w := range want {
 		if r[i].Status != w {
@@ -69,7 +69,7 @@ func TestEnvironmentResultsBounded(t *testing.T) {
 	for i := range MaxDetailPreview + 5 {
 		st.Errors = append(st.Errors, contract.ValidationError{Path: "environments[0].file", Code: "ENVIRONMENT_VALUES_INVALID", Message: fmt.Sprint(i)})
 	}
-	f := environmentResults(envs("a"), []validation.Stage{st})[0].Findings
+	f := EnvironmentResults(envs("a"), []validation.Stage{st})[0].Findings
 	if f.Total != MaxDetailPreview+5 || f.Count != MaxDetailPreview || !f.Truncated {
 		t.Errorf("findings preview = total %d count %d truncated %v", f.Total, f.Count, f.Truncated)
 	}
