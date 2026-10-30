@@ -93,6 +93,10 @@ type ExplainInterface struct {
 	Visibility string `json:"visibility,omitempty"`
 	// Lifecycle is the retirement schedule of a deprecated interface.
 	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	// Guarantees is the behavior the interface promises its consumers, and
+	// CompatibilityEpoch counts its incompatible behavior changes.
+	Guarantees         *contract.Guarantees `json:"guarantees,omitempty"`
+	CompatibilityEpoch int                  `json:"compatibilityEpoch,omitempty"`
 }
 
 // ExplainDependency is a simplified dependency summary.
@@ -103,6 +107,10 @@ type ExplainDependency struct {
 	Compatibility string `json:"compatibility"`
 	External      bool   `json:"external,omitempty"`
 	Version       string `json:"version,omitempty"`
+	// Requires is what the dependency relies on from the provider's
+	// interfaces, as declared. Explain reads one contract, so it does not say
+	// whether the provider meets it.
+	Requires []contract.Requirement `json:"requires,omitempty"`
 }
 
 // Explain produces a human-readable summary of a contract.
@@ -151,6 +159,9 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 			Ref:        iface.Ref,
 			Visibility: iface.Visibility,
 			Lifecycle:  iface.Lifecycle,
+
+			Guarantees:         iface.Guarantees,
+			CompatibilityEpoch: iface.CompatibilityEpoch,
 		})
 	}
 
@@ -162,6 +173,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 			Compatibility: dep.Compatibility,
 			External:      dep.External,
 			Version:       dep.Version,
+			Requires:      dep.Requires,
 		})
 	}
 

@@ -1330,17 +1330,16 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 	}
 
 	for _, iface := range c.Interfaces {
-		desc := fmt.Sprintf("%s (%s)", iface.Name, iface.Type)
-		if iface.Lifecycle != nil {
-			desc = fmt.Sprintf("%s (%s, %s)", iface.Name, iface.Type, iface.Lifecycle)
-		}
-		s.Interfaces = append(s.Interfaces, desc)
+		s.Interfaces = append(s.Interfaces, summarizeInterface(iface))
 	}
 
 	for _, dep := range c.Dependencies {
 		ref := dep.Ref
 		if ref == "" {
 			ref = dep.Name + " (external " + dep.Version + ")"
+		}
+		if reqs := summarizeRequires(dep.Requires); reqs != "" {
+			ref += " (" + reqs + ")"
 		}
 		s.Dependencies = append(s.Dependencies, ref)
 	}
@@ -1350,6 +1349,32 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 	}
 
 	return s
+}
+
+// summarizeInterface is "name (type, lifecycle, compatibility epoch N,
+// guarantees: ...)", leaving out what is not set.
+func summarizeInterface(iface contract.Interface) string {
+	parts := []string{iface.Type}
+	if iface.Lifecycle != nil {
+		parts = append(parts, iface.Lifecycle.String())
+	}
+	if iface.CompatibilityEpoch != 0 {
+		parts = append(parts, fmt.Sprintf("compatibility epoch %d", iface.CompatibilityEpoch))
+	}
+	if g := iface.Guarantees; g != nil && g.Text(false) != "" {
+		parts = append(parts, "guarantees: "+g.Text(false))
+	}
+	return iface.Name + " (" + strings.Join(parts, ", ") + ")"
+}
+
+// summarizeRequires is what a dependency requires, as declared:
+// "requires from http: idempotent; requires from admin".
+func summarizeRequires(reqs []contract.Requirement) string {
+	parts := make([]string, 0, len(reqs))
+	for _, r := range reqs {
+		parts = append(parts, "requires from "+r.String())
+	}
+	return strings.Join(parts, "; ")
 }
 
 func assessSections(c *contract.Contract) map[string]string {

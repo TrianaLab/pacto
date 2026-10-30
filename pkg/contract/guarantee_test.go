@@ -114,8 +114,11 @@ func TestGuaranteesTermsAndText(t *testing.T) {
 		t.Errorf("Text(false) = %q", got)
 	}
 	r := Requirement{Interface: "http", Guarantees: Guarantees{Timeout: "5s", Idempotent: true}}
-	if got := r.Text(true); got != "timeout at most 5s, idempotent" {
-		t.Errorf("Text(true) = %q", got)
+	if got := r.String(); got != "http: timeout at most 5s, idempotent" {
+		t.Errorf("String = %q", got)
+	}
+	if got := (Requirement{Interface: "admin"}).String(); got != "admin" {
+		t.Errorf("interface-only String = %q", got)
 	}
 	if got := (Guarantees{}).Text(false); got != "" {
 		t.Errorf("empty Text = %q", got)

@@ -279,7 +279,48 @@ func interfaceDetails(iface app.ExplainInterface) string {
 	if iface.Lifecycle != nil {
 		s += ", " + iface.Lifecycle.String()
 	}
+	if iface.CompatibilityEpoch != 0 {
+		s += fmt.Sprintf(", compatibility epoch %d", iface.CompatibilityEpoch)
+	}
 	return s
+}
+
+// printExplainInterfaces lists each interface, with the guarantees it offers
+// on a line of its own.
+func printExplainInterfaces(w io.Writer, ifaces []app.ExplainInterface) {
+	if len(ifaces) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nInterfaces (%d):\n", len(ifaces))
+	for _, iface := range ifaces {
+		_, _ = fmt.Fprintf(w, "  - %s (%s: %s%s)\n", iface.Name, iface.Type, iface.Ref, interfaceDetails(iface))
+		if g := iface.Guarantees; g != nil && g.Text(false) != "" {
+			_, _ = fmt.Fprintf(w, "      guarantees: %s\n", g.Text(false))
+		}
+	}
+}
+
+// printExplainDependencies lists each dependency and, as declared, what it
+// requires of each provider interface.
+func printExplainDependencies(w io.Writer, deps []app.ExplainDependency) {
+	if len(deps) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nDependencies (%d):\n", len(deps))
+	for _, dep := range deps {
+		req := "optional"
+		if dep.Required {
+			req = "required"
+		}
+		if dep.Ref == "" {
+			_, _ = fmt.Fprintf(w, "  - %s: external, version %s (cannot be checked, %s)\n", dep.Name, dep.Version, req)
+		} else {
+			_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, dep.Compatibility, req)
+		}
+		for _, r := range dep.Requires {
+			_, _ = fmt.Fprintf(w, "      requires from %s\n", r)
+		}
+	}
 }
 
 // printEnvironments lists each environment and its file, when there are any.
@@ -324,27 +365,8 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 			}
 		}
 
-		if len(result.Interfaces) > 0 {
-			_, _ = fmt.Fprintf(w, "\nInterfaces (%d):\n", len(result.Interfaces))
-			for _, iface := range result.Interfaces {
-				_, _ = fmt.Fprintf(w, "  - %s (%s: %s%s)\n", iface.Name, iface.Type, iface.Ref, interfaceDetails(iface))
-			}
-		}
-
-		if len(result.Dependencies) > 0 {
-			_, _ = fmt.Fprintf(w, "\nDependencies (%d):\n", len(result.Dependencies))
-			for _, dep := range result.Dependencies {
-				req := "optional"
-				if dep.Required {
-					req = "required"
-				}
-				if dep.Ref == "" {
-					_, _ = fmt.Fprintf(w, "  - %s: external, version %s (cannot be checked, %s)\n", dep.Name, dep.Version, req)
-					continue
-				}
-				_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, dep.Compatibility, req)
-			}
-		}
+		printExplainInterfaces(w, result.Interfaces)
+		printExplainDependencies(w, result.Dependencies)
 
 		printEnvironments(w, result.Environments)
 

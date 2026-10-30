@@ -73,6 +73,16 @@ func (g Guarantees) Text(required bool) string {
 	return strings.Join(parts, ", ")
 }
 
+// String is the interface a requirement names and what it requires of it,
+// such as "http: timeout at most 5s, idempotent". A requirement that names only
+// an interface requires that the provider declares it, and reads "http".
+func (r Requirement) String() string {
+	if t := r.Text(true); t != "" {
+		return r.Interface + ": " + t
+	}
+	return r.Interface
+}
+
 // Ordering scopes. Global ordering also orders every key.
 const (
 	OrderingPerKey = "per-key"

@@ -557,3 +557,25 @@ func TestRenderDiffSkipsAnEmptyGraphSection(t *testing.T) {
 		t.Fatalf("a diff with nothing in any channel must say so:\n%s", got)
 	}
 }
+
+func TestRenderExplainGuaranteesEpochAndRequires(t *testing.T) {
+	r := &app.ExplainResult{
+		Name: "svc", Version: "1.0.0",
+		Interfaces: []app.ExplainInterface{
+			{Name: "events", Type: "asyncapi", CompatibilityEpoch: 2, Guarantees: &contract.Guarantees{Delivery: "at-least-once"}},
+			{Name: "plain", Type: "grpc", Guarantees: &contract.Guarantees{}},
+		},
+		Dependencies: []app.ExplainDependency{
+			{Name: "orders", Ref: "oci://r/orders", Requires: []contract.Requirement{{Interface: "http", Guarantees: contract.Guarantees{Timeout: "5s"}}, {Interface: "admin"}}},
+		},
+	}
+	got := renderExplain(r)
+	for _, want := range []string{
+		"  events (asyncapi, compatibility epoch 2)\n    guarantees: delivery at-least-once\n  plain (grpc)\n",
+		"  orders: oci://r/orders\n    requires from http: timeout at most 5s\n    requires from admin\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("render should include %q:\n%s", want, got)
+		}
+	}
+}

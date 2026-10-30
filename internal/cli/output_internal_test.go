@@ -1464,3 +1464,42 @@ func TestRootRejectsUnknownOutputFormat(t *testing.T) {
 		t.Errorf("expected the format error, got: %v", err)
 	}
 }
+
+func TestPrintExplainResult_GuaranteesEpochAndRequires(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ExplainResult{
+		Name: "svc", Version: "1.0.0", PactoVersion: "2.2",
+		Interfaces: []app.ExplainInterface{
+			{Name: "events", Type: "asyncapi", Ref: "events.yaml", CompatibilityEpoch: 2, Guarantees: &contract.Guarantees{Delivery: "at-least-once", Retention: "168h"}},
+			{Name: "plain", Type: "grpc", Ref: "p.proto", Guarantees: &contract.Guarantees{}},
+		},
+		Dependencies: []app.ExplainDependency{
+			{Name: "orders", Ref: "oci://r/orders", Compatibility: "^1.0.0", Required: true, Requires: []contract.Requirement{
+				{Interface: "http", Guarantees: contract.Guarantees{Idempotent: true, Timeout: "5s"}},
+				{Interface: "admin"},
+				{Interface: "events", Guarantees: contract.Guarantees{Delivery: "at-least-once"}},
+			}},
+			{Name: "model", External: true, Version: "v1", Requires: []contract.Requirement{{Interface: "chat", Guarantees: contract.Guarantees{Timeout: "30s"}}}},
+		},
+	}
+	if err := printExplainResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	want := `
+Interfaces (2):
+  - events (asyncapi: events.yaml, compatibility epoch 2)
+      guarantees: delivery at-least-once, retention 168h
+  - plain (grpc: p.proto)
+
+Dependencies (2):
+  - orders: oci://r/orders (^1.0.0, required)
+      requires from http: timeout at most 5s, idempotent
+      requires from admin
+      requires from events: delivery at-least-once
+  - model: external, version v1 (cannot be checked, optional)
+      requires from chat: timeout at most 30s
+`
+	if out := buf.String(); !strings.Contains(out, want) {
+		t.Errorf("got %q\nwant it to contain %q", out, want)
+	}
+}

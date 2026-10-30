@@ -836,6 +836,18 @@ func TestSummarizeContract(t *testing.T) {
 	if got := summarizeContract(c).Interfaces[0]; got != c.Interfaces[0].Name+" (openapi, deprecated 2026-01-15, sunset 2026-07-01)" {
 		t.Errorf("a deprecated interface carries its schedule, got %q", got)
 	}
+	c.Interfaces[0].CompatibilityEpoch = 2
+	c.Interfaces[0].Guarantees = &contract.Guarantees{Idempotent: true, Timeout: "5s"}
+	if got := summarizeContract(c).Interfaces[0]; got != c.Interfaces[0].Name+" (openapi, deprecated 2026-01-15, sunset 2026-07-01, compatibility epoch 2, guarantees: timeout 5s, idempotent)" {
+		t.Errorf("an interface carries its epoch and guarantees, got %q", got)
+	}
+	c.Dependencies = []contract.Dependency{
+		{Name: "orders", Ref: "oci://r/orders", Requires: []contract.Requirement{{Interface: "http", Guarantees: contract.Guarantees{Timeout: "5s"}}, {Interface: "admin"}}},
+		{Name: "plain", Ref: "oci://r/plain"},
+	}
+	if got := summarizeContract(c).Dependencies; len(got) != 2 || got[0] != "oci://r/orders (requires from http: timeout at most 5s; requires from admin)" || got[1] != "oci://r/plain" {
+		t.Errorf("a dependency carries what it requires, got %q", got)
+	}
 }
 
 func TestAssessSections(t *testing.T) {
