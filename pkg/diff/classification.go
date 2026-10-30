@@ -108,6 +108,12 @@ var rules = map[classificationKey]Classification{
 	{"configurations.ref", Added}:       NonBreaking,
 	{"configurations.ref", Removed}:     Breaking,
 
+	// Environments (name-indexed): a new one only adds values to check; the
+	// environment a removed one names may still run the service. Value changes
+	// are NonBreaking (diffEnvironments).
+	{"environments", Added}:   NonBreaking,
+	{"environments", Removed}: PotentialBreaking,
+
 	// Policies (name-indexed). policies.schema Added and Removed are absent for
 	// the reason above: both are the PotentialBreaking default.
 	{"policies", Added}:           NonBreaking,

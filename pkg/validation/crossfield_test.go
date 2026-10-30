@@ -1206,3 +1206,19 @@ func TestValidateDependencyForm(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateEnvironmentFiles(t *testing.T) {
+	c := validV20Contract()
+	c.Environments = []contract.Environment{{Name: "staging", Values: "s.yaml"}, {Name: "staging", Values: "../p.yaml"}}
+	var result ValidationResult
+	validateEnvironmentFiles(c, fstest.MapFS{"s.yaml": {}}, &result)
+	if len(result.Errors) != 2 || result.Errors[0].Code != "DUPLICATE_ENVIRONMENT_NAME" || result.Errors[1].Code != "FILE_NOT_FOUND" ||
+		result.Errors[1].Path != "environments[1].values" {
+		t.Fatalf("got %+v", result.Errors)
+	}
+	result = ValidationResult{}
+	validateEnvironmentFiles(c, nil, &result)
+	if len(result.Errors) != 1 {
+		t.Fatalf("without a bundle only the duplicate is reported: %+v", result.Errors)
+	}
+}

@@ -74,12 +74,13 @@ func modelTopLevelFields() map[string]bool {
 // sectionCatalogue is every contract-reference page that documents top-level
 // contract sections as H2s. It outgrew one page under the documentation word
 // budget, so all of them are read together: a field documented on the wrong one
-// of them would otherwise read as undocumented. publish.md and checks.md each
-// carry a single H2 (`## publish`, `## checks`) and nothing else, because the second
+// of them would otherwise read as undocumented. publish.md, checks.md and
+// environments.md each carry a single H2 (`## publish`, `## checks`,
+// `## environments`) and nothing else, because the second
 // half of the parity check rejects any H2 on these pages that is not a field.
 // The other pages in that directory (index, validation, overrides, diff) are
 // excluded deliberately — their H2s are concepts.
-var sectionCatalogue = []string{"sections.md", "configuration-and-policy.md", "dependencies-and-state.md", "readiness.md", "publish.md", "checks.md"}
+var sectionCatalogue = []string{"sections.md", "configuration-and-policy.md", "dependencies-and-state.md", "readiness.md", "publish.md", "checks.md", "environments.md"}
 
 var h2Pattern = regexp.MustCompile(`(?m)^## (.+)$`)
 

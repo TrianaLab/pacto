@@ -1649,7 +1649,7 @@ Notifications are suppressed when:
 
 Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field and policy.
 
-The output has one PASS, FAIL or SKIP line per stage, in order: load, lock, structural, cross-field, policy, guarantees, readiness and closure. Each error sits under its stage with its file:line:column when Pacto can locate it. A failed load or lock stage skips every stage after it, and a failed structural or cross-field stage skips the stages after it up to policy. The guarantees, readiness and closure stages run even when an earlier stage fails. The last line, Next:, names the one command to run now. With --output-format json the same comes as stages and next.
+The output has one PASS, FAIL or SKIP line per stage, in order: load, lock, structural, cross-field, policy, environments, guarantees, readiness and closure. The environments stage checks each environment's values file against the schema of every configuration it names. Each error sits under its stage with its file:line:column when Pacto can locate it. A failed load or lock stage skips every stage after it, and a failed structural or cross-field stage skips the stages after it up to policy. Any failed stage skips environments. The guarantees, readiness and closure stages run even when an earlier stage fails. The last line, Next:, names the one command to run now. With --output-format json the same comes as stages and next.
 
 ```
 pacto validate [dir | oci://ref] [flags]
@@ -1694,14 +1694,15 @@ A contract with a mistyped value fails like this:
 ```
 svc is invalid
 PASS load
-SKIP lock        no pacto.lock
+SKIP lock         no pacto.lock
 FAIL structural
   svc/pacto.yaml:6:1: ERROR [SCHEMA_VIOLATION] workload: at '/workload': value must be one of 'service', 'job', 'scheduled' (did you mean "service"?)
-SKIP cross-field structural failed
-SKIP policy      structural failed
-SKIP guarantees  no dependency declares requires
-SKIP readiness   not requested (--readiness)
-SKIP closure     not requested (--closure)
+SKIP cross-field  structural failed
+SKIP policy       structural failed
+SKIP environments structural failed
+SKIP guarantees   no dependency declares requires
+SKIP readiness    not requested (--readiness)
+SKIP closure      not requested (--closure)
 Next: fix workload at svc/pacto.yaml:6:1 [SCHEMA_VIOLATION], then run pacto validate svc
 ```
 

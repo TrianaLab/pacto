@@ -1009,6 +1009,7 @@ export interface components {
             checks?: components["schemas"]["Contract.Check"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
             dependencies?: components["schemas"]["Contract.Dependency"][] | null;
+            environments?: components["schemas"]["Contract.Environment"][] | null;
             extensions?: {
                 [key: string]: unknown;
             };
@@ -1037,6 +1038,10 @@ export interface components {
             context: string;
             file?: string;
             platforms?: string[] | null;
+        };
+        "Contract.Environment": {
+            name: string;
+            values: string;
         };
         "Contract.Guarantees": {
             dedupeWindow?: string;

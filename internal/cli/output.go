@@ -77,11 +77,11 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 		}
 
 		for _, st := range result.Stages {
-			_, _ = fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%s %-11s %s", strings.ToUpper(st.Status), st.Name, st.Reason), " "))
+			_, _ = fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%s %-12s %s", strings.ToUpper(st.Status), st.Name, st.Reason), " "))
 			for _, e := range st.Errors {
 				at := ""
-				if e.Line > 0 {
-					at = result.Where(contract.ValidationError{Line: e.Line, Column: e.Column}) + ": "
+				if e.Line > 0 || e.File != "" {
+					at = result.Where(contract.ValidationError{Line: e.Line, Column: e.Column, File: e.File}) + ": "
 				}
 				_, _ = fmt.Fprintf(w, "  %sERROR [%s] %s: %s\n", at, e.Code, e.Path, e.Message)
 			}

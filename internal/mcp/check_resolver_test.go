@@ -166,7 +166,7 @@ func TestCheck_VerifiesTheLockfile(t *testing.T) {
 		t.Fatal("valid = true, want false for an unverifiable pacto.lock")
 	}
 	// The same stages and next step `pacto validate` reports.
-	if len(res.Stages) != 8 || res.Stages[1].Name != "lock" || res.Stages[1].Status != validation.StageFail || !strings.HasPrefix(res.Next, "fix ") {
+	if len(res.Stages) != 9 || res.Stages[1].Name != "lock" || res.Stages[1].Status != validation.StageFail || !strings.HasPrefix(res.Next, "fix ") {
 		t.Errorf("stages = %+v, next = %q", res.Stages, res.Next)
 	}
 }

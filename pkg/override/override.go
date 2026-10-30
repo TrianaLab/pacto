@@ -53,7 +53,7 @@ func Apply(base []byte, overrides Overrides) ([]byte, error) {
 		if err := contract.DecodeYAML(data, &vals); err != nil {
 			return nil, fmt.Errorf("failed to parse values file %q: %w", f, err)
 		}
-		deepMerge(baseMap, vals)
+		contract.DeepMerge(baseMap, vals)
 	}
 
 	// Apply --set values.
@@ -68,25 +68,6 @@ func Apply(base []byte, overrides Overrides) ([]byte, error) {
 	}
 
 	return yaml.Marshal(baseMap)
-}
-
-// deepMerge recursively merges src into dst. Values in src take precedence.
-func deepMerge(dst, src map[string]any) {
-	for k, srcVal := range src {
-		dstVal, exists := dst[k]
-		if !exists {
-			dst[k] = srcVal
-			continue
-		}
-
-		dstMap, dstIsMap := dstVal.(map[string]any)
-		srcMap, srcIsMap := srcVal.(map[string]any)
-		if dstIsMap && srcIsMap {
-			deepMerge(dstMap, srcMap)
-		} else {
-			dst[k] = srcVal
-		}
-	}
 }
 
 // setNestedValue sets a value at a dot-separated key path in a nested map.

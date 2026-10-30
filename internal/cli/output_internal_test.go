@@ -150,6 +150,7 @@ func TestPrintValidateResult_Invalid(t *testing.T) {
 			{Name: "structural", Status: validation.StageFail, Errors: []contract.ValidationError{
 				{Code: "TEST_ERR", Path: "service.name", Message: "bad name", Line: 3, Column: 3},
 				{Code: "LOOSE_ERR", Path: "", Message: "nowhere"},
+				{Code: "FILE_ERR", Path: "environments[0].values", Message: "in values", File: "svc/env.yaml"},
 			}, Warnings: []contract.ValidationWarning{
 				{Code: "TEST_WARN", Path: "runtime", Message: "check this"},
 			}},
@@ -165,8 +166,9 @@ PASS load
 FAIL structural
   svc/pacto.yaml:3:3: ERROR [TEST_ERR] service.name: bad name
   ERROR [LOOSE_ERR] : nowhere
+  svc/env.yaml: ERROR [FILE_ERR] environments[0].values: in values
   WARN  [TEST_WARN] runtime: check this
-SKIP policy      structural failed
+SKIP policy       structural failed
 Next: fix service.name at svc/pacto.yaml:3:3 [TEST_ERR], then run pacto validate svc
 `
 	if got := buf.String(); got != want {

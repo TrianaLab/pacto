@@ -311,6 +311,31 @@
         ]
       }
     },
+    "environments": {
+      "type": "array",
+      "description": "The environments this service runs in, each with the configuration values it uses there. Pacto checks every environment's values against the schema of each configuration they name. It applies nothing.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "values"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+            "maxLength": 63,
+            "description": "A unique, DNS-compatible name for the environment (lowercase alphanumeric and hyphens)."
+          },
+          "values": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to a YAML or JSON file within the bundle that maps each configuration name to the values this environment uses for it. Values hold references to secrets, never secret material."
+          }
+        }
+      }
+    },
     "policies": {
       "type": "array",
       "minItems": 1,

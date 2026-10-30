@@ -28,11 +28,11 @@ func TestValidateStages_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := stageLine(r), "load:pass lock:skip structural:pass cross-field:pass policy:pass guarantees:skip readiness:pass closure:skip"; got != want {
+	if got, want := stageLine(r), "load:pass lock:skip structural:pass cross-field:pass policy:pass environments:skip guarantees:skip readiness:pass closure:skip"; got != want {
 		t.Errorf("stages = %s, want %s", got, want)
 	}
-	if r.Stages[7].Reason != "not requested (--closure)" || r.Stages[1].Reason != "no pacto.lock" || r.Stages[5].Reason != "no dependency declares requires" {
-		t.Errorf("skip reasons = %q, %q, %q", r.Stages[7].Reason, r.Stages[1].Reason, r.Stages[5].Reason)
+	if r.Stages[8].Reason != "not requested (--closure)" || r.Stages[1].Reason != "no pacto.lock" || r.Stages[6].Reason != "no dependency declares requires" {
+		t.Errorf("skip reasons = %q, %q, %q", r.Stages[8].Reason, r.Stages[1].Reason, r.Stages[6].Reason)
 	}
 	if r.File != filepath.Join(dir, "pacto.yaml") || r.Next != "pacto impact PUBLISHED_REF "+dir {
 		t.Errorf("file = %q, next = %q", r.File, r.Next)
@@ -51,10 +51,10 @@ func TestValidateStages_ParseErrorLocated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := stageLine(r), "load:fail lock:skip structural:skip cross-field:skip policy:skip guarantees:skip readiness:skip closure:skip"; got != want {
+	if got, want := stageLine(r), "load:fail lock:skip structural:skip cross-field:skip policy:skip environments:skip guarantees:skip readiness:skip closure:skip"; got != want {
 		t.Errorf("stages = %s, want %s", got, want)
 	}
-	if r.Stages[1].Reason != "load failed" || r.Stages[7].Reason != "load failed" || r.Stages[6].Reason != "not requested (--readiness)" {
+	if r.Stages[1].Reason != "load failed" || r.Stages[8].Reason != "load failed" || r.Stages[7].Reason != "not requested (--readiness)" {
 		t.Errorf("skip reasons: %+v", r.Stages)
 	}
 	e := r.Errors[0]
@@ -78,7 +78,7 @@ func TestValidateStages_SchemaErrorsInFileOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := stageLine(r), "load:pass lock:skip structural:fail cross-field:skip policy:skip guarantees:skip readiness:skip closure:skip"; got != want {
+	if got, want := stageLine(r), "load:pass lock:skip structural:fail cross-field:skip policy:skip environments:skip guarantees:skip readiness:skip closure:skip"; got != want {
 		t.Errorf("stages = %s, want %s", got, want)
 	}
 	var lines []int
@@ -117,7 +117,7 @@ func TestValidateStages_Lock(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := stageLine(r), "load:pass lock:fail structural:skip cross-field:skip policy:skip guarantees:skip readiness:skip closure:skip"; got != want {
+		if got, want := stageLine(r), "load:pass lock:fail structural:skip cross-field:skip policy:skip environments:skip guarantees:skip readiness:skip closure:skip"; got != want {
 			t.Errorf("stages = %s, want %s", got, want)
 		}
 		if r.Next != "pacto lock --update "+dir {
@@ -209,7 +209,7 @@ func TestClosure_RootPoliciesUnresolved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := r.Stages[7]; st.Name != "closure" || st.Status != validation.StagePass {
+	if st := r.Stages[8]; st.Name != "closure" || st.Status != validation.StagePass {
 		t.Errorf("closure stage = %+v", st)
 	}
 }
@@ -228,5 +228,62 @@ func TestValidationReport_CarriesStages(t *testing.T) {
 	}
 	if len(r.Stages) != len(stageOrder) || !strings.HasPrefix(r.Next, "fix ") || r.IsValid() {
 		t.Errorf("report = %+v", r)
+	}
+}
+
+// TestValidateStages_Environments: an environment's invalid values fail the
+// environments stage, and the error and Next point into the values file.
+func TestValidateStages_Environments(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"pacto.yaml": `pactoVersion: "2.3"
+service:
+  name: svc
+  version: 1.0.0
+configurations:
+  - name: chart
+    schema: chart/values.schema.json
+    required: true
+environments:
+  - name: production
+    values: environments/production.yaml
+`,
+		"chart/values.schema.json":     `{"type":"object","properties":{"ingress":{"type":"object","required":["host"]}}}`,
+		"environments/production.yaml": "chart:\n  replicaCount: 5\n  ingress:\n    tls: true\n",
+	}
+	for name, data := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := stageLine(r), "load:pass lock:skip structural:pass cross-field:pass policy:pass environments:fail guarantees:skip readiness:skip closure:skip"; got != want {
+		t.Fatalf("stages = %s, want %s", got, want)
+	}
+	values := filepath.Join(dir, "environments/production.yaml")
+	e := r.Errors[0]
+	if e.File != values || e.Line != 3 || e.Column != 3 {
+		t.Fatalf("error = %+v", e)
+	}
+	if want := "fix environments[0].values at " + values + ":3:3 [ENVIRONMENT_VALUES_INVALID], then run pacto validate " + dir; r.Next != want {
+		t.Fatalf("next = %q, want %q", r.Next, want)
+	}
+
+	// A missing values file fails cross-field, and the environments stage is skipped.
+	if err := os.Remove(values); err != nil {
+		t.Fatal(err)
+	}
+	r, err = NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := r.Stages[5]; st.Name != "environments" || st.Reason != "cross-field failed" || r.Errors[0].Code != "FILE_NOT_FOUND" {
+		t.Fatalf("stages = %+v", r.Stages)
 	}
 }

@@ -933,6 +933,67 @@ fields:
       run:
         evidence: unverified
         reason: 'no source off Kubernetes; required makes the missing configuration read EVIDENCE_MISSING (Unknown) instead of being skipped'
+  environments:
+    meaning: The environments the service runs in, each with the configuration values it uses there (pactoVersion 2.3).
+    runtime: static-only
+    evidence: 'none: pacto validate checks the declared values against the configuration schemas'
+    rule: 'schema: array; an older pactoVersion refuses it'
+    outcomes: NEEDS_PACTO_2_3 in a 2.0, 2.1 or 2.2 contract; the environments stage skips with no environments declared
+    limitations: container; each item names one values file
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds23
+      - pkg/validation/environments_test.go:TestEnvironmentStage_NoEnvironments
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments/invalid
+      e2e: []
+  environments[]:
+    meaning: One environment and the bundle file holding its configuration values.
+    runtime: static-only
+    evidence: 'none: the values are checked when the contract is validated'
+    rule: 'schema: object with name and values; no other key'
+    outcomes: SCHEMA_VIOLATION
+    limitations: values hold references to secrets, never secret material
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds23
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[]/invalid
+      e2e: []
+  environments[].name:
+    meaning: Environment identifier.
+    runtime: not-applicable
+    evidence: identity only
+    rule: 'schema: DNS label; cross-field: unique'
+    outcomes: SCHEMA_VIOLATION, DUPLICATE_ENVIRONMENT_NAME
+    limitations: identity only
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].name/invalid
+      e2e: []
+  environments[].values:
+    meaning: Bundle file mapping each configuration name to the values this environment uses for it.
+    runtime: static-only
+    evidence: 'none: the values are checked against each configuration schema when the contract is validated'
+    rule: 'cross-field: the file exists in the bundle; environments stage: every configuration it names is declared and its
+      values merged over the defaults satisfy the schema; a required configuration it omits is satisfied by its defaults'
+    outcomes: FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING;
+      ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref
+    limitations: a configuration declared by ref has no schema in the bundle, so its values stay unverified
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles
+      - pkg/validation/environments_test.go:TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile
+      - pkg/validation/environments_test.go:TestEnvironmentStage_Unverified
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].values/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].values/invalid
+      e2e: []
   policies:
     meaning: Policies the contract itself must satisfy.
     runtime: static-only

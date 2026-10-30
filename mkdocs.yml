@@ -249,6 +249,7 @@ nav:
           - Readiness: contract-reference/readiness.md
           - Publish: contract-reference/publish.md
           - Checks: contract-reference/checks.md
+          - Environments: contract-reference/environments.md
           - Validation layers: contract-reference/validation.md
           - Overrides: contract-reference/overrides.md
           - Change classification: contract-reference/diff.md

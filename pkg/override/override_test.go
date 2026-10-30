@@ -350,41 +350,6 @@ func TestSplitKeyPath(t *testing.T) {
 	}
 }
 
-func TestDeepMerge(t *testing.T) {
-	dst := map[string]any{
-		"a": map[string]any{
-			"x": 1,
-			"y": 2,
-		},
-		"b": "keep",
-	}
-	src := map[string]any{
-		"a": map[string]any{
-			"y": 3,
-			"z": 4,
-		},
-		"c": "new",
-	}
-	deepMerge(dst, src)
-
-	a := dst["a"].(map[string]any)
-	if a["x"] != 1 {
-		t.Errorf("expected a.x=1, got %v", a["x"])
-	}
-	if a["y"] != 3 {
-		t.Errorf("expected a.y=3 (overridden), got %v", a["y"])
-	}
-	if a["z"] != 4 {
-		t.Errorf("expected a.z=4 (new), got %v", a["z"])
-	}
-	if dst["b"] != "keep" {
-		t.Errorf("expected b=keep, got %v", dst["b"])
-	}
-	if dst["c"] != "new" {
-		t.Errorf("expected c=new, got %v", dst["c"])
-	}
-}
-
 func TestApply_EmptyBaseYAML(t *testing.T) {
 	// Empty YAML produces nil map — should still work.
 	out, err := Apply([]byte(""), Overrides{SetValues: []string{"a=b"}})

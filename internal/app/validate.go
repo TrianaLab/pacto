@@ -54,7 +54,7 @@ type ValidateResult struct {
 }
 
 // stageOrder is every stage of a validate run, in the order it runs them.
-var stageOrder = []string{"load", "lock", "structural", "cross-field", "policy", "guarantees", "readiness", "closure"}
+var stageOrder = []string{"load", "lock", "structural", "cross-field", "policy", "environments", "guarantees", "readiness", "closure"}
 
 // Validate loads a contract, runs validation, and returns the result.
 func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
@@ -94,6 +94,11 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		resolver = s.PolicyResolver(ref)
 	}
 	stages = append(stages, validation.ValidateStagesWithResolver(ctx, bundle.Contract, rawYAML, bundle.FS, resolver)...)
+	// The environments stage reads the files cross-field checked, so it runs
+	// only when every stage before it passed.
+	if !slices.ContainsFunc(stages, func(st validation.Stage) bool { return st.Status == validation.StageFail }) {
+		stages = append(stages, validation.EnvironmentStage(bundle.Contract, bundle.FS))
+	}
 	stages = append(stages, s.guaranteeStage(ctx, ref, bundle.Contract))
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
@@ -149,6 +154,7 @@ func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...v
 		if opts.Overrides.IsEmpty() {
 			locate(raw, stages[i].Errors)
 		}
+		inBundle(ref, stages[i].Errors)
 		// In file order, so the first error, the one Next names, is the same on
 		// every run: the schema layer reports its errors in no fixed order.
 		slices.SortStableFunc(stages[i].Errors, func(a, b contract.ValidationError) int {
@@ -184,10 +190,24 @@ func newValidateResult(ref string, opts ValidateOptions, raw []byte, stages ...v
 	return res
 }
 
-// locate sets each error's line and column in raw.
+// inBundle names each error's own file by its path from the working
+// directory, as File names pacto.yaml.
+func inBundle(ref string, errs []contract.ValidationError) {
+	for j := range errs {
+		if errs[j].File != "" && !isOCIRef(ref) {
+			errs[j].File = filepath.Join(ref, errs[j].File)
+		}
+	}
+}
+
+// locate sets each error's line and column in raw, leaving an error in
+// another file where its reporter located it.
 func locate(raw []byte, errs []contract.ValidationError) {
 	for j := range errs {
 		e := &errs[j]
+		if e.File != "" {
+			continue
+		}
 		e.Line, e.Column = contract.Locate(raw, e.Path)
 		if m := parseLineRe.FindStringSubmatch(e.Message); e.Code == "PARSE_ERROR" && m != nil {
 			e.Line, _ = strconv.Atoi(m[1])
@@ -215,7 +235,7 @@ func nextFix(r *ValidateResult, rerun string, overridden bool) string {
 // Where is the place an error points at: its contract path, and its file
 // position when known.
 func (r *ValidateResult) Where(e contract.ValidationError) string {
-	at := r.File
+	at := cmp.Or(e.File, r.File)
 	if e.Line > 0 {
 		at += ":" + strconv.Itoa(e.Line)
 	}

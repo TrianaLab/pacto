@@ -5,14 +5,15 @@ A contract with a mistyped value fails like this:
 ```
 svc is invalid
 PASS load
-SKIP lock        no pacto.lock
+SKIP lock         no pacto.lock
 FAIL structural
   svc/pacto.yaml:6:1: ERROR [SCHEMA_VIOLATION] workload: at '/workload': value must be one of 'service', 'job', 'scheduled' (did you mean "service"?)
-SKIP cross-field structural failed
-SKIP policy      structural failed
-SKIP guarantees  no dependency declares requires
-SKIP readiness   not requested (--readiness)
-SKIP closure     not requested (--closure)
+SKIP cross-field  structural failed
+SKIP policy       structural failed
+SKIP environments structural failed
+SKIP guarantees   no dependency declares requires
+SKIP readiness    not requested (--readiness)
+SKIP closure      not requested (--closure)
 Next: fix workload at svc/pacto.yaml:6:1 [SCHEMA_VIOLATION], then run pacto validate svc
 ```
 

@@ -111,6 +111,9 @@ func ValidateStructural(data any) ValidationResult {
 	}
 
 	var mcp []int
+	if version != "2.3" {
+		data = needs23(&result, data)
+	}
 	if version == "2.0" || version == "2.1" {
 		data = needs22(&result, data)
 	}
@@ -133,6 +136,21 @@ func ValidateStructural(data any) ValidationResult {
 		})
 	}
 	return result
+}
+
+// needs23 records a NEEDS_PACTO_2_3 error for environments, the section only
+// pactoVersion 2.3 has, in an older contract in place of the older schema's
+// generic "not allowed", and returns data without it for that schema to check
+// the rest.
+func needs23(result *ValidationResult, data any) any {
+	m, _ := data.(map[string]any) // an older pactoVersion was read from it
+	if _, ok := m["environments"]; !ok {
+		return data
+	}
+	result.AddError("environments", string(finding.CodeNeedsPacto23), `environments need pactoVersion "2.3"; set pactoVersion: "2.3", which keeps every older field`)
+	out := maps.Clone(m)
+	delete(out, "environments")
+	return out
 }
 
 // needs22 records a NEEDS_PACTO_2_2 error for each field only pactoVersion 2.2

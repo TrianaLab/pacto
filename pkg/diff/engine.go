@@ -25,8 +25,8 @@
 // required or turns required, because the table cannot see the parameter's own
 // required flag, and raises a modified parameter to the worst grade its schema
 // diff reaches in request position. diffConfigValues (interfaces.go) overwrites every walk result
-// with NonBreaking, because inline values are the provider's own defaults rather
-// than consumer-facing surface. Tuning either of those two table rows without
+// with NonBreaking, because inline values and environment values are the
+// provider's own inputs rather than consumer-facing surface. Tuning either of those two table rows without
 // reading its call site will look like it did nothing.
 package diff
 
@@ -128,6 +128,7 @@ func Compare(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	changes = append(changes, diffDependencies(old, new)...)
 	changes = append(changes, diffInterfaces(old, new, oldFS, newFS)...)
 	changes = append(changes, diffConfiguration(old, new, oldFS, newFS)...)
+	changes = append(changes, diffEnvironments(old.Environments, new.Environments, oldFS, newFS)...)
 	changes = append(changes, diffPolicy(old, new, oldFS, newFS)...)
 	changes = append(changes, diffReadiness(old.Readiness, new.Readiness)...)
 	changes = append(changes, diffChecks(old.Checks, new.Checks, oldFS, newFS)...)

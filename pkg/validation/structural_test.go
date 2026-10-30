@@ -709,3 +709,40 @@ dependencies:
 		}
 	}
 }
+
+// TestNeeds23: environments in a 2.0, 2.1 or 2.2 contract are told to set
+// pactoVersion 2.3, the rest is still checked and the caller's data is left
+// alone; a 2.3 contract takes them and checks their shape.
+func TestNeeds23(t *testing.T) {
+	envs := []any{map[string]any{"name": "staging", "values": "environments/staging.yaml"}}
+	for _, version := range []string{"2.0", "2.1", "2.2"} {
+		data := map[string]any{"pactoVersion": version, "service": map[string]any{"name": "svc", "version": "1.0.0"},
+			"environments": envs, "workload": "nonsense"}
+		var got []string
+		for _, e := range ValidateStructural(data).Errors {
+			got = append(got, e.Code+" "+e.Path)
+		}
+		slices.Sort(got)
+		if want := []string{"NEEDS_PACTO_2_3 environments", "SCHEMA_VIOLATION workload"}; !slices.Equal(got, want) {
+			t.Fatalf("%s: got %v, want %v", version, got, want)
+		}
+		if _, ok := data["environments"]; !ok {
+			t.Fatal("the caller's data was changed")
+		}
+	}
+	ok := map[string]any{"pactoVersion": "2.3", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "environments": envs}
+	if r := ValidateStructural(ok); !r.IsValid() {
+		t.Fatalf("2.3 with environments: %v", r.Errors)
+	}
+	for _, bad := range []any{
+		[]any{map[string]any{"name": "Staging", "values": "s.yaml"}},
+		[]any{map[string]any{"name": "staging"}},
+		[]any{map[string]any{"name": "staging", "values": ""}},
+		[]any{map[string]any{"name": "staging", "values": "s.yaml", "cluster": "x"}},
+	} {
+		data := map[string]any{"pactoVersion": "2.3", "service": map[string]any{"name": "svc", "version": "1.0.0"}, "environments": bad}
+		if r := ValidateStructural(data); r.IsValid() {
+			t.Errorf("%v: accepted", bad)
+		}
+	}
+}
