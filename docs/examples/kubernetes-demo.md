@@ -66,7 +66,9 @@ in the order the story plays them:
   field as 2.4.3 is refused: it needs a major version. payments' team ships
   3.0.0 in test, since that Stage now waits for a person on a breaking change.
   3.0.0 is held for prod, and only checkout and orders are asked. checkout 1.9
-  can ship first.
+  can ship first. From 2.4.2, payments declares the values of each
+  [environment](../contract-reference/environments.md#environments-and-stages)
+  its Stages deliver it to, and each plan shows that they pass.
 - **Every step is a signed record.** History reads each step back from signed
   records, and `pacto delivery record verify` checks them.
 

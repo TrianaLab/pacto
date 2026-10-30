@@ -70,6 +70,11 @@ screens show:
   the Stage down one level, to auto for non-breaking changes. Lowering a level
   needs no approval. payments in test stepped down the same way when 2.4.2
   failed.
+- **A version that names no prod environment.** payments 2.4.1 is the first
+  version to declare [environments](../contract-reference/environments.md#environments-and-stages),
+  and it declares only test. It shipped to test, but its promote to prod
+  waited for team payments, and Alice rejected it. 2.4.2 declares every
+  environment, and its values pass the same check.
 - **A caller with no contract.** ledger-export runs in test with no contract
   and calls payments. So the breaking payments 3.0.0 waited in test until
   Alice accepted that unknown, and the Autonomy tab lists the missing
