@@ -15,16 +15,19 @@ the environments the version's contract declares, using the same
   `version 1.1.0 declares no environment prod for Stage payments-prod (it
   declares dev, staging)`. So does one whose values for that environment fail
   with `ENVIRONMENT_VALUES_INVALID`, `ENVIRONMENT_VALUES_MISSING` or
-  `ENVIRONMENT_UNKNOWN_CONFIGURATION`, each located in the values file.
+  `ENVIRONMENT_UNKNOWN_CONFIGURATION`, each located in the values file. When
+  the version also waits for a consumer's team, the service's team is asked
+  too, and the question names every team.
 - Values Pacto cannot check (`ENVIRONMENT_VALUES_UNVERIFIED`) wait for a
   person to accept the unknown.
 
-The promoter also holds a promote that leaves a consumer running in the
-environment with a required guarantee unmet, as `pacto impact` and
-`pacto publish` already refuse it. The consumer's team is asked, and the
+The promoter also holds a promote that leaves a consumer with a required
+guarantee unmet, the consumers `pacto impact` lists for the change. Like a
+consumer whose range refuses the version, it holds wherever the consumer runs,
+including when Pacto cannot place it. The consumer's team is asked, and the
 question names consumer, provider and guarantee. A rollback to such a version
 waits the same way. An unmet guarantee of an optional dependency holds
-nothing, and one on a consumer Pacto cannot place is Unknown.
+nothing.
 
 The dashboard labels the check "Environment values" and shows N/A when it
 does not apply. The Stage's `spec.environment` field documents the match.

@@ -159,7 +159,7 @@ func rollbackImpact(ctx context.Context, in PlanInput, p *Plan) {
 	}
 	res := impact.Analyze(ctx, in.From.Bundle.Contract, in.To.Bundle.Contract, in.From.Bundle.FS, in.To.Bundle.FS, in.Snapshot,
 		impact.Options{Domain: contract.OCIDomain(in.To.ContractRef), IncludeObserved: true})
-	incompatible, unmet, _, _ := sortConsumers(res)
+	incompatible, unmet, _ := sortConsumers(res)
 	if len(incompatible) == 0 && len(unmet) == 0 {
 		return
 	}
@@ -381,9 +381,11 @@ func environmentGate(in PlanInput, p *Plan) {
 	case len(errs) > 0:
 		v.Message = strings.Join(errs, "; ")
 		holdFor(p, Approve, v.Message, v.Message+". Approve shipping "+short(p.To)+" anyway?")
+		askServiceTeam(in, p)
 	case len(unverified) > 0:
 		v.Result, v.Message = Unknown, strings.Join(unverified, "; ")
 		holdFor(p, AcceptUnknown, v.Message, "Pacto cannot verify the values of environment "+env+" in "+short(p.To)+": "+v.Message+". Accept the unknown?")
+		askServiceTeam(in, p)
 	default:
 		v.Message = "the values of environment " + env + " satisfy the configuration schemas"
 	}
@@ -447,11 +449,23 @@ func ownerGate(in PlanInput, p *Plan) {
 		p.Question = msg + ". Approve " + short(p.To) + "?"
 	}
 	p.Floor.Human, p.Floor.Decision = true, Approve
+	askServiceTeam(in, p)
+}
+
+// askServiceTeam adds the service's team to the owners a held plan asks, and
+// to the question's "Asked of" when an earlier gate already named its owners:
+// a hold about the service itself is never left to its consumers' teams.
+func askServiceTeam(in PlanInput, p *Plan) {
+	if len(p.Floor.Owners) == 0 {
+		return // routeToServiceTeam asks the service's team
+	}
+	before := "Asked of: " + ownersOrAnyone(p.Floor.Owners, in.RequireOwnerTeam)
 	for _, t := range serviceTeam(in) {
 		if !slices.Contains(p.Floor.Owners, t) {
 			p.Floor.Owners = append(p.Floor.Owners, t)
 		}
 	}
+	p.Question = strings.Replace(p.Question, before, "Asked of: "+ownersOrAnyone(p.Floor.Owners, in.RequireOwnerTeam), 1)
 }
 
 // suitesGate holds a version whose contract does not ship a suite one of the
@@ -645,9 +659,9 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		"snapshot":       res.SnapshotID,
 	}}
 
-	incompatible, unmet, unknown, unplaced := sortConsumers(res)
+	incompatible, unmet, unknown := sortConsumers(res)
 	citeCallers(in, res, v.Citation)
-	unseenConsumers := append(unseenConsumersOf(in, res, unknown), unplaced...)
+	unseenConsumers := unseenConsumersOf(in, res, unknown)
 	unseen := slices.Clone(unseenConsumers)
 	if len(res.Consumers) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
 		unseen = append(unseen, "no Pacto depends on "+in.Stage.Service.Name+", but a service with no contract can still call it")
@@ -683,23 +697,22 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 }
 
 // sortConsumers splits the consumers the change reaches: those whose range
-// does not accept it, those running here it leaves with a required guarantee
-// unmet, those Pacto cannot judge, and why for each consumer with an unmet
-// required guarantee that Pacto cannot place on any target.
-func sortConsumers(res *impact.Result) (incompatible, unmet, unknown []impact.AffectedConsumer, unplaced []string) {
+// does not accept it, those it leaves with a required guarantee unmet and
+// those Pacto cannot judge. Like a range, an unmet guarantee is a confirmed
+// contradiction wherever the consumer runs, including where Pacto cannot
+// place it.
+func sortConsumers(res *impact.Result) (incompatible, unmet, unknown []impact.AffectedConsumer) {
 	for _, c := range res.Consumers {
 		switch {
 		case c.CompatibilityVerdict == impact.CompatibilityIncompatible:
 			incompatible = append(incompatible, c)
-		case unmetRequired(c) && len(c.Targets) > 0:
-			unmet = append(unmet, c)
 		case unmetRequired(c):
-			unplaced = append(unplaced, describeUnmet([]impact.AffectedConsumer{c})+", and Pacto cannot see where "+c.Service+" runs")
+			unmet = append(unmet, c)
 		case unknownConsumer(res, c):
 			unknown = append(unknown, c)
 		}
 	}
-	return incompatible, unmet, unknown, unplaced
+	return incompatible, unmet, unknown
 }
 
 // versionDoubts are why the candidate, against the running version, cannot be

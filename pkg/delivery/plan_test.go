@@ -933,9 +933,9 @@ func TestPlanEnvironmentGateRaisesAnUnknownToApprove(t *testing.T) {
 }
 
 // TestPlanUnmetRequiredGuaranteeHolds: a version that leaves a consumer
-// running here without a guarantee its required dependency declares is held
-// for that consumer's team, naming consumer, provider and guarantee, as
-// pacto impact and pacto publish refuse it. An optional dependency's unmet
+// without a guarantee its required dependency declares is held for that
+// consumer's team, naming consumer, provider and guarantee, the consumers
+// pacto impact lists. An optional dependency's unmet
 // guarantee holds nothing. A rollback to such a version waits the same way.
 func TestPlanUnmetRequiredGuaranteeHolds(t *testing.T) {
 	old, nu := bundle("payments", "1.0.0"), bundle("payments", "1.1.0")
@@ -970,11 +970,30 @@ func TestPlanUnmetRequiredGuaranteeHolds(t *testing.T) {
 	}
 }
 
-// TestPlanUnmetGuaranteeNowhereSeenIsUnknown: a consumer whose required
-// guarantee the version does not meet, but which Pacto cannot place on any
-// target, may or may not run here: the change waits for a person to accept
-// the unknown.
-func TestPlanUnmetGuaranteeNowhereSeenIsUnknown(t *testing.T) {
+// TestPlanEnvironmentHoldAddsTheServiceTeam: a version held for a consumer's
+// team that also declares no environment for the Stage is not the consumer's
+// call alone: the service's team approves its environment too, and the
+// question names both teams.
+func TestPlanEnvironmentHoldAddsTheServiceTeam(t *testing.T) {
+	old := bundle("payments", "1.0.0")
+	old.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi"}}
+	nu := envBundle(map[string]string{"dev": "dev.yaml"}, map[string]string{"dev.yaml": "app:\n  replicas: 1\n"}, true)
+	nu.Contract.Interfaces = old.Contract.Interfaces
+	consumer := checkoutPacto("^1.0.0")
+	consumer.Status.Dependencies[0].Requires = []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}
+	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, rev(dA, c1, old), rev(dB, c2, nu), consumer)
+	if p.Floor.Decision != Approve || !slices.Equal(p.Floor.Owners, []string{"team-checkout", "team-payments"}) ||
+		!strings.Contains(p.Question, "Asked of: team-checkout, team-payments") || !strings.Contains(p.Question, "declares no environment prod") {
+		t.Fatalf("the environment hold must add the service's team: %+v", p)
+	}
+}
+
+// TestPlanUnmetGuaranteeNowhereSeenHolds: a consumer whose required
+// guarantee the version does not meet is a confirmed contradiction even when
+// Pacto cannot place it on any target, as a range that refuses the version
+// is: the change waits for that consumer's team to approve it, and so does a
+// rollback to it.
+func TestPlanUnmetGuaranteeNowhereSeenHolds(t *testing.T) {
 	old, nu := bundle("payments", "1.0.0"), bundle("payments", "1.1.0")
 	nu.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi"}}
 	checkout := bundle("checkout", "1.0.0", contract.Dependency{Name: "payments", Ref: "oci://reg.example/pactos/payments", Required: true,
@@ -987,8 +1006,14 @@ func TestPlanUnmetGuaranteeNowhereSeenIsUnknown(t *testing.T) {
 	}
 	p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
 		From: from, To: to, Snapshot: snap, Class: ClassAgent})
-	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown ||
-		!strings.Contains(v.Message, "checkout requires api idempotent true from payments, which offers nothing, and Pacto cannot see where checkout runs") {
-		t.Fatalf("an unmet guarantee Pacto cannot place is unknown: %+v", p)
+	if v := verdict(t, p, GateImpact); v.Message != "breaks checkout" || p.Floor.Decision != Approve ||
+		!slices.Equal(p.Floor.Owners, []string{"team-checkout"}) || !strings.Contains(p.Question, "checkout requires api idempotent true from payments, which offers nothing") {
+		t.Fatalf("an unmet guarantee Pacto cannot place still holds for the consumer's team: %+v", p)
+	}
+	rb := promote(dB, dA)
+	rb.Type = TypeRollback
+	p = PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: to, To: from, Snapshot: snap, Class: ClassHuman})
+	if p.Predicted != PredictHeld || !slices.Equal(p.Floor.Owners, []string{"team-checkout"}) {
+		t.Fatalf("a rollback that leaves an unplaced consumer's guarantee unmet waits: %+v", p)
 	}
 }

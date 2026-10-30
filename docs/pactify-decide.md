@@ -20,11 +20,13 @@ Pacto holds a change and asks a person in these cases:
   and the checkout contract accepts only payments 2.x. Pacto asks the team
   that owns checkout, because theirs is the service it would break. The same
   holds when checkout requires a [guarantee](contract-reference/dependencies-and-state.md#required-guarantees)
-  from payments that the new version does not meet.
+  from payments that the new version does not meet, wherever checkout runs
+  and also when Pacto cannot see where it runs.
 - **Its contract does not back the Stage's environment.** The contract lists
   [environments](contract-reference/environments.md#environments-and-stages),
   but none named like the Stage's `spec.environment`, or that environment's
-  values fail their configuration schemas. The service's team approves it.
+  values fail their configuration schemas. The service's team approves it,
+  alongside any consumer team the change also waits for.
 - **It could not check something.** Monitoring had too little data, or no
   contract depends on the part that changed, so a service without a contract
   might call it. That check says Unknown.
