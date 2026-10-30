@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -1045,4 +1046,142 @@ func TestExplain_ServiceSubjectStaysDomainQualified(t *testing.T) {
 			t.Errorf("Explain(%q).Subject = %q, want %q", key, res.Subject, key)
 		}
 	}
+}
+
+// shortestFleet builds the shapes where a depth-first walk misreports depth: a
+// consumer reached both directly and through a sibling that sorts before it.
+func shortestFleet(t *testing.T) *Query {
+	t.Helper()
+	dep := func(name string, deps ...string) RawRevision {
+		c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0"}}
+		for _, d := range deps {
+			c.Dependencies = append(c.Dependencies, contract.Dependency{Name: d, Ref: "oci://x/" + d, Required: true, Compatibility: "^1.0.0"})
+		}
+		return RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: "sha256:" + name}
+	}
+	col := &Collection{Revisions: []RawRevision{
+		// Shortcut diamonds over provider "p": z-web and a-web each depend on p
+		// directly and through a sibling that sorts on the other side of them.
+		dep("p"),
+		dep("a-mid", "p"),
+		dep("z-web", "a-mid", "p"),
+		dep("z-mid", "p"),
+		dep("a-web", "z-mid", "p"),
+		// Deeper chain: r reaches t at depth 4 through a, and at depth 2 through z.
+		dep("r", "a", "z"),
+		dep("a", "b"),
+		dep("b", "c"),
+		dep("c", "t"),
+		dep("z", "t"),
+		dep("t"),
+		// MaxDepth: k reaches w only through y, which it also reaches via x.
+		dep("k", "x", "y"),
+		dep("x", "y"),
+		dep("y", "w"),
+		dep("w"),
+		// A cycle between two siblings of the root: no edge returns to a BFS
+		// ancestor, so detection must not depend on the BFS tree.
+		dep("q", "q-b", "q-c"),
+		dep("q-b", "q-c"),
+		dep("q-c", "q-b"),
+	}}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewQuery(snap)
+}
+
+func TestGraph_DirectDependentWinsOverIndirect(t *testing.T) {
+	q := shortestFleet(t)
+	res, err := q.Graph(GraphQuery{Service: "p", Direction: DirectionDependents, Transitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range res.Nodes {
+		if n.Depth != 1 {
+			t.Errorf("%s depends on p directly, got depth %d path %v", n.Name, n.Depth, n.Path)
+		}
+		if len(n.Path) != 2 {
+			t.Errorf("%s path must be the direct edge, got %v", n.Name, n.Path)
+		}
+	}
+	if len(res.Nodes) != 4 {
+		t.Errorf("want 4 dependents of p, got %v", res.Nodes)
+	}
+}
+
+func TestGraph_ShortestDepthOnDeeperChain(t *testing.T) {
+	q := shortestFleet(t)
+	res, err := q.Graph(GraphQuery{Service: "r", Transitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := nodeDepths(res)
+	want := map[string]int{"a": 1, "z": 1, "b": 2, "t": 2, "c": 3}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("depth(%s) = %d, want %d (all: %v)", k, got[k], v, got)
+		}
+	}
+	// Ordering rule: ascending depth, then discovery order (parent order, then key).
+	var order []string
+	for _, n := range res.Nodes {
+		order = append(order, n.Name)
+	}
+	if strings.Join(order, ",") != "a,z,b,t,c" {
+		t.Errorf("node order = %v, want a,z,b,t,c", order)
+	}
+	for _, n := range res.Nodes {
+		if n.Name == "t" && strings.Join(keysToStrings(n.Path), ",") != "r,z,t" {
+			t.Errorf("t path = %v, want the shortest one through z", n.Path)
+		}
+	}
+}
+
+func TestGraph_MaxDepthUsesShortestDepth(t *testing.T) {
+	q := shortestFleet(t)
+	res, err := q.Graph(GraphQuery{Service: "k", Transitive: true, MaxDepth: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := nodeDepths(res)
+	if got["y"] != 1 || got["w"] != 2 {
+		t.Errorf("y is direct and w is two hops from k, got %v", got)
+	}
+}
+
+func TestGraph_CycleBetweenSiblingsIsReported(t *testing.T) {
+	q := shortestFleet(t)
+	res, err := q.Graph(GraphQuery{Service: "q", Transitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Cycles) == 0 {
+		t.Fatalf("q-b <-> q-c is a cycle, got none (nodes %v)", res.Nodes)
+	}
+}
+
+func TestGraph_TruncationKeepsNearestNodes(t *testing.T) {
+	q := shortestFleet(t)
+	res, err := q.Graph(GraphQuery{Service: "r", Transitive: true, MaxNodes: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Truncated || len(res.Nodes) != 2 {
+		t.Fatalf("want 2 nodes and truncated, got %v truncated=%v", res.Nodes, res.Truncated)
+	}
+	for _, n := range res.Nodes {
+		if n.Depth != 1 {
+			t.Errorf("a capped answer keeps the nearest nodes first, got %s at depth %d", n.Name, n.Depth)
+		}
+	}
+}
+
+func keysToStrings(ks []ServiceKey) []string {
+	out := make([]string, len(ks))
+	for i, k := range ks {
+		out[i] = string(k)
+	}
+	return out
 }

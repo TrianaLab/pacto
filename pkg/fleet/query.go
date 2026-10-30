@@ -643,6 +643,14 @@ type GraphResult struct {
 // revision provenance, required/compatibility and resolution), unresolved edges
 // at every depth, and cycles. Direct-only (Transitive=false) returns immediate
 // neighbors; transitive traversal is cycle-safe and honors MaxDepth.
+//
+// The walk is breadth-first, so a node's Depth is its SHORTEST distance from the
+// root and its Path is a shortest path: a consumer that depends on the root
+// directly is depth 1 even when it also reaches it through another dependent.
+// Nodes are ordered by ascending depth; within a depth, by discovery order (the
+// order of the parent that reached them first, then the sorted neighbor key).
+// Path is the first shortest path in that order. The node cap keeps a prefix of
+// this order, so a truncated answer holds the nearest nodes.
 func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	dir, maxNodes, err := validateGraphQuery(gq)
 	if err != nil {
@@ -654,55 +662,80 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	}
 
 	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}}
-	neighbors := func(key ServiceKey, isRoot bool) []ServiceKey {
+	neighbors := func(key ServiceKey) []ServiceKey {
 		if dir == DirectionDependents {
 			return q.snap.reverseDeps[key]
 		}
-		if isRoot && scopeRev != "" {
+		if key == rootSvc && scopeRev != "" {
 			return q.snap.forwardDepsByRevision[scopeRev]
 		}
 		return q.snap.forwardDeps[key]
 	}
 
-	visited := map[ServiceKey]bool{}
+	// expanded is the set of nodes whose neighbors the walk follows: the root, and
+	// with Transitive every reached node above MaxDepth. The cycle pass below
+	// follows exactly the same set.
+	expanded := map[ServiceKey]bool{rootSvc: true}
 	nodeSet := map[ServiceKey]bool{}
+	queue := []GraphNode{{Key: rootSvc, Depth: 0, Path: []ServiceKey{rootSvc}}}
+bfs:
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, next := range neighbors(cur.Key) {
+			if next == rootSvc || nodeSet[next] {
+				continue // already reached at a depth no greater than this one
+			}
+			// The cap is charged before the node is admitted. Neighbors are in sorted
+			// key order (the dependency indexes are sorted at build), so the kept
+			// prefix is deterministic.
+			if len(res.Nodes) >= maxNodes {
+				res.Truncated = true
+				break bfs
+			}
+			nodeSet[next] = true
+			_, name := ParseServiceKey(next)
+			n := GraphNode{Key: next, Name: name, Depth: cur.Depth + 1, Path: append(append([]ServiceKey(nil), cur.Path...), next)}
+			res.Nodes = append(res.Nodes, n)
+			if gq.Transitive && (gq.MaxDepth == 0 || n.Depth < gq.MaxDepth) {
+				expanded[next] = true
+				queue = append(queue, n)
+			}
+		}
+	}
+
+	res.Cycles = graphCycles(rootSvc, neighbors, expanded)
+	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
+	return res, nil
+}
+
+// graphCycles finds cycles with a depth-first walk over the expanded set: a
+// breadth-first tree has no back edges to read cycles from (two siblings that
+// call each other never return to a common ancestor). Each cycle is the walk's
+// path from the root closed by the repeated key. It visits only nodes the
+// traversal already admitted, so it is bounded by the same cap.
+func graphCycles(root ServiceKey, neighbors func(ServiceKey) []ServiceKey, expanded map[ServiceKey]bool) [][]ServiceKey {
 	var cycles [][]ServiceKey
-	var walk func(key ServiceKey, depth int, path, onPath []ServiceKey, isRoot bool)
-	walk = func(key ServiceKey, depth int, path, onPath []ServiceKey, isRoot bool) {
-		for _, next := range neighbors(key, isRoot) {
+	visited := map[ServiceKey]bool{}
+	var walk func(key ServiceKey, onPath []ServiceKey)
+	walk = func(key ServiceKey, onPath []ServiceKey) {
+		for _, next := range neighbors(key) {
 			if containsStr(onPath, next) {
 				cycles = append(cycles, append(append([]ServiceKey(nil), onPath...), next))
 				continue
 			}
-			if visited[next] {
-				continue // already reached and expanded; keeps traversal O(V+E)
-			}
-			// Neighbors are in sorted key order (the dependency indexes are sorted at
-			// build), so the kept prefix is deterministic. Returning rather than
-			// continuing unwinds the whole walk: every outer frame re-checks the same
-			// guard immediately, so nothing further is expanded once the cap is met.
-			if len(res.Nodes) >= maxNodes {
-				res.Truncated = true
-				return
+			if visited[next] || !expanded[next] {
+				continue
 			}
 			visited[next] = true
-			nodeSet[next] = true
-			nextPath := append(append([]ServiceKey(nil), path...), next)
-			_, name := ParseServiceKey(next)
-			res.Nodes = append(res.Nodes, GraphNode{Key: next, Name: name, Depth: depth, Path: nextPath})
-			if gq.Transitive && (gq.MaxDepth == 0 || depth < gq.MaxDepth) {
-				walk(next, depth+1, nextPath, append(append([]ServiceKey(nil), onPath...), next), false)
-			}
+			walk(next, append(append([]ServiceKey(nil), onPath...), next))
 		}
 	}
-	walk(rootSvc, 1, []ServiceKey{rootSvc}, []ServiceKey{rootSvc}, true)
-
+	walk(root, []ServiceKey{root})
 	sort.Slice(cycles, func(i, j int) bool {
 		return joinKeys(cycles[i]) < joinKeys(cycles[j])
 	})
-	res.Cycles = cycles
-	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
-	return res, nil
+	return cycles
 }
 
 // validateGraphQuery checks the bounds a caller supplies and resolves the node

@@ -124,7 +124,11 @@ func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) 
 			root += " (aggregated across revisions)"
 		}
 		_, _ = fmt.Fprintf(w, "%s of %s (%d node(s)):\n", res.Direction, root, len(res.Nodes))
-		for _, n := range res.Nodes {
+		// The answer is breadth-first; path order prints each node under the
+		// parent its shortest path runs through, so the indentation reads as a tree.
+		nodes := slices.Clone(res.Nodes)
+		slices.SortStableFunc(nodes, func(a, b fleet.GraphNode) int { return slices.Compare(a.Path, b.Path) })
+		for _, n := range nodes {
 			_, _ = fmt.Fprintf(w, "  %*s%s (depth %d)\n", n.Depth*2, "", n.Name, n.Depth)
 		}
 		for _, c := range res.Cycles {
