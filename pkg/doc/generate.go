@@ -63,11 +63,13 @@ func Generate(d *contractview.ServiceDetails, gr *graph.Result) (string, error) 
 	writeMermaidDiagram(&b, gr, d, num)
 	writeInterfaces(&b, d, num)
 	writeConfiguration(&b, d, num)
+	writeEnvironments(&b, d, num)
 	writePolicies(&b, d, num)
 	writeDependencies(&b, d, gr, num)
 	writeReadiness(&b, d, num)
 	writeSBOM(&b, d, num)
 	writeLockfile(&b, d, num)
+	writeValidation(&b, d, num)
 	writeBundleDocs(&b, d, num)
 
 	fmt.Fprintln(&b, "---")
@@ -89,6 +91,10 @@ func hasLock(d *contractview.ServiceDetails) bool {
 	return d.Lock != nil && d.Lock.Present
 }
 
+func hasValidation(d *contractview.ServiceDetails) bool {
+	return len(d.Stages) > 0 || (d.Validation != nil && len(d.Validation.Errors)+len(d.Validation.Warnings) > 0)
+}
+
 // sectionTitles returns the ordered titles of the numbered H2 sections that are
 // present for this snapshot. The body writers below emit their headings in the
 // same order (each guarded by the same presence predicate) so num.Next(1)
@@ -106,6 +112,9 @@ func sectionTitles(d *contractview.ServiceDetails) []string {
 	if len(d.Configurations) > 0 {
 		titles = append(titles, "Configuration")
 	}
+	if len(d.Environments) > 0 {
+		titles = append(titles, "Environments")
+	}
 	if len(d.Policies) > 0 {
 		titles = append(titles, "Policies")
 	}
@@ -120,6 +129,9 @@ func sectionTitles(d *contractview.ServiceDetails) []string {
 	}
 	if hasLock(d) {
 		titles = append(titles, "Lockfile")
+	}
+	if hasValidation(d) {
+		titles = append(titles, "Validation")
 	}
 	if len(d.Docs) > 0 {
 		titles = append(titles, "Documentation")
@@ -465,6 +477,7 @@ func writeInterfaces(b *strings.Builder, d *contractview.ServiceDetails, num *se
 	}
 	fmt.Fprintf(b, "## %s. Interfaces\n\n", num.Next(1))
 	writeInterfaceTable(b, d.Interfaces)
+	writeInterfaceBehavior(b, d.Interfaces)
 	for _, i := range d.Interfaces {
 		if len(i.Endpoints) == 0 {
 			continue
@@ -573,6 +586,7 @@ func writeDependencies(b *strings.Builder, d *contractview.ServiceDetails, gr *g
 	}
 	fmt.Fprintf(b, "## %s. Dependencies\n\n", num.Next(1))
 	writeDependencyTable(b, d.Dependencies)
+	writeDependencyBehavior(b, d.Dependencies)
 	for _, node := range collectFlatDependencyNodes(gr) {
 		writeDependencyDetail(b, node)
 	}

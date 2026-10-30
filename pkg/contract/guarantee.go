@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -29,6 +30,47 @@ type Guarantees struct {
 	Idempotent bool `yaml:"idempotent,omitempty" json:"idempotent,omitempty"`
 	// Timeout is the longest a call takes to answer.
 	Timeout string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+}
+
+// GuaranteeTerm is one guarantee a [Guarantees] sets: its name as a reader
+// says it, its value and, for a duration, how an offered one has to compare
+// with a required one ("at least" or "at most").
+type GuaranteeTerm struct {
+	Name, Value, Bound string
+}
+
+// Terms lists the guarantees g sets, in the order the contract reference
+// lists the vocabulary. Profile is the vocabulary's version, not a guarantee.
+func (g Guarantees) Terms() []GuaranteeTerm {
+	var out []GuaranteeTerm
+	for _, t := range []GuaranteeTerm{
+		{"delivery", g.Delivery, ""}, {"ordering", g.Ordering, ""},
+		{"dedupe window", g.DedupeWindow, "at least"}, {"retention", g.Retention, "at least"},
+		{"timeout", g.Timeout, "at most"}, {"idempotent", boolText(g.Idempotent), ""},
+	} {
+		if t.Value != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// Text names the guarantees g sets on one line, such as "delivery
+// at-least-once, timeout 5s, idempotent". required spells out each duration's
+// bound ("timeout at most 5s"), as a dependency's requirement reads.
+func (g Guarantees) Text(required bool) string {
+	parts := make([]string, 0, 6)
+	for _, t := range g.Terms() {
+		switch {
+		case t.Name == "idempotent":
+			parts = append(parts, t.Name)
+		case required && t.Bound != "":
+			parts = append(parts, t.Name+" "+t.Bound+" "+t.Value)
+		default:
+			parts = append(parts, t.Name+" "+t.Value)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // Ordering scopes. Global ordering also orders every key.
