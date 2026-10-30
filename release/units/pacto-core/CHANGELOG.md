@@ -1,5 +1,147 @@
 # @pacto/core
 
+## 4.4.0
+
+### Minor Changes
+
+- 0813b6e: Delivery matches contract environments to Stages. A promote runs a new
+  `pacto.environment` check that compares the Stage's `spec.environment` with
+  the environments the version's contract declares, using the same
+  `environments` stage as `pacto validate` on the version's bundle.
+  
+  - A contract that declares no `environments` passes the check, which says it
+    does not apply, so services that do not use environments are unaffected.
+  - A contract that declares environments but none named like the Stage's
+    `spec.environment` waits for the service's team to approve it, for example
+    `version 1.1.0 declares no environment prod for Stage payments-prod (it
+    declares dev, staging)`. So does one whose values for that environment fail
+    with `ENVIRONMENT_VALUES_INVALID`, `ENVIRONMENT_VALUES_MISSING` or
+    `ENVIRONMENT_UNKNOWN_CONFIGURATION`, each located in the values file. When
+    the version also waits for a consumer's team, the service's team is asked
+    too, and the question names every team.
+  - Values Pacto cannot check (`ENVIRONMENT_VALUES_UNVERIFIED`) wait for a
+    person to accept the unknown.
+  
+  The promoter also holds a promote that leaves a consumer with a required
+  guarantee unmet, the consumers `pacto impact` lists for the change. Like a
+  consumer whose range refuses the version, it holds wherever the consumer runs,
+  including when Pacto cannot place it. The consumer's team is asked, and the
+  question names consumer, provider and guarantee. A rollback to such a version
+  waits the same way. An unmet guarantee of an optional dependency holds
+  nothing.
+  
+  The dashboard labels the check "Environment values" and shows N/A when it
+  does not apply. The Stage's `spec.environment` field documents the match.
+- 0813b6e: The `pacto doc` HTML page and its Markdown output show each interface's
+  lifecycle, guarantees and compatibility epoch, what each dependency requires
+  and whether its provider meets it, how each validation stage ended and an
+  Environments section with each environment's check and its findings located
+  in the values file. A requirement reads met or refused only when Pacto checked
+  the provider's contract, and Not verified with the reason otherwise. The TUI
+  explain view lists environments, interface visibility and dependency
+  compatibility, as `pacto explain` does. `pacto explain`, the TUI explain view
+  and the MCP contract summary list the guarantees each interface offers, its
+  compatibility epoch and what each dependency requires. The dashboard's "On
+  this page" rail scrolls within itself when a page has more sections than fit
+  the screen, keeping the current section in view.
+- 0813b6e: Add `pactoVersion: "2.3"` and `environments`, so `pacto validate` checks the
+  configuration values each environment uses against the schema of every
+  configuration they name. Every 2.2 contract is valid under 2.3. A 2.3 contract
+  needs Pacto core 4.4.0 or later and operator 6.4.0 or later. A `"2.0"`, `"2.1"`
+  or `"2.2"` contract that declares `environments` reports `NEEDS_PACTO_2_3`.
+  
+  ```yaml
+  pactoVersion: "2.3"
+  configurations:
+    - name: chart
+      schema: chart/values.schema.json
+      required: true
+  environments:
+    - name: staging
+      file: environments/staging.yaml
+    - name: production
+      file: environments/production.yaml
+  ```
+  
+  An environment's file maps each configuration name to that environment's
+  values, for example `chart: {replicaCount: 5, ingress: {host: shop.example.com}}`.
+  It ships in the bundle like any other referenced file. Values hold references
+  to secrets, such as a Secret name; keep secret material out of the file.
+  
+  - `pacto validate` reports a duplicate environment name
+    (`DUPLICATE_ENVIRONMENT_NAME`), and a file that is missing or whose path
+    leaves the bundle (`FILE_NOT_FOUND`). A new `environments` stage, after
+    `policy`, merges each environment's values over the configuration's default
+    `values` and checks the result against its schema
+    (`ENVIRONMENT_VALUES_INVALID`). A `null` in an environment's file removes
+    that key from the merged values. The stage reports values for a
+    configuration the contract does not declare
+    (`ENVIRONMENT_UNKNOWN_CONFIGURATION`) and a required configuration whose
+    defaults alone fail its schema when an environment omits it
+    (`ENVIRONMENT_VALUES_MISSING`). Each error names the environment, the
+    configuration and the JSON Pointer of the value, and carries the
+    environment's file. A schema violation and an unknown configuration also
+    carry the line and column of the value, and a file that does not parse
+    carries the line the parser names. A configuration whose schema is behind a
+    `ref`, or a run with no bundle files, reports `ENVIRONMENT_VALUES_UNVERIFIED`,
+    a warning, and the stage is skipped with a reason naming it. Without
+    `environments` the stage is skipped.
+  - `pack`, `push`, `publish`, the operator, the dashboard and `pacto_check` run
+    the environments stage too, so a version whose values break an environment
+    is refused there as well.
+  - `pacto diff` reports an environment added as non-breaking, one removed as
+    potentially breaking and every changed value in its file as non-breaking, at
+    `environments[<name>].<configuration>.<path>`.
+  - `pacto explain` and the MCP contract summary list the environments.
+  - A validation error carries `file` when it points into a file other than
+    `pacto.yaml`, in `pacto validate` and in `pacto_check`. The text output of
+    `pacto validate` widens its stage column by one character.
+
+### Patch Changes
+
+- 0813b6e: Report each consumer at its shortest distance from the changed service. A
+  consumer that depended on it directly and also through another dependent that
+  sorted first was reported as `transitive confidence=inferred`; `pacto impact`
+  now reports it as `direct confidence=contractual`. `pacto fleet graph`, the
+  dashboard fleet graph API and the MCP `pacto_fleet_graph` tool walk the graph
+  breadth-first: nodes come in ascending depth, `--max-depth` counts the shortest
+  distance and a capped answer keeps the nearest nodes.
+- 0813b6e: `pacto_edit` keeps every top-level field of the contract it rewrites. It used
+  to drop `publish`, `checks` and any field it did not list.
+- 0813b6e: The Pacto status records the guarantees of the contract, so the fleet the
+  promoter builds from Pacto status evaluates them as a fleet built from
+  published bundles does.
+  
+  - `status.interfaces[]` adds `guarantees`, `lifecycle` and
+    `compatibilityEpoch`, under the contract's own field names.
+  - `status.dependencies[]` adds `requires`, one entry per interface of the
+    provider with the guarantees the dependency relies on.
+  - The promoter's fleet rebuilds each Pacto's interfaces from its status. A
+    dependency whose provider runs in the cluster reports its guarantees as met
+    or unmet, and as unknown when no Pacto of the provider runs there. The
+    impact analysis lists a guarantee the candidate does not meet under each consumer
+    whose status records the requirement.
+  
+  - `status.statusFormat` is `1` on every status this operator writes. It says
+    the status records guarantees, so a missing one means none is offered.
+  
+  The fields are optional and the CRD version stays `v1alpha1`. Pactos last
+  reconciled by an older operator carry none of them until the operator
+  reconciles them again, which it does for every Pacto when it starts. In that
+  window the promoter reads a status without `statusFormat` as guarantees
+  unknown: a dependency on that provider reports its guarantees as unknown,
+  never unmet, and a breaking or possibly breaking change to a service whose
+  consumer has such a status waits for a person to accept the unknown.
+- 0813b6e: `pacto publish` and `pacto push` check what each dependency `requires` from
+  its provider, as `pacto validate` does. A provider that does not meet a
+  required dependency's guarantee (`GUARANTEE_UNMET`) refuses the publish, and
+  `pacto publish --plan` shows it as the failed `validation` check. An unmet
+  guarantee of an optional dependency and a provider Pacto cannot fetch
+  (`GUARANTEE_UNVERIFIED`) stay warnings: the publish `validation` check passes
+  with its message leading with them, so it never reads as a clean pass, and
+  `pacto push` prints them. `pacto pack` stays offline and does not
+  fetch providers.
+
 ## 4.3.0
 
 ### Minor Changes
