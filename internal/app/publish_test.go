@@ -748,9 +748,9 @@ func TestPublishChecksGuarantees(t *testing.T) {
 		{"required unmet refuses", reachable, dep(true, "{interface: events, delivery: at-most-once}"), false,
 			"GUARANTEE_UNMET: checkout requires events delivery at-most-once from orders, which offers at-least-once"},
 		{"optional unmet warns", reachable, dep(false, "{interface: events, idempotent: true}"), true,
-			"the contract is valid; warning GUARANTEE_UNMET: checkout requires events idempotent true from orders, which offers nothing"},
+			"warning GUARANTEE_UNMET: checkout requires events idempotent true from orders, which offers nothing; the contract is otherwise valid"},
 		{"unreachable provider warns", unreachable, dep(true, "{interface: events, delivery: at-least-once}"), true,
-			"the contract is valid; warning GUARANTEE_UNVERIFIED: cannot check what checkout requires from orders: "},
+			"warning GUARANTEE_UNVERIFIED: cannot check what checkout requires from orders: "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -116,7 +116,8 @@ func preflight(ctx context.Context, env sysDeps, tools execTools, path string, c
 // validationCheck is the validation check after the guarantees stage, the one
 // validation stage that reads other contracts. An unmet guarantee of a required
 // dependency fails it; a warning, such as a provider it could not fetch
-// (GUARANTEE_UNVERIFIED), passes it and is named in its message.
+// (GUARANTEE_UNVERIFIED), passes it and leads its message, so the row never
+// reads as a clean pass.
 func validationCheck(st validation.Stage) publish.Check {
 	if len(st.Errors) > 0 {
 		msgs := make([]string, len(st.Errors))
@@ -125,11 +126,14 @@ func validationCheck(st validation.Stage) publish.Check {
 		}
 		return publish.Check{Name: "validation", Message: strings.Join(msgs, "; ")}
 	}
-	msg := "the contract is valid"
-	for _, w := range st.Warnings {
-		msg += "; warning " + w.Code + ": " + w.Message
+	if len(st.Warnings) == 0 {
+		return publish.Check{Name: "validation", Passed: true, Message: "the contract is valid"}
 	}
-	return publish.Check{Name: "validation", Passed: true, Message: msg}
+	msgs := make([]string, len(st.Warnings))
+	for i, w := range st.Warnings {
+		msgs[i] = "warning " + w.Code + ": " + w.Message
+	}
+	return publish.Check{Name: "validation", Passed: true, Message: strings.Join(msgs, "; ") + "; the contract is otherwise valid"}
 }
 
 // checkOf is a passed check, or a failed one carrying the first error.
