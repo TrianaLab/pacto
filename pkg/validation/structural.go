@@ -24,15 +24,18 @@ var schemaV21Bytes []byte
 //go:embed schema/pacto-v2.2.schema.json
 var schemaV22Bytes []byte
 
+//go:embed schema/pacto-v2.3.schema.json
+var schemaV23Bytes []byte
+
 // SchemaBytes returns the raw embedded JSON Schema bytes of the newest version
-// (2.2, a superset of 2.1 and 2.0). The doc package extracts field descriptions
+// (2.3, a superset of 2.2, 2.1 and 2.0). The doc package extracts field descriptions
 // from it.
-func SchemaBytes() []byte { return schemaV22Bytes }
+func SchemaBytes() []byte { return schemaV23Bytes }
 
 // schemaBytes is the embedded JSON Schema of each pactoVersion. The versions
 // supported are contract.SupportedVersions; init panics on one without a
 // schema here.
-var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes}
+var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
 var compiledSchemas = map[string]*jsonschema.Schema{}

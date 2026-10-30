@@ -41,7 +41,7 @@ func sortedKeys(m map[string]bool) []string {
 // would turn this gate green while every contract using that field is rejected.
 func schemaTopLevelFields(t *testing.T, root string) map[string]bool {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.2.schema.json"))
+	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.3.schema.json"))
 	if err != nil {
 		t.Fatalf("read schema: %v", err)
 	}
@@ -151,7 +151,7 @@ func vocabKey(vals []string) string {
 // set and mapping to the JSON pointers that spell it.
 func schemaEnums(t *testing.T, root string) map[string][]string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.2.schema.json"))
+	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.3.schema.json"))
 	if err != nil {
 		t.Fatalf("read schema: %v", err)
 	}

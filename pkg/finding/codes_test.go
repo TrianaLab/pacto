@@ -13,6 +13,7 @@ func TestCategoryOf(t *testing.T) {
 		CodeInvalidSemver:                CategoryInvalidVersion,
 		CodeNeedsPacto21:                 CategoryInvalidVersion,
 		CodeNeedsPacto22:                 CategoryInvalidVersion,
+		CodeNeedsPacto23:                 CategoryInvalidVersion,
 		CodeTagNotDigest:                 CategoryInvalidReference,
 		CodeEmptyCompatibility:           CategoryInvalidDependency,
 		CodeInvalidConfigRef:             CategoryInvalidReference,

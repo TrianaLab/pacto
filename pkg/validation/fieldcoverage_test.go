@@ -89,7 +89,7 @@ func loadFieldCoverage(t *testing.T) map[string]fcEntry {
 // are leaves.
 func schemaFieldPaths(t *testing.T) (paths []string, enums map[string][]string) {
 	t.Helper()
-	data, err := os.ReadFile("schema/pacto-v2.2.schema.json")
+	data, err := os.ReadFile("schema/pacto-v2.3.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
