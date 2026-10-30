@@ -9,7 +9,7 @@ To see contracts in action, try a demo:
 
 - [Live dashboard demo](dashboard-demo.md): the dashboard in your browser, nothing to install. Its source is in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo). Its runtime conformance finding is recorded.
 - [Docker Compose demo](compose-demo.md): a registry, an Evidence Server and the dashboard on your machine, from one OCI artifact. A host agent checks runtime conformance live.
-- [Guided tour](demo-tour.md): six user stories from the command line, offline. Its runtime conformance finding is recorded. The same fleet opens in the [terminal UI](../fleet-tools.md#the-terminal-ui); `pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""` opens most of it straight from the registry.
+- [Guided tour](demo-tour.md): seven user stories from the command line, offline. Its runtime conformance finding is recorded. The same fleet opens in the [terminal UI](../fleet-tools.md#the-terminal-ui); `pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""` opens most of it straight from the registry.
 
 ## Available examples
 

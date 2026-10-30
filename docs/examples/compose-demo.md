@@ -86,8 +86,8 @@ what it may do on its own. Delivery runs on Kubernetes only; the
 [Kubernetes demo](kubernetes-demo.md) shows it.
 
 For the same moves at the command line, follow the
-[guided tour](demo-tour.md). Its six stories go from listing a fleet to an
-agent reading the same server.
+[guided tour](demo-tour.md). Its seven stories go from listing a fleet to
+checking what a provider promises.
 
 ## Try the CLI in the demo
 
