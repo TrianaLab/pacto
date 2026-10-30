@@ -160,4 +160,9 @@ func TestStatusCarriesGuaranteesToDelivery(t *testing.T) {
 	if string(gi) != string(wi) || string(gr) != string(wr) {
 		t.Fatalf("delivery decodes\n%s\n%s\nwant\n%s\n%s", gi, gr, wi, wr)
 	}
+	// The status says it records guarantees, so delivery reads a missing one
+	// as none offered rather than unknown.
+	if v.Status.StatusFormat != delivery.StatusFormatGuarantees {
+		t.Fatalf("statusFormat = %d, want %d", v.Status.StatusFormat, delivery.StatusFormatGuarantees)
+	}
 }

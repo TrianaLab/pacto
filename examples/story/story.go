@@ -393,7 +393,7 @@ func pacto(env string, r delivery.Revision) delivery.PactoView {
 	c := r.Bundle.Contract
 	var p delivery.PactoView
 	p.Metadata.Namespace, p.Metadata.Name = env, c.Service.Name
-	p.Status.ContractStatus = "Compliant"
+	p.Status.ContractStatus, p.Status.StatusFormat = "Compliant", delivery.StatusFormatGuarantees
 	p.Status.LastReconciledAt = Now.Format(time.RFC3339)
 	owner := c.Service.Owner
 	p.Status.Contract = &delivery.ContractInfoView{ServiceName: c.Service.Name, Version: c.Service.Version,

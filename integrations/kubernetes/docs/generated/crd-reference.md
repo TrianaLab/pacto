@@ -690,6 +690,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.resources.workload.exists` | `boolean` | yes |  |  | Exists indicates whether the resource was found in the cluster. |
 | `status.resources.workload.kind` | `string` | no |  |  | Kind of the resource (only set for workloads). |
 | `status.resources.workload.name` | `string` | yes |  |  | Name of the resource. |
+| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. A status without it was written by an older operator, so readers treat what it would record about them as unknown until the operator reconciles the Pacto again. |
 | `status.summary` | `object` | no |  |  | Summary provides severity-based finding counts. |
 | `status.summary.errorCount` | `integer` | yes |  |  | ErrorCount is the number of error-severity findings. |
 | `status.summary.infoCount` | `integer` | yes |  |  | InfoCount is the number of info-severity findings. |

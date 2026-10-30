@@ -91,6 +91,11 @@ type RawRevision struct {
 	// it with contract.ParseDocument. Build validates it instead of decoding the
 	// YAML again. It must be the decode of the same bytes as the Bundle.
 	Document *contract.Document
+	// GuaranteesUnseen is why the source could not read this revision's
+	// interface guarantees and dependency requirements, or "" when it could.
+	// A revision rebuilt from a status an older operator wrote records
+	// neither, so a requirement on it is unknown rather than unmet.
+	GuaranteesUnseen string
 }
 
 // RawTarget is what an observer source knows about a concrete deployed instance.

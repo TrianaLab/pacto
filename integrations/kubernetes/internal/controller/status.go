@@ -47,6 +47,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		info.OwnerDisplay = c.Service.Owner.DisplayString()
 	}
 	pacto.Status.Contract = info
+	pacto.Status.StatusFormat = pactov1alpha1.PactoStatusFormat
 
 	// Interfaces (v2: Type is openapi/asyncapi/grpc, Ref not Contract, no Port)
 	for _, iface := range c.Interfaces {

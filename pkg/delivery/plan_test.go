@@ -44,7 +44,7 @@ func checkoutPacto(rng string) PactoView {
 	var p PactoView
 	p.Metadata.Namespace, p.Metadata.Name = "prod", "checkout"
 	p.Status.ContractStatus = "Compliant"
-	p.Status.LastReconciledAt = now.Format(time.RFC3339)
+	p.Status.LastReconciledAt, p.Status.StatusFormat = now.Format(time.RFC3339), StatusFormatGuarantees
 	p.Status.Contract = &ContractInfoView{ServiceName: "checkout", Version: "1.0.0",
 		Owner: &contract.Owner{Team: "team-checkout"}, ResolvedRef: "oci://reg.example/pactos/checkout@" + c3}
 	p.Status.Dependencies = []DependencyView{{Name: "payments", Ref: "oci://reg.example/pactos/payments", Required: true, Compatibility: rng}}
@@ -796,10 +796,18 @@ func TestRevisionFromStatus_KeepsRequires(t *testing.T) {
 	}
 }
 
+// older is p as an operator that predates status.statusFormat wrote it: with
+// no guarantees and no requirements recorded.
+func older(p PactoView) PactoView {
+	p.Status.StatusFormat = 0
+	return p
+}
+
 // A fleet rebuilt from Pacto status checks what a consumer requires against
 // the interfaces the provider's status records, as a fleet built from bundles
 // does: unmet when the provider does not promise it, met when it does and
-// unknown when no Pacto of the provider is in the cluster.
+// unknown when no Pacto of the provider is in the cluster or an older operator
+// wrote the provider's status, which then records no guarantees at all.
 func TestSnapshotFromStatusEvaluatesGuarantees(t *testing.T) {
 	checkout := checkoutPacto("^1.0.0")
 	checkout.Status.Dependencies[0].Requires = []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}
@@ -817,6 +825,7 @@ func TestSnapshotFromStatusEvaluatesGuarantees(t *testing.T) {
 		{"unmet", []PactoView{checkout, payments(nil)}, fleet.GuaranteeUnmet},
 		{"met", []PactoView{checkout, payments(&contract.Guarantees{Idempotent: true})}, fleet.GuaranteeMet},
 		{"provider absent", []PactoView{checkout}, fleet.GuaranteeUnknown},
+		{"provider status predates guarantees", []PactoView{checkout, older(payments(nil))}, fleet.GuaranteeUnknown},
 	} {
 		snap, err := Snapshot(context.Background(), tc.pactos, nil, nil, now)
 		if err != nil {
@@ -852,6 +861,36 @@ func TestImpactFromStatusSeesUnmetGuarantee(t *testing.T) {
 	res := impact.Analyze(context.Background(), old.Contract, nu.Contract, nil, nil, snap, impact.Options{Domain: "reg.example/pactos"})
 	if len(res.Consumers) != 1 || len(res.Consumers[0].Unmet) != 1 || res.Consumers[0].Unmet[0].Guarantee != "idempotent" {
 		t.Fatalf("impact lost the requirement the status records: %+v", res.Consumers)
+	}
+}
+
+// TestPlanConsumerStatusPredatesRequires: a consumer whose status an older
+// operator wrote records no requirements, so Pacto cannot tell whether a
+// change that is not plainly non-breaking leaves one unmet: it asks a person
+// to accept the unknown. A non-breaking change weakens no guarantee, so it
+// cannot break a requirement and passes.
+func TestPlanConsumerStatusPredatesRequires(t *testing.T) {
+	old, major := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
+	old.Contract.Workload, major.Contract.Workload = "service", "job" // BREAKING
+	from := rev(dA, c1, old)
+	for _, tc := range []struct {
+		name     string
+		to       *contract.Bundle
+		consumer PactoView
+		unknown  bool
+	}{
+		{"breaking, older status", major, older(checkoutPacto(">=1.0.0")), true},
+		{"breaking, current status", major, checkoutPacto(">=1.0.0"), false},
+		{"non-breaking, older status", bundle("payments", "1.0.1"), older(checkoutPacto("^1.0.0")), false},
+	} {
+		if tc.to.Contract.Service.Version == "1.0.1" {
+			tc.to.Contract.Workload = "service"
+		}
+		p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, rev(dB, c2, tc.to), tc.consumer)
+		v := verdict(t, p, GateImpact)
+		if got := v.Result == Unknown && strings.Contains(v.Message, "checkout's status was written by an operator that does not record what it requires"); got != tc.unknown {
+			t.Errorf("%s: want unknown %v, got %+v", tc.name, tc.unknown, v)
+		}
 	}
 }
 

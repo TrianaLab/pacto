@@ -750,10 +750,20 @@ type EvaluatedWorkload struct {
 	Generation int64  `json:"generation"`
 }
 
+// PactoStatusFormat is the StatusFormat this operator writes.
+const PactoStatusFormat = 1
+
 // PactoStatus defines the observed state of Pacto.
 // All contract data is exposed as structured fields so external consumers
 // can read the CR status directly without parsing contracts themselves.
 type PactoStatus struct {
+	// StatusFormat is the layout this status is written in. Format 1 records
+	// interface guarantees and dependency requirements. A status without it
+	// was written by an older operator, so readers treat what it would record
+	// about them as unknown until the operator reconciles the Pacto again.
+	// +optional
+	StatusFormat int32 `json:"statusFormat,omitempty"`
+
 	// ContractStatus is the high-level contract compliance state.
 	// This reflects contract validation/compliance and is NOT runtime health.
 	// +kubebuilder:validation:Enum=Compliant;Warning;NonCompliant;Reference;Unknown;Invalid;NotEvaluated

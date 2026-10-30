@@ -407,6 +407,7 @@ func mapFindings(findings []finding.Finding) []pactov1alpha1.FindingStatus {
 // resetDerivedStatus clears all status fields that are recomputed each reconciliation.
 // This prevents stale data from a previous reconciliation from surviving.
 func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
+	pacto.Status.StatusFormat = 0
 	pacto.Status.ContractStatus = ""
 	pacto.Status.ResolutionPolicy = ""
 	pacto.Status.Summary = nil

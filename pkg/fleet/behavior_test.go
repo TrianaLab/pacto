@@ -88,6 +88,26 @@ func TestDependencyBehavior(t *testing.T) {
 	}
 }
 
+// A provider revision whose guarantees the source could not read leaves a
+// requirement on it unknown, with the source's reason, never unmet.
+func TestDependencyBehaviorGuaranteesUnseen(t *testing.T) {
+	need := []contract.Requirement{{Interface: "orders", Guarantees: contract.Guarantees{Delivery: "at-least-once"}}}
+	events := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "events", Version: "1.0.0"}, Interfaces: []contract.Interface{{Name: "orders", Type: "asyncapi"}}}
+	late := &contract.Contract{PactoVersion: "2.2", Service: contract.Service{Name: "late", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{{Name: "events", Compatibility: "^1.0.0", Required: true, Requires: need}}}
+	src := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
+		{Bundle: &contract.Bundle{Contract: events}, Digest: "sha256:events", GuaranteesUnseen: "an older operator wrote it"},
+		{Bundle: &contract.Bundle{Contract: late}, Digest: "sha256:late"},
+	}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := behaviorOf(t, NewQuery(snap), "late"); r.GuaranteeStatus != GuaranteeUnknown || r.GuaranteeReason != "an older operator wrote it" || len(r.Unmet) != 0 {
+		t.Errorf("unseen guarantees: %+v", r)
+	}
+}
+
 func TestProviderDeprecations(t *testing.T) {
 	q := behaviorFleet(t)
 	early := behaviorOf(t, q, "early").DeprecatedInterfaces

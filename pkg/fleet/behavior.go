@@ -22,7 +22,8 @@ const (
 // is met when every provider revision the dependency reaches meets every
 // requirement, unmet when none of them does (Unmet lists what the newest one
 // refuses) and unknown when the fleet cannot tell: the provider is not in the
-// fleet, no revision is in range or the revisions disagree. GuaranteeReason
+// fleet, no revision is in range, a revision's guarantees could not be read
+// or the revisions disagree. GuaranteeReason
 // says which. Unknown is a missing observation, never a refusal.
 type DependencyBehavior struct {
 	Requires        []contract.Requirement `json:"requires,omitempty"`
@@ -39,6 +40,11 @@ type InterfaceDeprecation struct {
 	Sunset     string `json:"sunset,omitempty"`
 	Successor  string `json:"successor,omitempty"`
 }
+
+// GuaranteesUnseen is why the source could not read the revision's interface
+// guarantees and dependency requirements, or "" when it could (see
+// [RawRevision.GuaranteesUnseen]).
+func (r *ContractRevision) GuaranteesUnseen() string { return r.guaranteesUnseen }
 
 // copyBehavior copies b so the copy shares no slice with b.
 func (b DependencyBehavior) copyBehavior() DependencyBehavior {
@@ -86,6 +92,10 @@ func dependencyBehavior(snap *FleetSnapshot, consumer string, dep contract.Depen
 	}
 	met := 0
 	for _, rev := range revs {
+		if why := rev.guaranteesUnseen; why != "" {
+			b.GuaranteeReason, b.Unmet = why, nil
+			return b
+		}
 		if m := contract.Unmet(consumer, dep, rev.Contract); len(m) > 0 {
 			b.Unmet = m // oldest first, so the newest refusal is the one kept
 		} else {

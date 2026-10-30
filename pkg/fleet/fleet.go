@@ -467,6 +467,8 @@ type ContractRevision struct {
 	// that changes after Build. The authority is the per-document digest recorded
 	// in Docs, which every read verifies.
 	bundle *contract.Bundle
+	// guaranteesUnseen is RawRevision.GuaranteesUnseen; see GuaranteesUnseen.
+	guaranteesUnseen string
 	// docConflict, when non-empty, is why this revision's documents cannot be
 	// served: two sources contributed the same immutable revision with different
 	// document content. It is set by mergeRevision, reported as a

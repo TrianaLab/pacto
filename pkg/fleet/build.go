@@ -715,6 +715,9 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		Sources:   []string{source},
 		FetchedAt: copyTime(raw.FetchedAt),
 		bundle:    b,
+		// The first contribution of a revision keeps its contract, so it keeps
+		// whether that contract's guarantees could be read too.
+		guaranteesUnseen: raw.GuaranteesUnseen,
 		// The contract's free-form metadata map is author-controlled and can be
 		// arbitrarily wide, so it is bounded HERE, once, at the source boundary.
 		Metadata: runtimePreview(c.Metadata),

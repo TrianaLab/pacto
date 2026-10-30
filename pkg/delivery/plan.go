@@ -799,6 +799,10 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 		out = append(out, c.Service+" has no usable compatibility range for this change")
 	}
 	if res.Classification != diff.NonBreaking.String() {
+		// A non-breaking change weakens no guarantee, so it breaks no requirement.
+		out = append(out, requirementsUnseen(in.Snapshot, res)...)
+	}
+	if res.Classification != diff.NonBreaking.String() {
 		out = append(out, callersUnseen(in.Snapshot, fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name))...)
 	}
 	out = append(out, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
@@ -815,6 +819,29 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 	for _, m := range in.Misplaced {
 		if m.Service == "" || consumers[m.Service] { // a Pacto with no contract cannot be ruled out
 			out = append(out, m.Note)
+		}
+	}
+	return out
+}
+
+// requirementsUnseen says which direct consumers' requirements Pacto cannot
+// read: every revision of them the snapshot holds came from a status an older
+// operator wrote.
+func requirementsUnseen(snap *fleet.FleetSnapshot, res *impact.Result) []string {
+	var out []string
+	for _, c := range res.Consumers {
+		svc := snap.Services[fleet.NewServiceKeyDomain(c.Domain, c.Service)]
+		if !c.Direct || svc == nil || len(c.Unmet) > 0 {
+			continue
+		}
+		why := ""
+		for _, rk := range svc.Revisions {
+			if why = snap.Revisions[rk].GuaranteesUnseen(); why == "" {
+				break
+			}
+		}
+		if why != "" {
+			out = append(out, why)
 		}
 	}
 	return out

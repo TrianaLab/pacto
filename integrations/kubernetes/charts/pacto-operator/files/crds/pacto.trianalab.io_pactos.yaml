@@ -1178,6 +1178,14 @@ spec:
                     - name
                     type: object
                 type: object
+              statusFormat:
+                description: |-
+                  StatusFormat is the layout this status is written in. Format 1 records
+                  interface guarantees and dependency requirements. A status without it
+                  was written by an older operator, so readers treat what it would record
+                  about them as unknown until the operator reconciles the Pacto again.
+                format: int32
+                type: integer
               summary:
                 description: Summary provides severity-based finding counts.
                 properties:
