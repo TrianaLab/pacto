@@ -612,8 +612,22 @@ rollout deploy/conforming
 expect_pacto conforming "$R" -status Compliant -no-findings -covered
 
 scenario "agent-failed" "the agent loses CAP_BPF, cannot attach, and reports Failed"
-# A strategic merge on the capabilities list: the operator re-applies the
-# DaemonSet on its own interval, so the window to observe this is that interval.
+# The operator re-applies the DaemonSet every 5 minutes (component.DefaultInterval)
+# and puts CAP_BPF back. Left to wherever that interval happens to be, the re-apply
+# can land inside this scenario: then the break heals early, or `rollout undo`
+# returns to the broken revision because the operator's apply made the healthy one
+# the newest. Restarting the operator runs that apply now and starts a fresh
+# interval, so the break below holds until the scenario restores it itself.
+kubectl -n "$NS" rollout restart deploy/pacto-operator >/dev/null
+wait_ready pacto-operator 120s >/dev/null
+# operator_synced_agent — the newest operator pod has applied the node agent.
+operator_synced_agent() {
+  local pod
+  pod="$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=pacto-operator \
+    --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')"
+  kubectl -n "$NS" logs "$pod" 2>/dev/null | grep -q 'Node agent resources reconciled successfully'
+}
+eventually 40 operator_synced_agent || miss "the restarted operator never applied the node agent"
 CAPS="$(kubectl -n "$AGENT_NS" get ds pacto-node-agent -o jsonpath='{.spec.template.spec.containers[0].securityContext.capabilities.add}')"
 NOBPF="$(printf '%s' "$CAPS" | tr -d '[]"' | tr ',' '\n' | grep -vx BPF | sed 's/.*/"&"/' | paste -sd, -)"
 kubectl -n "$AGENT_NS" patch ds pacto-node-agent --type=json \
@@ -621,7 +635,9 @@ kubectl -n "$AGENT_NS" patch ds pacto-node-agent --type=json \
 kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=120s >/dev/null || true
 expect_nro 40 -state Failed
 expect_pacto conforming 40 -status Unknown -expect COLLECTION_FAILED:unknown:interface/api
-kubectl -n "$AGENT_NS" rollout undo ds/pacto-node-agent >/dev/null
+# The original list back, explicitly: a no-op if the operator already restored it.
+kubectl -n "$AGENT_NS" patch ds pacto-node-agent --type=json \
+  -p "[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/securityContext/capabilities/add\", \"value\": ${CAPS}}]" >/dev/null
 kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=120s >/dev/null
 expect_nro 40 -state Running
 expect_pacto conforming "$R" -status Compliant -no-findings

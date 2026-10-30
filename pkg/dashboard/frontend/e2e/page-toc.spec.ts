@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, canonicalKeys } from './typographyChecks';
+import { boot } from './typographyChecks';
 
 /**
  * The shared "On this page" navigator, measured in a browser.
@@ -22,9 +22,24 @@ import { boot, canonicalKeys } from './typographyChecks';
 
 const TOC = '[data-testid="page-toc"]';
 
+/**
+ * A revision of api-gateway: a long page whose ten sections are what the rail is sized
+ * for. Named, not "the fleet's first revision": that is whichever service sorts first,
+ * and when the demo gained analytics-pipeline, a dozen-line contract that fits a laptop
+ * screen with nothing to scroll, every claim below silently moved onto it.
+ */
+async function longRevision(page: Page): Promise<string> {
+  await boot(page, '#/fleet');
+  const revision = await page.evaluate(async () => {
+    const r = await (await fetch('/api/fleet/entities?kinds=revision&service=api-gateway&limit=1')).json();
+    return (r.entities || [])[0]?.key || '';
+  });
+  expect(revision, 'the demo has no revision of api-gateway').not.toBe('');
+  return revision;
+}
+
 async function revisionPage(page: Page): Promise<void> {
-  const k = await canonicalKeys(page);
-  await boot(page, `#/fleet/revisions/${encodeURIComponent(k.revision)}`);
+  await boot(page, `#/fleet/revisions/${encodeURIComponent(await longRevision(page))}`);
   await expect(page.locator(TOC)).toBeVisible({ timeout: 30_000 });
 }
 
@@ -224,11 +239,11 @@ test('choosing a section makes it current at once, and holds until the reader dr
 
 test('the contents list is not a second kind of URL', async ({ page }) => {
   test.setTimeout(240_000);
-  const k = await canonicalKeys(page);
+  const revision = await longRevision(page);
   // Two real route entries, so there is something for a broken Back to fall into.
   await boot(page, '#/fleet/revisions');
   await page.locator(`${TOC}, main`).first().waitFor();
-  await page.evaluate((key: string) => { location.hash = `#/fleet/revisions/${encodeURIComponent(key)}`; }, k.revision);
+  await page.evaluate((key: string) => { location.hash = `#/fleet/revisions/${encodeURIComponent(key)}`; }, revision);
   await expect(page.locator(TOC)).toBeVisible({ timeout: 30_000 });
 
   const before = await page.evaluate(() => ({ hash: location.hash, entries: history.length }));
@@ -249,9 +264,9 @@ test('the contents list is not a second kind of URL', async ({ page }) => {
 test('a section jump is the place the product restores on Back and Forward', async ({ page }) => {
   test.setTimeout(240_000);
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  const k = await canonicalKeys(page);
+  const revision = await longRevision(page);
   await boot(page, '#/fleet/revisions');
-  await page.evaluate((key: string) => { location.hash = `#/fleet/revisions/${encodeURIComponent(key)}`; }, k.revision);
+  await page.evaluate((key: string) => { location.hash = `#/fleet/revisions/${encodeURIComponent(key)}`; }, revision);
   await expect(page.locator(TOC)).toBeVisible({ timeout: 30_000 });
 
   // Jump deep into the page. Because the rail pushes no history entry, this scroll
