@@ -284,15 +284,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 		if err != nil {
 			return err
 		}
-		switch {
-		case o.Status.Phase == delivery.PhaseHeld && s.to == "2.4.1":
-			d.decide(o, d.callerOf(story.Alice), delivery.Reject, "2.4.2 declares the prod values")
-		case o.Status.Phase == delivery.PhaseHeld:
-			// Test auto-promotes only non-breaking changes since 2.4.2 failed,
-			// and a workload with no contract calls payments: alice, on its
-			// team, accepts that unknown.
-			d.decide(o, d.callerOf(story.Alice), o.Status.Plan.Floor.Decision, "ledger-export only reads payment ids, which 3.0.0 keeps")
-		}
+		d.decideHeld(o, s.to)
 		if s.to == "2.4.2" {
 			d.gapAndStranger(d.stage(s.env, s.svc))
 		}
@@ -301,6 +293,20 @@ func (d *demoDelivery) replay(start time.Time) error {
 		s.Status.Proposal = d.proposal(s)
 	}
 	return nil
+}
+
+// decideHeld is alice's answer to a replayed change the plan held.
+func (d *demoDelivery) decideHeld(o *delivery.OperationObject, to string) {
+	switch {
+	case o.Status.Phase != delivery.PhaseHeld:
+	case to == "2.4.1":
+		d.decide(o, d.callerOf(story.Alice), delivery.Reject, "2.4.2 declares the prod values")
+	default:
+		// Test auto-promotes only non-breaking changes since 2.4.2 failed,
+		// and a workload with no contract calls payments: alice, on its
+		// team, accepts that unknown.
+		d.decide(o, d.callerOf(story.Alice), o.Status.Plan.Floor.Decision, "ledger-export only reads payment ids, which 3.0.0 keeps")
+	}
 }
 
 // observe is the stage reconciler on a Stage that observes, after GitOps
