@@ -1,5 +1,9 @@
 # @pacto/demo-compose
 
+## 4.4.2
+
+No changes in this release.
+
 ## 4.4.1
 
 No changes in this release.

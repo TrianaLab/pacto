@@ -4,26 +4,26 @@
     "cli": {
       "artifactKind": "binaries",
       "coordinate": "github.com/trianalab/pacto releases",
-      "tag": "v4.4.1",
-      "version": "4.4.1"
+      "tag": "v4.4.2",
+      "version": "4.4.2"
     },
     "core": {
       "artifactKind": "go-module",
       "coordinate": "github.com/trianalab/pacto/v4",
-      "tag": "v4.4.1",
-      "version": "4.4.1"
+      "tag": "v4.4.2",
+      "version": "4.4.2"
     },
     "dashboard-contract-bundle": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/dashboard-contract",
-      "tag": "4.4.1",
-      "version": "4.4.1"
+      "tag": "4.4.2",
+      "version": "4.4.2"
     },
     "dashboard-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/dashboard",
-      "tag": "4.4.1",
-      "version": "4.4.1"
+      "tag": "4.4.2",
+      "version": "4.4.2"
     },
     "delivery-image": {
       "artifactKind": "oci-image",
@@ -34,14 +34,14 @@
     "demo-bundles": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto",
-      "tag": "4.4.1",
-      "version": "4.4.1"
+      "tag": "4.4.2",
+      "version": "4.4.2"
     },
     "demo-compose": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/demo",
-      "tag": "4.4.1",
-      "version": "4.4.1"
+      "tag": "4.4.2",
+      "version": "4.4.2"
     },
     "k8s-docs": {
       "artifactKind": "docs",
