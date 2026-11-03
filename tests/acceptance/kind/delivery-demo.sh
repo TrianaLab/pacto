@@ -859,6 +859,10 @@ story_b4() {
   [ "$(kubectl -n test get stage payments -o jsonpath='{.status.level}')" = auto-nonbreaking ] \
     || fail "2.4.2 failing in test did not step payments there down to auto-nonbreaking: $(kubectl -n test get stage payments -o jsonpath='{.status.level}')"
   eventually 60 held test "$auto" || fail "the promoter's promote of breaking 3.0.0 did not wait for a person in test: $(field test "$auto" phase) $(field test "$auto" message)"
+  # A promote supersedes an older one by (creationTimestamp, uid), and
+  # creationTimestamp has one-second resolution: proposing in the second the
+  # held promote was created loses to it half the time. Start a new second.
+  sleep 1
   owner_propose payments -n test --stage payments --to "$d3" --name payments-3-0-0-test --reason "B4: a breaking change after the step-down"
   wait_concluded test payments-3-0-0-test Succeeded/Verified
   kubectl -n test delete operation "$auto" --wait=false >/dev/null || fail "could not cancel the held promote of 3.0.0 in test"

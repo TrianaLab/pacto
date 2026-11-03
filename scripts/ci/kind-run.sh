@@ -11,6 +11,11 @@
 # It reads the INFRASTRUCTURE FAILED line rather than the exit status, because
 # `make` turns every failing recipe into exit 2. The exit status is the command's.
 set -uo pipefail
+# ubuntu-26.04 runners boot with the kernel's inotify limits (128 instances):
+# the image writes 1280 to /etc/sysctl.conf, which 26.04 no longer reads
+# (actions/runner-images#15108). Two kind clusters run out, and kube-proxy
+# dies with "too many open files". Restore what the image meant to set.
+[ "${GITHUB_ACTIONS:-}" = true ] && sudo sysctl -qw fs.inotify.max_user_instances=1280 fs.inotify.max_user_watches=655360
 log="$1"
 shift
 mkdir -p "$(dirname "$log")"

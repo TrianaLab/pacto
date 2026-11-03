@@ -51,10 +51,10 @@ func getDiffOverrides(cmd *cobra.Command) (old, new override.Overrides) {
 	newValues, _ := cmd.Flags().GetStringArray("new-values")
 	newSet, _ := cmd.Flags().GetStringArray("new-set")
 	return override.Overrides{
-			ValueFiles: oldValues,
-			SetValues:  oldSet,
-		}, override.Overrides{
-			ValueFiles: newValues,
-			SetValues:  newSet,
-		}
+		ValueFiles: oldValues,
+		SetValues:  oldSet,
+	}, override.Overrides{
+		ValueFiles: newValues,
+		SetValues:  newSet,
+	}
 }
