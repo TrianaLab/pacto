@@ -1,0 +1,11 @@
+pactoVersion: "2.2"
+service:
+  name: auth
+  version: 2.1.0
+  owner:
+    team: identity
+workload: service
+interfaces:
+  - name: grpc
+    type: grpc
+    ref: interfaces/auth.proto

@@ -1,0 +1,12 @@
+pactoVersion: "2.2"
+service:
+  name: checkout
+  version: 4.2.0
+  owner:
+    team: commerce
+workload: service
+dependencies:
+  - name: auth
+    ref: oci://ghcr.io/acme/auth-pacto
+    required: true
+    compatibility: "^2.0.0"
