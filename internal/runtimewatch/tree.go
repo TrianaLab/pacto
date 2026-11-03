@@ -97,7 +97,7 @@ func (w *TreeWatcher) Poll(now time.Time) {
 	}
 	pids, truncated := w.tree(entries)
 	owned := map[uint64]bool{}
-	netns := map[uint32]int{}
+	netns := map[uint32][]int{}
 	for _, pid := range pids {
 		if !socketInodes(w.Proc, pid, func(ino uint64) { owned[ino] = true }) && Running(w.Proc, pid) {
 			truncated = true
@@ -107,24 +107,14 @@ func (w *TreeWatcher) Poll(now time.Time) {
 			truncated = truncated || Running(w.Proc, pid)
 			continue
 		}
-		if _, ok := netns[ns]; !ok {
-			netns[ns] = pid
-		}
+		netns[ns] = append(netns[ns], pid)
 	}
 	var sockets []tableSocket
-	for _, pid := range netns {
+	for _, members := range netns {
 		for _, file := range []string{"tcp", "tcp6"} {
-			f, err := w.Proc.Open(strconv.Itoa(pid) + "/net/" + file)
-			if err != nil {
-				truncated = true
-				continue
-			}
-			truncated = !scanTable(f, file == "tcp6", func(s tableSocket) {
-				if owned[s.inode] {
-					sockets = append(sockets, s)
-				}
-			}) || truncated
-			_ = f.Close()
+			found, ok := w.table(members, file, owned)
+			sockets = append(sockets, found...)
+			truncated = truncated || !ok
 		}
 	}
 	w.record(sockets, now)
@@ -132,6 +122,34 @@ func (w *TreeWatcher) Poll(now time.Time) {
 		w.observedSince = now
 	}
 	w.baselineAt, w.truncated, w.err = now, truncated, nil
+}
+
+// table reads one tcp table of a network namespace through the first of its
+// members that can still show it, keeping the sockets the tree owns. A member
+// that has begun to exit has left its namespace and shows no table: the next
+// one is read instead, and when every member has exited there is nothing left
+// to hide. ok is false only when a running member's table could not be read in
+// full.
+func (w *TreeWatcher) table(members []int, file string, owned map[uint64]bool) (sockets []tableSocket, ok bool) {
+	for _, pid := range members {
+		sockets = sockets[:0]
+		f, err := w.Proc.Open(strconv.Itoa(pid) + "/net/" + file)
+		if err == nil {
+			ok = scanTable(f, file == "tcp6", func(s tableSocket) {
+				if owned[s.inode] {
+					sockets = append(sockets, s)
+				}
+			})
+			_ = f.Close()
+			if ok {
+				return sockets, true
+			}
+		}
+		if Running(w.Proc, pid) {
+			return sockets, false
+		}
+	}
+	return nil, true
 }
 
 // tree returns the running descendants of Root, at most maxAttributedPids of them;
