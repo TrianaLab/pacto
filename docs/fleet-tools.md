@@ -21,6 +21,8 @@ shows version history, interfaces, configuration schemas and diffs. See the [`pa
 reference](cli-reference.md#pacto-dashboard) for its flags and environment
 variables.
 
+![The dashboard's page for payments-service: its compliance, an ownership conflict across four revisions and a summary of its operational targets](assets/screenshots/dashboard-service.png)
+
 Its HTTP API is described at `/openapi.json`; see [Dashboard container](dashboard-docker.md#operational-endpoints).
 
 ## Fleet queries without a browser
@@ -82,6 +84,8 @@ on 36 services and 4 operational targets. The third needs nothing on disk:
 the demo's 36 services out of `ghcr.io`, and `--local ""` switches off the default
 directory scan. A registry has no record of where anything runs, so every
 service reads `NotEvaluated` until you add the `--target-state` fixture.
+
+![pacto tui on the demo fixture: the Services tab lists 36 services, with payments-service selected and compliant](assets/screenshots/tui-services.png)
 
 ### Keys
 

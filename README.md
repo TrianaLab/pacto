@@ -13,6 +13,8 @@ the OCI registry you already run.
 
 > **Why Pacto exists:** [MANIFEST.md](MANIFEST.md)
 
+![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?", counts services that need attention, non-compliant targets and invalid revisions, and warns that the snapshot is missing data](docs/assets/screenshots/dashboard-overview.png)
+
 ---
 
 ## Who breaks before you ship
@@ -52,6 +54,11 @@ folder, so it cannot know who else consumes the service.
 `pacto diff` exits 1 when the change is `BREAKING`, so the check fails.
 [Put it in your repository](https://pacto.run/latest/ci/) sets up the whole
 job.
+
+The dashboard's Change analysis shows both answers on one page. Here it compares two
+versions of `payments-service` in the [live demo](https://pacto.run/latest/demo/#/fleet):
+
+![Change analysis in the dashboard for payments-service 1.2.1 to 2.0.1: breaking and blocked, with four affected consumers, two of them incompatible](docs/assets/screenshots/dashboard-change-analysis.png)
 
 ## Check what is actually running
 
