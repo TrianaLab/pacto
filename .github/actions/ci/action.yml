@@ -77,7 +77,7 @@ runs:
         # Pin the BINARY, not just the action: without this the installer follows
         # `latest`, and an upstream release turns a required gate red on a tree
         # nobody touched. tests/architecture/golangci_lint_pin_test.go keeps it here.
-        version: v2.13.0
+        version: v2.14.0
         install-only: true
 
     - name: Run make ${{ inputs.target }}

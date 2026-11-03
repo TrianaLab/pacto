@@ -42,6 +42,9 @@ linters:
     modernize:
       disable:
         - omitzero
+        # embedlit (golangci-lint v2.14, Go 1.27) flags every literal that names an
+        # embedded type, ~440 of them; not worth the churn.
+        - embedlit
   exclusions:
     generated: lax
     rules:
