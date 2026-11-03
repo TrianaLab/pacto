@@ -25,11 +25,11 @@ func TestTourStepsAreOneSentence(t *testing.T) {
 	}
 }
 
-// tourStep is one step of a tour in tours.js: its text, its spotlight target with
+// tourStep is one step of a tour in tours.js: its title and text, its spotlight target with
 // the selector constants expanded, and whether it waits for the reader to act.
 type tourStep struct {
-	text, target string
-	gated        bool
+	title, text, target string
+	gated               bool
 }
 
 func tourSteps(t *testing.T, name string) []tourStep {
@@ -49,12 +49,16 @@ func tourSteps(t *testing.T, name string) []tourStep {
 	}
 	body := src[start:]
 	body = body[:strings.Index(body, "\n  }];")]
+	titleRe := regexp.MustCompile(`title: "([^"]+)"`)
 	textRe := regexp.MustCompile(`text: (?:NOTICE \+ )?"([^"]+)"`)
 	targetRe := regexp.MustCompile(`(?m)^\s+target: (.+),$`)
 	var out []tourStep
 	for _, chunk := range strings.Split(body, "\n  }, {\n") {
 		// A step that waits on the system (observe) asks the reader for nothing.
 		s := tourStep{gated: strings.Contains(chunk, "gate: function") && !strings.Contains(chunk, "observe: true")}
+		if m := titleRe.FindStringSubmatch(chunk); m != nil {
+			s.title = m[1]
+		}
 		if m := textRe.FindStringSubmatch(chunk); m != nil {
 			s.text = m[1]
 		}
@@ -125,6 +129,18 @@ func TestTourStepsAskOneThing(t *testing.T) {
 			}
 			if s.target == "" {
 				t.Errorf("%s step %d waits for an action but lights nothing", tour, i+1)
+			}
+		}
+	}
+}
+
+// TestTourStepsHaveTitles: every step carries a short heading saying what it
+// shows, so a reader can tell where they are without parsing the sentence.
+func TestTourStepsHaveTitles(t *testing.T) {
+	for _, tour := range []string{"FLEET_TOUR", "DELIVERY_TOUR"} {
+		for i, s := range tourSteps(t, tour) {
+			if s.title == "" || len(s.title) > 40 {
+				t.Errorf("%s step %d needs a title of at most 40 characters, has %q", tour, i+1, s.title)
 			}
 		}
 	}

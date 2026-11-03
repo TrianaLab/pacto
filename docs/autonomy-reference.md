@@ -61,6 +61,11 @@ whose impact check passed and that then verified.
 | `incident` | A failure or rollback in the window | Wait for N clean changes |
 | `partial-graph` | The newest plan could not see the whole graph | Fix the missing sources |
 
+The dashboard's **Autonomy** tab groups the blockers by kind across every Stage:
+
+![The Autonomy tab in the demo: 9 blockers grouped by kind, such as a runtime caller with no contract and Stages that need more verified releases](assets/screenshots/dashboard-autonomy-light.png#only-light)
+![The Autonomy tab in the demo: 9 blockers grouped by kind, such as a runtime caller with no contract and Stages that need more verified releases](assets/screenshots/dashboard-autonomy-dark.png#only-dark)
+
 ## Changing the level
 
 A level change is an operation of type `delivery.pacto.trianalab.io/autonomy`:

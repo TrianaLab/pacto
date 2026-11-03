@@ -68,13 +68,13 @@ async function playTour(page: Page, reload: boolean) {
   await expect(text).toContainText('simulated', { timeout: T });
   expect(await page.evaluate(() => (window as unknown as { __noReload?: number }).__noReload)).toBe(reload ? undefined : 1);
   await next.click();
-  await expect(text).toContainText('Act 1, pactify a service');
+  await expect(page.getByTestId('demo-tour-title')).toHaveText('A contract, written for you');
   await expect(page.getByTestId('demo-tour-pre')).toContainText('pacto init --plan --owner risk');
   await expect(page.getByTestId('demo-tour-pre')).toContainText('team: risk');
   await next.click();
-  await expect(text).toContainText('Act 2, a safe change ships on its own');
+  await expect(page.getByTestId('demo-tour-title')).toHaveText('A safe change ships by itself');
   await next.click();
-  await expect(text).toContainText('A bad release is caught');
+  await expect(page.getByTestId('demo-tour-title')).toHaveText('A bad release rolls back');
   await expect(page.getByTestId('actual-verdicts')).toContainText('recorded for this demo', { timeout: T });
   await next.click();
 
@@ -269,7 +269,7 @@ test.describe('Browser demo: the delivery story', () => {
     await step('Press Approve shipping 3.0.0', '[data-testid="decide-approve"]');
     await page.getByTestId('decide-approve').click();
     // 3.0.0 ships, then the checks end Unknown: a screen worth reading, so it holds.
-    await expect(text).toContainText('Then Pacto could not see', { timeout: T });
+    await expect(text).toContainText('too few to judge', { timeout: T });
     await expect(next).toBeVisible({ timeout: T });
     await next.click();
     await step('why accepting the unknown is safe', '[data-testid="decision-panel"] textarea');

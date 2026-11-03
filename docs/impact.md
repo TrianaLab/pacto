@@ -222,6 +222,9 @@ evidence gaps are folded below it, each with its count. It reads the **currently
 Operational Graph shows, so its `snapshotId` matches the graph. The **include-observed** control is enabled only when the host
 declares an observation source, because observed evidence needs a real source.
 
+![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the affected consumers table lists api-gateway and orders-service as incompatible](assets/screenshots/dashboard-change-analysis-light.png#only-light)
+![Change analysis for payments-service 1.2.1 to 2.0.1: the change is breaking and blocked, and the affected consumers table lists api-gateway and orders-service as incompatible](assets/screenshots/dashboard-change-analysis-dark.png#only-dark)
+
 ## What's next
 
 - [The Pacto Operational Graph](operational-graph.md): the read model impact

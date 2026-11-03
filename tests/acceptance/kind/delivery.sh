@@ -255,7 +255,7 @@ DASH_IMG="localhost:5001/pacto-dashboard:$(release_version core)"
 # other controllers (helm, notification, image-reflector, image-automation,
 # source-watcher) are still pulled by the nodes mid-run, and nothing waits on
 # them. zot is pinned by digest too (lib.sh install_registry).
-MIRA_IMG=ghcr.io/trianalab/mira:0.4.3@sha256:2fc95e0d4c8ffa38aa2de1a2389c98eb83e020ab7a1719ca27db90a62794fbcc
+MIRA_IMG=ghcr.io/trianalab/mira:0.4.5@sha256:f352396a4debb9c5b86ec820412c8071e5d68c86041baba213569eed3e8fce2a
 AGNHOST=registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85
 PAUSE_IMG=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097
 FLUX_INSTALL_SHA256=cc3dcd743af16215838b6937e1fce83745bf24c0dcc6c59737c59df15429caaf

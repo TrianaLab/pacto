@@ -32,7 +32,7 @@
   // strip is the only place that visitor is ever told, so the notice is the strip's
   // resting state and the tour never takes it away -- it reappears the moment the
   // tour exits.
-  var NOTICE = "Demo: a fixture fleet running entirely in your browser. All of its data is made up, and two things that look like bugs are deliberate.";
+  var NOTICE = "Demo: a made-up fleet of services, running entirely in your browser. Two things that look like bugs are deliberate.";
 
   // The walkthrough. A visitor who arrives from the home page's call to action gets a
   // dashboard of a fleet they have never seen, and no amount of labelling tells them
@@ -72,7 +72,8 @@
   // This lives in tours.js, which ships with the demo and nothing else, so a real
   // deployment cannot show it even by mistake -- there is no flag to set wrong.
   //
-  // Per step: `hash` is the route the step needs (the last has none, it is about where
+  // Per step: `title` is the step's heading, what it shows; `text` is one sentence
+  // saying what to do or look at; `hash` is the route the step needs (the last has none, it is about where
   // to go next rather than about a screen); `target` is what the spotlight cuts out,
   // and when it is a list the LAST selector that resolves wins, so the light follows
   // the action from a search box to the result it produced; `gate` is the predicate
@@ -81,11 +82,13 @@
   // reveal a Continue instead of moving; `wait` is what an unsatisfied gate is waiting
   // for, because a tour that sits there wanting something it has not named is a wall.
   var FLEET_TOUR = [{
-    text: NOTICE + " Read that, then press Continue.",
+    title: "The guided tour",
+    text: NOTICE + " The tour asks five questions about this fleet and opens the screen that answers each one, so press Continue to start.",
     hash: "#/fleet",
     target: "#ov-answer"
   }, {
-    text: "What is out there: every service Pacto found in its contracts, with its owner and what runs it, so type payments in the search box and press Enter.",
+    title: "What is running?",
+    text: "This list is every service Pacto found in its contracts, with its owner: type payments in the search box and press Enter.",
     hash: "#/fleet/services",
     target: '[data-testid="svc-search"]',
     wait: "Waiting for a search that narrows the list to payments-service.",
@@ -100,7 +103,8 @@
       if (i.form) { i.form.requestSubmit(); }
     }
   }, {
-    text: "One service in full: what payments-service declares, every revision it has published and what was observed about the targets running it, so open payments-service from the list.",
+    title: "What state is it in?",
+    text: "To see one service in full, open payments-service from the list: what it declares, every revision it has published and what was observed about the targets running it.",
     hash: "#/fleet/services",
     // The link, then -- once it has been followed and the link no longer exists -- the
     // summary it opened. Without the second entry the light goes out at the moment the
@@ -114,7 +118,8 @@
       if (a) { a.click(); } else { window.location.hash = "#/fleet/services/payments-service"; }
     }
   }, {
-    text: "About to ship a break: two revisions of payments-service are compared field by field, so first set Earlier revision to the oldest one, 1.0.0.",
+    title: "Will this change break anyone?",
+    text: "Change analysis compares two revisions of payments-service field by field, so first set Earlier revision to the oldest one, 1.0.0.",
     hash: "#/fleet/changes/payments-service",
     target: "#impact-old-rev",
     wait: "Waiting for the oldest revision to be chosen as the earlier one.",
@@ -126,7 +131,8 @@
       if (s && s.options && s.options.length > 1) { setValue(s, s.options[s.options.length - 1].value); }
     }
   }, {
-    text: "Now press Compare revisions: removing an API path is breaking and adding an optional one is not, and the answer says which this is.",
+    title: "Will this change break anyone?",
+    text: "Now press Compare revisions and look for the verdict: removing an API path is breaking, while adding an optional one is not.",
     hash: "#/fleet/changes/payments-service",
     // The button, then the comparison it produced: this is the step the whole tour is
     // for, and leaving the light on the form while the bubble says to read the verdict
@@ -140,7 +146,8 @@
       if (f) { f.requestSubmit(); }
     }
   }, {
-    text: "Who the change reaches: links a contract declares and links Pacto observed are kept apart, so a consumer that declared nothing still shows up, and you start by typing orders in the search box.",
+    title: "Who does a change reach?",
+    text: "The operational graph shows who calls whom, from what contracts declare and from what Pacto observed, so start by typing orders in the search box.",
     hash: "#/fleet/graph",
     target: '[data-testid="graph-discovery"] input[type=search]',
     wait: "Waiting for a search that finds orders.",
@@ -150,6 +157,7 @@
       if (i) { setValue(i, "orders"); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
     }
   }, {
+    title: "Who does a change reach?",
     text: "Open orders-service from the results to see its neighborhood: what it calls, what calls it and what was only observed.",
     hash: "#/fleet/graph",
     target: ['[data-testid="graph-focus-link"]', '[data-testid="neighborhood-canvas"]'],
@@ -165,11 +173,13 @@
   }, {
     // Nothing to do here, only something to read, so it keeps a real button like the
     // opening notice: an auto-advance would flash the rows past unread.
-    text: "What a provider promises: each service that uses inventory-service shows whether it gets the guarantees it requires (met, refused or not verified), and the stock-feed interface is marked past its sunset.",
+    title: "What does a provider promise?",
+    text: "Each service that uses inventory-service shows whether it gets the guarantees it requires (met, refused or not verified), and its stock-feed interface is marked past its sunset.",
     hash: "#/fleet/services/inventory-service",
     target: "#sec-observed-traffic-and-differences"
   }, {
-    text: "You have now seen what runs, what state it is in, who a change reaches and what a provider promises, all from contracts and observations.",
+    title: "Recap",
+    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, who it reaches and what a provider promises, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];
@@ -316,31 +326,37 @@
   var NOTE_APPROVE = "orders 1.4 is ready for payments 3";
   var NOTE_ACCEPT = "traffic is low at night; the error ratio is watched by hand";
   var DELIVERY_TOUR = [{
-    text: "This is the payments story, simulated in your browser: Pacto's own code makes every plan, check and signed record from fixed data, and nothing reaches a cluster.",
+    title: "The delivery story",
+    text: "Follow payments and the services around it from a first contract to changes that ship on their own, simulated in your browser by Pacto's own code with nothing sent to a cluster.",
     hash: "#/delivery/environments",
     target: '[data-testid="environments-board"]'
   }, {
-    text: "Act 1, pactify a service: pacto init read the files of fraud, a plain service, and wrote its contract, so nobody had to write one by hand.",
+    title: "A contract, written for you",
+    text: "pacto init read the files of fraud, a service with no contract yet, and wrote one for it: below is what it found and what is left for its team.",
     hash: "#/delivery/environments",
     target: ['[data-testid="environments-board"]', '[data-testid="env-row-fraud"]'],
     pre: pactifyText
   }, {
-    text: "Act 2, a safe change ships on its own: payments 2.4.0 reached prod with nobody involved, because checkout and orders said they accept any payments 2.x.",
+    title: "A safe change ships by itself",
+    text: "This history shows payments 2.4.0 reaching prod with nobody involved, because checkout and orders, the services that call it, accept any payments 2.x.",
     hash: "#/delivery/history?namespace=prod&stage=payments",
     target: '[aria-label="History of prod/payments"]'
   }, {
-    text: "A bad release is caught and rolled back: the health check failed after 2.4.0 shipped, so Pacto went back to 2.3.0 by itself and will not try 2.4.0 there again.",
+    title: "A bad release rolls back",
+    text: "The health check failed after 2.4.0 shipped, so Pacto went back to 2.3.0 by itself and will not try 2.4.0 in prod again.",
     hash: "#/delivery/changes/prod/payments-promote-2",
     target: '[aria-labelledby="cd-actual"]'
   }, {
-    text: "A breaking change asks only the affected teams: as pay-agent, press Promote on payments 3.0.0 in prod.",
+    title: "A breaking change asks first",
+    text: "You are pay-agent, an AI agent that may propose changes but not decide them, so press Promote on payments 3.0.0 in prod, a breaking release.",
     hash: "#/delivery/environments",
     target: '[aria-label="Promote payments in prod to 3.0.0"]',
     wait: "Waiting for the plan of payments 3.0.0 to open.",
     gate: function () { return planOpen("prod/payments"); },
     skip: function () { clickOn('[aria-label="Promote payments in prod to 3.0.0"]'); }
   }, {
-    text: "The plan asks only checkout and orders, because only they accept nothing past 2.x, so press Propose promote.",
+    title: "A breaking change asks first",
+    text: "The plan asks only checkout and orders, the two callers that accept nothing past 2.x, so press Propose promote.",
     hash: "#/delivery/environments",
     target: [PROPOSE_BTN, '[data-testid="decision-safer"]'],
     wait: "Waiting for payments 3.0.0 to be proposed for prod.",
@@ -354,14 +370,16 @@
       });
     }
   }, {
-    text: "Pacto said what to update first, so press Promote on checkout 1.9.0 in prod.",
+    title: "Update a caller first",
+    text: "The plan suggested updating a caller first, so press Promote on checkout 1.9.0 in prod.",
     hash: "#/delivery/environments",
     target: '[aria-label="Promote checkout in prod to 1.9.0"]',
     wait: "Waiting for the plan of checkout 1.9.0 to open.",
     gate: function () { return planOpen("prod/checkout"); },
     skip: function () { clickOn('[aria-label="Promote checkout in prod to 1.9.0"]'); }
   }, {
-    text: "Press Propose promote: checkout ships with nobody asked, and then only orders is asked about payments 3.0.0, because checkout 1.9 also accepts it.",
+    title: "Update a caller first",
+    text: "Press Propose promote: checkout ships with nobody asked, and now only orders is asked about payments 3.0.0, because checkout 1.9 accepts it.",
     hash: "#/delivery/environments",
     target: [PROPOSE_BTN, ".page-hd-sub"],
     wait: "Waiting for checkout 1.9.0 to ship to prod.",
@@ -371,13 +389,15 @@
       digestOf("checkout", "1.9.0").then(function (to) { return propose({ namespace: "prod", stage: "checkout", to: to }); });
     }
   }, {
-    text: "Only a person on the asked team decides, so open the person menu at the top right.",
+    title: "Decide as team orders",
+    text: "Only a person on an asked team can decide, so open the person menu at the top right.",
     hash: changeHash,
     target: PERSON_MENU,
     wait: "Waiting for the person menu to open.",
     gate: function () { return !!q(SWITCH_BTN) || !!q('[data-testid="demo-persona-carol"]') || persona === "carol"; },
     skip: function () { var m = q("#navbar-identity"); if (m && m.showPopover) { m.showPopover(); } }
   }, {
+    title: "Decide as team orders",
     text: "Press Switch person.",
     hash: changeHash,
     // Back to the menu button if the menu was closed without a press.
@@ -386,6 +406,7 @@
     gate: function () { return !!q('[data-testid="demo-persona-carol"]') || persona === "carol"; },
     skip: function () { setPersona("carol", false); }
   }, {
+    title: "Decide as team orders",
     text: "Pick Carol, who is on team orders.",
     hash: changeHash,
     // Back to the menu if the list was closed without a pick.
@@ -397,6 +418,7 @@
       if (b) { b.click(); } else { setPersona("carol", false); }
     }
   }, {
+    title: "Decide as team orders",
     text: "Write in the note why 3.0.0 should ship, because approving a breaking change needs a reason.",
     hash: changeHash,
     target: NOTE,
@@ -404,14 +426,16 @@
     gate: function () { return noteText().length >= 3 || shipped("3.0.0"); },
     skip: function () { var t = q(NOTE); if (t) { setValue(t, NOTE_APPROVE); } }
   }, {
-    text: "Press Approve shipping 3.0.0 to send Carol's approval, and 3.0.0 ships.",
+    title: "Decide as team orders",
+    text: "Press Approve shipping 3.0.0, then watch 3.0.0 ship.",
     hash: changeHash,
     target: APPROVE,
     wait: "Waiting for 3.0.0 to ship.",
     gate: function () { return shipped("3.0.0"); },
     skip: function () { decide("approve", NOTE_APPROVE); }
   }, {
-    text: "Then Pacto could not see: only 3 traces arrived after 3.0.0 shipped, too few to judge, so the check says Unknown and the change waits for a person.",
+    title: "When Pacto cannot tell",
+    text: "Only 3 traces arrived after 3.0.0 shipped, too few to judge, so the check says Unknown and the change waits for a person.",
     hash: changeHash,
     target: '[data-testid="verdict-unknown"]',
     wait: "Waiting for the checks after release to end.",
@@ -421,6 +445,7 @@
     gate: function () { return !!q('[data-testid="decision-unknown"]') || (!fact().held && fact().accepted); },
     skip: function () { /* nothing to do: the checks end by themselves */ }
   }, {
+    title: "When Pacto cannot tell",
     text: "Write in the note why accepting the unknown is safe.",
     hash: changeHash,
     target: NOTE,
@@ -428,6 +453,7 @@
     gate: function () { return noteText().length >= 3 || (!fact().held && fact().accepted); },
     skip: function () { var t = q(NOTE); if (t) { setValue(t, NOTE_ACCEPT); } }
   }, {
+    title: "When Pacto cannot tell",
     text: "Press Accept the unknown and keep 3.0.0: the record says a person accepted it, and the check stays Unknown.",
     hash: changeHash,
     target: APPROVE,
@@ -439,14 +465,16 @@
       decide("accept-unknown", NOTE_ACCEPT);
     }
   }, {
-    text: "Every step is a signed record: as Carol, press Roll back this change.",
+    title: "Undo it",
+    text: "Changed your mind? As Carol, press Roll back this change.",
     hash: changeHash,
     target: '[data-testid="change-rollback"]',
     wait: "Waiting for the rollback plan to open.",
     gate: function () { return planOpen("Roll back prod/payments"); },
     skip: function () { clickOn('[data-testid="change-rollback"]'); }
   }, {
-    text: "Press Propose roll back, and automation holds off afterwards because a person chose this.",
+    title: "Undo it",
+    text: "Press Propose roll back: payments goes back to 2.3.0, and automation holds off because a person chose this.",
     hash: changeHash,
     target: [PROPOSE_BTN, ".page-hd-sub"],
     wait: "Waiting for the rollback to finish.",
@@ -462,18 +490,22 @@
       clickOn('[data-testid="propose-panel"] .pp-btns button[type=button]');
     }
   }, {
+    title: "Every step is a signed record",
     text: "History reads every step back from records signed in this tab, including a deliberate gap in test and a record signed by a key nobody trusts.",
     hash: "#/delivery/history",
     target: '[data-stage="prod/payments"]'
   }, {
-    text: "How far each Stage runs on its own: fraud is new, so it observes, and Pacto only noted it would have shipped 1.0.0 to test with nobody involved.",
+    title: "How much runs on its own",
+    text: "Each Stage, one service in one environment, has a level for how much ships without a person: fraud is new, so it observes, and Pacto only noted it would have shipped 1.0.0 to test.",
     hash: "#/delivery/autonomy",
     target: '[data-testid="autonomy-stages"] [data-stage="test/fraud"]'
   }, {
+    title: "How much runs on its own",
     text: "payments in prod stepped down a level by itself when 2.4.0 failed there, so only non-breaking changes ship there on their own now.",
     hash: "#/delivery/autonomy",
     target: '[data-testid="autonomy-stages"] [data-stage="prod/payments"]'
   }, {
+    title: "Moving up a level",
     text: "One verified version earned fraud a proposal to move up a level, so press Propose on fraud's row.",
     hash: "#/delivery/autonomy",
     target: RAISE_FRAUD,
@@ -481,15 +513,18 @@
     gate: function () { return planOpen("test/fraud"); },
     skip: function () { clickOn(RAISE_FRAUD); }
   }, {
+    title: "Moving up a level",
     text: "The plan asks team risk, which owns fraud: every raise is one level, earned by evidence and confirmed by a person on the service's team.",
     hash: "#/delivery/autonomy",
     target: '[data-testid="propose-panel"]'
   }, {
-    text: "pay-agent ships like any other service: its runner ran the eval suite and signed the count, and 1.1.0 passed 1 of 2, so it rolled back in test.",
+    title: "An AI agent ships like a service",
+    text: "pay-agent, the agent you started as, ships like any other service: its runner ran the eval suite and signed the count, and 1.1.0 passed only 1 of 2, so it rolled back in test.",
     hash: "#/delivery/changes/test/pay-agent-promote-17",
     target: '[data-testid="verdict-runner"]'
   }, {
-    text: "Explore more on your own, or see the same story on a real cluster.",
+    title: "Recap",
+    text: "You saw pacto init write a contract, safe changes ship and roll back by themselves, a breaking change wait for the teams it breaks and autonomy earned one level at a time, all kept as signed records; the links below explore more.",
     links: [
       ["#/delivery/publish", "The refused 2.4.3 and the bump it needed"],
       ["#/delivery/history?namespace=test&stage=payments", "The claim check that caught payments calling fraud"],

@@ -17,6 +17,9 @@ The first visit downloads about 4.7 MB (19.3 MB unpacked). On a slow
 connection give it a moment: the loading strip counts the seconds, and the
 browser keeps a copy afterwards.
 
+![The demo's fleet overview: it answers "Is anything wrong?" for thirty-eight services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-light.png#only-light)
+![The demo's fleet overview: it answers "Is anything wrong?" for thirty-eight services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
+
 ## What to look at
 
 - **Fleet overview**: thirty-eight made-up services and who calls whom: the
@@ -54,6 +57,10 @@ can see how Pacto reports them.
 ## What the delivery story shows
 
 The delivery screens play the payments story, the scenario every demo shares.
+
+![The Stages tab: five services across test and prod, each with its running version, autonomy level and check result, and the "What Pacto would have done" list for fraud](../assets/screenshots/dashboard-delivery-stages-light.png#only-light)
+![The Stages tab: five services across test and prod, each with its running version, autonomy level and check result, and the "What Pacto would have done" list for fraud](../assets/screenshots/dashboard-delivery-stages-dark.png#only-dark)
+
 Before the tour starts, the tab has already played its first steps, so the
 screens show:
 

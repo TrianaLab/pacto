@@ -13,6 +13,9 @@ the OCI registry you already run.
 
 > **Why Pacto exists:** [MANIFEST.md](MANIFEST.md)
 
+![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?", counts services that need attention, non-compliant targets and invalid revisions, and warns that the snapshot is missing data](docs/assets/screenshots/dashboard-overview-light.png#gh-light-mode-only)
+![The Pacto dashboard overview on the demo fleet: it answers "Is anything wrong?", counts services that need attention, non-compliant targets and invalid revisions, and warns that the snapshot is missing data](docs/assets/screenshots/dashboard-overview-dark.png#gh-dark-mode-only)
+
 ---
 
 ## Who breaks before you ship
@@ -20,19 +23,11 @@ the OCI registry you already run.
 When `auth` is about to ship 3.0 and both consumer contracts are in the
 current folder, `pacto impact` reads the version range each consumer declares:
 
-```console
-$ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
-Impact: auth 2.1.0 -> 3.0.0
-Classification: BREAKING
-Breaking changes: 1
-Potentially breaking changes: 0
-Affected consumers (2):
-  checkout                     direct     confidence=contractual  compat=incompatible owner=commerce
-  reporting                    direct     confidence=contractual  compat=compatible   owner=analytics
-    note: compatible only means the range >=2.0.0 <4.0.0 accepts 3.0.0; this change is BREAKING, so check that reporting does not use what it removes or changes
-Release gate: unverified
-unverified: the change is BREAKING and 2 consumers depend on auth, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
+```sh
+pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
 ```
+
+![pacto impact for auth 2.1.0 to 3.0.0: classification BREAKING with one breaking change, two affected consumers (checkout incompatible, owned by commerce; reporting compatible by range, owned by analytics) and release gate unverified because nothing says where the consumers run](docs/assets/gifs/impact.gif)
 
 The folder says nothing about where the consumers run, so the release gate is
 `unverified` and the command exits 2. It exits 1 when an incompatible
@@ -52,6 +47,12 @@ folder, so it cannot know who else consumes the service.
 `pacto diff` exits 1 when the change is `BREAKING`, so the check fails.
 [Put it in your repository](https://pacto.run/latest/ci/) sets up the whole
 job.
+
+The dashboard's Change analysis shows both answers on one page. Here it compares two
+versions of `payments-service` in the [live demo](https://pacto.run/latest/demo/#/fleet):
+
+![Change analysis in the dashboard for payments-service 1.2.1 to 2.0.1: breaking and blocked, with four affected consumers, two of them incompatible](docs/assets/screenshots/dashboard-change-analysis-light.png#gh-light-mode-only)
+![Change analysis in the dashboard for payments-service 1.2.1 to 2.0.1: breaking and blocked, with four affected consumers, two of them incompatible](docs/assets/screenshots/dashboard-change-analysis-dark.png#gh-dark-mode-only)
 
 ## Check what is actually running
 

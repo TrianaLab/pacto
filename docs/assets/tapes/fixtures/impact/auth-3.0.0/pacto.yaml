@@ -1,0 +1,7 @@
+pactoVersion: "2.2"
+service:
+  name: auth
+  version: 3.0.0
+  owner:
+    team: identity
+workload: service
