@@ -433,12 +433,12 @@ test.describe('WASM dashboard demo — workflows', () => {
     await appReady(page);
     const strip = page.getByTestId('demo-strip');
     await expect(strip).toBeVisible({ timeout: 20_000 });
-    await expect(strip).toContainText('fixture fleet', { timeout: 20_000 });
-    await expect(strip).toContainText('All of its data is made up');
+    await expect(strip).toContainText('made-up fleet', { timeout: 20_000 });
+    await expect(strip).toContainText('running entirely in your browser');
     // The fast path from the home page's primary call to action never passes the
     // explainer, so the two deliberate oddities (degraded-source banner, duplicated
     // config name) have to be flagged here or the visitor reads them as defects.
-    await expect(strip).toContainText('two things that look like bugs are deliberate');
+    await expect(strip).toContainText('things that look like bugs are deliberate');
     // Announced, not silently swapped, when the engine finishes loading.
     await expect(strip).toHaveAttribute('role', 'status');
     await expect(strip).toHaveAttribute('aria-live', 'polite');
@@ -502,8 +502,8 @@ test.describe('WASM dashboard demo — workflows', () => {
     // The fixture disclosure is the strip's resting state, owed before anything is
     // pressed: the fast path from the home page's call to action never passes the
     // explainer.
-    await expect(strip).toContainText('fixture fleet', { timeout: 20_000 });
-    await expect(strip).toContainText('two things that look like bugs are deliberate');
+    await expect(strip).toContainText('made-up fleet', { timeout: 20_000 });
+    await expect(strip).toContainText('things that look like bugs are deliberate');
     await expect(page.getByTestId('demo-tour-start')).toBeVisible({ timeout: 20_000 });
     // No overlay, no dimming, no coach bubble until the invitation is accepted.
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(0);
@@ -526,7 +526,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     // 1 — the disclosure, on the overview. There is nothing here the tour could watch for,
     // so it keeps a real button and waits to be pressed.
     await expect(stepNo).toHaveText('1 / 9');
-    await expect(page.getByTestId('demo-tour-text')).toContainText('two things that look like bugs are deliberate');
+    await expect(page.getByTestId('demo-tour-text')).toContainText('things that look like bugs are deliberate');
     await expect(page.getByTestId('demo-tour-back')).toBeDisabled();
     await expect(next).toBeVisible();
     await expect(next).toHaveText('Continue');
@@ -615,7 +615,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     // keeps a real button and waits for it. The light is on the rows that carry the
     // verdicts the bubble names: a refused guarantee and an interface past its sunset.
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/services/inventory-service', { timeout: 20_000 });
-    await expect(page.getByTestId('demo-tour-text')).toContainText('What a provider promises');
+    await expect(page.getByTestId('demo-tour-title')).toHaveText('What does a provider promise?');
     await expect(next).toHaveText('Continue');
     await expect(auto).toBeHidden();
     await expect(page.getByTestId('demo-tour-skip')).toBeHidden();
@@ -856,7 +856,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(0);
     const strip = page.getByTestId('demo-strip');
     await expect(strip).toBeVisible();
-    await expect(strip).toContainText('fixture fleet');
+    await expect(strip).toContainText('made-up fleet');
     await expect(page.getByTestId('demo-tour-start')).toBeVisible();
   });
 
@@ -1098,7 +1098,7 @@ test.describe('WASM dashboard demo — workflows', () => {
       await route.continue();
     });
     await appReady(page);
-    await expect(page.getByTestId('demo-strip')).toContainText('fixture fleet', { timeout: 30_000 });
+    await expect(page.getByTestId('demo-strip')).toContainText('made-up fleet', { timeout: 30_000 });
     const log = await page.evaluate(() => (window as unknown as { __meterLog: string[] }).__meterLog);
     // Elapsed seconds while the engine is in flight, and the real transfer size read
     // off the response rather than a number hard-coded in the loader.

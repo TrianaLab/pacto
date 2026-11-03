@@ -28,6 +28,9 @@
     "#pacto-tour-bubble:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
     "#pacto-tour-bubble a{color:#a5b4fc;text-decoration:underline}" +
     "#pacto-tour-step{display:block;color:#94a3b8;font-variant-numeric:tabular-nums}" +
+    // The step's title: what the step shows, before the sentence that says what to do.
+    "#pacto-tour-title{display:block;margin-top:.2rem;font-weight:600;color:#f8fafc}" +
+    "#pacto-tour-title[hidden]{display:none}" +
     "#pacto-tour-text{display:block;margin-top:.25rem}" +
     "#pacto-tour-more{display:inline-block;margin-top:.45rem}" +
     // display:inline-block above beats the UA's [hidden] rule, so say so explicitly
@@ -68,7 +71,7 @@
   // The tour being run (an array of steps) and the page's hooks for it; see startTour.
   var TOUR = [];
   var hooks = {};
-  var overlay, spot, bubble, stepNum, textEl, hintEl, autoEl, backBtn, nextBtn, skipBtn, moreLink, preEl, exploreEl;
+  var overlay, spot, bubble, stepNum, titleEl, textEl, hintEl, autoEl, backBtn, nextBtn, skipBtn, moreLink, preEl, exploreEl;
   var step = 0;
   var running = false;
   var raf = 0;
@@ -344,7 +347,7 @@
     // The step text plus, on a step with no button, the line saying none is coming. A
     // hidden element contributes nothing to a description, so on the two steps that DO
     // have a button the second id costs nothing and says nothing.
-    bubble.setAttribute("aria-describedby", "pacto-tour-text pacto-tour-auto");
+    bubble.setAttribute("aria-describedby", "pacto-tour-title pacto-tour-text pacto-tour-auto");
     bubble.setAttribute("tabindex", "-1");
     // Escape exits the tour, and it is bound HERE rather than on the document because
     // the tour does not own this key -- the app does. The dashboard's nav drawer, its
@@ -358,6 +361,10 @@
     stepNum = document.createElement("span");
     stepNum.id = "pacto-tour-step";
     stepNum.setAttribute("data-testid", "demo-tour-step");
+
+    titleEl = document.createElement("strong");
+    titleEl.id = "pacto-tour-title";
+    titleEl.setAttribute("data-testid", "demo-tour-title");
 
     textEl = document.createElement("span");
     textEl.id = "pacto-tour-text";
@@ -431,6 +438,7 @@
     about.textContent = "About this demo";
 
     bubble.appendChild(stepNum);
+    bubble.appendChild(titleEl);
     bubble.appendChild(textEl);
     bubble.appendChild(preEl);
     bubble.appendChild(exploreEl);
@@ -462,6 +470,8 @@
     confirmAt = 0;
     var s = TOUR[i];
     stepNum.textContent = (i + 1) + " / " + TOUR.length;
+    titleEl.textContent = s.title || "";
+    titleEl.hidden = !s.title;
     textEl.textContent = s.text;
     backBtn.disabled = i === 0;
     // A gate is an observation, so a step that has one needs no button and gets the line
