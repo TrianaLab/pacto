@@ -127,10 +127,6 @@ MIGRATE="${PACTO_DEMO_MIGRATE:-0}"
 if [ "$CHECK" = "1" ]; then
   MIGRATE=0   # a read-only check must never be waved through by the migration escape hatch
 fi
-# A committed allowlist authorizes exact (tag, old digest, new digest) replacements,
-# so a one-time migration passes the PR check and the release the same way.
-ALLOW="$ROOT/release/demo-bundle-migration.txt"
-allowed() { [ -f "$ALLOW" ] && grep -qxF "$1 $2 $3" "$ALLOW"; }
 if command -v crane >/dev/null 2>&1; then
   CONFLICTS=() ; MIGRATED=() ; READABLE=0 ; UNREADABLE=()
   # rdig <ref>: prints the remote digest, prints nothing when the tag is genuinely
@@ -158,7 +154,7 @@ if command -v crane >/dev/null 2>&1; then
     [ -z "$remote_d" ] && continue                     # absent -> will publish
     READABLE=$((READABLE+1))
     [ "$remote_d" = "$local_d" ] && continue            # identical digest -> no-op
-    if [ "$MIGRATE" = "1" ] || allowed "$tag" "$remote_d" "$local_d"; then
+    if [ "$MIGRATE" = "1" ]; then
       MIGRATED+=("$COORD/$tag: $remote_d -> $local_d")
     else
       CONFLICTS+=("$COORD/$tag: remote $remote_d != local $local_d")
