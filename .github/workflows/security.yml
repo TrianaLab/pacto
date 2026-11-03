@@ -65,7 +65,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install govulncheck
-        run: bash release/scripts/retry.sh go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+        run: bash release/scripts/retry.sh go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
       # With -format sarif, govulncheck always exits 0 (findings live in the
       # SARIF), so gating happens in the "Fail on ..." step below.
       # Both modules, with -tags kms: the signing package's cloud KMS providers
