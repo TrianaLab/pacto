@@ -1,5 +1,9 @@
 # @pacto/dashboard-image
 
+## 4.4.1
+
+No changes in this release.
+
 ## 4.4.0
 
 No changes in this release.
