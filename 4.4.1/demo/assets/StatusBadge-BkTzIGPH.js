@@ -1,0 +1,1 @@
+import{E as e,Nn as t,T as n,Un as r,Xn as i,ir as a,jn as o,kn as s,mn as c,or as l,qn as u,rr as d}from"./format-DaEQezC7.js";var f=t(`<span><span class="badge-dot"></span> </span>`);function p(t,p){a(p,!0);var m=f(),h=i(u(m),1,!0);l(m),r((e,t)=>{c(m,1,`badge status-badge badge-${e??``}`),s(h,t)},[()=>n(p.status),()=>e(p.status)]),o(t,m),d()}export{p as t};

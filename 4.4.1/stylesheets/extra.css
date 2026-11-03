@@ -1,0 +1,821 @@
+/* ===========================================================================
+   Pacto docs theme: the dashboard's "signed document" identity on Material.
+
+   The tokens below are copied from pkg/dashboard/frontend/src/styles/tokens.css
+   (same names, same values) so the docs and the dashboard read as one product:
+   serif titles in Source Serif 4, a double rule under the page title, italic
+   subsections, small caps labels and the dashboard palette in light and dark.
+   Change a value there, change it here. Material still owns navigation, search
+   and layout; this file only repaints them.
+   =========================================================================== */
+
+/* Source Serif 4 (Adobe, SIL OFL 1.1), the unmodified variable release shipped by
+   the dashboard; licence in assets/fonts/source-serif-4-OFL.txt. One file per
+   style covers every weight. Served from this site: no font CDN. */
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../assets/fonts/SourceSerif4Variable-Roman.otf.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../assets/fonts/SourceSerif4Variable-Italic.otf.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ---- Tokens (dashboard tokens.css) ---------------------------------------- */
+:root {
+  --font-display: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  /* Material appends its own system fallback stack to these two. */
+  --md-text-font: "Inter";
+  --md-code-font: "JetBrains Mono";
+
+  --role-label-tracking: 0.05em;
+
+  --radius: 10px;
+  --radius-md: 8px;
+  --radius-sm: 6px;
+  --radius-xs: 4px;
+  --radius-pill: 999px;
+}
+
+/* Dark: the dashboard's default theme. */
+[data-md-color-scheme="slate"] {
+  --c-bg: #0a0e17;
+  --c-surface: #111827;
+  --c-surface-raised: #1a2332;
+  --c-surface-hover: #1e293b;
+  --c-surface-inset: #060a12;
+  --c-text: #f1f5f9;
+  --c-text-2: #b4bfcf;
+  --c-text-3: #9aa6b8;
+  --c-border: #1e293b;
+  --c-border-subtle: rgba(148, 163, 184, 0.06);
+  --c-ok: #34d399;
+  --c-ok-bg: rgba(52, 211, 153, 0.08);
+  --c-warn: #fbbf24;
+  --c-warn-bg: rgba(251, 191, 36, 0.08);
+  --c-err: #f87171;
+  --c-err-bg: rgba(248, 113, 113, 0.08);
+  --c-info: #60a5fa;
+  --c-info-bg: rgba(96, 165, 250, 0.08);
+  --c-neutral: #94a3b8;
+  --c-neutral-bg: rgba(100, 116, 139, 0.08);
+  --c-accent: #818cf8;
+  --c-accent-bg: rgba(129, 140, 248, 0.08);
+  --c-accent-hover: #a5b4fc;
+  --c-on-accent: #0a0e17;
+  /* Code sits on the page here, not inside a card as in the dashboard, so it takes
+     the surface: the dashboard's inset (#060a12) would vanish into #0a0e17. */
+  --c-code-bg: var(--c-surface);
+  /* ...and inline code would then vanish into tables and admonitions, which are
+     surface too, so it steps up one. */
+  --c-code-inline-bg: var(--c-surface-raised);
+}
+
+[data-md-color-scheme="default"] {
+  --c-bg: #f8fafc;
+  --c-surface: #ffffff;
+  --c-surface-raised: #f1f5f9;
+  --c-surface-hover: #e2e8f0;
+  --c-surface-inset: #f1f5f9;
+  --c-text: #0f172a;
+  --c-text-2: #3f4b5c;
+  --c-text-3: #526073;
+  --c-border: #e2e8f0;
+  --c-border-subtle: rgba(0, 0, 0, 0.04);
+  --c-ok: #047857;
+  --c-ok-bg: rgba(4, 120, 87, 0.06);
+  --c-warn: #b45309;
+  --c-warn-bg: rgba(180, 83, 9, 0.06);
+  --c-err: #b91c1c;
+  --c-err-bg: rgba(185, 28, 28, 0.06);
+  --c-info: #2563eb;
+  --c-info-bg: rgba(37, 99, 235, 0.06);
+  --c-neutral: #64748b;
+  --c-neutral-bg: rgba(100, 116, 139, 0.06);
+  --c-accent: #4f46e5;
+  --c-accent-bg: rgba(79, 70, 229, 0.06);
+  --c-accent-hover: #4338ca;
+  --c-on-accent: #ffffff;
+  --c-code-bg: var(--c-surface-inset);
+  --c-code-inline-bg: var(--c-surface-inset);
+}
+
+/* ---- Tokens -> Material (primary/accent are `custom` in mkdocs.yml) -------- */
+[data-md-color-scheme] {
+  --md-default-bg-color: var(--c-bg);
+  --md-default-fg-color: var(--c-text);
+  --md-default-fg-color--light: var(--c-text-2);
+  /* Material's own value here is a 32% grey that fails AA wherever it carries
+     text (icons, footnotes, the copy button); text-3 clears it in both themes. */
+  --md-default-fg-color--lighter: var(--c-text-3);
+  --md-default-fg-color--lightest: var(--c-border);
+
+  /* The header and tabs bar are the dashboard navbar: surface, ink, a hairline. */
+  --md-primary-fg-color: var(--c-surface);
+  --md-primary-fg-color--light: var(--c-surface-hover);
+  --md-primary-fg-color--dark: var(--c-border);
+  --md-primary-bg-color: var(--c-text);
+  --md-primary-bg-color--light: var(--c-text-3);
+
+  --md-accent-fg-color: var(--c-accent);
+  --md-accent-fg-color--transparent: var(--c-accent-bg);
+  --md-accent-bg-color: var(--c-on-accent);
+  --md-accent-bg-color--light: var(--c-on-accent);
+  --md-typeset-a-color: var(--c-accent);
+
+  --md-code-bg-color: var(--c-code-bg);
+  --md-code-fg-color: var(--c-text);
+  /* Comments, punctuation and friends resolve to --light (text-2) otherwise, which
+     is fine; text-3 keeps them a step dimmer than code and still AA on the code
+     surface in both themes. */
+  --md-code-hl-comment-color: var(--c-text-3);
+  --md-code-hl-generic-color: var(--c-text-3);
+  --md-code-hl-operator-color: var(--c-text-2);
+  --md-code-hl-punctuation-color: var(--c-text-2);
+  --md-code-hl-variable-color: var(--c-text-2);
+
+  --md-typeset-table-color: var(--c-border);
+  --md-typeset-table-color--light: var(--c-surface-hover);
+  --md-admonition-bg-color: var(--c-surface);
+  --md-admonition-fg-color: var(--c-text);
+
+  --md-footer-bg-color: var(--c-surface);
+  --md-footer-bg-color--dark: var(--c-bg);
+  --md-footer-fg-color: var(--c-text);
+  --md-footer-fg-color--light: var(--c-text-2);
+  --md-footer-fg-color--lighter: var(--c-text-3);
+}
+
+/* ---- Header and logo ------------------------------------------------------ */
+.md-header,
+.md-header--shadow {
+  box-shadow: none;
+  border-bottom: 1px solid var(--c-border);
+}
+/* The brand reads like the dashboard's: serif, bold, the mark in the accent. */
+.md-header__topic:first-child {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+/* Brand and mark sit together, as in the dashboard navbar. */
+[dir="ltr"] .md-header__title {
+  margin-left: 0.2rem;
+}
+/* The mark is an <img>, so it cannot take currentColor; swap the file instead.
+   logo.svg carries the light accent, logo-dark.svg the dark one. */
+[data-md-color-scheme="slate"] .md-header__button.md-logo img {
+  content: url("../assets/images/logo-dark.svg");
+}
+/* The mike version selector is the dashboard's version tag: a quiet pill. The
+   pill's border is the affordance, so the dropdown chevron goes. */
+.md-version {
+  font-family: var(--md-text-font-family);
+  font-weight: 500;
+}
+.md-version__current {
+  padding: 0 0.4rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-pill);
+  background: var(--c-bg);
+  color: var(--c-text-3);
+  font-size: 0.6rem;
+}
+.md-version__current::after {
+  display: none;
+}
+.md-version__current:hover {
+  color: var(--c-text);
+}
+/* Search: the dashboard's search box, bordered on the page background. */
+@media screen and (min-width: 60em) {
+  .md-search__form,
+  .md-search__form:hover {
+    background-color: var(--c-bg);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-sm);
+  }
+  .md-search__form:hover {
+    border-color: var(--c-text-3);
+  }
+  .md-search__input::placeholder,
+  .md-search__input + .md-search__icon {
+    color: var(--c-text-3);
+  }
+}
+
+/* ---- Tabs bar: the dashboard's nav links ---------------------------------- */
+.md-tabs {
+  background-color: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+}
+.md-tabs__item {
+  height: 2.2rem;
+  padding: 0 0.1rem;
+}
+.md-tabs__link {
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-xs);
+  color: var(--c-text-3);
+  font-size: 0.66rem;
+  font-weight: 500;
+  opacity: 1;
+  transition: color 160ms, background-color 160ms;
+}
+.md-tabs__link:hover {
+  color: var(--c-text);
+  background-color: var(--c-surface-hover);
+}
+.md-tabs__item--active .md-tabs__link {
+  color: var(--c-accent);
+  background-color: var(--c-accent-bg);
+}
+
+/* ---- Sidebar: section titles are labels ----------------------------------- */
+.md-nav__item--section > .md-nav__link,
+.md-nav--secondary > .md-nav__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  font-size: 0.75rem;
+  color: var(--c-text-3);
+}
+.md-nav__item--section > .md-nav__link[for] {
+  color: var(--c-text-3);
+}
+.md-nav__link--active,
+.md-nav__link:is(:hover, :focus) {
+  color: var(--c-accent);
+}
+
+/* ---- Headings: the signed document ---------------------------------------- */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-family: var(--font-display);
+  color: var(--c-text);
+}
+/* The page title, closed with a double rule like a signed agreement. The rule is
+   as wide as the title, as in the dashboard, not the whole column. */
+.md-typeset h1 {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 1em;
+  padding-bottom: 10px;
+  border-bottom: 3px double var(--c-text);
+  font-size: 2.1em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.md-typeset h2 {
+  font-size: 1.4em;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.md-typeset h3 {
+  font-size: 1.15em;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-size: 1.05em;
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  text-transform: none;
+  color: var(--c-text-2);
+}
+
+/* ---- Tables: the dashboard's, small caps headers -------------------------- */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--c-surface);
+  font-size: 0.7rem;
+}
+.md-typeset table:not([class]) th {
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text-3);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  font-size: 1.05em;
+}
+.md-typeset table:not([class]) td {
+  border-top: 1px solid var(--c-border);
+}
+.md-typeset table:not([class]) tbody tr:hover {
+  background-color: var(--c-surface-hover);
+  box-shadow: none;
+}
+
+/* ---- Code ----------------------------------------------------------------- */
+.md-typeset code {
+  border-radius: var(--radius-xs);
+}
+.md-typeset :not(pre) > code {
+  background-color: var(--c-code-inline-bg);
+}
+.md-typeset pre > code {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+}
+.md-typeset .highlight span.filename {
+  border: 1px solid var(--c-border);
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background-color: var(--c-surface-raised);
+  font-family: var(--md-code-font-family);
+  font-weight: 500;
+}
+.md-typeset .highlight span.filename + pre > code {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Content tabs (=== "Tab"): the dashboard's tab bar. */
+.md-typeset .tabbed-labels {
+  border-bottom: 1px solid var(--c-border);
+  box-shadow: none;
+}
+.md-typeset .tabbed-labels > label {
+  color: var(--c-text-3);
+  font-weight: 500;
+}
+.md-typeset .tabbed-labels > label:hover,
+.md-typeset .tabbed-set > input:checked + label {
+  color: var(--c-accent);
+}
+.js .md-typeset .tabbed-labels::before {
+  background: var(--c-accent);
+}
+
+/* ---- Admonitions: a card with a status edge and a small caps title --------
+   Material colours each type in rules of specificity (0,3,0); the doubled
+   .md-typeset lifts the shared rules above them without !important. */
+.md-typeset :is(.admonition, details):is(.note, .info, .abstract, .summary, .tldr, .todo) {
+  --pacto-tone: var(--c-info);
+  --pacto-tone-bg: var(--c-info-bg);
+}
+.md-typeset :is(.admonition, details):is(.tip, .hint, .important, .success, .check, .done) {
+  --pacto-tone: var(--c-ok);
+  --pacto-tone-bg: var(--c-ok-bg);
+}
+.md-typeset :is(.admonition, details):is(.question, .help, .faq, .example) {
+  --pacto-tone: var(--c-accent);
+  --pacto-tone-bg: var(--c-accent-bg);
+}
+.md-typeset :is(.admonition, details):is(.warning, .caution, .attention) {
+  --pacto-tone: var(--c-warn);
+  --pacto-tone-bg: var(--c-warn-bg);
+}
+.md-typeset :is(.admonition, details):is(.failure, .fail, .missing, .danger, .error, .bug) {
+  --pacto-tone: var(--c-err);
+  --pacto-tone-bg: var(--c-err-bg);
+}
+.md-typeset :is(.admonition, details):is(.quote, .cite) {
+  --pacto-tone: var(--c-neutral);
+  --pacto-tone-bg: var(--c-neutral-bg);
+}
+.md-typeset.md-typeset :is(.admonition, details) {
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--pacto-tone, var(--c-info));
+  border-radius: var(--radius-sm);
+  background-color: var(--c-surface);
+  box-shadow: none;
+  font-size: 0.7rem;
+}
+.md-typeset.md-typeset :is(.admonition, details) > :is(.admonition-title, summary) {
+  background-color: var(--pacto-tone-bg, var(--c-info-bg));
+  border: none;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  font-size: 1.1em;
+}
+.md-typeset.md-typeset :is(.admonition, details) > :is(.admonition-title, summary)::before {
+  background-color: var(--pacto-tone, var(--c-info));
+}
+
+/* ---- Buttons: the dashboard's .btn / .btn-primary ------------------------- */
+.md-typeset .md-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--c-surface);
+  color: var(--c-text);
+  font-size: 0.7rem;
+  font-weight: 500;
+  transition: background-color 90ms, border-color 90ms, color 90ms;
+}
+.md-typeset .md-button:is(:hover, :focus) {
+  background-color: var(--c-surface-hover);
+  border-color: var(--c-text-3);
+  color: var(--c-text);
+}
+.md-typeset .md-button--primary {
+  background-color: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-on-accent);
+}
+.md-typeset .md-button--primary:is(:hover, :focus) {
+  background-color: var(--c-accent-hover);
+  border-color: var(--c-accent-hover);
+  color: var(--c-on-accent);
+}
+
+/* ---- Landing hero (overrides/home.html) -----------------------------------
+   The title page of the document: serif wordmark, small caps eyebrow, a serif
+   headline closed by the double rule. Elements fade up on load; motion respects
+   prefers-reduced-motion. */
+.pacto-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 5.5rem 1rem 4rem;
+  text-align: center;
+}
+.pacto-hero__inner {
+  position: relative;
+  max-width: 46rem;
+  margin: 0 auto;
+}
+.pacto-hero__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+  animation: pacto-fade-up 0.6s ease both;
+}
+.pacto-hero .pacto-hero__logo {
+  height: 2.5rem;
+  width: auto;
+  color: var(--c-accent);
+}
+.pacto-hero__wordmark {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  color: var(--c-text);
+}
+.pacto-hero .pacto-hero__eyebrow {
+  margin: 0 0 0.9rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  color: var(--c-text-3);
+  animation: pacto-fade-up 0.6s ease 0.08s both;
+}
+.pacto-hero .pacto-hero__title {
+  margin: 0 auto;
+  max-width: 20ch;
+  padding-bottom: 0.3em;
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 6vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  color: var(--c-text);
+  animation: pacto-fade-up 0.6s ease 0.16s both;
+}
+.pacto-hero .pacto-hero__tagline {
+  margin: 1.25rem auto 0;
+  max-width: 34rem;
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--c-text-2);
+  animation: pacto-fade-up 0.6s ease 0.24s both;
+}
+.pacto-hero__actions {
+  margin-top: 2.25rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  animation: pacto-fade-up 0.6s ease 0.32s both;
+}
+.pacto-hero .pacto-hero__note {
+  margin: 1rem auto 0;
+  max-width: 34rem;
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--c-text-3);
+  animation: pacto-fade-up 0.6s ease 0.4s both;
+}
+
+@keyframes pacto-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pacto-hero__brand,
+  .pacto-hero .pacto-hero__eyebrow,
+  .pacto-hero .pacto-hero__title,
+  .pacto-hero .pacto-hero__tagline,
+  .pacto-hero .pacto-hero__note,
+  .pacto-hero__actions {
+    animation: none;
+  }
+}
+
+/* Drop the near-empty footer-meta bar (generator removed, no copyright). The
+   header already links the repo, so the footer is just prev/next navigation. */
+.md-footer-meta {
+  display: none;
+}
+
+/* Scroll-driven hero reveal: as the first screen scrolls, the hero dissolves upward
+   while the page content rises into view. Progressive enhancement — only browsers that
+   support scroll-driven animations get it (older browsers keep the static compact hero),
+   and it is disabled under prefers-reduced-motion. GPU-friendly: opacity/transform/filter
+   only. Tunable knobs: hero splash height (min-height), where the dissolve starts and
+   ends (animation-range) and the hold keyframe that keeps the hero legible through the
+   first part of that range. */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .pacto-hero {
+      /* Give the hero a full-ish first screen so there is scroll distance to reveal over.
+         A sliver of the page below peeks in as a scroll hint. */
+      min-height: 90svh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      animation: pacto-hero-dissolve linear both;
+      animation-timeline: scroll(root);
+      /* Starts at 15vh, not 0: a nudge of the wheel used to blur the headline while it
+         was still the only thing on screen. Paired with the hold keyframe below, the
+         hero stays fully legible for roughly the first 38vh of scroll. */
+      animation-range: 15vh 90vh;
+      will-change: opacity, transform;
+    }
+  }
+}
+@keyframes pacto-hero-dissolve {
+  /* Hold: the first third of the range changes nothing, so the dissolve reads as a
+     deliberate exit rather than as the text going out of focus the moment you scroll. */
+  0%,
+  30% {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-3rem) scale(0.985);
+    filter: blur(3px);
+  }
+}
+
+/* Logo spin on click — header mark + hero mark, toggled by javascripts/logo-spin.js. */
+.md-header__button.md-logo img,
+.pacto-hero__logo {
+  transform-origin: 50% 50%;
+}
+.pacto-spin {
+  animation: pacto-logo-spin 0.6s ease;
+}
+@keyframes pacto-logo-spin {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pacto-spin {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Mermaid diagram contrast fixes for the dark (slate) color scheme.
+
+   Material's built-in mermaid integration sets theme variables, but in dark
+   mode the default node fills and edge strokes can lack contrast against
+   the dark background. The overrides below pin nodes/labels/edges to
+   Material's own CSS variables so contrast follows the theme.
+   --------------------------------------------------------------------------- */
+
+[data-md-color-scheme="slate"] .mermaid {
+    background: transparent;
+}
+
+/* Node shapes (rectangles, circles, diamonds, etc.) */
+[data-md-color-scheme="slate"] .mermaid .node rect,
+[data-md-color-scheme="slate"] .mermaid .node circle,
+[data-md-color-scheme="slate"] .mermaid .node ellipse,
+[data-md-color-scheme="slate"] .mermaid .node polygon,
+[data-md-color-scheme="slate"] .mermaid .node path {
+    fill: var(--md-code-bg-color) !important;
+    stroke: var(--md-default-fg-color--lighter) !important;
+    stroke-width: 1px !important;
+}
+
+/* Node and edge text labels */
+[data-md-color-scheme="slate"] .mermaid .nodeLabel,
+[data-md-color-scheme="slate"] .mermaid .edgeLabel,
+[data-md-color-scheme="slate"] .mermaid .label,
+[data-md-color-scheme="slate"] .mermaid foreignObject div {
+    color: var(--md-default-fg-color) !important;
+    background: transparent !important;
+}
+
+/* Edge label backgrounds (the small chip behind labels on links) */
+[data-md-color-scheme="slate"] .mermaid .edgeLabel rect {
+    fill: var(--md-default-bg-color) !important;
+}
+
+/* Connector lines and arrowheads */
+[data-md-color-scheme="slate"] .mermaid .edgePath .path,
+[data-md-color-scheme="slate"] .mermaid .flowchart-link,
+[data-md-color-scheme="slate"] .mermaid .messageLine0,
+[data-md-color-scheme="slate"] .mermaid .messageLine1 {
+    stroke: var(--md-default-fg-color--light) !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .arrowheadPath,
+[data-md-color-scheme="slate"] .mermaid marker path {
+    fill: var(--md-default-fg-color--light) !important;
+    stroke: var(--md-default-fg-color--light) !important;
+}
+
+/* Subgraph (cluster) backgrounds and borders */
+[data-md-color-scheme="slate"] .mermaid .cluster rect {
+    fill: rgba(255, 255, 255, 0.03) !important;
+    stroke: var(--md-default-fg-color--lightest) !important;
+    stroke-width: 1px !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid .cluster .nodeLabel,
+[data-md-color-scheme="slate"] .mermaid .cluster .label {
+    color: var(--md-default-fg-color) !important;
+    font-weight: 600;
+}
+
+/* Sequence diagram actor boxes */
+[data-md-color-scheme="slate"] .mermaid .actor {
+    fill: var(--md-code-bg-color) !important;
+    stroke: var(--md-default-fg-color--lighter) !important;
+}
+
+[data-md-color-scheme="slate"] .mermaid text.actor {
+    fill: var(--md-default-fg-color) !important;
+}
+
+/* ---- Page-navigation motion ------------------------------------------------
+   navigation.instant (mkdocs.yml) swaps pages client-side with no full reload; these
+   add a clean, subtle transition on top. The main content gently fades/rises in on each
+   page render, and — where the browser + Material support the View Transitions API — the
+   root cross-fade is tuned. Both are disabled under prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .md-content__inner {
+    animation: pacto-page-in 0.28s ease both;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.28s;
+  }
+}
+@keyframes pacto-page-in {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---- Header: keep the mike version selector visible ------------------------
+   The mike version selector is injected into the header's site-name topic.
+   Material swaps that topic for the page-title topic on scroll (adds
+   .md-header__title--active), which hides the selector — and with the sticky
+   tabs header that active state is set even at the top, so the selector never
+   shows. Keep the site-name topic (and its version selector) visible and drop
+   the page-title-in-header swap; the page title still shows as the content H1. */
+.md-header__title--active .md-header__ellipsis > .md-header__topic:first-child {
+  z-index: 1;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+.md-header__title--active .md-header__ellipsis > .md-header__topic[data-md-component="header-topic"] {
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Version selector: open on CLICK only (toggled by javascripts/version-selector.js),
+   never on hover/focus. Material opens .md-version__list on :hover — but that list is
+   absolutely positioned directly over the nav tabs below it, so it popped open when
+   the mouse merely passed over the header and swallowed the tabs' clicks. Neutralise
+   the hover/focus open triggers and drive visibility from the .md-version--open class.
+   The suppress rules are gated with :not(.md-version--open) because clicking the
+   trigger FOCUSES it, and an un-gated .md-version:focus-within rule (specificity 0,3,0)
+   would out-rank the .md-version--open show rule and keep the list collapsed on click.
+   Keep Material's collapsed default (max-height:0) so the closed list never overlays
+   the tabs; cap the OPEN height so a long version list scrolls instead of running
+   off-screen (.md-version__list already has overflow:auto). */
+.md-version:not(.md-version--open):hover .md-version__list,
+.md-version:not(.md-version--open):focus-within .md-version__list {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  animation: none;
+}
+.md-version.md-version--open .md-version__list {
+  max-height: 75vh;
+  opacity: 1;
+  pointer-events: auto;
+  animation: none;
+}
+/* max-height:0 and opacity:0 hide the collapsed list from the eye but not from
+   the tab order: every published version stayed focusable, so a keyboard reader
+   crossed one invisible stop per release between the header and the first nav
+   tab. visibility takes them out of the sequence and the open rule puts them
+   back — it is the one hiding property that is both animatable and focus-aware. */
+.md-version .md-version__list {
+  visibility: hidden;
+}
+.md-version.md-version--open .md-version__list {
+  visibility: visible;
+}
+
+/* Material draws a focus ring on the search field and little else, so most of
+   the header, the version selector, the tabs and the sidebar showed no sign of
+   where the keyboard was. One accent outline for everything, on :focus-visible
+   only, so pointer users never see it. */
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+/* Material gives the search result list an explicit `tabindex="0"` so it can be
+   scrolled from the keyboard, and leaves it there while the search is closed and
+   the panel is zero-height — an invisible stop between the search field and the
+   repository link, on every page. Take the closed panel out of the sequence;
+   opening the search restores it. The selector mirrors Material's own
+   `[data-md-toggle=search]:checked ~ .md-header` form, so it tracks the same
+   toggle the theme does. */
+[data-md-toggle="search"]:not(:checked) ~ .md-header .md-search__output {
+  visibility: hidden;
+}
+
+/* The palette switch is a 0×0 radio standing behind the icon label the reader
+   actually sees, so an outline on the input paints nothing. Put the ring on the
+   label instead — the one that is not `hidden` belongs to the checked radio,
+   which is the only one in the tab order. */
+.md-option:focus-visible + label:not([hidden]) {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Inline links are told apart from the text around them by colour alone, and no
+   indigo can carry that on its own: to clear 3:1 against #212121 body text a
+   link needs a relative luminance of at least 0.143, and to clear 4.5:1 against
+   a white page it needs at most 0.183 -- a window too thin to sit in safely,
+   and the dark scheme measures worse (1.83:1). Underline links that sit inside
+   a block of text, which is the only place the rule is about; buttons, nav,
+   tabs, heading anchors and the hero are untouched because nothing surrounds
+   them to be confused with. Image links keep their clean edge. */
+.md-typeset p > a:not(.md-button),
+.md-typeset li > a:not(.md-button),
+.md-typeset td > a:not(.md-button),
+.md-typeset dd > a:not(.md-button) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+.md-typeset p > a:has(> img),
+.md-typeset li > a:has(> img),
+.md-typeset td > a:has(> img) {
+  text-decoration: none;
+}
