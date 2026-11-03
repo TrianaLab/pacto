@@ -66,7 +66,8 @@ Each edge carries a **provenance** discriminator that records where the fact cam
 The dashboard's Operational Graph draws each edge by what backs it: matched,
 expected but not observed, or observed but not expected.
 
-![The Operational Graph focused on payments-service: three dependencies on the left, three consumers on the right, with orders-service outlined red and one call from audit-log observed but not declared](assets/screenshots/dashboard-graph.png)
+![The Operational Graph focused on payments-service: three dependencies on the left, three consumers on the right, with orders-service outlined red and one call from audit-log observed but not declared](assets/screenshots/dashboard-graph-light.png#only-light)
+![The Operational Graph focused on payments-service: three dependencies on the left, three consumers on the right, with orders-service outlined red and one call from audit-log observed but not declared](assets/screenshots/dashboard-graph-dark.png#only-dark)
 
 ## Sources and queries
 

@@ -21,7 +21,8 @@ shows version history, interfaces, configuration schemas and diffs. See the [`pa
 reference](cli-reference.md#pacto-dashboard) for its flags and environment
 variables.
 
-![The dashboard's page for payments-service: its compliance, an ownership conflict across four revisions and a summary of its operational targets](assets/screenshots/dashboard-service.png)
+![The dashboard's page for payments-service: its compliance, an ownership conflict across four revisions and a summary of its operational targets](assets/screenshots/dashboard-service-light.png#only-light)
+![The dashboard's page for payments-service: its compliance, an ownership conflict across four revisions and a summary of its operational targets](assets/screenshots/dashboard-service-dark.png#only-dark)
 
 Its HTTP API is described at `/openapi.json`; see [Dashboard container](dashboard-docker.md#operational-endpoints).
 

@@ -1,0 +1,12 @@
+pactoVersion: "2.2"
+service:
+  name: reporting
+  version: 1.3.0
+  owner:
+    team: analytics
+workload: service
+dependencies:
+  - name: auth
+    ref: oci://ghcr.io/acme/auth-pacto
+    required: true
+    compatibility: ">=2.0.0 <4.0.0"

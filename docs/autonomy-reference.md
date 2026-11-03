@@ -63,7 +63,8 @@ whose impact check passed and that then verified.
 
 The dashboard's **Autonomy** tab groups the blockers by kind across every Stage:
 
-![The Autonomy tab in the demo: 9 blockers grouped by kind, such as a runtime caller with no contract and Stages that need more verified releases](assets/screenshots/dashboard-autonomy.png)
+![The Autonomy tab in the demo: 9 blockers grouped by kind, such as a runtime caller with no contract and Stages that need more verified releases](assets/screenshots/dashboard-autonomy-light.png#only-light)
+![The Autonomy tab in the demo: 9 blockers grouped by kind, such as a runtime caller with no contract and Stages that need more verified releases](assets/screenshots/dashboard-autonomy-dark.png#only-dark)
 
 ## Changing the level
 
