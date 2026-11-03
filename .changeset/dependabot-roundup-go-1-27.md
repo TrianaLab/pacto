@@ -11,3 +11,5 @@ Dependency bumps from Dependabot in one go: `bubbletea` 2.1.0 → 2.1.1, `huma`
 `sigstore` 1.11 needs Go 1.27, so Go goes 1.26.10 → 1.27.3 everywhere it's
 pinned (both modules, `go.work`, both Dockerfiles), and golangci-lint goes
 v2.13.0 → v2.14.0 because v2.13 can't load Go 1.27 code.
+
+Heads-up: Go 1.27's gzip writes different bytes, so `pacto push` now produces different OCI bundle digests for the same content than older binaries did. The published demo bundles get re-published once via `release/demo-bundle-migration.txt`.
