@@ -18,7 +18,7 @@ The Kubernetes integration is versioned independently from Pacto core. The table
 
 Contracts with `pactoVersion: "2.1"` need Pacto core 4.1.0 or later and operator 6.1.0 or later. Contracts with `pactoVersion: "2.2"` need Pacto core 4.3.0 or later and operator 6.3.0 or later. Contracts with `pactoVersion: "2.3"` need Pacto core 4.4.0 or later and operator 6.4.0 or later.
 
-This documentation set corresponds to Pacto core `4.4.1`. The integration's own version (currently operator/chart `6.4.1`, docs `6.4.1`) advances on its own release cadence.
+This documentation set corresponds to Pacto core `4.4.2`. The integration's own version (currently operator/chart `6.4.1`, docs `6.4.1`) advances on its own release cadence.
 
 ### Version selector
 
