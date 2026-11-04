@@ -562,6 +562,15 @@ type ServiceSummary struct {
 	ReconciledMatched    int `json:"reconciledMatched"`
 	DeclaredNotObserved  int `json:"declaredNotObserved"`
 	ObservedNotDeclared  int `json:"observedNotDeclared"`
+	// UnsatisfiedRanges counts distinct declared dependencies whose provider
+	// version falls outside the range at least one declaring revision accepts.
+	UnsatisfiedRanges int `json:"unsatisfiedRanges"`
+	// InsufficientEvidence counts distinct declared dependencies with no
+	// observation data at all, so it equals DeclaredDependencies when no
+	// observation source exists.
+	InsufficientEvidence int `json:"insufficientEvidence"`
+	// Readiness tallies the readiness of every known revision of the service.
+	Readiness ReadinessTally `json:"readiness"`
 }
 
 // OwnerSummary is the complete, backend-authoritative aggregate an owner page
@@ -633,6 +642,7 @@ func (q *Query) serviceSummary(view *ServiceView) (ServiceSummary, map[RevisionK
 		if inUse[r.Key] {
 			sum.RevisionsInUse++
 		}
+		sum.Readiness.add(r.Readiness)
 	}
 	q.tallyServiceEdges(&sum, view.Service.Key)
 	return sum, inUse
@@ -666,6 +676,7 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 	declared := map[ServiceKey]bool{}
 	seen := map[string]bool{}
 	unresolved := map[string]bool{}
+	unsatisfied := map[string]bool{}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.FromService != key || rel.Type != RelationshipDependency {
@@ -675,22 +686,7 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 			continue
 		}
 		declared[rel.ToService] = true
-		dk := depKey(rel)
-		if rel.missing() && !unresolved[dk] {
-			unresolved[dk] = true
-			sum.UnresolvedDeclared++
-		}
-		if seen[dk] {
-			continue
-		}
-		seen[dk] = true
-		sum.DeclaredDependencies++
-		switch rel.Reconciliation {
-		case ReconciliationMatched:
-			sum.ReconciledMatched++
-		case ReconciliationDeclaredNotObserved:
-			sum.DeclaredNotObserved++
-		}
+		tallyDeclaredEdge(sum, rel, depKey(rel), seen, unresolved, unsatisfied)
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
@@ -700,6 +696,34 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 		if !declared[rel.ToService] {
 			sum.ObservedNotDeclared++
 		}
+	}
+}
+
+// tallyDeclaredEdge counts one declared relationship into the per-dependency
+// counters, keyed by dk so every counter stays over distinct dependencies.
+// Resolution and range are per-record (any declaring revision counts);
+// reconciliation is per (from, to) pair, so the first record decides it.
+func tallyDeclaredEdge(sum *ServiceSummary, rel Relationship, dk string, seen, unresolved, unsatisfied map[string]bool) {
+	if rel.missing() && !unresolved[dk] {
+		unresolved[dk] = true
+		sum.UnresolvedDeclared++
+	}
+	if rel.RangeStatus == RangeUnsatisfied && !unsatisfied[dk] {
+		unsatisfied[dk] = true
+		sum.UnsatisfiedRanges++
+	}
+	if seen[dk] {
+		return
+	}
+	seen[dk] = true
+	sum.DeclaredDependencies++
+	switch rel.Reconciliation {
+	case ReconciliationMatched:
+		sum.ReconciledMatched++
+	case ReconciliationDeclaredNotObserved:
+		sum.DeclaredNotObserved++
+	case ReconciliationInsufficient:
+		sum.InsufficientEvidence++
 	}
 }
 

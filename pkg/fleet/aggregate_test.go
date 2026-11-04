@@ -9,6 +9,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
 // The tallies exist so a product surface can draw a proportion without counting a
@@ -455,5 +456,48 @@ func TestPaginate(t *testing.T) {
 	p.Items[0] = 99
 	if all[0] != 0 {
 		t.Error("Items must be a copy")
+	}
+}
+
+// A dependency whose provider version falls outside the declared range, and one
+// nobody can observe, are counted once per distinct dependency, like every other
+// edge counter: a second declaring revision does not double count.
+func TestServiceSummaryRangesAndInsufficient(t *testing.T) {
+	const from = ServiceKey("shop/orders")
+	decl := func(rev, to, rng, rec string) Relationship {
+		return Relationship{
+			FromService: from, FromRevision: RevisionKey(rev), To: to, ToService: ServiceKey(to),
+			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
+			Resolved: true, RangeStatus: rng, Reconciliation: rec,
+		}
+	}
+	snap := &FleetSnapshot{Relationships: []Relationship{
+		decl("r1", "shop/b", RangeUnsatisfied, ReconciliationMatched),
+		decl("r2", "shop/b", RangeSatisfied, ReconciliationMatched),
+		decl("r1", "shop/c", "", ReconciliationInsufficient),
+		decl("r2", "shop/c", "", ReconciliationInsufficient),
+	}}
+	var sum ServiceSummary
+	NewQuery(snap).tallyServiceEdges(&sum, from)
+	if sum.UnsatisfiedRanges != 1 || sum.InsufficientEvidence != 1 || sum.DeclaredDependencies != 2 {
+		t.Errorf("unsatisfied = %d, insufficient = %d, declared = %d, want 1/1/2",
+			sum.UnsatisfiedRanges, sum.InsufficientEvidence, sum.DeclaredDependencies)
+	}
+}
+
+// Readiness is tallied over every known revision of the service, read from the
+// exported field that survives the view's clone.
+func TestServiceSummaryReadiness(t *testing.T) {
+	view := &ServiceView{
+		Service: &ServiceRecord{Key: "shop/orders"},
+		Revisions: []*ContractRevision{
+			{Key: "r1", Readiness: &readiness.Result{Passing: true}},
+			{Key: "r2", Readiness: &readiness.Result{Expired: true}},
+			{Key: "r3"},
+		},
+	}
+	sum, _ := NewQuery(&FleetSnapshot{}).serviceSummary(view)
+	if want := (ReadinessTally{Passing: 1, Expired: 1, NotDeclared: 1}); sum.Readiness != want {
+		t.Errorf("readiness = %+v, want %+v", sum.Readiness, want)
 	}
 }

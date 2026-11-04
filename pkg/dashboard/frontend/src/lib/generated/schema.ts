@@ -1755,6 +1755,8 @@ export interface components {
             guaranteeStatus?: "met" | "unmet" | "unknown";
             lockedDigest?: string;
             lockedVersion?: string;
+            /** @enum {string} */
+            rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reconciliation?: string;
             requestedRef?: string;
             required?: boolean;
@@ -2364,10 +2366,13 @@ export interface components {
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
             findings: components["schemas"]["Fleet.SeverityTally"];
             /** Format: int64 */
+            insufficientEvidence: number;
+            /** Format: int64 */
             invalidRevisions: number;
             links: components["schemas"]["Fleet.LinkTally"];
             /** Format: int64 */
             observedNotDeclared: number;
+            readiness: components["schemas"]["Fleet.ReadinessTally"];
             /** Format: int64 */
             reconciledMatched: number;
             /** Format: int64 */
@@ -2378,6 +2383,8 @@ export interface components {
             targets: number;
             /** Format: int64 */
             unresolvedDeclared: number;
+            /** Format: int64 */
+            unsatisfiedRanges: number;
         };
         "Fleet.ServiceView": {
             capabilities?: components["schemas"]["Fleet.RevisionCapabilities"][] | null;

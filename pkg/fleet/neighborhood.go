@@ -198,6 +198,9 @@ type DeclaredClaim struct {
 	RequestedRef   string      `json:"requestedRef,omitempty"`
 	LockedVersion  string      `json:"lockedVersion,omitempty"`
 	LockedDigest   string      `json:"lockedDigest,omitempty"`
+	// RangeStatus is whether the provider version satisfies this revision's
+	// declared range (see Relationship.RangeStatus).
+	RangeStatus string `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
 	// DependencyBehavior is what this revision's dependency requires of the
 	// provider's behavior and whether the provider meets it.
 	DependencyBehavior
