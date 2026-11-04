@@ -56,6 +56,18 @@ func TestProductDomains_OverTheWire(t *testing.T) {
 	}
 	expectStatus(t, base+"/api/fleet/entities/domain?key=nope", http.StatusNotFound)
 
+	var tgt ProductEntityDetail
+	getJSON(t, base+"/api/fleet/entities/target?key=prod/k8s/pay", http.StatusOK, &tgt)
+	if e := tgt.Target.Environment; e.Name != "staging" || e.Declared != "not-declared" || tgt.Entity.Environment != "staging" || tgt.Entity.BusinessDomain != "commerce" {
+		t.Errorf("target environment = %+v, entity = %+v", e, tgt.Entity)
+	}
+}
+
+func TestProductDomainFilters_ReachTheQuery(t *testing.T) {
+	q := domainDashboardQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
 	for _, tc := range []struct {
 		query string
 		want  int
@@ -79,12 +91,6 @@ func TestProductDomains_OverTheWire(t *testing.T) {
 	}
 	expectStatus(t, base+"/api/fleet/entities?kinds=bogus", http.StatusUnprocessableEntity)
 	expectStatus(t, base+"/api/fleet/entities?kinds=target&capability=health", http.StatusUnprocessableEntity)
-
-	var tgt ProductEntityDetail
-	getJSON(t, base+"/api/fleet/entities/target?key=prod/k8s/pay", http.StatusOK, &tgt)
-	if e := tgt.Target.Environment; e.Name != "staging" || e.Declared != "not-declared" || tgt.Entity.Environment != "staging" || tgt.Entity.BusinessDomain != "commerce" {
-		t.Errorf("target environment = %+v, entity = %+v", e, tgt.Entity)
-	}
 
 	var ov ProductOverview
 	getJSON(t, base+"/api/fleet/overview", http.StatusOK, &ov)

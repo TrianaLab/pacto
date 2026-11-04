@@ -203,6 +203,16 @@ func TestEntityDetail_Domain(t *testing.T) {
 	if dd.Services.Total != 2 || dd.Deployments.Total != 2 {
 		t.Errorf("services = %+v, deployments = %+v", dd.Services, dd.Deployments)
 	}
+}
+
+// The domain page's backlog is the domain-filtered attention list.
+func TestEntityDetail_DomainAttention(t *testing.T) {
+	q := domainFleet(t)
+	d, err := q.EntityDetail(KindDomain, "commerce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dd := d.Domain
 	al, err := q.Attention(AttentionFilter{BusinessDomain: "commerce"})
 	if err != nil {
 		t.Fatal(err)
