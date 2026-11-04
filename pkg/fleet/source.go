@@ -100,25 +100,31 @@ type RawRevision struct {
 
 // RawTarget is what an observer source knows about a concrete deployed instance.
 type RawTarget struct {
-	Scope           string
-	Kind            string
-	Name            string
-	Labels          map[string]string
-	Service         string
-	Domain          string
-	RequestedRef    string
-	ResolvedRef     string
-	Digest          string
-	Compliance      string
-	Owner           contract.Owner
-	BusinessDomain  string
-	Findings        []finding.Finding
-	Coverage        *Coverage
-	Readiness       *readiness.Result
-	ObservedRuntime map[string]any
-	EvidenceAt      *time.Time
-	ReconciledAt    *time.Time
-	Limitations     []Limitation
+	Scope        string
+	Kind         string
+	Name         string
+	Labels       map[string]string
+	Service      string
+	Domain       string
+	RequestedRef string
+	ResolvedRef  string
+	Digest       string
+	Compliance   string
+	Owner        contract.Owner
+	// BusinessDomain is the service.domain the source read from the contract the
+	// target runs. BusinessDomainKnown says the source reads the domain at all, so
+	// an empty BusinessDomain means that contract declares none; without it, and
+	// with no domain, the domain is unknown. A value that is not a domain slug is
+	// dropped and reads as unknown.
+	BusinessDomain      string
+	BusinessDomainKnown bool
+	Findings            []finding.Finding
+	Coverage            *Coverage
+	Readiness           *readiness.Result
+	ObservedRuntime     map[string]any
+	EvidenceAt          *time.Time
+	ReconciledAt        *time.Time
+	Limitations         []Limitation
 }
 
 // MemorySource is an in-memory [Source]. It is the substrate for tests, the

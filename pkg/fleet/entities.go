@@ -44,9 +44,11 @@ type EntityFilter struct {
 	OwnerKey string
 	// Domain is the exact registry path (see ServiceRecord.Domain).
 	Domain string
-	// BusinessDomain is the exact business domain of the service an entity belongs
-	// to (see [Query.businessDomainOf]); NoBusinessDomain asks for the services
-	// that have none.
+	// BusinessDomain is the exact business domain of the SERVICE an entity belongs
+	// to (see ServiceRecord.BusinessDomain), so a revision is kept by its service's
+	// domain even when it declared another; a domain entity matches its own name.
+	// NoBusinessDomain asks for the services that have none, UnknownBusinessDomain
+	// for those whose domain is unknown.
 	BusinessDomain string
 	// Environment is the exact environment a target runs in (TargetRecord.Environment).
 	Environment string
@@ -159,9 +161,14 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	}, nil
 }
 
-// NoBusinessDomain is the BusinessDomain filter value for "no business domain".
-// The parentheses cannot collide with a declared domain, which is a slug.
-const NoBusinessDomain = "(none)"
+// NoBusinessDomain is the BusinessDomain filter value for the services known to
+// have no business domain, and UnknownBusinessDomain for those whose domain Pacto
+// cannot tell. Neither is a slug, and a value that is not a slug never becomes a
+// domain (see validBusinessDomain), so they cannot collide with one.
+const (
+	NoBusinessDomain      = "(none)"
+	UnknownBusinessDomain = "(unknown)"
+)
 
 // Ownership filter values (see [OwnershipTally]).
 const (
@@ -414,6 +421,7 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
+		(f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain)) &&
 		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
 }
 
@@ -496,21 +504,22 @@ func matchScalarFields(r EntityRef, f EntityFilter) bool {
 	if f.Service != "" && !entityInService(r, f.Service) {
 		return false
 	}
-	return matchBusinessDomain(r, f.BusinessDomain)
+	return true
 }
 
-// matchBusinessDomain compares the business domain a reference carries; owners and
-// sources carry none and never match a set filter.
-func matchBusinessDomain(r EntityRef, want string) bool {
-	switch {
-	case want == "":
-		return true
-	case r.Kind == KindOwner || r.Kind == KindSource:
-		return false
-	case want == NoBusinessDomain:
-		return r.BusinessDomain == ""
+// matchBusinessDomain keeps a reference by the business domain of the service it
+// belongs to, and a domain reference by its name; owners and sources belong to no
+// service and never match a set filter.
+func (q *Query) matchBusinessDomain(r EntityRef, want string) bool {
+	switch r.Kind {
+	case KindDomain:
+		return r.Key == want
+	case KindService:
+		return q.serviceInBusinessDomain(r.Key, want)
+	case KindRevision, KindTarget:
+		return q.serviceInBusinessDomain(r.ParentService, want)
 	default:
-		return r.BusinessDomain == want
+		return false
 	}
 }
 

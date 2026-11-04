@@ -1,7 +1,6 @@
 package fleet
 
 import (
-	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +9,7 @@ import (
 	"io/fs"
 	"maps"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -432,7 +432,12 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 	if existing.Owner.IsEmpty() {
 		existing.Owner = add.Owner
 	}
-	existing.reportedDomain = cmp.Or(existing.reportedDomain, add.reportedDomain)
+	// Two sources that read different domains from one target disagree; both are
+	// kept, so deriveBusinessDomain reports the conflict instead of picking one.
+	for _, d := range add.reportedDomains {
+		existing.reportedDomains = appendUnique(existing.reportedDomains, d)
+	}
+	existing.domainKnown = existing.domainKnown || add.domainKnown
 	if targetFresher(add, existing) {
 		applyEvaluation(existing, add)
 	}
@@ -1038,13 +1043,10 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Digest:       raw.Digest,
 		Compliance:   compliance,
 		Owner:        cloneOwner(raw.Owner),
-		// ponytail: not validated against the slug rule; the operator only reports a
-		// value its own validator accepted.
-		reportedDomain: raw.BusinessDomain,
-		Environment:    raw.Labels[TargetEnvironmentLabel],
-		Findings:       findings,
-		Coverage:       cloneCoverage(raw.Coverage),
-		Readiness:      cloneReadiness(raw.Readiness),
+		Environment:  raw.Labels[TargetEnvironmentLabel],
+		Findings:     findings,
+		Coverage:     cloneCoverage(raw.Coverage),
+		Readiness:    cloneReadiness(raw.Readiness),
 		// Bound the untrusted, arbitrarily wide/deep source runtime map ONCE here (the
 		// single unbounded-source pass); the raw map is never retained on the snapshot.
 		ObservedRuntime: runtimePreview(raw.ObservedRuntime),
@@ -1054,6 +1056,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Sources:         []string{source},
 		Limitations:     append([]Limitation(nil), raw.Limitations...),
 	}
+	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	var recordInvalid []Limitation
 	if complianceInvalid {
 		recordInvalid = append(recordInvalid, Limitation{
@@ -1348,38 +1351,95 @@ func aggregateServices(snap *FleetSnapshot) {
 	for _, s := range snap.Services {
 		s.Status = serviceStatus(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
-		deriveBusinessDomain(snap, s)
+		snap.Limitations = append(snap.Limitations, deriveBusinessDomain(snap, s)...)
 	}
 }
 
-// deriveBusinessDomain sets a service's business domain: the service.domain of
-// its newest revision ([lessRevisionChrono]) whose contract was read. An older
-// revision that declares another domain is a move, not a conflict, so nothing is
-// reported. With no read revision (a fleet seen only through Kubernetes), it falls
-// back to the first domain, by target key, an observing source read from the
-// contract a target runs. It then copies the result onto the service's revisions
-// and targets, so their references carry it.
-func deriveBusinessDomain(snap *FleetSnapshot, s *ServiceRecord) {
+// deriveBusinessDomain sets a service's business domain (see businessDomainOf),
+// reports a DOMAIN_CONFLICT limitation when its targets' sources disagree on it,
+// and copies it onto the service's targets so their references carry it.
+func deriveBusinessDomain(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
+	var conflict []string
+	s.BusinessDomain, s.BusinessDomainUnknown, conflict = businessDomainOf(snap, s)
+	for _, tk := range s.Targets {
+		snap.Targets[tk].BusinessDomain, snap.Targets[tk].BusinessDomainUnknown = s.BusinessDomain, s.BusinessDomainUnknown
+	}
+	if conflict == nil {
+		return nil
+	}
+	return []Limitation{{
+		Code: LimitationDomainConflict, Source: "fleet",
+		Message: "no contract revision of " + s.Name + " declares a business domain and the sources observing its operational targets report different ones (" +
+			strings.Join(conflict, ", ") + "), so its business domain is unknown",
+	}}
+}
+
+// businessDomainOf is a service's business domain: the service.domain of its
+// newest revision ([lessRevisionChrono]) that is not invalid. An older revision
+// that declares another domain is a move, not a conflict. When no such revision
+// declares a domain, it is the one the observing sources read from the contracts
+// the service's targets run, as deriveOwner does for owners; sources that report
+// different ones make it unknown, with the domains returned as the conflict.
+// Otherwise it is none when a revision or a source says the contract declares
+// none, and unknown when nothing says either way. A value that is not a domain
+// slug is never a domain.
+func businessDomainOf(snap *FleetSnapshot, s *ServiceRecord) (domain string, unknown bool, conflict []string) {
 	var newest *ContractRevision
+	declared := false
 	for _, rk := range s.Revisions {
-		if r := snap.Revisions[rk]; r.Contract != nil && (newest == nil || lessRevisionChrono(newest, r)) {
+		r := snap.Revisions[rk]
+		if r.Contract == nil || (r.validated && !r.Valid) || (r.Contract.Service.Domain != "" && !validBusinessDomain(r.Contract.Service.Domain)) {
+			continue
+		}
+		declared = declared || r.Contract.Service.Domain != ""
+		if newest == nil || lessRevisionChrono(newest, r) {
 			newest = r
 		}
 	}
-	targets := slices.Sorted(slices.Values(s.Targets))
-	if newest != nil {
-		s.BusinessDomain = newest.Contract.Service.Domain
-	} else {
-		for _, tk := range targets {
-			s.BusinessDomain = cmp.Or(s.BusinessDomain, snap.Targets[tk].reportedDomain)
+	if declared {
+		return newest.Contract.Service.Domain, false, nil
+	}
+	known := newest != nil
+	var reported []string
+	for _, tk := range s.Targets {
+		t := snap.Targets[tk]
+		known = known || t.domainKnown
+		for _, d := range t.reportedDomains {
+			reported = appendUnique(reported, d)
 		}
 	}
-	for _, rk := range s.Revisions {
-		snap.Revisions[rk].BusinessDomain = s.BusinessDomain
+	slices.Sort(reported)
+	switch len(reported) {
+	case 0:
+		return "", !known, nil
+	case 1:
+		return reported[0], false, nil
+	default:
+		return "", true, reported
 	}
-	for _, tk := range targets {
-		snap.Targets[tk].BusinessDomain = s.BusinessDomain
+}
+
+// reportedDomainsFrom is the domain a source read from a target's contract, as a
+// set, and whether the source read the domain at all. A value that is not a domain
+// slug says nothing.
+func reportedDomainsFrom(raw RawTarget) ([]string, bool) {
+	switch {
+	case raw.BusinessDomain == "":
+		return nil, raw.BusinessDomainKnown
+	case validBusinessDomain(raw.BusinessDomain):
+		return []string{raw.BusinessDomain}, true
+	default:
+		return nil, false
 	}
+}
+
+// businessDomainPattern is service.domain's slug rule in the contract schema.
+var businessDomainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
+// validBusinessDomain reports whether d can be a business domain, so a filter
+// value such as NoBusinessDomain never collides with one.
+func validBusinessDomain(d string) bool {
+	return len(d) <= 63 && businessDomainPattern.MatchString(d)
 }
 
 // deriveOwner sets a deterministic owner SUMMARY for a service — the owner

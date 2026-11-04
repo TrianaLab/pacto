@@ -168,7 +168,7 @@ func (e *AmbiguousError) Error() string {
 type SearchFilter struct {
 	Text           string            // substring over service name and any declared owner
 	Owner          string            // any revision's owner matches this team, DRI or contact value
-	BusinessDomain string            // the service's business domain, or NoBusinessDomain for none
+	BusinessDomain string            // the service's business domain, NoBusinessDomain for none or UnknownBusinessDomain
 	Labels         map[string]string // all pairs must match one target's labels
 	Scope          string            // a target of the service has this scope
 	Status         string            // service aggregate status (canonical value)
@@ -188,16 +188,18 @@ type SearchFilter struct {
 // rows, routes and follow-up lookups on Key so two same-named services in
 // different domains stay distinct — never on Name alone.
 type ServiceHit struct {
-	Key            ServiceKey        `json:"key"`
-	Name           string            `json:"name"`
-	Domain         string            `json:"domain,omitempty"`
-	BusinessDomain string            `json:"businessDomain,omitempty"`
-	Owner          contract.Owner    `json:"owner,omitzero"`
-	Status         string            `json:"status,omitempty"`
-	RevisionCount  int               `json:"revisionCount"`
-	TargetCount    int               `json:"targetCount"`
-	Sources        []string          `json:"sources,omitempty"`
-	Labels         map[string]string `json:"labels,omitempty"`
+	Key            ServiceKey `json:"key"`
+	Name           string     `json:"name"`
+	Domain         string     `json:"domain,omitempty"`
+	BusinessDomain string     `json:"businessDomain,omitempty"`
+	// BusinessDomainUnknown: Pacto cannot tell the service's business domain.
+	BusinessDomainUnknown bool              `json:"businessDomainUnknown,omitempty"`
+	Owner                 contract.Owner    `json:"owner,omitzero"`
+	Status                string            `json:"status,omitempty"`
+	RevisionCount         int               `json:"revisionCount"`
+	TargetCount           int               `json:"targetCount"`
+	Sources               []string          `json:"sources,omitempty"`
+	Labels                map[string]string `json:"labels,omitempty"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -281,7 +283,7 @@ func (q *Query) sortedServiceKeys() []ServiceKey {
 
 func hitFromService(s *ServiceRecord) ServiceHit {
 	return ServiceHit{
-		Key: s.Key, Name: s.Name, Domain: s.Domain, BusinessDomain: s.BusinessDomain, Owner: cloneOwner(s.Owner), Status: s.Status,
+		Key: s.Key, Name: s.Name, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels),
 	}

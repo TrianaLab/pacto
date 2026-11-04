@@ -114,8 +114,9 @@ func TestEntities_DomainKind(t *testing.T) {
 func TestEntities_NoBusinessDomainBucket(t *testing.T) {
 	q := domainFleet(t)
 	got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, BusinessDomain: NoBusinessDomain, Sort: SortName})
-	if strings.Join(got, ",") != "ghost,web" {
-		t.Fatalf("no-domain services = %v, want ghost and web", got)
+	// ghost's only source reports no domain at all, so its domain is unknown.
+	if strings.Join(got, ",") != "web" {
+		t.Fatalf("no-domain services = %v, want only web", got)
 	}
 }
 
@@ -235,8 +236,9 @@ func TestEntityDetail_DomainNotFound(t *testing.T) {
 
 func TestEntityDetail_DomainInvalidRevision(t *testing.T) {
 	bad := mustParse(t, invalidYAML)
-	bad.Service.Domain = "commerce"
+	bad.Service.Domain = "payments"
 	src := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
+		domainRev("bad-svc", "0.9.0", "commerce"),
 		{Bundle: &contract.Bundle{Contract: bad, RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}},
 	}})
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
@@ -247,8 +249,8 @@ func TestEntityDetail_DomainInvalidRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Domain.Summary.InvalidRevisions != 1 {
-		t.Errorf("invalid revisions = %d, want 1", d.Domain.Summary.InvalidRevisions)
+	if d.Domain.Summary.InvalidRevisions != 1 || d.Domain.Summary.Revisions != 2 {
+		t.Errorf("summary = %+v, want 2 revisions, 1 invalid", d.Domain.Summary)
 	}
 }
 
@@ -295,14 +297,17 @@ func TestOverview_ByDomainCoversEveryService(t *testing.T) {
 	if total != s.Services {
 		t.Errorf("domain rows hold %d services, want all %d", total, s.Services)
 	}
-	if len(s.ByDomain) != 2 || s.Domains != 1 {
+	if len(s.ByDomain) != 3 || s.Domains != 1 {
 		t.Fatalf("byDomain = %+v, domains = %d", s.ByDomain, s.Domains)
 	}
 	if c := s.ByDomain[0]; c.Domain != "commerce" || c.Services != 2 || c.Targets != 2 || c.NonCompliant != 1 || c.Unowned != 1 {
 		t.Errorf("commerce row = %+v", c)
 	}
-	if last := s.ByDomain[1]; last.Domain != "" || last.Services != 2 || last.Unowned != 1 {
-		t.Errorf("no-domain row = %+v, want 2 services with ghost unowned", last)
+	if u := s.ByDomain[1]; u.Domain != "" || !u.DomainUnknown || u.Services != 1 || u.Unowned != 1 {
+		t.Errorf("unknown row = %+v, want ghost, unowned", u)
+	}
+	if last := s.ByDomain[2]; last.Domain != "" || last.DomainUnknown || last.Services != 1 || last.Unowned != 0 {
+		t.Errorf("no-domain row = %+v, want web", last)
 	}
 }
 
@@ -318,7 +323,7 @@ func TestTallyDomains_BoundedNoDomainLast(t *testing.T) {
 	targets = append(targets,
 		RawTarget{Scope: "p", Kind: "k8s", Name: "u", Service: "svcj", Compliance: StatusUnknown},
 		RawTarget{Scope: "p", Kind: "k8s", Name: "s", Service: "svca", Compliance: StatusCompliant, EvidenceAt: ptrTime(fixedNow().Add(-48 * time.Hour))},
-		RawTarget{Scope: "p", Kind: "k8s", Name: "none", Service: "undeclared"})
+		RawTarget{Scope: "p", Kind: "k8s", Name: "none", Service: "undeclared", BusinessDomainKnown: true})
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, FreshnessWindow: time.Hour}, NewMemorySource("l", "local", &Collection{Revisions: revs, Targets: targets}))
 	if err != nil {
 		t.Fatal(err)
@@ -423,7 +428,7 @@ func TestSearch_BusinessDomain(t *testing.T) {
 	if got := strings.Join(names(SearchFilter{BusinessDomain: "commerce"}), ","); got != "orders=commerce,pay=commerce" {
 		t.Errorf("commerce search = %s", got)
 	}
-	if got := strings.Join(names(SearchFilter{BusinessDomain: NoBusinessDomain}), ","); got != "web=,ghost=" {
+	if got := strings.Join(names(SearchFilter{BusinessDomain: NoBusinessDomain}), ","); got != "web=" {
 		t.Errorf("no-domain search = %s", got)
 	}
 }
@@ -462,5 +467,198 @@ func TestOwnership_OperatorReportedOwnerIsNotUnowned(t *testing.T) {
 	got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, Ownership: OwnershipUnowned})
 	if strings.Join(got, ",") != "orphan" {
 		t.Errorf("unowned filter = %v", got)
+	}
+}
+
+// buildDomainSnap builds a query over one memory source.
+func buildDomainSnap(t *testing.T, kind string, col *Collection) *Query {
+	t.Helper()
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("src", kind, col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewQuery(snap)
+}
+
+func domainRev(name, version, domain string) RawRevision {
+	k := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: version, Domain: domain}}
+	return RawRevision{Bundle: &contract.Bundle{Contract: k, FS: fstest.MapFS{}}, Digest: "sha256:" + name + version}
+}
+
+// The newest revision that is not invalid decides; an invalid one never does.
+func TestBuild_BusinessDomainIgnoresInvalidRevision(t *testing.T) {
+	bad := mustParse(t, invalidYAML)
+	bad.Service.Domain = "payments"
+	q := buildDomainSnap(t, "local", &Collection{Revisions: []RawRevision{
+		domainRev("bad-svc", "0.9.0", "commerce"),
+		{Bundle: &contract.Bundle{Contract: bad, RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}},
+	}})
+	s := q.snap.Services[NewServiceKeyDomain("", "bad-svc")]
+	if s.BusinessDomain != "commerce" || s.BusinessDomainUnknown {
+		t.Fatalf("domain = %q (unknown %v), want commerce from the newest valid revision", s.BusinessDomain, s.BusinessDomainUnknown)
+	}
+}
+
+// A value that is not a slug, such as the (none) filter value, is never a domain,
+// whether a contract or the operator reports it.
+func TestBuild_BusinessDomainRejectsNonSlug(t *testing.T) {
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{
+		Revisions: []RawRevision{domainRev("a", "1.0.0", NoBusinessDomain)},
+		Targets:   []RawTarget{{Scope: "s", Kind: "k8s", Name: "b", Service: "b", BusinessDomain: NoBusinessDomain, BusinessDomainKnown: true}},
+	})
+	for _, name := range []string{"a", "b"} {
+		s := q.snap.Services[NewServiceKeyDomain("", name)]
+		if s.BusinessDomain != "" || !s.BusinessDomainUnknown {
+			t.Errorf("%s: domain = %q (unknown %v), want unknown", name, s.BusinessDomain, s.BusinessDomainUnknown)
+		}
+	}
+	if got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindDomain}}); len(got) != 0 {
+		t.Errorf("domains = %v, want none", got)
+	}
+}
+
+// With no revision declaring a domain, the operator-reported one is used, as for owners.
+func TestBuild_BusinessDomainFallsBackWhenNoRevisionDeclares(t *testing.T) {
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{
+		Revisions: []RawRevision{domainRev("x", "1.0.0", "")},
+		Targets:   []RawTarget{{Scope: "s", Kind: "k8s", Name: "x", Service: "x", BusinessDomain: "payments"}},
+	})
+	if s := q.snap.Services[NewServiceKeyDomain("", "x")]; s.BusinessDomain != "payments" {
+		t.Fatalf("domain = %q, want the operator-reported payments", s.BusinessDomain)
+	}
+}
+
+// What no source can tell is unknown, distinct from No domain.
+func TestBuild_BusinessDomainUnknownVersusNone(t *testing.T) {
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{
+		Revisions: []RawRevision{domainRev("declared-none", "1.0.0", "")},
+		Targets: []RawTarget{
+			{Scope: "s", Kind: "k8s", Name: "old-operator", Service: "old-operator"},
+			{Scope: "s", Kind: "k8s", Name: "reported-none", Service: "reported-none", BusinessDomainKnown: true},
+		},
+	})
+	want := map[string]bool{"declared-none": false, "reported-none": false, "old-operator": true}
+	for name, unknown := range want {
+		s := q.snap.Services[NewServiceKeyDomain("", name)]
+		if s.BusinessDomain != "" || s.BusinessDomainUnknown != unknown {
+			t.Errorf("%s: domain = %q, unknown = %v, want unknown = %v", name, s.BusinessDomain, s.BusinessDomainUnknown, unknown)
+		}
+	}
+	if got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, BusinessDomain: NoBusinessDomain, Sort: SortName}); strings.Join(got, ",") != "declared-none,reported-none" {
+		t.Errorf("(none) = %v", got)
+	}
+	if got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService, KindTarget}, BusinessDomain: UnknownBusinessDomain, Sort: SortName}); len(got) != 2 {
+		t.Errorf("(unknown) = %v, want the old-operator service and its target", got)
+	}
+	l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindService, KindTarget}, Text: "old-operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range l.Entities {
+		if !e.BusinessDomainUnknown {
+			t.Errorf("%s ref = %+v, want businessDomainUnknown", e.Kind, e)
+		}
+	}
+	res, err := q.Search(SearchFilter{BusinessDomain: UnknownBusinessDomain})
+	if err != nil || len(res.Services) != 1 || !res.Services[0].BusinessDomainUnknown {
+		t.Errorf("search (unknown) = %+v, %v", res, err)
+	}
+	ov := q.Overview().Summary
+	if len(ov.ByDomain) != 2 || !ov.ByDomain[0].DomainUnknown || ov.ByDomain[0].Services != 1 ||
+		ov.ByDomain[1].DomainUnknown || ov.ByDomain[1].Services != 2 || ov.Domains != 0 {
+		t.Errorf("byDomain = %+v, want the unknown row, then No domain", ov.ByDomain)
+	}
+	al, err := q.Attention(AttentionFilter{BusinessDomain: UnknownBusinessDomain, Limit: MaxAttentionLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range al.Items {
+		if it.Service != string(NewServiceKeyDomain("", "old-operator")) {
+			t.Errorf("(unknown) attention item %+v", it)
+		}
+	}
+}
+
+// Disagreeing reported domains are a limitation and an unknown domain, never a pick.
+func TestBuild_BusinessDomainConflict(t *testing.T) {
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{Targets: []RawTarget{
+		{Scope: "a", Kind: "k8s", Name: "x-a", Service: "x", BusinessDomain: "payments"},
+		{Scope: "b", Kind: "k8s", Name: "x-b", Service: "x", BusinessDomain: "commerce"},
+	}})
+	s := q.snap.Services[NewServiceKeyDomain("", "x")]
+	if s.BusinessDomain != "" || !s.BusinessDomainUnknown {
+		t.Errorf("domain = %q (unknown %v), want unknown", s.BusinessDomain, s.BusinessDomainUnknown)
+	}
+	if !hasLimitation(q.snap.Limitations, LimitationDomainConflict) {
+		t.Errorf("limitations = %+v, want %s", q.snap.Limitations, LimitationDomainConflict)
+	}
+}
+
+// Two sources reporting one target with different domains disagree just the same.
+func TestBuild_BusinessDomainConflictWithinTarget(t *testing.T) {
+	tgt := func(d string) *Collection {
+		return &Collection{Targets: []RawTarget{{Scope: "a", Kind: "k8s", Name: "x", Service: "x", BusinessDomain: d}}}
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("one", SourceKindKubernetes, tgt("payments")), NewMemorySource("two", SourceKindKubernetes, tgt("commerce")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := snap.Services[NewServiceKeyDomain("", "x")]
+	if s.BusinessDomain != "" || !s.BusinessDomainUnknown || !hasLimitation(snap.Limitations, LimitationDomainConflict) {
+		t.Errorf("domain = %q (unknown %v), limitations %+v", s.BusinessDomain, s.BusinessDomainUnknown, snap.Limitations)
+	}
+}
+
+// A revision reference carries what that revision declared, not its service's domain.
+func TestEntities_RevisionRefCarriesDeclaredDomain(t *testing.T) {
+	q := domainFleet(t)
+	l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindRevision}, BusinessDomain: "commerce"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, e := range l.Entities {
+		got[e.Version] = e.BusinessDomain
+	}
+	if got["1.0.0"] == "" || got["1.1.0"] != "commerce" {
+		t.Errorf("revision domains = %v", got)
+	}
+	for _, e := range l.Entities {
+		if e.Version == "1.0.0" && strings.Contains(e.Label, "pay") && e.BusinessDomain != "payments" {
+			t.Errorf("pay 1.0.0 ref = %+v, want the payments it declared", e)
+		}
+	}
+}
+
+// A restricted view never derives a domain from a target it hides.
+func TestRestrict_BusinessDomainFromVisibleTargetsOnly(t *testing.T) {
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{Targets: []RawTarget{
+		{Scope: "secret", Kind: SourceKindKubernetes, Name: "x-secret", Service: "x", BusinessDomain: "payments"},
+		{Scope: "open", Kind: SourceKindKubernetes, Name: "x-open", Service: "x", BusinessDomainKnown: true},
+	}})
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	s := r.snap.Services[NewServiceKeyDomain("", "x")]
+	if s.BusinessDomain != "" || s.BusinessDomainUnknown {
+		t.Errorf("restricted domain = %q (unknown %v), want No domain", s.BusinessDomain, s.BusinessDomainUnknown)
+	}
+	if got := entityKeys(t, r, EntityFilter{Kinds: []EntityKind{KindDomain}}); len(got) != 0 {
+		t.Errorf("restricted domains = %v", got)
+	}
+	l, err := r.Entities(EntityFilter{Kinds: []EntityKind{KindTarget}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Entities) != 1 || l.Entities[0].BusinessDomain != "" {
+		t.Errorf("restricted targets = %+v", l.Entities)
+	}
+	if q.snap.Targets[NewTargetKey("open", SourceKindKubernetes, "x-open")].BusinessDomain != "payments" {
+		t.Error("restricting mutated the unrestricted snapshot")
+	}
+}
+
+func TestServiceInBusinessDomain_UnknownService(t *testing.T) {
+	if domainFleet(t).serviceInBusinessDomain("oci://nope", NoBusinessDomain) {
+		t.Error("a service not in the snapshot matched (none)")
 	}
 }
