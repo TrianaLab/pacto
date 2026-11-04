@@ -76,8 +76,11 @@ type EntityRef struct {
 	// target reference belongs to, and the name of a domain reference. Empty means
 	// No domain.
 	BusinessDomain string `json:"businessDomain,omitempty"`
-	Scope          string `json:"scope,omitempty"`
-	ParentService  string `json:"parentService,omitempty"`
+	// Environment is the environment a TARGET reference runs in (see
+	// TargetRecord.Environment), empty when unknown.
+	Environment   string `json:"environment,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	ParentService string `json:"parentService,omitempty"`
 	// Version is the declared contract version a REVISION reference carries, set only for
 	// revision refs. It is surfaced explicitly (not folded into the display label) so a
 	// consumer can match a requested version to a canonical RevisionKey without parsing a
@@ -206,7 +209,7 @@ func revisionEntityRef(r *ContractRevision) EntityRef {
 func targetEntityRef(t *TargetRecord) EntityRef {
 	return EntityRef{
 		Kind: KindTarget, Key: string(t.Key), Label: t.DisplayName(), Secondary: t.Scope,
-		Status: t.Compliance, Domain: t.Domain, BusinessDomain: t.BusinessDomain, Scope: t.Scope,
+		Status: t.Compliance, Domain: t.Domain, BusinessDomain: t.BusinessDomain, Environment: t.Environment, Scope: t.Scope,
 		ParentService: string(t.ServiceKey),
 	}
 }

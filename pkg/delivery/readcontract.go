@@ -351,7 +351,7 @@ func PactosFor(pactos []PactoView, namespace, service string) []PactoView {
 
 // EnvironmentLabel on a Pacto names the environment its workload runs in. It
 // places the Pacto when the namespace it runs in does not.
-const EnvironmentLabel = "delivery.pacto.trianalab.io/environment"
+const EnvironmentLabel = fleet.TargetEnvironmentLabel
 
 // KustomizationView is the part of a Flux Kustomization the promoter reads to
 // learn where a Stage's version runs: the namespace it applies into.

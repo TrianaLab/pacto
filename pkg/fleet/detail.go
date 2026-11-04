@@ -430,6 +430,45 @@ type TargetDetailData struct {
 	Quarantined          bool                 `json:"quarantined,omitempty"`
 	Ownership            *OwnershipInfo       `json:"ownership,omitempty"`
 	Limitations          LimitationsPreview   `json:"limitations"`
+	Environment          TargetEnvironment    `json:"environment"`
+}
+
+// TargetEnvironment is the environment a target runs in, read from the
+// TargetEnvironmentLabel, and whether the revision it runs declares it. An empty
+// Name means unknown. Declared is unknown whenever Pacto cannot tell, with Reason
+// saying why; Check is the declared environment's values check.
+type TargetEnvironment struct {
+	Name     string             `json:"name,omitempty"`
+	Declared string             `json:"declared" enum:"declared,not-declared,unknown"`
+	Reason   string             `json:"reason,omitempty"`
+	Check    *EnvironmentResult `json:"check,omitempty"`
+}
+
+// targetEnvironmentName is the environment a target runs in, and whether its
+// sources disagree on the label (then the name is empty).
+func targetEnvironmentName(t *TargetRecord) (name string, conflict bool) {
+	return t.Environment, t.Environment == "" && t.Labels[TargetEnvironmentLabel] != ""
+}
+
+// targetEnvironment says where a target runs and whether its linked revision
+// declares that environment.
+func (q *Query) targetEnvironment(t *TargetRecord) TargetEnvironment {
+	name, conflict := targetEnvironmentName(t)
+	rev := q.snap.Revisions[t.ContractRevision]
+	switch {
+	case conflict:
+		return TargetEnvironment{Declared: "unknown", Reason: "Sources disagree on this target's environment label."}
+	case name == "":
+		return TargetEnvironment{Declared: "unknown", Reason: "No source reports this target's environment. Pacto reads it from the " + TargetEnvironmentLabel + " label."}
+	case rev == nil:
+		return TargetEnvironment{Name: name, Declared: "unknown", Reason: "Pacto cannot tell which revision runs here, so it cannot check the environment against a contract."}
+	}
+	for _, e := range rev.Environments {
+		if e.Name == name {
+			return TargetEnvironment{Name: name, Declared: "declared", Check: &e}
+		}
+	}
+	return TargetEnvironment{Name: name, Declared: "not-declared", Reason: "Revision " + revisionEntityRef(rev).Label + " does not declare environment " + name + "."}
 }
 
 // OwnerDetailData is the owner-kind payload: the complete owner-scoped aggregate,
@@ -672,6 +711,7 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		Quarantined:  t.Quarantined,
 		Ownership:    targetOwnership(q.snap.Services[t.ServiceKey]),
 		Limitations:  limitationsPreview(t.Limitations),
+		Environment:  q.targetEnvironment(t),
 		// The observed-runtime preview was bounded ONCE at Build time (see
 		// TargetRecord.ObservedRuntime); the product query reads that precomputed
 		// projection in O(bound), never re-flattening an arbitrarily wide raw map.

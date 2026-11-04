@@ -492,10 +492,17 @@ func mergeTargetLabels(existing, add *TargetRecord) []Limitation {
 	}
 	var lims []Limitation
 	for k, v := range add.Labels {
-		if cur, ok := existing.Labels[k]; ok && cur != v {
+		cur, ok := existing.Labels[k]
+		if ok && cur != v {
 			lims = append(lims, Limitation{Code: LimitationTargetFieldConflict, Source: add.Source,
 				Message: "sources disagree on label " + k + " of target " + string(existing.Key)})
+			if k == TargetEnvironmentLabel {
+				existing.Environment = "" // stays cleared: no contributor can settle it
+			}
 			continue
+		}
+		if !ok && k == TargetEnvironmentLabel {
+			existing.Environment = v
 		}
 		existing.Labels[k] = v
 	}
@@ -1034,6 +1041,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		// ponytail: not validated against the slug rule; the operator only reports a
 		// value its own validator accepted.
 		reportedDomain: raw.BusinessDomain,
+		Environment:    raw.Labels[TargetEnvironmentLabel],
 		Findings:       findings,
 		Coverage:       cloneCoverage(raw.Coverage),
 		Readiness:      cloneReadiness(raw.Readiness),

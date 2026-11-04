@@ -153,6 +153,7 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		Domain:          contract.OCIDomain(resolvedRef),
 		Kind:            fleet.SourceKindKubernetes,
 		Name:            item.Metadata.Name,
+		Labels:          environmentLabel(item.Metadata.Labels),
 		Service:         service,
 		ResolvedRef:     resolvedRef,
 		Digest:          digestFromRef(resolvedRef),
@@ -172,6 +173,15 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		}
 	}
 	return t
+}
+
+// environmentLabel keeps only the environment label of a Pacto: the fleet places a
+// target by it, and the CR's other labels are not the fleet's to publish.
+func environmentLabel(labels map[string]string) map[string]string {
+	if v, ok := labels[fleet.TargetEnvironmentLabel]; ok {
+		return map[string]string{fleet.TargetEnvironmentLabel: v}
+	}
+	return nil
 }
 
 // digestFromRef extracts the @sha256:... digest from a resolved OCI ref, or ""
@@ -232,8 +242,9 @@ type k8sItem struct {
 }
 
 type k8sMetadata struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Labels    map[string]string `json:"labels"`
 }
 
 type k8sStatus struct {

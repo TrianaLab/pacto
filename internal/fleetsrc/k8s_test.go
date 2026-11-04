@@ -88,7 +88,7 @@ func TestK8sSource_Collect_InvalidJSON(t *testing.T) {
 func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	list := `{"items":[
 	  {
-	    "metadata":{"name":"payments-prod","namespace":"prod"},
+	    "metadata":{"name":"payments-prod","namespace":"prod","labels":{"app":"payments","delivery.pacto.trianalab.io/environment":"production"}},
 	    "status":{
 	      "contractStatus":"NonCompliant",
 	      "contract":{"serviceName":"payments","domain":"payments","resolvedRef":"ghcr.io/x/payments:1.2.0@sha256:abcd",
@@ -132,6 +132,7 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 		Domain:          "ghcr.io/x",
 		Kind:            "kubernetes",
 		Name:            "payments-prod",
+		Labels:          map[string]string{fleet.TargetEnvironmentLabel: "production"},
 		Service:         "payments",
 		ResolvedRef:     "ghcr.io/x/payments:1.2.0@sha256:abcd",
 		Digest:          "sha256:abcd",
@@ -377,5 +378,14 @@ func TestK8sSource_ReconciledEvidenceIsEvidence(t *testing.T) {
 		if l.Code == fleet.LimitationEvidenceMissing {
 			t.Errorf("target reports coverage %+v yet claims no evidence: %s", rec.Coverage, l.Message)
 		}
+	}
+}
+
+func TestK8sSource_EnvironmentLabelOnly(t *testing.T) {
+	if got := environmentLabel(map[string]string{"app": "x"}); got != nil {
+		t.Errorf("a CR without the environment label yields labels %v, want nil", got)
+	}
+	if got := environmentLabel(nil); got != nil {
+		t.Errorf("a CR with no labels yields %v", got)
 	}
 }

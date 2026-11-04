@@ -535,6 +535,10 @@ type LicenseCount struct {
 	Count   int    `json:"count"`
 }
 
+// TargetEnvironmentLabel on a target names the environment it runs in. It is the
+// label the delivery promoter places a Pacto by (delivery.EnvironmentLabel).
+const TargetEnvironmentLabel = "delivery.pacto.trianalab.io/environment"
+
 // TargetRecord is a concrete operational target associated with a revision.
 // Its identity is generic (scope/kind/name) and does not assume Kubernetes,
 // though the first implementations are Kubernetes-derived.
@@ -564,10 +568,13 @@ type TargetRecord struct {
 	Owner contract.Owner `json:"owner,omitzero"`
 	// BusinessDomain is the business domain of the service this target belongs to
 	// (ServiceRecord.BusinessDomain), copied here so a reference carries it.
-	BusinessDomain string            `json:"businessDomain,omitempty"`
-	Findings       []finding.Finding `json:"findings,omitempty"`
-	Coverage       *Coverage         `json:"coverage,omitempty"`
-	Readiness      *readiness.Result `json:"readiness,omitempty"`
+	BusinessDomain string `json:"businessDomain,omitempty"`
+	// Environment is the TargetEnvironmentLabel value, empty when no source
+	// reports it or when sources disagree on it (see targetEnvironmentName).
+	Environment string            `json:"environment,omitempty"`
+	Findings    []finding.Finding `json:"findings,omitempty"`
+	Coverage    *Coverage         `json:"coverage,omitempty"`
+	Readiness   *readiness.Result `json:"readiness,omitempty"`
 	// ObservedRuntime is the BOUNDED, deterministic projection of the source's raw
 	// observed-runtime map, computed ONCE at Build time (the single unbounded-source
 	// pass) from the untrusted, arbitrarily wide/deep source data. The raw map is not

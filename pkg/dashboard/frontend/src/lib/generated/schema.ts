@@ -1862,6 +1862,7 @@ export interface components {
         "Fleet.EntityRef": {
             businessDomain?: string;
             domain?: string;
+            environment?: string;
             explanation?: string;
             key: string;
             /** @enum {string} */
@@ -2507,6 +2508,13 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.TargetEnvironment": {
+            check?: components["schemas"]["Fleet.EnvironmentResult"];
+            /** @enum {string} */
+            declared: "declared" | "not-declared" | "unknown";
+            name?: string;
+            reason?: string;
+        };
         "Fleet.TargetRecord": {
             businessDomain?: string;
             compliance: string;
@@ -2514,6 +2522,7 @@ export interface components {
             coverage?: components["schemas"]["Fleet.Coverage"];
             digest?: string;
             domain?: string;
+            environment?: string;
             /** Format: date-time */
             evidenceAt?: string;
             findings?: components["schemas"]["Finding.Finding"][] | null;
@@ -3231,6 +3240,7 @@ export interface components {
         ProductRef: {
             businessDomain?: string;
             domain?: string;
+            environment?: string;
             explanation?: string;
             href: string;
             key: string;
@@ -3344,6 +3354,7 @@ export interface components {
             /** @enum {string} */
             compliance: "Compliant" | "NonCompliant" | "Unknown" | "Warning" | "Invalid" | "Reference" | "NotEvaluated";
             coverage?: components["schemas"]["Fleet.Coverage"];
+            environment: components["schemas"]["Fleet.TargetEnvironment"];
             /** Format: date-time */
             evidenceAt?: string;
             findings: components["schemas"]["Fleet.FindingsPreview"];

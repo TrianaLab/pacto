@@ -25,7 +25,7 @@ targets:
     coverage: { evaluated: 6, required: 6 }
     evidenceAt: 2026-07-29T09:40:00Z
     reconciledAt: 2026-07-29T09:41:00Z
-    labels: { env: production, region: eu }
+    labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: production }
 
   - scope: production-eu
     kind: kubernetes-workload
@@ -36,7 +36,7 @@ targets:
     coverage: { evaluated: 5, required: 5 }
     evidenceAt: 2026-07-29T09:40:00Z
     reconciledAt: 2026-07-29T09:41:00Z
-    labels: { env: production, region: eu }
+    labels: { env: production, region: eu, delivery.pacto.trianalab.io/environment: production }
     findings:
       - code: STATELESS_PERSISTENT_CONFLICT
         severity: error

@@ -46,7 +46,9 @@ type EntityFilter struct {
 	// to (see [Query.businessDomainOf]); NoBusinessDomain asks for the services
 	// that have none.
 	BusinessDomain string
-	Scope          string
+	// Environment is the exact environment a target runs in (TargetRecord.Environment).
+	Environment string
+	Scope       string
 	// Status filters compliance-bearing entities (service/revision/target) by
 	// their canonical compliance status. Source health is a separate axis.
 	Status string
@@ -249,6 +251,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"status", f.Status, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"sourceHealth", f.SourceHealth, []EntityKind{KindSource}},
 		{"scope", f.Scope, []EntityKind{KindTarget}},
+		{"environment", f.Environment, []EntityKind{KindTarget}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain}},
 		{"service", f.Service, []EntityKind{KindService, KindRevision, KindTarget}},
@@ -458,6 +461,9 @@ func matchScalarFields(r EntityRef, f EntityFilter) bool {
 		return false
 	}
 	if f.Scope != "" && r.Scope != f.Scope {
+		return false
+	}
+	if f.Environment != "" && (r.Kind != KindTarget || r.Environment != f.Environment) {
 		return false
 	}
 	if f.Status != "" && r.Status != f.Status {
