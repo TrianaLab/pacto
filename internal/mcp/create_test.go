@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -2948,5 +2949,104 @@ func TestCheck_DomainSuggestion(t *testing.T) {
 	result, err = Check(context.Background(), nil, dir)
 	if err != nil || !result.Valid || has(result) || result.Summary.Domain != "payments" {
 		t.Fatalf("with domain: %+v %v", result, err)
+	}
+}
+
+func TestEdit_OfferingAndSummary(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.3\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	result, err := Edit(EditInput{Path: dir, Offering: strPtr("postgresql")})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []string{`set pactoVersion to "2.5"`, `set offering to "postgresql"`}; !slices.Equal(result.Changes, want) {
+		t.Errorf("changes %v, want %v", result.Changes, want)
+	}
+	if result.Summary.Offering != "postgresql" {
+		t.Errorf("summary offering %q", result.Summary.Offering)
+	}
+	// Already 2.5: a summary leaves pactoVersion alone, and a domain does not lower it to 2.4.
+	result, err = Edit(EditInput{Path: dir, Summary: strPtr("Primary database"), Domain: strPtr("data")})
+	if err != nil || !slices.Equal(result.Changes, []string{`set domain to "data"`, `set summary to "Primary database"`}) {
+		t.Fatalf("second edit %v %v", result, err)
+	}
+	if result.Summary.Summary != "Primary database" {
+		t.Errorf("summary summary %q", result.Summary.Summary)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil || c.PactoVersion != "2.5" || c.Service.Offering != "postgresql" || c.Service.Summary != "Primary database" || c.Service.Domain != "data" {
+		t.Fatalf("written contract %+v %v", c, err)
+	}
+}
+
+func TestEdit_AddConfigurationAndPolicyRefs(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	result, err := Edit(EditInput{
+		Path:                 dir,
+		AddConfigurationRefs: []ConfigurationRefInput{{Ref: "oci://ghcr.io/acme/platform-app-config", Required: true}},
+		AddPolicyRefs:        []PolicyRefInput{{Ref: "oci://ghcr.io/acme/platform-http-policy:1.0.0"}, {Name: "edge", Ref: "oci://ghcr.io/acme/edge-policy"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{`added configuration reference "platform-app-config"`, `added policy reference "platform-http-policy"`, `added policy reference "edge"`}
+	if !slices.Equal(result.Changes, want) {
+		t.Errorf("changes %v, want %v", result.Changes, want)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Configurations) != 1 || !reflect.DeepEqual(c.Configurations[0], contract.Configuration{Name: "platform-app-config", Ref: "oci://ghcr.io/acme/platform-app-config", Required: true}) {
+		t.Errorf("configurations %+v", c.Configurations)
+	}
+	if len(c.Policies) != 2 || c.Policies[0] != (contract.Policy{Name: "platform-http-policy", Ref: "oci://ghcr.io/acme/platform-http-policy:1.0.0"}) || c.Policies[1].Name != "edge" {
+		t.Errorf("policies %+v", c.Policies)
+	}
+	// Policy refs resolve only against a registry, so check the stages before it.
+	check, err := Check(context.Background(), nil, dir)
+	if err != nil || len(check.Stages) < 2 || check.Stages[0].Status != "pass" || check.Stages[1].Status != "pass" {
+		t.Fatalf("written contract does not validate: %+v %v", check, err)
+	}
+}
+
+func TestCheck_OfferingSuggestion(t *testing.T) {
+	has := func(r *CheckResult) bool {
+		for _, s := range r.Suggestions {
+			if strings.HasPrefix(s.Message, "No platform offering declared.") && s.ToolCall != nil && s.ToolCall.Tool == "pacto_edit" &&
+				s.ToolCall.Params["offering"] != nil && s.ToolCall.Params["summary"] != nil {
+				return true
+			}
+		}
+		return false
+	}
+	check := func(yaml string) *CheckResult {
+		dir := t.TempDir()
+		_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644)
+		result, err := Check(context.Background(), nil, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	provider := "pactoVersion: \"2.5\"\nservice:\n  name: postgresql\n  version: 16.0.0\nworkload: service\n"
+	if r := check(provider); !has(r) {
+		t.Errorf("provider-shaped contract: %+v", r.Suggestions)
+	}
+	withAPI := provider + "interfaces:\n  - name: api\n    type: http\n    port: 8080\n"
+	if r := check(withAPI); has(r) {
+		t.Errorf("contract with interfaces: %+v", r.Suggestions)
+	}
+	bare := "pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\n"
+	if r := check(bare); has(r) {
+		t.Errorf("contract with nothing to offer: %+v", r.Suggestions)
+	}
+	declared := "pactoVersion: \"2.5\"\nservice:\n  name: postgresql\n  version: 16.0.0\n  offering: postgresql\n  summary: Primary database\nworkload: service\n"
+	r := check(declared)
+	if has(r) || r.Summary.Offering != "postgresql" || r.Summary.Summary != "Primary database" {
+		t.Errorf("declared offering: %+v", r)
 	}
 }

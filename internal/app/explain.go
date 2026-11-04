@@ -21,6 +21,8 @@ type ExplainResult struct {
 	Version      string              `json:"version"`
 	Owner        contract.Owner      `json:"owner,omitempty"`
 	Domain       string              `json:"domain,omitempty"`
+	Offering     string              `json:"offering,omitempty"`
+	Summary      string              `json:"summary,omitempty"`
 	PactoVersion string              `json:"pactoVersion"`
 	Workload     string              `json:"workload,omitempty"`
 	State        *ExplainState       `json:"state,omitempty"`
@@ -132,6 +134,8 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		Version:      c.Service.Version,
 		Owner:        c.Service.Owner,
 		Domain:       c.Service.Domain,
+		Offering:     c.Service.Offering,
+		Summary:      c.Service.Summary,
 		PactoVersion: c.PactoVersion,
 		Workload:     c.Workload,
 		Environments: c.Environments,

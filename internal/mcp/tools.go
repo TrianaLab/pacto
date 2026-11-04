@@ -203,9 +203,13 @@ func editTool() *mcpsdk.Tool {
 			"version":                      {Type: "string", Description: "New service version"},
 			"owner":                        {Type: "string", Description: "The team that owns the service, as a bare team name such as 'billing': usually the team label on its workloads"},
 			"domain":                       {Type: "string", Description: "The business domain the service belongs to, as a lowercase slug such as 'payments'. Sets service.domain and raises an older pactoVersion to 2.4"},
+			"offering":                     {Type: "string", Description: "The kind of platform offering the service provides to other teams, as a lowercase slug such as 'postgresql' or 'shared-config'. Sets service.offering and raises an older pactoVersion to 2.5"},
+			"summary":                      {Type: "string", Description: "One line that says what the service is for. Sets service.summary and raises an older pactoVersion to 2.5"},
 			"add_interfaces":               {Type: "string", Description: "JSON array of interfaces to add: [{name, type, visibility?}]"},
 			"remove_interfaces":            {Type: "string", Description: "JSON array of interface names to remove: [\"name1\", \"name2\"]"},
 			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). For a service your company runs with Pacto whose contract is not published yet, give ref as the OCI repository its contract will be published at and compatibility as the versions you accept: Pacto reports it as unresolved until it is published. A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref, and its compatibility stays Unknown"},
+			"add_configuration_refs":       {Type: "string", Description: "JSON array of configuration references to add: [{name?, ref, required?}], each pointing at a published contract whose configuration this service takes, such as a platform offering's"},
+			"add_policy_refs":              {Type: "string", Description: "JSON array of policy references to add: [{name?, ref}]"},
 			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]; an external dependency with no ref is removed by name"},
 			"workload":                     {Type: "string", Description: "New workload type", Enum: []string{"service", "job", "scheduled"}},
 			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data"},
@@ -228,6 +232,10 @@ type editArgs struct {
 	Version                   *string `json:"version"`
 	Owner                     *string `json:"owner"`
 	Domain                    *string `json:"domain"`
+	Offering                  *string `json:"offering"`
+	Summary                   *string `json:"summary"`
+	AddConfigurationRefs      string  `json:"add_configuration_refs"`
+	AddPolicyRefs             string  `json:"add_policy_refs"`
 	AddInterfaces             string  `json:"add_interfaces"`
 	RemoveInterfaces          string  `json:"remove_interfaces"`
 	AddDependencies           string  `json:"add_dependencies"`
@@ -251,6 +259,8 @@ func editHandler() mcpsdk.ToolHandlerFor[editArgs, any] {
 			Version:                   args.Version,
 			Owner:                     args.Owner,
 			Domain:                    args.Domain,
+			Offering:                  args.Offering,
+			Summary:                   args.Summary,
 			Workload:                  args.Workload,
 			StoresData:                args.StoresData,
 			DataSurvivesRestart:       args.DataSurvivesRestart,
@@ -264,6 +274,8 @@ func editHandler() mcpsdk.ToolHandlerFor[editArgs, any] {
 			{"remove_interfaces", args.RemoveInterfaces, &input.RemoveInterfaces},
 			{"add_dependencies", args.AddDependencies, &input.AddDependencies},
 			{"remove_dependencies", args.RemoveDependencies, &input.RemoveDeps},
+			{"add_configuration_refs", args.AddConfigurationRefs, &input.AddConfigurationRefs},
+			{"add_policy_refs", args.AddPolicyRefs, &input.AddPolicyRefs},
 			{"add_config_properties", args.AddConfigProperties, &input.AddConfigProperties},
 			{"set_metadata", args.SetMetadata, &input.SetMetadata},
 			{"remove_metadata", args.RemoveMetadata, &input.RemoveMetadata},

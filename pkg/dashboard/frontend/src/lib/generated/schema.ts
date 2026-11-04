@@ -1158,7 +1158,9 @@ export interface components {
         "Contract.Service": {
             domain?: string;
             name: string;
+            offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
+            summary?: string;
             version: string;
         };
         "Contract.State": {
@@ -3686,6 +3688,7 @@ export interface components {
             name: string;
             namespace?: string;
             observedRuntime?: components["schemas"]["ObservedRuntime"];
+            offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
             policies?: components["schemas"]["PolicyInfo"][] | null;
             readiness?: components["schemas"]["ReadinessInfo"];
@@ -3697,6 +3700,7 @@ export interface components {
             sources?: string[] | null;
             stages?: components["schemas"]["Fleet.ValidationStage"][] | null;
             state?: components["schemas"]["StateInfo"];
+            summary?: string;
             tools?: components["schemas"]["CapabilityTool"][] | null;
             validation?: components["schemas"]["ValidationInfo"];
             version: string;
@@ -3725,10 +3729,12 @@ export interface components {
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             name: string;
             namespace?: string;
+            offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
             readiness?: components["schemas"]["ReadinessInfo"];
             source: string;
             sources?: string[] | null;
+            summary?: string;
             topInsight?: string;
             updateAvailable?: boolean;
             version: string;

@@ -331,3 +331,29 @@ func TestDiffContract_Domain(t *testing.T) {
 		}
 	}
 }
+
+func TestDiffContract_OfferingAndSummary(t *testing.T) {
+	fields := map[string]func(*contract.Contract) *string{
+		"service.offering": func(c *contract.Contract) *string { return &c.Service.Offering },
+		"service.summary":  func(c *contract.Contract) *string { return &c.Service.Summary },
+	}
+	for path, field := range fields {
+		for _, tc := range []struct {
+			old, new string
+			typ      ChangeType
+		}{
+			{"", "postgresql", Added},
+			{"postgresql", "redis", Modified},
+			{"postgresql", "", Removed},
+		} {
+			old, new := minimalContract(), minimalContract()
+			*field(old), *field(new) = tc.old, tc.new
+			r := Compare(context.Background(), old, new, nil, nil)
+			changes := r.Changes
+			if r.Classification != NonBreaking || len(changes) != 1 || changes[0].Path != path || changes[0].Type != tc.typ ||
+				changes[0].Classification != NonBreaking || changes[0].OldValue != tc.old || changes[0].NewValue != tc.new {
+				t.Fatalf("%s %s -> %s: %+v", path, tc.old, tc.new, changes)
+			}
+		}
+	}
+}

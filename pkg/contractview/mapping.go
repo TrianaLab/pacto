@@ -27,6 +27,8 @@ func ServiceFromContract(c *contract.Contract, source string) Service {
 		Version:        c.Service.Version,
 		Owner:          c.Service.Owner,
 		Domain:         c.Service.Domain,
+		Offering:       c.Service.Offering,
+		Summary:        c.Service.Summary,
 		ContractStatus: StatusUnknown,
 		Source:         source,
 	}
