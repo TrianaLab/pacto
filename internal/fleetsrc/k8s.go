@@ -124,7 +124,9 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 	service := item.Metadata.Name
 	resolvedRef := ""
 	var owner contract.Owner
+	var businessDomain string
 	if st.Contract != nil {
+		businessDomain = st.Contract.Domain
 		if st.Contract.ServiceName != "" {
 			service = st.Contract.ServiceName
 		}
@@ -156,6 +158,7 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		Digest:          digestFromRef(resolvedRef),
 		Compliance:      st.ContractStatus,
 		Owner:           owner,
+		BusinessDomain:  businessDomain,
 		Findings:        findingsFromK8s(st.Findings),
 		Readiness:       st.Readiness.result(),
 		ObservedRuntime: st.ObservedRuntime,
@@ -273,6 +276,8 @@ type k8sContract struct {
 	// Owner is status.contract.owner. The operator publishes it with the
 	// contract's own field names (team, dri, contacts), so it decodes directly.
 	Owner *contract.Owner `json:"owner"`
+	// Domain is status.contract.domain, the contract's service.domain.
+	Domain string `json:"domain"`
 }
 
 type k8sCoverage struct {

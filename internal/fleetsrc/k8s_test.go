@@ -91,7 +91,7 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	    "metadata":{"name":"payments-prod","namespace":"prod"},
 	    "status":{
 	      "contractStatus":"NonCompliant",
-	      "contract":{"serviceName":"payments","resolvedRef":"ghcr.io/x/payments:1.2.0@sha256:abcd",
+	      "contract":{"serviceName":"payments","domain":"payments","resolvedRef":"ghcr.io/x/payments:1.2.0@sha256:abcd",
 	        "owner":{"team":"payments","dri":"alice","contacts":[{"type":"email","value":"pay@x","purpose":"escalation"}]},"ownerDisplay":"payments"},
 	      "evaluationCoverage":{"evaluated":3,"required":5},
 	      "observedRuntime":{"workloadKind":"Deployment","hasPVC":false},
@@ -137,6 +137,7 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 		Digest:          "sha256:abcd",
 		Compliance:      "NonCompliant",
 		Owner:           contract.Owner{Team: "payments", DRI: "alice", Contacts: []contract.OwnerContact{{Type: "email", Value: "pay@x", Purpose: "escalation"}}},
+		BusinessDomain:  "payments",
 		Coverage:        &fleet.Coverage{Evaluated: 3, Required: 5},
 		ObservedRuntime: map[string]any{"workloadKind": "Deployment", "hasPVC": false},
 		Findings: []finding.Finding{{

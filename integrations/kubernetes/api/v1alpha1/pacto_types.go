@@ -340,6 +340,11 @@ type ContractInfo struct {
 	// Version is the semver version from the contract.
 	Version string `json:"version"`
 
+	// Domain is the business domain the contract declares (service.domain,
+	// pactoVersion 2.4). The operational graph groups services by it.
+	// +optional
+	Domain string `json:"domain,omitempty"`
+
 	// Owner contains the structured ownership metadata from the contract
 	// (team, DRI, and contacts).
 	// +optional

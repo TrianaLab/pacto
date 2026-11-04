@@ -33,6 +33,7 @@ func TestPopulateContractStatus_FullContract(t *testing.T) {
 			Service: contract.Service{
 				Name:    "my-service",
 				Version: "1.0.0",
+				Domain:  "payments",
 				Owner: contract.Owner{
 					Team: "platform",
 					DRI:  "alice@example.com",
@@ -107,6 +108,9 @@ func TestPopulateContractStatus_FullContract(t *testing.T) {
 	}
 	if pacto.Status.Contract.OwnerDisplay == "" {
 		t.Error("expected ownerDisplay to be set")
+	}
+	if pacto.Status.Contract.Domain != "payments" {
+		t.Errorf("expected domain=payments, got %q", pacto.Status.Contract.Domain)
 	}
 
 	// Verify interfaces

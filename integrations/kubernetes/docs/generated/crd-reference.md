@@ -543,6 +543,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.configurations[].secretKeys` | `[]string` | no |  |  | SecretKeys lists configuration keys whose values reference secrets. |
 | `status.configurations[].valueKeys` | `[]string` | no |  |  | ValueKeys lists the declared configuration value keys. |
 | `status.contract` | `object` | no |  |  | Contract exposes parsed contract metadata. |
+| `status.contract.domain` | `string` | no |  |  | Domain is the business domain the contract declares (service.domain, pactoVersion 2.4). The operational graph groups services by it. |
 | `status.contract.owner` | `object` | no |  |  | Owner contains the structured ownership metadata from the contract (team, DRI, and contacts). |
 | `status.contract.owner.contacts` | `[]object` | no |  |  | Contacts lists provider-neutral contact points. |
 | `status.contract.owner.contacts[].purpose` | `string` | no |  |  | Purpose describes what this contact is used for (e.g. escalation, support, oncall). |

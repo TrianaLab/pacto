@@ -849,6 +849,11 @@ spec:
               contract:
                 description: Contract exposes parsed contract metadata.
                 properties:
+                  domain:
+                    description: |-
+                      Domain is the business domain the contract declares (service.domain,
+                      pactoVersion 2.4). The operational graph groups services by it.
+                    type: string
                   owner:
                     description: |-
                       Owner contains the structured ownership metadata from the contract
