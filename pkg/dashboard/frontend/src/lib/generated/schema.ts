@@ -1723,23 +1723,6 @@ export interface components {
             /** Format: int64 */
             warning: number;
         };
-        "Fleet.ConfigurationSummary": {
-            content?: components["schemas"]["Fleet.SchemaContent"];
-            name: string;
-            ref?: string;
-            required: boolean;
-            resolution?: components["schemas"]["Fleet.RefResolution"];
-            schema?: string;
-            values: components["schemas"]["Fleet.RuntimePreview"];
-        };
-        "Fleet.ConfigurationsPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.ConfigurationSummary"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
         "Fleet.ConsumeSnippet": {
             compatibility?: string;
             configuration: boolean;
@@ -1888,31 +1871,6 @@ export interface components {
             /** Format: int64 */
             unidentifiedOwnership?: number;
         };
-        "Fleet.EntityRef": {
-            businessDomain?: string;
-            businessDomainUnknown?: boolean;
-            domain?: string;
-            environment?: string;
-            explanation?: string;
-            /** Format: date-time */
-            fetchedAt?: string;
-            key: string;
-            /** @enum {string} */
-            kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
-            label: string;
-            offering?: string;
-            owner?: string;
-            parentService?: string;
-            scope?: string;
-            secondary?: string;
-            /** Format: int64 */
-            services?: number;
-            status?: string;
-            summary?: string;
-            /** Format: int64 */
-            targets?: number;
-            version?: string;
-        };
         "Fleet.EnvironmentResult": {
             file: string;
             findings: components["schemas"]["Fleet.LocatedFindingsPreview"];
@@ -1995,13 +1953,6 @@ export interface components {
             root: string;
             truncated?: boolean;
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
-        };
-        "Fleet.InferredOffering": {
-            offering: components["schemas"]["Fleet.EntityRef"];
-            provider?: components["schemas"]["Fleet.EntityRef"];
-            /** @enum {string} */
-            reason: "offering-name" | "provider-name";
-            ref: string;
         };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;
@@ -2114,48 +2065,6 @@ export interface components {
             lastSeen?: string;
             source: string;
         };
-        "Fleet.OfferingDetailData": {
-            consumers: components["schemas"]["Fleet.OfferingUsesPreview"];
-            providers: components["schemas"]["Fleet.OfferingProvidersPreview"];
-        };
-        "Fleet.OfferingProvider": {
-            activeRevisions: components["schemas"]["Fleet.RefPreview"];
-            configurations: components["schemas"]["Fleet.ConfigurationsPreview"];
-            consume?: components["schemas"]["Fleet.ConsumeSnippet"];
-            currentRevision?: components["schemas"]["Fleet.EntityRef"];
-            interfaces: components["schemas"]["Fleet.InterfacesPreview"];
-            ownership?: components["schemas"]["Fleet.OwnershipInfo"];
-            policies: components["schemas"]["Fleet.PoliciesPreview"];
-            revisions: components["schemas"]["Fleet.RefPreview"];
-            service: components["schemas"]["Fleet.EntityRef"];
-            summary?: string;
-        };
-        "Fleet.OfferingProvidersPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.OfferingProvider"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
-        "Fleet.OfferingUse": {
-            compatibility?: string;
-            consumer: components["schemas"]["Fleet.EntityRef"];
-            offering: string;
-            provider: components["schemas"]["Fleet.EntityRef"];
-            /** @enum {string} */
-            rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
-            /** @enum {string} */
-            via: "dependency" | "configuration_reference" | "policy_reference";
-        };
-        "Fleet.OfferingUsesPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.OfferingUse"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
         "Fleet.OverviewSummary": {
             /** Format: int64 */
             ambiguousTargetLinks: number;
@@ -2248,14 +2157,6 @@ export interface components {
             /** Format: int64 */
             targets: number;
         };
-        "Fleet.OwnershipInfo": {
-            conflicts: components["schemas"]["Fleet.StringsPreview"];
-            contacts?: components["schemas"]["Fleet.ContactsPreview"];
-            declared: boolean;
-            owner?: string;
-            ref?: components["schemas"]["Fleet.EntityRef"];
-            unknown?: boolean;
-        };
         "Fleet.OwnershipTally": {
             /** Format: int64 */
             conflicting: number;
@@ -2263,22 +2164,6 @@ export interface components {
             consistent: number;
             /** Format: int64 */
             unowned: number;
-        };
-        "Fleet.PoliciesPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.PolicySummary"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
-        "Fleet.PolicySummary": {
-            content?: components["schemas"]["Fleet.SchemaContent"];
-            name: string;
-            ref?: string;
-            resolution?: components["schemas"]["Fleet.RefResolution"];
-            schema?: string;
-            target?: string;
         };
         "Fleet.ProductEvidenceRef": {
             collector?: string;
@@ -2376,19 +2261,6 @@ export interface components {
             notDeclared: number;
             /** Format: int64 */
             passing: number;
-        };
-        "Fleet.RefPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.EntityRef"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
-        "Fleet.RefResolution": {
-            reason?: string;
-            resolved: boolean;
-            service?: components["schemas"]["Fleet.EntityRef"];
         };
         "Fleet.ReferrersPreview": {
             /** Format: int64 */
@@ -3239,7 +3111,7 @@ export interface components {
             domain?: components["schemas"]["ProductDomainDetail"];
             entity: components["schemas"]["ProductRef"];
             meta: components["schemas"]["Fleet.ProductMeta"];
-            offering?: components["schemas"]["Fleet.OfferingDetailData"];
+            offering?: components["schemas"]["ProductOfferingDetail"];
             owner?: components["schemas"]["ProductOwnerDetail"];
             revision?: components["schemas"]["ProductRevisionDetail"];
             service?: components["schemas"]["ProductServiceDetail"];
@@ -3337,6 +3209,13 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductInferredOffering: {
+            offering: components["schemas"]["ProductRef"];
+            provider?: components["schemas"]["ProductRef"];
+            /** @enum {string} */
+            reason: "offering-name" | "provider-name";
+            ref: string;
+        };
         ProductNeighborhood: {
             /** Format: int64 */
             depth: number;
@@ -3377,6 +3256,48 @@ export interface components {
             ref: components["schemas"]["ProductRef"];
             revisionState?: string;
             status?: string;
+        };
+        ProductOfferingDetail: {
+            consumers: components["schemas"]["ProductOfferingUsesPreview"];
+            providers: components["schemas"]["ProductOfferingProvidersPreview"];
+        };
+        ProductOfferingProvider: {
+            activeRevisions: components["schemas"]["ProductRefPreview"];
+            configurations: components["schemas"]["ProductConfigurationsPreview"];
+            consume?: components["schemas"]["Fleet.ConsumeSnippet"];
+            currentRevision?: components["schemas"]["ProductRef"];
+            interfaces: components["schemas"]["Fleet.InterfacesPreview"];
+            ownership?: components["schemas"]["ProductOwnership"];
+            policies: components["schemas"]["ProductPoliciesPreview"];
+            revisions: components["schemas"]["ProductRefPreview"];
+            service: components["schemas"]["ProductRef"];
+            summary?: string;
+        };
+        ProductOfferingProvidersPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductOfferingProvider"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        ProductOfferingUse: {
+            compatibility?: string;
+            consumer: components["schemas"]["ProductRef"];
+            offering: string;
+            provider: components["schemas"]["ProductRef"];
+            /** @enum {string} */
+            rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
+            /** @enum {string} */
+            via: "dependency" | "configuration_reference" | "policy_reference";
+        };
+        ProductOfferingUsesPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductOfferingUse"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
         };
         ProductOverview: {
             attention: components["schemas"]["ProductAttentionPreview"];
@@ -3521,7 +3442,7 @@ export interface components {
             activeRevisions: components["schemas"]["ProductRefPreview"];
             capabilities: components["schemas"]["Fleet.StringsPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
-            consumedOfferings: components["schemas"]["Fleet.OfferingUsesPreview"];
+            consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
             currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];
             dependents: components["schemas"]["ProductRefPreview"];
@@ -3533,7 +3454,7 @@ export interface components {
             hiddenDependencies?: number;
             /** Format: int64 */
             hiddenDependents?: number;
-            inferredOfferings: components["schemas"]["Fleet.InferredOffering"][] | null;
+            inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
@@ -5307,8 +5228,8 @@ export interface operations {
         parameters: {
             query?: {
                 text?: string;
-                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain) */
-                kinds?: ("service" | "revision" | "target" | "owner" | "source" | "domain")[] | null;
+                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain). An offering is a platform offering (service.offering) */
+                kinds?: ("service" | "revision" | "target" | "owner" | "source" | "domain" | "offering")[] | null;
                 /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
                 /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
@@ -5321,6 +5242,8 @@ export interface operations {
                 environment?: string;
                 /** @description Capability type a service's revisions declare (service entities) */
                 capability?: string;
+                /** @description Exact platform offering (service.offering) a service provides (service and offering entities) */
+                offering?: string;
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
@@ -5373,7 +5296,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description Entity kind: service, revision, target, owner, source or domain */
+                /** @description Entity kind: service, revision, target, owner, source, domain or offering */
                 kind: string;
             };
             cookie?: never;

@@ -175,6 +175,7 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"Fleet.SourceState", "status", sortedSet("available", "partial", "stale", "unavailable")},
 		{"ProductSourceDetail", "health", sortedSet("available", "partial", "stale", "unavailable")},
 		{"ProductRef", "kind", sortedSet("service", "revision", "target", "owner", "source", "domain", "offering")},
+		{"ProductOfferingUse", "via", sortedSet("dependency", "configuration_reference", "policy_reference")},
 		{"ProductEdge", "difference", sortedSet("matched", "expected-not-observed", "observed-not-expected", "insufficient")},
 		// provenance is a merged-edge value: edgeProvenance can emit the combined
 		// "declared+observed" when an edge is both declared and observed, so the OpenAPI
