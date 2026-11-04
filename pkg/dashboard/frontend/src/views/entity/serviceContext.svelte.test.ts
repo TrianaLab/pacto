@@ -238,14 +238,16 @@ describe('service page: revision dates', () => {
 describe('service page: knowledge banner', () => {
   beforeEach(() => detailFn.mockReset());
 
-  it("names only this service's degraded sources", async () => {
+  // A source that went down reports nothing, so it is never among the sources
+  // that saw this service: filtering by them would drop the one that failed.
+  it('names every degraded source behind its count', async () => {
     const { target, done } = await render(detail(
       { sources: preview([ref('source', 'k8s', 'k8s')]) },
       { completeness: 'partial', sources: [{ id: 'k8s', status: 'unavailable' }, { id: 'edge', status: 'unavailable' }] },
     ));
     const banner = text(target.querySelector('.knowledge'));
-    expect(banner).toContain('(k8s)');
-    expect(banner).not.toContain('edge');
+    expect(banner).toContain('k8s');
+    expect(banner).toContain('edge');
     done();
   });
 });

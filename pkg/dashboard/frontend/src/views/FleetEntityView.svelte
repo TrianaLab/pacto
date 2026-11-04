@@ -72,16 +72,6 @@
     return null;
   });
 
-  // The banner names the degraded sources behind its caveat. On a service page only
-  // the sources that saw this service are named: another cluster being down says
-  // nothing about this one.
-  const bannerSources = $derived.by(() => {
-    const all = detail?.meta?.sources ?? [];
-    if (!detail?.service) return all;
-    const mine = new Set((detail.service.sources?.items ?? []).map((s) => s.key));
-    return all.filter((s) => mine.has(s.id));
-  });
-
   // Entity-relationship breadcrumbs from canonical DTO refs; a minimal
   // trail while loading/erroring.
   const trail = $derived(
@@ -157,7 +147,7 @@
       <!-- Uncertainty and failed refreshes come FIRST and are never collapsible: they
            qualify everything below them, so a reader who stops after the first screen
            must still have seen them. -->
-      <KnowledgeBanner {knowledge} noun="page" sources={bannerSources} />
+      <KnowledgeBanner {knowledge} noun="page" sources={detail?.meta?.sources ?? []} />
 
       {#if refreshError}
         <StaleRefreshNotice noun="page" onRetry={load} />
