@@ -264,7 +264,7 @@
   >
     <ul class="re-ifaces">
       {#each d.interfaces?.items ?? [] as i, ii (`${i.name}:${ii}`)}
-        <li class="ri">
+        <li class="inset-card">
           <div class="ri-head">
             <span class="ri-name">{i.name}</span>
             {#if i.type}<IdentityBadge label={i.type} tone="info" />{/if}
@@ -460,7 +460,7 @@
       count={d.metadata?.count ?? 0}
       truncated={d.metadata?.truncated}
     >
-      <table class="re-kv">
+      <table class="kv-table kv-table--mono">
         <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
         <tbody>
           {#each d.metadata.items as m, mi (`${m.key}:${mi}`)}<tr><td>{m.key}</td><td>{m.value}</td></tr>{/each}
@@ -560,14 +560,9 @@
      its nested operations or values stay visibly attached to it rather than running
      together into one undifferentiated list. */
   .re-ifaces, .re-caps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
-  .ri { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-inset); }
   .re-caps li { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; font-size: var(--text-sm); }
   .ri-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .ri-name { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
   .ri-ref { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .ri-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .re-kv { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-  .re-kv th { text-align: left; color: var(--c-text-3); padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  .re-kv td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
-  .re-kv td:first-child { font-family: var(--font-mono, monospace); color: var(--c-text); }
 </style>

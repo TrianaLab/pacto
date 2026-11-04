@@ -34,7 +34,7 @@
     {#if sig?.reason}<p class="bp-reason tone-{reasonTone}" data-testid="bundle-reason">{sig.reason}</p>{/if}
     {#if bundle.referrersUnavailable}<p class="bp-note">Referrers unavailable: {bundle.referrersUnavailable}</p>{/if}
     {#if (refs.items ?? []).length}
-      <table class="bp-kv">
+      <table class="kv-table">
         <thead><tr><th scope="col">Artifact type</th><th scope="col">Digest</th><th scope="col">Created</th></tr></thead>
         <tbody>
           {#each refs.items as r, i (`${r.digest}:${i}`)}
@@ -64,7 +64,4 @@
   .tone-err { --tone-c: var(--c-err); }
   .tone-warn { --tone-c: var(--c-warn); }
   .tone-neutral { --tone-c: var(--c-neutral); }
-  .bp-kv { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-  .bp-kv th { text-align: left; color: var(--c-text-3); padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  .bp-kv td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
 </style>

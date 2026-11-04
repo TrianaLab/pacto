@@ -12,7 +12,7 @@
 
 <ul class="cl">
   {#each items as c, ci (`${c.name}:${ci}`)}
-    <li class="cl-item">
+    <li class="inset-card">
       <div class="cl-head">
         <span class="cl-name">{c.name || 'default'}</span>
         <IdentityBadge label={c.required ? 'required' : 'optional'} tone={c.required ? 'warn' : 'neutral'} />
@@ -32,7 +32,7 @@
             <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
             {formatCount(c.values.count)}{c.values.truncated && typeof c.values.total === 'number' ? ` of ${formatCount(c.values.total)}` : ''} {c.values.count === 1 && !c.values.truncated ? 'value' : 'values'}
           </summary>
-          <table class="cl-kv">
+          <table class="kv-table kv-table--mono">
             <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
             <tbody>
               {#each c.values.items as v, vi (`${v.key}:${vi}`)}<tr><td>{v.key}</td><td>{v.value}</td></tr>{/each}
@@ -47,15 +47,10 @@
 
 <style>
   .cl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
-  .cl-item { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-inset); }
   .cl-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .cl-name { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
   .cl-ref { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .cl-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .cl-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .cl-ops > summary { color: var(--c-text-3); }
-  .cl-kv { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-  .cl-kv th { text-align: left; color: var(--c-text-3); padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  .cl-kv td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
-  .cl-kv td:first-child { font-family: var(--font-mono, monospace); color: var(--c-text); }
 </style>

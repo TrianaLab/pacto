@@ -19,7 +19,7 @@
     {#if content.title}<p class="sc-title">{content.title}</p>{/if}
     {#if content.description}<p class="sc-note">{content.description}</p>{/if}
     {#if props.length}
-      <table class="sc-kv">
+      <table class="kv-table kv-table--mono">
         <thead><tr><th scope="col">Key</th><th scope="col">Type</th><th scope="col">Value</th></tr></thead>
         <tbody>
           {#each props as p, i (`${p.key}:${i}`)}<tr><td>{p.key}</td><td>{p.type}</td><td>{p.value}</td></tr>{/each}
@@ -36,8 +36,4 @@
   .sc > summary { color: var(--c-text-3); }
   .sc-title { margin: var(--sp-1) 0 0; font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
   .sc-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); overflow-wrap: anywhere; }
-  .sc-kv { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-  .sc-kv th { text-align: left; color: var(--c-text-3); padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  .sc-kv td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
-  .sc-kv td:first-child { font-family: var(--font-mono, monospace); color: var(--c-text); }
 </style>
