@@ -1394,7 +1394,7 @@ func businessDomainOf(snap *FleetSnapshot, s *ServiceRecord) (domain string, unk
 	declared := false
 	for _, rk := range s.Revisions {
 		r := snap.Revisions[rk]
-		if r.Contract == nil || (r.validated && !r.Valid) || (r.Contract.Service.Domain != "" && !validBusinessDomain(r.Contract.Service.Domain)) {
+		if !domainEvidence(r) {
 			continue
 		}
 		declared = declared || r.Contract.Service.Domain != ""
@@ -1423,6 +1423,16 @@ func businessDomainOf(snap *FleetSnapshot, s *ServiceRecord) (domain string, unk
 	default:
 		return "", true, reported
 	}
+}
+
+// domainEvidence reports whether a revision can say what domain its service has:
+// its contract was read, it is not invalid and what it declares is a slug or none.
+func domainEvidence(r *ContractRevision) bool {
+	if r.Contract == nil || (r.validated && !r.Valid) {
+		return false
+	}
+	d := r.Contract.Service.Domain
+	return d == "" || validBusinessDomain(d)
 }
 
 // reportedDomainsFrom is the domain a source read from a target's contract, as a

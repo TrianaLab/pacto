@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -297,17 +298,14 @@ func TestOverview_ByDomainCoversEveryService(t *testing.T) {
 	if total != s.Services {
 		t.Errorf("domain rows hold %d services, want all %d", total, s.Services)
 	}
-	if len(s.ByDomain) != 3 || s.Domains != 1 {
-		t.Fatalf("byDomain = %+v, domains = %d", s.ByDomain, s.Domains)
+	// commerce, then ghost (unknown, unowned), then web (No domain).
+	want := []DomainTally{
+		{Domain: "commerce", Services: 2, Targets: 2, NonCompliant: 1, Unowned: 1},
+		{DomainUnknown: true, Services: 1, Targets: 1, Unowned: 1},
+		{Services: 1},
 	}
-	if c := s.ByDomain[0]; c.Domain != "commerce" || c.Services != 2 || c.Targets != 2 || c.NonCompliant != 1 || c.Unowned != 1 {
-		t.Errorf("commerce row = %+v", c)
-	}
-	if u := s.ByDomain[1]; u.Domain != "" || !u.DomainUnknown || u.Services != 1 || u.Unowned != 1 {
-		t.Errorf("unknown row = %+v, want ghost, unowned", u)
-	}
-	if last := s.ByDomain[2]; last.Domain != "" || last.DomainUnknown || last.Services != 1 || last.Unowned != 0 {
-		t.Errorf("no-domain row = %+v, want web", last)
+	if !slices.Equal(s.ByDomain, want) || s.Domains != 1 {
+		t.Errorf("byDomain = %+v, domains = %d, want %+v", s.ByDomain, s.Domains, want)
 	}
 }
 
@@ -564,13 +562,23 @@ func TestBuild_BusinessDomainUnknownVersusNone(t *testing.T) {
 		t.Errorf("search (unknown) = %+v, %v", res, err)
 	}
 	ov := q.Overview().Summary
-	if len(ov.ByDomain) != 2 || !ov.ByDomain[0].DomainUnknown || ov.ByDomain[0].Services != 1 ||
-		ov.ByDomain[1].DomainUnknown || ov.ByDomain[1].Services != 2 || ov.Domains != 0 {
-		t.Errorf("byDomain = %+v, want the unknown row, then No domain", ov.ByDomain)
+	if want := []DomainTally{{DomainUnknown: true, Services: 1, Targets: 1, Unknown: 1, Unowned: 1}, {Services: 2, Targets: 1, Unknown: 1, Unowned: 2}}; !slices.Equal(ov.ByDomain, want) || ov.Domains != 0 {
+		t.Errorf("byDomain = %+v, want the unknown row, then No domain: %+v", ov.ByDomain, want)
 	}
+}
+
+// The (unknown) filter keeps the attention of the services whose domain is unknown.
+func TestAttention_UnknownBusinessDomainFilter(t *testing.T) {
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{Targets: []RawTarget{
+		{Scope: "s", Kind: "k8s", Name: "old-operator", Service: "old-operator"},
+		{Scope: "s", Kind: "k8s", Name: "reported-none", Service: "reported-none", BusinessDomainKnown: true},
+	}})
 	al, err := q.Attention(AttentionFilter{BusinessDomain: UnknownBusinessDomain, Limit: MaxAttentionLimit})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if al.Total == 0 {
+		t.Fatal("no (unknown) attention")
 	}
 	for _, it := range al.Items {
 		if it.Service != string(NewServiceKeyDomain("", "old-operator")) {

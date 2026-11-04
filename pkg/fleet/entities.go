@@ -423,7 +423,12 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
-		(f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain)) &&
+		q.matchOrganization(r, f)
+}
+
+// matchOrganization applies the business-domain and capability filters.
+func (q *Query) matchOrganization(r EntityRef, f EntityFilter) bool {
+	return (f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain)) &&
 		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
 }
 
