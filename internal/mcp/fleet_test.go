@@ -550,3 +550,28 @@ func TestFleetSearchHandler_BusinessDomain(t *testing.T) {
 		t.Errorf("an undeclared domain = %d, want 0", got)
 	}
 }
+
+func TestFleetSearchHandler_Offering(t *testing.T) {
+	redis := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "redis", Version: "7.0.0", Offering: "redis", Summary: "A shared cache"}}
+	pay := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "payments", Version: "1.0.0"}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }},
+		fleet.NewMemorySource("local", "local", &fleet.Collection{Revisions: []fleet.RawRevision{
+			{Bundle: &contract.Bundle{Contract: redis}, Digest: "sha256:r"},
+			{Bundle: &contract.Bundle{Contract: pay}, Digest: "sha256:p"},
+		}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	var out fleet.SearchResult
+	decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"offering": "redis"}), &out)
+	if out.Total != 1 || out.Services[0].Offering != "redis" || out.Services[0].Summary != "A shared cache" {
+		t.Errorf("offering search = %+v", out.Services)
+	}
+	if res := callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"offerings": "redis"}); !res.IsError {
+		t.Errorf("an undeclared argument = %s, want an error result", resultText(t, res))
+	}
+	if !strings.Contains(fleetInstructions, "platform offering") {
+		t.Error("the fleet instructions never mention a platform offering")
+	}
+}

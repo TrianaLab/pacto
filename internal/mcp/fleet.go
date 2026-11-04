@@ -26,7 +26,11 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"authorization. A dependency marked 'resolved' only names a provider that exists; read its " +
 	"'rangeStatus' before saying the dependency is met. Every fleet answer includes " +
 	"'asOf' and 'completeness'. Treat a 'partial' or stale answer as incomplete " +
-	"knowledge: when source coverage is incomplete, a missing result means unknown."
+	"knowledge: when source coverage is incomplete, a missing result means unknown. " +
+	"A service's 'offering' names the platform offering it provides to other teams " +
+	"(service.offering) and 'summary' says what it is for; search with 'offering' to find " +
+	"every provider of one. Offerings are read from contracts and are unrelated to a " +
+	"contract's capabilities, which are assertions a service makes about itself."
 
 // NewFleetServer builds a server with the authoring tools plus the read-only
 // fleet query tools backed by q. When q is nil, only authoring tools register
@@ -96,9 +100,10 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"Returns a bounded, deterministically ordered list with an asOf time and completeness. " +
 			"Each service's 'owner' is the structured owner (team, dri, contacts), as in pacto_fleet_get.",
 		InputSchema: inputSchema(map[string]property{
-			"text":            {Type: "string", Description: "Substring over service name and owner"},
+			"text":            {Type: "string", Description: "Substring over service name, summary and owner"},
 			"owner":           {Type: "string", Description: "Filter by owner team, DRI or contact"},
 			"business_domain": {Type: "string", Description: "Filter by business domain (service.domain), " + fleet.NoBusinessDomain + " for services that declare none, or " + fleet.UnknownBusinessDomain + " for services whose domain Pacto cannot tell"},
+			"offering":        {Type: "string", Description: "Filter by the platform offering a service provides (service.offering), such as postgresql or shared-config"},
 			// Read from the fleet's own table, never a hand-kept copy: the copy had
 			// gone stale and omitted Warning and Reference, so an agent that trusted
 			// the enum could not ask for two reachable statuses at all, and its
@@ -108,7 +113,7 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"source":         {Type: "string", Description: "Filter by observing source id"},
 			"scope":          {Type: "string", Description: "Correlate to a target with this scope"},
 			"workload":       {Type: "string", Description: "Workload type", Enum: []string{"service", "job", "scheduled"}},
-			"has_capability": {Type: "boolean", Description: "Only services declaring a capability"},
+			"has_capability": {Type: "boolean", Description: "Only services that declare a capability assertion (health, metrics or an extension) about themselves"},
 			"has_dependency": {Type: "boolean", Description: "Only services declaring a dependency"},
 			"ready":          {Type: "boolean", Description: "Only operationally ready services"},
 			"not_ready":      {Type: "boolean", Description: "Only services not operationally ready"},
@@ -125,6 +130,7 @@ type fleetSearchArgs struct {
 	Text           string `json:"text"`
 	Owner          string `json:"owner"`
 	BusinessDomain string `json:"business_domain"`
+	Offering       string `json:"offering"`
 	Status         string `json:"status"`
 	Compliance     string `json:"compliance"`
 	Source         string `json:"source"`
@@ -140,7 +146,7 @@ type fleetSearchArgs struct {
 func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetSearchArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := q.Search(fleet.SearchFilter{
-			Text: a.Text, Owner: a.Owner, BusinessDomain: a.BusinessDomain, Status: a.Status, Compliance: a.Compliance,
+			Text: a.Text, Owner: a.Owner, BusinessDomain: a.BusinessDomain, Offering: a.Offering, Status: a.Status, Compliance: a.Compliance,
 			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
 			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
 			ReadyOnly: a.Ready, NotReady: a.NotReady, Limit: a.Limit,

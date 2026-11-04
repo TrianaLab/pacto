@@ -859,6 +859,7 @@ pacto fleet search [text] [flags]
       --label stringArray        filter by label key=value (repeatable)
       --limit int                maximum results (0 = 100, capped at 500)
       --not-ready                only services whose readiness gate does not pass (below minScore, expired or undeclared)
+      --offering string          filter by the platform offering a service provides (service.offering)
       --offset int               result offset for paging
       --owner string             filter by owner (team, DRI or contact)
       --ready                    only services whose readiness gate passes (score >= minScore, not expired)
@@ -1327,7 +1328,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 
 | Tool | Arguments |
 |------|-----------|
-| `pacto_fleet_search` | `text`, `owner`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |
+| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |
 | `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
 | `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`; plus `limit`. No category, including empty input, reports every category |

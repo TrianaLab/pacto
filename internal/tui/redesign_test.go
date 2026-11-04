@@ -258,6 +258,7 @@ func TestListPaneShowsEveryOptionalField(t *testing.T) {
 		Secondary:      "Deployment/payments-api",
 		Explanation:    "the running digest does not match the contract",
 		BusinessDomain: "payments",
+		Offering:       "shared-config",
 	}}
 	l.tbl.SetRows(l.rows(c))
 	l.tbl.SetCursor(0)
@@ -266,6 +267,7 @@ func TestListPaneShowsEveryOptionalField(t *testing.T) {
 	for _, want := range []string{
 		"registry", "ghcr.io/acme",
 		"domain", "payments",
+		"offering", "shared-config",
 		"scope", "production",
 		"version", "2.1.0",
 		"why", "does not match",

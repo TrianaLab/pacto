@@ -218,6 +218,7 @@ func TestFleetSearch(t *testing.T) {
 	filters := [][]string{
 		{"--owner", "commerce"},
 		{"--business-domain", "(none)"},
+		{"--offering", "redis"},
 		{"--status", "NonCompliant"},
 		{"--compliance", "NonCompliant"},
 		{"--source", "local"},
@@ -240,6 +241,12 @@ func TestFleetSearch(t *testing.T) {
 	nout, _, err := execFleet(t, append(append([]string{}, base...), "--business-domain", "nope", "--output-format", "json")...)
 	if err != nil || !strings.Contains(nout, `"total": 0`) {
 		t.Errorf("search --business-domain nope = %v:\n%s", err, nout)
+	}
+
+	// The offering reaches the query: no service provides this one.
+	oout, _, err := execFleet(t, append(append([]string{}, base...), "--offering", "redis", "--output-format", "json")...)
+	if err != nil || !strings.Contains(oout, `"total": 0`) {
+		t.Errorf("search --offering redis = %v:\n%s", err, oout)
 	}
 
 	// JSON output.
