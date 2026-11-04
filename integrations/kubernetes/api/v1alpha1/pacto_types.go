@@ -341,7 +341,9 @@ type ContractInfo struct {
 	Version string `json:"version"`
 
 	// Domain is the business domain the contract declares (service.domain,
-	// pactoVersion 2.4). The operational graph groups services by it.
+	// pactoVersion 2.4). The operational graph groups services by it. Omitted
+	// when the contract declares none; readers trust that absence only from
+	// statusFormat 2 on.
 	// +optional
 	Domain string `json:"domain,omitempty"`
 
@@ -756,16 +758,18 @@ type EvaluatedWorkload struct {
 }
 
 // PactoStatusFormat is the StatusFormat this operator writes.
-const PactoStatusFormat = 1
+const PactoStatusFormat = 2
 
 // PactoStatus defines the observed state of Pacto.
 // All contract data is exposed as structured fields so external consumers
 // can read the CR status directly without parsing contracts themselves.
 type PactoStatus struct {
 	// StatusFormat is the layout this status is written in. Format 1 records
-	// interface guarantees and dependency requirements. A status without it
-	// was written by an older operator, so readers treat what it would record
-	// about them as unknown until the operator reconciles the Pacto again.
+	// interface guarantees and dependency requirements. Format 2 also records
+	// the contract's business domain in contract.domain, so its absence there
+	// means the contract declares none. A status without a format, or with an
+	// older one, was written by an older operator, so readers treat what it
+	// would record as unknown until the operator reconciles the Pacto again.
 	// +optional
 	StatusFormat int32 `json:"statusFormat,omitempty"`
 

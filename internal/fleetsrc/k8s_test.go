@@ -3,6 +3,7 @@ package fleetsrc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -387,5 +389,35 @@ func TestK8sSource_EnvironmentLabelOnly(t *testing.T) {
 	}
 	if got := environmentLabel(nil); got != nil {
 		t.Errorf("a CR with no labels yields %v", got)
+	}
+}
+
+// status.contract.domain is omitted when empty, so its absence means "declares
+// none" only on a status format that records the domain at all. An older
+// operator's status, or one with no contract, leaves the domain unknown.
+func TestK8sSource_BusinessDomainKnownOnlyFromDomainFormat(t *testing.T) {
+	item := func(format int, contract string) string {
+		return fmt.Sprintf(`{"metadata":{"name":"x","namespace":"ns"},"status":{"statusFormat":%d%s}}`, format, contract)
+	}
+	cases := []struct {
+		name, item string
+		known      bool
+	}{
+		{"older operator", item(delivery.StatusFormatGuarantees, `,"contract":{"serviceName":"x"}`), false},
+		{"domain format, none declared", item(delivery.StatusFormatDomain, `,"contract":{"serviceName":"x"}`), true},
+		{"domain format, no contract", item(delivery.StatusFormatDomain, ""), false},
+	}
+	for _, c := range cases {
+		s := NewK8sSource("c", &fakeK8sClient{
+			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+			listData: []byte(`{"items":[` + c.item + `]}`),
+		}, "")
+		col, err := s.Collect(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := col.Targets[0].BusinessDomainKnown; got != c.known {
+			t.Errorf("%s: BusinessDomainKnown = %v, want %v", c.name, got, c.known)
+		}
 	}
 }
