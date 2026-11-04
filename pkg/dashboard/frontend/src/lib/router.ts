@@ -14,6 +14,7 @@ export interface Route {
     | 'fleet-services'  // /fleet/services   product service list
     | 'fleet-owners'    // /fleet/owners     product owner list
     | 'fleet-sources'   // /fleet/sources    product source list
+    | 'fleet-domains'   // /fleet/domains    business-domain list
     | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
     | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
     | 'fleet-attention' // /fleet/attention  attention list
@@ -31,10 +32,10 @@ export interface Route {
 // plural segment; the product entity-detail facade takes the singular kind. These
 // two maps are the ONE place the frontend translates between them.
 const KIND_PLURAL: Record<string, string> = {
-  service: 'services', revision: 'revisions', target: 'targets', owner: 'owners', source: 'sources',
+  service: 'services', revision: 'revisions', target: 'targets', owner: 'owners', source: 'sources', domain: 'domains',
 };
 const PLURAL_KIND: Record<string, string> = {
-  services: 'service', revisions: 'revision', targets: 'target', owners: 'owner', sources: 'source',
+  services: 'service', revisions: 'revision', targets: 'target', owners: 'owner', sources: 'source', domains: 'domain',
 };
 
 export function parseHash(hash: string | null | undefined): Route {
@@ -175,7 +176,7 @@ function parseFleet(path: string, query: string): Route {
     // attention list is deep-linkable and back/forward restores the exact page.
     // `owner` is what the reader typed and `ownerKey` is the canonical owner an
     // owner-page link carried; they are two different questions, so both travel.
-    for (const k of ['category', 'offset', 'limit', 'owner', 'ownerKey', 'source', 'service', 'severity', 'status', 'staleOnly']) {
+    for (const k of ['category', 'offset', 'limit', 'owner', 'ownerKey', 'source', 'service', 'businessDomain', 'severity', 'status', 'staleOnly']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -211,7 +212,9 @@ function parseFleet(path: string, query: string): Route {
     // URL params no view consumed, so they are not parsed here.
     // `ownership` is a real Entities filter over services (consistent/conflicting/
     // unowned), and it is what makes "12 services have no declared owner" a link.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'offset', 'limit', 'sort']) {
+    // `domain` is the registry path; `businessDomain` is the business domain, with
+    // `(none)` for the services that declare none.
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -231,8 +234,9 @@ function parseFleet(path: string, query: string): Route {
     // `readiness` is parsed for REVISIONS only. Readiness is declared and assessed per
     // contract revision, and the Entities API rejects the filter on any other kind, so
     // carrying it on /fleet/targets would be an inert param that 422s if anyone used it.
+    // `environment` is the mirror case: only a target runs in an environment.
     const keys = ['text', 'service', 'status', 'scope', 'offset', 'limit', 'sort'];
-    for (const k of isRevisions ? [...keys, 'readiness'] : keys) {
+    for (const k of isRevisions ? [...keys, 'readiness'] : [...keys, 'environment']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -241,17 +245,18 @@ function parseFleet(path: string, query: string): Route {
 
   // Bare /fleet/owners and /fleet/sources are the product owner/source LISTS. They
   // must be matched before the entity-detail regex (which needs a trailing key).
-  if (rest === 'owners' || rest === 'sources') {
+  if (rest === 'owners' || rest === 'sources' || rest === 'domains') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
     for (const k of ['text', 'sourceHealth', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
-    return { view: rest === 'owners' ? 'fleet-owners' : 'fleet-sources', params };
+    const views: Record<string, Route['view']> = { owners: 'fleet-owners', sources: 'fleet-sources', domains: 'fleet-domains' };
+    return { view: views[rest], params };
   }
 
-  const ent = rest.match(/^(services|revisions|targets|owners|sources)\/(.+)$/);
+  const ent = rest.match(/^(services|revisions|targets|owners|sources|domains)\/(.+)$/);
   if (ent) {
     return { view: 'fleet-entity', params: { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) } };
   }
@@ -440,7 +445,8 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 // target-only Entities filter and source was never wired into the Services list, so
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
-  text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string; offset?: number;
+  text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string;
+  businessDomain?: string; capability?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
@@ -456,6 +462,8 @@ export function fleetServicesUrl(opts: {
   if (opts.ownership) qs.set('ownership', opts.ownership);
   if (opts.status) qs.set('status', opts.status);
   if (opts.domain) qs.set('domain', opts.domain);
+  if (opts.businessDomain) qs.set('businessDomain', opts.businessDomain);
+  if (opts.capability) qs.set('capability', opts.capability);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';
@@ -469,6 +477,14 @@ export function fleetOwnersUrl(opts: { text?: string } & ListPaging = {}): strin
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/owners?${str}` : '#/fleet/owners';
+}
+
+export function fleetDomainsUrl(opts: { text?: string } & ListPaging = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.text) qs.set('text', opts.text);
+  setPaging(qs, opts);
+  const str = qs.toString();
+  return str ? `#/fleet/domains?${str}` : '#/fleet/domains';
 }
 
 export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string } & ListPaging = {}): string {
@@ -486,10 +502,11 @@ export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string } &
 // into a complete, paged answer. Any other kind falls back to its own list route,
 // because services/owners/sources already have one.
 export function fleetEntityListUrl(kind: string, opts: {
-  service?: string; text?: string; status?: string; scope?: string; readiness?: string;
+  service?: string; text?: string; status?: string; scope?: string; readiness?: string; environment?: string;
 } & ListPaging = {}): string {
   if (kind !== 'revision' && kind !== 'target') {
-    return kind === 'owner' ? fleetOwnersUrl() : kind === 'source' ? fleetSourcesUrl() : fleetServicesUrl();
+    const lists: Record<string, () => string> = { owner: fleetOwnersUrl, source: fleetSourcesUrl, domain: fleetDomainsUrl };
+    return (lists[kind] ?? fleetServicesUrl)();
   }
   const qs = new URLSearchParams();
   if (opts.service) qs.set('service', opts.service);
@@ -499,6 +516,7 @@ export function fleetEntityListUrl(kind: string, opts: {
   // Revisions only: the Entities API rejects a readiness filter on a target, so
   // emitting one here would build a URL that 422s.
   if (opts.readiness && kind === 'revision') qs.set('readiness', opts.readiness);
+  if (opts.environment && kind === 'target') qs.set('environment', opts.environment);
   setPaging(qs, opts);
   const str = qs.toString();
   const plural = kind === 'revision' ? 'revisions' : 'targets';
@@ -549,7 +567,7 @@ export function fleetGraphFocusUrl(kind: string, key: string, state: Partial<Omi
 // restored by refresh/back/forward. A zero/absent offset is omitted (canonical page 1).
 export function fleetAttentionUrl(opts: {
   category?: string; offset?: number; owner?: string; ownerKey?: string; source?: string; service?: string;
-  severity?: string; status?: string; staleOnly?: boolean;
+  businessDomain?: string; severity?: string; status?: string; staleOnly?: boolean;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.category) qs.set('category', opts.category);
@@ -561,6 +579,7 @@ export function fleetAttentionUrl(opts: {
   // Product attention filter applies, so a service page can send the user to its OWN
   // backlog instead of the whole fleet's.
   if (opts.service) qs.set('service', opts.service);
+  if (opts.businessDomain) qs.set('businessDomain', opts.businessDomain);
   if (opts.severity) qs.set('severity', opts.severity);
   if (opts.status) qs.set('status', opts.status);
   if (opts.staleOnly) qs.set('staleOnly', '1');

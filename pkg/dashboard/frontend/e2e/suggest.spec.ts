@@ -99,7 +99,7 @@ test.describe('WASM demo — Services search suggests what exists', () => {
     const partner = page.locator('[data-testid="svc-search-option"][data-key="partners/platform-app-config"]');
     await expect(partner).toHaveCount(1);
     // The partner one is legible as the partner one before it is clicked.
-    await expect(partner).toContainText('domain partners');
+    await expect(partner).toContainText('registry partners');
 
     await partner.click();
     await expect(page).toHaveURL(/#\/fleet\/services\/partners%2Fplatform-app-config$/, { timeout: T });

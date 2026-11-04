@@ -1,6 +1,6 @@
 /** Breadcrumb trails derived from view state. Pure — unit-testable. */
 import {
-  graphUrl, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl, hashForHref,
+  graphUrl, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl, fleetDomainsUrl, fleetEntityUrl, hashForHref,
 } from './router';
 
 export interface Crumb {
@@ -16,7 +16,7 @@ export function graphBreadcrumbs(f: { group: string; focus: string }): Crumb[] {
 }
 
 // A minimal structural view of a product entity ref (never the whole DTO type).
-interface RefLike { kind?: string; key?: string; label?: string; href?: string }
+interface RefLike { kind?: string; key?: string; label?: string; href?: string; businessDomain?: string }
 
 // crumb builds a Crumb from a canonical product ref, linking to its authoritative
 // backend href. Parent identity is ALWAYS taken from a canonical ref, never inferred
@@ -40,9 +40,16 @@ export function fleetEntityBreadcrumbs(detail: any): Crumb[] {
   const e: RefLike | undefined = detail?.entity;
   if (!e || !e.kind) return [root];
   const services: Crumb = { label: 'Services', href: fleetServicesUrl() };
+  const domains: Crumb = { label: 'Domains', href: fleetDomainsUrl() };
   switch (e.kind) {
-    case 'service':
-      return [root, services, { label: e.label || e.key || 'service' }];
+    case 'service': {
+      // A service in a business domain sits under it; one with none sits under Services.
+      const leaf = { label: e.label || e.key || 'service' };
+      const bd = e.businessDomain;
+      return bd ? [root, domains, { label: bd, href: fleetEntityUrl('domain', bd) }, leaf] : [root, services, leaf];
+    }
+    case 'domain':
+      return [root, domains, { label: e.label || e.key || 'domain' }];
     case 'revision': {
       const leaf = detail.revision?.version ? `Revision ${detail.revision.version}` : (e.label || e.key || 'Revision');
       return [root, services, refCrumb(detail.revision?.service, 'service'), { label: leaf }];

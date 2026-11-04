@@ -108,8 +108,8 @@ describe('EntitySearch — global entity discovery', () => {
     const { target, component } = mountSearch();
     type(target, 'payments');
     await vi.waitFor(() => expect(rows(target).length).toBe(2)); // not collapsed
-    expect(rows(target)[0].textContent).toContain('domain domain-a');
-    expect(rows(target)[1].textContent).toContain('domain domain-b');
+    expect(rows(target)[0].textContent).toContain('registry domain-a');
+    expect(rows(target)[1].textContent).toContain('registry domain-b');
     unmount(component); document.body.removeChild(target);
   });
 

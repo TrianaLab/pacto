@@ -59,8 +59,8 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     await vi.waitFor(() => expect(rows(target).length).toBe(2));
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], limit: 25 }));
     // same-named services stay distinguishable by domain
-    expect(rows(target)[0].textContent).toContain('domain domain-a');
-    expect(rows(target)[1].textContent).toContain('domain domain-b');
+    expect(rows(target)[0].textContent).toContain('registry domain-a');
+    expect(rows(target)[1].textContent).toContain('registry domain-b');
     unmount(component); document.body.removeChild(target);
   });
 

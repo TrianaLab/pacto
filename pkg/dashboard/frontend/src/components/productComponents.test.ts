@@ -51,7 +51,7 @@ describe('EntityIdentity disambiguation', () => {
   it('shows domain so same-named services in different domains are distinguishable', () => {
     comp = mount(EntityIdentity, { target, props: { ref: { kind: 'service', key: 'domain-a/payments', label: 'payments', domain: 'domain-a' } } });
     expect(target.textContent).toContain('payments');
-    expect(target.textContent).toContain('domain domain-a');
+    expect(target.textContent).toContain('registry domain-a');
     expect(target.textContent).toContain('Service');
   });
 

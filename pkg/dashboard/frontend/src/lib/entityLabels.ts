@@ -29,6 +29,7 @@ export function kindLabel(kind: string | undefined): string {
     case 'target': return 'Operational target';
     case 'owner': return 'Owner';
     case 'source': return 'Data source';
+    case 'domain': return 'Domain';
     default: return kind ? kind[0].toUpperCase() + kind.slice(1) : 'Entity';
   }
 }
@@ -137,7 +138,7 @@ export function provenanceIsImplied(difference: string | undefined, provenance: 
 // dimension of triage (declared contract preparedness), not a separate workspace,
 // so this list is also the Overview's set of entry points into the triage view.
 export const ATTENTION_CATEGORIES = [
-  'non-compliant', 'unknown', 'stale', 'invalid', 'readiness', 'unresolved', 'out-of-range',
+  'non-compliant', 'unknown', 'stale', 'invalid', 'readiness', 'unresolved', 'out-of-range', 'unowned',
 ] as const;
 
 export function attentionCategoryLabel(c: string | undefined): string {
@@ -149,7 +150,34 @@ export function attentionCategoryLabel(c: string | undefined): string {
     case 'readiness': return 'Readiness gate';
     case 'unresolved': return 'Unresolved revision';
     case 'out-of-range': return 'Version out of range';
+    case 'unowned': return 'No declared owner';
     default: return c || 'Other';
+  }
+}
+
+// ── business domain and target environment ──────────────────────────────────
+/** businessDomainLabel names a service's business domain, or the No domain group. */
+export function businessDomainLabel(v: string | undefined): string {
+  return v || 'No domain';
+}
+
+/** The environment a target runs in, as the target detail reports it. */
+export interface TargetEnvironmentLike { name?: string; declared?: string; check?: { status?: string } }
+
+/** targetEnvironmentLabel is the environment name, or Unknown when no source says. */
+export function targetEnvironmentLabel(env: TargetEnvironmentLike | null | undefined): string {
+  return env?.name || 'Unknown';
+}
+
+/** targetEnvironmentTone is ok only when the running revision declares the environment
+ *  and its values pass. An environment nobody can confirm stays neutral. */
+export function targetEnvironmentTone(env: TargetEnvironmentLike | null | undefined): Tone {
+  if (env?.declared === 'not-declared') return 'warn';
+  if (env?.declared !== 'declared') return 'neutral';
+  switch (env.check?.status) {
+    case 'pass': return 'ok';
+    case 'fail': return 'err';
+    default: return 'neutral';
   }
 }
 
