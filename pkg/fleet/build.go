@@ -1398,37 +1398,45 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	}
 	// Newest first: the reverse of the canonical ascending chronology.
 	sort.Slice(revs, func(i, j int) bool { return lessRevisionChrono(revs[j], revs[i]) })
-	var claims ownerClaimSet
 	for _, r := range revs {
-		o := r.Owner
-		if o.IsEmpty() {
-			continue
-		}
 		if s.Owner.IsEmpty() {
-			s.Owner = o
+			s.Owner = r.Owner
 		}
-		claims.add(o)
 	}
 	// No revision declares an owner (a fleet read only from Kubernetes has no
 	// revisions at all): fall back to the owner the observing sources read from
 	// the contract each target runs.
-	if claims.len() == 0 {
-		targets := slices.Sorted(slices.Values(s.Targets))
-		for _, tk := range targets {
-			o := snap.Targets[tk].Owner
+	if s.Owner.IsEmpty() {
+		for _, tk := range slices.Sorted(slices.Values(s.Targets)) {
 			if s.Owner.IsEmpty() {
-				s.Owner = o
+				s.Owner = snap.Targets[tk].Owner
 			}
-			claims.add(o)
 		}
 	}
-	if claims.len() > 1 {
+	if claims := serviceOwnerClaims(snap, s); claims.len() > 1 {
 		return []Limitation{{
 			Code: LimitationOwnerConflict, Source: "fleet",
 			Message: "the contracts of " + s.Name + " declare different owners; the service owner is a summary (see the owner on each revision or target)",
 		}}
 	}
 	return nil
+}
+
+// serviceOwnerClaims is the DISTINCT owners known for a service: the owners its
+// revisions declare or, when none does, the owners its observing sources read from
+// the contracts its targets run. deriveOwner and every ownership answer of the
+// query count through it, so an owner the operator reports is never "unowned".
+func serviceOwnerClaims(snap *FleetSnapshot, s *ServiceRecord) ownerClaimSet {
+	var claims ownerClaimSet
+	for _, rk := range s.Revisions {
+		claims.add(snap.Revisions[rk].Owner)
+	}
+	if claims.len() == 0 {
+		for _, tk := range s.Targets {
+			claims.add(snap.Targets[tk].Owner)
+		}
+	}
+	return claims
 }
 
 // ownerClaimSet accumulates the DISTINCT owners a service's revisions declare,

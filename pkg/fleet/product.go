@@ -831,8 +831,9 @@ func (q *Query) collectAttention() []AttentionItem {
 	return items
 }
 
-// unownedAttention reports each service whose revisions declare no owner, by the
-// same rule as the ownership tally, so its total is OverviewSummary.Ownership.Unowned.
+// unownedAttention reports each service no source knows an owner for (no revision
+// declares one and no observing source reports one), by the same rule as the
+// ownership tally, so its total is OverviewSummary.Ownership.Unowned.
 func (q *Query) unownedAttention() []AttentionItem {
 	var out []AttentionItem
 	for _, s := range q.snap.Services {
@@ -842,7 +843,7 @@ func (q *Query) unownedAttention() []AttentionItem {
 		out = append(out, AttentionItem{
 			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name,
 			Severity: severityInfo, Code: "UNOWNED_SERVICE", Category: categoryUnowned,
-			Summary: "Service has no declared owner", Reason: "no revision of this service declares service.owner",
+			Summary: "Service has no declared owner", Reason: "no contract revision of this service declares service.owner, and no source reports an owner for it",
 			NextStep: "Declare service.owner in the contract",
 		})
 	}

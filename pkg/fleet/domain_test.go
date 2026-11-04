@@ -427,3 +427,40 @@ func TestSearch_BusinessDomain(t *testing.T) {
 		t.Errorf("no-domain search = %s", got)
 	}
 }
+
+// A service seen only through Kubernetes has the owner the operator reports, so it
+// is owned: unowned means no source knows an owner, by the same rule as deriveOwner.
+func TestOwnership_OperatorReportedOwnerIsNotUnowned(t *testing.T) {
+	src := NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{
+		{Scope: "a", Kind: "k8s", Name: "owned", Service: "owned", Owner: contract.Owner{Team: "ops"}},
+		{Scope: "a", Kind: "k8s", Name: "orphan", Service: "orphan"},
+	}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	ov := q.Overview().Summary
+	if ov.Ownership.Unowned != 1 || ov.Ownership.Consistent != 1 {
+		t.Errorf("ownership = %+v, want only orphan unowned", ov.Ownership)
+	}
+	al, err := q.Attention(AttentionFilter{Category: "unowned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if al.Total != 1 || al.Items[0].Label != "orphan" {
+		t.Fatalf("unowned items = %+v, want only orphan", al.Items)
+	}
+	if r := al.Items[0].Reason; strings.Contains(r, "no revision") && !strings.Contains(r, "source") {
+		t.Errorf("reason %q blames revisions alone", r)
+	}
+	for _, row := range ov.ByDomain {
+		if row.Unowned != 1 {
+			t.Errorf("domain row %+v, want one unowned service", row)
+		}
+	}
+	got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, Ownership: OwnershipUnowned})
+	if strings.Join(got, ",") != "orphan" {
+		t.Errorf("unowned filter = %v", got)
+	}
+}

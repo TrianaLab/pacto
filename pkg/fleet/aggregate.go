@@ -162,7 +162,10 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 }
 
 // OwnershipTally partitions a SERVICE population by how well ownership is
-// DECLARED on it: Consistent + Conflicting + Unowned == the population.
+// DECLARED on it: Consistent + Conflicting + Unowned == the population. A service
+// with no revision that declares an owner counts the owners its observing sources
+// read from the contracts its targets run (see [serviceOwnerClaims]), so Unowned
+// means no source knows an owner.
 //
 // Ownership is authored per revision (`service.owner` in the contract), so a
 // service's ownership is a property of its revisions agreeing rather than of one
@@ -369,16 +372,14 @@ func capabilityFacet(counts map[string]int) ([]CapabilityCount, int) {
 	return items, total
 }
 
-// ownerClaimsOf collects the DISTINCT owners a service's revisions declare, under
-// the canonical owner identity the product routes by (see [ownerClaimSet]). One
-// walk answers three questions that must never disagree: how the service is
-// partitioned, which owner it ranks under, and which owners are present at all.
+// ownerClaimsOf collects the DISTINCT owners known for a service, under the
+// canonical owner identity the product routes by (see [ownerClaimSet]): its
+// revisions' owners, else the owners its observing sources report
+// ([serviceOwnerClaims], the rule deriveOwner applies). One walk answers three
+// questions that must never disagree: how the service is partitioned, which owner
+// it ranks under, and which owners are present at all.
 func (q *Query) ownerClaimsOf(s *ServiceRecord) ownerClaimSet {
-	var claims ownerClaimSet
-	for _, rk := range s.Revisions {
-		claims.add(q.snap.Revisions[rk].Owner)
-	}
-	return claims
+	return serviceOwnerClaims(q.snap, s)
 }
 
 // ownershipState classifies a service's declared ownership: how many DISTINCT
