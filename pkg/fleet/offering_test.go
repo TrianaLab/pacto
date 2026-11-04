@@ -479,3 +479,85 @@ func TestOfferingDetail_TargetOnlyProvider(t *testing.T) {
 		t.Errorf("provider = %+v", p)
 	}
 }
+
+func serviceData(t *testing.T, q *Query, key ServiceKey) *ServiceDetailData {
+	t.Helper()
+	d, err := q.EntityDetail(KindService, string(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d.Service
+}
+
+func TestServiceDetail_ConsumedOfferings(t *testing.T) {
+	pg := svc25("postgresql", "16.0.1", "postgresql")
+	pg.Workload = contract.WorkloadService
+	cfg := svc25("platform-app-config", "1.0.0", "shared-config")
+	cfg.Configurations = []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}}
+	pay := svc25("payments", "1.0.0", "")
+	pay.Dependencies = []contract.Dependency{
+		{Name: "postgresql", Required: true, Compatibility: "^16.0.0"},
+		{Name: "orders", Required: true},
+	}
+	pay.Configurations = []contract.Configuration{{Name: "app", Ref: "oci://ghcr.io/acme/platform-app-config@" + testDigest("ghcr.io/acme", "platform-app-config", "1.0.0"), Required: true}}
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
+		ociRev("ghcr.io/acme", pg, nil), ociRev("ghcr.io/acme", cfg, nil), ociRev("ghcr.io/acme", pay, nil),
+		ociRev("ghcr.io/acme", svc25("orders", "1.0.0", ""), nil),
+	}})
+	d := serviceData(t, q, NewServiceKeyDomain("ghcr.io/acme", "payments"))
+	c := d.ConsumedOfferings
+	if c.Total != 2 {
+		t.Fatalf("consumed offerings = %+v", c.Items)
+	}
+	got := map[string]OfferingUse{}
+	for _, u := range c.Items {
+		got[u.Offering] = u
+	}
+	if got["postgresql"].Via != RelationshipDependency || got["postgresql"].RangeStatus != RangeSatisfied || got["shared-config"].Via != RelationshipConfigRef {
+		t.Errorf("consumed offerings = %+v", c.Items)
+	}
+	if len(d.InferredOfferings) != 0 {
+		t.Errorf("inferred = %+v, want none: every dependency resolved", d.InferredOfferings)
+	}
+	if o := serviceData(t, q, NewServiceKeyDomain("ghcr.io/acme", "orders")); o.ConsumedOfferings.Total != 0 || o.InferredOfferings == nil {
+		t.Errorf("orders = %+v / %+v, want empty lists", o.ConsumedOfferings, o.InferredOfferings)
+	}
+}
+
+func TestInferredOfferings_ExactNameOnly(t *testing.T) {
+	redis := svc25("redis", "7.0.0", "redis")
+	redis.Workload = contract.WorkloadService
+	pg := svc25("postgresql", "16.0.1", "relational-db")
+	pg.Workload = contract.WorkloadService
+	app := svc25("app", "1.0.0", "")
+	app.Dependencies = []contract.Dependency{
+		{Name: "redis", External: true, Version: "7"},
+		{Name: "db", Ref: "oci://other.io/x/postgresql", Required: true},
+		{Name: "redis-cache", External: true},
+		{Name: "Redis2", External: true},
+	}
+	local := svc25("local", "1.0.0", "")
+	local.Dependencies = []contract.Dependency{{Name: "redis", Required: true}}
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
+		ociRev("ghcr.io/acme", redis, nil), ociRev("partners.acme.com", pg, nil),
+		ociRev("ghcr.io/other", app, nil), ociRev("ghcr.io/acme", local, nil),
+	}})
+	got := serviceData(t, q, NewServiceKeyDomain("ghcr.io/other", "app")).InferredOfferings
+	if len(got) != 2 {
+		t.Fatalf("inferred = %+v, want two", got)
+	}
+	byRef := map[string]InferredOffering{}
+	for _, i := range got {
+		byRef[i.Ref] = i
+	}
+	if r := byRef["redis"]; r.Reason != "offering-name" || r.Offering.Key != "redis" || r.Provider != nil {
+		t.Errorf("redis = %+v", r)
+	}
+	if db := byRef["db"]; db.Reason != "provider-name" || db.Offering.Key != "relational-db" || db.Provider == nil || db.Provider.Label != "postgresql" {
+		t.Errorf("db = %+v", db)
+	}
+	l := serviceData(t, q, NewServiceKeyDomain("ghcr.io/acme", "local"))
+	if len(l.InferredOfferings) != 0 || l.ConsumedOfferings.Total != 1 || l.ConsumedOfferings.Items[0].Offering != "redis" {
+		t.Errorf("local consumes %+v and is suggested %+v", l.ConsumedOfferings.Items, l.InferredOfferings)
+	}
+}

@@ -4,8 +4,10 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -341,6 +343,12 @@ type ServiceDetailData struct {
 	// Dependencies and HiddenDependencies they add up to
 	// Summary.DeclaredDependencies.
 	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`
+	// ConsumedOfferings are the platform offerings the service consumes: its
+	// declared dependencies and references that resolve to a provider.
+	ConsumedOfferings OfferingUsesPreview `json:"consumedOfferings"`
+	// InferredOfferings are suggestions, never declared consumption: an external or
+	// unresolved dependency whose name equals an offering or a provider's name.
+	InferredOfferings []InferredOffering `json:"inferredOfferings"`
 	// CurrentRevision is the newest revision in use (see [lessRevisionChrono]),
 	// else the newest known one; nil when the service has no revision.
 	// Policies and Configurations are what it declares, with local schema
@@ -565,6 +573,17 @@ type ConsumeSnippet struct {
 	YAML          string `json:"yaml"`
 }
 
+// InferredOffering suggests the offering an external or unresolved dependency
+// may be: its name equals the offering (offering-name) or the name of a service
+// that provides it (provider-name, with Provider set).
+type InferredOffering struct {
+	// Ref is the UnresolvedDependency.Ref it was matched from.
+	Ref      string     `json:"ref"`
+	Offering EntityRef  `json:"offering"`
+	Provider *EntityRef `json:"provider,omitempty"`
+	Reason   string     `json:"reason" enum:"offering-name,provider-name"`
+}
+
 // OfferingProvider is one service providing a platform offering: who owns it,
 // its versions, what its current revision declares and how to consume it.
 // Consume is nil when the provider has no OCI reference to consume.
@@ -723,13 +742,16 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	nb, nbErr := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()})
 	rels, nbLims := serviceRelationships(nb, nbErr, self)
 	current, cfgs, pols := q.currentRevisionContent(active, view.Revisions)
+	unresolved := unresolvedDependencyItems(self, view.Dependencies)
 	data := &ServiceDetailData{
 		Domain:                 s.Domain,
 		Ownership:              ownership,
 		OwnerRevision:          q.ownerRevision(s),
 		Capabilities:           stringsPreview(slices.DeleteFunc(q.serviceCapabilities(s), func(c string) bool { return c == "" })),
 		Sources:                refPreview(q.serviceSources(view)),
-		UnresolvedDependencies: unresolvedDependencyItems(self, view.Dependencies),
+		UnresolvedDependencies: unresolved,
+		ConsumedOfferings:      offeringUsesPreview(q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)),
+		InferredOfferings:      q.inferredOfferings(unresolved.Items),
 		CurrentRevision:        current,
 		Policies:               pols,
 		Configurations:         cfgs,
@@ -1065,6 +1087,37 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 		return cmp.Or(cmp.Compare(a.Consumer.Key, b.Consumer.Key), cmp.Compare(a.Provider.Key, b.Provider.Key), cmp.Compare(a.Via, b.Via))
 	})
 	return uses
+}
+
+// inferredOfferings suggests an offering for each unresolved dependency whose
+// name, the last segment of its ref, equals an offering or, failing that, the
+// name of a provider, compared case-insensitively. A partial match is no match.
+func (q *Query) inferredOfferings(unresolved []UnresolvedDependency) []InferredOffering {
+	out := []InferredOffering{}
+	if len(unresolved) == 0 {
+		return out
+	}
+	offerings, providers := map[string]bool{}, map[string]*ServiceRecord{}
+	for _, k := range slices.Sorted(maps.Keys(q.snap.Services)) {
+		if s := q.snap.Services[k]; s.Offering != "" {
+			offerings[s.Offering] = true
+			if lower := strings.ToLower(s.Name); providers[lower] == nil {
+				providers[lower] = s
+			}
+		}
+	}
+	// ponytail: bounded by the unresolved preview.
+	for _, u := range unresolved {
+		repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(cmp.Or(u.RequestedRef, u.Ref)))
+		name := strings.ToLower(path.Base(repo))
+		switch p := providers[name]; {
+		case offerings[name]:
+			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(name), Reason: "offering-name"})
+		case p != nil:
+			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(p.Offering), Provider: new(serviceEntityRef(p)), Reason: "provider-name"})
+		}
+	}
+	return out
 }
 
 // offeringRelationship reports whether rel can consume an offering: a declared,
