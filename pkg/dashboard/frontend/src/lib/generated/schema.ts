@@ -1664,28 +1664,6 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
-        "Fleet.AttentionItem": {
-            /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "unowned";
-            code: string;
-            entity: components["schemas"]["Fleet.EntityRef"];
-            label: string;
-            nextStep?: string;
-            reason: string;
-            service?: string;
-            /** @enum {string} */
-            severity: "error" | "warning" | "info";
-            source?: string;
-            summary: string;
-        };
-        "Fleet.AttentionPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.AttentionItem"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
         "Fleet.CapabilitiesPreview": {
             /** Format: int64 */
             count: number;
@@ -1812,14 +1790,6 @@ export interface components {
             path: string;
             title: string;
         };
-        "Fleet.DomainDetailData": {
-            attention: components["schemas"]["Fleet.AttentionPreview"];
-            deployments: components["schemas"]["Fleet.RefPreview"];
-            owners: components["schemas"]["Fleet.RefPreview"];
-            ownership: components["schemas"]["Fleet.OwnershipTally"];
-            services: components["schemas"]["Fleet.RefPreview"];
-            summary: components["schemas"]["Fleet.OwnerSummary"];
-        };
         "Fleet.DomainTally": {
             domain: string;
             /** Format: int64 */
@@ -1866,26 +1836,6 @@ export interface components {
             targets: number;
             /** Format: int64 */
             unidentifiedOwnership?: number;
-        };
-        "Fleet.EntityRef": {
-            businessDomain?: string;
-            domain?: string;
-            environment?: string;
-            explanation?: string;
-            key: string;
-            /** @enum {string} */
-            kind: "service" | "revision" | "target" | "owner" | "source" | "domain";
-            label: string;
-            owner?: string;
-            parentService?: string;
-            scope?: string;
-            secondary?: string;
-            /** Format: int64 */
-            services?: number;
-            status?: string;
-            /** Format: int64 */
-            targets?: number;
-            version?: string;
         };
         "Fleet.EnvironmentResult": {
             file: string;
@@ -2272,14 +2222,6 @@ export interface components {
             /** Format: int64 */
             passing: number;
         };
-        "Fleet.RefPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.EntityRef"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
         "Fleet.Relationship": {
             compatibility?: string;
             deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
@@ -2378,6 +2320,7 @@ export interface components {
             total: number;
         };
         "Fleet.ServiceHit": {
+            businessDomain?: string;
             domain?: string;
             key: string;
             labels?: {
@@ -3036,6 +2979,14 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductDomainDetail: {
+            attention: components["schemas"]["ProductAttentionPreview"];
+            deployments: components["schemas"]["ProductRefPreview"];
+            owners: components["schemas"]["ProductRefPreview"];
+            ownership: components["schemas"]["Fleet.OwnershipTally"];
+            services: components["schemas"]["ProductRefPreview"];
+            summary: components["schemas"]["Fleet.OwnerSummary"];
+        };
         ProductEdge: {
             /** Format: int64 */
             count?: number;
@@ -3068,7 +3019,7 @@ export interface components {
         };
         ProductEntityDetail: {
             actions?: string[] | null;
-            domain?: components["schemas"]["Fleet.DomainDetailData"];
+            domain?: components["schemas"]["ProductDomainDetail"];
             entity: components["schemas"]["ProductRef"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             owner?: components["schemas"]["ProductOwnerDetail"];
@@ -5046,6 +4997,8 @@ export interface operations {
                 owner?: string;
                 /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
                 ownerKey?: string;
+                /** @description Keep the items of services in this business domain, or (none) for the services with no domain */
+                businessDomain?: string;
                 source?: string;
                 severity?: "error" | "warning" | "info";
                 /** @description Compliance status filter */
@@ -5086,13 +5039,20 @@ export interface operations {
         parameters: {
             query?: {
                 text?: string;
-                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected */
-                kinds?: ("service" | "revision" | "target" | "owner" | "source")[] | null;
+                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain) */
+                kinds?: ("service" | "revision" | "target" | "owner" | "source" | "domain")[] | null;
                 /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
                 /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
                 ownerKey?: string;
+                /** @description Exact registry path (the domain part of the canonical service key), shown as Registry */
                 domain?: string;
+                /** @description Exact business domain (service.domain) of the service an entity belongs to, or (none) for the services with no domain */
+                businessDomain?: string;
+                /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities) */
+                environment?: string;
+                /** @description Capability type a service's revisions declare (service entities) */
+                capability?: string;
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
@@ -5145,7 +5105,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description Entity kind: service, revision, target, owner or source */
+                /** @description Entity kind: service, revision, target, owner, source or domain */
                 kind: string;
             };
             cookie?: never;

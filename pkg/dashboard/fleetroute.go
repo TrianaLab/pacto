@@ -30,6 +30,8 @@ func hrefForEntity(kind fleet.EntityKind, key string) string {
 		return routeEntity("owners", key)
 	case fleet.KindSource:
 		return routeEntity("sources", key)
+	case fleet.KindDomain:
+		return routeEntity("domains", key)
 	default:
 		return fleetRouteRoot
 	}

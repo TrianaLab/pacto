@@ -453,6 +453,7 @@ func TestRouteBuilder_EntityHrefShapes(t *testing.T) {
 		// segment, exactly as a revision digest's already is.
 		{fleet.KindOwner, "team:team-a", "/fleet/owners/team:team-a"},
 		{fleet.KindSource, "kubernetes", "/fleet/sources/kubernetes"},
+		{fleet.KindDomain, "payments", "/fleet/domains/payments"},
 	}
 	for _, c := range entities {
 		if got := hrefForEntity(c.kind, c.key); got != c.want {

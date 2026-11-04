@@ -457,6 +457,25 @@ func toProductOwnerDetail(d *fleet.OwnerDetailData) *ProductOwnerDetail {
 	}
 }
 
+// ProductDomainDetail is the navigable domain-kind detail payload.
+type ProductDomainDetail struct {
+	fleet.DomainDetailData
+	Services    ProductRefPreview       `json:"services"`
+	Owners      ProductRefPreview       `json:"owners"`
+	Deployments ProductRefPreview       `json:"deployments"`
+	Attention   ProductAttentionPreview `json:"attention"`
+}
+
+func toProductDomainDetail(d *fleet.DomainDetailData) *ProductDomainDetail {
+	return &ProductDomainDetail{
+		DomainDetailData: *d,
+		Services:         productRefPreview(d.Services),
+		Owners:           productRefPreview(d.Owners),
+		Deployments:      productRefPreview(d.Deployments),
+		Attention:        productAttentionPreview(d.Attention),
+	}
+}
+
 // ProductSourceDetail is the navigable source-kind detail payload.
 type ProductSourceDetail struct {
 	fleet.SourceDetailData
@@ -479,7 +498,7 @@ func toProductRevisionDocument(d *fleet.RevisionDocument) *ProductRevisionDocume
 }
 
 // ProductEntityDetail is the navigable, discriminated entity-detail envelope.
-// Exactly one of Service/Revision/Target/Owner/Source is populated, matching
+// Exactly one of Service/Revision/Target/Owner/Source/Domain is populated, matching
 // Entity.Kind.
 type ProductEntityDetail struct {
 	fleet.EntityDetail
@@ -489,6 +508,7 @@ type ProductEntityDetail struct {
 	Target   *ProductTargetDetail   `json:"target,omitempty"`
 	Owner    *ProductOwnerDetail    `json:"owner,omitempty"`
 	Source   *ProductSourceDetail   `json:"source,omitempty"`
+	Domain   *ProductDomainDetail   `json:"domain,omitempty"`
 }
 
 func toProductEntityDetail(d *fleet.EntityDetail) *ProductEntityDetail {
@@ -504,6 +524,8 @@ func toProductEntityDetail(d *fleet.EntityDetail) *ProductEntityDetail {
 		out.Owner = toProductOwnerDetail(d.Owner)
 	case d.Source != nil:
 		out.Source = toProductSourceDetail(d.Source)
+	case d.Domain != nil:
+		out.Domain = toProductDomainDetail(d.Domain)
 	}
 	return out
 }

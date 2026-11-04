@@ -123,7 +123,7 @@ func TestOpenAPI_FiniteEnums(t *testing.T) {
 		name string
 		want []string
 	}{
-		{"entity kind", sortedSet("service", "revision", "target", "owner", "source")},
+		{"entity kind", sortedSet("service", "revision", "target", "owner", "source", "domain")},
 		{"source health", sortedSet("available", "partial", "stale", "unavailable")},
 		{"identity class", sortedSet("exact", "missing-digest", "mutable", "no-ref", "local", "malformed", "digest-mismatch")},
 		{"link state", sortedSet("exact", "inferred", "ambiguous", "unresolved")},
