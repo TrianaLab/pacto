@@ -31,9 +31,11 @@ func TestPopulateContractStatus_FullContract(t *testing.T) {
 	lr := &loader.LoadResult{
 		Contract: &contract.Contract{
 			Service: contract.Service{
-				Name:    "my-service",
-				Version: "1.0.0",
-				Domain:  "payments",
+				Name:     "my-service",
+				Version:  "1.0.0",
+				Domain:   "payments",
+				Offering: "postgresql",
+				Summary:  "Primary database",
 				Owner: contract.Owner{
 					Team: "platform",
 					DRI:  "alice@example.com",
@@ -111,6 +113,12 @@ func TestPopulateContractStatus_FullContract(t *testing.T) {
 	}
 	if pacto.Status.Contract.Domain != "payments" {
 		t.Errorf("expected domain=payments, got %q", pacto.Status.Contract.Domain)
+	}
+	if pacto.Status.Contract.Offering != "postgresql" {
+		t.Errorf("expected offering=postgresql, got %q", pacto.Status.Contract.Offering)
+	}
+	if pacto.Status.Contract.Summary != "Primary database" {
+		t.Errorf("expected summary=Primary database, got %q", pacto.Status.Contract.Summary)
 	}
 
 	// Verify interfaces

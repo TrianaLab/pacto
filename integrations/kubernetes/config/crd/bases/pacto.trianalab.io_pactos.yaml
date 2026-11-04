@@ -388,6 +388,11 @@ spec:
                       when the contract declares none; readers trust that absence only from
                       statusFormat 2 on.
                     type: string
+                  offering:
+                    description: |-
+                      Offering is the platform offering the contract declares
+                      (service.offering, pactoVersion 2.5). Omitted when it declares none.
+                    type: string
                   owner:
                     description: |-
                       Owner contains the structured ownership metadata from the contract
@@ -436,6 +441,11 @@ spec:
                     type: string
                   serviceName:
                     description: ServiceName is the service name declared in the contract.
+                    type: string
+                  summary:
+                    description: |-
+                      Summary is the one-line purpose the contract declares (service.summary,
+                      pactoVersion 2.5). Omitted when it declares none.
                     type: string
                   version:
                     description: Version is the semver version from the contract.

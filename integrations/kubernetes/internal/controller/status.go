@@ -41,6 +41,8 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		ServiceName: c.Service.Name,
 		Version:     c.Service.Version,
 		Domain:      c.Service.Domain,
+		Offering:    c.Service.Offering,
+		Summary:     c.Service.Summary,
 		ResolvedRef: lr.ResolvedRef,
 	}
 	if !c.Service.Owner.IsEmpty() {
