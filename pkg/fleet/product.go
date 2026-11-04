@@ -43,12 +43,14 @@ const (
 	KindSource   EntityKind = "source"
 	// KindDomain is a business domain (service.domain), keyed by its name.
 	KindDomain EntityKind = "domain"
+	// KindOffering is a platform offering (service.offering), keyed by its slug.
+	KindOffering EntityKind = "offering"
 )
 
 // validEntityKind reports whether k is a known entity kind.
 func validEntityKind(k EntityKind) bool {
 	switch k {
-	case KindService, KindRevision, KindTarget, KindOwner, KindSource, KindDomain:
+	case KindService, KindRevision, KindTarget, KindOwner, KindSource, KindDomain, KindOffering:
 		return true
 	default:
 		return false
@@ -62,7 +64,7 @@ func validEntityKind(k EntityKind) bool {
 // product transport adds a canonical href from the canonical key (ADR-2). Human
 // labels are primary; the raw Key is secondary copyable metadata.
 type EntityRef struct {
-	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source,domain"`
+	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source,domain,offering"`
 	Key       string     `json:"key"`
 	Label     string     `json:"label"`
 	Secondary string     `json:"secondary,omitempty"`
@@ -79,6 +81,11 @@ type EntityRef struct {
 	// says Pacto cannot tell (service and target references only).
 	BusinessDomain        string `json:"businessDomain,omitempty"`
 	BusinessDomainUnknown bool   `json:"businessDomainUnknown,omitempty"`
+	// Offering is the platform offering a SERVICE reference provides and the
+	// name of an offering reference; Summary is a service reference's one-line
+	// purpose.
+	Offering string `json:"offering,omitempty"`
+	Summary  string `json:"summary,omitempty"`
 	// Environment is the environment a TARGET reference runs in (see
 	// TargetRecord.Environment), empty when unknown.
 	Environment   string `json:"environment,omitempty"`
@@ -190,6 +197,7 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 	return EntityRef{
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
 		Status: s.Status, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
+		Offering: s.Offering, Summary: s.Summary,
 	}
 }
 
@@ -246,6 +254,11 @@ func ownerEntityRef(key string) EntityRef {
 // domainEntityRef builds a route-neutral reference to a business domain.
 func domainEntityRef(name string) EntityRef {
 	return EntityRef{Kind: KindDomain, Key: name, Label: name, BusinessDomain: name}
+}
+
+// offeringEntityRef builds a route-neutral reference to a platform offering.
+func offeringEntityRef(name string) EntityRef {
+	return EntityRef{Kind: KindOffering, Key: name, Label: name, Offering: name}
 }
 
 // sourceEntityRef builds a route-neutral reference to a source.

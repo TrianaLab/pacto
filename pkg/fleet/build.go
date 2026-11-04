@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/opencontainers/go-digest"
 	"golang.org/x/sync/errgroup"
@@ -439,6 +440,12 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 		existing.reportedDomains = appendUnique(existing.reportedDomains, d)
 	}
 	existing.domainKnown = existing.domainKnown || add.domainKnown
+	for _, v := range add.reportedOfferings {
+		existing.reportedOfferings = appendUnique(existing.reportedOfferings, v)
+	}
+	for _, v := range add.reportedSummaries {
+		existing.reportedSummaries = appendUnique(existing.reportedSummaries, v)
+	}
 	if targetFresher(add, existing) {
 		applyEvaluation(existing, add)
 	}
@@ -1065,6 +1072,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Limitations:     append([]Limitation(nil), raw.Limitations...),
 	}
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
+	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)
 	var recordInvalid []Limitation
 	if complianceInvalid {
 		recordInvalid = append(recordInvalid, Limitation{
@@ -1360,6 +1368,7 @@ func aggregateServices(snap *FleetSnapshot) {
 		s.Status = serviceStatus(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
 		snap.Limitations = append(snap.Limitations, deriveBusinessDomain(snap, s)...)
+		snap.Limitations = append(snap.Limitations, deriveOffering(snap, s)...)
 	}
 }
 
@@ -1392,49 +1401,108 @@ func deriveBusinessDomain(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 // none, and unknown when nothing says either way. A value that is not a domain
 // slug is never a domain.
 func businessDomainOf(snap *FleetSnapshot, s *ServiceRecord) (domain string, unknown bool, conflict []string) {
+	return declaredServiceValue(snap, s, func(c contract.Service) string { return c.Domain }, validBusinessDomain,
+		func(t *TargetRecord) []string { return t.reportedDomains }, func(t *TargetRecord) bool { return t.domainKnown })
+}
+
+// declaredServiceValue is the rule businessDomainOf documents, for any service
+// field: declared reads it from a contract, valid says a non-empty value can be
+// one, and reported and known read what the sources observing a target say. A
+// nil known means no source says a contract declares none.
+func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(contract.Service) string, valid func(string) bool,
+	reported func(*TargetRecord) []string, known func(*TargetRecord) bool) (value string, unknown bool, conflict []string) {
 	var newest *ContractRevision
-	declared := false
+	isDeclared := false
 	for _, rk := range s.Revisions {
 		r := snap.Revisions[rk]
-		if !domainEvidence(r) {
+		if !serviceValueEvidence(r, declared, valid) {
 			continue
 		}
-		declared = declared || r.Contract.Service.Domain != ""
+		isDeclared = isDeclared || declared(r.Contract.Service) != ""
 		if newest == nil || lessRevisionChrono(newest, r) {
 			newest = r
 		}
 	}
-	if declared {
-		return newest.Contract.Service.Domain, false, nil
+	if isDeclared {
+		return declared(newest.Contract.Service), false, nil
 	}
-	known := newest != nil
-	var reported []string
+	isKnown := newest != nil
+	var values []string
 	for _, tk := range s.Targets {
 		t := snap.Targets[tk]
-		known = known || t.domainKnown
-		for _, d := range t.reportedDomains {
-			reported = appendUnique(reported, d)
+		isKnown = isKnown || (known != nil && known(t))
+		for _, v := range reported(t) {
+			values = appendUnique(values, v)
 		}
 	}
-	slices.Sort(reported)
-	switch len(reported) {
+	slices.Sort(values)
+	switch len(values) {
 	case 0:
-		return "", !known, nil
+		return "", !isKnown, nil
 	case 1:
-		return reported[0], false, nil
+		return values[0], false, nil
 	default:
-		return "", true, reported
+		return "", true, values
 	}
 }
 
-// domainEvidence reports whether a revision can say what domain its service has:
-// its contract was read, it is not invalid and what it declares is a slug or none.
-func domainEvidence(r *ContractRevision) bool {
+// serviceValueEvidence reports whether a revision can say what value a service
+// field has: its contract was read, it is not invalid and what it declares is
+// valid or none.
+func serviceValueEvidence(r *ContractRevision, declared func(contract.Service) string, valid func(string) bool) bool {
 	if r.Contract == nil || (r.validated && !r.Valid) {
 		return false
 	}
-	d := r.Contract.Service.Domain
-	return d == "" || validBusinessDomain(d)
+	v := declared(r.Contract.Service)
+	return v == "" || valid(v)
+}
+
+// deriveOffering sets a service's platform offering and summary by the rule
+// businessDomainOf documents. Sources that report different offerings leave it
+// with none and an OFFERING_CONFLICT limitation; different summaries leave it
+// with none and no limitation.
+func deriveOffering(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
+	var conflict []string
+	s.Offering, conflict = offeringOf(snap, s)
+	s.Summary = summaryOf(snap, s)
+	if conflict == nil {
+		return nil
+	}
+	return []Limitation{{
+		Code: LimitationOfferingConflict, Source: "fleet",
+		Message: "no contract revision of " + s.Name + " declares a platform offering and the sources observing its operational targets report different ones (" +
+			strings.Join(conflict, ", ") + "), so it has none",
+	}}
+}
+
+// offeringOf is a service's platform offering and the offerings its sources
+// disagree on; the offering rule is the business-domain slug rule.
+func offeringOf(snap *FleetSnapshot, s *ServiceRecord) (string, []string) {
+	v, _, conflict := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Offering }, validBusinessDomain,
+		func(t *TargetRecord) []string { return t.reportedOfferings }, nil)
+	return v, conflict
+}
+
+// summaryOf is a service's one-line summary, empty when its sources disagree.
+func summaryOf(snap *FleetSnapshot, s *ServiceRecord) string {
+	v, _, _ := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Summary }, validSummary,
+		func(t *TargetRecord) []string { return t.reportedSummaries }, nil)
+	return v
+}
+
+// validSummary is service.summary's rule in the contract schema: one line of at
+// most 200 characters.
+func validSummary(v string) bool {
+	return v != "" && utf8.RuneCountInString(v) <= 200 && !strings.ContainsAny(v, "\n\r")
+}
+
+// reportedValue is a value a source read from a target's contract, as a set,
+// dropped when it is not valid.
+func reportedValue(v string, valid func(string) bool) []string {
+	if v == "" || !valid(v) {
+		return nil
+	}
+	return []string{v}
 }
 
 // reportedDomainsFrom is the domain a source read from a target's contract, as a

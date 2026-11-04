@@ -169,6 +169,7 @@ type SearchFilter struct {
 	Text           string            // substring over service name and any declared owner
 	Owner          string            // any revision's owner matches this team, DRI or contact value
 	BusinessDomain string            // the service's business domain, NoBusinessDomain for none or UnknownBusinessDomain
+	Offering       string            // the service provides this platform offering
 	Labels         map[string]string // all pairs must match one target's labels
 	Scope          string            // a target of the service has this scope
 	Status         string            // service aggregate status (canonical value)
@@ -193,13 +194,17 @@ type ServiceHit struct {
 	Domain         string     `json:"domain,omitempty"`
 	BusinessDomain string     `json:"businessDomain,omitempty"`
 	// BusinessDomainUnknown: Pacto cannot tell the service's business domain.
-	BusinessDomainUnknown bool              `json:"businessDomainUnknown,omitempty"`
-	Owner                 contract.Owner    `json:"owner,omitzero"`
-	Status                string            `json:"status,omitempty"`
-	RevisionCount         int               `json:"revisionCount"`
-	TargetCount           int               `json:"targetCount"`
-	Sources               []string          `json:"sources,omitempty"`
-	Labels                map[string]string `json:"labels,omitempty"`
+	BusinessDomainUnknown bool `json:"businessDomainUnknown,omitempty"`
+	// Offering is the platform offering the service provides and Summary its
+	// one-line purpose.
+	Offering      string            `json:"offering,omitempty"`
+	Summary       string            `json:"summary,omitempty"`
+	Owner         contract.Owner    `json:"owner,omitzero"`
+	Status        string            `json:"status,omitempty"`
+	RevisionCount int               `json:"revisionCount"`
+	TargetCount   int               `json:"targetCount"`
+	Sources       []string          `json:"sources,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -283,7 +288,8 @@ func (q *Query) sortedServiceKeys() []ServiceKey {
 
 func hitFromService(s *ServiceRecord) ServiceHit {
 	return ServiceHit{
-		Key: s.Key, Name: s.Name, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown, Owner: cloneOwner(s.Owner), Status: s.Status,
+		Key: s.Key, Name: s.Name, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
+		Offering: s.Offering, Summary: s.Summary, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels),
 	}
@@ -312,6 +318,7 @@ func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
 		q.matchOwner(s, f.Owner),
 		f.BusinessDomain == "" || q.serviceInBusinessDomain(string(s.Key), f.BusinessDomain),
 		matchEq(f.Status, s.Status),
+		matchEq(f.Offering, s.Offering),
 		matchSource(s, f.Source),
 		q.anyRevisionWorkload(s, f.Workload),
 		q.anyRevisionHasCapability(s, f.HasCapability),
@@ -361,7 +368,8 @@ func (q *Query) matchText(s *ServiceRecord, text string) bool {
 	if text == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(s.Name), strings.ToLower(text)) || q.matchOwner(s, text)
+	lower := strings.ToLower(text)
+	return strings.Contains(strings.ToLower(s.Name), lower) || strings.Contains(strings.ToLower(s.Summary), lower) || q.matchOwner(s, text)
 }
 
 // matchOwner is free-text owner SEARCH over a service's declarations;

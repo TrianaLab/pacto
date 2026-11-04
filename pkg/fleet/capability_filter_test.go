@@ -33,7 +33,7 @@ func TestEntities_CapabilityFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := all.Aggregate.Capabilities; len(c) != 1 || c[0] != (CapabilityCount{Type: "health", Services: 1}) || all.Aggregate.CapabilityTypes != 1 {
+	if c := all.Aggregate.Capabilities; len(c) != 1 || c[0] != (TypeCount{Type: "health", Services: 1}) || all.Aggregate.CapabilityTypes != 1 {
 		t.Errorf("capability facet = %+v (%d types)", c, all.Aggregate.CapabilityTypes)
 	}
 }
@@ -60,7 +60,7 @@ func TestAggregate_CapabilityFacetOrderedAndBounded(t *testing.T) {
 	if len(c) != maxCapabilityFacet || l.Aggregate.CapabilityTypes != maxCapabilityFacet+3 {
 		t.Fatalf("facet = %d rows of %d types", len(c), l.Aggregate.CapabilityTypes)
 	}
-	if c[0] != (CapabilityCount{Type: "metrics", Services: 2}) || c[1].Type != "x-cap-000" {
+	if c[0] != (TypeCount{Type: "metrics", Services: 2}) || c[1].Type != "x-cap-000" {
 		t.Errorf("facet starts %+v, want metrics first, then by type", c[:2])
 	}
 }

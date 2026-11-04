@@ -50,6 +50,9 @@ type EntityFilter struct {
 	// NoBusinessDomain asks for the services that have none, UnknownBusinessDomain
 	// for those whose domain is unknown.
 	BusinessDomain string
+	// Offering keeps the SERVICES that provide this platform offering, and the
+	// offering reference of that name.
+	Offering string
 	// Environment is the exact environment a target runs in (TargetRecord.Environment).
 	Environment string
 	// Capability keeps the SERVICES any of whose read revisions declares a
@@ -267,6 +270,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"capability", f.Capability, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain}},
+		{"offering", f.Offering, []EntityKind{KindService, KindOffering}},
 		{"service", f.Service, []EntityKind{KindService, KindRevision, KindTarget}},
 		// Ownership is declared per revision but classified per SERVICE (the whole
 		// question is whether a service's revisions agree), and readiness is declared
@@ -282,7 +286,7 @@ func validateFilterCombos(f EntityFilter) error {
 }
 
 // kindSet returns the set of requested kinds. An empty request means every kind
-// but KindDomain: domains came later and are returned only when asked for, so a
+// but KindDomain and KindOffering: they came later and are returned only when asked for, so a
 // kind-less query keeps the answer it always had.
 func kindSet(kinds []EntityKind) map[EntityKind]bool {
 	if len(kinds) == 0 {
@@ -324,6 +328,9 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 	if want[KindDomain] {
 		refs = append(refs, q.domainListRefs()...)
 	}
+	if want[KindOffering] {
+		refs = append(refs, q.offeringListRefs()...)
+	}
 	return refs
 }
 
@@ -340,6 +347,29 @@ func (q *Query) domainListRefs() []EntityRef {
 		if ref == nil {
 			ref = new(domainEntityRef(s.BusinessDomain))
 			by[s.BusinessDomain] = ref
+		}
+		ref.Services++
+		ref.Targets += len(s.Targets)
+	}
+	refs := make([]EntityRef, 0, len(by))
+	for _, ref := range by {
+		refs = append(refs, *ref)
+	}
+	return refs
+}
+
+// offeringListRefs is one row per platform offering, with the number of
+// services that provide it and the targets they run on.
+func (q *Query) offeringListRefs() []EntityRef {
+	by := map[string]*EntityRef{}
+	for _, s := range q.snap.Services {
+		if s.Offering == "" {
+			continue
+		}
+		ref := by[s.Offering]
+		if ref == nil {
+			ref = new(offeringEntityRef(s.Offering))
+			by[s.Offering] = ref
 		}
 		ref.Services++
 		ref.Targets += len(s.Targets)
@@ -426,9 +456,10 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 		q.matchOrganization(r, f)
 }
 
-// matchOrganization applies the business-domain and capability filters.
+// matchOrganization applies the business-domain, offering and capability filters.
 func (q *Query) matchOrganization(r EntityRef, f EntityFilter) bool {
 	return (f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain)) &&
+		(f.Offering == "" || (r.Kind == KindService || r.Kind == KindOffering) && r.Offering == f.Offering) &&
 		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
 }
 
@@ -552,7 +583,7 @@ func matchEntityText(r EntityRef, text string) bool {
 		return true
 	}
 	text = strings.ToLower(text)
-	for _, field := range []string{r.Label, r.Key, r.Secondary, r.Domain} {
+	for _, field := range []string{r.Label, r.Key, r.Secondary, r.Domain, r.Summary, r.Offering} {
 		if strings.Contains(strings.ToLower(field), text) {
 			return true
 		}

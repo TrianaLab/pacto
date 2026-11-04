@@ -346,12 +346,19 @@ type EntityAggregate struct {
 	// Capabilities counts the matched services declaring each capability type, the
 	// most declared first, bounded to maxCapabilityFacet; CapabilityTypes is how many
 	// types there are in all.
-	Capabilities    []CapabilityCount `json:"capabilities,omitempty"`
-	CapabilityTypes int               `json:"capabilityTypes,omitempty"`
+	Capabilities    []TypeCount `json:"capabilities,omitempty"`
+	CapabilityTypes int         `json:"capabilityTypes,omitempty"`
+	// Offerings counts the matched services providing each platform offering, in
+	// the same order and bound; OfferingTypes is how many offerings there are in
+	// all. OfferingCount is how many offering references matched.
+	Offerings     []TypeCount `json:"offerings,omitempty"`
+	OfferingTypes int         `json:"offeringTypes,omitempty"`
+	OfferingCount int         `json:"offeringCount"`
 }
 
-// CapabilityCount is one capability type and how many matched services declare it.
-type CapabilityCount struct {
+// TypeCount is one type (a capability or a platform offering) and how many
+// matched services declare it.
+type TypeCount struct {
 	Type     string `json:"type"`
 	Services int    `json:"services"`
 }
@@ -359,13 +366,13 @@ type CapabilityCount struct {
 // maxCapabilityFacet bounds EntityAggregate.Capabilities.
 const maxCapabilityFacet = 50
 
-// capabilityFacet orders the per-type service counts and bounds them.
-func capabilityFacet(counts map[string]int) ([]CapabilityCount, int) {
-	out := make([]CapabilityCount, 0, len(counts))
+// typeFacet orders the per-type service counts and bounds them.
+func typeFacet(counts map[string]int) ([]TypeCount, int) {
+	out := make([]TypeCount, 0, len(counts))
 	for t, n := range counts {
-		out = append(out, CapabilityCount{Type: t, Services: n})
+		out = append(out, TypeCount{Type: t, Services: n})
 	}
-	slices.SortFunc(out, func(a, b CapabilityCount) int {
+	slices.SortFunc(out, func(a, b TypeCount) int {
 		return cmp.Or(cmp.Compare(b.Services, a.Services), cmp.Compare(a.Type, b.Type))
 	})
 	items, total, _ := boundSlice(out, maxCapabilityFacet)
@@ -413,7 +420,7 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg := EntityAggregate{Matched: len(refs)}
 	byOwner := map[string]*OwnerCount{}
 	present := map[string]bool{}
-	capabilities := map[string]int{}
+	capabilities, offerings := map[string]int{}, map[string]int{}
 	for _, r := range refs {
 		switch r.Kind {
 		case KindService:
@@ -422,6 +429,9 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 			agg.ServiceCompliance.add(s.Status)
 			for _, c := range q.serviceCapabilities(s) {
 				capabilities[c]++
+			}
+			if s.Offering != "" {
+				offerings[s.Offering]++
 			}
 			claims := q.ownerClaimsOf(s)
 			// Every canonical owner the service names is present in the population,
@@ -461,13 +471,16 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 			agg.Sources++
 		case KindDomain:
 			agg.Domains++
+		case KindOffering:
+			agg.OfferingCount++
 		}
 	}
 	agg.RankedOwners = len(byOwner)
 	agg.DistinctOwners = len(present)
 	markAmbiguousLabels(byOwner, present)
 	agg.ByOwner, agg.BeyondRanking = rankOwners(byOwner)
-	agg.Capabilities, agg.CapabilityTypes = capabilityFacet(capabilities)
+	agg.Capabilities, agg.CapabilityTypes = typeFacet(capabilities)
+	agg.Offerings, agg.OfferingTypes = typeFacet(offerings)
 	return agg
 }
 
