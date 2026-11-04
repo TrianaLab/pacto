@@ -315,7 +315,11 @@ func TestAttentionCategories_CanonicalOrderWithZerosAndUnknowns(t *testing.T) {
 	if sum != len(items) {
 		t.Errorf("buckets sum to %d, want %d (the buckets must partition the population)", sum, len(items))
 	}
-	if got[0].Count != 1 || got[len(AttentionCategoriesList())-1].Count != 2 {
+	cats := AttentionCategoriesList()
+	if cats[len(cats)-1] != "unowned" {
+		t.Errorf("categories end with %q, want unowned (info, sorts last)", cats[len(cats)-1])
+	}
+	if got[0].Count != 1 || got[slices.Index(cats, "readiness")].Count != 2 {
 		t.Errorf("counts landed in the wrong buckets: %+v", got)
 	}
 }

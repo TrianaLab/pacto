@@ -276,12 +276,13 @@ type OverviewSummary struct {
 	UnavailableSources        int `json:"unavailableSources"`
 	RecentEvidence            int `json:"recentEvidence"`
 	// Ownership partitions the COMPLETE service population and Readiness the
-	// COMPLETE contract-revision population. Neither is an operational failure, and
-	// that is exactly why they belong on the landing page rather than in the
-	// attention backlog: "is ownership declared at all" and "is anyone assessing
-	// readiness" are systemic questions about how the fleet is organized and
-	// authored, and no per-entity page can answer them. They are the only two
-	// overview facts whose denominator is not the target population.
+	// COMPLETE contract-revision population. Neither is an operational failure, but
+	// each gap is something a person can fix, so both also appear in the attention
+	// backlog at info: a service with no declared owner as `unowned`, a revision with
+	// no readiness assessment as `readiness`. The tallies here answer the systemic
+	// question (is ownership declared at all, is anyone assessing readiness), which
+	// no per-entity page can. They are the only two overview facts whose denominator
+	// is not the target population.
 	Ownership OwnershipTally `json:"ownership"`
 	Readiness ReadinessTally `json:"readiness"`
 	// Evidence is the fleet's freshness envelope: the third orthogonal question a
@@ -629,6 +630,7 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		{Label: "Dependencies outside their accepted range", Count: sum.UnsatisfiedRanges, View: EntryPointAttention, Category: categoryOutOfRange, Severity: severityWarning},
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices, Severity: severityInfo},
 		{Label: "Uncontracted callers observed", Count: sum.UncontractedCallers, View: EntryPointServices, Severity: severityInfo},
+		{Label: "Services with no declared owner", Count: sum.Ownership.Unowned, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
 	}
 	out := []EntryPoint{}
@@ -651,7 +653,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range"`
+	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -667,6 +669,7 @@ const (
 	categoryReadiness    = "readiness"
 	categoryUnresolved   = "unresolved"
 	categoryOutOfRange   = "out-of-range"
+	categoryUnowned      = "unowned"
 )
 
 // severity levels.
@@ -784,7 +787,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "readiness"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "readiness", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -821,7 +824,26 @@ func (q *Query) collectAttention() []AttentionItem {
 		items = append(items, q.revisionAttention(r)...)
 	}
 	items = append(items, q.unresolvedAttention()...)
+	items = append(items, q.unownedAttention()...)
 	return items
+}
+
+// unownedAttention reports each service whose revisions declare no owner, by the
+// same rule as the ownership tally, so its total is OverviewSummary.Ownership.Unowned.
+func (q *Query) unownedAttention() []AttentionItem {
+	var out []AttentionItem
+	for _, s := range q.snap.Services {
+		if n, _ := q.ownershipState(s); n != 0 {
+			continue
+		}
+		out = append(out, AttentionItem{
+			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name,
+			Severity: severityInfo, Code: "UNOWNED_SERVICE", Category: categoryUnowned,
+			Summary: "Service has no declared owner", Reason: "no revision of this service declares service.owner",
+			NextStep: "Declare service.owner in the contract",
+		})
+	}
+	return out
 }
 
 func (q *Query) targetAttention(t *TargetRecord) []AttentionItem {

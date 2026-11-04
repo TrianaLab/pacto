@@ -329,3 +329,49 @@ func TestTallyDomains_BoundedNoDomainLast(t *testing.T) {
 		}
 	}
 }
+
+func TestAttention_UnownedMatchesOwnershipTally(t *testing.T) {
+	for name, q := range map[string]*Query{"domain": domainFleet(t)} {
+		al, err := q.Attention(AttentionFilter{Category: "unowned", Limit: MaxAttentionLimit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := q.Overview().Summary.Ownership.Unowned; al.Total != want || want == 0 {
+			t.Errorf("%s: unowned items = %d, want the ownership tally %d (non-zero)", name, al.Total, want)
+		}
+		for _, it := range al.Items {
+			if it.Severity != "info" || it.Entity.Kind != KindService || it.Code != "UNOWNED_SERVICE" {
+				t.Errorf("%s: item = %+v", name, it)
+			}
+		}
+	}
+}
+
+func TestAttention_UnownedExcludedByOwnerFilter(t *testing.T) {
+	q := domainFleet(t)
+	al, err := q.Attention(AttentionFilter{OwnerKey: "team:pay-team", Category: "unowned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if al.Total != 0 {
+		t.Errorf("an owner's backlog holds %d unowned items", al.Total)
+	}
+}
+
+func TestOverview_UnownedEntryPoint(t *testing.T) {
+	q := domainFleet(t)
+	ov := q.Overview()
+	var ep *EntryPoint
+	for i := range ov.EntryPoints {
+		if ov.EntryPoints[i].Category == "unowned" {
+			ep = &ov.EntryPoints[i]
+		}
+	}
+	if ep == nil || ep.Label != "Services with no declared owner" || ep.Count != 2 || ep.Severity != "info" || ep.View != EntryPointAttention {
+		t.Fatalf("unowned entry point = %+v", ep)
+	}
+	// orders and ghost are unowned; only pay (non-compliant) needs attention.
+	if ov.Summary.ServicesNeedingAttention != 1 {
+		t.Errorf("services needing attention = %d, want 1 (unowned does not count)", ov.Summary.ServicesNeedingAttention)
+	}
+}

@@ -1666,7 +1666,7 @@ export interface components {
         };
         "Fleet.AttentionItem": {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "unowned";
             code: string;
             entity: components["schemas"]["Fleet.EntityRef"];
             label: string;
@@ -2941,7 +2941,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
