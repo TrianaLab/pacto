@@ -291,11 +291,13 @@ Each provider carries a consume snippet to add to a contract, built from its
 newest revision:
 
 - a `dependencies` entry when the provider declares a workload or an interface,
-  with `compatibility` set to `^<major>.0.0` of the newest version when that
-  version satisfies it;
-- a `configurations` entry named after the offering when the provider declares
+  with `compatibility` set to the widest caret range that admits the newest
+  version: `^<major>.0.0`, `^0.<minor>.0` for a 0.x version or the version
+  itself for a prerelease. A version that is not semver gets an empty
+  `compatibility` to fill in;
+- a `configurations` entry named after the provider when the provider declares
   a required configuration;
-- a `policies` entry named after the offering when the provider declares a
+- a `policies` entry named after the provider when the provider declares a
   policy and neither entry above applies.
 
 The `ref` is the provider's registry repository without a tag or digest. A

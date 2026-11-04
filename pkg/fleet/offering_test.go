@@ -11,6 +11,7 @@ import (
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // offerRev is a 2.5 revision of name in ghcr.io/acme that provides offering.
@@ -359,14 +360,44 @@ func TestConsumeSnippet_DependencyRange(t *testing.T) {
 	}
 }
 
-func TestConsumeSnippet_NonSemverOmitsRange(t *testing.T) {
-	for _, v := range []string{"latest", "2024.01.01-beta"} {
+// A dependency with a ref needs a compatibility, so a version with no range
+// still gets the line, empty, to fill in.
+func TestConsumeSnippet_NonSemverAsksForRange(t *testing.T) {
+	for _, v := range []string{"latest", "v-next"} {
 		c := svc25("redis", v, "redis")
 		c.Interfaces = []contract.Interface{{Name: "resp", Type: "tcp"}}
 		sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
-		if sn == nil || sn.Compatibility != "" || strings.Contains(sn.YAML, "compatibility") || !sn.Dependency {
+		if sn == nil || sn.Compatibility != "" || !strings.Contains(sn.YAML, "    compatibility: \"\" # set a semver range") || !sn.Dependency {
 			t.Errorf("%s: snippet = %+v", v, sn)
 		}
+	}
+}
+
+// Every rendered snippet for a semver provider makes a valid consumer contract.
+func TestConsumeSnippet_RangesValidate(t *testing.T) {
+	for v, want := range map[string]string{"16.0.1": "^16.0.0", "0.3.1": "^0.3.0", "0.0.4": "^0.0.4", "2024.01.01-beta": "^2024.01.01-beta", "2.0.0-beta.1": "^2.0.0-beta.1", "0.3.1-rc.1": "^0.3.1-rc.1"} {
+		c := svc25("redis", v, "redis")
+		c.Workload = contract.WorkloadService
+		sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
+		if sn == nil || sn.Compatibility != want {
+			t.Errorf("%s: snippet = %+v, want range %s", v, sn, want)
+			continue
+		}
+		consumer := mustParse(t, "pactoVersion: \"2.5\"\nservice:\n  name: app\n  version: 1.0.0\n"+sn.YAML)
+		if r := validation.ValidateCrossField(consumer, fstest.MapFS{}); !r.IsValid() {
+			t.Errorf("%s: snippet %q is invalid: %+v", v, sn.YAML, r.Errors)
+		}
+	}
+}
+
+// Providers of one offering get distinct entry names.
+func TestConsumeSnippet_ConfigurationNamedAfterProvider(t *testing.T) {
+	c := svc25("platform-app-config", "1.0.0", "shared-config")
+	c.Configurations = []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}}
+	sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
+	want := "configurations:\n  - name: platform-app-config\n    ref: oci://ghcr.io/acme/platform-app-config\n    required: true\n"
+	if sn == nil || sn.YAML != want {
+		t.Errorf("snippet = %+v, want %q", sn, want)
 	}
 }
 
@@ -374,7 +405,7 @@ func TestConsumeSnippet_PolicyOnly(t *testing.T) {
 	c := svc25("platform-http-policy", "1.0.0", "shared-policy")
 	c.Policies = []contract.Policy{{Name: "http", Schema: "policy/schema.json"}}
 	sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
-	want := "policies:\n  - name: shared-policy\n    ref: oci://ghcr.io/acme/platform-http-policy\n"
+	want := "policies:\n  - name: platform-http-policy\n    ref: oci://ghcr.io/acme/platform-http-policy\n"
 	if sn == nil || sn.YAML != want || !sn.Policy {
 		t.Errorf("snippet = %+v, want %q", sn, want)
 	}

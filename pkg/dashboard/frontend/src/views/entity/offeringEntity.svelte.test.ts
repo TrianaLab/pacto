@@ -17,7 +17,7 @@ import FleetEntityView from '../FleetEntityView.svelte';
 const preview = (items: unknown[], extra: Record<string, unknown> = {}) => ({ total: items.length, count: items.length, truncated: false, items, ...extra });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 const ref = (kind: string, key: string, label?: string, extra: any = {}): any => ({ kind, key, label: label ?? key, href: `/fleet/${kind}s/${encodeURIComponent(key)}`, ...extra });
-const YAML = 'configurations:\n  - name: shared-config\n    ref: oci://ghcr.io/acme/platform-app-config\n    required: true\n';
+const YAML = 'configurations:\n  - name: platform-app-config\n    ref: oci://ghcr.io/acme/platform-app-config\n    required: true\n';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 function provider(name: string, extra: Record<string, any> = {}) {

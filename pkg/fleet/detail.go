@@ -1038,7 +1038,7 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 		Service: serviceEntityRef(s), Ownership: serviceOwnership(s, all), Summary: s.Summary, CurrentRevision: current,
 		Revisions: refPreview(chronologicalRevisionRefs(all)), ActiveRevisions: refPreview(chronologicalRevisionRefs(active)),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
-		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(s.Offering, s, newest),
+		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(s, newest),
 	}
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {

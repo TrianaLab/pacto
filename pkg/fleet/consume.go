@@ -11,13 +11,13 @@ import (
 
 // consumeSnippet renders how to consume provider from newest, its newest
 // readable revision that is not invalid:
-//   - a dependency when it declares a workload or an interface, with the range of
-//     its major version when that range is semver and admits it;
+//   - a dependency when it declares a workload or an interface, with the range
+//     majorRange gives for its version, or a line asking for one when none does;
 //   - a configuration reference when it declares a required configuration;
 //   - a policy reference when it declares a policy and neither applies.
 //
 // It is nil when newest has no OCI reference or nothing to consume.
-func consumeSnippet(offering string, provider *ServiceRecord, newest *ContractRevision) *ConsumeSnippet {
+func consumeSnippet(provider *ServiceRecord, newest *ContractRevision) *ConsumeSnippet {
 	if newest == nil {
 		return nil
 	}
@@ -39,13 +39,16 @@ func consumeSnippet(offering string, provider *ServiceRecord, newest *ContractRe
 		fmt.Fprintf(&b, "dependencies:\n  - name: %s\n    ref: %s\n    required: true\n", provider.Name, sn.Ref)
 		if sn.Compatibility != "" {
 			fmt.Fprintf(&b, "    compatibility: %q\n", sn.Compatibility)
+		} else {
+			// A dependency with a ref needs a range; say so rather than omit it.
+			b.WriteString("    compatibility: \"\" # set a semver range: the newest version is not semver\n")
 		}
 	}
 	if sn.Configuration {
-		fmt.Fprintf(&b, "configurations:\n  - name: %s\n    ref: %s\n    required: true\n", offering, sn.Ref)
+		fmt.Fprintf(&b, "configurations:\n  - name: %s\n    ref: %s\n    required: true\n", provider.Name, sn.Ref)
 	}
 	if sn.Policy {
-		fmt.Fprintf(&b, "policies:\n  - name: %s\n    ref: %s\n", offering, sn.Ref)
+		fmt.Fprintf(&b, "policies:\n  - name: %s\n    ref: %s\n", provider.Name, sn.Ref)
 	}
 	if b.Len() == 0 {
 		return nil
@@ -54,13 +57,21 @@ func consumeSnippet(offering string, provider *ServiceRecord, newest *ContractRe
 	return sn
 }
 
-// majorRange is ^MAJOR.0.0 for version, empty unless that range parses and
-// admits version, so a version that is not semver never gets a wrong range.
+// majorRange is the widest caret range that admits version: ^MAJOR.0.0, or
+// ^0.MINOR.0 for a 0.x version, or ^version for a prerelease, which a range
+// admits only when it names it. It is empty when none does, so a version that is
+// not semver never gets a wrong range.
 func majorRange(version string) string {
-	major, _, _ := strings.Cut(version, ".")
-	r := "^" + major + ".0.0"
-	if CheckRange(r, version) != RangeSatisfied {
-		return ""
+	major, rest, _ := strings.Cut(version, ".")
+	minor, _, _ := strings.Cut(rest, ".")
+	candidates := []string{"^" + major + ".0.0"}
+	if major == "0" {
+		candidates = append(candidates, "^0."+minor+".0")
 	}
-	return r
+	for _, r := range append(candidates, "^"+version) {
+		if CheckRange(r, version) == RangeSatisfied {
+			return r
+		}
+	}
+	return ""
 }
