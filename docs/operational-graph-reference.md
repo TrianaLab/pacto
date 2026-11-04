@@ -259,6 +259,10 @@ never read as healthy. The API filters them with `businessDomain=(none)` and
 revision declares, while the filter groups it by its service's domain.
 Domains are returned only to a query that asks for the `domain` kind.
 
+The registry path in the service key, such as `ghcr.io/acme`, is a different
+value. The API keeps it as `domain` and the dashboard shows it as Registry. The
+business domain is `businessDomain` in the API.
+
 ## Platform offerings
 
 A service's platform offering and summary are the
@@ -304,7 +308,3 @@ provider's name, ignoring case. Suggestions are never counted as consumption.
 
 The `capability` filter and facet count each declared capability by its key:
 `health`, `metrics` or, for an extension, its ref, such as `acme.io/cost`.
-
-The registry path in the service key, such as `ghcr.io/acme`, is a different
-value. The API keeps it as `domain` and the dashboard shows it as Registry. The
-business domain is `businessDomain` in the API.
