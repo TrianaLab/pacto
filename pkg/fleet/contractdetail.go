@@ -1,9 +1,13 @@
 package fleet
 
 import (
+	"fmt"
+	"io"
+	"slices"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // Bounded projections of what a contract revision DECLARES.
@@ -81,6 +85,9 @@ type ConfigurationSummary struct {
 	// Resolution is present only when this scope declares a Ref, and reports where
 	// that ref resolves to (or why it does not).
 	Resolution *RefResolution `json:"resolution,omitempty"`
+	// Content is the bounded summary of the local Schema file, nil when the
+	// scope declares none.
+	Content *SchemaContent `json:"content,omitempty"`
 }
 
 // ConfigurationsPreview is a bounded preview of declared configuration scopes.
@@ -100,6 +107,96 @@ type PolicySummary struct {
 	Target string `json:"target,omitempty"`
 	// Resolution is present only when this policy declares a Ref; see [RefResolution].
 	Resolution *RefResolution `json:"resolution,omitempty"`
+	// Content is the bounded summary of the local Schema file, nil when the
+	// policy declares none.
+	Content *SchemaContent `json:"content,omitempty"`
+}
+
+// SchemaContent is the bounded summary of a JSON Schema file a configuration
+// scope or policy declares in its own bundle. It is read from the bundle files
+// when the detail is requested (a local bundle reflects the files at that
+// moment), never stored in the snapshot.
+type SchemaContent struct {
+	Title       string             `json:"title,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Properties  []schemax.Property `json:"properties"`
+	Total       int                `json:"total"`
+	Truncated   bool               `json:"truncated"`
+	// Unavailable says why the file could not be read or parsed; Properties is
+	// then empty and means unknown.
+	Unavailable string `json:"unavailable,omitempty"`
+}
+
+// maxSchemaBytes bounds a schema read, like MaxDocumentBytes bounds a document.
+const maxSchemaBytes = 1 << 20
+
+// revisionSchema reads the schema at path from rev's bundle files. rev must be
+// the SNAPSHOT record: a JSON clone has lost the bundle and the doc conflict.
+func revisionSchema(rev *ContractRevision, path string) *SchemaContent {
+	data, reason := readRevisionFile(rev, path)
+	if reason == "" {
+		if err := schemax.Parse(data, path); err != nil {
+			reason = "the schema file could not be parsed: " + err.Error()
+		}
+	}
+	if reason != "" {
+		return &SchemaContent{Properties: []schemax.Property{}, Unavailable: capLen(reason, maxRuntimeValueLen)}
+	}
+	src, total, trunc := boundSlice(schemax.Properties(data, path), MaxDetailPreview)
+	props := make([]schemax.Property, len(src))
+	for i, p := range src {
+		props[i] = schemax.Property{
+			Key: capLen(p.Key, maxRuntimeValueLen), Value: capLen(p.Value, maxRuntimeValueLen), Type: capLen(p.Type, maxRuntimeValueLen),
+		}
+	}
+	title, desc := schemax.Meta(data, path)
+	return &SchemaContent{
+		Title: capLen(title, maxRuntimeValueLen), Description: capLen(desc, maxRuntimeValueLen),
+		Properties: props, Total: total, Truncated: trunc,
+	}
+}
+
+// readRevisionFile reads one bundle file under maxSchemaBytes, or says why it
+// cannot.
+func readRevisionFile(rev *ContractRevision, path string) ([]byte, string) {
+	if rev.docConflict != "" {
+		return nil, rev.docConflict
+	}
+	if rev.bundle == nil || rev.bundle.FS == nil {
+		return nil, "the bundle files were not kept for this revision"
+	}
+	f, err := rev.bundle.FS.Open(path)
+	if err != nil {
+		return nil, "the schema file could not be read: " + err.Error()
+	}
+	defer f.Close() //nolint:errcheck // read-only
+	data, err := io.ReadAll(io.LimitReader(f, maxSchemaBytes+1))
+	if err != nil {
+		return nil, "the schema file could not be read: " + err.Error()
+	}
+	if len(data) > maxSchemaBytes {
+		return nil, fmt.Sprintf("the schema file is larger than %d MiB", maxSchemaBytes>>20)
+	}
+	return data, ""
+}
+
+// withSchemaContent returns copies of the previews with each local schema's
+// content attached. The item slices are copied for the same reason as in
+// withConfigResolutions.
+func withSchemaContent(rev *ContractRevision, cfgs ConfigurationsPreview, pols PoliciesPreview) (ConfigurationsPreview, PoliciesPreview) {
+	cfgs.Items = slices.Clone(cfgs.Items)
+	for i := range cfgs.Items {
+		if cfgs.Items[i].Schema != "" {
+			cfgs.Items[i].Content = revisionSchema(rev, cfgs.Items[i].Schema)
+		}
+	}
+	pols.Items = slices.Clone(pols.Items)
+	for i := range pols.Items {
+		if pols.Items[i].Schema != "" {
+			pols.Items[i].Content = revisionSchema(rev, pols.Items[i].Schema)
+		}
+	}
+	return cfgs, pols
 }
 
 // PoliciesPreview is a bounded preview of declared policies.

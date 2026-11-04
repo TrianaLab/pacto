@@ -306,6 +306,9 @@ type ProductServiceDetail struct {
 	OwnerRevision          *ProductRef                          `json:"ownerRevision,omitempty"`
 	Sources                ProductRefPreview                    `json:"sources"`
 	UnresolvedDependencies ProductUnresolvedDependenciesPreview `json:"unresolvedDependencies"`
+	CurrentRevision        *ProductRef                          `json:"currentRevision,omitempty"`
+	Policies               ProductPoliciesPreview               `json:"policies"`
+	Configurations         ProductConfigurationsPreview         `json:"configurations"`
 	Revisions              ProductRefPreview                    `json:"revisions"`
 	ActiveRevisions        ProductRefPreview                    `json:"activeRevisions"`
 	Deployments            ProductRefPreview                    `json:"deployments"`
@@ -325,6 +328,9 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 		OwnerRevision:          productRefPtr(d.OwnerRevision),
 		Sources:                productRefPreview(d.Sources),
 		UnresolvedDependencies: productUnresolvedDependencies(d.UnresolvedDependencies),
+		CurrentRevision:        productRefPtr(d.CurrentRevision),
+		Policies:               productPoliciesPreview(d.Policies),
+		Configurations:         productConfigurationsPreview(d.Configurations),
 		Revisions:              productRefPreview(d.Revisions),
 		ActiveRevisions:        productRefPreview(d.ActiveRevisions),
 		Deployments:            productRefPreview(d.Deployments),

@@ -2302,6 +2302,15 @@ export interface components {
             /** Format: int64 */
             packages: number;
         };
+        "Fleet.SchemaContent": {
+            description?: string;
+            properties: components["schemas"]["Schemax.Property"][] | null;
+            title?: string;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+            unavailable?: string;
+        };
         "Fleet.ScopeTally": {
             /** Format: int64 */
             nonCompliant: number;
@@ -2974,6 +2983,7 @@ export interface components {
             truncated: boolean;
         };
         ProductConfigurationSummary: {
+            content?: components["schemas"]["Fleet.SchemaContent"];
             name: string;
             ref?: string;
             required: boolean;
@@ -3201,6 +3211,7 @@ export interface components {
             truncated: boolean;
         };
         ProductPolicySummary: {
+            content?: components["schemas"]["Fleet.SchemaContent"];
             name: string;
             ref?: string;
             resolution?: components["schemas"]["ProductRefResolution"];
@@ -3290,6 +3301,8 @@ export interface components {
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
             capabilities: components["schemas"]["Fleet.StringsPreview"];
+            configurations: components["schemas"]["ProductConfigurationsPreview"];
+            currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];
             dependents: components["schemas"]["ProductRefPreview"];
             deployments: components["schemas"]["ProductRefPreview"];
@@ -3303,6 +3316,7 @@ export interface components {
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
+            policies: components["schemas"]["ProductPoliciesPreview"];
             referencedBy: components["schemas"]["ProductRefPreview"];
             relationships: components["schemas"]["ProductRelationshipsPreview"];
             revisions: components["schemas"]["ProductRefPreview"];

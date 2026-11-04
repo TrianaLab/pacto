@@ -526,3 +526,24 @@ func TestProductServiceDetail_NewRefsHref(t *testing.T) {
 		t.Errorf("unresolvedDependencies = %+v", u)
 	}
 }
+
+// TestProductServiceDetail_CurrentRevisionAndPolicies: the current revision and
+// a referenced policy's destination carry a canonical href.
+func TestProductServiceDetail_CurrentRevisionAndPolicies(t *testing.T) {
+	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "svc@1"}
+	res := &fleet.RefResolution{Resolved: true, Service: &fleet.EntityRef{Kind: fleet.KindService, Key: "shared"}}
+	d := toProductServiceDetail(&fleet.ServiceDetailData{
+		CurrentRevision: &rev,
+		Policies:        fleet.PoliciesPreview{Total: 1, Count: 1, Items: []fleet.PolicySummary{{Name: "p", Ref: "oci://x/shared", Resolution: res}}},
+		Configurations:  fleet.ConfigurationsPreview{Total: 1, Count: 1, Items: []fleet.ConfigurationSummary{{Name: "c", Ref: "oci://x/shared", Resolution: res}}},
+	})
+	if d.CurrentRevision == nil || d.CurrentRevision.Href == "" {
+		t.Errorf("currentRevision = %+v", d.CurrentRevision)
+	}
+	if p := d.Policies.Items; len(p) != 1 || p[0].Resolution.Service.Href == "" {
+		t.Errorf("policies = %+v", p)
+	}
+	if c := d.Configurations.Items; len(c) != 1 || c[0].Resolution.Service.Href == "" {
+		t.Errorf("configurations = %+v", c)
+	}
+}

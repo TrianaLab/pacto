@@ -35,6 +35,14 @@ func unmarshalSpec(data []byte, path string) (map[string]any, error) {
 	return spec, yaml.Unmarshal(data, &spec)
 }
 
+// Parse reports whether data parses as a schema document (JSON for .json
+// paths, YAML otherwise). It tells an unparseable document apart from one
+// that declares no properties, which [Properties] cannot.
+func Parse(data []byte, path string) error {
+	_, err := unmarshalSpec(data, path)
+	return err
+}
+
 // Properties parses a JSON Schema document and returns its top-level properties
 // flattened with dot-notation keys (nested objects are recursed). It returns
 // nil when the document is unparseable or declares no properties.

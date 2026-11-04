@@ -340,6 +340,13 @@ type ServiceDetailData struct {
 	// Dependencies and HiddenDependencies they add up to
 	// Summary.DeclaredDependencies.
 	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`
+	// CurrentRevision is the newest revision in use (see [lessRevisionChrono]),
+	// else the newest known one; nil when the service has no revision.
+	// Policies and Configurations are what it declares, with local schema
+	// content read when the detail is requested.
+	CurrentRevision *EntityRef            `json:"currentRevision,omitempty"`
+	Policies        PoliciesPreview       `json:"policies"`
+	Configurations  ConfigurationsPreview `json:"configurations"`
 	// Summary aggregates the COMPLETE target/revision/edge populations. The
 	// previews below are bounded, so a consumer that needs a proportion or a total
 	// must read it here and never count preview Items.
@@ -636,6 +643,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	ownership.Unknown = !ownership.Declared && q.ownershipUnknown(s)
 	nb, nbErr := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()})
 	rels, nbLims := serviceRelationships(nb, nbErr, self)
+	current, cfgs, pols := q.currentRevisionContent(active, view.Revisions)
 	data := &ServiceDetailData{
 		Domain:                 s.Domain,
 		Ownership:              ownership,
@@ -643,6 +651,9 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Capabilities:           stringsPreview(slices.DeleteFunc(q.serviceCapabilities(s), func(c string) bool { return c == "" })),
 		Sources:                refPreview(q.serviceSources(view)),
 		UnresolvedDependencies: unresolvedDependencyItems(self, view.Dependencies),
+		CurrentRevision:        current,
+		Policies:               pols,
+		Configurations:         cfgs,
 		Summary:                summary,
 		// Newest first, in revision chronology: a version list ordered by content
 		// digest is unreadable as history.
@@ -673,7 +684,10 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	exact, inferred := q.targetsForRevision(rev.Key)
 	prev, next := q.siblingRevisions(rev)
 	cfgRefs, polRefs := q.revisionRefResolutions(rev.Key)
+	cfgs, pols := withSchemaContent(rev, withConfigResolutions(rev.configurations, cfgRefs), policiesPreview(rev.Contract.Policies, polRefs))
 	data := &RevisionDetailData{
+		Configurations:  cfgs,
+		Policies:        pols,
 		Service:         q.serviceRef(rev.ServiceKey),
 		Version:         rev.Version,
 		PactoVersion:    rev.PactoVersion,
@@ -686,8 +700,6 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Environments:    environmentsPreview(rev.Environments),
 		Capabilities:    capabilitiesPreview(rev.Contract.Capabilities),
 		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
-		Configurations:  withConfigResolutions(rev.configurations, cfgRefs),
-		Policies:        policiesPreview(rev.Contract.Policies, polRefs),
 		Workload:        rev.Contract.Workload,
 		State:           stateSummary(rev.Contract.State),
 		Dependencies:    relationshipsPreview(q.revisionEdges(rev.Key)),
@@ -1256,6 +1268,34 @@ func (q *Query) ownershipUnknown(s *ServiceRecord) bool {
 		}
 	}
 	return true
+}
+
+// currentRevisionContent picks the service's current revision (the newest in
+// use, else the newest known) and projects its policies and configurations.
+// It reads the SNAPSHOT record: active and all are clones without bundle files.
+func (q *Query) currentRevisionContent(active, all []*ContractRevision) (*EntityRef, ConfigurationsPreview, PoliciesPreview) {
+	cfgs, pols := ConfigurationsPreview{Items: []ConfigurationSummary{}}, PoliciesPreview{Items: []PolicySummary{}}
+	pick := active
+	if len(pick) == 0 {
+		pick = all
+	}
+	var cur *ContractRevision
+	for _, r := range pick {
+		if cur == nil || lessRevisionChrono(cur, r) {
+			cur = r
+		}
+	}
+	if cur == nil {
+		return nil, cfgs, pols
+	}
+	rec := q.snap.Revisions[cur.Key]
+	ref := revisionEntityRef(rec)
+	if rec.Contract == nil {
+		return &ref, cfgs, pols
+	}
+	cfgRefs, polRefs := q.revisionRefResolutions(rec.Key)
+	cfgs, pols = withSchemaContent(rec, withConfigResolutions(rec.configurations, cfgRefs), policiesPreview(rec.Contract.Policies, polRefs))
+	return &ref, cfgs, pols
 }
 
 // ownerRevision is the newest revision (see [lessRevisionChrono]) that declares an
