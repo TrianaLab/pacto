@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import {
-    attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel,
+    attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel, businessDomainLabel,
   } from '../lib/entityLabels.ts';
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
   import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
@@ -38,7 +38,7 @@
   // canonical owner IDENTITY that owner pages and per-owner rankings link with, so a
   // canonical backlog for `team-a` never quietly includes `team-a-platform`.
   let {
-    category = '', severity = '', status = '', owner = '', ownerKey = '', source = '', service = '',
+    category = '', severity = '', status = '', owner = '', ownerKey = '', source = '', service = '', businessDomain = '',
     staleOnly = '', offset = '', limit = '', refreshTick = 0,
   } = $props();
 
@@ -53,7 +53,7 @@
   const ownerChipValue = $derived(
     ownerKeyKind(ownerKey) ? `${ownerKeyLabel(ownerKey)} (${ownerKeyKind(ownerKey)})` : ownerKey,
   );
-  const anyFilter = $derived(!!(category || severity || status || owner || ownerKey || source || service || isStale));
+  const anyFilter = $derived(!!(category || severity || status || owner || ownerKey || source || service || businessDomain || isStale));
 
   // One reusable, race-safe loader: the fetcher reads current filters
   // at request time; sync(key) dedupes the initial load and the generation guard stops
@@ -68,15 +68,16 @@
     ownerKey: ownerKey || undefined,
     source: source || undefined,
     service: service || undefined,
+    businessDomain: businessDomain || undefined,
     staleOnly: isStale ? true : undefined,
     offset: pageOffset || undefined,
     limit: pageLimit,
   }));
   // queryIdentity is the QUESTION (filters + page); refreshTick only re-asks it. Rows
   // are retained across a re-ask and never across a different question.
-  const queryIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly, pageOffset, pageLimit].join('@@'));
+  const queryIdentity = $derived([category, severity, status, owner, ownerKey, source, service, businessDomain, staleOnly, pageOffset, pageLimit].join('@@'));
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly].join('@@'));
+  const listIdentity = $derived([category, severity, status, owner, ownerKey, source, service, businessDomain, staleOnly].join('@@'));
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -102,6 +103,7 @@
       ownerKey: patch.ownerKey ?? ownerKey,
       source: patch.source ?? source,
       service: patch.service ?? service,
+      businessDomain: patch.businessDomain ?? businessDomain,
       staleOnly: stale || undefined,
       offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE),
@@ -135,6 +137,8 @@
     // like every other filter so the user can see they are in one service's backlog
     // and widen to the fleet in one click, instead of silently reading a subset.
     service ? { key: 'service', label: 'Service', value: service } : null,
+    // Arrives from a domain page, so the reader can see the backlog is one domain's.
+    businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain === '(none)' ? '' : businessDomain) } : null,
     isStale ? { key: 'staleOnly', label: 'Stale only', value: 'yes' } : null,
   ].filter(Boolean));
   // Category buckets come from the backend in canonical order with their zeros; the
@@ -142,7 +146,7 @@
   // filter link so the chart is a triage control, not a picture.
   const CATEGORY_TONE = {
     'non-compliant': 'err', invalid: 'err', unknown: 'warn', stale: 'warn',
-    unresolved: 'warn', readiness: 'info',
+    unresolved: 'warn', readiness: 'info', unowned: 'info',
   };
   const categoryBars = $derived((list?.categories ?? []).map((b) => ({
     label: attentionCategoryLabel(b.category),

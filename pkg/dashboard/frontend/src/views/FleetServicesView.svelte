@@ -4,6 +4,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
+  import { businessDomainLabel } from '../lib/entityLabels.ts';
   import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
   import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
@@ -36,14 +37,14 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
   const order = $derived(sort || 'name');
-  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -66,6 +67,8 @@
     ownership: ownership || undefined,
     status: status || undefined,
     domain: domain || undefined,
+    businessDomain: businessDomain || undefined,
+    capability: capability || undefined,
     offset: pageOffset || undefined,
     limit: pageLimit,
     sort: order,
@@ -76,9 +79,9 @@
   // retaining them across a filter change would be showing one query's answer under
   // another query's heading, so `list` is gated on the tag matching. A page turn is the
   // exception: the old page stays, under a "Loading another page" line, until the next lands.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${order}`);
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -104,6 +107,8 @@
       ownership: patch.ownership ?? ownership,
       status: patch.status ?? status,
       domain: patch.domain ?? domain,
+      businessDomain: patch.businessDomain ?? businessDomain,
+      capability: patch.capability ?? capability,
       offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE),
       sort: (patch.sort ?? sort) || undefined,
@@ -115,7 +120,7 @@
 
   // A picked suggestion goes to that exact service, by the canonical href the backend
   // put on the reference (falling back to its canonical key) -- never to a filter
-  // rebuilt from the visible name, which two domains can share.
+  // rebuilt from the visible name, which two registries can share.
   function openSuggestion(ref) {
     location.hash = ref.href ? hashForHref(ref.href) : fleetEntityUrl(ref.kind, ref.key);
   }
@@ -155,8 +160,33 @@
     owner ? { key: 'owner', label: 'Owner search', value: owner } : null,
     ownership ? { key: 'ownership', label: 'Ownership', value: bucketLabel(OWNERSHIP_STATES, ownership) } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
-    domain ? { key: 'domain', label: 'Domain', value: domain } : null,
+    businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain === NO_DOMAIN ? '' : businessDomain) } : null,
+    capability ? { key: 'capability', label: 'Capability', value: capability } : null,
+    domain ? { key: 'domain', label: 'Registry', value: domain } : null,
   ].filter(Boolean));
+
+  // The Domain box holds the domain's name, or "No domain" for the (none) filter. A
+  // pick commits the domain; typed text commits on Enter or blur, and "No domain" (or
+  // "(none)") asks for the services that declare none.
+  const NO_DOMAIN = '(none)';
+  const domainBox = $derived(businessDomain === NO_DOMAIN ? businessDomainLabel('') : businessDomain);
+  let domainCommitted = $state('');
+  $effect(() => { domainCommitted = domainBox; });
+  function pickDomain(ref) { domainCommitted = ref.label ?? ''; apply({ businessDomain: ref.key ?? '' }); }
+  function typeDomain(v) {
+    if (v === domainCommitted) return;
+    domainCommitted = v;
+    const none = v === NO_DOMAIN || v.toLowerCase() === businessDomainLabel('').toLowerCase();
+    apply({ businessDomain: none ? NO_DOMAIN : v });
+  }
+  // The capability types come from the backend aggregate over every matched service,
+  // so the options never describe only the page on screen. A selected type the current
+  // match no longer holds stays listed, so the select never silently shows "Any".
+  const capabilityOptions = $derived.by(() => {
+    const opts = (agg?.capabilities ?? []).map((c) => ({ value: c.type, label: `${c.type} (${formatCount(c.services)})` }));
+    if (capability && !opts.some((o) => o.value === capability)) opts.unshift({ value: capability, label: `${capability} (0)` });
+    return opts;
+  });
 
   // The inventory. `aggregate` is computed by the backend over every service matching
   // these filters, with paging deliberately excluded, so it answers "what does this
@@ -226,7 +256,7 @@
         bind:value={textDraft}
         kinds={['service']}
         placeholder="Search services..."
-        label="Search services by name, key or domain"
+        label="Search services by name, key or registry"
         testid="svc-search"
         onselect={openSuggestion}
       />
@@ -236,9 +266,9 @@
          would swallow the click on a suggestion. The association is by `for` instead. -->
     <div class="sv-field">
       <label for="svc-owner">Owner</label>
-      <!-- Owner is a real backend entity kind derived from the whole snapshot, so its
-           suggestions are the complete owner population. Domain below stays free text:
-           there is no authoritative domain facet to draw from, and suggesting domains
+      <!-- Owner and Domain are backend entity kinds derived from the whole snapshot, so
+           their suggestions are the complete populations. Registry below stays free
+           text: there is no registry facet to draw from, and suggesting registry paths
            off the 25 rows on screen would quietly present a page as the fleet. -->
       <EntityCombobox
         id="svc-owner"
@@ -270,9 +300,29 @@
         {#each STATUS_FILTER_OPTIONS as s}<option value={s}>{statusLabel(s)}</option>{/each}
       </select>
     </label>
+    <div class="sv-field">
+      <label for="svc-domain">Domain</label>
+      <EntityCombobox
+        id="svc-domain"
+        value={domainBox}
+        kinds={['domain']}
+        placeholder="domain or No domain"
+        label="Filter by domain"
+        testid="svc-domain"
+        onselect={pickDomain}
+        oncommit={typeDomain}
+      />
+    </div>
     <label class="sv-field">
-      <span>Domain</span>
-      <input class="input" type="text" value={domain} placeholder="exact domain" aria-label="Filter by domain"
+      <span>Declares capability</span>
+      <select value={capability} aria-label="Filter by declared capability" onchange={(e) => apply({ capability: e.currentTarget.value })}>
+        <option value="">Any capability</option>
+        {#each capabilityOptions as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+      </select>
+    </label>
+    <label class="sv-field">
+      <span>Registry</span>
+      <input class="input" type="text" value={domain} placeholder="exact registry path" aria-label="Filter by registry path"
         onchange={(e) => apply({ domain: e.currentTarget.value.trim() })} />
     </label>
     <ListSort value={order} href={(v) => urlWith({ sort: v === 'name' ? '' : v })} testid="svc-sort" />

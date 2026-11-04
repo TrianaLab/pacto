@@ -2,6 +2,7 @@
   import { formatCount } from '../../lib/format.ts';
   import {
     linkStateLabel, linkStateTone, retrievabilityLabel, retrievabilityTone,
+    targetEnvironmentLabel, targetEnvironmentTone,
   } from '../../lib/entityLabels.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
@@ -84,6 +85,13 @@
     <div class="te-fact"><span class="te-k">Service</span><EntityLink ref={d.service} showStatus={false} showKind={false} /></div>
     {#if siblingTargetsHref}<div class="te-fact"><span class="te-k">Elsewhere</span><a href={siblingTargetsHref} data-testid="sibling-targets-link">All targets of this service</a></div>{/if}
     {#if d.scope}<div class="te-fact"><span class="te-k">Scope</span><span>{d.scope}</span></div>{/if}
+    <!-- Always present: an environment nobody reports reads Unknown, with the reason. -->
+    <div class="te-fact" data-testid="target-environment">
+      <span class="te-k">Environment</span>
+      <IdentityBadge label={targetEnvironmentLabel(d.environment)} tone={targetEnvironmentTone(d.environment)} />
+      {#if d.environment?.declared === 'declared' && d.environment?.check?.status}<span class="te-note">Values check: {d.environment.check.status}</span>{/if}
+      {#if d.environment?.reason}<span class="te-note te-env-reason">{d.environment.reason}</span>{/if}
+    </div>
     {#if d.kind}<div class="te-fact"><span class="te-k">Kind</span><span>{d.kind}</span></div>{/if}
     <!-- No Compliance row: the page header already badges this exact state in the same
          words. Evaluation coverage below is the fact this section adds -- how much of the
@@ -183,4 +191,5 @@
   .te-rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
   .te-rr-head h2 { margin: 0; }
   .te-rr-line, .te-note { margin: 0; }
+  .te-env-reason { color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
 </style>

@@ -3,6 +3,8 @@
   import { abbreviateDigests } from '../../lib/format.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
+  import IdentityBadge from '../../components/IdentityBadge.svelte';
+  import { businessDomainLabel } from '../../lib/entityLabels.ts';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
@@ -27,6 +29,7 @@
   let { detail } = $props();
   const d = $derived(detail.service ?? {});
   const key = $derived(detail.entity?.key ?? '');
+  const bd = $derived(detail.entity?.businessDomain ?? '');
   // The graph focus is a meaningful continuation for the neighborhood previews
   // (dependencies/dependents/differences), whose exact contents live in the graph.
   const graphHref = $derived(fleetGraphFocusUrl('service', key));
@@ -69,11 +72,18 @@
 </script>
 
 <div class="svc-entity">
-  <!-- The domain used to be repeated here as a fact. It is the same string the page
-       header already prints in its eyebrow (both come from Service.Domain), so showing
-       it twice cost a line and told the reader nothing new (reduce
-       text, not information). -->
+  <!-- The registry path stays in the page header's eyebrow. The business domain is a
+       fact here because it is a place to go: it links to the domain page, and a
+       service with none says so in a neutral tone. -->
   <section class="se-facts">
+    <div class="se-fact" data-testid="service-domain">
+      <span class="se-k">Domain</span>
+      {#if bd}
+        <EntityLink ref={{ kind: 'domain', key: bd, label: bd }} showStatus={false} showKind={false} />
+      {:else}
+        <IdentityBadge label={businessDomainLabel('')} tone="neutral" title="No contract revision of this service declares service.domain." describe />
+      {/if}
+    </div>
     {#if d.ownership}
       <div class="se-fact">
         <span class="se-k">Owner</span>
