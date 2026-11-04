@@ -1450,11 +1450,17 @@ func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(c
 // field has: its contract was read, it is not invalid and what it declares is
 // valid or none.
 func serviceValueEvidence(r *ContractRevision, declared func(contract.Service) string, valid func(string) bool) bool {
-	if r.Contract == nil || (r.validated && !r.Valid) {
+	if !readableRevision(r) {
 		return false
 	}
 	v := declared(r.Contract.Service)
 	return v == "" || valid(v)
+}
+
+// readableRevision reports whether a revision's contract was read and is not
+// invalid.
+func readableRevision(r *ContractRevision) bool {
+	return r.Contract != nil && (!r.validated || r.Valid)
 }
 
 // deriveOffering sets a service's platform offering and summary by the rule

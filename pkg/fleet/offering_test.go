@@ -2,7 +2,9 @@ package fleet
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -208,5 +210,272 @@ func TestSearch_OfferingAndSummary(t *testing.T) {
 	}
 	if len(r.Services) != 1 || r.Services[0].Summary != "The primary database" {
 		t.Errorf("summary search = %+v", r.Services)
+	}
+}
+
+// ociRev is a revision of c published at oci://domain/name:version.
+func ociRev(domain string, c *contract.Contract, files fstest.MapFS) RawRevision {
+	if files == nil {
+		files = fstest.MapFS{}
+	}
+	ref := "oci://" + domain + "/" + c.Service.Name + ":" + c.Service.Version
+	return RawRevision{Bundle: &contract.Bundle{Contract: c, FS: files}, Domain: domain, RequestedRef: ref, Digest: testDigest(domain, c.Service.Name, c.Service.Version)}
+}
+
+// testDigest is the content digest ociRev gives a revision, which a reference
+// pins to resolve.
+func testDigest(domain, name, version string) string {
+	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(domain+"/"+name+":"+version)))
+}
+
+func svc25(name, version, offering string) *contract.Contract {
+	return &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: name, Version: version, Offering: offering}}
+}
+
+func offeringDetailFleet(t *testing.T) *Query {
+	t.Helper()
+	app := svc25("platform-app-config", "1.0.1", "shared-config")
+	app.Service.Summary, app.Service.Owner = "Shared application configuration", contract.Owner{Team: "platform"}
+	app.Configurations = []contract.Configuration{{Name: "app", Schema: "config/schema.json", Required: true}}
+	app.Policies = []contract.Policy{{Name: "p", Schema: "policy/schema.json"}}
+	files := fstest.MapFS{"config/schema.json": {Data: []byte(`{"title":"App","properties":{"logLevel":{"type":"string"}}}`)}}
+	worker := svc25("platform-worker-config", "1.2.0", "shared-config")
+	worker.Workload = contract.WorkloadService
+	web := svc25("web", "1.0.0", "")
+	web.Configurations = []contract.Configuration{{Name: "app", Ref: "oci://ghcr.io/acme/platform-app-config@" + testDigest("ghcr.io/acme", "platform-app-config", "1.0.1"), Required: true}}
+	jobs := svc25("jobs", "1.0.0", "")
+	jobs.Dependencies = []contract.Dependency{
+		{Name: "platform-worker-config", Ref: "oci://ghcr.io/acme/platform-worker-config", Required: true, Compatibility: "^1.0.0"},
+		{Name: "web", Required: true}, {Name: "nowhere", Required: true},
+	}
+	return buildDomainSnap(t, "oci", &Collection{Targets: []RawTarget{
+		{Scope: "prod", Kind: "k8s", Name: "app-config", Service: "platform-app-config", Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", "platform-app-config", "1.0.1")},
+	}, Revisions: []RawRevision{
+		ociRev("ghcr.io/acme", svc25("platform-app-config", "1.0.0", "shared-config"), nil),
+		ociRev("ghcr.io/acme", app, files), ociRev("ghcr.io/acme", worker, nil),
+		ociRev("ghcr.io/acme", web, nil), ociRev("ghcr.io/acme", jobs, nil),
+	}})
+}
+
+func offeringData(t *testing.T, q *Query, key string) *OfferingDetailData {
+	t.Helper()
+	d, err := q.EntityDetail(KindOffering, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Entity.Kind != KindOffering || d.Entity.Key != key {
+		t.Fatalf("entity = %+v", d.Entity)
+	}
+	return d.Offering
+}
+
+func TestOfferingDetail_Providers(t *testing.T) {
+	o := offeringData(t, offeringDetailFleet(t), "shared-config")
+	if o.Providers.Total != 2 || len(o.Providers.Items) != 2 {
+		t.Fatalf("providers = %+v", o.Providers)
+	}
+	wantAppProvider(t, o.Providers.Items[0])
+	if a := o.Providers.Items[0].Consume; a == nil || !a.Configuration || a.Dependency || a.Policy {
+		t.Errorf("app snippet = %+v", a)
+	}
+	if w := o.Providers.Items[1].Consume; w == nil || !w.Dependency || w.Compatibility != "^1.0.0" {
+		t.Errorf("worker snippet = %+v", w)
+	}
+}
+
+func wantAppProvider(t *testing.T, app OfferingProvider) {
+	t.Helper()
+	if app.Ownership == nil || app.Ownership.Owner != "platform" {
+		t.Errorf("app ownership = %+v", app.Ownership)
+	}
+	if app.Service.Label != "platform-app-config" || app.Summary != "Shared application configuration" || app.Revisions.Total != 2 || app.ActiveRevisions.Total != 1 || app.CurrentRevision == nil || app.CurrentRevision.Version != "1.0.1" {
+		t.Errorf("app provider = %+v", app)
+	}
+	if c := app.Configurations.Items; len(c) != 1 || c[0].Content == nil || c[0].Content.Title != "App" || app.Policies.Total != 1 {
+		t.Errorf("app configurations = %+v, policies = %+v", app.Configurations, app.Policies)
+	}
+}
+
+func TestOfferingDetail_Consumers(t *testing.T) {
+	o := offeringData(t, offeringDetailFleet(t), "shared-config")
+	got := map[string]OfferingUse{}
+	for _, u := range o.Consumers.Items {
+		got[u.Consumer.Label] = u
+	}
+	if len(got) != 2 || got["web"].Via != RelationshipConfigRef || got["web"].Provider.Label != "platform-app-config" ||
+		got["jobs"].Via != RelationshipDependency || got["jobs"].RangeStatus != RangeSatisfied || got["jobs"].Compatibility != "^1.0.0" {
+		t.Errorf("consumers = %+v", o.Consumers.Items)
+	}
+}
+
+func TestOfferingDetail_SameNameDifferentRegistries(t *testing.T) {
+	cfg := func(domain, name string) *contract.Contract {
+		c := svc25(name, "1.0.0", "")
+		ref := "oci://" + domain + "/platform-app-config@" + testDigest(domain, "platform-app-config", "1.0.0")
+		c.Configurations = []contract.Configuration{{Name: "app", Ref: ref, Required: true}}
+		return c
+	}
+	p := func() *contract.Contract {
+		c := svc25("platform-app-config", "1.0.0", "shared-config")
+		c.Configurations = []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}}
+		return c
+	}
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
+		ociRev("ghcr.io/acme", p(), nil), ociRev("partners.acme.com/pacto", p(), nil),
+		ociRev("ghcr.io/acme", cfg("ghcr.io/acme", "web"), nil), ociRev("partners.acme.com/pacto", cfg("partners.acme.com/pacto", "partner-web"), nil),
+	}})
+	o := offeringData(t, q, "shared-config")
+	if len(o.Providers.Items) != 2 {
+		t.Fatalf("providers = %+v", o.Providers.Items)
+	}
+	a, b := o.Providers.Items[0], o.Providers.Items[1]
+	if a.Service.Key == b.Service.Key || a.Consume.Ref != "oci://ghcr.io/acme/platform-app-config" || b.Consume.Ref != "oci://partners.acme.com/pacto/platform-app-config" {
+		t.Errorf("providers %s (%s) and %s (%s)", a.Service.Key, a.Consume.Ref, b.Service.Key, b.Consume.Ref)
+	}
+	for _, u := range o.Consumers.Items {
+		if u.Consumer.Domain != u.Provider.Domain {
+			t.Errorf("%s consumes the provider in %s", u.Consumer.Key, u.Provider.Domain)
+		}
+	}
+	if o.Consumers.Total != 2 {
+		t.Errorf("consumers = %+v", o.Consumers.Items)
+	}
+}
+
+func snippetFor(t *testing.T, raw RawRevision) *ConsumeSnippet {
+	t.Helper()
+	c := raw.Bundle.Contract
+	o := offeringData(t, buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{raw}}), c.Service.Offering)
+	return o.Providers.Items[0].Consume
+}
+
+func TestConsumeSnippet_DependencyRange(t *testing.T) {
+	c := svc25("postgresql", "16.0.1", "postgresql")
+	c.Workload = contract.WorkloadService
+	sn := snippetFor(t, ociRev("ghcr.io/trianalab/pacto", c, nil))
+	want := "dependencies:\n  - name: postgresql\n    ref: oci://ghcr.io/trianalab/pacto/postgresql\n    required: true\n    compatibility: \"^16.0.0\"\n"
+	if sn == nil || sn.YAML != want || sn.Compatibility != "^16.0.0" {
+		t.Errorf("snippet = %+v, want %q", sn, want)
+	}
+}
+
+func TestConsumeSnippet_NonSemverOmitsRange(t *testing.T) {
+	for _, v := range []string{"latest", "2024.01.01-beta"} {
+		c := svc25("redis", v, "redis")
+		c.Interfaces = []contract.Interface{{Name: "resp", Type: "tcp"}}
+		sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
+		if sn == nil || sn.Compatibility != "" || strings.Contains(sn.YAML, "compatibility") || !sn.Dependency {
+			t.Errorf("%s: snippet = %+v", v, sn)
+		}
+	}
+}
+
+func TestConsumeSnippet_PolicyOnly(t *testing.T) {
+	c := svc25("platform-http-policy", "1.0.0", "shared-policy")
+	c.Policies = []contract.Policy{{Name: "http", Schema: "policy/schema.json"}}
+	sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
+	want := "policies:\n  - name: shared-policy\n    ref: oci://ghcr.io/acme/platform-http-policy\n"
+	if sn == nil || sn.YAML != want || !sn.Policy {
+		t.Errorf("snippet = %+v, want %q", sn, want)
+	}
+}
+
+func TestConsumeSnippet_NoOCIRef(t *testing.T) {
+	c := svc25("redis", "7.0.0", "redis")
+	c.Workload = contract.WorkloadService
+	raw := ociRev("ghcr.io/acme", c, nil)
+	raw.RequestedRef = ""
+	if sn := snippetFor(t, raw); sn != nil {
+		t.Errorf("no reference: snippet = %+v", sn)
+	}
+	raw.RequestedRef = "file:///src/redis"
+	if sn := snippetFor(t, raw); sn != nil {
+		t.Errorf("a local file: snippet = %+v", sn)
+	}
+	// Nothing to consume.
+	if sn := snippetFor(t, ociRev("ghcr.io/acme", svc25("empty", "1.0.0", "empty"), nil)); sn != nil {
+		t.Errorf("an empty contract: snippet = %+v", sn)
+	}
+}
+
+// The snippet comes from the newest revision that is not invalid.
+func TestConsumeSnippet_InvalidNewestRevisionIgnored(t *testing.T) {
+	bad := mustParse(t, invalidYAML)
+	bad.PactoVersion, bad.Service.Version, bad.Service.Offering = "2.5", "2.0.0", "cache"
+	old := svc25("bad-svc", "1.4.0", "cache")
+	old.Workload = contract.WorkloadService
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
+		ociRev("", old, nil), {Bundle: &contract.Bundle{Contract: bad, RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}, RequestedRef: "oci://bad-svc:2.0.0"},
+	}})
+	sn := offeringData(t, q, "cache").Providers.Items[0].Consume
+	if sn == nil || sn.Compatibility != "^1.0.0" {
+		t.Errorf("snippet = %+v, want the range of 1.4.0", sn)
+	}
+}
+
+func TestOfferingDetail_ProvidersBounded(t *testing.T) {
+	var revs []RawRevision
+	for i := range MaxOfferingProviders + 5 {
+		revs = append(revs, offerRev("p"+strings.Repeat("x", i), "1.0.0", "shared", ""))
+	}
+	o := offeringData(t, buildDomainSnap(t, "local", &Collection{Revisions: revs}), "shared")
+	if o.Providers.Count != MaxOfferingProviders || o.Providers.Total != MaxOfferingProviders+5 || !o.Providers.Truncated || len(o.Providers.Items) != MaxOfferingProviders {
+		t.Errorf("providers = %d of %d (truncated %v)", o.Providers.Count, o.Providers.Total, o.Providers.Truncated)
+	}
+}
+
+func TestOfferingDetail_NotFound(t *testing.T) {
+	var nf *NotFoundError
+	for _, key := range []string{"nope", ""} {
+		if _, err := offeringFleet(t).EntityDetail(KindOffering, key); !errors.As(err, &nf) || nf.Kind != "offering" {
+			t.Errorf("%q: err = %v, want NotFoundError", key, err)
+		}
+	}
+}
+
+func TestEntityDetail_OfferingIsCloned(t *testing.T) {
+	q := offeringDetailFleet(t)
+	first := offeringData(t, q, "shared-config")
+	first.Providers.Items[0].Consume.YAML = "mutated"
+	first.Consumers.Items[0].Consumer.Label = "mutated"
+	second := offeringData(t, q, "shared-config")
+	if second.Providers.Items[0].Consume.YAML == "mutated" || second.Consumers.Items[0].Consumer.Label == "mutated" {
+		t.Error("mutating an answer changed the next one")
+	}
+}
+
+// Revisions of one consumer collapse into one row; when their range statuses
+// disagree it is unknown.
+func TestOfferingUses_RevisionsCollapse(t *testing.T) {
+	worker := svc25("platform-worker-config", "1.2.0", "shared-config")
+	worker.Workload = contract.WorkloadService
+	jobs := func(version, compat string) RawRevision {
+		c := svc25("jobs", version, "")
+		c.Dependencies = []contract.Dependency{{Name: "platform-worker-config", Required: true, Compatibility: compat}}
+		return ociRev("ghcr.io/acme", c, nil)
+	}
+	for _, tc := range []struct {
+		revs []RawRevision
+		want string
+	}{
+		{[]RawRevision{jobs("1.0.0", ""), jobs("1.1.0", "^1.0.0")}, RangeSatisfied},
+		{[]RawRevision{jobs("1.0.0", "^1.0.0"), jobs("1.1.0", ""), jobs("1.2.0", "^2.0.0")}, RangeUnknown},
+	} {
+		q := buildDomainSnap(t, "oci", &Collection{Revisions: append(tc.revs, ociRev("ghcr.io/acme", worker, nil))})
+		c := offeringData(t, q, "shared-config").Consumers
+		if c.Total != 1 || c.Items[0].RangeStatus != tc.want {
+			t.Errorf("consumers = %+v, want one row %s", c.Items, tc.want)
+		}
+	}
+}
+
+// A provider only an operator reports has no revision to describe or consume.
+func TestOfferingDetail_TargetOnlyProvider(t *testing.T) {
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{Targets: []RawTarget{
+		{Scope: "a", Kind: "k8s", Name: "pg", Service: "pg", Offering: "postgresql"},
+	}})
+	p := offeringData(t, q, "postgresql").Providers.Items[0]
+	if p.Consume != nil || p.CurrentRevision != nil || p.Interfaces.Total != 0 || p.Revisions.Total != 0 {
+		t.Errorf("provider = %+v", p)
 	}
 }
