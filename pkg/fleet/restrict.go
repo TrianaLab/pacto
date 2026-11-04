@@ -147,10 +147,13 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 			}
 			continue
 		case to:
-			count(deps, rel.FromService, rel.ToService)
 			if rel.Provenance == ProvenanceObserved {
 				continue // runtime evidence about the hidden service, not the caller's declaration
 			}
+			if rel.Type == RelationshipDependency {
+				count(deps, rel.FromService, rel.ToService)
+			}
+			rel.hiddenTo = rel.ToService // keeps tallyServiceEdges collapsing it like a visible provider
 			rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus = "", "", true, hiddenMessage, ""
 			// What the hidden provider offers and deprecates is its own contract.
 			rel.Unmet, rel.DeprecatedInterfaces = nil, nil

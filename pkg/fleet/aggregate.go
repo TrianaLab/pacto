@@ -674,6 +674,9 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 		if rel.ToService != "" {
 			return "svc:" + string(rel.ToService)
 		}
+		if rel.hiddenTo != "" {
+			return "svc:" + string(rel.hiddenTo)
+		}
 		return "ref:" + rel.To
 	}
 	declared := map[ServiceKey]bool{}

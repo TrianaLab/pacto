@@ -688,6 +688,9 @@ type Relationship struct {
 	// caller's Kubernetes permissions hide: ToService and ResolvedRevision are
 	// blank, and To is only what the declaring contract itself says.
 	Hidden bool `json:"hidden,omitempty"`
+	// hiddenTo is the hidden provider's key, kept off the wire so the declared
+	// count collapses a hidden provider exactly like a visible one.
+	hiddenTo ServiceKey
 	// ObservedCount is the TOTAL runtime calls witnessed across all sources for an
 	// observed (Provenance == observed) edge. Zero for declared edges.
 	ObservedCount int `json:"observedCount,omitempty"`

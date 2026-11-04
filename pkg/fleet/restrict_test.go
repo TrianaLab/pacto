@@ -223,8 +223,9 @@ func TestRestrictUnscoped(t *testing.T) {
 	if len(s.Services) != 4 || s.Services[rReg] != nil || s.Sources[0].RevisionCount != 4 {
 		t.Errorf("services %d, reg %v, revisions %d", len(s.Services), s.Services[rReg], s.Sources[0].RevisionCount)
 	}
-	if s.Services[rAPI].HiddenDependencies != 1 {
-		t.Errorf("api calls the hidden reg: %+v", s.Services[rAPI])
+	// api only CALLS reg at runtime: an observed edge is not a declared dependency.
+	if s.Services[rAPI].HiddenDependencies != 0 {
+		t.Errorf("api's observed call to the hidden reg counted as declared: %+v", s.Services[rAPI])
 	}
 	if res, _ := r.Search(SearchFilter{Text: "reg"}); res.Total != 0 {
 		t.Errorf("search finds the hidden reg: %+v", res)

@@ -506,9 +506,10 @@ func TestServiceDetailSources(t *testing.T) {
 
 // TestServiceDetailUnresolvedDependencies: external and unresolved declared
 // dependencies are listed once each, and the three lists add up to the declared
-// count, also when a provider is hidden by permissions.
+// count, also when a provider is hidden by permissions, declared under two names
+// or only observed.
 func TestServiceDetailUnresolvedDependencies(t *testing.T) {
-	a, b := ServiceKey("a"), ServiceKey("b")
+	a, b, c := ServiceKey("a"), ServiceKey("b"), ServiceKey("c")
 	dep := func(rev, to string, mut func(*Relationship)) Relationship {
 		r := Relationship{FromService: a, FromRevision: RevisionKey(rev), To: to, RequestedRef: to, Type: RelationshipDependency, Provenance: ProvenanceDeclared}
 		mut(&r)
@@ -519,6 +520,7 @@ func TestServiceDetailUnresolvedDependencies(t *testing.T) {
 		Services: map[ServiceKey]*ServiceRecord{
 			a: {Key: a, Name: "a", Revisions: []RevisionKey{"a@1", "a@2"}, Targets: []TargetKey{"ta"}},
 			b: {Key: b, Name: "b", Targets: []TargetKey{"tb"}},
+			c: {Key: c, Name: "c", Targets: []TargetKey{"tc"}},
 		},
 		Revisions: map[RevisionKey]*ContractRevision{
 			"a@1": {Key: "a@1", Service: "a", ServiceKey: a, Version: "1.0.0"},
@@ -527,6 +529,7 @@ func TestServiceDetailUnresolvedDependencies(t *testing.T) {
 		Targets: map[TargetKey]*TargetRecord{
 			"ta": {Key: "ta", Name: "a", Kind: SourceKindKubernetes, Scope: "shop", ServiceKey: a},
 			"tb": {Key: "tb", Name: "b", Kind: SourceKindKubernetes, Scope: "secret", ServiceKey: b},
+			"tc": {Key: "tc", Name: "c", Kind: SourceKindKubernetes, Scope: "secret", ServiceKey: c},
 		},
 		Relationships: []Relationship{
 			// The first record carries neither flag: External is OR-ed and the first
@@ -535,6 +538,10 @@ func TestServiceDetailUnresolvedDependencies(t *testing.T) {
 			dep("a@2", "oci://reg/db", ext),
 			dep("a@1", "oci://reg/missing", func(*Relationship) {}),
 			dep("a@1", "oci://reg/b", func(r *Relationship) { r.ToService, r.Resolved = b, true }),
+			// b again under another name: still one dependency, hidden or not.
+			dep("a@2", "oci://reg/b-renamed", func(r *Relationship) { r.ToService, r.Resolved = b, true }),
+			// c is only called at runtime: never a declared or hidden dependency.
+			{FromService: a, ToService: c, To: "c", Type: RelationshipDependency, Provenance: ProvenanceObserved},
 		},
 	}
 	check := func(name string, q *Query, hidden int) {
