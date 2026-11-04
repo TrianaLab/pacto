@@ -295,6 +295,7 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 	if len(existing.Skills) == 0 {
 		existing.Skills = add.Skills
 	}
+	mergeProvenance(existing, add)
 	lims := mergeRevisionDocs(existing, add)
 	lims = append(lims, mergeRevisionLock(existing, add)...)
 	if existing.ResolvedRef == "" {
@@ -730,11 +731,12 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		Digest:       raw.Digest,
 		// The declared contract is deep-copied so a source mutating its own
 		// bundle after Build can never mutate the snapshot.
-		Contract:  cloneContract(c),
-		Source:    source,
-		Sources:   []string{source},
-		FetchedAt: copyTime(raw.FetchedAt),
-		bundle:    b,
+		Contract:   cloneContract(c),
+		Source:     source,
+		Sources:    []string{source},
+		FetchedAt:  copyTime(raw.FetchedAt),
+		Provenance: cloneProvenance(raw.Provenance),
+		bundle:     b,
 		// The first contribution of a revision keeps its contract, so it keeps
 		// whether that contract's guarantees could be read too.
 		guaranteesUnseen: raw.GuaranteesUnseen,

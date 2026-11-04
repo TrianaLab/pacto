@@ -317,6 +317,9 @@ const (
 	// LimitationObservedNotTargetScoped: runtime observation establishes
 	// service-to-service traffic, not which concrete provider target served it.
 	LimitationObservedNotTargetScoped = "OBSERVED_NOT_TARGET_SCOPED"
+	// LimitationNeighborhoodUnavailable: the relationships of a service could not
+	// be computed, so its relationship list is empty for that reason alone.
+	LimitationNeighborhoodUnavailable = "NEIGHBORHOOD_UNAVAILABLE"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -466,6 +469,9 @@ type ContractRevision struct {
 	Source    string     `json:"source"`
 	Sources   []string   `json:"sources,omitempty"`
 	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
+	// Provenance is the signature and referrers a registry source found attached
+	// to the bundle digest. Nil means no source that read it checks signatures.
+	Provenance *BundleProvenance `json:"provenance,omitempty"`
 
 	// bundle carries the parsed bundle used during Build (to derive tools, skills,
 	// docs and validation) and afterwards as the read-only backing store for lazy
@@ -682,6 +688,9 @@ type Relationship struct {
 	// caller's Kubernetes permissions hide: ToService and ResolvedRevision are
 	// blank, and To is only what the declaring contract itself says.
 	Hidden bool `json:"hidden,omitempty"`
+	// hiddenTo is the hidden provider's key, kept off the wire so the declared
+	// count collapses a hidden provider exactly like a visible one.
+	hiddenTo ServiceKey
 	// ObservedCount is the TOTAL runtime calls witnessed across all sources for an
 	// observed (Provenance == observed) edge. Zero for declared edges.
 	ObservedCount int `json:"observedCount,omitempty"`

@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"strings"
+	"sync/atomic"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -153,6 +156,45 @@ func (c *Client) Referrers(ctx context.Context, repo, digest, artifactType strin
 	var out []string
 	for _, d := range m.Manifests {
 		out = append(out, d.Digest.String())
+	}
+	return out, nil
+}
+
+// ErrReferrersPartial is returned, with the first page, when the registry
+// paginates a referrers list: go-containerregistry reads only that page.
+var ErrReferrersPartial = errors.New("the registry returned only the first page of referrers")
+
+// nextPageRecorder notes a referrers response that links to a next page.
+type nextPageRecorder struct {
+	base http.RoundTripper
+	next atomic.Bool
+}
+
+func (n *nextPageRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := n.base.RoundTrip(req)
+	if err == nil && strings.Contains(req.URL.Path, "/referrers/") && strings.Contains(resp.Header.Get("Link"), `rel="next"`) {
+		n.next.Store(true)
+	}
+	return resp, err
+}
+
+// ReferrerDescriptors lists the referrers of repo@digest, unfiltered, with
+// their artifact type and annotations as the registry reports them. A
+// paginated list comes back as its first page with [ErrReferrersPartial].
+func (c *Client) ReferrerDescriptors(ctx context.Context, repo, digest string) ([]v1.Descriptor, error) {
+	var idx v1.ImageIndex
+	rec := &nextPageRecorder{base: remote.DefaultTransport}
+	err := c.oci.Do(ctx, repo+"@"+digest, func(r name.Reference, opts []remote.Option) (err error) {
+		idx, err = remote.Referrers(r.(name.Digest), append(opts, remote.WithTransport(rec))...)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	m, _ := idx.IndexManifest() // Referrers parsed the index already
+	out := append([]v1.Descriptor{}, m.Manifests...)
+	if rec.next.Load() {
+		return out, ErrReferrersPartial
 	}
 	return out, nil
 }

@@ -199,7 +199,8 @@ test('C: the orders revision carries real OCI content identity and its declarati
   await expect(dep).toHaveCount(1);
   await expect(factValue(dep, 'Ref')).toHaveText(`oci://${fixture.domain}/${fixture.checkoutName}`);
   await expect(factValue(dep, 'Required')).toHaveText('No');
-  await expect(factValue(dep, 'Compatibility')).toHaveText(/^\^\d+\.\d+\.\d+$/);
+  // The range verdict sits inside the Compatibility value so the claim stays on one line.
+  await expect(factValue(dep, 'Compatibility')).toHaveText(/^\^\d+\.\d+\.\d+ In range$/);
 });
 
 // D — the operational target is its own entity: where the service RUNS, matched to a

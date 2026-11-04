@@ -683,10 +683,10 @@
           {#if (shown.unresolvedDependencies?.count ?? 0) > 0}
             <!-- A secondary list: a count that opens, not a block that pushes the page down. -->
             <details class="gv-unresolved disclosure" data-testid="graph-unresolved">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Unresolved dependencies</h2> <span class="gv-chip">{formatCount(shown.unresolvedDependencies.total)}</span></summary>
-              <p class="t-meta">Declared, but nothing Pacto knows provides it.</p>
-              <CappedList items={shown.unresolvedDependencies.items} max={8} label="Unresolved dependencies" testid="graph-unresolved-list">
-                {#snippet item(u)}<EntityLink ref={u.from} showStatus={false} />{' '}declares <code>{u.requestedRef || u.ref}</code>{#if u.reason}{': '}{u.reason}{/if}{/snippet}
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Dependencies outside the graph</h2> <span class="gv-chip">{formatCount(shown.unresolvedDependencies.total)}</span></summary>
+              <p class="t-meta">Declared, with no known service to draw. External ones are delivered outside Pacto; unresolved ones match nothing Pacto knows.</p>
+              <CappedList items={shown.unresolvedDependencies.items} max={8} label="Dependencies outside the graph" testid="graph-unresolved-list">
+                {#snippet item(u)}{#if u.external}<IdentityBadge label="external" />{' '}{/if}<EntityLink ref={u.from} showStatus={false} />{' '}declares {u.external ? 'external ' : ''}<code>{u.requestedRef || u.ref}</code>{#if u.reason}{': '}{u.reason}{/if}{/snippet}
               </CappedList>
               {#if shown.unresolvedDependencies.truncated}<p class="t-meta">Showing {formatCount(shown.unresolvedDependencies.count)} of {formatCount(shown.unresolvedDependencies.total)}.</p>{/if}
             </details>

@@ -28,6 +28,9 @@ func TestFleetOptionsIgnoresUndeclaredFlags(t *testing.T) {
 	if len(got.LocalRoots) != 0 || got.IncludeK8s || got.FreshnessWindow != 0 {
 		t.Fatalf("want zero-value options, got %+v", got)
 	}
+	if got.Provenance == nil {
+		t.Fatal("fleet options carry no provenance checker")
+	}
 }
 
 func TestFleetFlagNamesMatchDeclaredFlags(t *testing.T) {

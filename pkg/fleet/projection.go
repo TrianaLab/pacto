@@ -207,7 +207,7 @@ func (q *Query) expandRevisionDeps(rev *ContractRevision, d int, b *projectionBu
 	var next []*ContractRevision
 	for _, rel := range bySource[rev.Key] {
 		if rel.ToService == "" {
-			*unresolved = append(*unresolved, UnresolvedDependency{From: revisionEntityRef(rev), Ref: rel.To, SourceRevision: rev.Key, RequestedRef: rel.RequestedRef, Reason: rel.Reason})
+			*unresolved = append(*unresolved, unresolvedDep(revisionEntityRef(rev), rel))
 			continue
 		}
 		if rel.ResolvedRevision != "" {
@@ -417,7 +417,7 @@ func (q *Query) resolveTargetFocus(kind EntityKind, key string) (*TargetView, er
 func (q *Query) addTargetRevisionDeps(tRef EntityRef, linked *ContractRevision, bySource map[RevisionKey][]Relationship, b *projectionBuilder, unresolved *[]UnresolvedDependency) {
 	for _, rel := range bySource[linked.Key] {
 		if rel.ToService == "" {
-			*unresolved = append(*unresolved, UnresolvedDependency{From: tRef, Ref: rel.To, SourceRevision: rel.FromRevision, RequestedRef: rel.RequestedRef, Reason: rel.Reason})
+			*unresolved = append(*unresolved, unresolvedDep(tRef, rel))
 			continue
 		}
 		if b.addNode(q.serviceLeafNode(rel.ToService, 1)) {

@@ -155,6 +155,6 @@ func declaredClaim(rel Relationship) DeclaredClaim {
 		SourceRevision: rel.FromRevision, Required: rel.Required, Compatibility: rel.Compatibility,
 		Reconciliation: rel.Reconciliation, RequestedRef: rel.RequestedRef,
 		LockedVersion: rel.LockedVersion, LockedDigest: rel.LockedDigest,
-		DependencyBehavior: rel.copyBehavior(),
+		RangeStatus: rel.RangeStatus, DependencyBehavior: rel.copyBehavior(),
 	}
 }

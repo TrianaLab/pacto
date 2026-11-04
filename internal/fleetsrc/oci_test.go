@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
 
@@ -820,6 +821,52 @@ func TestRevisionDomain_IsTheSharedIdentityRule(t *testing.T) {
 	} {
 		if got := revisionOf(ref, ref, oci.CachedRef{}, nil).Domain; got != want || got != contract.OCIDomain(ref) {
 			t.Errorf("revisionOf(%q).Domain = %q, want %q", ref, got, want)
+		}
+	}
+}
+
+// TestOCISourceProvenanceHook: the hook gets the source id, the digest-pinned
+// ref and the bundle's contract under a deadline of at most the budget, and
+// its result lands on the revision; no hook leaves provenance nil. Every ref
+// resolves before the first check, so resolution never spends the budget.
+func TestOCISourceProvenanceHook(t *testing.T) {
+	dgstA := validDigest("a")
+	store := &fakeStore{
+		bundles: map[string]*contract.Bundle{"ghcr.io/x/a:1.0.0": bundleFor("a"), "ghcr.io/x/b:1.0.0": bundleFor("b")},
+		digest:  map[string]string{"ghcr.io/x/a:1.0.0": dgstA},
+	}
+	refs := []string{"ghcr.io/x/a:1.0.0", "ghcr.io/x/b:1.0.0"}
+	s := NewOCISource("reg", store, refs)
+	col, err := s.Collect(t.Context())
+	if err != nil || col.Revisions[0].Provenance != nil {
+		t.Fatalf("no hook: %v %+v", err, col.Revisions[0].Provenance)
+	}
+	var seen []string
+	var resolvesAtCheck []int
+	start := time.Now()
+	s.Provenance = func(ctx context.Context, source, ref string, c *contract.Contract) *fleet.BundleProvenance {
+		dl, ok := ctx.Deadline()
+		if !ok || dl.After(start.Add(provenanceBudget+time.Second)) {
+			t.Errorf("deadline %v %v", dl, ok)
+		}
+		seen = append(seen, source+" "+ref+" "+c.Service.Name)
+		resolvesAtCheck = append(resolvesAtCheck, store.resolves)
+		return &fleet.BundleProvenance{Source: source, Signature: fleet.BundleSignature{Status: fleet.SignatureUnknown}}
+	}
+	col, err = s.Collect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"reg oci://ghcr.io/x/a@" + dgstA + " a", "reg ghcr.io/x/b:1.0.0 b"}
+	if strings.Join(seen, "|") != strings.Join(want, "|") {
+		t.Fatalf("hook calls %q, want %q", seen, want)
+	}
+	if resolvesAtCheck[0] != store.resolves {
+		t.Errorf("checks started at %d resolutions of %d: resolution is charged to the budget", resolvesAtCheck[0], store.resolves)
+	}
+	for _, r := range col.Revisions {
+		if r.Provenance == nil || r.Provenance.Source != "reg" {
+			t.Errorf("provenance not kept: %+v", r.Provenance)
 		}
 	}
 }

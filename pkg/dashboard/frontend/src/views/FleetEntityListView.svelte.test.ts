@@ -238,6 +238,17 @@ describe('FleetEntityListView', () => {
     unmount(component);
   });
 
+  it('shows each target environment, and says when it is unknown', async () => {
+    const t = (key: string, environment?: string) => ({ kind: 'target', key, label: key, href: `/fleet/targets/${encodeURIComponent(key)}`, environment });
+    entitiesFn.mockResolvedValue(listResp([t('prod/k8s/a', 'production'), t('dev/k8s/a')]));
+    const { target, component } = mountView({ kind: 'target' });
+    await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(2));
+    const envs = Array.from(target.querySelectorAll('.lv-item .pl-env'));
+    expect(envs.map((e) => [e.textContent, e.className.includes('is-unknown'), e.getAttribute('title')]))
+      .toEqual([['production', false, 'production'], ['Environment unknown', true, null]]);
+    unmount(component);
+  });
+
   it('uses the singular noun for a one-item inventory', async () => {
     entitiesFn.mockResolvedValue(listResp([rev('a')], { total: 1 }));
     const { target, component } = mountView({ kind: 'revision' });

@@ -198,6 +198,9 @@ type DeclaredClaim struct {
 	RequestedRef   string      `json:"requestedRef,omitempty"`
 	LockedVersion  string      `json:"lockedVersion,omitempty"`
 	LockedDigest   string      `json:"lockedDigest,omitempty"`
+	// RangeStatus is whether the provider version satisfies this revision's
+	// declared range (see Relationship.RangeStatus).
+	RangeStatus string `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
 	// DependencyBehavior is what this revision's dependency requires of the
 	// provider's behavior and whether the provider meets it.
 	DependencyBehavior
@@ -280,6 +283,18 @@ type UnresolvedDependency struct {
 	SourceRevision RevisionKey `json:"sourceRevision,omitempty"`
 	RequestedRef   string      `json:"requestedRef,omitempty"`
 	Reason         string      `json:"reason,omitempty"`
+	// External marks a dependency this Pacto system does not deliver, so not
+	// resolving is expected; Version is the free-text version it declares.
+	External bool   `json:"external,omitempty"`
+	Version  string `json:"version,omitempty"`
+}
+
+// unresolvedDep is the unresolved-dependency row for rel, attributed to from.
+func unresolvedDep(from EntityRef, rel Relationship) UnresolvedDependency {
+	return UnresolvedDependency{
+		From: from, Ref: rel.To, SourceRevision: rel.FromRevision, RequestedRef: rel.RequestedRef,
+		Reason: rel.Reason, External: rel.External, Version: rel.Version,
+	}
 }
 
 // UnresolvedDependenciesPreview is a bounded preview of a neighborhood's
@@ -810,13 +825,7 @@ func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDecla
 		if _, ok := depthOf[rel.FromService]; !ok {
 			continue
 		}
-		out = append(out, UnresolvedDependency{
-			From:           q.serviceRef(rel.FromService),
-			Ref:            rel.To,
-			SourceRevision: rel.FromRevision,
-			RequestedRef:   rel.RequestedRef,
-			Reason:         rel.Reason,
-		})
+		out = append(out, unresolvedDep(q.serviceRef(rel.FromService), rel))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].From.Key != out[j].From.Key {

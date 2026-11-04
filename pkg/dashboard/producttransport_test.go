@@ -502,3 +502,53 @@ func TestProductOwnership_AbsentStaysAbsent(t *testing.T) {
 		t.Errorf("productOwnership(nil) = %+v, want nil", got)
 	}
 }
+
+// TestProductServiceDetail_NewRefsHref: the owner revision, every signature row,
+// every source and the origin of every unresolved dependency carry a canonical
+// href.
+func TestProductServiceDetail_NewRefsHref(t *testing.T) {
+	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "svc@1"}
+	d := toProductServiceDetail(&fleet.ServiceDetailData{
+		OwnerRevision: &rev,
+		Signatures:    fleet.RevisionSignaturesPreview{Total: 1, Count: 1, Items: []fleet.RevisionSignature{{Revision: rev}}},
+		Sources:       fleet.RefPreview{Total: 1, Count: 1, Items: []fleet.EntityRef{{Kind: fleet.KindSource, Key: "oci"}}},
+		UnresolvedDependencies: fleet.UnresolvedDependenciesPreview{Total: 1, Count: 1, Items: []fleet.UnresolvedDependency{
+			{From: fleet.EntityRef{Kind: fleet.KindService, Key: "svc"}, Ref: "oci://x/db", External: true},
+		}},
+	})
+	if d.OwnerRevision == nil || d.OwnerRevision.Href == "" {
+		t.Errorf("ownerRevision = %+v", d.OwnerRevision)
+	}
+	if s := d.Signatures.Items; len(s) != 1 || s[0].Revision.Href == "" {
+		t.Errorf("signatures = %+v", s)
+	}
+	for _, s := range d.Sources.Items {
+		if s.Href == "" {
+			t.Errorf("source %s has no href", s.Key)
+		}
+	}
+	if u := d.UnresolvedDependencies.Items; len(u) != 1 || u[0].From.Href == "" || !u[0].External {
+		t.Errorf("unresolvedDependencies = %+v", u)
+	}
+}
+
+// TestProductServiceDetail_CurrentRevisionAndPolicies: the current revision and
+// a referenced policy's destination carry a canonical href.
+func TestProductServiceDetail_CurrentRevisionAndPolicies(t *testing.T) {
+	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "svc@1"}
+	res := &fleet.RefResolution{Resolved: true, Service: &fleet.EntityRef{Kind: fleet.KindService, Key: "shared"}}
+	d := toProductServiceDetail(&fleet.ServiceDetailData{
+		CurrentRevision: &rev,
+		Policies:        fleet.PoliciesPreview{Total: 1, Count: 1, Items: []fleet.PolicySummary{{Name: "p", Ref: "oci://x/shared", Resolution: res}}},
+		Configurations:  fleet.ConfigurationsPreview{Total: 1, Count: 1, Items: []fleet.ConfigurationSummary{{Name: "c", Ref: "oci://x/shared", Resolution: res}}},
+	})
+	if d.CurrentRevision == nil || d.CurrentRevision.Href == "" {
+		t.Errorf("currentRevision = %+v", d.CurrentRevision)
+	}
+	if p := d.Policies.Items; len(p) != 1 || p[0].Resolution.Service.Href == "" {
+		t.Errorf("policies = %+v", p)
+	}
+	if c := d.Configurations.Items; len(c) != 1 || c[0].Resolution.Service.Href == "" {
+		t.Errorf("configurations = %+v", c)
+	}
+}

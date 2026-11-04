@@ -235,3 +235,9 @@ func TestInterfaceSummaryBehavior(t *testing.T) {
 		t.Errorf("deprecated %d past sunset %d", p.Deprecated, p.PastSunset)
 	}
 }
+
+func TestDeclaredClaimCarriesRangeStatus(t *testing.T) {
+	if got := declaredClaim(Relationship{RangeStatus: RangeUnsatisfied}).RangeStatus; got != "unsatisfied" {
+		t.Errorf("RangeStatus = %q, want unsatisfied", got)
+	}
+}

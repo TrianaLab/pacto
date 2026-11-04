@@ -160,7 +160,10 @@ func fleetGetTool() *mcpsdk.Tool {
 			"or an operational target (compliance, findings, coverage, freshness). A dependency's 'resolved' " +
 			"only says the provider exists in the fleet; its 'rangeStatus' (satisfied, unsatisfied, unknown) " +
 			"says whether the provider version satisfies the declared range. 'owner' has the same shape " +
-			"(team, dri, contacts) here and in pacto_fleet_search. Read-only.",
+			"(team, dri, contacts) here and in pacto_fleet_search. Each revision's 'provenance' says whether its " +
+			"bundle signature verified against the signer its own contract declares (verified, unverified, " +
+			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +
+			"no source checked. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service": {Type: "string", Description: "Logical service name"},
 			"target":  {Type: "string", Description: "Operational target key or name (use instead of service)"},

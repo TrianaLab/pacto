@@ -1576,6 +1576,8 @@ export interface components {
             candidate?: string;
             /** @description The version the candidate's contract declares, when the artifact could be read */
             candidateVersion?: string;
+            /** @description The registry domain the Stage names for its service; empty when it names none */
+            domain?: string;
             environment: string;
             /** @description The running digest failed here */
             failed: boolean;
@@ -1664,6 +1666,25 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
+        "Fleet.BundleProvenance": {
+            /** Format: date-time */
+            checkedAt: string;
+            referrers: components["schemas"]["Fleet.ReferrersPreview"];
+            referrersUnavailable?: string;
+            signature: components["schemas"]["Fleet.BundleSignature"];
+            source: string;
+        };
+        "Fleet.BundleSignature": {
+            /** Format: int64 */
+            bundles: number;
+            expectedIssuer?: string;
+            expectedSigner?: string;
+            issuer?: string;
+            reason?: string;
+            signer?: string;
+            /** @enum {string} */
+            status: "verified" | "unverified" | "unsigned" | "unknown";
+        };
         "Fleet.CapabilitiesPreview": {
             /** Format: int64 */
             count: number;
@@ -1726,6 +1747,7 @@ export interface components {
             metadata: components["schemas"]["Fleet.RuntimePreview"];
             owner?: components["schemas"]["Contract.Owner"];
             pactoVersion?: string;
+            provenance?: components["schemas"]["Fleet.BundleProvenance"];
             readiness?: components["schemas"]["Readiness.Result"];
             requestedRef?: string;
             resolvedRef?: string;
@@ -1755,6 +1777,8 @@ export interface components {
             guaranteeStatus?: "met" | "unmet" | "unknown";
             lockedDigest?: string;
             lockedVersion?: string;
+            /** @enum {string} */
+            rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reconciliation?: string;
             requestedRef?: string;
             required?: boolean;
@@ -2008,6 +2032,12 @@ export interface components {
             sources?: components["schemas"]["Fleet.SourceState"][] | null;
             sourcesTruncated?: boolean;
         };
+        "Fleet.OCIReferrer": {
+            artifactType: string;
+            /** Format: date-time */
+            created?: string;
+            digest: string;
+        };
         "Fleet.ObservationSourcesPreview": {
             /** Format: int64 */
             count: number;
@@ -2222,6 +2252,14 @@ export interface components {
             /** Format: int64 */
             passing: number;
         };
+        "Fleet.ReferrersPreview": {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["Fleet.OCIReferrer"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         "Fleet.Relationship": {
             compatibility?: string;
             deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
@@ -2273,6 +2311,7 @@ export interface components {
             retrievable: boolean;
         };
         "Fleet.RevisionProvenance": {
+            bundle?: components["schemas"]["Fleet.BundleProvenance"];
             /** Format: date-time */
             fetchedAt?: string;
             source?: string;
@@ -2299,6 +2338,15 @@ export interface components {
             otherLicensed?: number;
             /** Format: int64 */
             packages: number;
+        };
+        "Fleet.SchemaContent": {
+            description?: string;
+            properties: components["schemas"]["Schemax.Property"][] | null;
+            title?: string;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+            unavailable?: string;
         };
         "Fleet.ScopeTally": {
             /** Format: int64 */
@@ -2364,20 +2412,26 @@ export interface components {
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
             findings: components["schemas"]["Fleet.SeverityTally"];
             /** Format: int64 */
+            insufficientEvidence: number;
+            /** Format: int64 */
             invalidRevisions: number;
             links: components["schemas"]["Fleet.LinkTally"];
             /** Format: int64 */
             observedNotDeclared: number;
+            readiness: components["schemas"]["Fleet.ReadinessTally"];
             /** Format: int64 */
             reconciledMatched: number;
             /** Format: int64 */
             revisions: number;
             /** Format: int64 */
             revisionsInUse: number;
+            signatures: components["schemas"]["Fleet.SignatureTally"];
             /** Format: int64 */
             targets: number;
             /** Format: int64 */
             unresolvedDeclared: number;
+            /** Format: int64 */
+            unsatisfiedRanges: number;
         };
         "Fleet.ServiceView": {
             capabilities?: components["schemas"]["Fleet.RevisionCapabilities"][] | null;
@@ -2397,6 +2451,18 @@ export interface components {
             unknown: number;
             /** Format: int64 */
             warnings: number;
+        };
+        "Fleet.SignatureTally": {
+            /** Format: int64 */
+            notChecked: number;
+            /** Format: int64 */
+            unknown: number;
+            /** Format: int64 */
+            unsigned: number;
+            /** Format: int64 */
+            unverified: number;
+            /** Format: int64 */
+            verified: number;
         };
         "Fleet.SourceContribution": {
             /** Format: int64 */
@@ -2967,6 +3033,7 @@ export interface components {
             truncated: boolean;
         };
         ProductConfigurationSummary: {
+            content?: components["schemas"]["Fleet.SchemaContent"];
             name: string;
             ref?: string;
             required: boolean;
@@ -3183,6 +3250,7 @@ export interface components {
             declared: boolean;
             owner?: string;
             ref?: components["schemas"]["ProductRef"];
+            unknown?: boolean;
         };
         ProductPoliciesPreview: {
             /** Format: int64 */
@@ -3193,6 +3261,7 @@ export interface components {
             truncated: boolean;
         };
         ProductPolicySummary: {
+            content?: components["schemas"]["Fleet.SchemaContent"];
             name: string;
             ref?: string;
             resolution?: components["schemas"]["ProductRefResolution"];
@@ -3205,6 +3274,8 @@ export interface components {
             domain?: string;
             environment?: string;
             explanation?: string;
+            /** Format: date-time */
+            fetchedAt?: string;
             href: string;
             key: string;
             /** @enum {string} */
@@ -3277,8 +3348,30 @@ export interface components {
             meta: components["schemas"]["Fleet.ProductMeta"];
             revision: components["schemas"]["ProductRef"];
         };
+        ProductRevisionSignature: {
+            checked: boolean;
+            /** Format: date-time */
+            checkedAt?: string;
+            /** Format: int64 */
+            referrers: number;
+            referrersUnavailable?: string;
+            revision: components["schemas"]["ProductRef"];
+            signature?: components["schemas"]["Fleet.BundleSignature"];
+            source?: string;
+        };
+        ProductRevisionSignaturesPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductRevisionSignature"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
+            capabilities: components["schemas"]["Fleet.StringsPreview"];
+            configurations: components["schemas"]["ProductConfigurationsPreview"];
+            currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];
             dependents: components["schemas"]["ProductRefPreview"];
             deployments: components["schemas"]["ProductRefPreview"];
@@ -3290,11 +3383,16 @@ export interface components {
             /** Format: int64 */
             hiddenDependents?: number;
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
+            ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
+            policies: components["schemas"]["ProductPoliciesPreview"];
             referencedBy: components["schemas"]["ProductRefPreview"];
             relationships: components["schemas"]["ProductRelationshipsPreview"];
             revisions: components["schemas"]["ProductRefPreview"];
+            signatures: components["schemas"]["ProductRevisionSignaturesPreview"];
+            sources: components["schemas"]["ProductRefPreview"];
             summary: components["schemas"]["Fleet.ServiceSummary"];
+            unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
         };
         ProductSourceDetail: {
             contributed: components["schemas"]["Fleet.SourceContribution"];
@@ -3350,11 +3448,13 @@ export interface components {
             truncated: boolean;
         };
         ProductUnresolvedDependency: {
+            external?: boolean;
             from: components["schemas"]["ProductRef"];
             reason?: string;
             ref: string;
             requestedRef?: string;
             sourceRevision?: string;
+            version?: string;
         };
         PromotionCount: {
             /** Format: int64 */
@@ -4092,6 +4192,10 @@ export interface operations {
                 environment?: string;
                 /** @description Keep only the services with a Stage in an environment of this tier, and only those Stages */
                 tier?: "dev" | "test" | "prod";
+                /** @description Keep only the Stages of the service with exactly this name */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
             };
             header?: never;
             path?: never;
@@ -4171,6 +4275,10 @@ export interface operations {
                 namespace?: string;
                 /** @description One Stage's name */
                 stage?: string;
+                /** @description Without a stage: keep only the Stages of the service with exactly this name */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
                 /** @description Where the page starts. Past the end answers the last page */
                 offset?: number;
                 /** @description How many per page; 0 means the list's default */

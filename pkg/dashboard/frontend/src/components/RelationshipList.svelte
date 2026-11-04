@@ -5,7 +5,8 @@
   import RequirementList from './RequirementList.svelte';
   import { provenanceLabel, provenanceIsImplied } from '../lib/entityLabels.ts';
   import { corroborationLabel, corroborationTone, differenceLabel, differenceTone } from '../lib/graphState.ts';
-  import { shortDigest } from '../lib/format.ts';
+  import { shortDigest, formatCount } from '../lib/format.ts';
+  import { formatDate } from '../lib/dateFormat.ts';
 
   // Renders the observed/differences relationship summary (NeighborhoodEdge items):
   // the reconciliation of each EXPECTED (declared) dependency against OBSERVED runtime
@@ -63,6 +64,20 @@
   const guaranteeReason = (e) => (e.declaredClaims?.items ?? []).find((c) => c.guaranteeReason)?.guaranteeReason ?? '';
   const hasBehavior = (c) => (c.requires?.length ?? 0) > 0 || (c.unmet?.length ?? 0) > 0;
 
+  // Whether the provider's revision falls inside the range this claim accepts. An
+  // unknown range is neutral: Pacto could not tell, which is not a pass.
+  const RANGE = {
+    satisfied: { label: 'In range', tone: 'ok' },
+    unsatisfied: { label: 'Outside range', tone: 'warn' },
+    unknown: { label: 'Range unknown', tone: 'neutral' },
+  };
+
+  // When traffic on this edge was last seen, and how many calls were counted.
+  const seen = (e) => [
+    e.lastSeen ? `Last seen ${formatDate(e.lastSeen)}` : '',
+    e.count ? `${formatCount(e.count)} ${e.count === 1 ? 'call' : 'calls'}` : '',
+  ].filter(Boolean).join(' · ');
+
   const claimFacts = (c) => {
     const out = [];
     if (c.requestedRef) out.push(['Ref', c.requestedRef]);
@@ -84,15 +99,21 @@
         {#if e.provenance && !provenanceIsImplied(e.difference, e.provenance)}<span class="rel-prov">{provenanceLabel(e.provenance)}</span>{/if}
         {#if e.stale}<span class="rel-stale">stale</span>{/if}
         <BehaviorBadges status={e.guaranteeStatus} reason={guaranteeReason(e)} deprecated={e.deprecatedInterfaces ?? []} />
+        {#if seen(e)}<span class="rel-seen">{seen(e)}</span>{/if}
       </div>
       {#each claims(e) as c, ci (c.sourceRevision ?? ci)}
         <dl class="rel-claim">
           {#if claims(e).length > 1 && c.sourceRevision}
             <dt>Declared by</dt><dd><code>{shortDigest(c.sourceRevision.split('@').pop()) || c.sourceRevision}</code></dd>
           {/if}
+          <!-- The range verdict sits beside the range it judges, so a claim keeps one
+               line at 1280px instead of wrapping a separate Range pair onto a second. -->
           {#each claimFacts(c) as [label, value] (label)}
-            <dt>{label}</dt><dd>{value}</dd>
+            <dt>{label}</dt><dd>{value}{#if label === 'Compatibility' && RANGE[c.rangeStatus]}{' '}<IdentityBadge label={RANGE[c.rangeStatus].label} tone={RANGE[c.rangeStatus].tone} />{/if}</dd>
           {/each}
+          {#if !c.compatibility && RANGE[c.rangeStatus]}
+            <dt>Range</dt><dd><IdentityBadge label={RANGE[c.rangeStatus].label} tone={RANGE[c.rangeStatus].tone} /></dd>
+          {/if}
         </dl>
         {#if hasBehavior(c)}
           <div class="rel-behavior"><RequirementList requires={c.requires ?? []} unmet={c.unmet ?? []} status={c.guaranteeStatus} reason={c.guaranteeReason} /></div>
@@ -111,6 +132,7 @@
   .rel { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .rel-word { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .rel-prov { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+  .rel-seen { font-size: var(--text-xs); color: var(--c-text-3); }
   .rel-stale { font-size: var(--text-xs); color: var(--c-warn); }
   /* The declared claim reads as label/value pairs so the meaning of "Yes" or
      "^1.2.0" survives a screen reader and a 320px viewport, where a table would

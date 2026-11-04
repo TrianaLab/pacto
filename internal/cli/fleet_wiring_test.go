@@ -177,6 +177,12 @@ func TestDashboardFleetOptions(t *testing.T) {
 	if !fopts.IncludeCache || !fopts.IncludeK8s || fopts.K8sNamespace != "prod" {
 		t.Errorf("cache/k8s wiring wrong: %+v", fopts)
 	}
+	if fopts.Provenance == nil {
+		t.Error("dashboard fleet options carry no provenance checker")
+	}
+	if withClusterContractRefs(context.Background(), fopts, nil, cacheUnfilled()).Provenance != fopts.Provenance {
+		t.Error("a refresh does not keep the dashboard's provenance checker")
+	}
 	if len(fopts.EvidenceURLs) != 0 {
 		t.Errorf("expected no evidence URLs with env unset, got %v", fopts.EvidenceURLs)
 	}

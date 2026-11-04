@@ -141,7 +141,9 @@ flowchart LR
   Operational targets) and a **Knowledge** control (Expected · Observed ·
   Differences). An operational target links to the dependency *service* it
   depends on. It draws no target-to-target mesh, because the snapshot has not
-  observed that runtime routing.
+  observed that runtime routing. [The service page](dashboard-service-page.md)
+  gathers one service's owner, contract, dependencies, targets, delivery and
+  signatures.
 - **CLI (`pacto fleet …`)**: the five queries on the command line, plus
   `reconcile` and `snapshot`. Scriptable, deterministic output.
 - **MCP fleet tools**: `pacto_fleet_search`, `pacto_fleet_get`,

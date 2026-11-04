@@ -53,6 +53,10 @@ type FleetOptions struct {
 	// OCIRefs are registry references to include as published-baseline revisions.
 	// Requires a configured BundleStore.
 	OCIRefs []string
+	// Provenance, when set, checks the signature and lists the referrers of
+	// every revision the OCI source reads. One checker is shared across builds
+	// so its memo outlives each refresh.
+	Provenance *ProvenanceChecker
 	// IncludeCache adds every bundle in the local OCI disk cache as an offline
 	// baseline revision. Requires a configured BundleStore.
 	IncludeCache bool
@@ -98,7 +102,11 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}
 	if len(opts.OCIRefs) > 0 {
 		if s.BundleStore != nil {
-			sources = append(sources, fleetsrc.NewOCISource("oci", s.BundleStore, opts.OCIRefs))
+			src := fleetsrc.NewOCISource("oci", s.BundleStore, opts.OCIRefs)
+			if opts.Provenance != nil {
+				src.Provenance = opts.Provenance.Check
+			}
+			sources = append(sources, src)
 		} else {
 			sources = append(sources, fleet.NewFailingSource("oci", "oci", errNoBundleStore))
 		}

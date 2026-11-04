@@ -96,6 +96,9 @@ type RawRevision struct {
 	// A revision rebuilt from a status an older operator wrote records
 	// neither, so a requirement on it is unknown rather than unmet.
 	GuaranteesUnseen string
+	// Provenance is what a registry source found attached to the bundle digest
+	// (signature and referrers), or nil when the source does not check.
+	Provenance *BundleProvenance
 }
 
 // RawTarget is what an observer source knows about a concrete deployed instance.

@@ -360,6 +360,43 @@ export function readinessSegments(t: ReadinessTally | undefined, hrefs: Record<s
   return stateSegments(READINESS_STATES, t, hrefs);
 }
 
+/** SignatureTally as emitted by the Product API (ServiceSummary.signatures). */
+export interface SignatureTally {
+  verified?: number;
+  unverified?: number;
+  unsigned?: number;
+  unknown?: number;
+  notChecked?: number;
+}
+
+/**
+ * The bundle signature check of a revision, in the order always shown. Only a
+ * signature verified against the identity its own contract declares is `ok`; a check
+ * that could not finish and a revision no source checks are neutral, never positive.
+ */
+export const SIGNATURE_STATES: BucketState<keyof SignatureTally>[] = [
+  { value: 'verified', field: 'verified', label: 'Verified', tone: 'ok' },
+  { value: 'unverified', field: 'unverified', label: 'Unverified', tone: 'err' },
+  { value: 'unsigned', field: 'unsigned', label: 'Unsigned', tone: 'warn' },
+  { value: 'unknown', field: 'unknown', label: 'Unknown', tone: 'neutral' },
+  { value: 'not-checked', field: 'notChecked', label: 'Not checked', tone: 'neutral' },
+];
+
+export function signatureSegments(t: SignatureTally | undefined): Segment[] {
+  return stateSegments(SIGNATURE_STATES, t, {});
+}
+
+/**
+ * The state one revision's signature check is shown under. A missing check is "Not
+ * checked", and a verified signature that names no signer is shown as unknown: a
+ * verified badge always has the signer beside it. A status this build does not know
+ * is unknown too.
+ */
+export function signatureState(sig: { status?: string; signer?: string } | null | undefined): BucketState<keyof SignatureTally> {
+  const v = !sig ? 'not-checked' : sig.status === 'verified' && !sig.signer ? 'unknown' : sig.status;
+  return SIGNATURE_STATES.find((s) => s.value === v) ?? SIGNATURE_STATES[3];
+}
+
 /**
  * changeSegments renders a contract diff's severity mix. The counts are the backend's
  * complete change population (ProductChangesPreview.breaking/potential/nonBreaking

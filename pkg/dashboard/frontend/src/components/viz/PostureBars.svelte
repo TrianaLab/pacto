@@ -40,9 +40,9 @@
     unknown: href('unknown'),
     invalid: href('invalid'),
   }));
-  const links = $derived(linkSegments(summary.links).map((s) => (
-    s.label === 'Ambiguous' || s.label === 'Unresolved' ? { ...s, href: href('unresolved') } : s
-  )));
+  // Revision-match buckets have no destination: attention `unresolved` lists unresolved
+  // DEPENDENCIES, and no list filters targets by revision-match state.
+  const links = $derived(linkSegments(summary.links));
   const evidence = $derived(evidenceSegments(ev).map((s) => (
     s.label === 'Stale evidence' ? { ...s, href: href('stale') } : s
   )));

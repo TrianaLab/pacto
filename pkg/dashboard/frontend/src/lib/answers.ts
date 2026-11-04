@@ -14,6 +14,7 @@ interface PostureSummary {
   revisionsInUse?: number;
   invalidRevisions?: number;
   compliance?: { compliant?: number; nonCompliant?: number; unknown?: number };
+  evidence?: { stale?: number; withoutEvidence?: number };
 }
 
 /**
@@ -21,13 +22,17 @@ interface PostureSummary {
  * anything is broken. `incomplete` (the snapshot is missing data) withholds the
  * all-good claim. `conflicts` counts revisions that name a different owner: it and an
  * estate where no running target matches a known revision are named in the answer, so
- * the line never says "nothing broken" above either.
+ * the line never says "nothing broken" above either. Stale and never-observed running
+ * targets are concerns too: a compliance verdict on old or missing evidence is no
+ * reason to say "Healthy.".
  */
 export function postureAnswer(sum: PostureSummary = {}, incomplete = false, conflicts = 0): { tone: 'err' | 'warn' | 'ok' | 'neutral'; lead: string; rest: string } {
   const targets = sum.targets ?? 0;
   const nc = sum.compliance?.nonCompliant ?? 0;
   const unknown = sum.compliance?.unknown ?? 0;
   const invalid = sum.invalidRevisions ?? 0;
+  const stale = sum.evidence?.stale ?? 0;
+  const never = sum.evidence?.withoutEvidence ?? 0;
   const problems = [
     nc ? `${plural(nc, 'running target breaks its', 'running targets break their')} contract` : '',
     invalid ? `${plural(invalid, 'revision is', 'revisions are')} invalid` : '',
@@ -36,6 +41,8 @@ export function postureAnswer(sum: PostureSummary = {}, incomplete = false, conf
     targets && unknown ? `${plural(unknown, 'running target has', 'running targets have')} unknown compliance` : '',
     targets && sum.revisionsInUse === 0 && (sum.revisions ?? 0) > 0 ? 'no running target matches a known revision' : '',
     conflicts ? `${plural(conflicts, 'revision names', 'revisions name')} a different owner` : '',
+    targets && stale ? `${plural(stale, 'running target has', 'running targets have')} stale evidence` : '',
+    targets && never ? `${plural(never, 'running target was', 'running targets were')} never observed` : '',
   ].filter(Boolean);
   if (problems.length) return { tone: 'err', lead: 'Needs work.', rest: `${cap(joinAnd([...problems, ...concerns]))}.` };
   if (concerns.length) return { tone: 'warn', lead: 'Needs a look.', rest: `${cap(joinAnd(concerns))}.` };

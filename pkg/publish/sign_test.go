@@ -259,3 +259,53 @@ func subjectOf(t *testing.T, reg *Client, repo, d string) *v1.Descriptor {
 	h, _ := v1.NewHash(d)
 	return &v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
 }
+
+// TestVerifyDigestSentinels: a caller can tell no signature and a signature
+// that does not verify apart from a check that could not be completed, and
+// the messages stay as they were.
+func TestVerifyDigestSentinels(t *testing.T) {
+	d := "sha256:" + strings.Repeat("a", 64)
+	const slsa = "https://slsa.dev/provenance/v1"
+	check := func(name string, refs []memRef, noSig, invalid bool, prefix string) {
+		t.Helper()
+		err := VerifyDigest(t.Context(), memReferrers{refs: refs}, names, "r", d)
+		if err == nil || errors.Is(err, ErrNoSignature) != noSig || errors.Is(err, ErrSignatureInvalid) != invalid || !strings.HasPrefix(err.Error(), prefix) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	check("attestations only", []memRef{{slsa, statementOver(d, slsa)}}, true, false, "no signature")
+	check("forged", []memRef{{SignPredicate, []byte("forged")}}, false, true, "no signature verifies: ")
+	check("unreadable", []memRef{{SignPredicate, []byte("forged")}, {predicate: SignPredicate}}, false, false, "no signature verifies: ")
+	var many []memRef
+	for range maxSignatures + 1 {
+		many = append(many, memRef{SignPredicate, []byte("forged")})
+	}
+	check("truncated", many, false, false, "no signature verifies: ")
+}
+
+// TestClientReferrerDescriptors: every referrer comes back, unfiltered, with
+// its artifact type and annotations.
+func TestClientReferrerDescriptors(t *testing.T) {
+	ctx := t.Context()
+	host, reg := newRegistry(t)
+	repo, d := signedImage(t, reg, host)
+	writeBundle(t, reg, repo, d, SignPredicate, statementOver(d, SignPredicate))
+	sbom := sbomArtifact(SPDXType, []byte("{}"), *subjectOf(t, reg, repo, d), map[string]string{"k": "v"})
+	if _, err := reg.Write(ctx, repo, sbom); err != nil {
+		t.Fatal(err)
+	}
+	got, err := reg.ReferrerDescriptors(ctx, repo, d)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("referrers %v %v", got, err)
+	}
+	types := map[string]map[string]string{}
+	for _, g := range got {
+		types[g.ArtifactType] = g.Annotations
+	}
+	if types[delivery.BundleMediaType][deliveryrecord.AnnPredicateType] != SignPredicate || types[SPDXType]["k"] != "v" {
+		t.Fatalf("artifact types or annotations lost: %v", types)
+	}
+	if _, err := reg.ReferrerDescriptors(ctx, "BAD REF", d); err == nil {
+		t.Error("referrers of a bad ref")
+	}
+}

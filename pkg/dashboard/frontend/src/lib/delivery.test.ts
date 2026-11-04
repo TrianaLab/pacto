@@ -113,6 +113,11 @@ describe('delivery routes', () => {
     expect(parseHash('#/delivery/environments?namespace=prod&offset=25&junk=1').params).toEqual({ offset: '25' });
     expect(deliveryHistoryUrl({ namespace: 'prod', stage: 'pay', offset: 50 })).toBe('#/delivery/history?namespace=prod&stage=pay&offset=50');
     expect(deliveryHistoryUrl({ offset: 10, q: '' })).toBe('#/delivery/history?offset=10');
+    // A service page's exact service and domain survive the round trip; a
+    // domain without a service narrows nothing.
+    expect(parseHash(deliveryEnvironmentsUrl({ service: 'pay', domain: 'ghcr.io/a' })).params).toEqual({ service: 'pay', domain: 'ghcr.io/a' });
+    expect(parseHash(deliveryHistoryUrl({ service: 'pay' })).params).toEqual({ service: 'pay' });
+    expect(parseHash('#/delivery/history?domain=ghcr.io%2Fa').params).toEqual({});
   });
 });
 

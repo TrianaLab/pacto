@@ -26,7 +26,7 @@ Hand the `edge-eu-west__edge-eu-west-2026.pub` file to the platform and put it i
 
 ## How it works
 
-Traffic goes one way. Pacto never connects to a remote environment; the remote side starts every request and only pushes. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. The registry is the only store, so the Evidence Server needs no bucket, volume or database.
+Traffic goes one way. Pacto never connects to a remote environment; the remote side starts every request and only pushes. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. The registry is the only store, so the Evidence Server needs no bucket, volume or database. When the dashboard reads a contract revision from a registry, accepted evidence records appear in the referrers list on that revision's page; see [Bundle signatures and referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
 
 !!! warning "GHCR cannot host Pacto evidence"
     GitHub Container Registry does not serve the native OCI Referrers API, which the Evidence Server requires. GHCR works for contracts; only evidence needs the Referrers endpoint. Publish contracts you want to carry evidence to a conformant registry (zot, Docker Hub, Harbor, ECR, ACR, Artifactory).

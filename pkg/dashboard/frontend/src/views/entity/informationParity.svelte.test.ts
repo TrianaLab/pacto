@@ -330,6 +330,91 @@ describe('revision detail keeps the whole contract inspectable', () => {
 });
 
 /**
+ * Schema content and bundle provenance: what the bundle files and the registry say
+ * about this revision, including when Pacto could not read or check them.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+async function renderRevisionWith(patch: (r: Record<string, any>) => void) {
+  const d = richRevision();
+  patch(d.revision);
+  detailFn.mockResolvedValue(d);
+  const { target, component } = await mountView('revision', 'domain-a/payments@sha256:abc');
+  await vi.waitFor(() => expect(target.textContent).toContain('payments'));
+  const text = () => (target.textContent || '').replace(/\s+/g, ' ');
+  return { target, text, done: () => { unmount(component); target.remove(); } };
+}
+
+describe('revision detail shows schema content and bundle provenance', () => {
+  beforeEach(() => detailFn.mockReset());
+  const digest = `sha256:${'a1b2c3d4e5f6'.repeat(6)}`;
+
+  it('says why a schema content is unavailable', async () => {
+    const { text, done } = await renderRevisionWith((r) => {
+      r.policies.items[0].content = { properties: null, total: 0, truncated: false, unavailable: 'policy/schema.json is not valid JSON Schema' };
+    });
+    expect(text()).toContain('Content unavailable: policy/schema.json is not valid JSON Schema');
+    done();
+  });
+
+  it("renders a configuration schema's properties", async () => {
+    const { text, done } = await renderRevisionWith((r) => {
+      r.configurations.items[0].content = { title: 'Runtime settings', properties: [{ key: 'maxConnections', type: 'integer', value: '100' }], total: 1, truncated: false };
+    });
+    for (const f of ['Runtime settings', 'maxConnections', 'integer', '100']) expect(text()).toContain(f);
+    done();
+  });
+
+  it('renders a verified bundle signature with its signer and referrers', async () => {
+    const { target, text, done } = await renderRevisionWith((r) => {
+      r.provenance.bundle = {
+        source: 'oci', checkedAt: '2026-11-04T09:00:00Z',
+        signature: { status: 'verified', signer: 'ci@acme.dev', issuer: 'https://token.actions.githubusercontent.com', bundles: 1 },
+        referrers: preview([
+          { artifactType: 'application/vnd.dev.sigstore.bundle.v0.3+json', digest, created: '2026-11-01T10:00:00Z' },
+          { artifactType: 'application/vnd.pacto.evidence.record.v1+json', digest },
+        ]),
+      };
+    });
+    const sec = target.querySelector('[data-testid="bundle-provenance"]')!;
+    expect(text()).toContain("Signed by the contract's publish.sign identity");
+    for (const f of ['ci@acme.dev', 'https://token.actions.githubusercontent.com', 'application/vnd.dev.sigstore.bundle.v0.3+json', 'application/vnd.pacto.evidence.record.v1+json', 'a1b2c3d4e5f6', 'Created unknown']) {
+      expect(text()).toContain(f);
+    }
+    expect(sec.querySelector(`[title="${digest}"]`)).toBeTruthy();
+    expect(sec.querySelector('.tone-ok')).toBeTruthy();
+    done();
+  });
+
+  it('renders an unverified signature with its reason in an error tone', async () => {
+    const { target, done } = await renderRevisionWith((r) => {
+      r.provenance.bundle = { source: 'oci', checkedAt: '2026-11-04T09:00:00Z', signature: { status: 'unverified', signer: 'evil@x.dev', bundles: 1, reason: 'signed by another identity' }, referrers: preview([]) };
+    });
+    const reason = target.querySelector('[data-testid="bundle-reason"]')!;
+    expect(reason.textContent).toContain('signed by another identity');
+    expect(reason.className).toContain('tone-err');
+    done();
+  });
+
+  it('renders an unknown signature with its reason in a neutral tone', async () => {
+    const { target, text, done } = await renderRevisionWith((r) => {
+      r.provenance.bundle = { source: 'oci', checkedAt: '2026-11-04T09:00:00Z', signature: { status: 'unknown', bundles: 0, reason: 'The registry could not list referrers' }, referrers: preview([]), referrersUnavailable: 'registry unreachable' };
+    });
+    const reason = target.querySelector('[data-testid="bundle-reason"]')!;
+    expect(reason.textContent).toContain('The registry could not list referrers');
+    expect(reason.className).toContain('tone-neutral');
+    expect(text()).toContain('registry unreachable');
+    expect(target.querySelector('[data-testid="bundle-provenance"] .tone-ok')).toBeNull();
+    done();
+  });
+
+  it('says when no source checked the signature', async () => {
+    const { text, done } = await renderRevisionWith((r) => { r.provenance.bundle = null; });
+    expect(text()).toContain('Not checked. No source that read this revision checks signatures; Pacto checks them when it reads a revision from a registry. If a registry source could not reach the registry, its limitation is listed on this page.');
+    done();
+  });
+});
+
+/**
  * The service page replaces the old page's fleet-level framing: how much is running,
  * how certain we are about what is running, and what is wrong RIGHT NOW. Its numbers
  * come from backend-authoritative aggregates over complete populations, never from

@@ -7,6 +7,7 @@
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
+  import TargetEnv from '../components/TargetEnv.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
@@ -232,7 +233,7 @@
           {#if isRevisions}
             <EntityLink {ref} showStatus={true} showKind={false} />
           {:else}
-            <EntityLink {ref} showStatus={true} showKind={false}><span class="pl-env" class:is-unknown={!ref.environment} title={ref.environment || undefined}>{ref.environment || 'Environment unknown'}</span></EntityLink>
+            <EntityLink {ref} showStatus={true} showKind={false}><TargetEnv env={ref.environment} /></EntityLink>
           {/if}
         </li>
       {/each}

@@ -1,9 +1,13 @@
 package fleet
 
 import (
+	"fmt"
+	"io"
+	"slices"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // Bounded projections of what a contract revision DECLARES.
@@ -81,6 +85,9 @@ type ConfigurationSummary struct {
 	// Resolution is present only when this scope declares a Ref, and reports where
 	// that ref resolves to (or why it does not).
 	Resolution *RefResolution `json:"resolution,omitempty"`
+	// Content is the bounded summary of the local Schema file, nil when the
+	// scope declares none.
+	Content *SchemaContent `json:"content,omitempty"`
 }
 
 // ConfigurationsPreview is a bounded preview of declared configuration scopes.
@@ -100,6 +107,100 @@ type PolicySummary struct {
 	Target string `json:"target,omitempty"`
 	// Resolution is present only when this policy declares a Ref; see [RefResolution].
 	Resolution *RefResolution `json:"resolution,omitempty"`
+	// Content is the bounded summary of the local Schema file, nil when the
+	// policy declares none.
+	Content *SchemaContent `json:"content,omitempty"`
+}
+
+// SchemaContent is the bounded summary of a JSON Schema file a configuration
+// scope or policy declares in its own bundle. It is read from the bundle files
+// when the detail is requested (a local bundle reflects the files at that
+// moment), never stored in the snapshot.
+type SchemaContent struct {
+	Title       string             `json:"title,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Properties  []schemax.Property `json:"properties"`
+	Total       int                `json:"total"`
+	Truncated   bool               `json:"truncated"`
+	// Unavailable says why the file could not be read or parsed; Properties is
+	// then empty and means unknown.
+	Unavailable string `json:"unavailable,omitempty"`
+}
+
+// maxSchemaBytes bounds a schema read, like MaxDocumentBytes bounds a document.
+const maxSchemaBytes = 1 << 20
+
+// revisionSchema reads the schema at path from rev's bundle files. rev must be
+// the SNAPSHOT record: a JSON clone has lost the bundle and the doc conflict.
+func revisionSchema(rev *ContractRevision, path string) *SchemaContent {
+	data, reason := readBundleFile(rev, path, maxSchemaBytes)
+	var doc schemax.Doc
+	if reason == "" {
+		var err error
+		if doc, err = schemax.Parse(data, path); err != nil {
+			reason = "the schema file could not be parsed: " + err.Error()
+		}
+	}
+	if reason != "" {
+		return &SchemaContent{Properties: []schemax.Property{}, Unavailable: capLen(reason, maxRuntimeValueLen)}
+	}
+	src, total, trunc := boundSlice(doc.Properties(), MaxDetailPreview)
+	props := make([]schemax.Property, len(src))
+	for i, p := range src {
+		props[i] = schemax.Property{
+			Key: capLen(p.Key, maxRuntimeValueLen), Value: capLen(p.Value, maxRuntimeValueLen), Type: capLen(p.Type, maxRuntimeValueLen),
+		}
+	}
+	title, desc := doc.Meta()
+	return &SchemaContent{
+		Title: capLen(title, maxRuntimeValueLen), Description: capLen(desc, maxRuntimeValueLen),
+		Properties: props, Total: total, Truncated: trunc,
+	}
+}
+
+// readBundleFile reads one file of rev's bundle, at most max bytes, or says
+// why it cannot. rev must be the SNAPSHOT record (see [revisionSchema]).
+func readBundleFile(rev *ContractRevision, path string, max int) ([]byte, string) {
+	if rev.docConflict != "" {
+		return nil, rev.docConflict
+	}
+	if rev.bundle == nil || rev.bundle.FS == nil {
+		return nil, "this revision's bundle filesystem is not retained in the snapshot"
+	}
+	f, err := rev.bundle.FS.Open(path)
+	if err != nil {
+		return nil, "the file could not be read: " + err.Error()
+	}
+	defer f.Close() //nolint:errcheck // read-only
+	// One byte past the bound, so "exactly at the bound" and "over it" are
+	// distinguishable without trusting a reported file size.
+	data, err := io.ReadAll(io.LimitReader(f, int64(max)+1))
+	if err != nil {
+		return nil, "the file could not be read: " + err.Error()
+	}
+	if len(data) > max {
+		return nil, fmt.Sprintf("it exceeds the %d-byte read bound", max)
+	}
+	return data, ""
+}
+
+// withSchemaContent returns copies of the previews with each local schema's
+// content attached. The item slices are copied for the same reason as in
+// withConfigResolutions.
+func withSchemaContent(rev *ContractRevision, cfgs ConfigurationsPreview, pols PoliciesPreview) (ConfigurationsPreview, PoliciesPreview) {
+	cfgs.Items = slices.Clone(cfgs.Items)
+	for i := range cfgs.Items {
+		if cfgs.Items[i].Schema != "" {
+			cfgs.Items[i].Content = revisionSchema(rev, cfgs.Items[i].Schema)
+		}
+	}
+	pols.Items = slices.Clone(pols.Items)
+	for i := range pols.Items {
+		if pols.Items[i].Schema != "" {
+			pols.Items[i].Content = revisionSchema(rev, pols.Items[i].Schema)
+		}
+	}
+	return cfgs, pols
 }
 
 // PoliciesPreview is a bounded preview of declared policies.
@@ -151,6 +252,9 @@ type RevisionProvenance struct {
 	Source    string         `json:"source,omitempty"`
 	Sources   StringsPreview `json:"sources"`
 	FetchedAt *time.Time     `json:"fetchedAt,omitempty"`
+	// Bundle is the signature and referrers a registry source found attached
+	// to the bundle digest; nil when no source that read it checks signatures.
+	Bundle *BundleProvenance `json:"bundle,omitempty"`
 }
 
 func interfacesPreview(ifaces []contract.Interface, tools []ToolSummary, specsRead []string, asOf time.Time) InterfacesPreview {
@@ -258,5 +362,6 @@ func stateSummary(s *contract.State) *StateSummary {
 func revisionProvenance(rev *ContractRevision) RevisionProvenance {
 	return RevisionProvenance{
 		Source: rev.Source, Sources: stringsPreview(rev.Sources), FetchedAt: rev.FetchedAt,
+		Bundle: cloneProvenance(rev.Provenance),
 	}
 }

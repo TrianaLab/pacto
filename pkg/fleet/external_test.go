@@ -90,3 +90,44 @@ func TestLockFromNoBundle(t *testing.T) {
 		t.Fatal("a revision with no bundle has no lock")
 	}
 }
+
+// TestUnresolvedDependencyExternalReachesEveryPerspective: an external
+// dependency keeps External and Version in the service neighborhood, the
+// revision projection and the target projection, the three places an
+// unresolved dependency is built.
+func TestUnresolvedDependencyExternalReachesEveryPerspective(t *testing.T) {
+	agent := &contract.Contract{PactoVersion: "2.1", Service: contract.Service{Name: "agent", Version: "1.0.0", Owner: contract.Owner{Team: "t"}},
+		Readiness:    readyContract(),
+		Dependencies: []contract.Dependency{{Name: "model", External: true, Version: "15", Required: true}}}
+	src := NewMemorySource("local", "local", &Collection{
+		Revisions: []RawRevision{{Bundle: &contract.Bundle{Contract: agent, FS: fstest.MapFS{}}, Digest: "sha256:agent"}},
+		Targets:   []RawTarget{{Scope: "prod", Kind: "k8s", Name: "agent-prod", Service: "agent", Digest: "sha256:agent", Compliance: StatusCompliant}},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	for name, nq := range map[string]NeighborhoodQuery{
+		"service":  {Kind: KindService, Key: "agent", Views: allViews()},
+		"revision": {Kind: KindRevision, Key: string(revKeyFor(t, q, string(NewServiceKey("agent")))), Perspective: PerspectiveRevision, Direction: DirectionDependencies},
+		"target":   {Kind: KindTarget, Key: string(targetKeyFor(t, q, "agent-prod")), Perspective: PerspectiveTarget, Direction: DirectionDependencies},
+	} {
+		nb, err := q.Neighborhood(nq)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if u := nb.UnresolvedDependencies.Items; len(u) != 1 || !u[0].External || u[0].Version != "15" || u[0].Ref != "model" {
+			t.Errorf("%s: unresolved = %+v", name, u)
+		}
+	}
+}
+
+func TestUnresolvedDepHelper(t *testing.T) {
+	from := EntityRef{Kind: KindService, Key: "a"}
+	rel := Relationship{To: "oci://x/db", FromRevision: "a@1", RequestedRef: "oci://x/db:15", Reason: "r", External: true, Version: "15"}
+	want := UnresolvedDependency{From: from, Ref: "oci://x/db", SourceRevision: "a@1", RequestedRef: "oci://x/db:15", Reason: "r", External: true, Version: "15"}
+	if got := unresolvedDep(from, rel); got != want {
+		t.Errorf("unresolvedDep = %+v, want %+v", got, want)
+	}
+}

@@ -13,6 +13,7 @@
   import CappedList from './components/CappedList.svelte';
   import Navbar from './Navbar.svelte';
   import LazyView from './components/LazyView.svelte';
+  import DeliveryUnavailable from './components/DeliveryUnavailable.svelte';
   import EmptyState from './components/EmptyState.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import EntitySearch from './EntitySearch.svelte';
@@ -72,6 +73,11 @@
   const session = $derived(auth.data);
   const gated = $derived(!!session && session.mode === 'shared' && (session.login || session.tokenLogin) && !session.signedIn && !hostSignsIn());
   const nothingVisible = $derived(!!capabilities?.auth?.nothingVisible);
+  // Whether this dashboard serves delivery, and if not why: a service page shows
+  // its Stages only when it does, and says why otherwise.
+  const deliveryState = $derived(capabilities === null ? 'unknown'
+    : capabilities.delivery === true ? 'enabled'
+    : (!session || session.mode === 'open' || session.mode === 'none') ? 'no-user' : 'not-served');
 
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
@@ -450,7 +456,7 @@
     />
   {:else if route.view === 'fleet-entity'}
     {#key route.params.kind + '@@' + route.params.key}
-      <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} {refreshTick} />
+      <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} {refreshTick} {deliveryState} />
     {/key}
   {:else if route.view === 'fleet-attention'}
     <FleetAttentionView
@@ -495,11 +501,7 @@
     {:else if capabilities}
       <div class="product-page" data-testid="delivery-unavailable">
         <h1 class="t-page-title">Delivery is not available here</h1>
-        {#if !session || session.mode === 'open' || session.mode === 'none'}
-          <p class="t-body" data-testid="delivery-unavailable-reason">Every delivery action is signed by a person, and this dashboard has no signed-in user. Delivery views appear in <code>pacto dashboard</code> on your own machine, or in a shared dashboard people sign in to.</p>
-        {:else}
-          <p class="t-body" data-testid="delivery-unavailable-reason">The cluster this dashboard reads does not serve the delivery API. Install pacto-operator with <code>delivery.enabled=true</code>.</p>
-        {/if}
+        <DeliveryUnavailable reason={deliveryState === 'no-user' ? 'no-user' : 'not-served'} />
       </div>
     {:else}
       {@render migrating()}

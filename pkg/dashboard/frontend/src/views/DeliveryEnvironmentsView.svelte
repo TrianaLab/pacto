@@ -12,12 +12,14 @@
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
+  import DeliveryBadges from '../components/DeliveryBadges.svelte';
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
   import Select from '../components/Select.svelte';
   import ShowAll from '../components/ShowAll.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
+  import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import { cap } from '../lib/cap.svelte.ts';
 
@@ -27,15 +29,15 @@
   // keeps every environment as a column on every page. Past a few columns
   // each service is one row of status dots, one per environment, under a
   // rotated name and its tier; a dot opens the full cell.
-  let { offset = '', limit = '', q = '', environment = '', tier = '', refreshTick = 0, miraURL = '' } = $props();
+  let { offset = '', limit = '', q = '', environment = '', tier = '', service = '', domain = '', refreshTick = 0, miraURL = '' } = $props();
 
   const loader = createProductLoader(() => api.deliveryEnvironments({
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
-    environment: environment || undefined, tier: tier || undefined,
+    environment: environment || undefined, tier: tier || undefined, service: service || undefined, domain: domain || undefined,
   }));
-  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${environment}@@${tier}`);
+  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${environment}@@${tier}@@${domain}/${service}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${q}@@${environment}@@${tier}`);
+  const listQuestion = $derived(`${q}@@${environment}@@${tier}@@${domain}/${service}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -48,8 +50,8 @@
   const tiers = $derived(data?.environmentTiers ?? {});
   const shown = $derived(environment ? [environment] : tier ? environments.filter((e) => tiers[e] === tier) : environments);
   const tierOptions = $derived(['dev', 'test', 'prod'].filter((t) => Object.values(tiers).includes(t)));
-  const filtered = $derived(!!(q || environment || tier));
-  const go = (over) => { location.hash = deliveryEnvironmentsUrl({ q, environment, tier, ...over }); };
+  const filtered = $derived(!!(q || environment || tier || service));
+  const go = (over) => { location.hash = deliveryEnvironmentsUrl({ q, environment, tier, service, domain, ...over }); };
   // A column a person can read is 12rem: past four the board becomes the strip.
   // The strip's columns are one dot wide and fit their content, so the State
   // column takes the rest; 50 environments scroll sideways like the board does.
@@ -108,7 +110,7 @@
     return m;
   }, new Map()));
   const cell = (svc, env) => cells.get(`${svc}\u0000${env}`) ?? [];
-  const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
+  const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, service, domain, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
   // The '–' key is only worth reading when a '–' cell is on the page.
   const anyMissing = $derived(services.some((svc) => shown.some((env) => cell(svc, env).length === 0)));
   const serviceTotal = $derived(data?.page?.total ?? services.length);
@@ -155,14 +157,7 @@
             title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
           {#if r.level}<span class="t-meta ev-level" data-testid="level" title={levelHelp(r.level)}>{levelLabel(r.level)}</span>{/if}
         </span>
-        <span class="ev-badges">
-          {#if r.verified}<span class="badge badge-ok">Verified</span>{/if}
-          {#if r.failed}<span class="badge badge-err">Failed</span>{/if}
-          {#if r.frozen}<span class="badge badge-warn" title={r.frozenReason || 'Nothing moves here until a person unfreezes it'}>Frozen</span>{/if}
-          {#if r.autoHold}<span class="badge badge-info" title="A person or agent rolled this environment back or promoted it back to a version it already verified, so automation does not promote here until a person unfreezes it or promotes a version it has not verified yet">Auto-hold</span>{/if}
-          {#if r.held}<span class="badge badge-warn">{r.held} waiting</span>{/if}
-          {#if r.pointer && !r.verified && !r.failed}<span class="badge badge-neutral">Not verified</span>{/if}
-        </span>
+        <DeliveryBadges row={r} />
         {#if r.frozen && r.frozenReason}<span class="t-meta ev-frozen">Frozen: {sentence(r.frozenReason)}</span>{/if}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the reason for a keyboard reader; it is whole in the DOM for a screen reader) -->
         {#if r.ready && !r.ready.startsWith('True')}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why} tabindex="0">{why}</span>{/if}
@@ -196,8 +191,9 @@
     {/if}
   </PageHeader>
   <DeliveryNav current="delivery-environments" />
+  <DeliveryServiceFilter {service} {domain} clear={deliveryEnvironmentsUrl({ q, environment, tier })} />
   <div class="ev-tools">
-    <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v, environment, tier })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
+    <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v, environment, tier, service, domain })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
     <span class="ev-picks">
       {#if tierOptions.length > 1 || tier}
         <Select label="Tier" value={tier} options={[{ value: '', label: 'Every tier' }, ...tierOptions]} onchange={(e) => go({ tier: e.currentTarget.value, environment: '' })} />
@@ -215,7 +211,7 @@
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
     {#if rows.length === 0 && filtered}
-      <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{tier ? ` has a Stage in a ${tier} environment` : ''}.</p></div>
+      <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{service ? ` named ${service}` : ''}{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{tier ? ` has a Stage in a ${tier} environment` : ''}.</p></div>
     {:else if rows.length === 0}
       <div class="state-box" data-testid="environments-empty">
         <h2>No Stages yet</h2>
@@ -468,7 +464,7 @@
   .ev-cell { display: flex; flex-direction: column; gap: var(--sp-1); }
   .ev-cell + .ev-cell { margin-top: var(--sp-2); }
   .ev-version { font-weight: 600; }
-  .ev-badges, .ev-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
+  .ev-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
   .ev-ready { color: var(--c-warn); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   /* Two lines until a reader points at it or tabs to it; then the whole reason. */
   .ev-ready:hover, .ev-ready:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }

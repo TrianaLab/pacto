@@ -8,8 +8,10 @@
   // down how to reach them. The backend has said `declared` since the ownership
   // classification landed; nothing was reading it.
   //
-  // So there are three states, not two:
+  // So there are four states, not two:
   //   nothing declared        -> No declared owner
+  //   cannot tell             -> Owner unknown (no readable contract, no source that
+  //                              reads the contract its targets run; service only)
   //   declared, identifiable  -> the canonical owner, as a link
   //   declared, no identity   -> declared, and there is no owner page to go to
   //
@@ -20,11 +22,21 @@
   // declared it.
   import EntityLink from './EntityLink.svelte';
 
-  let { ownership } = $props();
+  // unownedHref: where the two unowned states lead (the service page's own `unowned`
+  // attention item). declaredIn: the revision whose owner block the service takes, where
+  // its contacts are shown; contacts are never copied onto a service.
+  let { ownership, unownedHref = '', declaredIn = null } = $props();
+  const unknownTitle = "Pacto could not read this service's contracts, so it cannot tell whether an owner is declared. Pacto still counts it as unowned.";
 </script>
 
 {#if !ownership?.declared}
-  <span class="of-none">No declared owner</span>
+  {@const label = ownership?.unknown ? 'Owner unknown' : 'No declared owner'}
+  {@const title = ownership?.unknown ? unknownTitle : undefined}
+  {#if unownedHref}
+    <a class="of-none" href={unownedHref} {title}>{label}</a>
+  {:else}
+    <span class="of-none" {title}>{label}</span>
+  {/if}
 {:else if ownership.ref}
   <EntityLink ref={ownership.ref} showStatus={false} showKind={false} />
 {:else}
@@ -32,6 +44,9 @@
     <span>Ownership declared</span>
     <span class="of-note">No Team or DRI identity</span>
   </span>
+{/if}
+{#if ownership?.declared && declaredIn}
+  <span class="of-note" data-testid="owner-declared-in" title="Its contacts are on that revision's page">Declared in <EntityLink ref={declaredIn} showStatus={false} showKind={false} /></span>
 {/if}
 
 <style>

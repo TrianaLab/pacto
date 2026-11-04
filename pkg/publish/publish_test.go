@@ -827,3 +827,25 @@ func TestMakePlanPreflight(t *testing.T) {
 	p := MakePlan(context.Background(), reg, in)
 	expect(t, !p.Ready && p.Checks[len(p.Checks)-1].Name == "docker", "plan: %+v", p)
 }
+
+// TestClientReferrerDescriptorsPaginated: a referrers response that links to a
+// next page comes back as its first page with ErrReferrersPartial, never as a
+// complete list.
+func TestClientReferrerDescriptorsPaginated(t *testing.T) {
+	h := registry.New(registry.WithReferrersSupport(true), registry.Logger(log.New(io.Discard, "", 0)))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/referrers/") {
+			w.Header().Set("Link", `<`+r.URL.Path+`?last=x>; rel="next"`)
+		}
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://")
+	reg := NewClient(anonymous, host)
+	repo, d := signedImage(t, reg, host)
+	writeBundle(t, reg, repo, d, SignPredicate, statementOver(d, SignPredicate))
+	got, err := reg.ReferrerDescriptors(t.Context(), repo, d)
+	if !errors.Is(err, ErrReferrersPartial) || len(got) != 1 {
+		t.Fatalf("paginated referrers = %v, %v", got, err)
+	}
+}

@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import {
   complianceSegments, linkSegments, severitySegments, evidenceSegments,
   changeSegments, verdictSegments, confidenceSegments, segmentTotal,
-  COMPLIANCE_STATES, statusHrefs, severityHrefs, bucketLabel,
+  COMPLIANCE_STATES, statusHrefs, severityHrefs, bucketLabel, signatureSegments, signatureState,
 } from './distributions.ts';
 import { statusLabel } from './format.ts';
 
@@ -185,5 +185,29 @@ describe('COMPLIANCE_STATES', () => {
     expect(Object.keys(h).sort()).toEqual(CANONICAL.map((v) => v.charAt(0).toLowerCase() + v.slice(1)).sort());
     expect(h.notEvaluated).toBe('#/x?status=NotEvaluated');
     expect(h.other).toBeUndefined();
+  });
+});
+
+describe('signatureSegments', () => {
+  it('orders, words and tones the bundle signature states, unknown never positive', () => {
+    const s = signatureSegments({ verified: 1, unverified: 2, unsigned: 3, unknown: 4, notChecked: 5 });
+    expect(s.map((x) => [x.label, x.value, x.tone])).toEqual([
+      ['Verified', 1, 'ok'], ['Unverified', 2, 'err'], ['Unsigned', 3, 'warn'],
+      ['Unknown', 4, 'neutral'], ['Not checked', 5, 'neutral'],
+    ]);
+  });
+
+  it('reads a missing tally as zeros', () => {
+    expect(segmentTotal(signatureSegments(undefined))).toBe(0);
+  });
+});
+
+describe('signatureState', () => {
+  it('never shows verified without a signer', () => {
+    expect(signatureState({ status: 'verified', signer: 'ci@acme.dev' }).label).toBe('Verified');
+    expect(signatureState({ status: 'verified' }).label).toBe('Unknown');
+    expect(signatureState(null).label).toBe('Not checked');
+    expect(signatureState({ status: 'brand-new' }).tone).toBe('neutral');
+    expect(signatureState({ status: 'unsigned' }).tone).toBe('warn');
   });
 });

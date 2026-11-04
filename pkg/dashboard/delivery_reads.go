@@ -335,11 +335,25 @@ func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObjec
 	return out
 }
 
+// sameDomain reports whether a Stage naming stage as its service's domain may
+// be the service in domain. A Stage that names no domain cannot be told apart
+// by it, so it matches any.
+// ponytail: an unscoped Stage still matches every same-named service; the
+// service page marks such a row "Stage names no domain" instead of hiding it.
+func sameDomain(stage, domain string) bool { return stage == "" || stage == domain }
+
+// ofService reports whether st is a Stage of service in domain; no service
+// keeps every Stage.
+func ofService(st delivery.StageObject, service, domain string) bool {
+	return service == "" || st.Spec.Service.Name == service && sameDomain(st.Spec.Service.Domain, domain)
+}
+
 // EnvironmentRow is one Stage: one service in one environment.
 type EnvironmentRow struct {
 	Namespace        string   `json:"namespace"`
 	Stage            string   `json:"stage"`
 	Service          string   `json:"service"`
+	Domain           string   `json:"domain,omitempty" doc:"The registry domain the Stage names for its service; empty when it names none"`
 	Environment      string   `json:"environment"`
 	Pointer          string   `json:"pointer,omitempty" doc:"The digest the environment runs"`
 	Version          string   `json:"version,omitempty" doc:"The version its contract declares, when the artifact could be read"`
@@ -364,7 +378,7 @@ type EnvironmentRow struct {
 // the owner their contracts declare.
 func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string) EnvironmentRow {
 	ss := st.Status
-	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Environment: st.Spec.Environment,
+	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Domain: st.Spec.Service.Domain, Environment: st.Spec.Environment,
 		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
 		Frozen: ss.Frozen, FrozenReason: ss.FrozenReason, AutoHold: ss.AutoHold, Candidate: ss.Candidate, Actions: []string{}}
 	if lad := ladderOf(st); lad.Level != "" {
@@ -414,6 +428,8 @@ type environmentsInput struct {
 	PageQuery
 	Environment string `query:"environment" doc:"Keep only the services with a Stage in this environment, and only those Stages"`
 	Tier        string `query:"tier" enum:"dev,test,prod" doc:"Keep only the services with a Stage in an environment of this tier, and only those Stages"`
+	Service     string `query:"service" doc:"Keep only the Stages of the service with exactly this name"`
+	Domain      string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
 }
 
 // envOrder is the way changes travel, matched as name prefixes: each entry's
@@ -487,7 +503,9 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 			held[o.Metadata.Namespace+"/"+o.Spec.Stage]++
 		}
 	}
-	stages = filter(stages, func(st delivery.StageObject) bool { return matches(in.Q, st.Spec.Service.Name) })
+	stages = filter(stages, func(st delivery.StageObject) bool {
+		return matches(in.Q, st.Spec.Service.Name) && ofService(st, in.Service, in.Domain)
+	})
 	out := &environmentsOutput{}
 	out.Body.Listing, out.Body.Environments = l, []EnvironmentRow{}
 	out.Body.EnvironmentNames, out.Body.EnvironmentTiers = environmentColumns(stages)
@@ -682,6 +700,8 @@ func publishedDigests(stages []delivery.StageObject, q string) (byService map[st
 type historyInput struct {
 	Namespace string `query:"namespace" doc:"Namespace of one Stage (with stage); empty lists every Stage the caller can see"`
 	Stage     string `query:"stage" doc:"One Stage's name"`
+	Service   string `query:"service" doc:"Without a stage: keep only the Stages of the service with exactly this name"`
+	Domain    string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
 	// With a Stage, the page is of its changes; without, of Stages, each
 	// with its newest changes.
 	PageQuery
@@ -760,7 +780,8 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 			return nil, err
 		}
 		stages = filter(stages, func(st delivery.StageObject) bool {
-			return matches(in.Q, st.Metadata.Namespace+"/"+st.Metadata.Name, st.Spec.Service.Name, st.Spec.Environment)
+			return matches(in.Q, st.Metadata.Namespace+"/"+st.Metadata.Name, st.Spec.Service.Name, st.Spec.Environment) &&
+				ofService(st, in.Service, in.Domain)
 		})
 		out.Body.Counts = historyCounts(stages, ops)
 		slices.SortFunc(stages, func(a, b delivery.StageObject) int {

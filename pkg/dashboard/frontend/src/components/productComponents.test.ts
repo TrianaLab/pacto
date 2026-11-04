@@ -26,6 +26,12 @@ import RelationshipList from './RelationshipList.svelte';
 import FindingList from './FindingList.svelte';
 // @ts-expect-error
 import PageHeader from './PageHeader.svelte';
+// @ts-expect-error
+import OwnershipFact from './OwnershipFact.svelte';
+// @ts-expect-error
+import SchemaContent from './SchemaContent.svelte';
+// @ts-expect-error
+import BundleProvenance from './BundleProvenance.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
 let target: HTMLElement;
@@ -377,6 +383,41 @@ describe('KnowledgeBanner names its own subject', () => {
   });
 });
 
+describe('OwnershipFact', () => {
+  const norm = () => (target.textContent || '').replace(/\s+/g, ' ').trim();
+  const owner = { kind: 'owner', key: 'team/a', label: 'team/a', href: '/fleet/owners/team%2Fa' };
+
+  // What the revision and target pages pass: no new props, so nothing may change there.
+  it('renders the three existing states as before when given only ownership', () => {
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: false } } });
+    expect(norm()).toBe('No declared owner');
+    expect(target.querySelector('a')).toBeNull();
+    unmount(comp);
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: true, ref: owner } } });
+    expect(target.querySelector('a')?.getAttribute('href')).toBe('#/fleet/owners/team%2Fa');
+    expect(norm()).not.toContain('Declared in');
+    unmount(comp);
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: true } } });
+    expect(norm()).toBe('Ownership declared No Team or DRI identity');
+    unmount(comp);
+    // Unknown without a destination stays text.
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: false, unknown: true } } });
+    expect(norm()).toBe('Owner unknown');
+    expect(target.querySelector('a')).toBeNull();
+  });
+
+  it('links only the unowned states to unownedHref', () => {
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: false }, unownedHref: '#/x' } });
+    expect(target.querySelector('a')?.getAttribute('href')).toBe('#/x');
+    unmount(comp);
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: false, unknown: true }, unownedHref: '#/x' } });
+    expect(target.querySelector('a')?.textContent).toBe('Owner unknown');
+    unmount(comp);
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: true }, unownedHref: '#/x' } });
+    expect(target.querySelector('a')).toBeNull();
+  });
+});
+
 describe('RelationshipList — fine-grained edges are service-scoped, never Unknown', () => {
   // A revision page's dependency is FINE-GRAINED scope: the backend deliberately sends
   // no edge-scope `difference` there (pkg/fleet/detail.go revisionEdges) and sends the
@@ -424,5 +465,40 @@ describe('PageHeader', () => {
   it('says a poll is checking when no page turn is in flight', () => {
     comp = mount(PageHeader, { target, props: { title: 'Services', revalidating: true } });
     expect(age()).toBe('Checking for changes…');
+  });
+});
+
+describe('SchemaContent', () => {
+  it('says how many properties a truncated schema leaves out', () => {
+    comp = mount(SchemaContent, { target, props: { content: { properties: [{ key: 'a', type: 'string', value: '' }], total: 250, truncated: true } } });
+    expect(target.textContent).toContain('1 of 250 properties');
+    expect(target.textContent).toContain('Showing 1 of 250 properties.');
+  });
+
+  it('tells an empty schema apart from an unreadable one', () => {
+    comp = mount(SchemaContent, { target, props: { content: { properties: [], total: 0, truncated: false } } });
+    expect(target.textContent).toContain('The schema declares no properties.');
+    expect(target.textContent).not.toContain('Content unavailable');
+  });
+});
+
+describe('BundleProvenance', () => {
+  it('never shows verified without the signer', () => {
+    comp = mount(BundleProvenance, { target, props: { bundle: { source: 'oci', checkedAt: '', signature: { status: 'verified', bundles: 1 }, referrers: { items: [], count: 0, total: 0, truncated: false } } } });
+    expect(target.textContent).not.toContain('Verified');
+    expect(target.querySelector('.tone-ok')).toBeNull();
+  });
+
+  it('names the expected signer of an unverified signature, never as its signer', () => {
+    comp = mount(BundleProvenance, { target, props: { bundle: { source: 'oci', checkedAt: '', signature: { status: 'unverified', expectedSigner: 'ci@org', expectedIssuer: 'https://iss', bundles: 1 }, referrers: { items: [], count: 0, total: 0, truncated: false } } } });
+    expect(target.textContent).toContain('Expected signerci@org');
+    expect(target.textContent).toContain('Expected issuerhttps://iss');
+    expect(target.textContent).not.toMatch(/(^|[^d])Signerci@org/);
+  });
+
+  it('does not count signature bundles it could not list', () => {
+    comp = mount(BundleProvenance, { target, props: { bundle: { source: 'oci', checkedAt: '', referrersUnavailable: 'registry down', signature: { status: 'unknown', bundles: 0, reason: 'registry down' }, referrers: { items: [], count: 0, total: 0, truncated: false } } } });
+    expect(target.textContent).toContain('Signature bundlesUnknown');
+    expect(target.textContent).not.toContain('Signature bundles0');
   });
 });

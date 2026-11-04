@@ -3,7 +3,6 @@ package fleet
 import (
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"unicode/utf8"
 )
 
@@ -122,25 +121,9 @@ func (q *Query) RevisionDocument(revisionKey, path string) (*RevisionDocument, e
 	unavailable := func(reason string) error {
 		return &DocumentUnavailableError{Revision: revisionKey, Path: doc.Path, Reason: reason}
 	}
-	if rev.docConflict != "" {
-		return nil, unavailable(rev.docConflict)
-	}
-	if rev.bundle == nil || rev.bundle.FS == nil {
-		return nil, unavailable("this revision's bundle filesystem is not retained in the snapshot")
-	}
-	f, err := rev.bundle.FS.Open(doc.Path)
-	if err != nil {
-		return nil, unavailable(err.Error())
-	}
-	defer f.Close() //nolint:errcheck // read-only
-	// One byte past the bound, so "exactly at the bound" and "over it" are
-	// distinguishable without trusting a reported file size.
-	body, err := io.ReadAll(io.LimitReader(f, MaxDocumentBytes+1))
-	if err != nil {
-		return nil, unavailable(err.Error())
-	}
-	if len(body) > MaxDocumentBytes {
-		return nil, unavailable(fmt.Sprintf("it exceeds the %d-byte read bound", MaxDocumentBytes))
+	body, reason := readBundleFile(rev, doc.Path, MaxDocumentBytes)
+	if reason != "" {
+		return nil, unavailable(reason)
 	}
 	// The immutability check. Everything above proves the bytes are servable; this
 	// proves they are THIS revision's. A document Build could not fingerprint has

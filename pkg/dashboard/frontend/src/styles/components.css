@@ -852,3 +852,14 @@ button.detail-card-header {
 /* The one-line answer under a page title: each page answers its question first, in
    plain words, before any section. Body role, so it adds no type size of its own. */
 .page-answer { margin: 0 0 var(--sp-3); max-width: 72ch; color: var(--c-text); }
+
+/* A small key/value table inside a card or section: the revision page, the
+   service page and the provenance block share it. --mono sets the key column in
+   the code font. */
+.kv-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.kv-table th { text-align: left; color: var(--c-text-3); padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+.kv-table td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
+.kv-table--mono td:first-child { font-family: var(--font-mono, monospace); color: var(--c-text); }
+
+/* One declared item (an interface, a configuration) as an inset card. */
+.inset-card { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-inset); }

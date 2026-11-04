@@ -146,7 +146,9 @@ false`. Keyless signing needs the log: its certificate lives ten minutes, so
 it verifies only at the time the log saw it, and Pacto refuses keyless with
 `transparencyLog: false`. Pacto verifies a keyless signature against the
 `identity` and `issuer` you configure, under the trusted root Sigstore
-publishes through TUF.
+publishes through TUF. The dashboard and `pacto_fleet_get` show whether a
+published version's signature verifies; see [Bundle signatures and
+referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
 
 ## In CI and from agents
 

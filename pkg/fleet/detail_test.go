@@ -2,6 +2,10 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -394,5 +398,199 @@ func TestRevisionDetail_DependencyCarriesCorroborationNotAnEdgeVerdict(t *testin
 	}
 	if e.Observed {
 		t.Error("Observed = true: service telemetry never proves this specific revision edge")
+	}
+}
+
+// detailFleet is a hand-built snapshot of one service "svc" with the given
+// revisions and targets, each stamped with the service key.
+func detailFleet(owner contract.Owner, revs []*ContractRevision, targets []*TargetRecord) *Query {
+	const key = ServiceKey("svc")
+	s := &ServiceRecord{Key: key, Name: "svc", Owner: owner}
+	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{key: s}, Revisions: map[RevisionKey]*ContractRevision{}, Targets: map[TargetKey]*TargetRecord{}}
+	for _, r := range revs {
+		r.Service, r.ServiceKey = "svc", key
+		snap.Revisions[r.Key] = r
+		s.Revisions = append(s.Revisions, r.Key)
+	}
+	for _, t := range targets {
+		t.ServiceKey = key
+		snap.Targets[t.Key] = t
+		s.Targets = append(s.Targets, t.Key)
+	}
+	return NewQuery(snap)
+}
+
+func serviceDetailOf(t *testing.T, q *Query) *ServiceDetailData {
+	t.Helper()
+	d, err := q.EntityDetail(KindService, "svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d.Service
+}
+
+// TestServiceOwnershipUnknown: with no readable contract and no source that
+// reads the contract a target runs, Pacto cannot tell whether an owner is
+// declared, which is different from no declared owner.
+func TestServiceOwnershipUnknown(t *testing.T) {
+	readable := func() *contract.Contract { return &contract.Contract{Service: contract.Service{Name: "svc"}} }
+	cases := []struct {
+		name            string
+		owner           contract.Owner
+		rev             *ContractRevision
+		domainKnown     bool
+		declared, unkwn bool
+	}{
+		{"unread contract", contract.Owner{}, &ContractRevision{Key: "svc@1"}, false, false, true},
+		{"invalid contract", contract.Owner{}, &ContractRevision{Key: "svc@1", Contract: readable(), validated: true}, false, false, true},
+		{"target-reported owner", contract.Owner{Team: "ops"}, &ContractRevision{Key: "svc@1"}, false, true, false},
+		{"valid contract without owner", contract.Owner{}, &ContractRevision{Key: "svc@1", Contract: readable(), validated: true, Valid: true}, false, false, false},
+		{"target contract read", contract.Owner{}, &ContractRevision{Key: "svc@1"}, true, false, false},
+		{"invalid domain slug", contract.Owner{}, &ContractRevision{Key: "svc@1", Contract: &contract.Contract{Service: contract.Service{Name: "svc", Domain: "Not A Slug"}}}, false, false, false},
+	}
+	for _, c := range cases {
+		q := detailFleet(c.owner, []*ContractRevision{c.rev}, []*TargetRecord{{Key: "t1", Name: "t1", domainKnown: c.domainKnown}})
+		if o := serviceDetailOf(t, q).Ownership; o.Declared != c.declared || o.Unknown != c.unkwn {
+			t.Errorf("%s: declared = %v, unknown = %v, want %v/%v", c.name, o.Declared, o.Unknown, c.declared, c.unkwn)
+		}
+	}
+}
+
+func TestServiceDetailOwnerRevision(t *testing.T) {
+	q := detailFleet(contract.Owner{Team: "team-a"}, []*ContractRevision{
+		{Key: "svc@1", Version: "1.0.0", Owner: contract.Owner{Team: "team-a"}},
+		{Key: "svc@2", Version: "2.0.0"},
+	}, nil)
+	if r := serviceDetailOf(t, q).OwnerRevision; r == nil || r.Key != "svc@1" {
+		t.Errorf("owner revision = %+v, want svc@1", r)
+	}
+	q = detailFleet(contract.Owner{}, []*ContractRevision{{Key: "svc@1", Version: "1.0.0"}}, nil)
+	if r := serviceDetailOf(t, q).OwnerRevision; r != nil {
+		t.Errorf("owner revision = %+v, want none", r)
+	}
+}
+
+func TestServiceDetailCapabilities(t *testing.T) {
+	c := &contract.Contract{Capabilities: []contract.Capability{{Type: "metrics"}, {Ref: "oci://x/ext"}, {Type: "health"}}}
+	q := detailFleet(contract.Owner{}, []*ContractRevision{{Key: "svc@1", Contract: c}}, nil)
+	if got := serviceDetailOf(t, q).Capabilities; got.Total != 2 || !slices.Equal(got.Items, []string{"health", "metrics"}) {
+		t.Errorf("capabilities = %+v", got)
+	}
+	none := serviceDetailOf(t, detailFleet(contract.Owner{}, []*ContractRevision{{Key: "svc@1"}}, nil)).Capabilities
+	if b, _ := json.Marshal(none.Items); string(b) != "[]" {
+		t.Errorf("no capabilities = %s, want []", b)
+	}
+}
+
+func TestServiceDetailSources(t *testing.T) {
+	q := detailFleet(contract.Owner{},
+		[]*ContractRevision{{Key: "svc@1", Source: "oci", Sources: []string{"cache", "oci"}}},
+		[]*TargetRecord{{Key: "t1", Name: "t1", Source: "k8s", Sources: []string{"k8s", "ghost"}}})
+	q.snap.Sources = []SourceState{
+		{ID: "k8s", Kind: "kubernetes", Status: SourceAvailable},
+		{ID: "oci", Kind: "oci", Status: SourceStale},
+		{ID: "cache", Kind: "cache", Status: SourceAvailable},
+	}
+	got := serviceDetailOf(t, q).Sources
+	var keys, statuses []string
+	for _, r := range got.Items {
+		if r.Kind != KindSource {
+			t.Errorf("source ref kind = %q", r.Kind)
+		}
+		keys, statuses = append(keys, r.Key), append(statuses, r.Status)
+	}
+	if !slices.Equal(keys, []string{"cache", "ghost", "k8s", "oci"}) || !slices.Equal(statuses, []string{"available", "", "available", "stale"}) {
+		t.Errorf("sources = %v %v", keys, statuses)
+	}
+}
+
+// TestServiceDetailUnresolvedDependencies: external and unresolved declared
+// dependencies are listed once each, and the three lists add up to the declared
+// count, also when a provider is hidden by permissions, declared under two names
+// or only observed.
+func TestServiceDetailUnresolvedDependencies(t *testing.T) {
+	a, b, c := ServiceKey("a"), ServiceKey("b"), ServiceKey("c")
+	dep := func(rev, to string, mut func(*Relationship)) Relationship {
+		r := Relationship{FromService: a, FromRevision: RevisionKey(rev), To: to, RequestedRef: to, Type: RelationshipDependency, Provenance: ProvenanceDeclared}
+		mut(&r)
+		return r
+	}
+	ext := func(r *Relationship) { r.External, r.Version = true, "15" }
+	snap := &FleetSnapshot{
+		Services: map[ServiceKey]*ServiceRecord{
+			a: {Key: a, Name: "a", Revisions: []RevisionKey{"a@1", "a@2"}, Targets: []TargetKey{"ta"}},
+			b: {Key: b, Name: "b", Targets: []TargetKey{"tb"}},
+			c: {Key: c, Name: "c", Targets: []TargetKey{"tc"}},
+		},
+		Revisions: map[RevisionKey]*ContractRevision{
+			"a@1": {Key: "a@1", Service: "a", ServiceKey: a, Version: "1.0.0"},
+			"a@2": {Key: "a@2", Service: "a", ServiceKey: a, Version: "2.0.0"},
+		},
+		Targets: map[TargetKey]*TargetRecord{
+			"ta": {Key: "ta", Name: "a", Kind: SourceKindKubernetes, Scope: "shop", ServiceKey: a},
+			"tb": {Key: "tb", Name: "b", Kind: SourceKindKubernetes, Scope: "secret", ServiceKey: b},
+			"tc": {Key: "tc", Name: "c", Kind: SourceKindKubernetes, Scope: "secret", ServiceKey: c},
+		},
+		Relationships: []Relationship{
+			// The first record carries neither flag: External is OR-ed and the first
+			// non-empty Version is kept.
+			dep("a@1", "oci://reg/db", func(*Relationship) {}),
+			dep("a@2", "oci://reg/db", ext),
+			dep("a@1", "oci://reg/missing", func(*Relationship) {}),
+			dep("a@1", "oci://reg/b", func(r *Relationship) { r.ToService, r.Resolved = b, true }),
+			// b again under another name: still one dependency, hidden or not.
+			dep("a@2", "oci://reg/b-renamed", func(r *Relationship) { r.ToService, r.Resolved = b, true }),
+			// c is only called at runtime: never a declared or hidden dependency.
+			{FromService: a, ToService: c, To: "c", Type: RelationshipDependency, Provenance: ProvenanceObserved},
+		},
+	}
+	check := func(name string, q *Query, hidden int) {
+		t.Helper()
+		d, err := q.EntityDetail(KindService, "a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := d.Service
+		u := s.UnresolvedDependencies.Items
+		if len(u) != 2 || u[0].Ref != "oci://reg/db" || !u[0].External || u[0].Version != "15" || u[1].Ref != "oci://reg/missing" || u[1].External || u[0].From.Key != "a" {
+			t.Errorf("%s: unresolved = %+v", name, u)
+		}
+		if s.HiddenDependencies != hidden || s.Dependencies.Total+s.UnresolvedDependencies.Total+s.HiddenDependencies != s.Summary.DeclaredDependencies || s.Summary.DeclaredDependencies != 3 {
+			t.Errorf("%s: %d + %d + %d != %d", name, s.Dependencies.Total, s.UnresolvedDependencies.Total, s.HiddenDependencies, s.Summary.DeclaredDependencies)
+		}
+	}
+	q := NewQuery(snap)
+	check("visible", q, 0)
+	check("hidden", q.Restrict(func(ns string) bool { return ns != "secret" }), 1)
+}
+
+func TestRevisionEntityRefFetchedAt(t *testing.T) {
+	at := fixedNow()
+	ref := revisionEntityRef(&ContractRevision{Key: "svc@1", FetchedAt: &at})
+	if ref.FetchedAt == nil || !ref.FetchedAt.Equal(at) || ref.FetchedAt == &at {
+		t.Errorf("fetchedAt = %v, want a copy of %v", ref.FetchedAt, at)
+	}
+	if revisionEntityRef(&ContractRevision{Key: "svc@1"}).FetchedAt != nil {
+		t.Error("no fetch time stays nil")
+	}
+}
+
+func TestServiceRelationshipsNeighborhoodError(t *testing.T) {
+	self := EntityRef{Kind: KindService, Key: "svc", Label: "svc"}
+	rels, lims := serviceRelationships(nil, errors.New("boom"), self)
+	if rels.Count != 0 || rels.Total != nil || rels.Items == nil {
+		t.Errorf("relationships = %+v, want an empty preview of unknown total", rels)
+	}
+	want := AttributedLimitation{Entity: self, Limitation: Limitation{Code: LimitationNeighborhoodUnavailable, Message: "The relationships of this service could not be computed: boom"}}
+	if len(lims) != 1 || lims[0] != want {
+		t.Fatalf("limitations = %+v", lims)
+	}
+	var targets []*TargetRecord
+	for i := range 250 {
+		targets = append(targets, &TargetRecord{Key: TargetKey(fmt.Sprint("t", i)), Limitations: []Limitation{{Code: "X"}}})
+	}
+	got := serviceLimitations(lims, targets)
+	if got.Total != 251 || got.Count != MaxDetailPreview || !got.Truncated || got.Items[0] != want {
+		t.Errorf("limitations preview = total %d count %d first %+v", got.Total, got.Count, got.Items[0])
 	}
 }

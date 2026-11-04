@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -202,5 +204,79 @@ func TestMayRaiseAsksOnlyForAnAction(t *testing.T) {
 	mayRaise(context.Background(), f, rows)
 	if len(rows[0].Actions) != 1 || len(rows[1].Actions) != 0 || f.cans.Load() != 2 {
 		t.Errorf("rows %v, %d reviews", rows, f.cans.Load())
+	}
+}
+
+// service is an exact match: one call returns exactly that service's Stages,
+// however many services contain the name, and intersects with q.
+func TestEnvironmentsServiceFilter(t *testing.T) {
+	f := &fakeDelivery{caller: person(), stages: []delivery.StageObject{
+		stage("prod", "orders", "orders", delivery.StageStatus{}),
+		stage("dev", "orders", "orders", delivery.StageStatus{}),
+		stage("prod", "orders-api", "orders-api", delivery.StageStatus{}),
+	}}
+	for n := range 250 {
+		f.stages = append(f.stages, stage("prod", fmt.Sprintf("a-orders-%d", n), fmt.Sprintf("a-orders-%d", n), delivery.StageStatus{}))
+	}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+
+	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments?service=orders&limit=1", nil)
+	rows := envs["environments"].([]any)
+	expect(t, len(rows) == 2 && page(envs["page"])["total"] == float64(1), "only the orders Stages: %v", envs)
+	for _, r := range rows {
+		expect(t, page(r)["service"] == "orders", "never another service: %v", r)
+	}
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?service=orders&q=ORD", nil)
+	expect(t, len(envs["environments"].([]any)) == 2, "service and a matching q intersect: %v", envs)
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?service=orders&q=api", nil)
+	expect(t, len(envs["environments"].([]any)) == 0 && page(envs["page"])["total"] == float64(0), "service and q intersect: %v", envs)
+}
+
+// TestEnvironmentsServiceDomainFilter: same-named services in two registry
+// domains never share Stages; a Stage that names no domain matches either.
+func TestEnvironmentsServiceDomainFilter(t *testing.T) {
+	inDomain := func(env, domain string) delivery.StageObject {
+		st := stage(env, "payments-"+env, "payments", delivery.StageStatus{})
+		st.Spec.Service.Domain = domain
+		return st
+	}
+	f := &fakeDelivery{caller: person(), stages: []delivery.StageObject{
+		inDomain("a", "ghcr.io/a"), inDomain("b", "ghcr.io/b"), inDomain("any", ""),
+	}}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	for domain, want := range map[string][]string{"ghcr.io/a": {"a", "any"}, "ghcr.io/b": {"any", "b"}, "": {"any"}} {
+		_, envs := call(t, http.MethodGet, base+"/api/delivery/environments?service=payments&domain="+url.QueryEscape(domain), nil)
+		var got []string
+		for _, r := range envs["environments"].([]any) {
+			row := page(r)
+			expect(t, row["domain"] == nil || row["domain"] == domain, "%q: row of another domain: %v", domain, row)
+			got = append(got, row["environment"].(string))
+		}
+		slices.Sort(got)
+		expect(t, slices.Equal(got, want), "%q: environments %v, want %v", domain, got, want)
+	}
+}
+
+// History takes the same exact service and domain filter as the board: a
+// longer name containing the service and another domain's Stage are left out,
+// and a Stage that names no domain stays.
+func TestDeliveryHistoryServiceFilter(t *testing.T) {
+	inDomain := func(env, svc, domain string) delivery.StageObject {
+		st := stage(env, svc+"-"+env, svc, delivery.StageStatus{})
+		st.Spec.Service.Domain = domain
+		return st
+	}
+	f := &fakeDelivery{caller: person(), stages: []delivery.StageObject{
+		inDomain("a", "payments", "ghcr.io/a"), inDomain("b", "payments", "ghcr.io/b"), inDomain("any", "payments", ""),
+		inDomain("a", "payments-api", "ghcr.io/a"),
+	}}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	for domain, want := range map[string][]string{"ghcr.io/a": {"a/payments-a", "any/payments-any"}, "": {"any/payments-any"}} {
+		_, h := call(t, http.MethodGet, base+"/api/delivery/history?service=payments&domain="+url.QueryEscape(domain), nil)
+		var got []string
+		for _, x := range h["histories"].([]any) {
+			got = append(got, page(page(x)["stage"])["name"].(string))
+		}
+		expect(t, slices.Equal(got, want) && page(h["page"])["total"] == float64(len(want)), "%q: Stages %v, want %v", domain, got, want)
 	}
 }
