@@ -18,10 +18,14 @@ func TestServiceFromContract(t *testing.T) {
 			Name:    "my-service",
 			Version: "1.2.3",
 			Owner:   contract.Owner{Team: "team-a"},
+			Domain:  "payments",
 		},
 	}
 
 	svc := ServiceFromContract(c, "local")
+	if svc.Domain != "payments" {
+		t.Errorf("expected domain 'payments', got %q", svc.Domain)
+	}
 	if svc.Name != "my-service" {
 		t.Errorf("expected name 'my-service', got %q", svc.Name)
 	}

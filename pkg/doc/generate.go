@@ -157,6 +157,9 @@ func writeSnapshotSummary(b *strings.Builder, d *contractview.ServiceDetails) {
 	if !d.Owner.IsEmpty() {
 		rows = append(rows, [2]string{"Owner", d.Owner.DisplayString()})
 	}
+	if d.Domain != "" {
+		rows = append(rows, [2]string{"Domain", d.Domain})
+	}
 	if len(rows) > 0 {
 		fmt.Fprintln(b, "| Field | Value |")
 		fmt.Fprintln(b, "|-------|-------|")

@@ -138,6 +138,7 @@ type Service struct {
 	Name           string         `json:"name"`
 	Version        string         `json:"version"`
 	Owner          contract.Owner `json:"owner,omitempty"`
+	Domain         string         `json:"domain,omitempty"`
 	ContractStatus ContractStatus `json:"contractStatus"`
 	Source         string         `json:"source"`            // primary source: k8s, oci, local
 	Sources        []string       `json:"sources,omitempty"` // all sources this service appears in

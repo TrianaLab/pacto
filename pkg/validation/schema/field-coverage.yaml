@@ -100,6 +100,21 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch
+  service.domain:
+    meaning: The business domain the service belongs to (pactoVersion 2.4).
+    runtime: static-only
+    evidence: 'none: the operational graph groups services by it'
+    rule: 'schema: lowercase slug, at most 63 characters; an older pactoVersion refuses it'
+    outcomes: NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug
+    limitations: a grouping key; the domain differs from the registry path in the service key
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds24
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/needs-2.4
+      e2e: []
   service.owner:
     meaning: Who owns the service.
     runtime: static-only

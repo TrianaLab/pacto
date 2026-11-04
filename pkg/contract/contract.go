@@ -194,6 +194,8 @@ type Service struct {
 	Name    string `yaml:"name" json:"name"`
 	Version string `yaml:"version" json:"version"`
 	Owner   Owner  `yaml:"owner,omitempty" json:"owner,omitempty"`
+	// Domain is the business domain the service belongs to (pactoVersion 2.4).
+	Domain string `yaml:"domain,omitempty" json:"domain,omitempty"`
 }
 
 // Interface describes a service interface declaration.

@@ -25,6 +25,9 @@ func diffContract(old, new *contract.Contract) []Change {
 		changes = append(changes, newChange("service.version", Modified, old.Service.Version, new.Service.Version))
 	}
 	changes = append(changes, diffOwner(old.Service.Owner, new.Service.Owner)...)
+	if old.Service.Domain != new.Service.Domain {
+		changes = append(changes, newChange("service.domain", strChangeType(old.Service.Domain, new.Service.Domain), old.Service.Domain, new.Service.Domain))
+	}
 
 	// Workload (top-level in v2)
 	if old.Workload != new.Workload {

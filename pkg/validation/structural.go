@@ -114,6 +114,9 @@ func ValidateStructural(data any) ValidationResult {
 	}
 
 	var mcp []int
+	if olderThan(version, "2.4") {
+		data = needs24(&result, data)
+	}
 	if olderThan(version, "2.3") {
 		data = needs23(&result, data)
 	}
@@ -145,6 +148,24 @@ func ValidateStructural(data any) ValidationResult {
 // than, so each later version keeps every field an earlier one added.
 func olderThan(version, than string) bool {
 	return slices.Index(contract.SupportedVersions, version) < slices.Index(contract.SupportedVersions, than)
+}
+
+// needs24 records a NEEDS_PACTO_2_4 error for service.domain, the field only
+// pactoVersion 2.4 has, in an older contract in place of the older schema's
+// generic "not allowed", and returns data with a service without it for that
+// schema to check the rest.
+func needs24(result *ValidationResult, data any) any {
+	m, _ := data.(map[string]any) // an older pactoVersion was read from it
+	svc, _ := m["service"].(map[string]any)
+	if _, ok := svc["domain"]; !ok {
+		return data
+	}
+	result.AddError("service.domain", string(finding.CodeNeedsPacto24), `service.domain needs pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`)
+	svc = maps.Clone(svc)
+	delete(svc, "domain")
+	out := maps.Clone(m)
+	out["service"] = svc
+	return out
 }
 
 // needs23 records a NEEDS_PACTO_2_3 error for environments, the section only

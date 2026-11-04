@@ -341,6 +341,9 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		if !result.Owner.IsEmpty() {
 			_, _ = fmt.Fprintf(w, "Owner: %s\n", result.Owner.DisplayString())
 		}
+		if result.Domain != "" {
+			_, _ = fmt.Fprintf(w, "Domain: %s\n", result.Domain)
+		}
 		_, _ = fmt.Fprintf(w, "Pacto Version: %s\n", result.PactoVersion)
 
 		if result.Workload != "" {

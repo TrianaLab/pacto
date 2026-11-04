@@ -1156,6 +1156,7 @@ export interface components {
             timeout?: string;
         };
         "Contract.Service": {
+            domain?: string;
             name: string;
             owner?: components["schemas"]["Contract.Owner"];
             version: string;
@@ -3514,6 +3515,7 @@ export interface components {
             currentRevision?: string;
             dependencies?: components["schemas"]["DependencyInfo"][] | null;
             docs?: components["schemas"]["DocInfo"][] | null;
+            domain?: string;
             environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             insights?: components["schemas"]["Insight"][] | null;
@@ -3563,6 +3565,7 @@ export interface components {
             contractStatus: string;
             /** Format: int64 */
             dependencyCount?: number;
+            domain?: string;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             name: string;
             namespace?: string;

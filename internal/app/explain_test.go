@@ -250,3 +250,17 @@ dependencies:
 		t.Errorf("requires = %+v", req)
 	}
 }
+
+func TestExplain_Domain(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  domain: payments\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Domain != "payments" {
+		t.Errorf("Domain = %q", result.Domain)
+	}
+}

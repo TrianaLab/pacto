@@ -98,6 +98,12 @@
               }
             }
           }
+        },
+        "domain": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+          "maxLength": 63,
+          "description": "The business domain the service belongs to, such as payments. The operational graph groups services by it. Use the same value across services; it is a lowercase slug."
         }
       }
     },

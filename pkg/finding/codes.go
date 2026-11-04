@@ -11,6 +11,7 @@ const (
 	CodeNeedsPacto21                 Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
 	CodeNeedsPacto22                 Code = "NEEDS_PACTO_2_2" // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
 	CodeNeedsPacto23                 Code = "NEEDS_PACTO_2_3" // an older contract declares environments
+	CodeNeedsPacto24                 Code = "NEEDS_PACTO_2_4" // an older contract declares service.domain
 	CodeSchemaError                  Code = "SCHEMA_ERROR"
 	CodeSchemaViolation              Code = "SCHEMA_VIOLATION"
 	CodeYamlParseError               Code = "YAML_PARSE_ERROR"
@@ -97,6 +98,7 @@ var registry = map[Code]codeMeta{
 	CodeNeedsPacto21:                 {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto22:                 {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto23:                 {CategoryInvalidVersion, SeverityError},
+	CodeNeedsPacto24:                 {CategoryInvalidVersion, SeverityError},
 	CodeSchemaError:                  {CategorySchemaViolation, SeverityError},
 	CodeSchemaViolation:              {CategorySchemaViolation, SeverityError},
 	CodeYamlParseError:               {CategorySchemaViolation, SeverityError},
