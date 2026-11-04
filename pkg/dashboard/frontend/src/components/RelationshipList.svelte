@@ -106,10 +106,12 @@
           {#if claims(e).length > 1 && c.sourceRevision}
             <dt>Declared by</dt><dd><code>{shortDigest(c.sourceRevision.split('@').pop()) || c.sourceRevision}</code></dd>
           {/if}
+          <!-- The range verdict sits beside the range it judges, so a claim keeps one
+               line at 1280px instead of wrapping a separate Range pair onto a second. -->
           {#each claimFacts(c) as [label, value] (label)}
-            <dt>{label}</dt><dd>{value}</dd>
+            <dt>{label}</dt><dd>{value}{#if label === 'Compatibility' && RANGE[c.rangeStatus]}{' '}<IdentityBadge label={RANGE[c.rangeStatus].label} tone={RANGE[c.rangeStatus].tone} />{/if}</dd>
           {/each}
-          {#if RANGE[c.rangeStatus]}
+          {#if !c.compatibility && RANGE[c.rangeStatus]}
             <dt>Range</dt><dd><IdentityBadge label={RANGE[c.rangeStatus].label} tone={RANGE[c.rangeStatus].tone} /></dd>
           {/if}
         </dl>
