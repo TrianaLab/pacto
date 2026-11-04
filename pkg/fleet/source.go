@@ -121,13 +121,18 @@ type RawTarget struct {
 	// dropped and reads as unknown.
 	BusinessDomain      string
 	BusinessDomainKnown bool
-	Findings            []finding.Finding
-	Coverage            *Coverage
-	Readiness           *readiness.Result
-	ObservedRuntime     map[string]any
-	EvidenceAt          *time.Time
-	ReconciledAt        *time.Time
-	Limitations         []Limitation
+	// Offering is the service.offering the source read from the contract the
+	// target runs; a value that is not a slug is dropped. Summary is that
+	// contract's service.summary.
+	Offering        string
+	Summary         string
+	Findings        []finding.Finding
+	Coverage        *Coverage
+	Readiness       *readiness.Result
+	ObservedRuntime map[string]any
+	EvidenceAt      *time.Time
+	ReconciledAt    *time.Time
+	Limitations     []Limitation
 }
 
 // MemorySource is an in-memory [Source]. It is the substrate for tests, the

@@ -125,12 +125,13 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 	service := item.Metadata.Name
 	resolvedRef := ""
 	var owner contract.Owner
-	var businessDomain string
+	var businessDomain, offering, summary string
 	// status.contract.domain is omitted when empty, so its absence says the
 	// contract declares none only on a status format that records the domain.
 	domainKnown := st.Contract != nil && st.StatusFormat >= delivery.StatusFormatDomain
 	if st.Contract != nil {
 		businessDomain = st.Contract.Domain
+		offering, summary = st.Contract.Offering, st.Contract.Summary
 		if st.Contract.ServiceName != "" {
 			service = st.Contract.ServiceName
 		}
@@ -165,6 +166,8 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		Owner:               owner,
 		BusinessDomain:      businessDomain,
 		BusinessDomainKnown: domainKnown,
+		Offering:            offering,
+		Summary:             summary,
 		Findings:            findingsFromK8s(st.Findings),
 		Readiness:           st.Readiness.result(),
 		ObservedRuntime:     st.ObservedRuntime,
@@ -296,6 +299,10 @@ type k8sContract struct {
 	Owner *contract.Owner `json:"owner"`
 	// Domain is status.contract.domain, the contract's service.domain.
 	Domain string `json:"domain"`
+	// Offering and Summary are status.contract.offering and .summary, the
+	// contract's service.offering and service.summary.
+	Offering string `json:"offering"`
+	Summary  string `json:"summary"`
 }
 
 type k8sCoverage struct {
