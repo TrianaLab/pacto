@@ -13,6 +13,10 @@
   import EvidenceList from '../../components/EvidenceList.svelte';
   import LimitationsSection from '../../components/LimitationsSection.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
+  import DistributionBar from '../../components/viz/DistributionBar.svelte';
+  import PolicyList from '../../components/PolicyList.svelte';
+  import ConfigurationList from '../../components/ConfigurationList.svelte';
+  import { readinessSegments, signatureSegments, signatureState, segmentTotal, READINESS_STATES } from '../../lib/distributions.ts';
   import { dropService, inService } from '../../lib/identityContext.ts';
 
   // The principal operational service page. It renders ONLY the
@@ -69,14 +73,33 @@
   // a question the user did not ask and lose the three rows they clicked for.
   const attentionUrl = $derived((category) => fleetAttentionUrl({ service: key, category }));
   // Drift rows are only worth a line each when they are non-zero; a service with no
-  // declared dependencies should not be told about four kinds of zero.
+  // declared dependencies should not be told about seven kinds of zero. Each row links
+  // to where its dependencies are listed: the attention item when one exists, else the
+  // graph, where declared and observed edges are drawn side by side.
   const drift = $derived([
     { k: 'Declared dependencies', v: sum.declaredDependencies ?? 0, tone: '' },
     { k: 'Declared and observed', v: sum.reconciledMatched ?? 0, tone: 'ok' },
-    { k: 'Declared, not observed', v: sum.declaredNotObserved ?? 0, tone: 'warn' },
-    { k: 'Observed, not declared', v: sum.observedNotDeclared ?? 0, tone: 'warn' },
-    { k: 'Unresolved declarations', v: sum.unresolvedDeclared ?? 0, tone: 'warn' },
+    { k: 'Declared, not observed', v: sum.declaredNotObserved ?? 0, tone: 'warn', href: graphHref },
+    { k: 'Observed, not declared', v: sum.observedNotDeclared ?? 0, tone: 'warn', href: graphHref },
+    { k: 'Unresolved declarations', v: sum.unresolvedDeclared ?? 0, tone: 'warn', href: attentionUrl('unresolved') },
+    { k: 'Outside accepted range', v: sum.unsatisfiedRanges ?? 0, tone: 'warn', href: attentionUrl('out-of-range') },
+    { k: 'Cannot be observed', v: sum.insufficientEvidence ?? 0, tone: '', href: graphHref },
   ].filter((x) => x.v > 0));
+
+  // Readiness is tallied over every known revision; each bucket opens those revisions.
+  const readiness = $derived(readinessSegments(sum.readiness, Object.fromEntries(
+    READINESS_STATES.map((st) => [st.field, fleetEntityListUrl('revision', { service: key, readiness: st.value })]),
+  )));
+  // Signatures are tallied over the revisions in use. When no source checked any of
+  // them, a bar of one grey slice says less than the sentence that explains it.
+  const signatures = $derived(signatureSegments(sum.signatures));
+  const signed = $derived(segmentTotal(signatures));
+  const noneChecked = $derived(signed > 0 && (sum.signatures?.notChecked ?? 0) === signed);
+  const sigRows = $derived(d.signatures?.items ?? []);
+  const relEmpty = $derived((d.limitations?.items ?? []).some((l) => l.limitation?.code === 'NEIGHBORHOOD_UNAVAILABLE')
+    ? 'Relationships could not be computed. See the limitations below.'
+    : 'No traffic observed for this service yet.');
+  const current = $derived(d.currentRevision ? inService(d.currentRevision, self) : null);
 </script>
 
 <div class="svc-entity">
@@ -178,9 +201,21 @@
       <h3 class="t-subsection-title">Dependency drift</h3>
       <ul class="se-drift">
         {#each drift as x (x.k)}
-          <li class={x.tone ? `tone-${x.tone}` : ''}><b>{x.v}</b> {x.k}</li>
+          <li class={x.tone ? `tone-${x.tone}` : ''}>{#if x.href}<a href={x.href}><b>{x.v}</b> {x.k}</a>{:else}<b>{x.v}</b> {x.k}{/if}</li>
         {/each}
       </ul>
+    {/if}
+
+    {#if segmentTotal(readiness) > 0 || signed > 0}
+      <h3 class="t-subsection-title">Contract readiness and signatures</h3>
+      {#if segmentTotal(readiness) > 0}
+        <DistributionBar title="Readiness of known revisions" level={4} description="Readiness is declared and gated per revision." segments={readiness} total={sum.revisions ?? null} />
+      {/if}
+      {#if noneChecked}
+        <p class="se-none t-body-2" data-testid="signatures-not-checked">No source that read these revisions checks signatures.</p>
+      {:else if signed > 0}
+        <DistributionBar title="Bundle signatures of revisions in use" level={4} description="Verified means signed by the identity the revision's own contract declares in publish.sign." segments={signatures} total={sum.revisionsInUse ?? null} />
+      {/if}
     {/if}
   </section>
 
@@ -195,11 +230,11 @@
     </PreviewSection>
   {/if}
 
-  {#if (d.relationships?.count ?? 0) > 0}
-    <PreviewSection title="Observed traffic and differences" total={d.relationships?.total ?? null} count={d.relationships?.count ?? 0} truncated={d.relationships?.truncated} viewAllHref={graphHref} viewAllLabel="Open differences view" help="What Pacto has actually seen this service talk to, and where that disagrees with what its contract declares.">
-      <RelationshipList items={d.relationships?.items ?? []} selfKey={key} />
+  <div class="se-wrap" data-testid="service-relationships">
+    <PreviewSection title="Observed traffic and differences" total={d.relationships?.total ?? null} count={d.relationships?.count ?? 0} truncated={d.relationships?.truncated} viewAllHref={graphHref} viewAllLabel="Open differences view" empty={relEmpty} help="What Pacto has actually seen this service talk to, and where that disagrees with what its contract declares.">
+      <RelationshipList items={d.relationships?.items ?? []} selfKey={key} showClaims />
     </PreviewSection>
-  {/if}
+  </div>
 
   <!-- Inventory: WHAT this service is made of. It answers a navigation question, not an
        operational one, so it comes after the summary and the findings.
@@ -233,10 +268,8 @@
   <div class="se-wrap" data-testid="service-all-revisions">
   <PreviewSection title="All revisions" collapsible open={noneInUse} summary="Every revision Pacto knows, in use or not" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No known revisions."
     help="Newest first, whether or not anything is running them. Readiness is declared per revision. Open one to see its gate.">
-    <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
-         declared per revision and gated per revision. Rolling it up here would invent
-         a third definition of readiness, so the service page points at the one that
-         already exists instead. -->
+    <!-- Readiness is declared and gated per revision; the bar above tallies those
+         revisions, each with its own gate. -->
     <EntityRefList items={own(d.revisions?.items)} showStatus={false} showDate />
   </PreviewSection>
   </div>
@@ -268,6 +301,43 @@
       <EntityRefList items={d.dependents?.items ?? []} showStatus={false} />
       {#if d.hiddenDependents}<p class="se-hidden t-body-2" data-testid="hidden-dependents">{hidden(d.hiddenDependents, true)}</p>{/if}
     </PreviewSection>
+  </div>
+
+  {#if sigRows.length}
+    <!-- One row per revision in use: what its signature check found and who the signer
+         is. A verified badge always carries the signer, which its own contract names. -->
+    <div class="se-wrap" data-testid="service-signatures">
+      <PreviewSection title="Signatures" total={d.signatures?.total ?? 0} count={d.signatures?.count ?? 0} truncated={d.signatures?.truncated} help="The bundle signature of each revision in use, as checked by the source that read it from a registry.">
+        <ul class="se-sigs">
+          {#each sigRows as row (row.revision?.key)}
+            {@const st = signatureState(row.checked ? row.signature : null)}
+            <li>
+              <EntityLink ref={inService(row.revision, self)} showStatus={false} showKind={false} />
+              <IdentityBadge label={st.label} tone={st.tone} title={row.signature?.reason ?? ''} />
+              {#if (st.value === 'verified' || st.value === 'unverified') && row.signature?.signer}<span class="se-sig-signer">Signer {row.signature.signer}, declared by its own contract</span>{/if}
+              {#if row.checked}<span class="se-note">{row.referrers} {row.referrers === 1 ? 'referrer' : 'referrers'}</span>{/if}
+            </li>
+          {/each}
+        </ul>
+      </PreviewSection>
+    </div>
+  {/if}
+
+  <!-- What the current revision declares about policies and configuration, with the
+       schema content read from its bundle. -->
+  <div class="se-grid se-grid--two">
+    <div class="se-wrap" data-testid="service-policies">
+      <PreviewSection title="Policies" total={d.policies?.total ?? 0} count={d.policies?.count ?? 0} truncated={d.policies?.truncated} empty={current ? "This service's current revision declares no policies." : 'No known revision.'}>
+        {#if current}<p class="se-from t-body-2">From <EntityLink ref={current} showStatus={false} showKind={false} /></p>{/if}
+        <PolicyList items={d.policies?.items ?? []} />
+      </PreviewSection>
+    </div>
+    <div class="se-wrap" data-testid="service-configuration">
+      <PreviewSection title="Configuration" total={d.configurations?.total ?? 0} count={d.configurations?.count ?? 0} truncated={d.configurations?.truncated} empty={current ? "This service's current revision declares no configuration." : 'No known revision.'}>
+        {#if current}<p class="se-from t-body-2">From <EntityLink ref={current} showStatus={false} showKind={false} /></p>{/if}
+        <ConfigurationList items={d.configurations?.items ?? []} />
+      </PreviewSection>
+    </div>
   </div>
 
   <!-- This is an overview page, so its sections stay open: traffic, dependencies,
@@ -318,6 +388,12 @@
   .se-lead { margin: 0; }
   .se-drift { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--sp-2); flex-wrap: wrap; }
   .se-drift li { font-size: var(--text-sm); color: var(--c-text-2); background: var(--c-surface-inset); border: 1px solid var(--c-border); border-left: 3px solid var(--tone-c, var(--c-neutral)); padding: 2px 10px; border-radius: var(--radius-xs); }
+  .se-drift li a { color: inherit; text-decoration: none; }
+  .se-drift li a:hover { color: var(--c-accent); }
+  .se-sigs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+  .se-sigs li { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; padding: var(--sp-1) var(--sp-2); min-width: 0; }
+  .se-sig-signer { font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; min-width: 0; }
+  .se-from { margin: 0 0 var(--sp-2); color: var(--c-text-3); }
   .se-drift li b { color: var(--c-text); font-variant-numeric: tabular-nums; }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }

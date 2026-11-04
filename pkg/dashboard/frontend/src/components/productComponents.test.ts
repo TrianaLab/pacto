@@ -28,6 +28,10 @@ import FindingList from './FindingList.svelte';
 import PageHeader from './PageHeader.svelte';
 // @ts-expect-error
 import OwnershipFact from './OwnershipFact.svelte';
+// @ts-expect-error
+import SchemaContent from './SchemaContent.svelte';
+// @ts-expect-error
+import BundleProvenance from './BundleProvenance.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
 let target: HTMLElement;
@@ -461,5 +465,27 @@ describe('PageHeader', () => {
   it('says a poll is checking when no page turn is in flight', () => {
     comp = mount(PageHeader, { target, props: { title: 'Services', revalidating: true } });
     expect(age()).toBe('Checking for changes…');
+  });
+});
+
+describe('SchemaContent', () => {
+  it('says how many properties a truncated schema leaves out', () => {
+    comp = mount(SchemaContent, { target, props: { content: { properties: [{ key: 'a', type: 'string', value: '' }], total: 250, truncated: true } } });
+    expect(target.textContent).toContain('1 of 250 properties');
+    expect(target.textContent).toContain('Showing 1 of 250 properties.');
+  });
+
+  it('tells an empty schema apart from an unreadable one', () => {
+    comp = mount(SchemaContent, { target, props: { content: { properties: [], total: 0, truncated: false } } });
+    expect(target.textContent).toContain('The schema declares no properties.');
+    expect(target.textContent).not.toContain('Content unavailable');
+  });
+});
+
+describe('BundleProvenance', () => {
+  it('never shows verified without the signer', () => {
+    comp = mount(BundleProvenance, { target, props: { bundle: { source: 'oci', checkedAt: '', signature: { status: 'verified', bundles: 1 }, referrers: { items: [], count: 0, total: 0, truncated: false } } } });
+    expect(target.textContent).not.toContain('Verified');
+    expect(target.querySelector('.tone-ok')).toBeNull();
   });
 });

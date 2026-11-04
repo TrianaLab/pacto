@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
-import { fleetAttentionUrl, fleetServicesUrl } from '../../lib/router.ts';
+import { fleetAttentionUrl, fleetServicesUrl, fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
 import { formatDate } from '../../lib/dateFormat.ts';
 
 const { detailFn } = vi.hoisted(() => ({ detailFn: vi.fn() }));
@@ -246,6 +246,167 @@ describe('service page: knowledge banner', () => {
     const banner = text(target.querySelector('.knowledge'));
     expect(banner).toContain('(k8s)');
     expect(banner).not.toContain('edge');
+    done();
+  });
+});
+
+describe('service page: dependency drift', () => {
+  beforeEach(() => detailFn.mockReset());
+
+  it('links each drift row to where its dependencies are listed', async () => {
+    const { target, done } = await render(detail({
+      summary: { declaredDependencies: 6, reconciledMatched: 1, declaredNotObserved: 1, observedNotDeclared: 1, unresolvedDeclared: 1, unsatisfiedRanges: 2, insufficientEvidence: 1 },
+    }));
+    const graph = fleetGraphFocusUrl('service', KEY);
+    const rows = Array.from(target.querySelectorAll('.se-drift li'));
+    const row = (label: string) => rows.find((r) => text(r).endsWith(label))!;
+    expect(text(row('Outside accepted range'))).toBe('2 Outside accepted range');
+    expect(hrefs(row('Outside accepted range'))).toEqual([fleetAttentionUrl({ service: KEY, category: 'out-of-range' })]);
+    expect(text(row('Cannot be observed'))).toBe('1 Cannot be observed');
+    expect(hrefs(row('Cannot be observed'))[0]).toBe(graph);
+    expect(hrefs(row('Unresolved declarations'))).toEqual([fleetAttentionUrl({ service: KEY, category: 'unresolved' })]);
+    expect(hrefs(row('Declared, not observed'))[0]).toBe(graph);
+    expect(hrefs(row('Observed, not declared'))[0]).toBe(graph);
+    expect(hrefs(row('Declared and observed'))).toEqual([]);
+    expect(hrefs(row('Declared dependencies'))).toEqual([]);
+    done();
+  });
+
+  it('hides zero rows', async () => {
+    const { target, done } = await render(detail({ summary: { declaredDependencies: 1, reconciledMatched: 1 } }));
+    expect(text(target.querySelector('.se-drift'))).not.toContain('Outside accepted range');
+    expect(text(target.querySelector('.se-drift'))).not.toContain('Cannot be observed');
+    done();
+  });
+});
+
+describe('service page: relationships', () => {
+  beforeEach(() => detailFn.mockReset());
+  const self = ref('service', KEY, 'payments');
+  const edge = (rangeStatus: string, extra = {}) => ({
+    id: `e-${rangeStatus}`, relation: 'dependency', expected: true, observed: true, provenance: 'declared+observed', difference: 'matched',
+    from: self, to: ref('service', `domain-b/${rangeStatus}`, rangeStatus),
+    declaredClaims: preview([{ required: true, rangeStatus }]), observationSources: preview([]), ...extra,
+  });
+
+  it('is always rendered and says when no traffic was observed', async () => {
+    const { target, done } = await render(detail());
+    expect(text(fact(target, 'service-relationships'))).toContain('No traffic observed for this service yet.');
+    done();
+  });
+
+  it('says when relationships could not be computed', async () => {
+    const { target, done } = await render(detail({ limitations: preview([{ limitation: { code: 'NEIGHBORHOOD_UNAVAILABLE', message: 'm' } }]) }));
+    expect(text(fact(target, 'service-relationships'))).toContain('Relationships could not be computed. See the limitations below.');
+    done();
+  });
+
+  it('shows the range of each declared claim and when traffic was last seen', async () => {
+    const at = '2026-11-01T10:00:00Z';
+    const { target, done } = await render(detail({
+      relationships: preview([edge('unsatisfied', { count: 42, lastSeen: at }), edge('unknown'), edge('satisfied')]),
+    }));
+    const sec = fact(target, 'service-relationships')!;
+    const badge = (label: string) => Array.from(sec.querySelectorAll('.tag')).find((b) => text(b) === label);
+    expect(text(sec)).toContain('Outside range');
+    expect(text(sec)).toContain('Range unknown');
+    expect(text(sec)).toContain('In range');
+    expect(badge('Outside range')?.className).toContain('tone-warn');
+    expect(badge('Range unknown')?.className).toContain('tone-neutral');
+    expect(badge('In range')?.className).toContain('tone-ok');
+    expect(text(sec)).toContain(`Last seen ${formatDate(at)} · 42 calls`);
+    done();
+  });
+});
+
+describe('service page: readiness and signatures', () => {
+  beforeEach(() => detailFn.mockReset());
+
+  it('draws the readiness of known revisions, each bucket linking its revisions', async () => {
+    const { target, done } = await render(detail({ summary: { revisions: 3, readiness: { passing: 1, expired: 2 } } }));
+    const fig = Array.from(target.querySelectorAll('figure.dist')).find((f) => text(f).includes('Readiness of known revisions'))!;
+    expect(fig).toBeTruthy();
+    expect(hrefs(fig)).toContain(fleetEntityListUrl('revision', { service: KEY, readiness: 'passing' }));
+    expect(hrefs(fig)).toContain(fleetEntityListUrl('revision', { service: KEY, readiness: 'expired' }));
+    done();
+  });
+
+  it('draws the bundle signatures of revisions in use', async () => {
+    const { target, done } = await render(detail({ summary: { revisionsInUse: 3, signatures: { verified: 1, notChecked: 2 } } }));
+    const sec = target.querySelector('.se-summary')!;
+    expect(text(sec)).toContain('Bundle signatures of revisions in use');
+    expect(text(sec)).toContain('Not checked');
+    done();
+  });
+
+  it('states it in one neutral line when no source checks signatures', async () => {
+    const { target, done } = await render(detail({ summary: { revisionsInUse: 3, signatures: { notChecked: 3 } } }));
+    const sec = target.querySelector('.se-summary')!;
+    expect(text(sec)).toContain('No source that read these revisions checks signatures.');
+    expect(text(sec)).not.toContain('Bundle signatures of revisions in use');
+    done();
+  });
+
+  it('lists the signature of each revision in use', async () => {
+    const { target, done } = await render(detail({
+      signatures: preview([
+        { revision: rev('3'), checked: true, referrers: 2, signature: { status: 'verified', signer: 'ci@acme.dev', bundles: 1 } },
+        { revision: rev('2'), checked: true, referrers: 1, signature: { status: 'unverified', signer: 'evil@x.dev', bundles: 1 } },
+        { revision: rev('1'), checked: false, referrers: 0 },
+        { revision: rev('0'), checked: true, referrers: 0, signature: { status: 'verified', bundles: 1 } },
+      ]),
+    }));
+    const rows = Array.from(fact(target, 'service-signatures')!.querySelectorAll('li'));
+    expect(hrefs(rows[0])[0]).toContain(encodeURIComponent(`${KEY}@sha256:3`));
+    expect(text(rows[0])).toContain('Verified');
+    expect(text(rows[0])).toContain('Signer ci@acme.dev, declared by its own contract');
+    expect(text(rows[0])).toContain('2 referrers');
+    expect(text(rows[1])).toContain('Unverified');
+    expect(text(rows[1])).toContain('Signer evil@x.dev, declared by its own contract');
+    expect(text(rows[2])).toContain('Not checked');
+    expect(text(rows[3])).not.toContain('Verified');
+    done();
+  });
+});
+
+describe('service page: policies and configuration', () => {
+  beforeEach(() => detailFn.mockReset());
+  const content = { properties: [{ key: 'tls', type: 'boolean', value: 'true' }], total: 1, truncated: false };
+
+  it("shows the current revision's policies with their content", async () => {
+    const { target, done } = await render(detail({
+      currentRevision: rev('3'),
+      policies: preview([
+        { name: 'pii', schema: 'policy/schema.json', content },
+        { name: 'http-security', ref: 'oci://acme/policies:1', resolution: { resolved: true, service: ref('service', 'domain-a/policies', 'policies') } },
+      ]),
+    }));
+    const sec = fact(target, 'service-policies')!;
+    expect(text(sec)).toContain('pii');
+    expect(text(sec)).toContain('tls');
+    expect(text(sec)).toContain('From');
+    expect(hrefs(sec).some((h) => h?.includes(encodeURIComponent(`${KEY}@sha256:3`)))).toBe(true);
+    expect(text(sec)).toContain('Defined by the referenced contract');
+    expect(text(sec)).toContain('oci://acme/policies:1');
+    done();
+  });
+
+  it('says when the current revision declares no policies or configuration', async () => {
+    const { target, done } = await render(detail({ currentRevision: rev('3'), policies: preview([]), configurations: preview([]) }));
+    expect(text(fact(target, 'service-policies'))).toContain("This service's current revision declares no policies.");
+    expect(text(fact(target, 'service-configuration'))).toContain("This service's current revision declares no configuration.");
+    done();
+  });
+
+  it("shows the current revision's configuration with its content", async () => {
+    const { target, done } = await render(detail({
+      currentRevision: rev('3'),
+      configurations: preview([{ name: 'app', required: true, schema: 'configuration/schema.json', values: preview([]), content }]),
+    }));
+    const sec = fact(target, 'service-configuration')!;
+    expect(text(sec)).toContain('app');
+    expect(text(sec)).toContain('tls');
+    expect(text(sec)).toContain('From');
     done();
   });
 });

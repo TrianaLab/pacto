@@ -6,7 +6,6 @@
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
-  import ContractReference from '../../components/ContractReference.svelte';
   import RevisionDocs from '../../components/RevisionDocs.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
@@ -17,6 +16,9 @@
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import GuaranteeTerms from '../../components/GuaranteeTerms.svelte';
   import EnvironmentList from '../../components/EnvironmentList.svelte';
+  import PolicyList from '../../components/PolicyList.svelte';
+  import ConfigurationList from '../../components/ConfigurationList.svelte';
+  import BundleProvenance from '../../components/BundleProvenance.svelte';
   import { lifecycleText, stageBadge } from '../../lib/behavior.ts';
   import { joinAnd } from '../../lib/answers.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
@@ -37,11 +39,11 @@
   // Content retrievability is shown as its OWN dimension: the revision is immutable,
   // but its content may not be retrievable -- we never call non-retrievable content
   // "immutable" just because the revision is known. Most of what lives in the bundle
-  // FILES rather than in the contract (the raw OpenAPI document, JSON Schema bodies,
-  // skill bodies, the SBOM) is not retained by the snapshot, so this page shows the
-  // declared PATH to it and never pretends to have read it. Documentation is the
-  // exception: RevisionDocs reads one doc body on demand, keyed by this revision, so
-  // the docs are readable here without the page carrying them.
+  // FILES rather than in the contract (the raw OpenAPI document, skill bodies, the
+  // SBOM) is not retained by the snapshot, so this page shows the declared PATH to it
+  // and never pretends to have read it. Documentation and policy and configuration
+  // schemas are the exceptions: RevisionDocs reads one doc body on demand, and the
+  // backend reads schema content when this page is requested.
   let { detail } = $props();
   const d = $derived(detail.revision ?? {});
   const id = $derived(d.identity ?? {});
@@ -323,36 +325,7 @@
     truncated={d.configurations?.truncated}
     empty="This revision declares no configuration."
   >
-    <ul class="re-cfgs">
-      {#each d.configurations?.items ?? [] as c, ci (`${c.name}:${ci}`)}
-        <li class="ri">
-          <div class="ri-head">
-            <span class="ri-name">{c.name || 'default'}</span>
-            <IdentityBadge label={c.required ? 'required' : 'optional'} tone={c.required ? 'warn' : 'neutral'} />
-          </div>
-          {#if c.schema}<div class="ri-ref"><span class="re-k">Schema</span><CopyableIdentifier value={c.schema} /></div>{/if}
-          {#if c.ref}<div class="ri-ref"><span class="re-k">Reference</span><ContractReference value={c.ref} resolution={c.resolution} /></div>{/if}
-          {#if (c.values?.count ?? 0) > 0}
-            <!-- Same reasoning as the operation lists: the scope, whether it is required
-                 and the reference it resolves to are what a reader scans for; the value
-                 table is what they open when this is the scope they came for. -->
-            <details class="ri-ops disclosure">
-              <summary>
-                <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-                {formatCount(c.values.count)}{c.values.truncated && typeof c.values.total === 'number' ? ` of ${formatCount(c.values.total)}` : ''} {c.values.count === 1 && !c.values.truncated ? 'value' : 'values'}
-              </summary>
-              <table class="re-kv">
-                <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
-                <tbody>
-                  {#each c.values.items as v, vi (`${v.key}:${vi}`)}<tr><td>{v.key}</td><td>{v.value}</td></tr>{/each}
-                </tbody>
-              </table>
-              {#if c.values.truncated}<p class="ri-note">Showing {formatCount(c.values.count)} values{typeof c.values.total === 'number' ? ` of ${formatCount(c.values.total)}` : '; total unknown'}.</p>{/if}
-            </details>
-          {/if}
-        </li>
-      {/each}
-    </ul>
+    <ConfigurationList items={d.configurations?.items ?? []} />
   </PreviewSection>
   {/if}
 
@@ -366,24 +339,7 @@
     truncated={d.policies?.truncated}
     empty="This revision declares no policies."
   >
-    <!-- The shared table rules: fixed columns so a long reference can no longer squeeze
-         Name to one word per line or push Target off the card. -->
-    <table class="data-table re-policies">
-      <colgroup><col style="width:26%" /><col style="width:12%" /><col /><col style="width:22%" /></colgroup>
-      <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Definition</th><th scope="col">Target</th></tr></thead>
-      <tbody>
-        {#each d.policies?.items ?? [] as p, pi (`${p.name}:${pi}`)}
-          <tr>
-            <td data-label="Name">{p.name}</td>
-            <td data-label="Kind">{p.ref ? 'Remote' : 'Local'}</td>
-            <td data-label="Definition" class="rt-path">
-              {#if p.ref}<ContractReference value={p.ref} resolution={p.resolution} />{:else}{p.schema || '—'}{/if}
-            </td>
-            <td data-label="Target">{p.target || '—'}</td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
+    <PolicyList items={d.policies?.items ?? []} />
   </PreviewSection>
   {/if}
 
@@ -537,29 +493,29 @@
     </section>
   {/if}
 
-  {#if prov.source || (prov.sources?.count ?? 0) > 0 || prov.fetchedAt}
-    <!-- Where this content came from. The identity block above says WHAT this revision
-         is; this says who told us, and when we last heard it. Both are needed to answer
-         "is what I am reading still what the registry has?" -- and both are inspection
-         detail rather than the first screen. -->
-    <details class="re-prov disclosure">
-      <summary>
-        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-        Provenance
-        {#if prov.fetchedAt}<span class="t-meta">Fetched {formatDate(prov.fetchedAt)}</span>{/if}
-      </summary>
-      <div class="re-facts">
-        {#if prov.source}<div class="re-fact"><span class="re-k">Primary source</span><span>{prov.source}</span></div>{/if}
-        {#if (prov.sources?.count ?? 0) > 0}
-          <div class="re-fact">
-            <span class="re-k">Seen by</span>
-            <span>{prov.sources.items.join(', ')}{prov.sources.truncated ? ` (${formatCount(prov.sources.count)} of ${formatCount(prov.sources.total)})` : ''}</span>
-          </div>
-        {/if}
-        {#if prov.fetchedAt}<div class="re-fact"><span class="re-k">Fetched at</span><span>{formatDate(prov.fetchedAt)}</span></div>{/if}
-      </div>
-    </details>
-  {/if}
+  <!-- Where this content came from. The identity block above says WHAT this revision
+       is; this says who told us, and when we last heard it. Both are needed to answer
+       "is what I am reading still what the registry has?" -- and both are inspection
+       detail rather than the first screen. The bundle signature check is always
+       stated, including when no source checked it. -->
+  <details class="re-prov disclosure">
+    <summary>
+      <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+      Provenance
+      {#if prov.fetchedAt}<span class="t-meta">Fetched {formatDate(prov.fetchedAt)}</span>{/if}
+    </summary>
+    <div class="re-facts">
+      {#if prov.source}<div class="re-fact"><span class="re-k">Primary source</span><span>{prov.source}</span></div>{/if}
+      {#if (prov.sources?.count ?? 0) > 0}
+        <div class="re-fact">
+          <span class="re-k">Seen by</span>
+          <span>{prov.sources.items.join(', ')}{prov.sources.truncated ? ` (${formatCount(prov.sources.count)} of ${formatCount(prov.sources.total)})` : ''}</span>
+        </div>
+      {/if}
+      {#if prov.fetchedAt}<div class="re-fact"><span class="re-k">Fetched at</span><span>{formatDate(prov.fetchedAt)}</span></div>{/if}
+    </div>
+    <BundleProvenance bundle={prov.bundle ?? null} />
+  </details>
 
   <LimitationsSection page={d.limitations} />
 </div>
@@ -603,7 +559,7 @@
   /* Declared content. Each interface / configuration scope / capability is a card so
      its nested operations or values stay visibly attached to it rather than running
      together into one undifferentiated list. */
-  .re-ifaces, .re-cfgs, .re-caps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+  .re-ifaces, .re-caps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
   .ri { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface-inset); }
   .re-caps li { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; font-size: var(--text-sm); }
   .ri-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
