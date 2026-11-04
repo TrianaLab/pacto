@@ -46,10 +46,9 @@ test.describe('WASM demo — service context', () => {
     const deps = page.getByTestId('service-dependencies');
     await expect(deps).toBeVisible();
     const declared = page.locator('.se-drift li').filter({ hasText: 'Declared dependencies' });
-    if (await declared.count()) {
-      const n = (await declared.locator('b').innerText()).trim();
-      await expect(deps.getByTestId('preview-count')).toHaveText(new RegExp(`of ${n}$`));
-    }
+    await expect(declared).toBeVisible();
+    const n = (await declared.locator('b').innerText()).trim();
+    await expect(deps.getByTestId('preview-count')).toHaveText(new RegExp(`of ${n}$`));
 
     // No demo Stage is named after a fleet service, so the exact match finds none.
     const delivery = page.getByTestId('service-delivery');
@@ -59,7 +58,7 @@ test.describe('WASM demo — service context', () => {
     const config = page.getByTestId('service-configuration');
     await expect(config.locator('.cl-name', { hasText: /^app$/ })).toBeVisible();
     await config.locator('details.sc > summary').first().click();
-    expect(await config.locator('.sc-kv tbody td:first-child').count()).toBeGreaterThan(0);
+    await expect(config.locator('.kv-table tbody td:first-child').first()).toBeVisible();
 
     await expect(page.getByTestId('signatures-not-checked')).toHaveText('No source that read these revisions checks signatures.');
 
@@ -71,7 +70,7 @@ test.describe('WASM demo — service context', () => {
     const revConfig = page.locator('details').filter({ has: page.getByRole('heading', { name: 'Configuration', exact: true }) });
     await revConfig.locator('summary').first().click();
     await revConfig.locator('details.sc > summary').first().click();
-    await expect(revConfig.locator('.sc-kv tbody tr').first()).toBeVisible();
+    await expect(revConfig.locator('.kv-table tbody tr').first()).toBeVisible();
   });
 
   test('the service and revision pages hold their layout at 1280px with a wide font', async ({ page }) => {
@@ -81,7 +80,7 @@ test.describe('WASM demo — service context', () => {
     await expect(page.getByTestId('service-delivery').getByText('No Stages for this service. Delivery is opt-in per service.')).toBeVisible({ timeout: T });
     const config = page.getByTestId('service-configuration');
     await config.locator('details.sc > summary').first().click();
-    await expect(config.locator('.sc-kv').first()).toBeVisible();
+    await expect(config.locator('.kv-table').first()).toBeVisible();
 
     // No two facts overlap.
     const boxes = (await Promise.all((await page.locator('.se-fact').all()).map((f) => f.boundingBox()))).filter((b) => b !== null);
@@ -102,12 +101,12 @@ test.describe('WASM demo — service context', () => {
       expect(e!.x).toBeGreaterThanOrEqual(r!.x - 1);
       expect(e!.x + e!.width).toBeLessThanOrEqual(r!.x + r!.width + 1);
     }
-    await expectNoOverflow(page, page.locator('.sc-kv td, .se-sig-signer'));
+    await expectNoOverflow(page, page.locator('.kv-table td, .se-sig-signer'));
 
     await page.getByTestId('service-contract').locator('a.entity-link').click();
     await expect(page.getByRole('heading', { level: 1, name: /^Revision: / })).toBeVisible({ timeout: T });
     await page.locator('details.re-prov > summary').click();
     await expect(page.getByTestId('bundle-provenance')).toBeVisible();
-    await expectNoOverflow(page, page.locator('.re-kv td, .bp-kv td, .bp-v, .sc-kv td'));
+    await expectNoOverflow(page, page.locator('.kv-table td, .bp-v'));
   });
 });
