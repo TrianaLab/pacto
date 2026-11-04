@@ -55,7 +55,8 @@ func provenanceTestRegistry(t *testing.T) *provRegistry {
 	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.requests.Add(1)
 		if f := p.fail.Load(); f != nil && (*f)(r) {
-			w.WriteHeader(http.StatusInternalServerError)
+			// A status the client does not retry, so a failure costs no backoff.
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		inner.ServeHTTP(w, r)
