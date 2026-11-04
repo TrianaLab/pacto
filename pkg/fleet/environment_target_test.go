@@ -82,3 +82,33 @@ func TestEntities_EnvironmentFilter(t *testing.T) {
 		t.Errorf("an environment filter on services = %v, want InvalidQueryError", err)
 	}
 }
+
+// A disputed environment label is dropped, so a label search cannot match the
+// value Pacto refuses to name, and a later source cannot bring it back.
+func TestTargetEnvironment_ConflictDropsLabel(t *testing.T) {
+	tgt := func(v string) *Collection {
+		return &Collection{Targets: []RawTarget{{Scope: "ns", Kind: "k8s", Name: "x", Service: "x",
+			Labels: map[string]string{TargetEnvironmentLabel: v, "tier": "gold"}}}}
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("a", "local", tgt("staging")), NewMemorySource("b", "local", tgt("prod")), NewMemorySource("c", "local", tgt("staging")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	rec := snap.Targets[NewTargetKey("ns", "k8s", "x")]
+	if _, ok := rec.Labels[TargetEnvironmentLabel]; ok || rec.Environment != "" || rec.Labels["tier"] != "gold" {
+		t.Errorf("target = env %q, labels %v", rec.Environment, rec.Labels)
+	}
+	res, err := q.Search(SearchFilter{Labels: map[string]string{TargetEnvironmentLabel: "staging"}})
+	if err != nil || len(res.Services) != 0 {
+		t.Errorf("label search on the disputed value = %+v, %v", res, err)
+	}
+	d, err := q.EntityDetail(KindTarget, string(rec.Key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Target.Environment.Declared != "unknown" || d.Target.Environment.Reason != "Sources disagree on this target's environment label." {
+		t.Errorf("environment = %+v", d.Target.Environment)
+	}
+}

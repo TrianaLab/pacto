@@ -612,6 +612,9 @@ type TargetRecord struct {
 	// domain.
 	reportedDomains []string
 	domainKnown     bool
+	// environmentConflict: sources disagree on the TargetEnvironmentLabel, so the
+	// label is dropped from Labels and Environment stays empty.
+	environmentConflict bool
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with

@@ -497,12 +497,18 @@ func mergeTargetLabels(existing, add *TargetRecord) []Limitation {
 	}
 	var lims []Limitation
 	for k, v := range add.Labels {
+		if k == TargetEnvironmentLabel && existing.environmentConflict {
+			continue // stays dropped: no contributor can settle it
+		}
 		cur, ok := existing.Labels[k]
 		if ok && cur != v {
 			lims = append(lims, Limitation{Code: LimitationTargetFieldConflict, Source: add.Source,
 				Message: "sources disagree on label " + k + " of target " + string(existing.Key)})
 			if k == TargetEnvironmentLabel {
-				existing.Environment = "" // stays cleared: no contributor can settle it
+				// Dropped, not kept from the first source: a label search must not
+				// match the environment the target page calls unknown.
+				existing.Environment, existing.environmentConflict = "", true
+				delete(existing.Labels, k)
 			}
 			continue
 		}

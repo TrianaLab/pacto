@@ -447,7 +447,7 @@ type TargetEnvironment struct {
 // targetEnvironmentName is the environment a target runs in, and whether its
 // sources disagree on the label (then the name is empty).
 func targetEnvironmentName(t *TargetRecord) (name string, conflict bool) {
-	return t.Environment, t.Environment == "" && t.Labels[TargetEnvironmentLabel] != ""
+	return t.Environment, t.environmentConflict
 }
 
 // targetEnvironment says where a target runs and whether its linked revision
@@ -711,7 +711,7 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		Quarantined:  t.Quarantined,
 		Ownership:    targetOwnership(q.snap.Services[t.ServiceKey]),
 		Limitations:  limitationsPreview(t.Limitations),
-		Environment:  q.targetEnvironment(t),
+		Environment:  q.targetEnvironment(q.snap.Targets[t.Key]), // the record: the clone drops unexported state
 		// The observed-runtime preview was bounded ONCE at Build time (see
 		// TargetRecord.ObservedRuntime); the product query reads that precomputed
 		// projection in O(bound), never re-flattening an arbitrarily wide raw map.
