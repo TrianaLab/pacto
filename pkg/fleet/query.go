@@ -166,20 +166,21 @@ func (e *AmbiguousError) Error() string {
 // ReadyOnly/NotReady) must all hold for the SAME target and its LINKED revision,
 // so "production" and "not ready" can never come from two different targets.
 type SearchFilter struct {
-	Text          string            // substring over service name and any declared owner
-	Owner         string            // any revision's owner matches this team, DRI or contact value
-	Labels        map[string]string // all pairs must match one target's labels
-	Scope         string            // a target of the service has this scope
-	Status        string            // service aggregate status (canonical value)
-	Compliance    string            // a target has this compliance (canonical value)
-	Source        string            // service observed from this source
-	Workload      string            // some revision declares this workload
-	HasCapability bool              // some revision declares a capability
-	HasDependency bool              // some revision declares a dependency
-	ReadyOnly     bool              // operationally ready (correlated to target when a target predicate is set)
-	NotReady      bool              // not operationally ready (correlated likewise)
-	Limit         int               // 0 → DefaultSearchLimit, capped at MaxSearchLimit
-	Offset        int
+	Text           string            // substring over service name and any declared owner
+	Owner          string            // any revision's owner matches this team, DRI or contact value
+	BusinessDomain string            // the service's business domain, or NoBusinessDomain for none
+	Labels         map[string]string // all pairs must match one target's labels
+	Scope          string            // a target of the service has this scope
+	Status         string            // service aggregate status (canonical value)
+	Compliance     string            // a target has this compliance (canonical value)
+	Source         string            // service observed from this source
+	Workload       string            // some revision declares this workload
+	HasCapability  bool              // some revision declares a capability
+	HasDependency  bool              // some revision declares a dependency
+	ReadyOnly      bool              // operationally ready (correlated to target when a target predicate is set)
+	NotReady       bool              // not operationally ready (correlated likewise)
+	Limit          int               // 0 → DefaultSearchLimit, capped at MaxSearchLimit
+	Offset         int
 }
 
 // ServiceHit is a bounded search-result row for a logical service. Key is the
@@ -187,15 +188,16 @@ type SearchFilter struct {
 // rows, routes and follow-up lookups on Key so two same-named services in
 // different domains stay distinct — never on Name alone.
 type ServiceHit struct {
-	Key           ServiceKey        `json:"key"`
-	Name          string            `json:"name"`
-	Domain        string            `json:"domain,omitempty"`
-	Owner         contract.Owner    `json:"owner,omitzero"`
-	Status        string            `json:"status,omitempty"`
-	RevisionCount int               `json:"revisionCount"`
-	TargetCount   int               `json:"targetCount"`
-	Sources       []string          `json:"sources,omitempty"`
-	Labels        map[string]string `json:"labels,omitempty"`
+	Key            ServiceKey        `json:"key"`
+	Name           string            `json:"name"`
+	Domain         string            `json:"domain,omitempty"`
+	BusinessDomain string            `json:"businessDomain,omitempty"`
+	Owner          contract.Owner    `json:"owner,omitzero"`
+	Status         string            `json:"status,omitempty"`
+	RevisionCount  int               `json:"revisionCount"`
+	TargetCount    int               `json:"targetCount"`
+	Sources        []string          `json:"sources,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -279,7 +281,7 @@ func (q *Query) sortedServiceKeys() []ServiceKey {
 
 func hitFromService(s *ServiceRecord) ServiceHit {
 	return ServiceHit{
-		Key: s.Key, Name: s.Name, Domain: s.Domain, Owner: cloneOwner(s.Owner), Status: s.Status,
+		Key: s.Key, Name: s.Name, Domain: s.Domain, BusinessDomain: s.BusinessDomain, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
 		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels),
 	}
@@ -306,6 +308,7 @@ func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
 	checks := []bool{
 		q.matchText(s, f.Text),
 		q.matchOwner(s, f.Owner),
+		f.BusinessDomain == "" || q.serviceInBusinessDomain(string(s.Key), f.BusinessDomain),
 		matchEq(f.Status, s.Status),
 		matchSource(s, f.Source),
 		q.anyRevisionWorkload(s, f.Workload),

@@ -62,7 +62,7 @@ const servicesKindIx = 1
 func (l *listScreen) kinds() []fleet.EntityKind {
 	return []fleet.EntityKind{
 		"", fleet.KindService, fleet.KindRevision,
-		fleet.KindTarget, fleet.KindOwner, fleet.KindSource,
+		fleet.KindTarget, fleet.KindOwner, fleet.KindDomain, fleet.KindSource,
 	}
 }
 
@@ -375,7 +375,8 @@ func (l *listScreen) paneBody(c *Context, w int) string {
 		lines = append(lines, "", statusBadge(c, ref.Status))
 	}
 	fields := [][2]string{
-		{"domain", ref.Domain},
+		{"registry", ref.Domain},
+		{"domain", ref.BusinessDomain},
 		{"scope", ref.Scope},
 		{"service", ref.ParentService},
 		{"version", ref.Version},
@@ -386,7 +387,7 @@ func (l *listScreen) paneBody(c *Context, w int) string {
 		if f[1] == "" {
 			continue
 		}
-		rows = append(rows, dimStyle.Render(fmt.Sprintf("%-8s", f[0]))+trunc(safeText(f[1]), w-9))
+		rows = append(rows, dimStyle.Render(fmt.Sprintf("%-9s", f[0]))+trunc(safeText(f[1]), w-10))
 	}
 	if len(rows) > 0 {
 		lines = append(append(lines, ""), rows...)

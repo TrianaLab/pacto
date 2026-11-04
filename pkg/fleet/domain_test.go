@@ -396,3 +396,24 @@ func TestEntityDetail_RefsCarryBusinessDomain(t *testing.T) {
 		t.Errorf("revision detail ref = %+v", rd.Entity)
 	}
 }
+
+func TestSearch_BusinessDomain(t *testing.T) {
+	q := domainFleet(t)
+	names := func(f SearchFilter) []string {
+		res, err := q.Search(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, h := range res.Services {
+			out = append(out, h.Name+"="+h.BusinessDomain)
+		}
+		return out
+	}
+	if got := strings.Join(names(SearchFilter{BusinessDomain: "commerce"}), ","); got != "orders=commerce,pay=commerce" {
+		t.Errorf("commerce search = %s", got)
+	}
+	if got := strings.Join(names(SearchFilter{BusinessDomain: NoBusinessDomain}), ","); got != "web=,ghost=" {
+		t.Errorf("no-domain search = %s", got)
+	}
+}

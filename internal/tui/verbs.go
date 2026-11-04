@@ -271,7 +271,7 @@ func hasLocalBundle(sel Selection) string {
 // an owner or a source the verb could only ever open a screen showing an error.
 func graphable(sel Selection) string {
 	switch sel.Kind {
-	case fleet.KindOwner, fleet.KindSource:
+	case fleet.KindOwner, fleet.KindSource, fleet.KindDomain:
 		return "a graph roots at a service, a revision or a target"
 	}
 	return ""
@@ -285,8 +285,8 @@ func graphable(sel Selection) string {
 // rows (yank.go:38-47).
 func explainable(sel Selection) string {
 	switch sel.Kind {
-	case fleet.KindOwner, fleet.KindSource:
-		return "fleet explain takes a service or a target — press y for the fleet search line"
+	case fleet.KindOwner, fleet.KindSource, fleet.KindDomain:
+		return "fleet explain takes a service or a target — press y for the fleet search line, which takes an owner, a source or a --business-domain"
 	}
 	return ""
 }

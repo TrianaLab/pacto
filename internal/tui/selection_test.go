@@ -362,3 +362,12 @@ func TestRefFromTargetWithBadRevisionKey(t *testing.T) {
 		t.Fatalf("refFromTarget with bad key = %q, want empty", ref)
 	}
 }
+
+func TestResolveSelectionForADomainSkipsTheDetail(t *testing.T) {
+	c := newLoadedContext(t)
+	// No such domain exists: resolving one must not ask the fleet for its detail.
+	sel, err := resolveSelection(c, fleet.EntityRef{Kind: fleet.KindDomain, Key: "payments", Label: "payments"})
+	if err != nil || sel.Ref != "" || sel.Kind != fleet.KindDomain {
+		t.Fatalf("domain resolution = %+v, %v", sel, err)
+	}
+}

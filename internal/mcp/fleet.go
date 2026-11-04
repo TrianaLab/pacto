@@ -96,8 +96,9 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"Returns a bounded, deterministically ordered list with an asOf time and completeness. " +
 			"Each service's 'owner' is the structured owner (team, dri, contacts), as in pacto_fleet_get.",
 		InputSchema: inputSchema(map[string]property{
-			"text":  {Type: "string", Description: "Substring over service name and owner"},
-			"owner": {Type: "string", Description: "Filter by owner team, DRI or contact"},
+			"text":            {Type: "string", Description: "Substring over service name and owner"},
+			"owner":           {Type: "string", Description: "Filter by owner team, DRI or contact"},
+			"business_domain": {Type: "string", Description: "Filter by declared business domain (service.domain), or " + fleet.NoBusinessDomain + " for services that declare none"},
 			// Read from the fleet's own table, never a hand-kept copy: the copy had
 			// gone stale and omitted Warning and Reference, so an agent that trusted
 			// the enum could not ask for two reachable statuses at all, and its
@@ -121,24 +122,25 @@ func fleetSearchTool() *mcpsdk.Tool {
 // before it reaches the query instead of decoding to a zero that reads as
 // "filter not requested".
 type fleetSearchArgs struct {
-	Text          string `json:"text"`
-	Owner         string `json:"owner"`
-	Status        string `json:"status"`
-	Compliance    string `json:"compliance"`
-	Source        string `json:"source"`
-	Scope         string `json:"scope"`
-	Workload      string `json:"workload"`
-	HasCapability bool   `json:"has_capability"`
-	HasDependency bool   `json:"has_dependency"`
-	Ready         bool   `json:"ready"`
-	NotReady      bool   `json:"not_ready"`
-	Limit         int    `json:"limit"`
+	Text           string `json:"text"`
+	Owner          string `json:"owner"`
+	BusinessDomain string `json:"business_domain"`
+	Status         string `json:"status"`
+	Compliance     string `json:"compliance"`
+	Source         string `json:"source"`
+	Scope          string `json:"scope"`
+	Workload       string `json:"workload"`
+	HasCapability  bool   `json:"has_capability"`
+	HasDependency  bool   `json:"has_dependency"`
+	Ready          bool   `json:"ready"`
+	NotReady       bool   `json:"not_ready"`
+	Limit          int    `json:"limit"`
 }
 
 func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetSearchArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := q.Search(fleet.SearchFilter{
-			Text: a.Text, Owner: a.Owner, Status: a.Status, Compliance: a.Compliance,
+			Text: a.Text, Owner: a.Owner, BusinessDomain: a.BusinessDomain, Status: a.Status, Compliance: a.Compliance,
 			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
 			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
 			ReadyOnly: a.Ready, NotReady: a.NotReady, Limit: a.Limit,

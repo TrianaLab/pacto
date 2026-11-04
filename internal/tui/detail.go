@@ -89,6 +89,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 	var b strings.Builder
 	switch {
 	case d.Service != nil:
+		field(&b, "domain", d.Entity.BusinessDomain)
 		renderServiceDetail(&b, d.Service)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
@@ -98,6 +99,8 @@ func renderDetail(d *fleet.EntityDetail) string {
 		renderOwnerDetail(&b, d.Owner)
 	case d.Source != nil:
 		renderSourceDetail(&b, d.Source)
+	case d.Domain != nil:
+		renderDomainDetail(&b, d.Domain)
 	default:
 		return warnStyle.Render("the fleet returned a detail envelope with no payload")
 	}
@@ -132,7 +135,7 @@ func section(b *strings.Builder, title string) {
 }
 
 func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
-	field(b, "domain", s.Domain)
+	field(b, "registry", s.Domain)
 	if s.Ownership != nil {
 		field(b, "owner", s.Ownership.Owner)
 	}
@@ -286,6 +289,13 @@ func renderOwnerDetail(b *strings.Builder, o *fleet.OwnerDetailData) {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", o.Attention.Total-len(o.Attention.Items))) + "\n")
 		}
 	}
+}
+
+// renderDomainDetail draws a domain as an owner page: both are a service estate.
+func renderDomainDetail(b *strings.Builder, d *fleet.DomainDetailData) {
+	field(b, "owners", fmt.Sprintf("%d", d.Owners.Total))
+	field(b, "no owner", fmt.Sprintf("%d", d.Ownership.Unowned))
+	renderOwnerDetail(b, &fleet.OwnerDetailData{Summary: d.Summary, Services: d.Services, Attention: d.Attention})
 }
 
 func renderSourceDetail(b *strings.Builder, s *fleet.SourceDetailData) {

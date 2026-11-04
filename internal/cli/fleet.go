@@ -191,6 +191,7 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 	cmd.Flags().String("owner", "", "filter by owner (team, DRI or contact)")
+	cmd.Flags().String("business-domain", "", "filter by declared business domain, or "+fleet.NoBusinessDomain)
 	// Same reason as the MCP enum: the vocabulary is read from the fleet, so the
 	// help text can never advertise fewer statuses than the filter accepts.
 	cmd.Flags().String("status", "", "filter by aggregate status ("+strings.Join(fleet.CanonicalStatuses(), ", ")+")")
@@ -224,6 +225,7 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 
 func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	owner, _ := cmd.Flags().GetString("owner")
+	businessDomain, _ := cmd.Flags().GetString("business-domain")
 	status, _ := cmd.Flags().GetString("status")
 	compliance, _ := cmd.Flags().GetString("compliance")
 	source, _ := cmd.Flags().GetString("source")
@@ -237,7 +239,7 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
 	return fleet.SearchFilter{
-		Text: text, Owner: owner, Labels: parseLabels(labels), Scope: scope, Status: status,
+		Text: text, Owner: owner, BusinessDomain: businessDomain, Labels: parseLabels(labels), Scope: scope, Status: status,
 		Compliance: compliance, Source: source, Workload: workload,
 		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady,
 		Limit: limit, Offset: offset,

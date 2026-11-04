@@ -851,20 +851,21 @@ pacto fleet search [text] [flags]
 **Flags:**
 
 ```
-      --compliance string   filter to services with a target of this compliance
-      --has-capability      only services declaring a capability
-      --has-dependency      only services declaring a dependency
-  -h, --help                help for search
-      --label stringArray   filter by label key=value (repeatable)
-      --limit int           maximum results (0 = 100, capped at 500)
-      --not-ready           only services whose readiness gate does not pass (below minScore, expired or undeclared)
-      --offset int          result offset for paging
-      --owner string        filter by owner (team, DRI or contact)
-      --ready               only services whose readiness gate passes (score >= minScore, not expired)
-      --scope string        correlate to a target with this scope
-      --source string       filter by observing source
-      --status string       filter by aggregate status (Compliant, Invalid, NonCompliant, NotEvaluated, Reference, Unknown, Warning)
-      --workload string     filter by workload (service, job, scheduled)
+      --business-domain string   filter by declared business domain, or (none)
+      --compliance string        filter to services with a target of this compliance
+      --has-capability           only services declaring a capability
+      --has-dependency           only services declaring a dependency
+  -h, --help                     help for search
+      --label stringArray        filter by label key=value (repeatable)
+      --limit int                maximum results (0 = 100, capped at 500)
+      --not-ready                only services whose readiness gate does not pass (below minScore, expired or undeclared)
+      --offset int               result offset for paging
+      --owner string             filter by owner (team, DRI or contact)
+      --ready                    only services whose readiness gate passes (score >= minScore, not expired)
+      --scope string             correlate to a target with this scope
+      --source string            filter by observing source
+      --status string            filter by aggregate status (Compliant, Invalid, NonCompliant, NotEvaluated, Reference, Unknown, Warning)
+      --workload string          filter by workload (service, job, scheduled)
 ```
 
 ### `pacto fleet snapshot`

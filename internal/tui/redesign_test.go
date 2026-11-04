@@ -248,22 +248,24 @@ func TestListPaneShowsEveryOptionalField(t *testing.T) {
 	c := newLoadedContext(t)
 	l := newListScreen(c).(*listScreen)
 	l.entities = []fleet.EntityRef{{
-		Kind:          fleet.KindTarget,
-		Label:         "payments-api",
-		Status:        fleet.StatusNonCompliant,
-		Domain:        "ghcr.io/acme",
-		Scope:         "production",
-		ParentService: "payments-api",
-		Version:       "2.1.0",
-		Secondary:     "Deployment/payments-api",
-		Explanation:   "the running digest does not match the contract",
+		Kind:           fleet.KindTarget,
+		Label:          "payments-api",
+		Status:         fleet.StatusNonCompliant,
+		Domain:         "ghcr.io/acme",
+		Scope:          "production",
+		ParentService:  "payments-api",
+		Version:        "2.1.0",
+		Secondary:      "Deployment/payments-api",
+		Explanation:    "the running digest does not match the contract",
+		BusinessDomain: "payments",
 	}}
 	l.tbl.SetRows(l.rows(c))
 	l.tbl.SetCursor(0)
 
 	body := l.paneBody(c, 40)
 	for _, want := range []string{
-		"domain", "ghcr.io/acme",
+		"registry", "ghcr.io/acme",
+		"domain", "payments",
 		"scope", "production",
 		"version", "2.1.0",
 		"why", "does not match",

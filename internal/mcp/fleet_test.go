@@ -534,3 +534,19 @@ func TestFleetTools_WrongTypedArgumentIsAnError(t *testing.T) {
 		}
 	})
 }
+
+func TestFleetSearchHandler_BusinessDomain(t *testing.T) {
+	q := buildFleetQuery(t)
+	total := func(args map[string]any) int {
+		var out fleet.SearchResult
+		decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(q), args), &out)
+		return out.Total
+	}
+	all := total(map[string]any{})
+	if got := total(map[string]any{"business_domain": fleet.NoBusinessDomain}); got != all {
+		t.Errorf("(none) = %d, want every service (%d): the fixture declares no domain", got, all)
+	}
+	if got := total(map[string]any{"business_domain": "nope"}); got != 0 {
+		t.Errorf("an undeclared domain = %d, want 0", got)
+	}
+}

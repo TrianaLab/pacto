@@ -133,6 +133,11 @@ func TestGraphVerbRootsTheWayFleetGraphDoes(t *testing.T) {
 			Selection{Kind: fleet.KindSource, Key: "local"},
 			nil, "roots at",
 		},
+		{
+			"a domain is not a root",
+			Selection{Kind: fleet.KindDomain, Key: "payments"},
+			nil, "roots at",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			why := g.Applies(tt.sel)

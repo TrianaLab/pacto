@@ -47,6 +47,8 @@ func yankArgv(c *Context, sel Selection) []string {
 		return c.fleetLine("search", "--owner", sel.Label)
 	case fleet.KindSource:
 		return c.fleetLine("search", "--source", sel.Key)
+	case fleet.KindDomain:
+		return c.fleetLine("search", "--business-domain", sel.Key)
 	}
 	return c.fleetLine("get", sel.Key)
 }
