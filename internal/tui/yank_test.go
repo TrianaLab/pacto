@@ -49,6 +49,11 @@ func TestYankForAnEntityWithNoBundleNamesTheSubjectTheWayTheCommandDoes(t *testi
 			"pacto fleet search --source local",
 		},
 		{
+			"a domain filters a search by business domain",
+			Selection{Kind: fleet.KindDomain, Key: "payments", Label: "payments"},
+			"pacto fleet search --business-domain payments",
+		},
+		{
 			"a target is a flag on fleet get",
 			Selection{Kind: fleet.KindTarget, Key: "prod/Deployment/svc", Label: "svc"},
 			"pacto fleet get --target prod/Deployment/svc",

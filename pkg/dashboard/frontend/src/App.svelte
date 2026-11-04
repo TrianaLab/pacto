@@ -22,6 +22,7 @@
   import FleetServicesView from './views/FleetServicesView.svelte';
   import FleetOwnersView from './views/FleetOwnersView.svelte';
   import FleetSourcesView from './views/FleetSourcesView.svelte';
+  import FleetDomainsView from './views/FleetDomainsView.svelte';
   import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
@@ -409,6 +410,8 @@
       ownership={route.params.ownership || ''}
       status={route.params.status || ''}
       domain={route.params.domain || ''}
+      businessDomain={route.params.businessDomain || ''}
+      capability={route.params.capability || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}
@@ -416,6 +419,10 @@
     />
   {:else if route.view === 'fleet-owners'}
     <FleetOwnersView text={route.params.text || ''} offset={route.params.offset || ''}
+      limit={route.params.limit || ''}
+      sort={route.params.sort || ''} {refreshTick} />
+  {:else if route.view === 'fleet-domains'}
+    <FleetDomainsView text={route.params.text || ''} offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-sources'}
@@ -435,6 +442,7 @@
       status={route.params.status || ''}
       scope={route.params.scope || ''}
       readiness={route.params.readiness || ''}
+      environment={route.params.environment || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}
@@ -453,6 +461,7 @@
       ownerKey={route.params.ownerKey || ''}
       source={route.params.source || ''}
       service={route.params.service || ''}
+      businessDomain={route.params.businessDomain || ''}
       staleOnly={route.params.staleOnly || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}

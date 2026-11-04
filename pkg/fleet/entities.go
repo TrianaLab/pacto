@@ -3,6 +3,8 @@ package fleet
 import (
 	"cmp"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -40,8 +42,20 @@ type EntityFilter struct {
 	// OwnerKey and Owner compose (both must hold) rather than overriding each other:
 	// they are two different questions, and a consumer that asks both means both.
 	OwnerKey string
-	Domain   string
-	Scope    string
+	// Domain is the exact registry path (see ServiceRecord.Domain).
+	Domain string
+	// BusinessDomain is the exact business domain of the SERVICE an entity belongs
+	// to (see ServiceRecord.BusinessDomain), so a revision is kept by its service's
+	// domain even when it declared another; a domain entity matches its own name.
+	// NoBusinessDomain asks for the services that have none, UnknownBusinessDomain
+	// for those whose domain is unknown.
+	BusinessDomain string
+	// Environment is the exact environment a target runs in (TargetRecord.Environment).
+	Environment string
+	// Capability keeps the SERVICES any of whose read revisions declares a
+	// capability of this type (see [Query.serviceCapabilities]).
+	Capability string
+	Scope      string
 	// Status filters compliance-bearing entities (service/revision/target) by
 	// their canonical compliance status. Source health is a separate axis.
 	Status string
@@ -147,6 +161,15 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	}, nil
 }
 
+// NoBusinessDomain is the BusinessDomain filter value for the services known to
+// have no business domain, and UnknownBusinessDomain for those whose domain Pacto
+// cannot tell. Neither is a slug, and a value that is not a slug never becomes a
+// domain (see validBusinessDomain), so they cannot collide with one.
+const (
+	NoBusinessDomain      = "(none)"
+	UnknownBusinessDomain = "(unknown)"
+)
+
 // Ownership filter values (see [OwnershipTally]).
 const (
 	OwnershipConsistent  = "consistent"
@@ -240,7 +263,10 @@ func validateFilterCombos(f EntityFilter) error {
 		{"status", f.Status, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"sourceHealth", f.SourceHealth, []EntityKind{KindSource}},
 		{"scope", f.Scope, []EntityKind{KindTarget}},
+		{"environment", f.Environment, []EntityKind{KindTarget}},
+		{"capability", f.Capability, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
+		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain}},
 		{"service", f.Service, []EntityKind{KindService, KindRevision, KindTarget}},
 		// Ownership is declared per revision but classified per SERVICE (the whole
 		// question is whether a service's revisions agree), and readiness is declared
@@ -255,7 +281,9 @@ func validateFilterCombos(f EntityFilter) error {
 	return nil
 }
 
-// kindSet returns the set of requested kinds; an empty request means all kinds.
+// kindSet returns the set of requested kinds. An empty request means every kind
+// but KindDomain: domains came later and are returned only when asked for, so a
+// kind-less query keeps the answer it always had.
 func kindSet(kinds []EntityKind) map[EntityKind]bool {
 	if len(kinds) == 0 {
 		return map[EntityKind]bool{KindService: true, KindRevision: true, KindTarget: true, KindOwner: true, KindSource: true}
@@ -292,6 +320,33 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 		for _, st := range q.snap.Sources {
 			refs = append(refs, sourceEntityRef(st))
 		}
+	}
+	if want[KindDomain] {
+		refs = append(refs, q.domainListRefs()...)
+	}
+	return refs
+}
+
+// domainListRefs is one row per declared business domain, with the number of
+// services in it and the targets they run on. No domain is not a row: it is asked
+// for with the NoBusinessDomain filter.
+func (q *Query) domainListRefs() []EntityRef {
+	by := map[string]*EntityRef{}
+	for _, s := range q.snap.Services {
+		if s.BusinessDomain == "" {
+			continue
+		}
+		ref := by[s.BusinessDomain]
+		if ref == nil {
+			ref = new(domainEntityRef(s.BusinessDomain))
+			by[s.BusinessDomain] = ref
+		}
+		ref.Services++
+		ref.Targets += len(s.Targets)
+	}
+	refs := make([]EntityRef, 0, len(by))
+	for _, ref := range by {
+		refs = append(refs, *ref)
 	}
 	return refs
 }
@@ -367,7 +422,28 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey)) &&
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
-		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness))
+		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
+		q.matchOrganization(r, f)
+}
+
+// matchOrganization applies the business-domain and capability filters.
+func (q *Query) matchOrganization(r EntityRef, f EntityFilter) bool {
+	return (f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain)) &&
+		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
+}
+
+// serviceCapabilities is the sorted, distinct capability types a service's read
+// revisions declare.
+func (q *Query) serviceCapabilities(s *ServiceRecord) []string {
+	seen := map[string]bool{}
+	for _, rk := range s.Revisions {
+		if c := q.snap.Revisions[rk].Contract; c != nil {
+			for _, capability := range c.Capabilities {
+				seen[capability.Type] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // matchOwnershipState reports whether a SERVICE reference is in the requested
@@ -423,6 +499,9 @@ func matchScalarFields(r EntityRef, f EntityFilter) bool {
 	if f.Scope != "" && r.Scope != f.Scope {
 		return false
 	}
+	if f.Environment != "" && (r.Kind != KindTarget || r.Environment != f.Environment) {
+		return false
+	}
 	if f.Status != "" && r.Status != f.Status {
 		return false
 	}
@@ -433,6 +512,22 @@ func matchScalarFields(r EntityRef, f EntityFilter) bool {
 		return false
 	}
 	return true
+}
+
+// matchBusinessDomain keeps a reference by the business domain of the service it
+// belongs to, and a domain reference by its name; owners and sources belong to no
+// service and never match a set filter.
+func (q *Query) matchBusinessDomain(r EntityRef, want string) bool {
+	switch r.Kind {
+	case KindDomain:
+		return r.Key == want
+	case KindService:
+		return q.serviceInBusinessDomain(r.Key, want)
+	case KindRevision, KindTarget:
+		return q.serviceInBusinessDomain(r.ParentService, want)
+	default:
+		return false
+	}
 }
 
 // entityInService reports whether the referenced entity belongs to the given

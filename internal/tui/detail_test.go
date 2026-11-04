@@ -536,3 +536,34 @@ func TestDetailSelectedAlwaysReturnsTrue(t *testing.T) {
 		t.Fatal("a detail screen over a zero ref reported no selection")
 	}
 }
+
+func TestRenderDetailForADomain(t *testing.T) {
+	out := renderDetail(&fleet.EntityDetail{
+		Entity: fleet.EntityRef{Kind: fleet.KindDomain, Key: "payments"},
+		Domain: &fleet.DomainDetailData{
+			Summary:   fleet.OwnerSummary{Services: 2},
+			Ownership: fleet.OwnershipTally{Unowned: 1},
+			Owners:    fleet.RefPreview{Total: 1},
+			Services:  fleet.RefPreview{Total: 1, Count: 1, Items: []fleet.EntityRef{{Label: "pay"}}},
+		},
+	})
+	for _, want := range []string{"owners", "no owner", "services", "pay"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("domain detail never says %q:\n%s", want, out)
+		}
+	}
+	svc := renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{BusinessDomain: "payments"}, Service: &fleet.ServiceDetailData{Domain: "ghcr.io/acme"}})
+	if !strings.Contains(svc, "domain") || !strings.Contains(svc, "payments") || !strings.Contains(svc, "registry") {
+		t.Errorf("service detail = %s", svc)
+	}
+}
+
+func TestBusinessDomainTextSaysUnknown(t *testing.T) {
+	svc := renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{BusinessDomainUnknown: true}, Service: &fleet.ServiceDetailData{}})
+	if !strings.Contains(svc, "unknown") {
+		t.Errorf("service detail with an unknown domain = %s", svc)
+	}
+	if got := businessDomainText(fleet.EntityRef{BusinessDomain: "pay"}); got != "pay" {
+		t.Errorf("businessDomainText = %q", got)
+	}
+}

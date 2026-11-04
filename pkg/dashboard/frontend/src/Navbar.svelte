@@ -1,5 +1,5 @@
 <script>
-  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl, fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl } from './lib/router.ts';
+  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl, fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl, fleetDomainsUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import { prefersReducedMotion } from './lib/motion.ts';
   import SourceDot from './components/SourceDot.svelte';
@@ -60,6 +60,7 @@
         kinds: ['service', 'revision', 'target'],
       },
       { label: 'Owners', href: fleetOwnersUrl(), views: ['fleet-owners'], kinds: ['owner'], cap: 'fleet' },
+      { label: 'Domains', href: fleetDomainsUrl(), views: ['fleet-domains'], kinds: ['domain'], cap: 'fleet' },
       // Sentence case, like its three siblings and like the H1 and breadcrumb on the
       // page it opens. Title Case here made one tab in four look like a different kind
       // of destination and made the tab read as a different name from its own page.
@@ -310,8 +311,15 @@
     /* A long build string must never push the menu button off a phone screen. */
     max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  /* The tabs scroll inside the bar instead of pushing it past the window. Their width
+     depends on the fonts the machine has (a fallback sans can be far wider than Inter),
+     so no breakpoint can promise they fit: when they do not, the bar keeps the search,
+     the controls and the person menu on screen and the last tabs scroll into view. */
   .navbar-nav {
-    display: flex; align-items: center; gap: 2px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 2px;
+    min-width: 0; overflow-x: auto; scrollbar-width: thin;
+    /* Room for the 4px focus ring, which the scroll box would otherwise clip. */
+    padding: 4px; margin: 0 -4px;
   }
   .nav-link {
     padding: 6px 10px; border-radius: var(--radius-xs);
@@ -460,12 +468,12 @@
   }
 
   /* ─── Tight ─── */
-  /* With seven tabs the roomy bar needs about 1,330px. Below that it sheds the version
-     tag and some padding (about 150px) before it gives up the tabs, so a 1,280px
-     laptop still gets the full nav. */
-  @media (max-width: 1340px) {
+  /* With eight tabs the roomy bar needs about 1,420px. Below that it sheds the version
+     tag and some padding before it gives up the tabs. Where it still does not fit, the
+     tabs scroll inside the bar (see .navbar-nav). */
+  @media (max-width: 1440px) {
     .navbar { padding: 0 var(--sp-4); }
-    .nav-link { padding: 6px 7px; }
+    .nav-link { padding: 6px 5px; }
     .version-tag { display: none; }
     .search-trigger { min-width: 7rem; }
   }

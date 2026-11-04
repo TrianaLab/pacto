@@ -1,4 +1,4 @@
-# Contract Reference (v2.3)
+# Contract Reference (v2.4)
 
 A Pacto contract is one YAML file, `pacto.yaml`, that says what a service is and
 what it needs to run: its interfaces, dependencies, configuration, capabilities
@@ -30,7 +30,9 @@ and
 which adds the interface `lifecycle`, `compatibilityEpoch` and `guarantees` and
 dependency `requires`, and
 [`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json),
-which adds `environments`. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
+which adds `environments`, and
+[`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json),
+which adds `service.domain`. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
 
 ---
 

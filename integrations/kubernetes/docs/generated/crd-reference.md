@@ -543,6 +543,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.configurations[].secretKeys` | `[]string` | no |  |  | SecretKeys lists configuration keys whose values reference secrets. |
 | `status.configurations[].valueKeys` | `[]string` | no |  |  | ValueKeys lists the declared configuration value keys. |
 | `status.contract` | `object` | no |  |  | Contract exposes parsed contract metadata. |
+| `status.contract.domain` | `string` | no |  |  | Domain is the business domain the contract declares (service.domain, pactoVersion 2.4). The operational graph groups services by it. Omitted when the contract declares none; readers trust that absence only from statusFormat 2 on. |
 | `status.contract.owner` | `object` | no |  |  | Owner contains the structured ownership metadata from the contract (team, DRI, and contacts). |
 | `status.contract.owner.contacts` | `[]object` | no |  |  | Contacts lists provider-neutral contact points. |
 | `status.contract.owner.contacts[].purpose` | `string` | no |  |  | Purpose describes what this contact is used for (e.g. escalation, support, oncall). |
@@ -690,7 +691,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.resources.workload.exists` | `boolean` | yes |  |  | Exists indicates whether the resource was found in the cluster. |
 | `status.resources.workload.kind` | `string` | no |  |  | Kind of the resource (only set for workloads). |
 | `status.resources.workload.name` | `string` | yes |  |  | Name of the resource. |
-| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. A status without it was written by an older operator, so readers treat what it would record about them as unknown until the operator reconciles the Pacto again. |
+| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. Format 2 also records the contract's business domain in contract.domain, so its absence there means the contract declares none. A status without a format, or with an older one, was written by an older operator, so readers treat what it would record as unknown until the operator reconciles the Pacto again. |
 | `status.summary` | `object` | no |  |  | Summary provides severity-based finding counts. |
 | `status.summary.errorCount` | `integer` | yes |  |  | ErrorCount is the number of error-severity findings. |
 | `status.summary.infoCount` | `integer` | yes |  |  | InfoCount is the number of info-severity findings. |

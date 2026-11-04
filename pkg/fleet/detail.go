@@ -2,6 +2,8 @@ package fleet
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -428,6 +430,45 @@ type TargetDetailData struct {
 	Quarantined          bool                 `json:"quarantined,omitempty"`
 	Ownership            *OwnershipInfo       `json:"ownership,omitempty"`
 	Limitations          LimitationsPreview   `json:"limitations"`
+	Environment          TargetEnvironment    `json:"environment"`
+}
+
+// TargetEnvironment is the environment a target runs in, read from the
+// TargetEnvironmentLabel, and whether the revision it runs declares it. An empty
+// Name means unknown. Declared is unknown whenever Pacto cannot tell, with Reason
+// saying why; Check is the declared environment's values check.
+type TargetEnvironment struct {
+	Name     string             `json:"name,omitempty"`
+	Declared string             `json:"declared" enum:"declared,not-declared,unknown"`
+	Reason   string             `json:"reason,omitempty"`
+	Check    *EnvironmentResult `json:"check,omitempty"`
+}
+
+// targetEnvironmentName is the environment a target runs in, and whether its
+// sources disagree on the label (then the name is empty).
+func targetEnvironmentName(t *TargetRecord) (name string, conflict bool) {
+	return t.Environment, t.environmentConflict
+}
+
+// targetEnvironment says where a target runs and whether its linked revision
+// declares that environment.
+func (q *Query) targetEnvironment(t *TargetRecord) TargetEnvironment {
+	name, conflict := targetEnvironmentName(t)
+	rev := q.snap.Revisions[t.ContractRevision]
+	switch {
+	case conflict:
+		return TargetEnvironment{Declared: "unknown", Reason: "Sources disagree on this target's environment label."}
+	case name == "":
+		return TargetEnvironment{Declared: "unknown", Reason: "No source reports this target's environment. Pacto reads it from the " + TargetEnvironmentLabel + " label."}
+	case rev == nil:
+		return TargetEnvironment{Name: name, Declared: "unknown", Reason: "Pacto cannot tell which revision runs here, so it cannot check the environment against a contract."}
+	}
+	for _, e := range rev.Environments {
+		if e.Name == name {
+			return TargetEnvironment{Name: name, Declared: "declared", Check: &e}
+		}
+	}
+	return TargetEnvironment{Name: name, Declared: "not-declared", Reason: "Revision " + revisionEntityRef(rev).Label + " does not declare environment " + name + "."}
 }
 
 // OwnerDetailData is the owner-kind payload: the complete owner-scoped aggregate,
@@ -440,6 +481,18 @@ type OwnerDetailData struct {
 	Summary     OwnerSummary     `json:"summary"`
 	Services    RefPreview       `json:"services"`
 	Revisions   RefPreview       `json:"revisions"`
+	Deployments RefPreview       `json:"deployments"`
+	Attention   AttentionPreview `json:"attention"`
+}
+
+// DomainDetailData is the domain-kind payload: the estate of the services whose
+// business domain this is (see ServiceRecord.BusinessDomain). Summary.Revisions
+// counts those services' revisions, whatever domain each one declared.
+type DomainDetailData struct {
+	Summary     OwnerSummary     `json:"summary"`
+	Ownership   OwnershipTally   `json:"ownership"`
+	Services    RefPreview       `json:"services"`
+	Owners      RefPreview       `json:"owners"`
 	Deployments RefPreview       `json:"deployments"`
 	Attention   AttentionPreview `json:"attention"`
 }
@@ -506,6 +559,7 @@ type EntityDetail struct {
 	Target   *TargetDetailData   `json:"target,omitempty"`
 	Owner    *OwnerDetailData    `json:"owner,omitempty"`
 	Source   *SourceDetailData   `json:"source,omitempty"`
+	Domain   *DomainDetailData   `json:"domain,omitempty"`
 	Actions  []string            `json:"actions,omitempty"`
 }
 
@@ -535,6 +589,8 @@ func (q *Query) entityDetail(kind EntityKind, key string) (*EntityDetail, error)
 		return q.ownerDetail(key)
 	case KindSource:
 		return q.sourceDetail(key)
+	case KindDomain:
+		return q.domainDetail(key)
 	default:
 		return nil, &InvalidQueryError{Field: "kind", Value: string(kind), Reason: "not a known entity kind"}
 	}
@@ -655,6 +711,7 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		Quarantined:  t.Quarantined,
 		Ownership:    targetOwnership(q.snap.Services[t.ServiceKey]),
 		Limitations:  limitationsPreview(t.Limitations),
+		Environment:  q.targetEnvironment(q.snap.Targets[t.Key]), // the record: the clone drops unexported state
 		// The observed-runtime preview was bounded ONCE at Build time (see
 		// TargetRecord.ObservedRuntime); the product query reads that precomputed
 		// projection in O(bound), never re-flattening an arbitrarily wide raw map.
@@ -734,6 +791,60 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 			Revisions:   refPreview(revisions),
 			Deployments: refPreview(deployments),
 			Attention:   attentionPreviewFromList(ownerAttention),
+		},
+	}, nil
+}
+
+// domainDetail is the estate of one business domain, walked the way ownerDetail
+// walks an owner's: the summary and the previews come from one pass over the same
+// services. No domain has no page; it is the NoBusinessDomain filter.
+func (q *Query) domainDetail(key string) (*EntityDetail, error) {
+	var services, deployments []EntityRef
+	var sum OwnerSummary
+	var ownership OwnershipTally
+	owners := map[string]bool{}
+	for _, s := range q.snap.Services {
+		if key == "" || s.BusinessDomain != key {
+			continue
+		}
+		services = append(services, serviceEntityRef(s))
+		q.addOwnership(&ownership, s)
+		for _, k := range q.ownerClaimsOf(s).keys {
+			owners[k] = true
+		}
+		for _, rk := range s.Revisions {
+			sum.Revisions++
+			if revisionStatus(q.snap.Revisions[rk]) == StatusInvalid {
+				sum.InvalidRevisions++
+			}
+		}
+		for _, tk := range s.Targets {
+			t := q.snap.Targets[tk]
+			deployments = append(deployments, targetEntityRef(t))
+			sum.addTarget(t)
+		}
+	}
+	if len(services) == 0 {
+		return nil, &NotFoundError{Kind: "domain", ID: key}
+	}
+	ownerRefs := make([]EntityRef, 0, len(owners))
+	for _, k := range slices.Sorted(maps.Keys(owners)) {
+		ownerRefs = append(ownerRefs, ownerEntityRef(k))
+	}
+	sum.Services, sum.Targets = len(services), len(deployments)
+	sortEntityRefs(services)
+	sortEntityRefs(deployments)
+	// A constant, valid filter never errors.
+	attention, _ := q.Attention(AttentionFilter{BusinessDomain: key})
+	return &EntityDetail{
+		Meta: q.productMeta(), Entity: domainEntityRef(key),
+		Domain: &DomainDetailData{
+			Summary:     sum,
+			Ownership:   ownership,
+			Services:    refPreview(services),
+			Owners:      refPreview(ownerRefs),
+			Deployments: refPreview(deployments),
+			Attention:   attentionPreviewFromList(attention),
 		},
 	}, nil
 }

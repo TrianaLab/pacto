@@ -267,9 +267,12 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 		{Scope: "prod", Kind: "Deployment", Name: "catalog-service", Service: "catalog-service", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "catalog-service:1.1.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "catalog-service"})},
+		// The one target whose Pacto carries the environment label, so its page names
+		// the environment it runs in and checks it against the revision's declared
+		// production values. Every other target reads Unknown.
 		{Scope: "prod", Kind: "Deployment", Name: "storefront-web", Service: "storefront-web", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "storefront-web:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
-			Labels:          prod(map[string]string{"app.kubernetes.io/name": "storefront-web", "tier": "edge"}),
+			Labels:          prod(map[string]string{"app.kubernetes.io/name": "storefront-web", "tier": "edge", fleet.TargetEnvironmentLabel: "production"}),
 			ObservedRuntime: map[string]any{"replicas": 6, "ingress": "https://shop.example.com"}},
 		{Scope: "prod", Kind: "Deployment", Name: "pricing-service", Service: "pricing-service", Compliance: fleet.StatusUnknown,
 			ResolvedRef: demoRegistry + "pricing-service:1.1.0", Coverage: cov(2, 4), EvidenceAt: at(stale), ReconciledAt: at(stale),

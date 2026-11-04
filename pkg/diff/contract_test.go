@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"context"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -308,5 +309,25 @@ func TestDiffContract_StateNewNil(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected state.type Removed when new state is nil, got %+v", changes)
+	}
+}
+
+func TestDiffContract_Domain(t *testing.T) {
+	for _, tc := range []struct {
+		old, new string
+		typ      ChangeType
+	}{
+		{"", "payments", Added},
+		{"payments", "commerce", Modified},
+		{"payments", "", Removed},
+	} {
+		old, new := minimalContract(), minimalContract()
+		old.Service.Domain, new.Service.Domain = tc.old, tc.new
+		r := Compare(context.Background(), old, new, nil, nil)
+		changes := r.Changes
+		if r.Classification != NonBreaking || len(changes) != 1 || changes[0].Path != "service.domain" || changes[0].Type != tc.typ ||
+			changes[0].Classification != NonBreaking || changes[0].OldValue != tc.old || changes[0].NewValue != tc.new {
+			t.Fatalf("%s -> %s: %+v", tc.old, tc.new, changes)
+		}
 	}
 }

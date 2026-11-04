@@ -41,12 +41,14 @@ const (
 	KindTarget   EntityKind = "target"
 	KindOwner    EntityKind = "owner"
 	KindSource   EntityKind = "source"
+	// KindDomain is a business domain (service.domain), keyed by its name.
+	KindDomain EntityKind = "domain"
 )
 
 // validEntityKind reports whether k is a known entity kind.
 func validEntityKind(k EntityKind) bool {
 	switch k {
-	case KindService, KindRevision, KindTarget, KindOwner, KindSource:
+	case KindService, KindRevision, KindTarget, KindOwner, KindSource, KindDomain:
 		return true
 	default:
 		return false
@@ -60,15 +62,26 @@ func validEntityKind(k EntityKind) bool {
 // product transport adds a canonical href from the canonical key (ADR-2). Human
 // labels are primary; the raw Key is secondary copyable metadata.
 type EntityRef struct {
-	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source"`
+	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source,domain"`
 	Key       string     `json:"key"`
 	Label     string     `json:"label"`
 	Secondary string     `json:"secondary,omitempty"`
 	// Status is polymorphic by kind (a compliance status for service/revision/
 	// target, a source-health value for source), so it carries no single enum.
-	Status        string `json:"status,omitempty"`
-	Explanation   string `json:"explanation,omitempty"`
-	Domain        string `json:"domain,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Explanation string `json:"explanation,omitempty"`
+	// Domain is the registry path, shown as Registry (see ServiceRecord.Domain).
+	Domain string `json:"domain,omitempty"`
+	// BusinessDomain is the business domain of the service a service or target
+	// reference belongs to, the domain a REVISION reference itself declares
+	// (Contract.Service.Domain, which can differ from its service's), and the name
+	// of a domain reference. Empty means No domain, unless BusinessDomainUnknown
+	// says Pacto cannot tell (service and target references only).
+	BusinessDomain        string `json:"businessDomain,omitempty"`
+	BusinessDomainUnknown bool   `json:"businessDomainUnknown,omitempty"`
+	// Environment is the environment a TARGET reference runs in (see
+	// TargetRecord.Environment), empty when unknown.
+	Environment   string `json:"environment,omitempty"`
 	Scope         string `json:"scope,omitempty"`
 	ParentService string `json:"parentService,omitempty"`
 	// Version is the declared contract version a REVISION reference carries, set only for
@@ -172,7 +185,7 @@ func (q *Query) ProductMeta() ProductMeta { return q.productMeta() }
 func serviceEntityRef(s *ServiceRecord) EntityRef {
 	return EntityRef{
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
-		Status: s.Status, Domain: s.Domain,
+		Status: s.Status, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
 	}
 }
 
@@ -191,15 +204,25 @@ func revisionEntityRef(r *ContractRevision) EntityRef {
 	}
 	return EntityRef{
 		Kind: KindRevision, Key: string(r.Key), Label: label, Secondary: r.Digest,
-		Status: status, Domain: r.Domain, ParentService: string(r.ServiceKey), Version: r.Version,
+		Status: status, Domain: r.Domain, BusinessDomain: declaredBusinessDomain(r), ParentService: string(r.ServiceKey), Version: r.Version,
 	}
+}
+
+// declaredBusinessDomain is the business domain a revision itself declares, empty
+// when its contract was not read or the value is not a domain slug.
+func declaredBusinessDomain(r *ContractRevision) string {
+	if r.Contract == nil || !validBusinessDomain(r.Contract.Service.Domain) {
+		return ""
+	}
+	return r.Contract.Service.Domain
 }
 
 // targetEntityRef builds a route-neutral reference to an operational target.
 func targetEntityRef(t *TargetRecord) EntityRef {
 	return EntityRef{
 		Kind: KindTarget, Key: string(t.Key), Label: t.DisplayName(), Secondary: t.Scope,
-		Status: t.Compliance, Domain: t.Domain, Scope: t.Scope,
+		Status: t.Compliance, Domain: t.Domain, BusinessDomain: t.BusinessDomain, BusinessDomainUnknown: t.BusinessDomainUnknown,
+		Environment: t.Environment, Scope: t.Scope,
 		ParentService: string(t.ServiceKey),
 	}
 }
@@ -213,6 +236,11 @@ func ownerEntityRef(key string) EntityRef {
 		ref.Label, ref.Secondary = k.Value, k.KindLabel()
 	}
 	return ref
+}
+
+// domainEntityRef builds a route-neutral reference to a business domain.
+func domainEntityRef(name string) EntityRef {
+	return EntityRef{Kind: KindDomain, Key: name, Label: name, BusinessDomain: name}
 }
 
 // sourceEntityRef builds a route-neutral reference to a source.
@@ -264,12 +292,13 @@ type OverviewSummary struct {
 	UnavailableSources        int `json:"unavailableSources"`
 	RecentEvidence            int `json:"recentEvidence"`
 	// Ownership partitions the COMPLETE service population and Readiness the
-	// COMPLETE contract-revision population. Neither is an operational failure, and
-	// that is exactly why they belong on the landing page rather than in the
-	// attention backlog: "is ownership declared at all" and "is anyone assessing
-	// readiness" are systemic questions about how the fleet is organized and
-	// authored, and no per-entity page can answer them. They are the only two
-	// overview facts whose denominator is not the target population.
+	// COMPLETE contract-revision population. Neither is an operational failure, but
+	// each gap is something a person can fix, so both also appear in the attention
+	// backlog at info: a service with no declared owner as `unowned`, a revision with
+	// no readiness assessment as `readiness`. The tallies here answer the systemic
+	// question (is ownership declared at all, is anyone assessing readiness), which
+	// no per-entity page can. They are the only two overview facts whose denominator
+	// is not the target population.
 	Ownership OwnershipTally `json:"ownership"`
 	Readiness ReadinessTally `json:"readiness"`
 	// Evidence is the fleet's freshness envelope: the third orthogonal question a
@@ -284,6 +313,82 @@ type OverviewSummary struct {
 	// bounded to overviewScopeLimit; Scopes is how many scopes there are in all.
 	ByScope []ScopeTally `json:"byScope"`
 	Scopes  int          `json:"scopes"`
+	// ByDomain breaks every service down by business domain, the domain with the
+	// most non-compliant targets first. It ends with the Unknown domain row
+	// (DomainUnknown) whenever Pacto cannot tell a service's domain, then the No
+	// domain row (Domain empty) whenever a service has none, even when the list is
+	// bounded to overviewScopeLimit. Domains counts the named domains only.
+	ByDomain []DomainTally `json:"byDomain"`
+	Domains  int           `json:"domains"`
+}
+
+// DomainTally counts the services of one business domain, the targets they run
+// on, how many of those targets are broken, unknown or stale, and how many of the
+// services no source knows an owner for. An empty Domain is the No domain row, or
+// the Unknown domain row when DomainUnknown is set.
+type DomainTally struct {
+	Domain        string `json:"domain"`
+	DomainUnknown bool   `json:"domainUnknown,omitempty"`
+	Services      int    `json:"services"`
+	Targets       int    `json:"targets"`
+	NonCompliant  int    `json:"nonCompliant"`
+	Unknown       int    `json:"unknown"`
+	Stale         int    `json:"stale"`
+	Unowned       int    `json:"unowned"`
+}
+
+// tallyDomains fills ByDomain and Domains from every service.
+func (q *Query) tallyDomains(sum *OverviewSummary) {
+	type row struct {
+		domain  string
+		unknown bool
+	}
+	by := map[row]*DomainTally{}
+	for _, s := range q.snap.Services {
+		k := row{s.BusinessDomain, s.BusinessDomainUnknown}
+		dt := by[k]
+		if dt == nil {
+			dt = &DomainTally{Domain: k.domain, DomainUnknown: k.unknown}
+			by[k] = dt
+		}
+		dt.Services++
+		if n, _ := q.ownershipState(s); n == 0 {
+			dt.Unowned++
+		}
+		for _, tk := range s.Targets {
+			t := q.snap.Targets[tk]
+			dt.Targets++
+			dt.NonCompliant += b2i(t.Compliance == StatusNonCompliant)
+			dt.Unknown += b2i(t.Compliance == StatusUnknown)
+			dt.Stale += b2i(t.Stale)
+		}
+	}
+	// The unknown row, then the No domain row, close the list.
+	var tail []DomainTally
+	for _, k := range []row{{"", true}, {"", false}} {
+		if dt := by[k]; dt != nil {
+			tail = append(tail, *dt)
+			delete(by, k)
+		}
+	}
+	named := make([]DomainTally, 0, len(by))
+	for _, dt := range by {
+		named = append(named, *dt)
+	}
+	slices.SortFunc(named, func(a, b DomainTally) int {
+		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(b.Unknown, a.Unknown),
+			cmp.Compare(b.Unowned, a.Unowned), cmp.Compare(a.Domain, b.Domain))
+	})
+	sum.ByDomain, sum.Domains, _ = boundSlice(named, overviewScopeLimit-len(tail))
+	sum.ByDomain = append(sum.ByDomain, tail...)
+}
+
+// b2i is 1 for true and 0 for false.
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // ScopeTally counts the targets of one scope and how many of them are broken,
@@ -428,6 +533,7 @@ func (q *Query) Overview() *Overview {
 	q.tallyRelationships(sum)
 	q.tallySources(sum)
 	q.tallyScopes(sum)
+	q.tallyDomains(sum)
 
 	sum.ServicesNeedingAttention = q.servicesNeedingAttention()
 	// A constant, valid filter never errors; ignore it deliberately. The attention
@@ -548,6 +654,7 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		{Label: "Dependencies outside their accepted range", Count: sum.UnsatisfiedRanges, View: EntryPointAttention, Category: categoryOutOfRange, Severity: severityWarning},
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices, Severity: severityInfo},
 		{Label: "Uncontracted callers observed", Count: sum.UncontractedCallers, View: EntryPointServices, Severity: severityInfo},
+		{Label: "Services with no declared owner", Count: sum.Ownership.Unowned, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
 	}
 	out := []EntryPoint{}
@@ -570,7 +677,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range"`
+	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -586,6 +693,7 @@ const (
 	categoryReadiness    = "readiness"
 	categoryUnresolved   = "unresolved"
 	categoryOutOfRange   = "out-of-range"
+	categoryUnowned      = "unowned"
 )
 
 // severity levels.
@@ -608,14 +716,18 @@ type AttentionFilter struct {
 	// IDENTITY, exactly as on [EntityFilter]: a backlog opened from an owner page
 	// carries OwnerKey, so it holds that owner's estate and not every owner whose
 	// name contains theirs. They compose.
-	Owner     string
-	OwnerKey  string
-	Source    string
-	Severity  string
-	Status    string
-	StaleOnly bool
-	Limit     int
-	Offset    int
+	Owner    string
+	OwnerKey string
+	// BusinessDomain keeps the items of services in this business domain, of
+	// services with none for NoBusinessDomain, or of services whose domain is
+	// unknown for UnknownBusinessDomain.
+	BusinessDomain string
+	Source         string
+	Severity       string
+	Status         string
+	StaleOnly      bool
+	Limit          int
+	Offset         int
 }
 
 // AttentionList is a bounded, deterministically ordered, offset-pageable
@@ -700,7 +812,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "readiness"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "readiness", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -737,7 +849,27 @@ func (q *Query) collectAttention() []AttentionItem {
 		items = append(items, q.revisionAttention(r)...)
 	}
 	items = append(items, q.unresolvedAttention()...)
+	items = append(items, q.unownedAttention()...)
 	return items
+}
+
+// unownedAttention reports each service no source knows an owner for (no revision
+// declares one and no observing source reports one), by the same rule as the
+// ownership tally, so its total is OverviewSummary.Ownership.Unowned.
+func (q *Query) unownedAttention() []AttentionItem {
+	var out []AttentionItem
+	for _, s := range q.snap.Services {
+		if n, _ := q.ownershipState(s); n != 0 {
+			continue
+		}
+		out = append(out, AttentionItem{
+			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name,
+			Severity: severityInfo, Code: "UNOWNED_SERVICE", Category: categoryUnowned,
+			Summary: "Service has no declared owner", Reason: "no contract revision of this service declares service.owner, and no source reports an owner for it",
+			NextStep: "Declare service.owner in the contract",
+		})
+	}
+	return out
 }
 
 func (q *Query) targetAttention(t *TargetRecord) []AttentionItem {
@@ -849,7 +981,25 @@ func (q *Query) attentionMatches(it AttentionItem, f AttentionFilter) bool {
 		return false
 	}
 	return (f.Owner == "" || q.serviceOwnedBy(it.Service, f.Owner)) &&
-		(f.OwnerKey == "" || q.serviceOwnedByKey(it.Service, f.OwnerKey))
+		(f.OwnerKey == "" || q.serviceOwnedByKey(it.Service, f.OwnerKey)) &&
+		(f.BusinessDomain == "" || q.serviceInBusinessDomain(it.Service, f.BusinessDomain))
+}
+
+// serviceInBusinessDomain reports whether the service is in the business domain,
+// with NoBusinessDomain matching a service known to have none and
+// UnknownBusinessDomain one whose domain Pacto cannot tell.
+func (q *Query) serviceInBusinessDomain(key, want string) bool {
+	s := q.snap.Services[ServiceKey(key)]
+	switch {
+	case s == nil:
+		return false
+	case want == NoBusinessDomain:
+		return s.BusinessDomain == "" && !s.BusinessDomainUnknown
+	case want == UnknownBusinessDomain:
+		return s.BusinessDomainUnknown
+	default:
+		return s.BusinessDomain == want
+	}
 }
 
 // optEq reports whether an optional filter value (empty means unset) matches have.

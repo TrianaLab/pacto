@@ -12,6 +12,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -124,7 +125,12 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 	service := item.Metadata.Name
 	resolvedRef := ""
 	var owner contract.Owner
+	var businessDomain string
+	// status.contract.domain is omitted when empty, so its absence says the
+	// contract declares none only on a status format that records the domain.
+	domainKnown := st.Contract != nil && st.StatusFormat >= delivery.StatusFormatDomain
 	if st.Contract != nil {
+		businessDomain = st.Contract.Domain
 		if st.Contract.ServiceName != "" {
 			service = st.Contract.ServiceName
 		}
@@ -148,19 +154,22 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		// cache sources derive it, so a service's runtime target correlates with its
 		// published baseline (same registry+org → same logical service) instead of
 		// splitting into a k8s-only and an OCI-only service.
-		Domain:          contract.OCIDomain(resolvedRef),
-		Kind:            fleet.SourceKindKubernetes,
-		Name:            item.Metadata.Name,
-		Service:         service,
-		ResolvedRef:     resolvedRef,
-		Digest:          digestFromRef(resolvedRef),
-		Compliance:      st.ContractStatus,
-		Owner:           owner,
-		Findings:        findingsFromK8s(st.Findings),
-		Readiness:       st.Readiness.result(),
-		ObservedRuntime: st.ObservedRuntime,
-		EvidenceAt:      observed,
-		ReconciledAt:    observed,
+		Domain:              contract.OCIDomain(resolvedRef),
+		Kind:                fleet.SourceKindKubernetes,
+		Name:                item.Metadata.Name,
+		Labels:              environmentLabel(item.Metadata.Labels),
+		Service:             service,
+		ResolvedRef:         resolvedRef,
+		Digest:              digestFromRef(resolvedRef),
+		Compliance:          st.ContractStatus,
+		Owner:               owner,
+		BusinessDomain:      businessDomain,
+		BusinessDomainKnown: domainKnown,
+		Findings:            findingsFromK8s(st.Findings),
+		Readiness:           st.Readiness.result(),
+		ObservedRuntime:     st.ObservedRuntime,
+		EvidenceAt:          observed,
+		ReconciledAt:        observed,
 	}
 	if st.EvaluationCoverage != nil {
 		t.Coverage = &fleet.Coverage{
@@ -169,6 +178,15 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		}
 	}
 	return t
+}
+
+// environmentLabel keeps only the environment label of a Pacto: the fleet places a
+// target by it, and the CR's other labels are not the fleet's to publish.
+func environmentLabel(labels map[string]string) map[string]string {
+	if v, ok := labels[fleet.TargetEnvironmentLabel]; ok {
+		return map[string]string{fleet.TargetEnvironmentLabel: v}
+	}
+	return nil
 }
 
 // digestFromRef extracts the @sha256:... digest from a resolved OCI ref, or ""
@@ -229,11 +247,14 @@ type k8sItem struct {
 }
 
 type k8sMetadata struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace"`
+	Labels    map[string]string `json:"labels"`
 }
 
 type k8sStatus struct {
+	// StatusFormat is status.statusFormat (see delivery.StatusFormatDomain).
+	StatusFormat       int            `json:"statusFormat"`
 	ContractStatus     string         `json:"contractStatus"`
 	Contract           *k8sContract   `json:"contract"`
 	EvaluationCoverage *k8sCoverage   `json:"evaluationCoverage"`
@@ -273,6 +294,8 @@ type k8sContract struct {
 	// Owner is status.contract.owner. The operator publishes it with the
 	// contract's own field names (team, dri, contacts), so it decodes directly.
 	Owner *contract.Owner `json:"owner"`
+	// Domain is status.contract.domain, the contract's service.domain.
+	Domain string `json:"domain"`
 }
 
 type k8sCoverage struct {

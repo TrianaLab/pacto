@@ -1156,6 +1156,7 @@ export interface components {
             timeout?: string;
         };
         "Contract.Service": {
+            domain?: string;
             name: string;
             owner?: components["schemas"]["Contract.Owner"];
             version: string;
@@ -1676,6 +1677,11 @@ export interface components {
             path?: string;
             type?: string;
         };
+        "Fleet.CapabilityCount": {
+            /** Format: int64 */
+            services: number;
+            type: string;
+        };
         "Fleet.CapabilitySummary": {
             binding?: components["schemas"]["Fleet.CapabilityBindingSummary"];
             ref?: string;
@@ -1783,12 +1789,33 @@ export interface components {
             path: string;
             title: string;
         };
+        "Fleet.DomainTally": {
+            domain: string;
+            domainUnknown?: boolean;
+            /** Format: int64 */
+            nonCompliant: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            stale: number;
+            /** Format: int64 */
+            targets: number;
+            /** Format: int64 */
+            unknown: number;
+            /** Format: int64 */
+            unowned: number;
+        };
         "Fleet.EntityAggregate": {
             /** Format: int64 */
             beyondRanking?: number;
             byOwner?: components["schemas"]["Fleet.OwnerCount"][] | null;
+            capabilities?: components["schemas"]["Fleet.CapabilityCount"][] | null;
+            /** Format: int64 */
+            capabilityTypes?: number;
             /** Format: int64 */
             distinctOwners?: number;
+            /** Format: int64 */
+            domains: number;
             /** Format: int64 */
             matched: number;
             /** Format: int64 */
@@ -2001,11 +2028,14 @@ export interface components {
         "Fleet.OverviewSummary": {
             /** Format: int64 */
             ambiguousTargetLinks: number;
+            byDomain: components["schemas"]["Fleet.DomainTally"][] | null;
             byScope: components["schemas"]["Fleet.ScopeTally"][] | null;
             /** Format: int64 */
             compliantTargets: number;
             /** Format: int64 */
             degradedSources: number;
+            /** Format: int64 */
+            domains: number;
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
             /** Format: int64 */
             exactTargetLinks: number;
@@ -2290,6 +2320,8 @@ export interface components {
             total: number;
         };
         "Fleet.ServiceHit": {
+            businessDomain?: string;
+            businessDomainUnknown?: boolean;
             domain?: string;
             key: string;
             labels?: {
@@ -2305,6 +2337,8 @@ export interface components {
             targetCount: number;
         };
         "Fleet.ServiceRecord": {
+            businessDomain?: string;
+            businessDomainUnknown?: boolean;
             domain?: string;
             /** Format: int64 */
             hiddenDependencies?: number;
@@ -2427,12 +2461,22 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.TargetEnvironment": {
+            check?: components["schemas"]["Fleet.EnvironmentResult"];
+            /** @enum {string} */
+            declared: "declared" | "not-declared" | "unknown";
+            name?: string;
+            reason?: string;
+        };
         "Fleet.TargetRecord": {
+            businessDomain?: string;
+            businessDomainUnknown?: boolean;
             compliance: string;
             contractRevision?: string;
             coverage?: components["schemas"]["Fleet.Coverage"];
             digest?: string;
             domain?: string;
+            environment?: string;
             /** Format: date-time */
             evidenceAt?: string;
             findings?: components["schemas"]["Finding.Finding"][] | null;
@@ -2861,7 +2905,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
@@ -2938,6 +2982,14 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductDomainDetail: {
+            attention: components["schemas"]["ProductAttentionPreview"];
+            deployments: components["schemas"]["ProductRefPreview"];
+            owners: components["schemas"]["ProductRefPreview"];
+            ownership: components["schemas"]["Fleet.OwnershipTally"];
+            services: components["schemas"]["ProductRefPreview"];
+            summary: components["schemas"]["Fleet.OwnerSummary"];
+        };
         ProductEdge: {
             /** Format: int64 */
             count?: number;
@@ -2970,6 +3022,7 @@ export interface components {
         };
         ProductEntityDetail: {
             actions?: string[] | null;
+            domain?: components["schemas"]["ProductDomainDetail"];
             entity: components["schemas"]["ProductRef"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             owner?: components["schemas"]["ProductOwnerDetail"];
@@ -3147,12 +3200,15 @@ export interface components {
             target?: string;
         };
         ProductRef: {
+            businessDomain?: string;
+            businessDomainUnknown?: boolean;
             domain?: string;
+            environment?: string;
             explanation?: string;
             href: string;
             key: string;
             /** @enum {string} */
-            kind: "service" | "revision" | "target" | "owner" | "source";
+            kind: "service" | "revision" | "target" | "owner" | "source" | "domain";
             label: string;
             owner?: string;
             parentService?: string;
@@ -3261,6 +3317,7 @@ export interface components {
             /** @enum {string} */
             compliance: "Compliant" | "NonCompliant" | "Unknown" | "Warning" | "Invalid" | "Reference" | "NotEvaluated";
             coverage?: components["schemas"]["Fleet.Coverage"];
+            environment: components["schemas"]["Fleet.TargetEnvironment"];
             /** Format: date-time */
             evidenceAt?: string;
             findings: components["schemas"]["Fleet.FindingsPreview"];
@@ -3514,6 +3571,7 @@ export interface components {
             currentRevision?: string;
             dependencies?: components["schemas"]["DependencyInfo"][] | null;
             docs?: components["schemas"]["DocInfo"][] | null;
+            domain?: string;
             environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             insights?: components["schemas"]["Insight"][] | null;
@@ -3563,6 +3621,7 @@ export interface components {
             contractStatus: string;
             /** Format: int64 */
             dependencyCount?: number;
+            domain?: string;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             name: string;
             namespace?: string;
@@ -4942,6 +5001,8 @@ export interface operations {
                 owner?: string;
                 /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
                 ownerKey?: string;
+                /** @description Keep the items of services in this business domain, (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell */
+                businessDomain?: string;
                 source?: string;
                 severity?: "error" | "warning" | "info";
                 /** @description Compliance status filter */
@@ -4982,13 +5043,20 @@ export interface operations {
         parameters: {
             query?: {
                 text?: string;
-                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected */
-                kinds?: ("service" | "revision" | "target" | "owner" | "source")[] | null;
+                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain) */
+                kinds?: ("service" | "revision" | "target" | "owner" | "source" | "domain")[] | null;
                 /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
                 /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
                 ownerKey?: string;
+                /** @description Exact registry path (the domain part of the canonical service key), shown as Registry */
                 domain?: string;
+                /** @description Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell */
+                businessDomain?: string;
+                /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities) */
+                environment?: string;
+                /** @description Capability type a service's revisions declare (service entities) */
+                capability?: string;
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
@@ -5041,7 +5109,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description Entity kind: service, revision, target, owner or source */
+                /** @description Entity kind: service, revision, target, owner, source or domain */
                 kind: string;
             };
             cookie?: never;

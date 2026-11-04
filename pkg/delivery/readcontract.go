@@ -34,6 +34,12 @@ type PactoView struct {
 // it would say about them is unknown.
 const StatusFormatGuarantees = 1
 
+// StatusFormatDomain is the statusFormat whose status.contract records the
+// contract's business domain (service.domain). The field is omitted when empty,
+// so only a status in this format or later says, by its absence, that the
+// contract declares none; on an older one the domain is unknown.
+const StatusFormatDomain = 2
+
 // PactoStatusView is the part of Pacto.status the promoter reads.
 type PactoStatusView struct {
 	// StatusFormat is the layout the operator wrote the status in (see
@@ -351,7 +357,7 @@ func PactosFor(pactos []PactoView, namespace, service string) []PactoView {
 
 // EnvironmentLabel on a Pacto names the environment its workload runs in. It
 // places the Pacto when the namespace it runs in does not.
-const EnvironmentLabel = "delivery.pacto.trianalab.io/environment"
+const EnvironmentLabel = fleet.TargetEnvironmentLabel
 
 // KustomizationView is the part of a Flux Kustomization the promoter reads to
 // learn where a Stage's version runs: the namespace it applies into.

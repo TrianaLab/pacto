@@ -25,6 +25,7 @@ A change that matches no specific rule below defaults to **POTENTIAL_BREAKING**.
 | `service.owner.team` | Added / Modified / Removed | NON_BREAKING |
 | `service.owner.dri` | Added / Modified / Removed | NON_BREAKING |
 | `service.owner.contacts[]` | Added / Modified / Removed | NON_BREAKING |
+| `service.domain` | Added / Modified / Removed | NON_BREAKING |
 
 The owner block is compared field by field, so changing a `dri` or adding a
 contact while the `team` is unchanged reports that specific change. Contacts are

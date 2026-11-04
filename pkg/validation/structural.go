@@ -27,15 +27,18 @@ var schemaV22Bytes []byte
 //go:embed schema/pacto-v2.3.schema.json
 var schemaV23Bytes []byte
 
+//go:embed schema/pacto-v2.4.schema.json
+var schemaV24Bytes []byte
+
 // SchemaBytes returns the raw embedded JSON Schema bytes of the newest version
-// (2.3, a superset of 2.2, 2.1 and 2.0). The doc package extracts field descriptions
-// from it.
-func SchemaBytes() []byte { return schemaV23Bytes }
+// (2.4, a superset of 2.3, 2.2, 2.1 and 2.0). The doc package extracts field
+// descriptions from it.
+func SchemaBytes() []byte { return schemaV24Bytes }
 
 // schemaBytes is the embedded JSON Schema of each pactoVersion. The versions
 // supported are contract.SupportedVersions; init panics on one without a
 // schema here.
-var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes}
+var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes, "2.4": schemaV24Bytes}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
 var compiledSchemas = map[string]*jsonschema.Schema{}
@@ -111,13 +114,16 @@ func ValidateStructural(data any) ValidationResult {
 	}
 
 	var mcp []int
-	if version != "2.3" {
+	if olderThan(version, "2.4") {
+		data = needs24(&result, data)
+	}
+	if olderThan(version, "2.3") {
 		data = needs23(&result, data)
 	}
-	if version == "2.0" || version == "2.1" {
+	if olderThan(version, "2.2") {
 		data = needs22(&result, data)
 	}
-	if version == "2.0" {
+	if olderThan(version, "2.1") {
 		data, mcp = needs21(&result, data)
 	}
 	addSchemaError(&result, schema.Validate(data))
@@ -136,6 +142,30 @@ func ValidateStructural(data any) ValidationResult {
 		})
 	}
 	return result
+}
+
+// olderThan reports whether the supported pactoVersion version comes before
+// than, so each later version keeps every field an earlier one added.
+func olderThan(version, than string) bool {
+	return slices.Index(contract.SupportedVersions, version) < slices.Index(contract.SupportedVersions, than)
+}
+
+// needs24 records a NEEDS_PACTO_2_4 error for service.domain, the field only
+// pactoVersion 2.4 has, in an older contract in place of the older schema's
+// generic "not allowed", and returns data with a service without it for that
+// schema to check the rest.
+func needs24(result *ValidationResult, data any) any {
+	m, _ := data.(map[string]any) // an older pactoVersion was read from it
+	svc, _ := m["service"].(map[string]any)
+	if _, ok := svc["domain"]; !ok {
+		return data
+	}
+	result.AddError("service.domain", string(finding.CodeNeedsPacto24), `service.domain needs pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`)
+	svc = maps.Clone(svc)
+	delete(svc, "domain")
+	out := maps.Clone(m)
+	out["service"] = svc
+	return out
 }
 
 // needs23 records a NEEDS_PACTO_2_3 error for environments, the section only

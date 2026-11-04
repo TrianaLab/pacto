@@ -45,10 +45,10 @@ func plan(t *testing.T, b Beat) delivery.Plan {
 }
 
 // TestEveryContractValidates walks every story contract: it parses, passes
-// validation and is a 2.1, 2.2 or 2.3 contract with a publish section.
+// validation and is a 2.1 to 2.4 contract with a publish section.
 // payments and its callers are 2.2 or later: payments promises an idempotent
 // http interface and orders and checkout require it. payments from 2.4.1 is
-// 2.3: it declares environments.
+// 2.3: it declares environments. payments 3.0.0 is 2.4: it declares a domain.
 func TestEveryContractValidates(t *testing.T) {
 	n := 0
 	err := fs.WalkDir(Files, "contracts", func(p string, d fs.DirEntry, err error) error {
@@ -61,7 +61,7 @@ func TestEveryContractValidates(t *testing.T) {
 			return err
 		}
 		res := validation.Validate(b.Contract, b.RawYAML, b.FS)
-		if !res.IsValid() || !slices.Contains([]string{"2.1", "2.2", "2.3"}, b.Contract.PactoVersion) || b.Contract.Publish == nil {
+		if !res.IsValid() || !slices.Contains([]string{"2.1", "2.2", "2.3", "2.4"}, b.Contract.PactoVersion) || b.Contract.Publish == nil {
 			t.Errorf("%s: version %s, publish %v, errors %v", p, b.Contract.PactoVersion, b.Contract.Publish != nil, res.Errors)
 		}
 		n++

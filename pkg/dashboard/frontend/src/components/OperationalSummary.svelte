@@ -37,6 +37,7 @@
     'Undeclared runtime dependencies observed': 'undeclared runtime calls',
     'Uncontracted callers observed': 'uncontracted callers',
     'Incomplete sources': 'incomplete sources',
+    'Services with no declared owner': 'services with no owner',
   };
   const shortLabel = (label) => SHORT[label] ?? label;
   function tone(count, severity) { return count > 0 ? severityTone(severity) : 'ok'; }

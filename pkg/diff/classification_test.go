@@ -100,6 +100,9 @@ func TestClassify_Completeness(t *testing.T) {
 
 		// Owner subfields
 		{"service.owner.team", Modified, NonBreaking},
+		{"service.domain", Added, NonBreaking},
+		{"service.domain", Modified, NonBreaking},
+		{"service.domain", Removed, NonBreaking},
 		{"service.owner.dri", Added, NonBreaking},
 		{"service.owner.contacts", Added, NonBreaking},
 		{"service.owner.contacts[slack:#x]", Added, NonBreaking},

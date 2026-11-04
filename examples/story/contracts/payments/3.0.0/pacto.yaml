@@ -1,7 +1,8 @@
-pactoVersion: "2.3"
+pactoVersion: "2.4"
 service:
   name: payments
   version: 3.0.0
+  domain: payments
   owner:
     team: payments
 workload: service

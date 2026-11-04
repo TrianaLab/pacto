@@ -202,6 +202,7 @@ func editTool() *mcpsdk.Tool {
 			"name":                         {Type: "string", Description: "New service name"},
 			"version":                      {Type: "string", Description: "New service version"},
 			"owner":                        {Type: "string", Description: "The team that owns the service, as a bare team name such as 'billing': usually the team label on its workloads"},
+			"domain":                       {Type: "string", Description: "The business domain the service belongs to, as a lowercase slug such as 'payments'. Sets service.domain and raises an older pactoVersion to 2.4"},
 			"add_interfaces":               {Type: "string", Description: "JSON array of interfaces to add: [{name, type, visibility?}]"},
 			"remove_interfaces":            {Type: "string", Description: "JSON array of interface names to remove: [\"name1\", \"name2\"]"},
 			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). For a service your company runs with Pacto whose contract is not published yet, give ref as the OCI repository its contract will be published at and compatibility as the versions you accept: Pacto reports it as unresolved until it is published. A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref, and its compatibility stays Unknown"},
@@ -226,6 +227,7 @@ type editArgs struct {
 	Name                      *string `json:"name"`
 	Version                   *string `json:"version"`
 	Owner                     *string `json:"owner"`
+	Domain                    *string `json:"domain"`
 	AddInterfaces             string  `json:"add_interfaces"`
 	RemoveInterfaces          string  `json:"remove_interfaces"`
 	AddDependencies           string  `json:"add_dependencies"`
@@ -248,6 +250,7 @@ func editHandler() mcpsdk.ToolHandlerFor[editArgs, any] {
 			Name:                      args.Name,
 			Version:                   args.Version,
 			Owner:                     args.Owner,
+			Domain:                    args.Domain,
 			Workload:                  args.Workload,
 			StoresData:                args.StoresData,
 			DataSurvivesRestart:       args.DataSurvivesRestart,

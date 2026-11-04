@@ -2903,3 +2903,50 @@ func TestMarshalContract_KeepsEveryTopLevelKey(t *testing.T) {
 		t.Errorf("topLevelKeyOrder has %d keys, the schema %d", len(topLevelKeyOrder), len(schema.Properties))
 	}
 }
+
+func TestEdit_Domain(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.3\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	result, err := Edit(EditInput{Path: dir, Domain: strPtr("payments")})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Summary.Domain != "payments" {
+		t.Errorf("summary domain %q", result.Summary.Domain)
+	}
+	if want := []string{`set pactoVersion to "2.4"`, `set domain to "payments"`}; !slices.Equal(result.Changes, want) {
+		t.Errorf("changes %v, want %v", result.Changes, want)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil || c.PactoVersion != "2.4" || c.Service.Domain != "payments" {
+		t.Fatalf("written contract %+v %v", c, err)
+	}
+	// Already 2.4: only the domain changes.
+	result, err = Edit(EditInput{Path: dir, Domain: strPtr("commerce")})
+	if err != nil || !slices.Equal(result.Changes, []string{`set domain to "commerce"`}) {
+		t.Fatalf("second edit %v %v", result, err)
+	}
+}
+
+func TestCheck_DomainSuggestion(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	has := func(r *CheckResult) bool {
+		for _, s := range r.Suggestions {
+			if strings.HasPrefix(s.Message, "No business domain declared.") && s.ToolCall != nil && s.ToolCall.Tool == "pacto_edit" {
+				return true
+			}
+		}
+		return false
+	}
+	result, err := Check(context.Background(), nil, dir)
+	if err != nil || !result.Valid || !has(result) {
+		t.Fatalf("no domain: %+v %v", result, err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  domain: payments\n"), 0o644)
+	result, err = Check(context.Background(), nil, dir)
+	if err != nil || !result.Valid || has(result) || result.Summary.Domain != "payments" {
+		t.Fatalf("with domain: %+v %v", result, err)
+	}
+}

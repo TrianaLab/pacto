@@ -14,6 +14,7 @@ export interface EntityRefLike {
   label?: string;
   kind?: string;
   domain?: string;
+  businessDomain?: string;
   scope?: string;
   parentService?: string;
   secondary?: string;
@@ -49,7 +50,9 @@ export function identityContext(ref: EntityRefLike | null | undefined): string[]
   const r = ref || {};
   const label = primaryLabel(r);
   return [
-    { raw: r.domain, text: `domain ${r.domain}` },
+    // The business domain reads "domain"; the registry path in the key reads "registry".
+    { raw: r.businessDomain, text: `domain ${r.businessDomain}` },
+    { raw: r.domain, text: `registry ${r.domain}` },
     { raw: r.parentService && r.parentService !== r.key ? r.parentService : '', text: r.parentService },
     { raw: r.scope, text: r.scope },
     // secondary is the copyable-ish extra (a digest or scope); show it only when it

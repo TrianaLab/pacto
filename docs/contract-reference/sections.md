@@ -9,17 +9,19 @@ dependencies and state are in
 
 ## `pactoVersion`
 
-The contract specification version: `"2.0"`, `"2.1"`, `"2.2"` or `"2.3"`. 2.1 adds
+The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"` or `"2.4"`. 2.1 adds
 [`publish`](publish.md), [`checks`](checks.md), external dependencies and the `mcp` interface type.
 2.2 adds the [interface lifecycle](#interface-lifecycle), an interface's
 [`compatibilityEpoch`](#compatibility-epoch), its [`guarantees`](#guarantees) and
 [`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
 2.3 adds [`environments`](environments.md).
-Every 2.0 contract is also valid under 2.1, every 2.1 contract under 2.2 and
-every 2.2 contract under 2.3.
+2.4 adds [`service.domain`](#business-domain).
+Every 2.0 contract is also valid under 2.1, every 2.1 contract under 2.2,
+every 2.2 contract under 2.3 and every 2.3 contract under 2.4.
 A 2.1 contract needs Pacto core 4.1.0 or later and operator 6.1.0 or later.
 A 2.2 contract needs Pacto core 4.3.0 or later and operator 6.3.0 or later.
-A 2.3 contract needs Pacto core 4.4.0 or later and operator 6.4.0 or later;
+A 2.3 contract needs Pacto core 4.4.0 or later and operator 6.4.0 or later.
+A 2.4 contract needs Pacto core 4.5.0 or later and operator 6.5.0 or later;
 see [Versions](../installation.md#versions).
 
 ```yaml
@@ -29,12 +31,13 @@ pactoVersion: "2.0"
 The version picks the JSON Schema the contract is validated against:
 [`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json),
 [`pacto-v2.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.1.schema.json),
-[`pacto-v2.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.2.schema.json)
+[`pacto-v2.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.2.schema.json),
+[`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json)
 or
-[`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json).
+[`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json).
 Any other value is a hard error: the contract fails to load before validation
 runs and reports `PARSE_ERROR` (`unsupported pactoVersion "3.0"; supported: 2.0,
-2.1, 2.2, 2.3`). See [Validation layers](validation.md).
+2.1, 2.2, 2.3, 2.4`). See [Validation layers](validation.md).
 
 ---
 
@@ -47,6 +50,7 @@ Identifies the service.
 | `name` | string | Yes | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` |
 | `version` | string | Yes | Parses as semver (for example `2.1.0`). See the note below |
 | `owner` | [OwnerInfo](#ownerinfo) | No | Object only (string form removed) |
+| `domain` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.4 |
 
 `service` carries identity only. The contract has no `image` or `chart` field:
 how you build and deploy a service is a delivery concern that lives outside the
@@ -64,6 +68,26 @@ contract.
     published. `pacto push` tags the artifact with the literal string, and two
     contracts written `1` and `1.0.0` become two different tags of the same
     version. Write the full `MAJOR.MINOR.PATCH` and skip the `v`.
+
+### Business domain
+
+`service.domain` names the business domain the service belongs to, such as
+`payments`. The [operational graph](../operational-graph-reference.md#business-domains)
+groups services by it. Use the same value in every contract of the domain. The
+value is a lowercase slug, so `Payments` and `payments` can never become two
+domains.
+
+```yaml
+pactoVersion: "2.4"
+service:
+  name: payments-service
+  version: 2.1.2
+  domain: payments
+```
+
+The business domain differs from the registry path in a service's key, such as
+`ghcr.io/acme`, which the dashboard shows as Registry. A `"2.0"` to `"2.3"`
+contract that sets `domain` reports `NEEDS_PACTO_2_4`.
 
 ### OwnerInfo
 

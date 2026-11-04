@@ -111,6 +111,8 @@ type EditInput struct {
 	Name    *string
 	Version *string
 	Owner   *string
+	// Domain sets service.domain and raises an older pactoVersion to 2.4.
+	Domain *string
 
 	AddInterfaces    []InterfaceInput
 	RemoveInterfaces []string
@@ -157,6 +159,7 @@ type ContractSummary struct {
 	Name         string            `json:"name"`
 	Version      string            `json:"version"`
 	Owner        string            `json:"owner,omitempty"`
+	Domain       string            `json:"domain,omitempty"`
 	Interfaces   []string          `json:"interfaces,omitempty"`
 	Dependencies []string          `json:"dependencies,omitempty"`
 	Environments []string          `json:"environments,omitempty"`
@@ -605,6 +608,9 @@ func applyEdits(m map[string]any, input EditInput) []string {
 		svc["owner"] = map[string]any{"team": *input.Owner}
 		changes = append(changes, fmt.Sprintf("set owner to %q", *input.Owner))
 	}
+	if input.Domain != nil {
+		changes = append(changes, setDomain(m, svc, *input.Domain)...)
+	}
 
 	// Interfaces
 	if len(input.RemoveInterfaces) > 0 {
@@ -738,6 +744,18 @@ func addDependencies(m map[string]any, inputs []DependencyInput) []string {
 		changes = append(changes, `set pactoVersion "2.1" for the external dependency`)
 	}
 	return changes
+}
+
+// setDomain sets service.domain and, in a contract older than pactoVersion
+// 2.4, raises pactoVersion to 2.4, which keeps every older field.
+func setDomain(m, svc map[string]any, domain string) []string {
+	var changes []string
+	if v, _ := m["pactoVersion"].(string); slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, "2.4") {
+		m["pactoVersion"] = "2.4"
+		changes = append(changes, `set pactoVersion to "2.4"`)
+	}
+	svc["domain"] = domain
+	return append(changes, fmt.Sprintf("set domain to %q", domain))
 }
 
 func applyStateEdits(m map[string]any, input EditInput) []string {
@@ -1321,6 +1339,7 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 		Name:     c.Service.Name,
 		Version:  c.Service.Version,
 		Owner:    c.Service.Owner.DisplayString(),
+		Domain:   c.Service.Domain,
 		Workload: c.Workload,
 		Sections: assessSections(c),
 	}
@@ -1458,6 +1477,13 @@ func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
 	if len(c.Dependencies) == 0 {
 		suggestions = append(suggestions, Suggestion{
 			Message: "No dependencies declared. If this service depends on others, declare them explicitly.",
+		})
+	}
+
+	if c.Service.Domain == "" {
+		suggestions = append(suggestions, Suggestion{
+			Message:  "No business domain declared. Set service.domain to group this service with its domain in the operational graph.",
+			ToolCall: &ToolCall{Tool: "pacto_edit", Params: map[string]any{"domain": "<domain>"}},
 		})
 	}
 

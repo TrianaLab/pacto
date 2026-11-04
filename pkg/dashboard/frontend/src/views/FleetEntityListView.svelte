@@ -29,7 +29,7 @@
   // Revisions are returned in the backend's canonical order. This view does not
   // re-sort them: the chronology is the engine's answer, and a client re-sort by key
   // is exactly the digest-ordered version list the redesign was fixing.
-  let { kind = 'revision', service = '', text = '', status = '', scope = '', readiness = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { kind = 'revision', service = '', text = '', status = '', scope = '', readiness = '', environment = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(urlInt(offset));
@@ -38,7 +38,9 @@
   // Readiness is declared BY a revision, so the Entities API rejects the filter on any
   // other kind. Carrying it here for a target list would build a query that 422s.
   const readinessFilter = $derived(isRevisions ? readiness : '');
-  const anyFilter = $derived(!!(text || status || scope || readinessFilter));
+  // The mirror case: only a target runs in an environment.
+  const environmentFilter = $derived(isRevisions ? '' : environment);
+  const anyFilter = $derived(!!(text || status || scope || readinessFilter || environmentFilter));
   const plural = $derived(kind === 'target' ? 'operational targets' : 'contract revisions');
   // The page names the POPULATION, like every sibling list ("Services", "Owners",
   // "Data sources"). It used to take the singular entity kind from kindLabel, so a
@@ -60,6 +62,7 @@
     status: status || undefined,
     scope: kind === 'target' && scope ? scope : undefined,
     readiness: readinessFilter || undefined,
+    environment: environmentFilter || undefined,
     offset: pageOffset || undefined,
     limit: pageLimit,
     sort: sort || undefined,
@@ -68,9 +71,9 @@
   // the filters and the page. refreshTick only re-asks it. Rows are retained across a
   // re-ask and never across a different question, so switching the scoped service can
   // never show one service's revisions under another's heading.
-  const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${pageOffset}@@${pageLimit}@@${sort}`);
+  const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${environmentFilter}@@${pageOffset}@@${pageLimit}@@${sort}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${sort}`);
+  const listIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${environmentFilter}@@${sort}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -94,7 +97,7 @@
   function urlWith(patch, off = 0, lim = pageLimit) {
     return fleetEntityListUrl(kind, {
       service, text: patch.text ?? text, status: patch.status ?? status, scope: patch.scope ?? scope,
-      readiness: patch.readiness ?? readinessFilter, offset: off,
+      readiness: patch.readiness ?? readinessFilter, environment: patch.environment ?? environmentFilter, offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
     });
   }
@@ -105,6 +108,7 @@
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     scope ? { key: 'scope', label: 'Scope', value: scope } : null,
     readinessFilter ? { key: 'readiness', label: 'Readiness', value: bucketLabel(READINESS_STATES, readinessFilter) } : null,
+    environmentFilter ? { key: 'environment', label: 'Environment', value: environmentFilter } : null,
   ].filter(Boolean));
   function removeChip(key) { location.hash = urlWith({ [key]: '' }); }
 
@@ -169,6 +173,14 @@
           {#each READINESS_STATES as r}<option value={r.value}>{r.label}</option>{/each}
         </select>
       </label>
+    {:else}
+      <!-- Free text on purpose: environments are names a label carries, and there is no
+           list of them to pick from. -->
+      <label class="lv-field">
+        <span>Environment</span>
+        <input class="input" type="text" value={environmentFilter} placeholder="exact environment" aria-label="Filter by environment"
+          onchange={(e) => { location.hash = urlWith({ environment: e.currentTarget.value.trim() }); }} />
+      </label>
     {/if}
     <ListSort value={sort} href={(v) => urlWith({ sort: v })} testid="entity-list-sort"
       options={[['', isRevisions ? (service ? 'Newest version first' : 'By service, newest version first') : 'Default order'], ['name', 'Name'], ['health', 'Least healthy first']]} />
@@ -216,7 +228,13 @@
   {:else}
     <ul class="lv-list pl-list pl-list--cols" data-testid="entity-list">
       {#each list.entities as ref (ref.key)}
-        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={true} showKind={false} /></li>
+        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}>
+          {#if isRevisions}
+            <EntityLink {ref} showStatus={true} showKind={false} />
+          {:else}
+            <EntityLink {ref} showStatus={true} showKind={false}><span class="pl-env" class:is-unknown={!ref.environment} title={ref.environment || undefined}>{ref.environment || 'Environment unknown'}</span></EntityLink>
+          {/if}
+        </li>
       {/each}
     </ul>
     <Pager page={list} href={(o, l) => urlWith({}, o, l)} label={`${pluralTitle} pages`} noun={plural} testid="entity" />

@@ -217,6 +217,7 @@ func TestFleetSearch(t *testing.T) {
 	// Every filter flag, to drive searchFilterFromCmd fully.
 	filters := [][]string{
 		{"--owner", "commerce"},
+		{"--business-domain", "(none)"},
 		{"--status", "NonCompliant"},
 		{"--compliance", "NonCompliant"},
 		{"--source", "local"},
@@ -233,6 +234,12 @@ func TestFleetSearch(t *testing.T) {
 		if _, _, err := execFleet(t, append(append([]string{}, base...), f...)...); err != nil {
 			t.Errorf("search %v: %v", f, err)
 		}
+	}
+
+	// The business domain reaches the query: no service declares this one.
+	nout, _, err := execFleet(t, append(append([]string{}, base...), "--business-domain", "nope", "--output-format", "json")...)
+	if err != nil || !strings.Contains(nout, `"total": 0`) {
+		t.Errorf("search --business-domain nope = %v:\n%s", err, nout)
 	}
 
 	// JSON output.

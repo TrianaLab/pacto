@@ -1,6 +1,8 @@
 package fleet
 
 import (
+	"cmp"
+	"slices"
 	"sort"
 	"time"
 
@@ -160,7 +162,10 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 }
 
 // OwnershipTally partitions a SERVICE population by how well ownership is
-// DECLARED on it: Consistent + Conflicting + Unowned == the population.
+// DECLARED on it: Consistent + Conflicting + Unowned == the population. A service
+// with no revision that declares an owner counts the owners its observing sources
+// read from the contracts its targets run (see [serviceOwnerClaims]), so Unowned
+// means no source knows an owner.
 //
 // Ownership is authored per revision (`service.owner` in the contract), so a
 // service's ownership is a property of its revisions agreeing rather than of one
@@ -292,6 +297,7 @@ type EntityAggregate struct {
 	Targets   int `json:"targets"`
 	Owners    int `json:"owners"`
 	Sources   int `json:"sources"`
+	Domains   int `json:"domains"`
 	// ServiceCompliance partitions Services and TargetCompliance partitions Targets.
 	// They are kept apart rather than summed: a service status is a roll-up of its
 	// targets, so adding the two would count the same operational reality twice.
@@ -337,18 +343,43 @@ type EntityAggregate struct {
 	// are in this population" — an owner in a dispute is still an owner, and counting
 	// only the rankable ones would erase exactly the owners a reader is looking for.
 	DistinctOwners int `json:"distinctOwners,omitempty"`
+	// Capabilities counts the matched services declaring each capability type, the
+	// most declared first, bounded to maxCapabilityFacet; CapabilityTypes is how many
+	// types there are in all.
+	Capabilities    []CapabilityCount `json:"capabilities,omitempty"`
+	CapabilityTypes int               `json:"capabilityTypes,omitempty"`
 }
 
-// ownerClaimsOf collects the DISTINCT owners a service's revisions declare, under
-// the canonical owner identity the product routes by (see [ownerClaimSet]). One
-// walk answers three questions that must never disagree: how the service is
-// partitioned, which owner it ranks under, and which owners are present at all.
-func (q *Query) ownerClaimsOf(s *ServiceRecord) ownerClaimSet {
-	var claims ownerClaimSet
-	for _, rk := range s.Revisions {
-		claims.add(q.snap.Revisions[rk].Owner)
+// CapabilityCount is one capability type and how many matched services declare it.
+type CapabilityCount struct {
+	Type     string `json:"type"`
+	Services int    `json:"services"`
+}
+
+// maxCapabilityFacet bounds EntityAggregate.Capabilities.
+const maxCapabilityFacet = 50
+
+// capabilityFacet orders the per-type service counts and bounds them.
+func capabilityFacet(counts map[string]int) ([]CapabilityCount, int) {
+	out := make([]CapabilityCount, 0, len(counts))
+	for t, n := range counts {
+		out = append(out, CapabilityCount{Type: t, Services: n})
 	}
-	return claims
+	slices.SortFunc(out, func(a, b CapabilityCount) int {
+		return cmp.Or(cmp.Compare(b.Services, a.Services), cmp.Compare(a.Type, b.Type))
+	})
+	items, total, _ := boundSlice(out, maxCapabilityFacet)
+	return items, total
+}
+
+// ownerClaimsOf collects the DISTINCT owners known for a service, under the
+// canonical owner identity the product routes by (see [ownerClaimSet]): its
+// revisions' owners, else the owners its observing sources report
+// ([serviceOwnerClaims], the rule deriveOwner applies). One walk answers three
+// questions that must never disagree: how the service is partitioned, which owner
+// it ranks under, and which owners are present at all.
+func (q *Query) ownerClaimsOf(s *ServiceRecord) ownerClaimSet {
+	return serviceOwnerClaims(q.snap, s)
 }
 
 // ownershipState classifies a service's declared ownership: how many DISTINCT
@@ -382,12 +413,16 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg := EntityAggregate{Matched: len(refs)}
 	byOwner := map[string]*OwnerCount{}
 	present := map[string]bool{}
+	capabilities := map[string]int{}
 	for _, r := range refs {
 		switch r.Kind {
 		case KindService:
 			agg.Services++
 			s := q.snap.Services[ServiceKey(r.Key)]
 			agg.ServiceCompliance.add(s.Status)
+			for _, c := range q.serviceCapabilities(s) {
+				capabilities[c]++
+			}
 			claims := q.ownerClaimsOf(s)
 			// Every canonical owner the service names is present in the population,
 			// including the two sides of a dispute — neither of which can rank.
@@ -424,12 +459,15 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 			agg.Owners++
 		case KindSource:
 			agg.Sources++
+		case KindDomain:
+			agg.Domains++
 		}
 	}
 	agg.RankedOwners = len(byOwner)
 	agg.DistinctOwners = len(present)
 	markAmbiguousLabels(byOwner, present)
 	agg.ByOwner, agg.BeyondRanking = rankOwners(byOwner)
+	agg.Capabilities, agg.CapabilityTypes = capabilityFacet(capabilities)
 	return agg
 }
 
@@ -543,6 +581,9 @@ type ServiceSummary struct {
 // owner — which is not always the same set, because a revision may declare an owner
 // other than its service's (that disagreement is the ownership conflict the service
 // page reports).
+//
+// A domain page summarizes its services with the same type: it describes any
+// service estate.
 type OwnerSummary struct {
 	Services         int             `json:"services"`
 	Revisions        int             `json:"revisions"`

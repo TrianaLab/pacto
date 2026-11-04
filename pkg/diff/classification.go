@@ -30,6 +30,9 @@ var rules = map[classificationKey]Classification{
 	{"service.owner.contacts", Modified}: NonBreaking,
 	{"service.owner.contacts", Added}:    NonBreaking,
 	{"service.owner.contacts", Removed}:  NonBreaking,
+	{"service.domain", Added}:            NonBreaking,
+	{"service.domain", Modified}:         NonBreaking,
+	{"service.domain", Removed}:          NonBreaking,
 
 	// Workload (top-level in v2)
 	{"workload", Modified}: Breaking,

@@ -1,0 +1,59 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Inventory stock events",
+    "version": "2"
+  },
+  "channels": {
+    "inventory.stock.adjusted": {
+      "publish": {
+        "operationId": "stockAdjusted",
+        "summary": "Stock was adjusted in a warehouse",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "sku": {
+                "type": "string"
+              },
+              "warehouse": {
+                "type": "string"
+              },
+              "delta": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "sku",
+              "warehouse",
+              "delta"
+            ]
+          }
+        }
+      }
+    },
+    "inventory.stock.reserved": {
+      "publish": {
+        "operationId": "stockReserved",
+        "summary": "Stock was reserved for a cart",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "sku": {
+                "type": "string"
+              },
+              "reservation_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sku",
+              "reservation_id"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

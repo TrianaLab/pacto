@@ -18,7 +18,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 15 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 97 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 98 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 14 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -31,6 +31,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `service` | `not-applicable` | - | - | - | PARSE_ERROR or SCHEMA_VIOLATION when malformed |
 | `service.name` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `service.version` | `static-only` | - | - | - | INVALID_SEMVER |
+| `service.domain` | `static-only` | - | - | - | NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug |
 | `service.owner` | `static-only` | - | - | - | SCHEMA_VIOLATION when empty |
 | `service.owner.team` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `service.owner.dri` | `static-only` | - | - | - | SCHEMA_VIOLATION |
@@ -167,14 +168,14 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Contract format version; selects the JSON Schema the contract is validated against. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | parse rejects anything but "2.0", "2.1", "2.2" and "2.3" before any other layer runs; the version selects the schema |
+| Rule | parse rejects anything but "2.0", "2.1", "2.2", "2.3" and "2.4" before any other layer runs; the version selects the schema |
 | Outcomes | PARSE_ERROR when unsupported |
-| Limitations | 2.0, 2.1 and 2.2 have their own schemas without the fields later versions add; this inventory walks 2.3, the superset |
+| Limitations | 2.0, 2.1, 2.2 and 2.3 have their own schemas without the fields later versions add; this inventory walks 2.4, the superset |
 | Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid` |
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| `2.3` | `static-only` | the newest Operational Contract format; 2.0, 2.1 and 2.2 contracts keep working unchanged | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
+| `2.4` | `static-only` | the newest Operational Contract format; 2.0, 2.1, 2.2 and 2.3 contracts keep working unchanged | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
 
 ### `service`
 
@@ -211,6 +212,18 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Outcomes | INVALID_SEMVER |
 | Limitations | the running image version is never compared with it; it is the provider-side input of dependencies[].compatibility |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateServiceVersion_InvalidSemver`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_VersionMustBeOnePathComponent`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch` |
+
+### `service.domain`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The business domain the service belongs to (pactoVersion 2.4). |
+| Runtime | `static-only` |
+| Evidence | none: the operational graph groups services by it |
+| Rule | schema: lowercase slug, at most 63 characters; an older pactoVersion refuses it |
+| Outcomes | NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug |
+| Limitations | a grouping key; the domain differs from the registry path in the service key |
+| Tests | unit: `pkg/validation/structural_test.go:TestNeeds24`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/needs-2.4` |
 
 ### `service.owner`
 

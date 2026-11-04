@@ -79,21 +79,24 @@ func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverview
 }
 
 type fleetEntitiesInput struct {
-	Text         string   `query:"text"`
-	Kinds        []string `query:"kinds" enum:"service,revision,target,owner,source" doc:"Comma-separated entity kinds; an unknown or empty kind is rejected"`
-	Owner        string   `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
-	OwnerKey     string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
-	Domain       string   `query:"domain"`
-	Scope        string   `query:"scope"`
-	Status       string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
-	Ownership    string   `query:"ownership" enum:"consistent,conflicting,unowned" doc:"Declared-ownership filter for service entities"`
-	Readiness    string   `query:"readiness" enum:"passing,below-threshold,expired,not-declared" doc:"Declared-readiness filter for contract revision entities"`
-	SourceHealth string   `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
-	Source       string   `query:"source"`
-	Service      string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
-	Sort         string   `query:"sort" enum:"name,health,services" doc:"Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key"`
-	Limit        int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
-	Offset       int      `query:"offset" minimum:"0"`
+	Text           string   `query:"text"`
+	Kinds          []string `query:"kinds" enum:"service,revision,target,owner,source,domain" doc:"Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain)"`
+	Owner          string   `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
+	OwnerKey       string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
+	Domain         string   `query:"domain" doc:"Exact registry path (the domain part of the canonical service key), shown as Registry"`
+	BusinessDomain string   `query:"businessDomain" doc:"Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
+	Environment    string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities)"`
+	Capability     string   `query:"capability" doc:"Capability type a service's revisions declare (service entities)"`
+	Scope          string   `query:"scope"`
+	Status         string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
+	Ownership      string   `query:"ownership" enum:"consistent,conflicting,unowned" doc:"Declared-ownership filter for service entities"`
+	Readiness      string   `query:"readiness" enum:"passing,below-threshold,expired,not-declared" doc:"Declared-readiness filter for contract revision entities"`
+	SourceHealth   string   `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
+	Source         string   `query:"source"`
+	Service        string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
+	Sort           string   `query:"sort" enum:"name,health,services" doc:"Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key"`
+	Limit          int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
+	Offset         int      `query:"offset" minimum:"0"`
 }
 
 type fleetEntitiesOutput struct{ Body *ProductEntityList }
@@ -105,6 +108,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(in.Kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
+		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
 		Ownership: in.Ownership, Readiness: in.Readiness,
 		Service: in.Service, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
@@ -116,7 +120,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 }
 
 type fleetEntityDetailInput struct {
-	Kind string `path:"kind" doc:"Entity kind: service, revision, target, owner or source"`
+	Kind string `path:"kind" doc:"Entity kind: service, revision, target, owner, source or domain"`
 	Key  string `query:"key" required:"true" doc:"Canonical entity key (a slash-bearing key is transported safely as a query param)"`
 }
 
@@ -183,18 +187,19 @@ func (s *Server) fleetNeighborhood(ctx context.Context, in *fleetNeighborhoodInp
 }
 
 type fleetAttentionInput struct {
-	Category  string `query:"category"`
-	Kind      string `query:"kind"`
-	Key       string `query:"key"`
-	Service   string `query:"service"`
-	Owner     string `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
-	OwnerKey  string `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
-	Source    string `query:"source"`
-	Severity  string `query:"severity" enum:"error,warning,info"`
-	Status    string `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter"`
-	StaleOnly bool   `query:"staleOnly"`
-	Limit     int    `query:"limit" minimum:"0" doc:"Max items per page (negatives rejected; excessive values capped)"`
-	Offset    int    `query:"offset" minimum:"0" doc:"Page offset (negatives rejected)"`
+	Category       string `query:"category"`
+	Kind           string `query:"kind"`
+	Key            string `query:"key"`
+	Service        string `query:"service"`
+	Owner          string `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
+	OwnerKey       string `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
+	BusinessDomain string `query:"businessDomain" doc:"Keep the items of services in this business domain, (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
+	Source         string `query:"source"`
+	Severity       string `query:"severity" enum:"error,warning,info"`
+	Status         string `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter"`
+	StaleOnly      bool   `query:"staleOnly"`
+	Limit          int    `query:"limit" minimum:"0" doc:"Max items per page (negatives rejected; excessive values capped)"`
+	Offset         int    `query:"offset" minimum:"0" doc:"Page offset (negatives rejected)"`
 }
 
 type fleetAttentionOutput struct{ Body *ProductAttentionList }
@@ -206,7 +211,7 @@ func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*
 	}
 	res, err := q.Attention(fleet.AttentionFilter{
 		Category: in.Category, Kind: in.Kind, Key: in.Key, Service: in.Service,
-		Owner: in.Owner, OwnerKey: in.OwnerKey, Source: in.Source, Severity: in.Severity, Status: in.Status, StaleOnly: in.StaleOnly,
+		Owner: in.Owner, OwnerKey: in.OwnerKey, BusinessDomain: in.BusinessDomain, Source: in.Source, Severity: in.Severity, Status: in.Status, StaleOnly: in.StaleOnly,
 		Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {

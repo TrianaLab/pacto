@@ -20,6 +20,7 @@
   import TargetEntity from './entity/TargetEntity.svelte';
   import OwnerEntity from './entity/OwnerEntity.svelte';
   import SourceEntity from './entity/SourceEntity.svelte';
+  import DomainEntity from './entity/DomainEntity.svelte';
 
   // The unified entity route for every kind. It resolves the
   // product entity-detail endpoint (NarrowedEntityDetail) -- never the raw snapshot --
@@ -66,6 +67,7 @@
     if (!detail) return null;
     if (detail.service) return postureAnswer(detail.service.summary, knowledge.incomplete, detail.service.ownership?.conflicts?.total ?? 0);
     if (detail.owner) return postureAnswer(detail.owner.summary, knowledge.incomplete);
+    if (detail.domain) return postureAnswer(detail.domain.summary, knowledge.incomplete);
     if (detail.revision) return revisionAnswer(detail.revision);
     return null;
   });
@@ -181,6 +183,8 @@
           <OwnerEntity {detail} />
         {:else if detail.source}
           <SourceEntity {detail} />
+        {:else if detail.domain}
+          <DomainEntity {detail} />
         {/if}
         {#snippet failed(err, reset)}
           <EmptyState error title={`Couldn’t show this ${kindLabel(kind).toLowerCase()}`} message="Part of its record could not be drawn. Refresh to try again." onRetry={reset} />

@@ -849,6 +849,13 @@ spec:
               contract:
                 description: Contract exposes parsed contract metadata.
                 properties:
+                  domain:
+                    description: |-
+                      Domain is the business domain the contract declares (service.domain,
+                      pactoVersion 2.4). The operational graph groups services by it. Omitted
+                      when the contract declares none; readers trust that absence only from
+                      statusFormat 2 on.
+                    type: string
                   owner:
                     description: |-
                       Owner contains the structured ownership metadata from the contract
@@ -1649,9 +1656,11 @@ spec:
               statusFormat:
                 description: |-
                   StatusFormat is the layout this status is written in. Format 1 records
-                  interface guarantees and dependency requirements. A status without it
-                  was written by an older operator, so readers treat what it would record
-                  about them as unknown until the operator reconciles the Pacto again.
+                  interface guarantees and dependency requirements. Format 2 also records
+                  the contract's business domain in contract.domain, so its absence there
+                  means the contract declares none. A status without a format, or with an
+                  older one, was written by an older operator, so readers treat what it
+                  would record as unknown until the operator reconciles the Pacto again.
                 format: int32
                 type: integer
               summary:

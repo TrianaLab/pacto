@@ -55,6 +55,8 @@ describe('EntitySearch — global entity discovery', () => {
     type(target, 'pay');
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ text: 'pay' }));
+    // A kind-less query returns no domains, so the global search names every kind.
+    expect(entitiesFn.mock.calls[0][0].kinds).toEqual(['service', 'revision', 'target', 'owner', 'source', 'domain']);
     expect(rows(target)[0].textContent).toContain('payments');
     unmount(component); document.body.removeChild(target);
   });
@@ -108,8 +110,8 @@ describe('EntitySearch — global entity discovery', () => {
     const { target, component } = mountSearch();
     type(target, 'payments');
     await vi.waitFor(() => expect(rows(target).length).toBe(2)); // not collapsed
-    expect(rows(target)[0].textContent).toContain('domain domain-a');
-    expect(rows(target)[1].textContent).toContain('domain domain-b');
+    expect(rows(target)[0].textContent).toContain('registry domain-a');
+    expect(rows(target)[1].textContent).toContain('registry domain-b');
     unmount(component); document.body.removeChild(target);
   });
 

@@ -287,6 +287,10 @@ const (
 	LimitationTargetRefConflict    = "TARGET_REFERENCE_CONFLICT"
 	LimitationTargetFieldConflict  = "TARGET_FIELD_CONFLICT"
 	LimitationOwnerConflict        = "OWNER_CONFLICT"
+	// LimitationDomainConflict: no contract revision of a service declares a
+	// business domain and the sources observing its targets report different ones,
+	// so its domain is unknown rather than picked.
+	LimitationDomainConflict = "DOMAIN_CONFLICT"
 	// LimitationObservedIdentityUnresolved: a runtime-observed endpoint name could
 	// not be mapped to exactly one domain-qualified fleet service.
 	LimitationObservedIdentityUnresolved = "OBSERVED_IDENTITY_UNRESOLVED"
@@ -386,15 +390,23 @@ type Coverage struct {
 // targets by key rather than copying them, and only carries an aggregate Status
 // when the derivation is unambiguous.
 type ServiceRecord struct {
-	Key       ServiceKey        `json:"key"`
-	Domain    string            `json:"domain,omitempty"`
-	Name      string            `json:"name"`
-	Owner     contract.Owner    `json:"owner,omitzero"`
-	Revisions []RevisionKey     `json:"revisions,omitempty"`
-	Targets   []TargetKey       `json:"targets,omitempty"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	Status    string            `json:"status,omitempty"`
-	Sources   []string          `json:"sources,omitempty"`
+	Key ServiceKey `json:"key"`
+	// Domain is the registry path in the service key (oci://ghcr.io/acme/pay ->
+	// ghcr.io/acme), shown as Registry. BusinessDomain is the business domain.
+	Domain string `json:"domain,omitempty"`
+	// BusinessDomain is the business domain of the service (see
+	// deriveBusinessDomain). Empty means No domain, unless BusinessDomainUnknown
+	// says Pacto cannot tell: no readable revision and no source that reports the
+	// domain, or sources that disagree on it.
+	BusinessDomain        string            `json:"businessDomain,omitempty"`
+	BusinessDomainUnknown bool              `json:"businessDomainUnknown,omitempty"`
+	Name                  string            `json:"name"`
+	Owner                 contract.Owner    `json:"owner,omitzero"`
+	Revisions             []RevisionKey     `json:"revisions,omitempty"`
+	Targets               []TargetKey       `json:"targets,omitempty"`
+	Labels                map[string]string `json:"labels,omitempty"`
+	Status                string            `json:"status,omitempty"`
+	Sources               []string          `json:"sources,omitempty"`
 	// HiddenDependencies and HiddenDependents count the services this one
 	// depends on or calls, and that depend on or call it, which the caller's
 	// Kubernetes permissions hide. They are never named. Zero outside a
@@ -526,6 +538,10 @@ type LicenseCount struct {
 	Count   int    `json:"count"`
 }
 
+// TargetEnvironmentLabel on a target names the environment it runs in. It is the
+// label the delivery promoter places a Pacto by (delivery.EnvironmentLabel).
+const TargetEnvironmentLabel = "delivery.pacto.trianalab.io/environment"
+
 // TargetRecord is a concrete operational target associated with a revision.
 // Its identity is generic (scope/kind/name) and does not assume Kubernetes,
 // though the first implementations are Kubernetes-derived.
@@ -552,10 +568,18 @@ type TargetRecord struct {
 	// Owner is the owner the observing source read from the contract it
 	// evaluates (the operator reports it in status.contract.owner). It lets a
 	// fleet with no contract revisions still say who owns the service.
-	Owner     contract.Owner    `json:"owner,omitzero"`
-	Findings  []finding.Finding `json:"findings,omitempty"`
-	Coverage  *Coverage         `json:"coverage,omitempty"`
-	Readiness *readiness.Result `json:"readiness,omitempty"`
+	Owner contract.Owner `json:"owner,omitzero"`
+	// BusinessDomain and BusinessDomainUnknown are the business domain of the
+	// service this target belongs to (ServiceRecord.BusinessDomain), copied here so
+	// a reference carries it.
+	BusinessDomain        string `json:"businessDomain,omitempty"`
+	BusinessDomainUnknown bool   `json:"businessDomainUnknown,omitempty"`
+	// Environment is the TargetEnvironmentLabel value, empty when no source
+	// reports it or when sources disagree on it (see targetEnvironmentName).
+	Environment string            `json:"environment,omitempty"`
+	Findings    []finding.Finding `json:"findings,omitempty"`
+	Coverage    *Coverage         `json:"coverage,omitempty"`
+	Readiness   *readiness.Result `json:"readiness,omitempty"`
 	// ObservedRuntime is the BOUNDED, deterministic projection of the source's raw
 	// observed-runtime map, computed ONCE at Build time (the single unbounded-source
 	// pass) from the untrusted, arbitrarily wide/deep source data. The raw map is not
@@ -580,6 +604,17 @@ type TargetRecord struct {
 	// on it, so this is the only way the detail path can honor the same
 	// bound-once-at-Build rule ObservedRuntime already follows.
 	labels RuntimePreview
+	// reportedDomains are the distinct service.domain values the observing sources
+	// read from the contract this target runs (the operator reports it in
+	// status.contract.domain); more than one is a disagreement. domainKnown says a
+	// source read the domain at all, so an empty set means the contract declares
+	// none. deriveBusinessDomain falls back to them when no revision declares a
+	// domain.
+	reportedDomains []string
+	domainKnown     bool
+	// environmentConflict: sources disagree on the TargetEnvironmentLabel, so the
+	// label is dropped from Labels and Environment stays empty.
+	environmentConflict bool
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with

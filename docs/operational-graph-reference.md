@@ -1,7 +1,8 @@
 # Operational graph reference
 
 This page describes the sources of [the operational graph](operational-graph.md),
-the target-state file format, what each query returns and how owners are keyed.
+the target-state file format, what each query returns, how owners are keyed
+and how services are grouped by domain.
 
 ## Sources
 
@@ -227,4 +228,37 @@ several owners at once.
 `{team, dri, contacts}`, and leave it out when no contract declares one. The
 owner comes from the newest revision that declares one. A service known only
 from Kubernetes has no revisions, so its owner comes from the owner the
-operator read from the running contract (`status.contract.owner`).
+operator read from the running contract (`status.contract.owner`). A service
+counts as `unowned`, in the ownership tally and in attention, only when no
+revision declares an owner and no source reports one.
+
+## Business domains
+
+A service's business domain is the [`service.domain`](contract-reference/sections.md#business-domain)
+of its newest revision by semver that is valid. An older revision that declares
+another domain is a move, so the service is grouped by its newest revision only.
+When no revision declares a domain, the service takes the domain the operator
+read from the contract each target runs (`status.contract.domain`), as it does
+for owners. A value that is not a lowercase slug is never a domain.
+
+Each service is in exactly one group:
+
+- a named domain;
+- **No domain**, when a valid revision or the operator says the contract
+  declares none;
+- **Domain unknown**, when Pacto cannot tell. Pacto has no valid revision of
+  the service and no source that reports the domain, such as an operator that
+  writes a `status.statusFormat` below 2, or the operators observing its
+  targets report different domains. A disagreement also raises a
+  `DOMAIN_CONFLICT` limitation.
+
+No domain and Domain unknown are listed and counted like any other domain and
+never read as healthy. The API filters them with `businessDomain=(none)` and
+`businessDomain=(unknown)`, and marks an unknown domain with
+`businessDomainUnknown`. A contract revision's own row shows the domain that
+revision declares, while the filter groups it by its service's domain.
+Domains are returned only to a query that asks for the `domain` kind.
+
+The registry path in the service key, such as `ghcr.io/acme`, is a different
+value. The API keeps it as `domain` and the dashboard shows it as Registry. The
+business domain is `businessDomain` in the API.

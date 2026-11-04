@@ -1,0 +1,157 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Payments Service API",
+    "version": "2.0.0"
+  },
+  "paths": {
+    "/payment-intents": {
+      "post": {
+        "operationId": "createPaymentIntent",
+        "summary": "Create a new payment intent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amount": { "type": "integer", "description": "Amount in cents" },
+                  "currency": { "type": "string" },
+                  "customer_id": { "type": "string" },
+                  "payment_method": { "type": "string" },
+                  "description": { "type": "string" },
+                  "metadata": { "type": "object", "additionalProperties": { "type": "string" } }
+                },
+                "required": ["amount", "currency", "customer_id", "payment_method"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Payment intent created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "payment_intent_id": { "type": "string" },
+                    "amount": { "type": "integer" },
+                    "currency": { "type": "string" },
+                    "status": { "type": "string", "enum": ["requires_confirmation", "processing", "succeeded", "failed"] },
+                    "risk_score": { "type": "number" },
+                    "risk_signals": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid request" },
+          "402": { "description": "Payment failed" },
+          "422": { "description": "Fraud check rejected" }
+        }
+      },
+      "get": {
+        "operationId": "listPaymentIntents",
+        "summary": "List payment intents",
+        "parameters": [
+          { "name": "customer_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "List of payment intents" }
+        }
+      }
+    },
+    "/payment-intents/{id}": {
+      "get": {
+        "operationId": "getPaymentIntent",
+        "summary": "Get payment intent by ID",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Payment intent details" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/payment-intents/{id}/confirm": {
+      "post": {
+        "operationId": "confirmPaymentIntent",
+        "summary": "Confirm a payment intent",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Payment intent confirmed" },
+          "400": { "description": "Cannot confirm" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/payment-intents/{id}/cancel": {
+      "post": {
+        "operationId": "cancelPaymentIntent",
+        "summary": "Cancel a payment intent",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Payment intent cancelled" },
+          "400": { "description": "Cannot cancel" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/refunds": {
+      "post": {
+        "operationId": "createRefund",
+        "summary": "Create a refund for a payment intent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "payment_intent_id": { "type": "string" },
+                  "amount": { "type": "integer" },
+                  "reason": { "type": "string", "enum": ["duplicate", "fraudulent", "requested_by_customer"] }
+                },
+                "required": ["payment_intent_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Refund created" },
+          "400": { "description": "Invalid request" },
+          "404": { "description": "Payment intent not found" }
+        }
+      }
+    },
+    "/webhooks/stripe": {
+      "post": {
+        "operationId": "handleStripeWebhook",
+        "summary": "Handle Stripe webhook events",
+        "responses": {
+          "200": { "description": "Webhook processed" },
+          "400": { "description": "Invalid signature" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check",
+        "responses": {
+          "200": { "description": "Service healthy" }
+        }
+      }
+    }
+  }
+}

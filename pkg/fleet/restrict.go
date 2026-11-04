@@ -182,9 +182,26 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 		cp := *svc
 		cp.Targets, cp.HiddenDependencies, cp.HiddenDependents = targets, len(deps[k]), len(dependents[k])
 		cp.Status = serviceStatus(out, &cp)
+		restrictBusinessDomain(out, &cp)
 		out.Services[k] = &cp
 	}
 	return hiddenNames
+}
+
+// restrictBusinessDomain recomputes a service's business domain from what out
+// still holds, so a domain a hidden target reported never shows, and restamps the
+// visible targets, copied, when it changes.
+func restrictBusinessDomain(out *FleetSnapshot, s *ServiceRecord) {
+	d, unknown, _ := businessDomainOf(out, s)
+	if d == s.BusinessDomain && unknown == s.BusinessDomainUnknown {
+		return
+	}
+	s.BusinessDomain, s.BusinessDomainUnknown = d, unknown
+	for _, tk := range s.Targets {
+		t := *out.Targets[tk]
+		t.BusinessDomain, t.BusinessDomainUnknown = d, unknown
+		out.Targets[tk] = &t
+	}
 }
 
 // recountSources recomputes each source's revision and target counts from

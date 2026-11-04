@@ -1,4 +1,4 @@
-# Field coverage inventory for the Pacto v2.3 contract schema (2.2 plus the 2.3 additions).
+# Field coverage inventory for the Pacto v2.4 contract schema (2.3 plus the 2.4 additions).
 #
 # One entry per schema path (dotted, [] for array items) and, under values, one per
 # enum value. pkg/validation/fieldcoverage_test.go walks the schema and fails when a
@@ -29,9 +29,9 @@ fields:
     meaning: Contract format version; selects the JSON Schema the contract is validated against.
     runtime: not-applicable
     evidence: 'none: the field has no runtime counterpart'
-    rule: parse rejects anything but "2.0", "2.1", "2.2" and "2.3" before any other layer runs; the version selects the schema
+    rule: parse rejects anything but "2.0", "2.1", "2.2", "2.3" and "2.4" before any other layer runs; the version selects the schema
     outcomes: PARSE_ERROR when unsupported
-    limitations: 2.0, 2.1 and 2.2 have their own schemas without the fields later versions add; this inventory walks 2.3, the superset
+    limitations: 2.0, 2.1, 2.2 and 2.3 have their own schemas without the fields later versions add; this inventory walks 2.4, the superset
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_UnsupportedVersion
@@ -41,12 +41,13 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid
       e2e: []
     values:
-      '2.3':
-        meaning: the newest Operational Contract format; 2.0, 2.1 and 2.2 contracts keep working unchanged
+      '2.4':
+        meaning: the newest Operational Contract format; 2.0, 2.1, 2.2 and 2.3 contracts keep working unchanged
         runtime: static-only
         tests:
           unit: []
           integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1
@@ -99,6 +100,21 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid
       e2e:
       - tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch
+  service.domain:
+    meaning: The business domain the service belongs to (pactoVersion 2.4).
+    runtime: static-only
+    evidence: 'none: the operational graph groups services by it'
+    rule: 'schema: lowercase slug, at most 63 characters; an older pactoVersion refuses it'
+    outcomes: NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug
+    limitations: a grouping key; the domain differs from the registry path in the service key
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds24
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/needs-2.4
+      e2e: []
   service.owner:
     meaning: Who owns the service.
     runtime: static-only

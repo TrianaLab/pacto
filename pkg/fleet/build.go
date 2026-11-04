@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"maps"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -431,6 +432,12 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 	if existing.Owner.IsEmpty() {
 		existing.Owner = add.Owner
 	}
+	// Two sources that read different domains from one target disagree; both are
+	// kept, so deriveBusinessDomain reports the conflict instead of picking one.
+	for _, d := range add.reportedDomains {
+		existing.reportedDomains = appendUnique(existing.reportedDomains, d)
+	}
+	existing.domainKnown = existing.domainKnown || add.domainKnown
 	if targetFresher(add, existing) {
 		applyEvaluation(existing, add)
 	}
@@ -490,10 +497,23 @@ func mergeTargetLabels(existing, add *TargetRecord) []Limitation {
 	}
 	var lims []Limitation
 	for k, v := range add.Labels {
-		if cur, ok := existing.Labels[k]; ok && cur != v {
+		if k == TargetEnvironmentLabel && existing.environmentConflict {
+			continue // stays dropped: no contributor can settle it
+		}
+		cur, ok := existing.Labels[k]
+		if ok && cur != v {
 			lims = append(lims, Limitation{Code: LimitationTargetFieldConflict, Source: add.Source,
 				Message: "sources disagree on label " + k + " of target " + string(existing.Key)})
+			if k == TargetEnvironmentLabel {
+				// Dropped, not kept from the first source: a label search must not
+				// match the environment the target page calls unknown.
+				existing.Environment, existing.environmentConflict = "", true
+				delete(existing.Labels, k)
+			}
 			continue
+		}
+		if !ok && k == TargetEnvironmentLabel {
+			existing.Environment = v
 		}
 		existing.Labels[k] = v
 	}
@@ -1029,6 +1049,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Digest:       raw.Digest,
 		Compliance:   compliance,
 		Owner:        cloneOwner(raw.Owner),
+		Environment:  raw.Labels[TargetEnvironmentLabel],
 		Findings:     findings,
 		Coverage:     cloneCoverage(raw.Coverage),
 		Readiness:    cloneReadiness(raw.Readiness),
@@ -1041,6 +1062,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Sources:         []string{source},
 		Limitations:     append([]Limitation(nil), raw.Limitations...),
 	}
+	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	var recordInvalid []Limitation
 	if complianceInvalid {
 		recordInvalid = append(recordInvalid, Limitation{
@@ -1335,7 +1357,105 @@ func aggregateServices(snap *FleetSnapshot) {
 	for _, s := range snap.Services {
 		s.Status = serviceStatus(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
+		snap.Limitations = append(snap.Limitations, deriveBusinessDomain(snap, s)...)
 	}
+}
+
+// deriveBusinessDomain sets a service's business domain (see businessDomainOf),
+// reports a DOMAIN_CONFLICT limitation when its targets' sources disagree on it,
+// and copies it onto the service's targets so their references carry it.
+func deriveBusinessDomain(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
+	var conflict []string
+	s.BusinessDomain, s.BusinessDomainUnknown, conflict = businessDomainOf(snap, s)
+	for _, tk := range s.Targets {
+		snap.Targets[tk].BusinessDomain, snap.Targets[tk].BusinessDomainUnknown = s.BusinessDomain, s.BusinessDomainUnknown
+	}
+	if conflict == nil {
+		return nil
+	}
+	return []Limitation{{
+		Code: LimitationDomainConflict, Source: "fleet",
+		Message: "no contract revision of " + s.Name + " declares a business domain and the sources observing its operational targets report different ones (" +
+			strings.Join(conflict, ", ") + "), so its business domain is unknown",
+	}}
+}
+
+// businessDomainOf is a service's business domain: the service.domain of its
+// newest revision ([lessRevisionChrono]) that is not invalid. An older revision
+// that declares another domain is a move, not a conflict. When no such revision
+// declares a domain, it is the one the observing sources read from the contracts
+// the service's targets run, as deriveOwner does for owners; sources that report
+// different ones make it unknown, with the domains returned as the conflict.
+// Otherwise it is none when a revision or a source says the contract declares
+// none, and unknown when nothing says either way. A value that is not a domain
+// slug is never a domain.
+func businessDomainOf(snap *FleetSnapshot, s *ServiceRecord) (domain string, unknown bool, conflict []string) {
+	var newest *ContractRevision
+	declared := false
+	for _, rk := range s.Revisions {
+		r := snap.Revisions[rk]
+		if !domainEvidence(r) {
+			continue
+		}
+		declared = declared || r.Contract.Service.Domain != ""
+		if newest == nil || lessRevisionChrono(newest, r) {
+			newest = r
+		}
+	}
+	if declared {
+		return newest.Contract.Service.Domain, false, nil
+	}
+	known := newest != nil
+	var reported []string
+	for _, tk := range s.Targets {
+		t := snap.Targets[tk]
+		known = known || t.domainKnown
+		for _, d := range t.reportedDomains {
+			reported = appendUnique(reported, d)
+		}
+	}
+	slices.Sort(reported)
+	switch len(reported) {
+	case 0:
+		return "", !known, nil
+	case 1:
+		return reported[0], false, nil
+	default:
+		return "", true, reported
+	}
+}
+
+// domainEvidence reports whether a revision can say what domain its service has:
+// its contract was read, it is not invalid and what it declares is a slug or none.
+func domainEvidence(r *ContractRevision) bool {
+	if r.Contract == nil || (r.validated && !r.Valid) {
+		return false
+	}
+	d := r.Contract.Service.Domain
+	return d == "" || validBusinessDomain(d)
+}
+
+// reportedDomainsFrom is the domain a source read from a target's contract, as a
+// set, and whether the source read the domain at all. A value that is not a domain
+// slug says nothing.
+func reportedDomainsFrom(raw RawTarget) ([]string, bool) {
+	switch {
+	case raw.BusinessDomain == "":
+		return nil, raw.BusinessDomainKnown
+	case validBusinessDomain(raw.BusinessDomain):
+		return []string{raw.BusinessDomain}, true
+	default:
+		return nil, false
+	}
+}
+
+// businessDomainPattern is service.domain's slug rule in the contract schema.
+var businessDomainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
+// validBusinessDomain reports whether d can be a business domain, so a filter
+// value such as NoBusinessDomain never collides with one.
+func validBusinessDomain(d string) bool {
+	return len(d) <= 63 && businessDomainPattern.MatchString(d)
 }
 
 // deriveOwner sets a deterministic owner SUMMARY for a service — the owner
@@ -1354,37 +1474,45 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	}
 	// Newest first: the reverse of the canonical ascending chronology.
 	sort.Slice(revs, func(i, j int) bool { return lessRevisionChrono(revs[j], revs[i]) })
-	var claims ownerClaimSet
 	for _, r := range revs {
-		o := r.Owner
-		if o.IsEmpty() {
-			continue
-		}
 		if s.Owner.IsEmpty() {
-			s.Owner = o
+			s.Owner = r.Owner
 		}
-		claims.add(o)
 	}
 	// No revision declares an owner (a fleet read only from Kubernetes has no
 	// revisions at all): fall back to the owner the observing sources read from
 	// the contract each target runs.
-	if claims.len() == 0 {
-		targets := slices.Sorted(slices.Values(s.Targets))
-		for _, tk := range targets {
-			o := snap.Targets[tk].Owner
+	if s.Owner.IsEmpty() {
+		for _, tk := range slices.Sorted(slices.Values(s.Targets)) {
 			if s.Owner.IsEmpty() {
-				s.Owner = o
+				s.Owner = snap.Targets[tk].Owner
 			}
-			claims.add(o)
 		}
 	}
-	if claims.len() > 1 {
+	if claims := serviceOwnerClaims(snap, s); claims.len() > 1 {
 		return []Limitation{{
 			Code: LimitationOwnerConflict, Source: "fleet",
 			Message: "the contracts of " + s.Name + " declare different owners; the service owner is a summary (see the owner on each revision or target)",
 		}}
 	}
 	return nil
+}
+
+// serviceOwnerClaims is the DISTINCT owners known for a service: the owners its
+// revisions declare or, when none does, the owners its observing sources read from
+// the contracts its targets run. deriveOwner and every ownership answer of the
+// query count through it, so an owner the operator reports is never "unowned".
+func serviceOwnerClaims(snap *FleetSnapshot, s *ServiceRecord) ownerClaimSet {
+	var claims ownerClaimSet
+	for _, rk := range s.Revisions {
+		claims.add(snap.Revisions[rk].Owner)
+	}
+	if claims.len() == 0 {
+		for _, tk := range s.Targets {
+			claims.add(snap.Targets[tk].Owner)
+		}
+	}
+	return claims
 }
 
 // ownerClaimSet accumulates the DISTINCT owners a service's revisions declare,
