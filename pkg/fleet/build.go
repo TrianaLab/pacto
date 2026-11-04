@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/opencontainers/go-digest"
@@ -1509,9 +1510,9 @@ func summaryOf(snap *FleetSnapshot, s *ServiceRecord) string {
 }
 
 // validSummary is service.summary's rule in the contract schema: one line of at
-// most 200 characters.
+// most 200 characters with no control character, which a terminal would run.
 func validSummary(v string) bool {
-	return v != "" && utf8.RuneCountInString(v) <= 200 && !strings.ContainsAny(v, "\n\r")
+	return v != "" && utf8.RuneCountInString(v) <= 200 && !strings.ContainsFunc(v, unicode.IsControl)
 }
 
 // reportedValue is a value a source read from a target's contract, as a set,

@@ -110,7 +110,7 @@ func TestOffering_NonSlugReportedDropped(t *testing.T) {
 	if s := q.snap.Services[NewServiceKeyDomain("", "pg")]; s.Offering != "" || s.Summary != "" {
 		t.Fatalf("offering = %q, summary = %q, want none", s.Offering, s.Summary)
 	}
-	if !validSummary(strings.Repeat("é", 200)) || validSummary(strings.Repeat("a", 201)) || validSummary("") {
+	if !validSummary(strings.Repeat("é", 200)) || validSummary(strings.Repeat("a", 201)) || validSummary("") || validSummary("\u001b]52;c;eA==\u0007 DB") || validSummary("a\u009bb") {
 		t.Error("the summary rule is one line of 1 to 200 characters")
 	}
 }

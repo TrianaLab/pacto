@@ -55,7 +55,7 @@ Identifies the service.
 | `owner` | [OwnerInfo](#ownerinfo) | No | Object only (string form removed) |
 | `domain` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.4 |
 | `offering` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.5 |
-| `summary` | string | No | 1 to 200 characters on one line. pactoVersion 2.5 |
+| `summary` | string | No | 1 to 200 characters on one line with no control characters. pactoVersion 2.5 |
 
 `service` carries identity only. The contract has no `image` or `chart` field:
 how you build and deploy a service is a delivery concern that lives outside the

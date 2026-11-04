@@ -855,7 +855,7 @@ func TestNeeds25(t *testing.T) {
 	if r := ValidateStructural(doc("summary", "Primary database")); !r.IsValid() {
 		t.Fatalf("2.5 with a summary: %v", r.Errors)
 	}
-	for _, bad := range []any{"", strings.Repeat("a", 201), "a\nb"} {
+	for _, bad := range []any{"", strings.Repeat("a", 201), "a\nb", "\u001b]52;c;eA==\u0007\u001b[2K Trusted DB", "a\u009bb"} {
 		r := ValidateStructural(doc("summary", bad))
 		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
 			t.Errorf("summary %q: %v", bad, r.Errors)
