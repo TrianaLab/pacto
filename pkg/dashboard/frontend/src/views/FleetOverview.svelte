@@ -239,7 +239,7 @@
         <div class="data-scroll">
           <table class="data-table ov-scopes" data-testid="overview-by-domain">
             <caption class="visually-hidden">Services by domain, the most broken first</caption>
-            <colgroup><col style="width: 30%" /><col /><col /><col /><col /><col /><col /></colgroup>
+            <colgroup><col style="width: 22%" /><col /><col /><col /><col /><col /><col /></colgroup>
             <thead><tr><th scope="col">Domain</th><th scope="col">Services</th><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Unknown</th><th scope="col">Stale</th><th scope="col">No owner</th></tr></thead>
             <tbody>
               {#each domains as dt (dt.domain)}

@@ -798,7 +798,7 @@ button.detail-card-header {
 .pl-list--cols .ei-context { justify-content: flex-end; text-align: right; }
 /* An extra cell after the identity (a target's environment) keeps a fixed width, so
    it lines up down the list and a long value ellipsizes. */
-.pl-list--cols .pl-env { flex: 0 0 10rem; padding-left: var(--sp-3); font-size: var(--text-xs); color: var(--c-text-2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-list--cols .pl-env { align-self: center; flex: 0 0 10rem; padding-left: var(--sp-3); font-size: var(--text-xs); color: var(--c-text-2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-list--cols .pl-env.is-unknown { color: var(--c-text-3); font-style: italic; }
 @media (max-width: 40rem) {
   .pl-list--cols .pl-row .entity-identity { grid-template-columns: minmax(0, 1fr) auto; }

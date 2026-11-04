@@ -19,6 +19,9 @@
   const sum = $derived(d.summary ?? {});
   const key = $derived(detail.entity?.key ?? '');
   const services = $derived(sum.services ?? 0);
+  // Every entity on this page is in this domain, so "domain <name>" on each row is the
+  // same word again and is dropped from the previews.
+  const local = (items) => (items ?? []).map((r) => (r?.businessDomain ? { ...r, businessDomain: undefined } : r));
   const attentionUrl = $derived((category) => fleetAttentionUrl({ businessDomain: key, category }));
   const ownership = $derived(ownershipSegments(d.ownership,
     ownershipHrefs((ownership) => fleetServicesUrl({ businessDomain: key, ownership }))));
@@ -46,13 +49,13 @@
   <div class="de-grid">
     <PreviewSection title="Services" total={d.services?.total ?? 0} count={d.services?.count ?? 0} truncated={d.services?.truncated}
       viewAllHref={fleetServicesUrl({ businessDomain: key })} viewAllLabel="View all in this domain" empty="No services.">
-      <EntityRefList items={d.services?.items ?? []} />
+      <EntityRefList items={local(d.services?.items)} />
     </PreviewSection>
     <PreviewSection title="Owners" total={d.owners?.total ?? 0} count={d.owners?.count ?? 0} truncated={d.owners?.truncated} empty="No declared owner.">
       <EntityRefList items={d.owners?.items ?? []} showStatus={false} />
     </PreviewSection>
     <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} empty="No running target observed.">
-      <EntityRefList items={d.deployments?.items ?? []} />
+      <EntityRefList items={local(d.deployments?.items)} />
     </PreviewSection>
   </div>
 
@@ -63,7 +66,7 @@
         <li class="de-attn-row">
           <SeverityBadge severity={it.severity} />
           <span class="de-cat">{attentionCategoryLabel(it.category)}</span>
-          <EntityLink ref={it.entity} showStatus={false} />
+          <EntityLink ref={local([it.entity])[0]} showStatus={false} />
           <span class="de-sum">{it.summary || it.reason || it.label}</span>
         </li>
       {/each}
