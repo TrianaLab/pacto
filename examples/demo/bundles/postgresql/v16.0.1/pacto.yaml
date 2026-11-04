@@ -1,0 +1,38 @@
+pactoVersion: '2.5'
+service:
+  name: postgresql
+  version: 16.0.1
+  offering: postgresql
+  summary: Primary relational database for transactional data
+  owner:
+    team: infra-data
+    dri: carlos.silva
+    contacts:
+    - type: email
+      value: infra-data@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#infra-data'
+      purpose: support
+    - type: oncall
+      value: infra-data-oncall
+      purpose: oncall
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: high
+metadata:
+  tier: infra
+  category: storage
+  criticality: high
+  serviceType: infrastructure
+  protocol: postgresql
+  repo: github.com/trianalab/pacto-demo/postgresql
+  tags:
+  - database
+  - relational
+  - persistence
+  - infrastructure

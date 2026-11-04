@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Platform Worker Config",
+  "type": "object",
+  "properties": {
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ],
+      "default": "info"
+    },
+    "LOG_FORMAT": {
+      "type": "string",
+      "enum": [
+        "json",
+        "text"
+      ],
+      "default": "json"
+    },
+    "OTEL_EXPORTER_ENDPOINT": {
+      "type": "string",
+      "format": "uri"
+    },
+    "WORKER_CONCURRENCY": {
+      "type": "integer",
+      "default": 5
+    },
+    "RETRY_MAX_ATTEMPTS": {
+      "type": "integer",
+      "default": 3
+    },
+    "RETRY_BACKOFF_SECONDS": {
+      "type": "integer",
+      "default": 5
+    },
+    "DEAD_LETTER_QUEUE_ENABLED": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": []
+}

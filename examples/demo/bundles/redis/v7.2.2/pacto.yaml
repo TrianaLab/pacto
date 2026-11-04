@@ -1,0 +1,35 @@
+pactoVersion: '2.5'
+service:
+  name: redis
+  version: 7.2.2
+  offering: redis
+  summary: In-memory data store for caching, sessions and rate limiting
+  owner:
+    team: infra-data
+    dri: priya.raman
+    contacts:
+    - type: email
+      value: infra-data@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#infra-data'
+      purpose: support
+workload: service
+state:
+  type: stateful
+  persistence:
+    scope: shared
+    durability: persistent
+  dataCriticality: medium
+metadata:
+  tier: infra
+  category: storage
+  criticality: high
+  serviceType: infrastructure
+  protocol: redis
+  repo: github.com/trianalab/pacto-demo/redis
+  tags:
+  - cache
+  - sessions
+  - rate-limiting
+  - infrastructure
