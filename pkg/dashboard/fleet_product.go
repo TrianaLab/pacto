@@ -84,7 +84,7 @@ type fleetEntitiesInput struct {
 	Owner          string   `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
 	OwnerKey       string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
 	Domain         string   `query:"domain" doc:"Exact registry path (the domain part of the canonical service key), shown as Registry"`
-	BusinessDomain string   `query:"businessDomain" doc:"Exact business domain (service.domain) of the service an entity belongs to, or (none) for the services with no domain"`
+	BusinessDomain string   `query:"businessDomain" doc:"Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
 	Environment    string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities)"`
 	Capability     string   `query:"capability" doc:"Capability type a service's revisions declare (service entities)"`
 	Scope          string   `query:"scope"`
@@ -193,7 +193,7 @@ type fleetAttentionInput struct {
 	Service        string `query:"service"`
 	Owner          string `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
 	OwnerKey       string `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
-	BusinessDomain string `query:"businessDomain" doc:"Keep the items of services in this business domain, or (none) for the services with no domain"`
+	BusinessDomain string `query:"businessDomain" doc:"Keep the items of services in this business domain, (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
 	Source         string `query:"source"`
 	Severity       string `query:"severity" enum:"error,warning,info"`
 	Status         string `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter"`

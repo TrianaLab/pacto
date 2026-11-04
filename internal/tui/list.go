@@ -376,7 +376,7 @@ func (l *listScreen) paneBody(c *Context, w int) string {
 	}
 	fields := [][2]string{
 		{"registry", ref.Domain},
-		{"domain", ref.BusinessDomain},
+		{"domain", businessDomainText(ref)},
 		{"scope", ref.Scope},
 		{"service", ref.ParentService},
 		{"version", ref.Version},

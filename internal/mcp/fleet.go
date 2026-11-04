@@ -98,7 +98,7 @@ func fleetSearchTool() *mcpsdk.Tool {
 		InputSchema: inputSchema(map[string]property{
 			"text":            {Type: "string", Description: "Substring over service name and owner"},
 			"owner":           {Type: "string", Description: "Filter by owner team, DRI or contact"},
-			"business_domain": {Type: "string", Description: "Filter by declared business domain (service.domain), or " + fleet.NoBusinessDomain + " for services that declare none"},
+			"business_domain": {Type: "string", Description: "Filter by business domain (service.domain), " + fleet.NoBusinessDomain + " for services that declare none, or " + fleet.UnknownBusinessDomain + " for services whose domain Pacto cannot tell"},
 			// Read from the fleet's own table, never a hand-kept copy: the copy had
 			// gone stale and omitted Warning and Reference, so an agent that trusted
 			// the enum could not ask for two reachable statuses at all, and its

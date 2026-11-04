@@ -557,3 +557,13 @@ func TestRenderDetailForADomain(t *testing.T) {
 		t.Errorf("service detail = %s", svc)
 	}
 }
+
+func TestBusinessDomainTextSaysUnknown(t *testing.T) {
+	svc := renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{BusinessDomainUnknown: true}, Service: &fleet.ServiceDetailData{}})
+	if !strings.Contains(svc, "unknown") {
+		t.Errorf("service detail with an unknown domain = %s", svc)
+	}
+	if got := businessDomainText(fleet.EntityRef{BusinessDomain: "pay"}); got != "pay" {
+		t.Errorf("businessDomainText = %q", got)
+	}
+}

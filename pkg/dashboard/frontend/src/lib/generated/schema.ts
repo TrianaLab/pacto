@@ -1714,7 +1714,6 @@ export interface components {
             truncated: boolean;
         };
         "Fleet.ContractRevision": {
-            businessDomain?: string;
             contract?: components["schemas"]["Contract.Contract"];
             digest?: string;
             docs?: components["schemas"]["Fleet.DocRef"][] | null;
@@ -1792,6 +1791,7 @@ export interface components {
         };
         "Fleet.DomainTally": {
             domain: string;
+            domainUnknown?: boolean;
             /** Format: int64 */
             nonCompliant: number;
             /** Format: int64 */
@@ -2321,6 +2321,7 @@ export interface components {
         };
         "Fleet.ServiceHit": {
             businessDomain?: string;
+            businessDomainUnknown?: boolean;
             domain?: string;
             key: string;
             labels?: {
@@ -2337,6 +2338,7 @@ export interface components {
         };
         "Fleet.ServiceRecord": {
             businessDomain?: string;
+            businessDomainUnknown?: boolean;
             domain?: string;
             /** Format: int64 */
             hiddenDependencies?: number;
@@ -2468,6 +2470,7 @@ export interface components {
         };
         "Fleet.TargetRecord": {
             businessDomain?: string;
+            businessDomainUnknown?: boolean;
             compliance: string;
             contractRevision?: string;
             coverage?: components["schemas"]["Fleet.Coverage"];
@@ -3198,6 +3201,7 @@ export interface components {
         };
         ProductRef: {
             businessDomain?: string;
+            businessDomainUnknown?: boolean;
             domain?: string;
             environment?: string;
             explanation?: string;
@@ -4997,7 +5001,7 @@ export interface operations {
                 owner?: string;
                 /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
                 ownerKey?: string;
-                /** @description Keep the items of services in this business domain, or (none) for the services with no domain */
+                /** @description Keep the items of services in this business domain, (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell */
                 businessDomain?: string;
                 source?: string;
                 severity?: "error" | "warning" | "info";
@@ -5047,7 +5051,7 @@ export interface operations {
                 ownerKey?: string;
                 /** @description Exact registry path (the domain part of the canonical service key), shown as Registry */
                 domain?: string;
-                /** @description Exact business domain (service.domain) of the service an entity belongs to, or (none) for the services with no domain */
+                /** @description Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell */
                 businessDomain?: string;
                 /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities) */
                 environment?: string;

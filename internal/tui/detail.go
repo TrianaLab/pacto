@@ -82,6 +82,15 @@ func (d *detailScreen) View(c *Context) string {
 	return d.vp.View()
 }
 
+// businessDomainText is a reference's business domain, or "unknown" when Pacto
+// cannot tell it; No domain prints nothing.
+func businessDomainText(r fleet.EntityRef) string {
+	if r.BusinessDomainUnknown {
+		return "unknown"
+	}
+	return r.BusinessDomain
+}
+
 // renderDetail turns the discriminated detail envelope into text. Exactly one
 // payload is populated; an envelope with none is a fleet bug, and saying so is
 // better than rendering a convincing blank page.
@@ -89,7 +98,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 	var b strings.Builder
 	switch {
 	case d.Service != nil:
-		field(&b, "domain", d.Entity.BusinessDomain)
+		field(&b, "domain", businessDomainText(d.Entity))
 		renderServiceDetail(&b, d.Service)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
