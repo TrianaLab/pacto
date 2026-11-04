@@ -463,14 +463,15 @@ func (q *Query) matchOrganization(r EntityRef, f EntityFilter) bool {
 		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
 }
 
-// serviceCapabilities is the sorted, distinct capability types a service's read
-// revisions declare.
+// serviceCapabilities is the sorted, distinct self-declared assertion identities
+// ([contract.Capability.AssertionKey]) a service's read revisions declare, so
+// two extensions stay two.
 func (q *Query) serviceCapabilities(s *ServiceRecord) []string {
 	seen := map[string]bool{}
 	for _, rk := range s.Revisions {
 		if c := q.snap.Revisions[rk].Contract; c != nil {
 			for _, capability := range c.Capabilities {
-				seen[capability.Type] = true
+				seen[capability.AssertionKey()] = true
 			}
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -74,5 +75,34 @@ func TestServiceCapabilities_SkipsUnreadRevisions(t *testing.T) {
 	}
 	if got := q.serviceCapabilities(s); len(got) != 0 {
 		t.Errorf("capabilities = %v", got)
+	}
+}
+
+// Two extensions are two capabilities, keyed by their reference.
+func TestServiceCapabilities_UsesAssertionKey(t *testing.T) {
+	k := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "x", Version: "1.0.0"}, Capabilities: []contract.Capability{
+		{Type: contract.CapabilityExtension, Ref: "acme.io/sla"}, {Type: contract.CapabilityExtension, Ref: "acme.io/cost"}, {Type: "health"},
+	}}
+	q := buildDomainSnap(t, "local", &Collection{Revisions: []RawRevision{{Bundle: &contract.Bundle{Contract: k, FS: fstest.MapFS{}}}}})
+	want := []string{"acme.io/cost", "acme.io/sla", "health"}
+	if got := q.serviceCapabilities(q.snap.Services[NewServiceKeyDomain("", "x")]); !slices.Equal(got, want) {
+		t.Errorf("capabilities = %v, want %v", got, want)
+	}
+	l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindService}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var types []string
+	for _, c := range l.Aggregate.Capabilities {
+		types = append(types, c.Type)
+	}
+	if !slices.Equal(types, want) {
+		t.Errorf("facet types = %v, want %v", types, want)
+	}
+	if got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, Capability: "acme.io/cost"}); len(got) != 1 {
+		t.Errorf("acme.io/cost services = %v", got)
+	}
+	if got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, Capability: contract.CapabilityExtension}); len(got) != 0 {
+		t.Errorf("extension services = %v, want none", got)
 	}
 }
