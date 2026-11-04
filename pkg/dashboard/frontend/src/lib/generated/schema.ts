@@ -1699,6 +1699,11 @@ export interface components {
             path?: string;
             type?: string;
         };
+        "Fleet.CapabilityCount": {
+            /** Format: int64 */
+            services: number;
+            type: string;
+        };
         "Fleet.CapabilitySummary": {
             binding?: components["schemas"]["Fleet.CapabilityBindingSummary"];
             ref?: string;
@@ -1834,6 +1839,9 @@ export interface components {
             /** Format: int64 */
             beyondRanking?: number;
             byOwner?: components["schemas"]["Fleet.OwnerCount"][] | null;
+            capabilities?: components["schemas"]["Fleet.CapabilityCount"][] | null;
+            /** Format: int64 */
+            capabilityTypes?: number;
             /** Format: int64 */
             distinctOwners?: number;
             /** Format: int64 */

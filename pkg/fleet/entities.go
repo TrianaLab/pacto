@@ -3,6 +3,8 @@ package fleet
 import (
 	"cmp"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -48,7 +50,10 @@ type EntityFilter struct {
 	BusinessDomain string
 	// Environment is the exact environment a target runs in (TargetRecord.Environment).
 	Environment string
-	Scope       string
+	// Capability keeps the SERVICES any of whose read revisions declares a
+	// capability of this type (see [Query.serviceCapabilities]).
+	Capability string
+	Scope      string
 	// Status filters compliance-bearing entities (service/revision/target) by
 	// their canonical compliance status. Source health is a separate axis.
 	Status string
@@ -252,6 +257,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"sourceHealth", f.SourceHealth, []EntityKind{KindSource}},
 		{"scope", f.Scope, []EntityKind{KindTarget}},
 		{"environment", f.Environment, []EntityKind{KindTarget}},
+		{"capability", f.Capability, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain}},
 		{"service", f.Service, []EntityKind{KindService, KindRevision, KindTarget}},
@@ -407,7 +413,22 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey)) &&
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
-		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness))
+		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
+		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
+}
+
+// serviceCapabilities is the sorted, distinct capability types a service's read
+// revisions declare.
+func (q *Query) serviceCapabilities(s *ServiceRecord) []string {
+	seen := map[string]bool{}
+	for _, rk := range s.Revisions {
+		if c := q.snap.Revisions[rk].Contract; c != nil {
+			for _, capability := range c.Capabilities {
+				seen[capability.Type] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // matchOwnershipState reports whether a SERVICE reference is in the requested

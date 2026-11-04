@@ -1,6 +1,8 @@
 package fleet
 
 import (
+	"cmp"
+	"slices"
 	"sort"
 	"time"
 
@@ -338,6 +340,33 @@ type EntityAggregate struct {
 	// are in this population" — an owner in a dispute is still an owner, and counting
 	// only the rankable ones would erase exactly the owners a reader is looking for.
 	DistinctOwners int `json:"distinctOwners,omitempty"`
+	// Capabilities counts the matched services declaring each capability type, the
+	// most declared first, bounded to maxCapabilityFacet; CapabilityTypes is how many
+	// types there are in all.
+	Capabilities    []CapabilityCount `json:"capabilities,omitempty"`
+	CapabilityTypes int               `json:"capabilityTypes,omitempty"`
+}
+
+// CapabilityCount is one capability type and how many matched services declare it.
+type CapabilityCount struct {
+	Type     string `json:"type"`
+	Services int    `json:"services"`
+}
+
+// maxCapabilityFacet bounds EntityAggregate.Capabilities.
+const maxCapabilityFacet = 50
+
+// capabilityFacet orders the per-type service counts and bounds them.
+func capabilityFacet(counts map[string]int) ([]CapabilityCount, int) {
+	out := make([]CapabilityCount, 0, len(counts))
+	for t, n := range counts {
+		out = append(out, CapabilityCount{Type: t, Services: n})
+	}
+	slices.SortFunc(out, func(a, b CapabilityCount) int {
+		return cmp.Or(cmp.Compare(b.Services, a.Services), cmp.Compare(a.Type, b.Type))
+	})
+	items, total, _ := boundSlice(out, maxCapabilityFacet)
+	return items, total
 }
 
 // ownerClaimsOf collects the DISTINCT owners a service's revisions declare, under
@@ -383,12 +412,16 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg := EntityAggregate{Matched: len(refs)}
 	byOwner := map[string]*OwnerCount{}
 	present := map[string]bool{}
+	capabilities := map[string]int{}
 	for _, r := range refs {
 		switch r.Kind {
 		case KindService:
 			agg.Services++
 			s := q.snap.Services[ServiceKey(r.Key)]
 			agg.ServiceCompliance.add(s.Status)
+			for _, c := range q.serviceCapabilities(s) {
+				capabilities[c]++
+			}
 			claims := q.ownerClaimsOf(s)
 			// Every canonical owner the service names is present in the population,
 			// including the two sides of a dispute — neither of which can rank.
@@ -433,6 +466,7 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg.DistinctOwners = len(present)
 	markAmbiguousLabels(byOwner, present)
 	agg.ByOwner, agg.BeyondRanking = rankOwners(byOwner)
+	agg.Capabilities, agg.CapabilityTypes = capabilityFacet(capabilities)
 	return agg
 }
 
