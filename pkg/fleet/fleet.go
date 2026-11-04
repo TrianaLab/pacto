@@ -469,6 +469,9 @@ type ContractRevision struct {
 	Source    string     `json:"source"`
 	Sources   []string   `json:"sources,omitempty"`
 	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
+	// Provenance is the signature and referrers a registry source found attached
+	// to the bundle digest. Nil means no source that read it checks signatures.
+	Provenance *BundleProvenance `json:"provenance,omitempty"`
 
 	// bundle carries the parsed bundle used during Build (to derive tools, skills,
 	// docs and validation) and afterwards as the read-only backing store for lazy

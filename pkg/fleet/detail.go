@@ -356,9 +356,12 @@ type ServiceDetailData struct {
 	// (exact or inferred): the revisions actually in use, as opposed to every
 	// revision the fleet has ever seen.
 	ActiveRevisions RefPreview `json:"activeRevisions"`
-	Deployments     RefPreview `json:"deployments"`
-	Dependencies    RefPreview `json:"dependencies"`
-	Dependents      RefPreview `json:"dependents"`
+	// Signatures is the bundle signature check of each revision in use, newest
+	// first.
+	Signatures   RevisionSignaturesPreview `json:"signatures"`
+	Deployments  RefPreview                `json:"deployments"`
+	Dependencies RefPreview                `json:"dependencies"`
+	Dependents   RefPreview                `json:"dependents"`
 	// HiddenDependencies and HiddenDependents count the neighbours the caller's
 	// Kubernetes permissions hide (see ServiceRecord), never named.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
@@ -659,6 +662,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		// digest is unreadable as history.
 		Revisions:          refPreview(chronologicalRevisionRefs(view.Revisions)),
 		ActiveRevisions:    refPreview(chronologicalRevisionRefs(active)),
+		Signatures:         revisionSignatures(active),
 		Deployments:        refPreview(targetRefs(view.Targets)),
 		Dependencies:       refPreview(q.dependencyRefs(view.Dependencies)),
 		Dependents:         refPreview(q.serviceKeyRefs(view.Dependents)),

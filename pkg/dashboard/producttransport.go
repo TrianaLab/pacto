@@ -299,6 +299,27 @@ func productUnresolvedDependencies(p fleet.UnresolvedDependenciesPreview) Produc
 
 // ── entity detail (discriminated) ────────────────────────────────────────────
 
+// ProductRevisionSignature is one in-use revision's signature check with a
+// navigable revision.
+type ProductRevisionSignature struct {
+	fleet.RevisionSignature
+	Revision ProductRef `json:"revision"`
+}
+
+// ProductRevisionSignaturesPreview is a bounded preview of revision signatures.
+type ProductRevisionSignaturesPreview struct {
+	fleet.RevisionSignaturesPreview
+	Items []ProductRevisionSignature `json:"items"`
+}
+
+func productRevisionSignatures(p fleet.RevisionSignaturesPreview) ProductRevisionSignaturesPreview {
+	items := make([]ProductRevisionSignature, len(p.Items))
+	for i, s := range p.Items {
+		items[i] = ProductRevisionSignature{RevisionSignature: s, Revision: productRef(s.Revision)}
+	}
+	return ProductRevisionSignaturesPreview{RevisionSignaturesPreview: p, Items: items}
+}
+
 // ProductServiceDetail is the navigable service-kind detail payload.
 type ProductServiceDetail struct {
 	fleet.ServiceDetailData
@@ -311,6 +332,7 @@ type ProductServiceDetail struct {
 	Configurations         ProductConfigurationsPreview         `json:"configurations"`
 	Revisions              ProductRefPreview                    `json:"revisions"`
 	ActiveRevisions        ProductRefPreview                    `json:"activeRevisions"`
+	Signatures             ProductRevisionSignaturesPreview     `json:"signatures"`
 	Deployments            ProductRefPreview                    `json:"deployments"`
 	Dependencies           ProductRefPreview                    `json:"dependencies"`
 	Dependents             ProductRefPreview                    `json:"dependents"`
@@ -333,6 +355,7 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 		Configurations:         productConfigurationsPreview(d.Configurations),
 		Revisions:              productRefPreview(d.Revisions),
 		ActiveRevisions:        productRefPreview(d.ActiveRevisions),
+		Signatures:             productRevisionSignatures(d.Signatures),
 		Deployments:            productRefPreview(d.Deployments),
 		Dependencies:           productRefPreview(d.Dependencies),
 		Dependents:             productRefPreview(d.Dependents),

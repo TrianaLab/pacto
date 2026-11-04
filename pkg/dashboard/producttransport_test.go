@@ -503,12 +503,14 @@ func TestProductOwnership_AbsentStaysAbsent(t *testing.T) {
 	}
 }
 
-// TestProductServiceDetail_NewRefsHref: the owner revision, every source and the
-// origin of every unresolved dependency carry a canonical href.
+// TestProductServiceDetail_NewRefsHref: the owner revision, every signature row,
+// every source and the origin of every unresolved dependency carry a canonical
+// href.
 func TestProductServiceDetail_NewRefsHref(t *testing.T) {
 	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "svc@1"}
 	d := toProductServiceDetail(&fleet.ServiceDetailData{
 		OwnerRevision: &rev,
+		Signatures:    fleet.RevisionSignaturesPreview{Total: 1, Count: 1, Items: []fleet.RevisionSignature{{Revision: rev}}},
 		Sources:       fleet.RefPreview{Total: 1, Count: 1, Items: []fleet.EntityRef{{Kind: fleet.KindSource, Key: "oci"}}},
 		UnresolvedDependencies: fleet.UnresolvedDependenciesPreview{Total: 1, Count: 1, Items: []fleet.UnresolvedDependency{
 			{From: fleet.EntityRef{Kind: fleet.KindService, Key: "svc"}, Ref: "oci://x/db", External: true},
@@ -516,6 +518,9 @@ func TestProductServiceDetail_NewRefsHref(t *testing.T) {
 	})
 	if d.OwnerRevision == nil || d.OwnerRevision.Href == "" {
 		t.Errorf("ownerRevision = %+v", d.OwnerRevision)
+	}
+	if s := d.Signatures.Items; len(s) != 1 || s[0].Revision.Href == "" {
+		t.Errorf("signatures = %+v", s)
 	}
 	for _, s := range d.Sources.Items {
 		if s.Href == "" {

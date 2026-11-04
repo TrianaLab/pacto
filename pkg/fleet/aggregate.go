@@ -571,6 +571,8 @@ type ServiceSummary struct {
 	InsufficientEvidence int `json:"insufficientEvidence"`
 	// Readiness tallies the readiness of every known revision of the service.
 	Readiness ReadinessTally `json:"readiness"`
+	// Signatures tallies the bundle signature check of every revision in use.
+	Signatures SignatureTally `json:"signatures"`
 }
 
 // OwnerSummary is the complete, backend-authoritative aggregate an owner page
@@ -641,6 +643,7 @@ func (q *Query) serviceSummary(view *ServiceView) (ServiceSummary, map[RevisionK
 		}
 		if inUse[r.Key] {
 			sum.RevisionsInUse++
+			sum.Signatures.add(r.Provenance)
 		}
 		sum.Readiness.add(r.Readiness)
 	}

@@ -248,6 +248,9 @@ type RevisionProvenance struct {
 	Source    string         `json:"source,omitempty"`
 	Sources   StringsPreview `json:"sources"`
 	FetchedAt *time.Time     `json:"fetchedAt,omitempty"`
+	// Bundle is the signature and referrers a registry source found attached
+	// to the bundle digest; nil when no source that read it checks signatures.
+	Bundle *BundleProvenance `json:"bundle,omitempty"`
 }
 
 func interfacesPreview(ifaces []contract.Interface, tools []ToolSummary, specsRead []string, asOf time.Time) InterfacesPreview {
@@ -355,5 +358,6 @@ func stateSummary(s *contract.State) *StateSummary {
 func revisionProvenance(rev *ContractRevision) RevisionProvenance {
 	return RevisionProvenance{
 		Source: rev.Source, Sources: stringsPreview(rev.Sources), FetchedAt: rev.FetchedAt,
+		Bundle: cloneProvenance(rev.Provenance),
 	}
 }

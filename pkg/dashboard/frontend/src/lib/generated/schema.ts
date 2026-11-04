@@ -1664,6 +1664,23 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
+        "Fleet.BundleProvenance": {
+            /** Format: date-time */
+            checkedAt: string;
+            referrers: components["schemas"]["Fleet.ReferrersPreview"];
+            referrersUnavailable?: string;
+            signature: components["schemas"]["Fleet.BundleSignature"];
+            source: string;
+        };
+        "Fleet.BundleSignature": {
+            /** Format: int64 */
+            bundles: number;
+            issuer?: string;
+            reason?: string;
+            signer?: string;
+            /** @enum {string} */
+            status: "verified" | "unverified" | "unsigned" | "unknown";
+        };
         "Fleet.CapabilitiesPreview": {
             /** Format: int64 */
             count: number;
@@ -1726,6 +1743,7 @@ export interface components {
             metadata: components["schemas"]["Fleet.RuntimePreview"];
             owner?: components["schemas"]["Contract.Owner"];
             pactoVersion?: string;
+            provenance?: components["schemas"]["Fleet.BundleProvenance"];
             readiness?: components["schemas"]["Readiness.Result"];
             requestedRef?: string;
             resolvedRef?: string;
@@ -2010,6 +2028,12 @@ export interface components {
             sources?: components["schemas"]["Fleet.SourceState"][] | null;
             sourcesTruncated?: boolean;
         };
+        "Fleet.OCIReferrer": {
+            artifactType: string;
+            /** Format: date-time */
+            created?: string;
+            digest: string;
+        };
         "Fleet.ObservationSourcesPreview": {
             /** Format: int64 */
             count: number;
@@ -2224,6 +2248,14 @@ export interface components {
             /** Format: int64 */
             passing: number;
         };
+        "Fleet.ReferrersPreview": {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["Fleet.OCIReferrer"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         "Fleet.Relationship": {
             compatibility?: string;
             deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
@@ -2275,6 +2307,7 @@ export interface components {
             retrievable: boolean;
         };
         "Fleet.RevisionProvenance": {
+            bundle?: components["schemas"]["Fleet.BundleProvenance"];
             /** Format: date-time */
             fetchedAt?: string;
             source?: string;
@@ -2388,6 +2421,7 @@ export interface components {
             revisions: number;
             /** Format: int64 */
             revisionsInUse: number;
+            signatures: components["schemas"]["Fleet.SignatureTally"];
             /** Format: int64 */
             targets: number;
             /** Format: int64 */
@@ -2413,6 +2447,18 @@ export interface components {
             unknown: number;
             /** Format: int64 */
             warnings: number;
+        };
+        "Fleet.SignatureTally": {
+            /** Format: int64 */
+            notChecked: number;
+            /** Format: int64 */
+            unknown: number;
+            /** Format: int64 */
+            unsigned: number;
+            /** Format: int64 */
+            unverified: number;
+            /** Format: int64 */
+            verified: number;
         };
         "Fleet.SourceContribution": {
             /** Format: int64 */
@@ -3298,6 +3344,24 @@ export interface components {
             meta: components["schemas"]["Fleet.ProductMeta"];
             revision: components["schemas"]["ProductRef"];
         };
+        ProductRevisionSignature: {
+            checked: boolean;
+            /** Format: date-time */
+            checkedAt?: string;
+            /** Format: int64 */
+            referrers: number;
+            revision: components["schemas"]["ProductRef"];
+            signature?: components["schemas"]["Fleet.BundleSignature"];
+            source?: string;
+        };
+        ProductRevisionSignaturesPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductRevisionSignature"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
             capabilities: components["schemas"]["Fleet.StringsPreview"];
@@ -3320,6 +3384,7 @@ export interface components {
             referencedBy: components["schemas"]["ProductRefPreview"];
             relationships: components["schemas"]["ProductRelationshipsPreview"];
             revisions: components["schemas"]["ProductRefPreview"];
+            signatures: components["schemas"]["ProductRevisionSignaturesPreview"];
             sources: components["schemas"]["ProductRefPreview"];
             summary: components["schemas"]["Fleet.ServiceSummary"];
             unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
