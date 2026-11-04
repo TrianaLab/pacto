@@ -1381,12 +1381,18 @@ func deriveBusinessDomain(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	for _, tk := range s.Targets {
 		snap.Targets[tk].BusinessDomain, snap.Targets[tk].BusinessDomainUnknown = s.BusinessDomain, s.BusinessDomainUnknown
 	}
+	return domainConflict(s.Name, conflict)
+}
+
+// domainConflict is the DOMAIN_CONFLICT limitation for a service whose sources
+// report the conflicting domains, nil when there is no conflict.
+func domainConflict(name string, conflict []string) []Limitation {
 	if conflict == nil {
 		return nil
 	}
 	return []Limitation{{
 		Code: LimitationDomainConflict, Source: "fleet",
-		Message: "no contract revision of " + s.Name + " declares a business domain and the sources observing its operational targets report different ones (" +
+		Message: "no contract revision of " + name + " declares a business domain and the sources observing its operational targets report different ones (" +
 			strings.Join(conflict, ", ") + "), so its business domain is unknown",
 	}}
 }
@@ -1471,12 +1477,18 @@ func deriveOffering(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	var conflict []string
 	s.Offering, conflict = offeringOf(snap, s)
 	s.Summary = summaryOf(snap, s)
+	return offeringConflict(s.Name, conflict)
+}
+
+// offeringConflict is the OFFERING_CONFLICT limitation for a service whose
+// sources report the conflicting offerings, nil when there is no conflict.
+func offeringConflict(name string, conflict []string) []Limitation {
 	if conflict == nil {
 		return nil
 	}
 	return []Limitation{{
 		Code: LimitationOfferingConflict, Source: "fleet",
-		Message: "no contract revision of " + s.Name + " declares a platform offering and the sources observing its operational targets report different ones (" +
+		Message: "no contract revision of " + name + " declares a platform offering and the sources observing its operational targets report different ones (" +
 			strings.Join(conflict, ", ") + "), so it has none",
 	}}
 }

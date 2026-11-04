@@ -91,8 +91,18 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	// and linear.
 	hiddenNames = append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...)
 	out.Limitations = slices.DeleteFunc(slices.Clone(s.Limitations), func(l Limitation) bool {
+		// A conflict lists values hidden targets may have reported, so it is
+		// rebuilt from what out still holds below.
+		if l.Code == LimitationDomainConflict || l.Code == LimitationOfferingConflict {
+			return true
+		}
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
+	for _, svc := range out.Services {
+		_, _, dc := businessDomainOf(&out, svc)
+		_, oc := offeringOf(&out, svc)
+		out.Limitations = append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...)
+	}
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial

@@ -561,3 +561,23 @@ func TestInferredOfferings_ExactNameOnly(t *testing.T) {
 		t.Errorf("local consumes %+v and is suggested %+v", l.ConsumedOfferings.Items, l.InferredOfferings)
 	}
 }
+
+func TestRestrictedView_ConflictFromHiddenTargetDoesNotLeak(t *testing.T) {
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{Targets: []RawTarget{
+		{Scope: "hiddenns", Kind: SourceKindKubernetes, Name: "x-1", Service: "x", Offering: "classified", BusinessDomain: "secretdomain"},
+		{Scope: "open", Kind: SourceKindKubernetes, Name: "x-2", Service: "x", Offering: "postgresql", BusinessDomain: "payments"},
+	}})
+	if !slices.ContainsFunc(q.snap.Limitations, func(l Limitation) bool { return l.Code == LimitationOfferingConflict }) {
+		t.Fatal("the unrestricted snapshot has no OFFERING_CONFLICT")
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "hiddenns" })
+	if s := r.snap.Services[NewServiceKeyDomain("", "x")]; s.Offering != "postgresql" {
+		t.Errorf("restricted offering = %q, want postgresql", s.Offering)
+	}
+	for _, l := range r.snap.Limitations {
+		if l.Code == LimitationOfferingConflict || l.Code == LimitationDomainConflict ||
+			strings.Contains(l.Message, "classified") || strings.Contains(l.Message, "secretdomain") {
+			t.Errorf("restricted limitation leaks or contradicts: %+v", l)
+		}
+	}
+}
