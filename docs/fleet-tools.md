@@ -19,7 +19,8 @@ the Kubernetes operator it needs no OCI arguments: it reads the registry
 addresses from the `resolvedRef` field in each Pacto resource's status, then
 shows version history, interfaces, configuration schemas and diffs. See the [`pacto dashboard`
 reference](cli-reference.md#pacto-dashboard) for its flags and environment
-variables.
+variables. [The service page](dashboard-service-page.md) describes what a
+service's page shows and how it says what Pacto does not know.
 
 ![The dashboard's page for payments-service: its compliance, an ownership conflict across four revisions and a summary of its operational targets](assets/screenshots/dashboard-service-light.png#only-light)
 ![The dashboard's page for payments-service: its compliance, an ownership conflict across four revisions and a summary of its operational targets](assets/screenshots/dashboard-service-dark.png#only-dark)

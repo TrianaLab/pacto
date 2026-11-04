@@ -228,6 +228,7 @@ nav:
       - MCP reference: mcp-reference.md
       - Publish reference: publishing.md
       - Dashboard reference:
+          - The service page: dashboard-service-page.md
           - Dashboard authentication: integrations/kubernetes/dashboard-authentication.md
           - Who sees what in the dashboard: integrations/kubernetes/dashboard-access.md
           - Dashboard container: dashboard-docker.md
