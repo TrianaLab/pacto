@@ -1,0 +1,8 @@
+# Preview environments take their platform settings from platform-app-config,
+# whose schema lives in another bundle.
+platform:
+  region: eu-west-1
+chart:
+  replicaCount: 1
+  ingress:
+    host: preview.shop.example.com

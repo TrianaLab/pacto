@@ -1,0 +1,31 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Fulfillment events",
+    "version": "1"
+  },
+  "channels": {
+    "shipment.dispatched": {
+      "publish": {
+        "operationId": "shipmentDispatched",
+        "summary": "A shipment left the warehouse",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "shipment_id": {
+                "type": "string"
+              },
+              "carrier": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "shipment_id"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

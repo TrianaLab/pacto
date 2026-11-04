@@ -16,7 +16,7 @@ broken field can hide the rest.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json` or `pacto-v2.3.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json` or `pacto-v2.4.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
@@ -31,7 +31,9 @@ instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
 `"2.1"` contract that uses an interface `lifecycle`, `compatibilityEpoch` or
 `guarantees` or a dependency `requires` reports `NEEDS_PACTO_2_2` for each: set
 `pactoVersion: "2.2"`. A `"2.0"`, `"2.1"` or `"2.2"` contract that declares
-`environments` reports `NEEDS_PACTO_2_3`: set `pactoVersion: "2.3"`.
+`environments` reports `NEEDS_PACTO_2_3`: set `pactoVersion: "2.3"`. A `"2.0"`
+to `"2.3"` contract that sets `service.domain` reports `NEEDS_PACTO_2_4`: set
+`pactoVersion: "2.4"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
 `pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"` or `"2.3"`, fails before any layer runs and reports

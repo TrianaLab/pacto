@@ -665,7 +665,7 @@ func TestExtractProto_SkipsNonFields(t *testing.T) {
 // TestExtractProto_DemoFixture runs the extractor over the real proto3 file
 // shipped with the demo bundles.
 func TestExtractProto_DemoFixture(t *testing.T) {
-	data, err := os.ReadFile("../../examples/demo/bundles/fraud-service/interfaces/fraud.proto")
+	data, err := os.ReadFile("../../examples/demo/bundles/fraud-service/v1.0.0/interfaces/fraud.proto")
 	if err != nil {
 		t.Fatal(err)
 	}

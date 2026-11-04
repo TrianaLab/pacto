@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package fraud.v1;
+
+option go_package = "github.com/trianalab/pacto-demo/fraud-service/gen/fraud/v1";
+
+service FraudService {
+  rpc EvaluateTransaction(EvaluateTransactionRequest) returns (EvaluateTransactionResponse);
+  rpc ReportFraud(ReportFraudRequest) returns (ReportFraudResponse);
+}
+
+message EvaluateTransactionRequest {
+  string transaction_id = 1;
+  double amount = 2;
+  string currency = 3;
+  string customer_id = 4;
+  string payment_method = 5;
+  string ip_address = 6;
+  map<string, string> metadata = 7;
+}
+
+message EvaluateTransactionResponse {
+  string transaction_id = 1;
+  double risk_score = 2;
+  bool flagged = 3;
+  repeated string risk_signals = 4;
+  string recommendation = 5;
+}
+
+message ReportFraudRequest {
+  string transaction_id = 1;
+  string reason = 2;
+}
+
+message ReportFraudResponse {
+  bool acknowledged = 1;
+}

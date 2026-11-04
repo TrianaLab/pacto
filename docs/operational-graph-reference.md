@@ -1,7 +1,8 @@
 # Operational graph reference
 
 This page describes the sources of [the operational graph](operational-graph.md),
-the target-state file format, what each query returns and how owners are keyed.
+the target-state file format, what each query returns, how owners are keyed
+and how services are grouped by domain.
 
 ## Sources
 
@@ -228,3 +229,17 @@ several owners at once.
 owner comes from the newest revision that declares one. A service known only
 from Kubernetes has no revisions, so its owner comes from the owner the
 operator read from the running contract (`status.contract.owner`).
+
+## Business domains
+
+A service's business domain is the [`service.domain`](contract-reference/sections.md#business-domain)
+of its newest revision by semver whose contract Pacto read. An older revision
+that declares another domain is a move, so the service is grouped by its newest
+revision only. A service with no such value goes in the **No domain** group:
+its contracts declare no domain, Pacto could read none of its revisions, or the
+operator reports it with no contract. No domain is listed and counted like any
+other domain and never reads as healthy.
+
+The registry path in the service key, such as `ghcr.io/acme`, is a different
+value. The API keeps it as `domain` and the dashboard shows it as Registry. The
+business domain is `businessDomain` in the API.
