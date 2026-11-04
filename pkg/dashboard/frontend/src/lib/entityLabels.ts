@@ -156,9 +156,16 @@ export function attentionCategoryLabel(c: string | undefined): string {
 }
 
 // ── business domain and target environment ──────────────────────────────────
-/** businessDomainLabel names a service's business domain, or the No domain group. */
+/** The businessDomain filter values for the services with no domain and for those
+ *  whose domain Pacto cannot tell. Neither is a domain slug. */
+export const NO_DOMAIN = '(none)';
+export const UNKNOWN_DOMAIN = '(unknown)';
+
+/** businessDomainLabel names a service's business domain, the No domain group, or the
+ *  Domain unknown group for UNKNOWN_DOMAIN. Unknown is never folded into No domain. */
 export function businessDomainLabel(v: string | undefined): string {
-  return v || 'No domain';
+  if (v === UNKNOWN_DOMAIN) return 'Domain unknown';
+  return v && v !== NO_DOMAIN ? v : 'No domain';
 }
 
 /** The environment a target runs in, as the target detail reports it. */

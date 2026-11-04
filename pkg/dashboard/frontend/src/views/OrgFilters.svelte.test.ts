@@ -77,9 +77,9 @@ describe('FleetServicesView — Registry, Domain and capability filters', () => 
 });
 
 describe('the service page links its domain', () => {
-  const svc = (businessDomain?: string) => ({
+  const svc = (businessDomain?: string, businessDomainUnknown?: boolean) => ({
     meta, status: 'Compliant',
-    entity: { kind: 'service', key: 'payments', label: 'payments', href: '/fleet/services/payments', businessDomain },
+    entity: { kind: 'service', key: 'payments', label: 'payments', href: '/fleet/services/payments', businessDomain, businessDomainUnknown },
     service: { revisions: empty, deployments: empty, dependencies: empty, dependents: empty, relationships: empty, findings: empty, evidence: empty, limitations: empty, summary: {} },
   });
 
@@ -99,6 +99,17 @@ describe('the service page links its domain', () => {
     expect(fact.textContent).toContain('No domain');
     expect(fact.querySelector('a')).toBeNull();
     expect(fact.querySelector('.tone-neutral')).toBeTruthy();
+    done();
+  });
+
+  it('says the domain is unknown, never No domain, when Pacto cannot tell', async () => {
+    detailFn.mockResolvedValue(svc(undefined, true));
+    const { target, done } = mountView(FleetEntityView, { kind: 'service', entityKey: 'payments' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="service-domain"]')).toBeTruthy());
+    const fact = target.querySelector('[data-testid="service-domain"]') as HTMLElement;
+    expect(fact.textContent).toContain('Domain unknown');
+    expect(fact.textContent).not.toContain('No domain');
+    expect(fact.innerHTML).not.toMatch(/declares service\.domain/);
     done();
   });
 });

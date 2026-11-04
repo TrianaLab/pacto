@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
-  import { sourceHealthTally, splitEntryPoints } from '../lib/entityLabels.ts';
+  import { sourceHealthTally, splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
@@ -114,8 +114,8 @@
   const whereText = $derived(!worstScope ? ''
     : (s.scopes ?? scopes.length) === 1 ? `All the targets that break their contract run in ${worstScope.scope || 'one unnamed scope'}.`
     : `${formatCount(worstScope.nonCompliant)} of the targets that break their contract run in ${worstScope.scope || 'an unnamed scope'}.`);
-  // Every service by business domain, the most broken first, ending with the No domain
-  // row (domain "") whenever a service declares none.
+  // Every service by business domain, the most broken first, ending with the Domain
+  // unknown row (domainUnknown) and the No domain row (domain "") when they apply.
   const domains = $derived(s.byDomain ?? []);
   const namedShown = $derived(domains.filter((d) => d.domain).length);
   // The overview shows the worst few open items; the rest is one link away.
@@ -233,7 +233,7 @@
     {#if domains.length}
       <section class="band" id="sec-domains" data-toc="Domains" aria-labelledby="ov-domains">
         <div class="ov-head">
-          <div class="ov-title"><h2 id="ov-domains" class="t-section-title">Domains</h2><HelpTip label="domains" text="The business domain each service declares in its contract. Services that declare none are under No domain." /></div>
+          <div class="ov-title"><h2 id="ov-domains" class="t-section-title">Domains</h2><HelpTip label="domains" text="The business domain each service declares in its contract. Services that declare none are under No domain, and those whose domain Pacto cannot tell under Domain unknown." /></div>
           <a class="ov-viewall" href={fleetDomainsUrl()}>See every domain</a>
         </div>
         <div class="data-scroll">
@@ -242,11 +242,13 @@
             <colgroup><col style="width: 22%" /><col /><col /><col /><col /><col /><col /></colgroup>
             <thead><tr><th scope="col">Domain</th><th scope="col">Services</th><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Unknown</th><th scope="col">Stale</th><th scope="col">No owner</th></tr></thead>
             <tbody>
-              {#each domains as dt (dt.domain)}
+              {#each domains as dt (dt.domainUnknown ? UNKNOWN_DOMAIN : dt.domain)}
                 <tr class:ov-none-row={!dt.domain}>
                   <th scope="row">
                     {#if dt.domain}
                       <a class="cell-clip" href={fleetEntityUrl('domain', dt.domain)} title={dt.domain}>{dt.domain}</a>
+                    {:else if dt.domainUnknown}
+                      <a class="cell-clip ov-none" href={fleetServicesUrl({ businessDomain: UNKNOWN_DOMAIN })} title="Services whose domain Pacto cannot tell">{businessDomainLabel(UNKNOWN_DOMAIN)}</a>
                     {:else}
                       <a class="cell-clip ov-none" href={fleetServicesUrl({ businessDomain: '(none)' })} title="Services with no declared domain">No domain</a>
                     {/if}

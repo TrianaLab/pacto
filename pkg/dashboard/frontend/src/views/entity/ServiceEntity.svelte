@@ -4,7 +4,7 @@
   import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
-  import { businessDomainLabel } from '../../lib/entityLabels.ts';
+  import { businessDomainLabel, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
@@ -80,8 +80,12 @@
       <span class="se-k">Domain</span>
       {#if bd}
         <EntityLink ref={{ kind: 'domain', key: bd, label: bd }} showStatus={false} showKind={false} />
+      {:else if detail.entity?.businessDomainUnknown}
+        <!-- Unknown is not No domain: an older operator, an unread contract or sources
+             that disagree leave Pacto unable to tell, and it says so. -->
+        <IdentityBadge label={businessDomainLabel(UNKNOWN_DOMAIN)} tone="neutral" title="Pacto cannot tell this service's domain: no readable contract revision names one, and its sources report none they agree on." describe />
       {:else}
-        <IdentityBadge label={businessDomainLabel('')} tone="neutral" title="No contract revision of this service declares service.domain." describe />
+        <IdentityBadge label={businessDomainLabel('')} tone="neutral" title="Its contract declares no service.domain." describe />
       {/if}
     </div>
     {#if d.ownership}

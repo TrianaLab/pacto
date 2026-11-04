@@ -55,9 +55,9 @@ beforeEach(() => {
 
 describe('FleetDomainsView', () => {
   it('lists named domains and ends with the No domain row', async () => {
-    entitiesFn.mockImplementation((o: { kinds?: string[] }) => Promise.resolve(o.kinds?.[0] === 'domain'
+    entitiesFn.mockImplementation((o: { kinds?: string[]; businessDomain?: string }) => Promise.resolve(o.kinds?.[0] === 'domain'
       ? listResp([domainRef('commerce', 12, 30), domainRef('identity', 1, 1)])
-      : listResp([], { total: 4 })));
+      : listResp([], { total: o.businessDomain === '(none)' ? 4 : 0 })));
     const { target, done } = mountView(FleetDomainsView);
     await vi.waitFor(() => expect(target.querySelector('[data-testid="domain-none"]')).toBeTruthy());
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['domain'], limit: 25 }));
@@ -73,8 +73,36 @@ describe('FleetDomainsView', () => {
     done();
   });
 
+  it('shows the services whose domain is unknown apart from No domain', async () => {
+    entitiesFn.mockImplementation((o: { kinds?: string[]; businessDomain?: string }) => Promise.resolve(o.kinds?.[0] === 'domain'
+      ? listResp([])
+      : listResp([], { total: o.businessDomain === '(unknown)' ? 5 : 0 })));
+    const { target, done } = mountView(FleetDomainsView);
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="domain-unknown"]')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], businessDomain: '(unknown)', limit: 1 }));
+    const unknown = target.querySelector('[data-testid="domain-unknown"]') as HTMLElement;
+    expect(unknown.textContent).toContain('Domain unknown: 5 services');
+    expect(unknown.querySelector('a')?.getAttribute('href')).toBe('#/fleet/services?businessDomain=%28unknown%29');
+    // Five services may declare a domain Pacto cannot see: "none declared" would be a guess.
+    expect(target.textContent).not.toContain('No service declares a domain yet.');
+    expect(target.querySelector('[data-testid="domain-none"]')).toBeNull();
+    done();
+  });
+
+  it('says a count failed instead of dropping the row', async () => {
+    entitiesFn.mockImplementation((o: { kinds?: string[] }) => (o.kinds?.[0] === 'domain'
+      ? Promise.resolve(listResp([domainRef('commerce', 1, 1)]))
+      : Promise.reject(new Error('boom'))));
+    const { target, done } = mountView(FleetDomainsView);
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="domain-count-error"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="domain-count-error"]')?.textContent).toContain('could not be counted');
+    expect(target.textContent).not.toContain('No domain: 0');
+    done();
+  });
+
   it('explains how to declare a domain when none is declared', async () => {
-    entitiesFn.mockImplementation((o: { kinds?: string[] }) => Promise.resolve(o.kinds?.[0] === 'domain' ? listResp([]) : listResp([], { total: 3 })));
+    entitiesFn.mockImplementation((o: { kinds?: string[]; businessDomain?: string }) => Promise.resolve(o.kinds?.[0] === 'domain' ? listResp([])
+      : listResp([], { total: o.businessDomain === '(none)' ? 3 : 0 })));
     const { target, done } = mountView(FleetDomainsView);
     await vi.waitFor(() => expect(target.textContent).toContain('No service declares a domain yet.'));
     expect(target.textContent).toContain('Set service.domain in a contract (pactoVersion 2.4) to group services by domain.');
@@ -123,6 +151,7 @@ describe('FleetOverview — domain breakdown', () => {
         byScope: [{ scope: 'prod', targets: 4, nonCompliant: 1, unknown: 0, stale: 0 }, { scope: 'dev', targets: 0, nonCompliant: 0, unknown: 0, stale: 0 }], scopes: 2,
         byDomain: [
           { domain: 'commerce', services: 3, targets: 4, nonCompliant: 1, unknown: 0, stale: 0, unowned: 1 },
+          { domain: '', domainUnknown: true, services: 1, targets: 0, nonCompliant: 0, unknown: 0, stale: 0, unowned: 0 },
           { domain: '', services: 2, targets: 0, nonCompliant: 0, unknown: 0, stale: 0, unowned: 2 },
         ],
         domains: 1,
@@ -137,7 +166,10 @@ describe('FleetOverview — domain breakdown', () => {
       .toEqual(['Domain', 'Services', 'Targets', 'Not compliant', 'Unknown', 'Stale', 'No owner']);
     const rows = table.querySelectorAll('tbody tr');
     expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('#/fleet/domains/commerce');
-    const none = rows[1] as HTMLElement;
+    const unknown = rows[1] as HTMLElement;
+    expect(unknown.textContent).toContain('Domain unknown');
+    expect(unknown.querySelector('a')?.getAttribute('href')).toBe('#/fleet/services?businessDomain=%28unknown%29');
+    const none = rows[2] as HTMLElement;
     expect(none.textContent).toContain('No domain');
     expect(none.querySelector('a')?.getAttribute('href')).toBe('#/fleet/services?businessDomain=%28none%29');
     expect(none.innerHTML).not.toMatch(/tone-ok|ov-ok/);

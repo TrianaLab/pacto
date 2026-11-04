@@ -4,7 +4,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader, productListState } from '../lib/productLoader.svelte.ts';
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
-  import { businessDomainLabel } from '../lib/entityLabels.ts';
+  import { businessDomainLabel, NO_DOMAIN, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { ownerKeyLabel, ownerKeyKind } from '../lib/owners.ts';
   import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
@@ -160,24 +160,23 @@
     owner ? { key: 'owner', label: 'Owner search', value: owner } : null,
     ownership ? { key: 'ownership', label: 'Ownership', value: bucketLabel(OWNERSHIP_STATES, ownership) } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
-    businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain === NO_DOMAIN ? '' : businessDomain) } : null,
+    businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain) } : null,
     capability ? { key: 'capability', label: 'Capability', value: capability } : null,
     domain ? { key: 'domain', label: 'Registry', value: domain } : null,
   ].filter(Boolean));
 
-  // The Domain box holds the domain's name, or "No domain" for the (none) filter. A
-  // pick commits the domain; typed text commits on Enter or blur, and "No domain" (or
-  // "(none)") asks for the services that declare none.
-  const NO_DOMAIN = '(none)';
-  const domainBox = $derived(businessDomain === NO_DOMAIN ? businessDomainLabel('') : businessDomain);
+  // The Domain box holds the domain's name, "No domain" for the (none) filter or
+  // "Domain unknown" for (unknown). A pick commits the domain; typed text commits on
+  // Enter or blur, and either label (or its filter value) asks for that group.
+  const domainBox = $derived(businessDomain ? businessDomainLabel(businessDomain) : '');
   let domainCommitted = $state('');
   $effect(() => { domainCommitted = domainBox; });
   function pickDomain(ref) { domainCommitted = ref.label ?? ''; apply({ businessDomain: ref.key ?? '' }); }
   function typeDomain(v) {
     if (v === domainCommitted) return;
     domainCommitted = v;
-    const none = v === NO_DOMAIN || v.toLowerCase() === businessDomainLabel('').toLowerCase();
-    apply({ businessDomain: none ? NO_DOMAIN : v });
+    const is = (value, label) => v === value || v.toLowerCase() === label.toLowerCase();
+    apply({ businessDomain: is(NO_DOMAIN, businessDomainLabel('')) ? NO_DOMAIN : is(UNKNOWN_DOMAIN, businessDomainLabel(UNKNOWN_DOMAIN)) ? UNKNOWN_DOMAIN : v });
   }
   // The capability types come from the backend aggregate over every matched service,
   // so the options never describe only the page on screen. A selected type the current

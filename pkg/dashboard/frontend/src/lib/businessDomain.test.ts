@@ -59,6 +59,9 @@ describe('business-domain labels', () => {
     expect(businessDomainLabel('payments')).toBe('payments');
     expect(businessDomainLabel('')).toBe('No domain');
     expect(businessDomainLabel(undefined)).toBe('No domain');
+    // Unknown is never No domain: Pacto could not tell.
+    expect(businessDomainLabel('(unknown)')).toBe('Domain unknown');
+    expect(businessDomainLabel('(none)')).toBe('No domain');
   });
 
   it('reads Unknown, never a healthy tone, without a declared environment', () => {

@@ -14,13 +14,14 @@
   import ListSort from '../components/ListSort.svelte';
   import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
+  import { businessDomainLabel, NO_DOMAIN, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
 
   // The business-domain list: /api/fleet/entities?kinds=domain, with search, order and
-  // paging in the URL. The services that declare no domain are a separate question
-  // (businessDomain=(none)), counted with a second, one-row request and shown as the
-  // No domain row under the list, in a neutral tone.
+  // paging in the URL. The services whose domain is unknown (businessDomain=(unknown))
+  // and those that declare none (businessDomain=(none)) are separate questions, each
+  // counted with a one-row request and shown under the list in a neutral tone.
   let { text = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
@@ -49,15 +50,24 @@
   const refreshError = $derived(view.refreshError);
   const revalidating = $derived(view.revalidating);
   const total = $derived(list?.total ?? 0);
-  // Genuinely empty with complete knowledge: say how to declare a domain. An empty list
-  // under incomplete knowledge keeps the shared "none known" state instead.
-  const noneDeclared = $derived(state.kind.startsWith('empty') && !knowledge.incomplete);
-
-  // The No domain count. A failure here costs only this row; the list stays.
-  const noneLoader = createProductLoader(() => api.fleetEntities({ kinds: ['service'], businessDomain: '(none)', limit: 1 }));
-  $effect(() => { noneLoader.sync(`none@@${refreshTick}`, 'none'); });
-  onDestroy(() => noneLoader.destroy());
-  const noDomain = $derived(noneLoader.data?.total ?? 0);
+  // The two counts under the list. A failure costs only its row, which then says it
+  // could not be counted: a missing row would read as zero.
+  function countLoader(businessDomain) {
+    const l = createProductLoader(() => api.fleetEntities({ kinds: ['service'], businessDomain, limit: 1 }));
+    $effect(() => { l.sync(`${businessDomain}@@${refreshTick}`, businessDomain); });
+    onDestroy(() => l.destroy());
+    return l;
+  }
+  const counts = [
+    { key: UNKNOWN_DOMAIN, testid: 'domain-unknown', loader: countLoader(UNKNOWN_DOMAIN), note: 'Services whose domain Pacto cannot tell: an older operator, an unread contract or sources that disagree.' },
+    { key: NO_DOMAIN, testid: 'domain-none', loader: countLoader(NO_DOMAIN), note: 'Services with no declared domain.' },
+  ];
+  const unknownLoader = counts[0].loader;
+  // Genuinely empty with complete knowledge and no service of unknown domain: say how
+  // to declare a domain. Otherwise "none declared" would be a guess, and the shared
+  // "none known" state stays.
+  const noneDeclared = $derived(state.kind.startsWith('empty') && !knowledge.incomplete
+    && unknownLoader.data != null && (unknownLoader.data.total ?? 0) === 0);
 
   const pageHref = (off, lim) => fleetDomainsUrl({ text: text || undefined, offset: off, limit: limitParam(lim, limit, PAGE_SIZE), sort: sort || undefined });
   function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = fleetDomainsUrl({ text: textDraft, sort: sort || undefined }); }
@@ -111,12 +121,19 @@
     <Pager page={list} href={pageHref} label="Domain pages" noun="domains" testid="domain" />
   {/if}
 
-  {#if noDomain > 0}
-    <p class="dv-none" data-testid="domain-none">
-      <a href={fleetServicesUrl({ businessDomain: '(none)' })}>No domain: {plural(noDomain, 'service', 'services')}</a>
-      <span class="dv-none-note">Services with no declared domain.</span>
-    </p>
-  {/if}
+  {#each counts as c (c.key)}
+    {#if c.loader.error}
+      <p class="dv-none" role="status" data-testid="domain-count-error">
+        <span>{businessDomainLabel(c.key)}: these services could not be counted.</span>
+        <button type="button" class="btn btn-sm" onclick={() => c.loader.refresh()}>Retry</button>
+      </p>
+    {:else if (c.loader.data?.total ?? 0) > 0}
+      <p class="dv-none" data-testid={c.testid}>
+        <a href={fleetServicesUrl({ businessDomain: c.key })}>{businessDomainLabel(c.key)}: {plural(c.loader.data.total, 'service', 'services')}</a>
+        <span class="dv-none-note">{c.note}</span>
+      </p>
+    {/if}
+  {/each}
 </div>
 
 <style>

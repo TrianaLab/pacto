@@ -138,7 +138,7 @@
     // and widen to the fleet in one click, instead of silently reading a subset.
     service ? { key: 'service', label: 'Service', value: service } : null,
     // Arrives from a domain page, so the reader can see the backlog is one domain's.
-    businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain === '(none)' ? '' : businessDomain) } : null,
+    businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain) } : null,
     isStale ? { key: 'staleOnly', label: 'Stale only', value: 'yes' } : null,
   ].filter(Boolean));
   // Category buckets come from the backend in canonical order with their zeros; the
