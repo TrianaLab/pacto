@@ -4187,6 +4187,8 @@ export interface operations {
                 environment?: string;
                 /** @description Keep only the services with a Stage in an environment of this tier, and only those Stages */
                 tier?: "dev" | "test" | "prod";
+                /** @description Keep only the Stages of the service with exactly this name */
+                service?: string;
             };
             header?: never;
             path?: never;

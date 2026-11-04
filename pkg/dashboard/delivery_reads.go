@@ -414,6 +414,7 @@ type environmentsInput struct {
 	PageQuery
 	Environment string `query:"environment" doc:"Keep only the services with a Stage in this environment, and only those Stages"`
 	Tier        string `query:"tier" enum:"dev,test,prod" doc:"Keep only the services with a Stage in an environment of this tier, and only those Stages"`
+	Service     string `query:"service" doc:"Keep only the Stages of the service with exactly this name"`
 }
 
 // envOrder is the way changes travel, matched as name prefixes: each entry's
@@ -487,7 +488,9 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 			held[o.Metadata.Namespace+"/"+o.Spec.Stage]++
 		}
 	}
-	stages = filter(stages, func(st delivery.StageObject) bool { return matches(in.Q, st.Spec.Service.Name) })
+	stages = filter(stages, func(st delivery.StageObject) bool {
+		return matches(in.Q, st.Spec.Service.Name) && (in.Service == "" || st.Spec.Service.Name == in.Service)
+	})
 	out := &environmentsOutput{}
 	out.Body.Listing, out.Body.Environments = l, []EnvironmentRow{}
 	out.Body.EnvironmentNames, out.Body.EnvironmentTiers = environmentColumns(stages)

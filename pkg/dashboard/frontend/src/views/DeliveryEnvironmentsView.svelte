@@ -12,6 +12,7 @@
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
+  import DeliveryBadges from '../components/DeliveryBadges.svelte';
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
@@ -155,14 +156,7 @@
             title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
           {#if r.level}<span class="t-meta ev-level" data-testid="level" title={levelHelp(r.level)}>{levelLabel(r.level)}</span>{/if}
         </span>
-        <span class="ev-badges">
-          {#if r.verified}<span class="badge badge-ok">Verified</span>{/if}
-          {#if r.failed}<span class="badge badge-err">Failed</span>{/if}
-          {#if r.frozen}<span class="badge badge-warn" title={r.frozenReason || 'Nothing moves here until a person unfreezes it'}>Frozen</span>{/if}
-          {#if r.autoHold}<span class="badge badge-info" title="A person or agent rolled this environment back or promoted it back to a version it already verified, so automation does not promote here until a person unfreezes it or promotes a version it has not verified yet">Auto-hold</span>{/if}
-          {#if r.held}<span class="badge badge-warn">{r.held} waiting</span>{/if}
-          {#if r.pointer && !r.verified && !r.failed}<span class="badge badge-neutral">Not verified</span>{/if}
-        </span>
+        <DeliveryBadges row={r} />
         {#if r.frozen && r.frozenReason}<span class="t-meta ev-frozen">Frozen: {sentence(r.frozenReason)}</span>{/if}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the reason for a keyboard reader; it is whole in the DOM for a screen reader) -->
         {#if r.ready && !r.ready.startsWith('True')}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why} tabindex="0">{why}</span>{/if}
@@ -468,7 +462,7 @@
   .ev-cell { display: flex; flex-direction: column; gap: var(--sp-1); }
   .ev-cell + .ev-cell { margin-top: var(--sp-2); }
   .ev-version { font-weight: 600; }
-  .ev-badges, .ev-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
+  .ev-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
   .ev-ready { color: var(--c-warn); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   /* Two lines until a reader points at it or tabs to it; then the whole reason. */
   .ev-ready:hover, .ev-ready:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }

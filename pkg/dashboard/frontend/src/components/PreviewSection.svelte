@@ -53,6 +53,9 @@
     open = true,
     summary = '',
     help = '',
+    // Rendered in place of `empty` when there is nothing to list and the section
+    // has more to say than one sentence.
+    emptyBody = null,
     children,
   } = $props();
 
@@ -94,7 +97,7 @@
 {#snippet body(leadHelp)}
   {#if leadHelp}<p class="ps-help t-body-2">{help}</p>{/if}
   {#if count === 0}
-    <p class="ps-empty t-body-2">{empty}</p>
+    {#if emptyBody}{@render emptyBody()}{:else}<p class="ps-empty t-body-2">{empty}</p>{/if}
   {:else}
     <div class="ps-clip" class:ps-clipped={clipped} onfocusin={() => { expanded = true; }}>{@render children?.()}</div>
     {#if count > CLIP_ROWS}

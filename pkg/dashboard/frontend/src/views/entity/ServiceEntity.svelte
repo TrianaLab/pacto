@@ -7,6 +7,7 @@
   import { businessDomainLabel, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
+  import ServiceDelivery from '../../components/ServiceDelivery.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
   import FindingList from '../../components/FindingList.svelte';
@@ -30,7 +31,7 @@
   // the service's COMPLETE target / revision / edge populations. It is deliberately not
   // computed from the previews beside it: those are capped at 200 items, so counting
   // them would quietly turn "the first 200 targets" into "this service".
-  let { detail } = $props();
+  let { detail, deliveryState = 'unknown', refreshTick = 0 } = $props();
   const d = $derived(detail.service ?? {});
   const key = $derived(detail.entity?.key ?? '');
   const bd = $derived(detail.entity?.businessDomain ?? '');
@@ -247,6 +248,10 @@
     <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} viewAllHref={allTargetsHref} viewAllLabel="View all targets" empty="No running target observed.">
       <EntityRefList items={own(d.deployments?.items)} showKind={false} env />
     </PreviewSection>
+  </div>
+
+  <div class="se-wrap" data-testid="service-delivery">
+    <ServiceDelivery service={self} state={deliveryState} {refreshTick} />
   </div>
 
   <div class="se-grid se-grid--two">

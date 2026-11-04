@@ -204,3 +204,28 @@ func TestMayRaiseAsksOnlyForAnAction(t *testing.T) {
 		t.Errorf("rows %v, %d reviews", rows, f.cans.Load())
 	}
 }
+
+// service is an exact match: one call returns exactly that service's Stages,
+// however many services contain the name, and intersects with q.
+func TestEnvironmentsServiceFilter(t *testing.T) {
+	f := &fakeDelivery{caller: person(), stages: []delivery.StageObject{
+		stage("prod", "orders", "orders", delivery.StageStatus{}),
+		stage("dev", "orders", "orders", delivery.StageStatus{}),
+		stage("prod", "orders-api", "orders-api", delivery.StageStatus{}),
+	}}
+	for n := range 250 {
+		f.stages = append(f.stages, stage("prod", fmt.Sprintf("a-orders-%d", n), fmt.Sprintf("a-orders-%d", n), delivery.StageStatus{}))
+	}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+
+	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments?service=orders&limit=1", nil)
+	rows := envs["environments"].([]any)
+	expect(t, len(rows) == 2 && page(envs["page"])["total"] == float64(1), "only the orders Stages: %v", envs)
+	for _, r := range rows {
+		expect(t, page(r)["service"] == "orders", "never another service: %v", r)
+	}
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?service=orders&q=ORD", nil)
+	expect(t, len(envs["environments"].([]any)) == 2, "service and a matching q intersect: %v", envs)
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?service=orders&q=api", nil)
+	expect(t, len(envs["environments"].([]any)) == 0 && page(envs["page"])["total"] == float64(0), "service and q intersect: %v", envs)
+}

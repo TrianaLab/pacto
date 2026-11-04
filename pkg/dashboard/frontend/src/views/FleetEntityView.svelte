@@ -27,7 +27,7 @@
   // and owns the shared shell: entity-relationship breadcrumbs, identity header,
   // canonical key, knowledge caveat and contextual actions. The kind-specific rich
   // body is delegated to the per-kind component.
-  let { kind = '', entityKey = '', refreshTick = 0 } = $props();
+  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown' } = $props();
 
   // Four lifecycle events, three behaviours -- the distinction this page used to lack.
   //
@@ -184,7 +184,7 @@
            this body, not the page: without a boundary it left the skeleton up for ever. -->
       <svelte:boundary>
         {#if detail.service}
-          <ServiceEntity {detail} />
+          <ServiceEntity {detail} {deliveryState} {refreshTick} />
         {:else if detail.revision}
           <RevisionEntity {detail} />
         {:else if detail.target}
