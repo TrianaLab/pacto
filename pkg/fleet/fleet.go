@@ -413,20 +413,24 @@ type ServiceRecord struct {
 // declares) and adds computed projections (readiness result, validation
 // findings, derived tools/skills/doc refs) plus its resolved identity.
 type ContractRevision struct {
-	Key          RevisionKey        `json:"key"`
-	Service      string             `json:"service"`
-	Domain       string             `json:"domain,omitempty"`
-	ServiceKey   ServiceKey         `json:"serviceKey"`
-	PactoVersion string             `json:"pactoVersion,omitempty"`
-	Version      string             `json:"version,omitempty"`
-	RequestedRef string             `json:"requestedRef,omitempty"`
-	ResolvedRef  string             `json:"resolvedRef,omitempty"`
-	Digest       string             `json:"digest,omitempty"`
-	Owner        contract.Owner     `json:"owner,omitempty"`
-	Contract     *contract.Contract `json:"contract,omitempty"`
-	Readiness    *readiness.Result  `json:"readiness,omitempty"`
-	Validation   []finding.Finding  `json:"validation,omitempty"`
-	Valid        bool               `json:"valid"`
+	Key          RevisionKey    `json:"key"`
+	Service      string         `json:"service"`
+	Domain       string         `json:"domain,omitempty"`
+	ServiceKey   ServiceKey     `json:"serviceKey"`
+	PactoVersion string         `json:"pactoVersion,omitempty"`
+	Version      string         `json:"version,omitempty"`
+	RequestedRef string         `json:"requestedRef,omitempty"`
+	ResolvedRef  string         `json:"resolvedRef,omitempty"`
+	Digest       string         `json:"digest,omitempty"`
+	Owner        contract.Owner `json:"owner,omitempty"`
+	// BusinessDomain is the business domain of the service this revision belongs
+	// to (ServiceRecord.BusinessDomain), copied here so a reference carries it. It
+	// can differ from the domain this revision declares, Contract.Service.Domain.
+	BusinessDomain string             `json:"businessDomain,omitempty"`
+	Contract       *contract.Contract `json:"contract,omitempty"`
+	Readiness      *readiness.Result  `json:"readiness,omitempty"`
+	Validation     []finding.Finding  `json:"validation,omitempty"`
+	Valid          bool               `json:"valid"`
 	// Stages is how each stage of the validation run ended. Empty when the
 	// contract document could not be read, so nothing was validated.
 	Stages []ValidationStage `json:"stages,omitempty"`
@@ -484,9 +488,6 @@ type ContractRevision struct {
 	// was run through the validator at build time. Stored so status queries never
 	// dereference the build-only bundle after Build.
 	validated bool
-	// serviceDomain is the BusinessDomain of the service this revision belongs to,
-	// stamped by deriveBusinessDomain so a reference carries it without a lookup.
-	serviceDomain string
 	// lockConflict, when non-empty, is why this revision has no lock: two sources
 	// contributed it with disagreeing pacto.lock resolutions, so Lock was dropped
 	// (see mergeRevisionLock). Like docConflict it carries a reason rather than a
@@ -561,9 +562,8 @@ type TargetRecord struct {
 	// evaluates (the operator reports it in status.contract.owner). It lets a
 	// fleet with no contract revisions still say who owns the service.
 	Owner contract.Owner `json:"owner,omitzero"`
-	// BusinessDomain is the service.domain the observing source read from the
-	// contract it evaluates (the operator reports it in status.contract.domain).
-	// Like Owner, it lets a fleet with no contract revisions group the service.
+	// BusinessDomain is the business domain of the service this target belongs to
+	// (ServiceRecord.BusinessDomain), copied here so a reference carries it.
 	BusinessDomain string            `json:"businessDomain,omitempty"`
 	Findings       []finding.Finding `json:"findings,omitempty"`
 	Coverage       *Coverage         `json:"coverage,omitempty"`
@@ -592,9 +592,10 @@ type TargetRecord struct {
 	// on it, so this is the only way the detail path can honor the same
 	// bound-once-at-Build rule ObservedRuntime already follows.
 	labels RuntimePreview
-	// serviceDomain is the BusinessDomain of the service this target belongs to (see
-	// ContractRevision.serviceDomain).
-	serviceDomain string
+	// reportedDomain is the service.domain the observing source read from the
+	// contract it evaluates (the operator reports it in status.contract.domain).
+	// deriveBusinessDomain falls back to it for a service with no read revision.
+	reportedDomain string
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with

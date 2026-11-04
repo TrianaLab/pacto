@@ -432,7 +432,7 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 	if existing.Owner.IsEmpty() {
 		existing.Owner = add.Owner
 	}
-	existing.BusinessDomain = cmp.Or(existing.BusinessDomain, add.BusinessDomain)
+	existing.reportedDomain = cmp.Or(existing.reportedDomain, add.reportedDomain)
 	if targetFresher(add, existing) {
 		applyEvaluation(existing, add)
 	}
@@ -1033,7 +1033,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Owner:        cloneOwner(raw.Owner),
 		// ponytail: not validated against the slug rule; the operator only reports a
 		// value its own validator accepted.
-		BusinessDomain: raw.BusinessDomain,
+		reportedDomain: raw.BusinessDomain,
 		Findings:       findings,
 		Coverage:       cloneCoverage(raw.Coverage),
 		Readiness:      cloneReadiness(raw.Readiness),
@@ -1349,8 +1349,8 @@ func aggregateServices(snap *FleetSnapshot) {
 // revision that declares another domain is a move, not a conflict, so nothing is
 // reported. With no read revision (a fleet seen only through Kubernetes), it falls
 // back to the first domain, by target key, an observing source read from the
-// contract a target runs. It then stamps the result on the service's revisions and
-// targets, so their references carry it.
+// contract a target runs. It then copies the result onto the service's revisions
+// and targets, so their references carry it.
 func deriveBusinessDomain(snap *FleetSnapshot, s *ServiceRecord) {
 	var newest *ContractRevision
 	for _, rk := range s.Revisions {
@@ -1363,14 +1363,14 @@ func deriveBusinessDomain(snap *FleetSnapshot, s *ServiceRecord) {
 		s.BusinessDomain = newest.Contract.Service.Domain
 	} else {
 		for _, tk := range targets {
-			s.BusinessDomain = cmp.Or(s.BusinessDomain, snap.Targets[tk].BusinessDomain)
+			s.BusinessDomain = cmp.Or(s.BusinessDomain, snap.Targets[tk].reportedDomain)
 		}
 	}
 	for _, rk := range s.Revisions {
-		snap.Revisions[rk].serviceDomain = s.BusinessDomain
+		snap.Revisions[rk].BusinessDomain = s.BusinessDomain
 	}
 	for _, tk := range targets {
-		snap.Targets[tk].serviceDomain = s.BusinessDomain
+		snap.Targets[tk].BusinessDomain = s.BusinessDomain
 	}
 }
 

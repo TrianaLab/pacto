@@ -198,7 +198,7 @@ func revisionEntityRef(r *ContractRevision) EntityRef {
 	}
 	return EntityRef{
 		Kind: KindRevision, Key: string(r.Key), Label: label, Secondary: r.Digest,
-		Status: status, Domain: r.Domain, BusinessDomain: r.serviceDomain, ParentService: string(r.ServiceKey), Version: r.Version,
+		Status: status, Domain: r.Domain, BusinessDomain: r.BusinessDomain, ParentService: string(r.ServiceKey), Version: r.Version,
 	}
 }
 
@@ -206,7 +206,7 @@ func revisionEntityRef(r *ContractRevision) EntityRef {
 func targetEntityRef(t *TargetRecord) EntityRef {
 	return EntityRef{
 		Kind: KindTarget, Key: string(t.Key), Label: t.DisplayName(), Secondary: t.Scope,
-		Status: t.Compliance, Domain: t.Domain, BusinessDomain: t.serviceDomain, Scope: t.Scope,
+		Status: t.Compliance, Domain: t.Domain, BusinessDomain: t.BusinessDomain, Scope: t.Scope,
 		ParentService: string(t.ServiceKey),
 	}
 }

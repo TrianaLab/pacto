@@ -375,3 +375,24 @@ func TestOverview_UnownedEntryPoint(t *testing.T) {
 		t.Errorf("services needing attention = %d, want 1 (unowned does not count)", ov.Summary.ServicesNeedingAttention)
 	}
 }
+
+// Detail answers are built from cloned records, and the business domain must
+// survive the clone.
+func TestEntityDetail_RefsCarryBusinessDomain(t *testing.T) {
+	q := domainFleet(t)
+	tk := string(NewTargetKey("prod", "k8s", "pay-app"))
+	d, err := q.EntityDetail(KindTarget, tk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Entity.BusinessDomain != "commerce" || d.Target.Revision == nil || d.Target.Revision.BusinessDomain != "commerce" {
+		t.Errorf("target detail refs = %+v / %+v", d.Entity, d.Target.Revision)
+	}
+	rd, err := q.EntityDetail(KindRevision, d.Target.Revision.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rd.Entity.BusinessDomain != "commerce" {
+		t.Errorf("revision detail ref = %+v", rd.Entity)
+	}
+}

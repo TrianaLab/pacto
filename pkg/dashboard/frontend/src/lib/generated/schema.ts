@@ -1731,6 +1731,7 @@ export interface components {
             truncated: boolean;
         };
         "Fleet.ContractRevision": {
+            businessDomain?: string;
             contract?: components["schemas"]["Contract.Contract"];
             digest?: string;
             docs?: components["schemas"]["Fleet.DocRef"][] | null;
