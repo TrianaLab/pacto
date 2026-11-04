@@ -552,8 +552,9 @@ func TestRenderDetailForADomain(t *testing.T) {
 			t.Errorf("domain detail never says %q:\n%s", want, out)
 		}
 	}
-	svc := renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{BusinessDomain: "payments"}, Service: &fleet.ServiceDetailData{Domain: "ghcr.io/acme"}})
-	if !strings.Contains(svc, "domain") || !strings.Contains(svc, "payments") || !strings.Contains(svc, "registry") {
+	svc := renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{BusinessDomain: "payments", Offering: "postgres"}, Service: &fleet.ServiceDetailData{Domain: "ghcr.io/acme"}})
+	if !strings.Contains(svc, "domain") || !strings.Contains(svc, "payments") || !strings.Contains(svc, "registry") ||
+		!strings.Contains(svc, "offering") || !strings.Contains(svc, "postgres") {
 		t.Errorf("service detail = %s", svc)
 	}
 }

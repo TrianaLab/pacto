@@ -99,6 +99,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 	switch {
 	case d.Service != nil:
 		field(&b, "domain", businessDomainText(d.Entity))
+		field(&b, "offering", d.Entity.Offering)
 		renderServiceDetail(&b, d.Service)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)

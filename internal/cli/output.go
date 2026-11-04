@@ -344,6 +344,12 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		if result.Domain != "" {
 			_, _ = fmt.Fprintf(w, "Domain: %s\n", result.Domain)
 		}
+		if result.Offering != "" {
+			_, _ = fmt.Fprintf(w, "Offering: %s\n", result.Offering)
+		}
+		if result.Summary != "" {
+			_, _ = fmt.Fprintf(w, "Summary: %s\n", result.Summary)
+		}
 		_, _ = fmt.Fprintf(w, "Pacto Version: %s\n", result.PactoVersion)
 
 		if result.Workload != "" {
