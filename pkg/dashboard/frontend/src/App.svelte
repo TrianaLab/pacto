@@ -24,6 +24,7 @@
   import FleetOwnersView from './views/FleetOwnersView.svelte';
   import FleetSourcesView from './views/FleetSourcesView.svelte';
   import FleetDomainsView from './views/FleetDomainsView.svelte';
+  import FleetOfferingsView from './views/FleetOfferingsView.svelte';
   import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
@@ -418,6 +419,7 @@
       domain={route.params.domain || ''}
       businessDomain={route.params.businessDomain || ''}
       capability={route.params.capability || ''}
+      offering={route.params.offering || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}
@@ -429,6 +431,10 @@
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-domains'}
     <FleetDomainsView text={route.params.text || ''} offset={route.params.offset || ''}
+      limit={route.params.limit || ''}
+      sort={route.params.sort || ''} {refreshTick} />
+  {:else if route.view === 'fleet-offerings'}
+    <FleetOfferingsView text={route.params.text || ''} offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-sources'}

@@ -48,7 +48,7 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     // The question in the title is answered in one line straight under it.
     await expect(page.getByTestId('overview-answer')).toBeVisible({ timeout: T });
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Operational graph', 'Change analysis', 'Delivery']);
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Operational graph', 'Change analysis', 'Delivery']);
     await expectNoLegacyScreen(page);
   });
 

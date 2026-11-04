@@ -236,7 +236,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   test('navigation exposes exactly the primary destinations (no dead tabs)', async ({ page }) => {
     await appReady(page);
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Operational graph', 'Change analysis', 'Delivery']);
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Operational graph', 'Change analysis', 'Delivery']);
   });
 
   test('O1: graph opens SEARCH-FIRST with zero Cytoscape topology nodes', async ({ page }) => {
