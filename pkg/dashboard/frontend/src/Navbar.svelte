@@ -1,5 +1,5 @@
 <script>
-  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl, fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl } from './lib/router.ts';
+  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl, fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl, fleetDomainsUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import { prefersReducedMotion } from './lib/motion.ts';
   import SourceDot from './components/SourceDot.svelte';
@@ -60,6 +60,7 @@
         kinds: ['service', 'revision', 'target'],
       },
       { label: 'Owners', href: fleetOwnersUrl(), views: ['fleet-owners'], kinds: ['owner'], cap: 'fleet' },
+      { label: 'Domains', href: fleetDomainsUrl(), views: ['fleet-domains'], kinds: ['domain'], cap: 'fleet' },
       // Sentence case, like its three siblings and like the H1 and breadcrumb on the
       // page it opens. Title Case here made one tab in four look like a different kind
       // of destination and made the tab read as a different name from its own page.

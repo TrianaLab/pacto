@@ -796,9 +796,15 @@ button.detail-card-header {
 .pl-list--cols .pl-row .entity-identity { display: grid; grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 18rem); width: 100%; }
 .pl-list--cols .ei-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-list--cols .ei-context { justify-content: flex-end; text-align: right; }
+/* An extra cell after the identity (a target's environment) keeps a fixed width, so
+   it lines up down the list and a long value ellipsizes. */
+.pl-list--cols .pl-env { flex: 0 0 10rem; padding-left: var(--sp-3); font-size: var(--text-xs); color: var(--c-text-2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-list--cols .pl-env.is-unknown { color: var(--c-text-3); font-style: italic; }
 @media (max-width: 40rem) {
   .pl-list--cols .pl-row .entity-identity { grid-template-columns: minmax(0, 1fr) auto; }
   .pl-list--cols .ei-context { grid-column: 1 / -1; justify-content: flex-start; text-align: left; }
+  .pl-list--cols .pl-row > .entity-link:has(.pl-env) { flex-wrap: wrap; }
+  .pl-list--cols .pl-env { flex-basis: 100%; padding-left: 0; text-align: left; }
 }
 
 /* ── Entity list rows with facts ── */
@@ -816,6 +822,11 @@ button.detail-card-header {
   grid-template-columns: minmax(0, 1fr) minmax(0, 8rem) 8rem;
   grid-template-areas: "name ctx num";
 }
+/* A domain row: the name, then its service and target counts at their own width. */
+.pl-list.pl-list--domains .pl-row > .entity-link:only-child {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name num";
+}
 .pl-list--facts .pl-row .entity-identity { display: contents; }
 .pl-list--facts .ei-label { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-list--facts .ei-status { grid-area: status; }
@@ -831,6 +842,11 @@ button.detail-card-header {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: "name num" "ctx ctx";
   }
+  .pl-list.pl-list--domains .pl-row > .entity-link:only-child {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "name" "num";
+  }
+  .pl-list.pl-list--domains .pl-num { text-align: left; }
 }
 
 /* The one-line answer under a page title: each page answers its question first, in

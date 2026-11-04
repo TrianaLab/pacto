@@ -182,8 +182,8 @@ describe('entity-detail runtime narrowing', () => {
   // A broad response as the wire allows it; narrowEntityDetail enforces the invariant.
   const raw = (o: Record<string, unknown>): ProductEntityDetail => ({ meta, ...o } as unknown as ProductEntityDetail);
 
-  it('accepts a valid instance for each of the five kinds', () => {
-    for (const kind of ['service', 'revision', 'target', 'owner', 'source'] as const) {
+  it('accepts a valid instance for each of the six kinds', () => {
+    for (const kind of ['service', 'revision', 'target', 'owner', 'source', 'domain'] as const) {
       const d = narrowEntityDetail(raw({ entity: { kind }, [kind]: {} }));
       expect(d.entity.kind).toBe(kind);
     }

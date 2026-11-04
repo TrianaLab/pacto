@@ -4,7 +4,7 @@
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { sourceHealthTally, splitEntryPoints } from '../lib/entityLabels.ts';
-  import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
+  import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
   import { joinAnd, problemPhrase } from '../lib/answers.ts';
@@ -114,6 +114,10 @@
   const whereText = $derived(!worstScope ? ''
     : (s.scopes ?? scopes.length) === 1 ? `All the targets that break their contract run in ${worstScope.scope || 'one unnamed scope'}.`
     : `${formatCount(worstScope.nonCompliant)} of the targets that break their contract run in ${worstScope.scope || 'an unnamed scope'}.`);
+  // Every service by business domain, the most broken first, ending with the No domain
+  // row (domain "") whenever a service declares none.
+  const domains = $derived(s.byDomain ?? []);
+  const namedShown = $derived(domains.filter((d) => d.domain).length);
   // The overview shows the worst few open items; the rest is one link away.
   const topAttention = $derived((overview?.attention?.items ?? []).slice(0, 3));
 
@@ -206,9 +210,9 @@
       {#if scopes.length > 1 || (scopes.length === 1 && scopes[0].scope)}
         <div class="data-scroll">
           <table class="data-table ov-scopes" data-testid="overview-by-scope">
-            <caption class="visually-hidden">Targets by environment, the most broken first</caption>
+            <caption class="visually-hidden">Targets by scope, the most broken first</caption>
             <colgroup><col style="width: 40%" /><col /><col /><col /><col /></colgroup>
-            <thead><tr><th scope="col">Environment</th><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Unknown</th><th scope="col">Stale</th></tr></thead>
+            <thead><tr><th scope="col">Scope</th><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Unknown</th><th scope="col">Stale</th></tr></thead>
             <tbody>
               {#each scopes as sc (sc.scope)}
                 <tr>
@@ -222,9 +226,45 @@
             </tbody>
           </table>
         </div>
-        {#if (s.scopes ?? 0) > scopes.length}<p class="ov-more">The {formatCount(scopes.length)} with the most broken targets of {formatCount(s.scopes)} environments. <a href={fleetEntityListUrl('target')}>See every target</a></p>{/if}
+        {#if (s.scopes ?? 0) > scopes.length}<p class="ov-more">The {formatCount(scopes.length)} with the most broken targets of {formatCount(s.scopes)} scopes. <a href={fleetEntityListUrl('target')}>See every target</a></p>{/if}
       {/if}
     </section>
+
+    {#if domains.length}
+      <section class="band" id="sec-domains" data-toc="Domains" aria-labelledby="ov-domains">
+        <div class="ov-head">
+          <div class="ov-title"><h2 id="ov-domains" class="t-section-title">Domains</h2><HelpTip label="domains" text="The business domain each service declares in its contract. Services that declare none are under No domain." /></div>
+          <a class="ov-viewall" href={fleetDomainsUrl()}>See every domain</a>
+        </div>
+        <div class="data-scroll">
+          <table class="data-table ov-scopes" data-testid="overview-by-domain">
+            <caption class="visually-hidden">Services by domain, the most broken first</caption>
+            <colgroup><col style="width: 30%" /><col /><col /><col /><col /><col /><col /></colgroup>
+            <thead><tr><th scope="col">Domain</th><th scope="col">Services</th><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Unknown</th><th scope="col">Stale</th><th scope="col">No owner</th></tr></thead>
+            <tbody>
+              {#each domains as dt (dt.domain)}
+                <tr class:ov-none-row={!dt.domain}>
+                  <th scope="row">
+                    {#if dt.domain}
+                      <a class="cell-clip" href={fleetEntityUrl('domain', dt.domain)} title={dt.domain}>{dt.domain}</a>
+                    {:else}
+                      <a class="cell-clip ov-none" href={fleetServicesUrl({ businessDomain: '(none)' })} title="Services with no declared domain">No domain</a>
+                    {/if}
+                  </th>
+                  <td data-label="Services">{formatCount(dt.services)}</td>
+                  <td data-label="Targets">{formatCount(dt.targets)}</td>
+                  <td data-label="Not compliant" class:ov-bad={dt.nonCompliant > 0}>{formatCount(dt.nonCompliant)}</td>
+                  <td data-label="Unknown">{formatCount(dt.unknown)}</td>
+                  <td data-label="Stale">{formatCount(dt.stale)}</td>
+                  <td data-label="No owner">{formatCount(dt.unowned)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#if (s.domains ?? 0) > namedShown}<p class="ov-more">The {formatCount(namedShown)} with the most broken targets of {formatCount(s.domains)} domains. <a href={fleetDomainsUrl()}>See every domain</a></p>{/if}
+      </section>
+    {/if}
 
     <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
       <div class="ov-head">
@@ -334,6 +374,8 @@
   .ov-scopes td { font-variant-numeric: tabular-nums; }
   .ov-scopes .ov-bad { color: var(--c-err); font-weight: 600; }
   .ov-scopes a { color: var(--c-accent); }
+  /* No domain is a neutral fact: muted, never the accent or an ok tone. */
+  .ov-scopes a.ov-none { color: var(--c-text-2); font-style: italic; }
   /* The degraded-knowledge caveat is KnowledgeBanner's, styled once there. */
   /* An all-clear is a green confirmation and an empty fleet a neutral fact. */
   .all-clear, .empty-fleet { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-md); }
