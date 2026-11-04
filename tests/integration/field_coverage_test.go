@@ -90,6 +90,7 @@ const (
 var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
+	valid("pactoVersion=2.4", set("pactoVersion", "2.4")),
 	valid("pactoVersion=2.3", set("pactoVersion", "2.3")),
 	valid("pactoVersion=2.2", set("pactoVersion", "2.2"), del("environments")),
 	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("environments"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
@@ -457,9 +458,9 @@ var fieldCoverageCases = []fcCase{
 	invalid("extensions/invalid", parseError, set("extensions", "acme")),
 }
 
-// fieldCoverageBase declares every field of the v2.3 schema at least once
+// fieldCoverageBase declares every field of the v2.4 schema at least once
 // (publish.sign declares one of its three ways; the cases cover the others).
-const fieldCoverageBase = `pactoVersion: "2.3"
+const fieldCoverageBase = `pactoVersion: "2.4"
 service:
   name: orders
   version: 1.0.0

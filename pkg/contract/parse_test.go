@@ -469,3 +469,10 @@ func TestParse_ValidStructuredOwner(t *testing.T) {
 		t.Errorf("owner = %+v, want %+v", c.Service.Owner, want)
 	}
 }
+
+func TestParse_Version24(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader("pactoVersion: \"2.4\"\nservice: {name: svc, version: 1.0.0}\n"))
+	if err != nil || c.PactoVersion != "2.4" {
+		t.Fatalf("2.4: %v %v", c, err)
+	}
+}
