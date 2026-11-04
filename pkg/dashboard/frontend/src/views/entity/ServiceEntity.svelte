@@ -292,7 +292,7 @@
                 {#if u.external}
                   <IdentityBadge label="external" />{' '}<code>{u.requestedRef || u.ref}</code>{#if u.version}{' '}<span class="se-note">{u.version}</span>{/if}
                 {:else}
-                  <IdentityBadge label="unresolved" tone="warn" title={u.reason || ''} />{' '}<code>{u.requestedRef || u.ref}</code>
+                  <IdentityBadge label="unresolved" tone="warn" title={u.reason || ''} describe />{' '}<code>{u.requestedRef || u.ref}</code>
                 {/if}
               </li>
             {/each}
@@ -318,9 +318,10 @@
             {@const st = signatureState(row.checked ? row.signature : null)}
             <li>
               <EntityLink ref={inService(row.revision, self)} showStatus={false} showKind={false} />
-              <IdentityBadge label={st.label} tone={st.tone} title={row.signature?.reason ?? ''} />
-              {#if (st.value === 'verified' || st.value === 'unverified') && row.signature?.signer}<span class="se-sig-signer">Signer {row.signature.signer}, declared by its own contract</span>{/if}
-              {#if row.checked}<span class="se-note">{row.referrers} {row.referrers === 1 ? 'referrer' : 'referrers'}</span>{/if}
+              <IdentityBadge label={st.label} tone={st.tone} title={row.signature?.reason ?? ''} describe />
+              {#if st.value === 'verified' && row.signature?.signer}<span class="se-sig-signer">Signer {row.signature.signer}, declared by its own contract</span>{/if}
+              {#if st.value === 'unverified' && row.signature?.expectedSigner}<span class="se-sig-signer">Expected signer {row.signature.expectedSigner}, declared by its own contract</span>{/if}
+              {#if row.referrersUnavailable}<span class="se-note">Referrers unavailable</span>{:else if row.checked}<span class="se-note">{row.referrers} {row.referrers === 1 ? 'referrer' : 'referrers'}</span>{/if}
             </li>
           {/each}
         </ul>

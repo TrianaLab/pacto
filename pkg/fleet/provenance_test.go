@@ -81,6 +81,9 @@ func signatureFleet() *Query {
 	prov := func(status string) *BundleProvenance {
 		p := testProvenance("oci")
 		p.Signature.Status = status
+		if status == SignatureUnknown {
+			p.ReferrersUnavailable = "registry down"
+		}
 		return p
 	}
 	return detailFleet(contract.Owner{}, []*ContractRevision{
@@ -121,6 +124,9 @@ func TestServiceDetailSignatures(t *testing.T) {
 	}
 	if r := got.Items[0]; r.Checked || r.Signature != nil || r.CheckedAt != nil {
 		t.Errorf("unchecked row = %+v", r)
+	}
+	if r := got.Items[1]; r.ReferrersUnavailable != "registry down" {
+		t.Errorf("unknown row lost why its referrers are unavailable: %+v", r)
 	}
 	assertVerifiedRow(t, got.Items[3])
 }

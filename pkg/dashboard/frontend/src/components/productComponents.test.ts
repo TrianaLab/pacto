@@ -488,4 +488,17 @@ describe('BundleProvenance', () => {
     expect(target.textContent).not.toContain('Verified');
     expect(target.querySelector('.tone-ok')).toBeNull();
   });
+
+  it('names the expected signer of an unverified signature, never as its signer', () => {
+    comp = mount(BundleProvenance, { target, props: { bundle: { source: 'oci', checkedAt: '', signature: { status: 'unverified', expectedSigner: 'ci@org', expectedIssuer: 'https://iss', bundles: 1 }, referrers: { items: [], count: 0, total: 0, truncated: false } } } });
+    expect(target.textContent).toContain('Expected signerci@org');
+    expect(target.textContent).toContain('Expected issuerhttps://iss');
+    expect(target.textContent).not.toMatch(/(^|[^d])Signerci@org/);
+  });
+
+  it('does not count signature bundles it could not list', () => {
+    comp = mount(BundleProvenance, { target, props: { bundle: { source: 'oci', checkedAt: '', referrersUnavailable: 'registry down', signature: { status: 'unknown', bundles: 0, reason: 'registry down' }, referrers: { items: [], count: 0, total: 0, truncated: false } } } });
+    expect(target.textContent).toContain('Signature bundlesUnknown');
+    expect(target.textContent).not.toContain('Signature bundles0');
+  });
 });

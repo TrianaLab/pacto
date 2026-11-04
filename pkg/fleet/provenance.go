@@ -20,9 +20,13 @@ const (
 type BundleSignature struct {
 	Status string `json:"status" enum:"verified,unverified,unsigned,unknown"`
 	// Signer and Issuer are the identity the revision's own contract declares in
-	// publish.sign (self-declared), set when Status is verified or unverified.
+	// publish.sign (self-declared), set only when Status is verified.
 	Signer string `json:"signer,omitempty"`
 	Issuer string `json:"issuer,omitempty"`
+	// ExpectedSigner and ExpectedIssuer are that declared identity when Status is
+	// unverified: what the signature was checked against, not who signed it.
+	ExpectedSigner string `json:"expectedSigner,omitempty"`
+	ExpectedIssuer string `json:"expectedIssuer,omitempty"`
 	// Bundles is how many Sigstore bundle referrers are attached to the digest.
 	Bundles int    `json:"bundles"`
 	Reason  string `json:"reason,omitempty"`
@@ -90,10 +94,12 @@ type RevisionSignature struct {
 	Revision  EntityRef        `json:"revision"`
 	Checked   bool             `json:"checked"`
 	Signature *BundleSignature `json:"signature,omitempty"`
-	// Referrers is Referrers.Total of the revision's provenance.
-	Referrers int        `json:"referrers"`
-	Source    string     `json:"source,omitempty"`
-	CheckedAt *time.Time `json:"checkedAt,omitempty"`
+	// Referrers is Referrers.Total of the revision's provenance, a count that
+	// means nothing when ReferrersUnavailable says why they could not be listed.
+	Referrers            int        `json:"referrers"`
+	ReferrersUnavailable string     `json:"referrersUnavailable,omitempty"`
+	Source               string     `json:"source,omitempty"`
+	CheckedAt            *time.Time `json:"checkedAt,omitempty"`
 }
 
 // RevisionSignaturesPreview is a bounded preview of per-revision signatures.
@@ -159,6 +165,7 @@ func revisionSignatures(revs []*ContractRevision) RevisionSignaturesPreview {
 			sig := p.Signature
 			checked := p.CheckedAt
 			items[i].Checked, items[i].Signature, items[i].Referrers, items[i].Source, items[i].CheckedAt = true, &sig, p.Referrers.Total, p.Source, &checked
+			items[i].ReferrersUnavailable = p.ReferrersUnavailable
 		}
 	}
 	return RevisionSignaturesPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}

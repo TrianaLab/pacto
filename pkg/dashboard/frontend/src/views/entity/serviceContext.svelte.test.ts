@@ -351,9 +351,10 @@ describe('service page: readiness and signatures', () => {
     const { target, done } = await render(detail({
       signatures: preview([
         { revision: rev('3'), checked: true, referrers: 2, signature: { status: 'verified', signer: 'ci@acme.dev', bundles: 1 } },
-        { revision: rev('2'), checked: true, referrers: 1, signature: { status: 'unverified', signer: 'evil@x.dev', bundles: 1 } },
+        { revision: rev('2'), checked: true, referrers: 1, signature: { status: 'unverified', expectedSigner: 'ci@acme.dev', bundles: 1, reason: 'does not verify against ci@acme.dev' } },
         { revision: rev('1'), checked: false, referrers: 0 },
         { revision: rev('0'), checked: true, referrers: 0, signature: { status: 'verified', bundles: 1 } },
+        { revision: rev('4'), checked: true, referrers: 0, referrersUnavailable: 'registry down', signature: { status: 'unknown', bundles: 0, reason: 'registry down' } },
       ]),
     }));
     const rows = Array.from(fact(target, 'service-signatures')!.querySelectorAll('li'));
@@ -362,9 +363,16 @@ describe('service page: readiness and signatures', () => {
     expect(text(rows[0])).toContain('Signer ci@acme.dev, declared by its own contract');
     expect(text(rows[0])).toContain('2 referrers');
     expect(text(rows[1])).toContain('Unverified');
-    expect(text(rows[1])).toContain('Signer evil@x.dev, declared by its own contract');
+    // The declared identity of an unverified signature is only what was expected,
+    // and the reason is readable without hovering.
+    expect(text(rows[1])).toContain('Expected signer ci@acme.dev, declared by its own contract');
+    expect(text(rows[1])).not.toMatch(/(^|[^d] )Signer /);
+    expect(rows[1].querySelector('.visually-hidden')?.textContent).toBe('does not verify against ci@acme.dev');
     expect(text(rows[2])).toContain('Not checked');
     expect(text(rows[3])).not.toContain('Verified');
+    // Referrers Pacto could not list are not zero referrers.
+    expect(text(rows[4])).toContain('Referrers unavailable');
+    expect(text(rows[4])).not.toContain('0 referrers');
     done();
   });
 });

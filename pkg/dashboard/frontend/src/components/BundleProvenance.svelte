@@ -8,6 +8,7 @@
   // that read it from a registry reported them. `bundle` is null when no source that
   // read the revision checks signatures. The signer is always the identity the
   // contract's own publish.sign declares, so "verified" never renders without it.
+  // An unverified signature names only the expected identity: who signed it is unknown.
   let { bundle = null } = $props();
   const sig = $derived(bundle?.signature ?? null);
   const st = $derived(signatureState(sig));
@@ -26,7 +27,10 @@
     </div>
     {#if sig?.signer}<div class="bp-row"><span class="bp-k">Signer</span><span class="bp-v">{sig.signer}</span></div>{/if}
     {#if sig?.issuer}<div class="bp-row"><span class="bp-k">Issuer</span><span class="bp-v">{sig.issuer}</span></div>{/if}
-    <div class="bp-row"><span class="bp-k">Signature bundles</span><span>{formatCount(sig?.bundles ?? 0)}</span></div>
+    {#if sig?.expectedSigner}<div class="bp-row"><span class="bp-k">Expected signer</span><span class="bp-v">{sig.expectedSigner}</span></div>{/if}
+    {#if sig?.expectedIssuer}<div class="bp-row"><span class="bp-k">Expected issuer</span><span class="bp-v">{sig.expectedIssuer}</span></div>{/if}
+    <!-- A count Pacto never took is not zero. -->
+    <div class="bp-row"><span class="bp-k">Signature bundles</span><span>{bundle.referrersUnavailable ? 'Unknown' : formatCount(sig?.bundles ?? 0)}</span></div>
     {#if sig?.reason}<p class="bp-reason tone-{reasonTone}" data-testid="bundle-reason">{sig.reason}</p>{/if}
     {#if bundle.referrersUnavailable}<p class="bp-note">Referrers unavailable: {bundle.referrersUnavailable}</p>{/if}
     {#if (refs.items ?? []).length}

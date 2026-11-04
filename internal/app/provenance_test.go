@@ -44,6 +44,8 @@ type provRegistry struct {
 	srv      *httptest.Server
 	requests atomic.Int64
 	fail     atomic.Pointer[func(*http.Request) bool]
+	// paginate makes every referrers response link to a next page.
+	paginate atomic.Bool
 }
 
 // provenanceTestRegistry returns a referrers-capable registry and a
@@ -58,6 +60,9 @@ func provenanceTestRegistry(t *testing.T) *provRegistry {
 			// A status the client does not retry, so a failure costs no backoff.
 			w.WriteHeader(http.StatusBadRequest)
 			return
+		}
+		if p.paginate.Load() && strings.Contains(r.URL.Path, "/referrers/") {
+			w.Header().Set("Link", `<`+r.URL.Path+`?last=x>; rel="next"`)
 		}
 		inner.ServeHTTP(w, r)
 	}))
@@ -170,8 +175,29 @@ func TestProvenanceOtherIdentity(t *testing.T) {
 	ref := pushSigned(t, reg, s)
 	p := checkerFor(reg).Check(t.Context(), "oci", ref, keylessContract("release@acme.example"))
 	wantStatus(t, p, fleet.SignatureUnverified, "does not verify against release@acme.example")
-	if p.Signature.Signer != "release@acme.example" || p.Signature.Issuer != provIssuer {
-		t.Fatalf("signer %+v", p.Signature)
+	// The declared identity is what was expected, never named as the signer.
+	if sig := p.Signature; sig.Signer != "" || sig.Issuer != "" || sig.ExpectedSigner != "release@acme.example" || sig.ExpectedIssuer != provIssuer {
+		t.Fatalf("signer %+v", sig)
+	}
+}
+
+// TestProvenancePaginatedReferrers: a referrers list the registry paginates is
+// incomplete, so no bundle on the first page is unknown, never unsigned, while
+// a signature that verified on it stands.
+func TestProvenancePaginatedReferrers(t *testing.T) {
+	_, s := keylessSigstore(t)
+	reg := provenanceTestRegistry(t)
+	reg.paginate.Store(true)
+	unsigned := contract.OCIScheme + pushImage(t, reg.client, reg.host+"/app")
+	p := checkerFor(reg).Check(t.Context(), "oci", unsigned, keylessContract(provIdentity))
+	wantStatus(t, p, fleet.SignatureUnknown, "only the first page")
+	if !p.Referrers.Truncated || p.ReferrersUnavailable == "" {
+		t.Fatalf("referrers %+v", p)
+	}
+	p = checkerFor(reg).Check(t.Context(), "oci", pushSigned(t, reg, s), keylessContract(provIdentity))
+	wantStatus(t, p, fleet.SignatureVerified, "Signed by")
+	if !p.Referrers.Truncated || p.ReferrersUnavailable == "" {
+		t.Fatalf("referrers %+v", p)
 	}
 }
 

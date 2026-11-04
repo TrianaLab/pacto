@@ -40,6 +40,7 @@ const (
 	reasonNoBundles   = "No Sigstore signature referrer is attached to this digest. Legacy cosign .sig tags are not read."
 	reasonKeySigner   = "The contract signs with a key file or a KMS key. The bundle carries no public key and the dashboard does not call a contract's KMS, so the signature could not be checked."
 	reasonNoIdentity  = "The contract signs keyless but names no identity and issuer to check against."
+	reasonPartial     = "The registry paginates the referrers of this digest and Pacto read only the first page, so the list is incomplete."
 )
 
 type provenanceEntry struct {
@@ -106,7 +107,8 @@ func (p *ProvenanceChecker) compute(ctx context.Context, source, ref string, c *
 		return res
 	}
 	refs, err := p.listReferrers(ctx, repo, digest)
-	if err != nil {
+	partial := errors.Is(err, publish.ErrReferrersPartial)
+	if err != nil && !partial {
 		why := capReason("The registry could not list what is attached to this digest: " + err.Error())
 		res.Signature.Reason, res.ReferrersUnavailable = why, why
 		return res
@@ -119,6 +121,14 @@ func (p *ProvenanceChecker) compute(ctx context.Context, source, ref string, c *
 		}
 	}
 	res.Signature = p.classifySignature(ctx, repo, digest, bundles, c)
+	if partial {
+		// A signature that verified on the first page stands; anything else may
+		// change on a page Pacto did not read.
+		res.Referrers.Truncated, res.ReferrersUnavailable = true, reasonPartial
+		if res.Signature.Status != fleet.SignatureVerified {
+			res.Signature = fleet.BundleSignature{Status: fleet.SignatureUnknown, Reason: reasonPartial}
+		}
+	}
 	return res
 }
 
@@ -127,7 +137,7 @@ func (p *ProvenanceChecker) listReferrers(ctx context.Context, repo, digest stri
 	cctx, cancel := context.WithTimeout(ctx, provenanceCallTimeout)
 	defer cancel()
 	descs, err := p.reg.ReferrerDescriptors(cctx, repo, digest)
-	if err != nil {
+	if err != nil && !errors.Is(err, publish.ErrReferrersPartial) {
 		return nil, err
 	}
 	out := make([]fleet.OCIReferrer, 0, len(descs))
@@ -141,7 +151,7 @@ func (p *ProvenanceChecker) listReferrers(ctx context.Context, repo, digest stri
 		}
 		out = append(out, r)
 	}
-	return out, nil
+	return out, err
 }
 
 // classifySignature decides what can be said about the bundles attached to
@@ -182,7 +192,8 @@ func (p *ProvenanceChecker) verifyKeyless(ctx context.Context, repo, digest stri
 		sig.Status = fleet.SignatureUnsigned
 		sig.Reason = fmt.Sprintf("%d Sigstore bundles are attached; none of them is a signature.", sig.Bundles)
 	case errors.Is(err, publish.ErrSignatureInvalid):
-		sig.Status, sig.Signer, sig.Issuer = fleet.SignatureUnverified, sign.Identity, sign.Issuer
+		// Who signed it is not known: the declared identity is only what was expected.
+		sig.Status, sig.ExpectedSigner, sig.ExpectedIssuer = fleet.SignatureUnverified, sign.Identity, sign.Issuer
 		sig.Reason = capReason(fmt.Sprintf("A signature is attached but it does not verify against %s (issuer %s): %v", sign.Identity, sign.Issuer, err))
 	default:
 		sig.Reason = capReason("The signature could not be checked: " + err.Error())

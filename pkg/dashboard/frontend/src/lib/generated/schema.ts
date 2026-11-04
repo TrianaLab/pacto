@@ -1675,6 +1675,8 @@ export interface components {
         "Fleet.BundleSignature": {
             /** Format: int64 */
             bundles: number;
+            expectedIssuer?: string;
+            expectedSigner?: string;
             issuer?: string;
             reason?: string;
             signer?: string;
@@ -3350,6 +3352,7 @@ export interface components {
             checkedAt?: string;
             /** Format: int64 */
             referrers: number;
+            referrersUnavailable?: string;
             revision: components["schemas"]["ProductRef"];
             signature?: components["schemas"]["Fleet.BundleSignature"];
             source?: string;
