@@ -68,7 +68,7 @@ func TestRevisionSchemaUnavailable(t *testing.T) {
 		"missing.json": "could not be read",
 		"policy":       "could not be read", // a directory: opens, then fails to read
 		"broken.json":  "could not be parsed",
-		"huge.json":    "larger than 1 MiB",
+		"huge.json":    "exceeds the 1048576-byte read bound",
 	}
 	for path, want := range unavailable {
 		c := revisionSchema(rev, path)
@@ -81,7 +81,7 @@ func TestRevisionSchemaUnavailable(t *testing.T) {
 		"nil bundle": {Key: "svc@1"},
 		"nil FS":     {Key: "svc@1", bundle: &contract.Bundle{}},
 	} {
-		if c := revisionSchema(r, "policy/schema.json"); !strings.Contains(c.Unavailable, "were not kept") {
+		if c := revisionSchema(r, "policy/schema.json"); !strings.Contains(c.Unavailable, "not retained") {
 			t.Errorf("%s: unavailable = %q", name, c.Unavailable)
 		}
 	}
@@ -215,7 +215,7 @@ func TestServiceDetailCatalogRevisionNoFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := d.Service.Policies.Items[0].Content; c == nil || !strings.Contains(c.Unavailable, "were not kept") {
+	if c := d.Service.Policies.Items[0].Content; c == nil || !strings.Contains(c.Unavailable, "not retained") {
 		t.Errorf("policy content = %+v", c)
 	}
 }

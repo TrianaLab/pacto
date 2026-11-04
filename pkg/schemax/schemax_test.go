@@ -183,13 +183,17 @@ func TestMeta(t *testing.T) {
 }
 
 func TestParse(t *testing.T) {
-	if err := Parse([]byte(`{"type":"object"}`), "s.json"); err != nil {
+	doc, err := Parse([]byte(`{"title":"T","properties":{"a":{"type":"string"}}}`), "s.json")
+	if err != nil {
 		t.Errorf("valid JSON: %v", err)
 	}
-	if err := Parse([]byte("type: object\n"), "s.yaml"); err != nil {
+	if title, _ := doc.Meta(); title != "T" || len(doc.Properties()) != 1 {
+		t.Errorf("parsed doc = %v", doc)
+	}
+	if _, err := Parse([]byte("type: object\n"), "s.yaml"); err != nil {
 		t.Errorf("valid YAML: %v", err)
 	}
-	if err := Parse([]byte(`{"type":`), "s.json"); err == nil {
+	if _, err := Parse([]byte(`{"type":`), "s.json"); err == nil {
 		t.Error("broken JSON parsed")
 	}
 }

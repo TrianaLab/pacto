@@ -35,22 +35,31 @@ func unmarshalSpec(data []byte, path string) (map[string]any, error) {
 	return spec, yaml.Unmarshal(data, &spec)
 }
 
-// Parse reports whether data parses as a schema document (JSON for .json
-// paths, YAML otherwise). It tells an unparseable document apart from one
-// that declares no properties, which [Properties] cannot.
-func Parse(data []byte, path string) error {
-	_, err := unmarshalSpec(data, path)
-	return err
+// Doc is a parsed schema document.
+type Doc map[string]any
+
+// Parse parses data as a schema document (JSON for .json paths, YAML
+// otherwise), once, for a caller that needs its properties and its meta. It
+// tells an unparseable document apart from one that declares no properties,
+// which [Properties] cannot.
+func Parse(data []byte, path string) (Doc, error) {
+	spec, err := unmarshalSpec(data, path)
+	return Doc(spec), err
 }
 
 // Properties parses a JSON Schema document and returns its top-level properties
 // flattened with dot-notation keys (nested objects are recursed). It returns
 // nil when the document is unparseable or declares no properties.
 func Properties(data []byte, path string) []Property {
-	spec, err := unmarshalSpec(data, path)
+	spec, err := Parse(data, path)
 	if err != nil {
 		return nil
 	}
+	return spec.Properties()
+}
+
+// Properties is [Properties] of a parsed document.
+func (spec Doc) Properties() []Property {
 	propsRaw, ok := spec["properties"]
 	if !ok {
 		return nil
@@ -137,10 +146,15 @@ func Values(m map[string]any) []Property {
 
 // Meta returns the title and description declared at the root of a JSON Schema.
 func Meta(data []byte, path string) (title, description string) {
-	spec, err := unmarshalSpec(data, path)
+	spec, err := Parse(data, path)
 	if err != nil {
 		return "", ""
 	}
+	return spec.Meta()
+}
+
+// Meta is [Meta] of a parsed document.
+func (spec Doc) Meta() (title, description string) {
 	if t, ok := spec["title"].(string); ok {
 		title = t
 	}

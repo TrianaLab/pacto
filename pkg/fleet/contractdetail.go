@@ -133,49 +133,53 @@ const maxSchemaBytes = 1 << 20
 // revisionSchema reads the schema at path from rev's bundle files. rev must be
 // the SNAPSHOT record: a JSON clone has lost the bundle and the doc conflict.
 func revisionSchema(rev *ContractRevision, path string) *SchemaContent {
-	data, reason := readRevisionFile(rev, path)
+	data, reason := readBundleFile(rev, path, maxSchemaBytes)
+	var doc schemax.Doc
 	if reason == "" {
-		if err := schemax.Parse(data, path); err != nil {
+		var err error
+		if doc, err = schemax.Parse(data, path); err != nil {
 			reason = "the schema file could not be parsed: " + err.Error()
 		}
 	}
 	if reason != "" {
 		return &SchemaContent{Properties: []schemax.Property{}, Unavailable: capLen(reason, maxRuntimeValueLen)}
 	}
-	src, total, trunc := boundSlice(schemax.Properties(data, path), MaxDetailPreview)
+	src, total, trunc := boundSlice(doc.Properties(), MaxDetailPreview)
 	props := make([]schemax.Property, len(src))
 	for i, p := range src {
 		props[i] = schemax.Property{
 			Key: capLen(p.Key, maxRuntimeValueLen), Value: capLen(p.Value, maxRuntimeValueLen), Type: capLen(p.Type, maxRuntimeValueLen),
 		}
 	}
-	title, desc := schemax.Meta(data, path)
+	title, desc := doc.Meta()
 	return &SchemaContent{
 		Title: capLen(title, maxRuntimeValueLen), Description: capLen(desc, maxRuntimeValueLen),
 		Properties: props, Total: total, Truncated: trunc,
 	}
 }
 
-// readRevisionFile reads one bundle file under maxSchemaBytes, or says why it
-// cannot.
-func readRevisionFile(rev *ContractRevision, path string) ([]byte, string) {
+// readBundleFile reads one file of rev's bundle, at most max bytes, or says
+// why it cannot. rev must be the SNAPSHOT record (see [revisionSchema]).
+func readBundleFile(rev *ContractRevision, path string, max int) ([]byte, string) {
 	if rev.docConflict != "" {
 		return nil, rev.docConflict
 	}
 	if rev.bundle == nil || rev.bundle.FS == nil {
-		return nil, "the bundle files were not kept for this revision"
+		return nil, "this revision's bundle filesystem is not retained in the snapshot"
 	}
 	f, err := rev.bundle.FS.Open(path)
 	if err != nil {
-		return nil, "the schema file could not be read: " + err.Error()
+		return nil, "the file could not be read: " + err.Error()
 	}
 	defer f.Close() //nolint:errcheck // read-only
-	data, err := io.ReadAll(io.LimitReader(f, maxSchemaBytes+1))
+	// One byte past the bound, so "exactly at the bound" and "over it" are
+	// distinguishable without trusting a reported file size.
+	data, err := io.ReadAll(io.LimitReader(f, int64(max)+1))
 	if err != nil {
-		return nil, "the schema file could not be read: " + err.Error()
+		return nil, "the file could not be read: " + err.Error()
 	}
-	if len(data) > maxSchemaBytes {
-		return nil, fmt.Sprintf("the schema file is larger than %d MiB", maxSchemaBytes>>20)
+	if len(data) > max {
+		return nil, fmt.Sprintf("it exceeds the %d-byte read bound", max)
 	}
 	return data, ""
 }
