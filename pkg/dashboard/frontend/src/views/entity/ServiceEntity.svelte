@@ -251,7 +251,7 @@
   </div>
 
   <div class="se-wrap" data-testid="service-delivery">
-    <ServiceDelivery service={self} state={deliveryState} {refreshTick} />
+    <ServiceDelivery service={self} domain={detail.entity?.domain ?? ''} state={deliveryState} {refreshTick} />
   </div>
 
   <div class="se-grid se-grid--two">

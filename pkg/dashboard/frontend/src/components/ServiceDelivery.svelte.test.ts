@@ -54,13 +54,28 @@ describe('ServiceDelivery', () => {
     environments.mockResolvedValue(answer([row(), row({ service: 'orders-api', stage: 'orders-api', version: '9.9.9' })]));
     const v = render({});
     await settle();
-    expect(environments).toHaveBeenCalledWith({ service: 'orders', limit: 1 });
+    expect(environments).toHaveBeenCalledWith({ service: 'orders', domain: '', limit: 1 });
     expect(v.target.textContent).toContain('2.4.0');
     expect(v.target.textContent).not.toContain('9.9.9');
     const link = v.target.querySelector('[data-testid="service-delivery-row"] a') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=orders');
     expect(v.target.querySelector('a[href="#/delivery/history?q=orders"]')?.textContent).toContain('Delivery history');
     expect(v.target.querySelector('a[href="#/delivery/environments?q=orders"]')?.textContent).toContain('Open in Delivery');
+    v.destroy();
+  });
+
+  it('same-named services in two domains never share Stages', async () => {
+    environments.mockResolvedValue(answer([
+      row({ domain: 'ghcr.io/a', version: '1.0.0' }),
+      row({ domain: 'ghcr.io/b', stage: 'orders-b', version: '2.0.0' }),
+      row({ stage: 'orders-any', version: '3.0.0' }),
+    ]));
+    const v = render({ domain: 'ghcr.io/a' });
+    await settle();
+    expect(environments).toHaveBeenCalledWith({ service: 'orders', domain: 'ghcr.io/a', limit: 1 });
+    expect(v.target.textContent).toContain('1.0.0');
+    expect(v.target.textContent).not.toContain('2.0.0');
+    expect(v.target.textContent).toContain('3.0.0'); // names no domain, so it matches any
     v.destroy();
   });
 

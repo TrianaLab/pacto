@@ -1576,6 +1576,8 @@ export interface components {
             candidate?: string;
             /** @description The version the candidate's contract declares, when the artifact could be read */
             candidateVersion?: string;
+            /** @description The registry domain the Stage names for its service; empty when it names none */
+            domain?: string;
             environment: string;
             /** @description The running digest failed here */
             failed: boolean;
@@ -4192,6 +4194,8 @@ export interface operations {
                 tier?: "dev" | "test" | "prod";
                 /** @description Keep only the Stages of the service with exactly this name */
                 service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
             };
             header?: never;
             path?: never;

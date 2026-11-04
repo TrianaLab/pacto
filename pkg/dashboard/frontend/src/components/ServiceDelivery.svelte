@@ -11,17 +11,21 @@
 
   // A service's Stages on its page, with the same badges as the Delivery board.
   // `state` is whether this dashboard serves delivery: only 'enabled' asks.
-  let { service = '', state = 'unknown', refreshTick = 0 } = $props();
+  // `domain` is the service's registry domain: same-named services in two
+  // domains are two services, and a Stage naming one is not the other's.
+  let { service = '', domain = '', state = 'unknown', refreshTick = 0 } = $props();
 
   // Paging counts services, so one service is one page. The exact `service`
-  // filter already returns only its Stages; the row guard keeps it that way.
-  const loader = createProductLoader(() => api.deliveryEnvironments({ service, limit: 1 }));
-  $effect(() => { if (state === 'enabled') loader.sync(`${service}@@${refreshTick}`, service); });
+  // and `domain` filter already returns only its Stages; the row guard keeps it
+  // that way. A Stage that names no domain matches any.
+  const tag = $derived(`${domain}/${service}`);
+  const loader = createProductLoader(() => api.deliveryEnvironments({ service, domain, limit: 1 }));
+  $effect(() => { if (state === 'enabled') loader.sync(`${tag}@@${refreshTick}`, tag); });
   onDestroy(() => loader.destroy());
 
   // Rows on hand stay while a refresh of the same service is in flight.
-  const data = $derived(loader.dataTag === service ? loader.data : null);
-  const rows = $derived((data?.environments ?? []).filter((r) => r.service === service));
+  const data = $derived(loader.dataTag === tag ? loader.data : null);
+  const rows = $derived((data?.environments ?? []).filter((r) => r.service === service && (!r.domain || r.domain === domain)));
 </script>
 
 {#snippet links()}

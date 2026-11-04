@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -228,4 +230,29 @@ func TestEnvironmentsServiceFilter(t *testing.T) {
 	expect(t, len(envs["environments"].([]any)) == 2, "service and a matching q intersect: %v", envs)
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?service=orders&q=api", nil)
 	expect(t, len(envs["environments"].([]any)) == 0 && page(envs["page"])["total"] == float64(0), "service and q intersect: %v", envs)
+}
+
+// TestEnvironmentsServiceDomainFilter: same-named services in two registry
+// domains never share Stages; a Stage that names no domain matches either.
+func TestEnvironmentsServiceDomainFilter(t *testing.T) {
+	inDomain := func(env, domain string) delivery.StageObject {
+		st := stage(env, "payments-"+env, "payments", delivery.StageStatus{})
+		st.Spec.Service.Domain = domain
+		return st
+	}
+	f := &fakeDelivery{caller: person(), stages: []delivery.StageObject{
+		inDomain("a", "ghcr.io/a"), inDomain("b", "ghcr.io/b"), inDomain("any", ""),
+	}}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	for domain, want := range map[string][]string{"ghcr.io/a": {"a", "any"}, "ghcr.io/b": {"any", "b"}, "": {"any"}} {
+		_, envs := call(t, http.MethodGet, base+"/api/delivery/environments?service=payments&domain="+url.QueryEscape(domain), nil)
+		var got []string
+		for _, r := range envs["environments"].([]any) {
+			row := page(r)
+			expect(t, row["domain"] == nil || row["domain"] == domain, "%q: row of another domain: %v", domain, row)
+			got = append(got, row["environment"].(string))
+		}
+		slices.Sort(got)
+		expect(t, slices.Equal(got, want), "%q: environments %v, want %v", domain, got, want)
+	}
 }
