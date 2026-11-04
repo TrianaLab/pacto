@@ -1,5 +1,5 @@
 <script>
-  import { fleetGraphFocusUrl, fleetEntityListUrl, fleetAttentionUrl } from '../../lib/router.ts';
+  import { fleetGraphFocusUrl, fleetEntityListUrl, fleetAttentionUrl, fleetServicesUrl } from '../../lib/router.ts';
   import { abbreviateDigests } from '../../lib/format.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
@@ -47,9 +47,17 @@
   const allTargetsHref = $derived(fleetEntityListUrl('target', { service: key }));
   // This page is about one service, so its own name is dropped from the targets,
   // revisions and findings listed on it: a long name repeated on every row hides the
-  // part that differs (the environment, the version).
+  // part that differs. A target's name is its scope, kind and name; its environment is
+  // a column of its own.
   const self = $derived(detail.entity?.label ?? '');
   const own = (items) => (items ?? []).map((r) => inService(r, self));
+  // The contract this service runs: the newest revision in use, else the newest known.
+  const contract = $derived(
+    d.activeRevisions?.items?.[0] ? { ref: d.activeRevisions.items[0], note: 'Latest in use' }
+      : d.revisions?.items?.[0] ? { ref: d.revisions.items[0], note: 'Latest known' } : null,
+  );
+  const caps = $derived(d.capabilities ?? { items: [], total: 0, count: 0 });
+  const unresolved = $derived(d.unresolvedDependencies?.items ?? []);
   const findings = $derived((d.findings?.items ?? []).map((it) => (it.entity ? { ...it, entity: inService(it.entity, self) } : it)));
 
   const sum = $derived(d.summary ?? {});
@@ -89,11 +97,44 @@
       {/if}
     </div>
     {#if d.ownership}
-      <div class="se-fact">
+      <div class="se-fact" data-testid="service-owner">
         <span class="se-k">Owner</span>
-        <OwnershipFact ownership={d.ownership} />
+        <!-- Both unowned states lead to this service's own `unowned` attention item,
+             the population the fleet counts it in. -->
+        <OwnershipFact ownership={d.ownership} unownedHref={fleetAttentionUrl({ service: key, category: 'unowned' })} declaredIn={d.ownerRevision ? inService(d.ownerRevision, self) : null} />
       </div>
     {/if}
+    <div class="se-fact" data-testid="service-contract">
+      <span class="se-k">Contract</span>
+      {#if contract}
+        <EntityLink ref={inService(contract.ref, self)} showStatus={false} showKind={false} />
+        <span class="se-note">{contract.note}</span>
+      {:else}
+        <span class="se-none">No known revision</span>
+      {/if}
+    </div>
+    <div class="se-fact" data-testid="service-capabilities">
+      <span class="se-k">Capabilities</span>
+      {#if (caps.items ?? []).length}
+        <ul class="se-chips">
+          {#each caps.items as c (c)}<li><a class="se-chip" href={fleetServicesUrl({ capability: c })}>{c}</a></li>{/each}
+          {#if caps.truncated}<li class="se-note">+{(caps.total ?? 0) - (caps.count ?? 0)} more</li>{/if}
+        </ul>
+      {:else}
+        <span class="se-none">None declared</span>
+      {/if}
+    </div>
+    <div class="se-fact" data-testid="service-sources">
+      <span class="se-k">Seen by</span>
+      {#if (d.sources?.items ?? []).length}
+        <ul class="se-chips">
+          {#each d.sources.items as src (src.key)}<li><EntityLink ref={src} showStatus={false} showKind={false} /></li>{/each}
+          {#if d.sources.truncated}<li class="se-note">+{d.sources.total - d.sources.count} more</li>{/if}
+        </ul>
+      {:else}
+        <span class="se-none">No source</span>
+      {/if}
+    </div>
   </section>
 
   {#if d.ownership?.conflicts?.count}
@@ -165,11 +206,13 @@
        The two lists a reader almost always wants -- what is running, and which revisions
        it is running -- stay open; the exhaustive variants of the same lists open on
        request. -->
-  <!-- Targets get the full width: their names are environment, kind and service
-       together, and a third of the page cut them into four lines. -->
-  <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} viewAllHref={allTargetsHref} viewAllLabel="View all targets" empty="No running target observed.">
-    <EntityRefList items={own(d.deployments?.items)} showKind={false} clip />
-  </PreviewSection>
+  <!-- Targets get the full width: a target's name is its scope, kind and name, and its
+       environment is a column of its own beside it. -->
+  <div class="se-wrap" data-testid="service-targets">
+    <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} viewAllHref={allTargetsHref} viewAllLabel="View all targets" empty="No running target observed.">
+      <EntityRefList items={own(d.deployments?.items)} showKind={false} env />
+    </PreviewSection>
+  </div>
 
   <div class="se-grid se-grid--two">
     <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No running target matches a revision yet." help="The revisions at least one running target is matched to. Newest first.">
@@ -187,20 +230,39 @@
 
   <!-- Full width, like targets: a revision's name is the service's name and its version,
        and a third of the page cut a long service name into four lines. -->
+  <div class="se-wrap" data-testid="service-all-revisions">
   <PreviewSection title="All revisions" collapsible open={noneInUse} summary="Every revision Pacto knows, in use or not" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No known revisions."
     help="Newest first, whether or not anything is running them. Readiness is declared per revision. Open one to see its gate.">
     <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
          declared per revision and gated per revision. Rolling it up here would invent
          a third definition of readiness, so the service page points at the one that
          already exists instead. -->
-    <EntityRefList items={own(d.revisions?.items)} showStatus={false} />
+    <EntityRefList items={own(d.revisions?.items)} showStatus={false} showDate />
   </PreviewSection>
+  </div>
 
   <div class="se-grid se-grid--two">
-    <PreviewSection title="Expected dependencies" help="Declared in the contract." total={d.dependencies?.total ?? 0} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependencies, false) || 'No declared dependencies.'}>
-      <EntityRefList items={d.dependencies?.items ?? []} showStatus={false} />
-      {#if d.hiddenDependencies}<p class="se-hidden t-body-2" data-testid="hidden-dependencies">{hidden(d.hiddenDependencies, true)}</p>{/if}
-    </PreviewSection>
+    <!-- The total is every declared dependency: the ones a fleet service provides, the
+         external and unresolved ones listed under them, and those hidden by permissions. -->
+    <div class="se-wrap" data-testid="service-dependencies">
+      <PreviewSection title="Expected dependencies" help="Declared in the contract. External ones are delivered outside Pacto; unresolved ones match nothing Pacto knows." total={sum.declaredDependencies ?? 0} count={(d.dependencies?.count ?? 0) + unresolved.length} truncated={d.dependencies?.truncated || d.unresolvedDependencies?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependencies, false) || 'No declared dependencies.'}>
+        <EntityRefList items={d.dependencies?.items ?? []} showStatus={false} />
+        {#if unresolved.length}
+          <ul class="se-unresolved">
+            {#each unresolved as u (u.ref)}
+              <li data-testid="unresolved-dependency">
+                {#if u.external}
+                  <IdentityBadge label="external" />{' '}<code>{u.requestedRef || u.ref}</code>{#if u.version}{' '}<span class="se-note">{u.version}</span>{/if}
+                {:else}
+                  <IdentityBadge label="unresolved" tone="warn" title={u.reason || ''} />{' '}<code>{u.requestedRef || u.ref}</code>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if d.hiddenDependencies}<p class="se-hidden t-body-2" data-testid="hidden-dependencies">{hidden(d.hiddenDependencies, true)}</p>{/if}
+      </PreviewSection>
+    </div>
 
     <PreviewSection title="Dependents" help="Services that declare this one." total={d.dependents?.total ?? 0} count={d.dependents?.count ?? 0} truncated={d.dependents?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependents, false) || 'Nothing depends on this service.'}>
       <EntityRefList items={d.dependents?.items ?? []} showStatus={false} />
@@ -227,7 +289,16 @@
   .svc-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
   .se-hidden { margin: var(--sp-2) 0 0; color: var(--c-text-3); }
   .se-facts { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
-  .se-fact { display: flex; align-items: center; gap: var(--sp-2); }
+  /* A long chip list wraps inside its fact rather than widening the page. */
+  .se-fact { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; max-width: 100%; }
+  .se-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1); min-width: 0; }
+  .se-chip { display: inline-block; font-size: var(--text-xs); padding: 2px 8px; border-radius: var(--radius-xs); color: var(--c-text); background: var(--c-surface-inset); border: 1px solid var(--c-border); text-decoration: none; overflow-wrap: anywhere; }
+  .se-chip:hover { color: var(--c-accent); border-color: var(--c-accent); }
+  .se-note { color: var(--c-text-3); font-size: var(--text-xs); }
+  .se-none { color: var(--c-text-3); }
+  .se-wrap { display: contents; }
+  .se-unresolved { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+  .se-unresolved li { padding: var(--sp-1) var(--sp-2); overflow-wrap: anywhere; }
   .se-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .se-conflicts {
     display: flex; flex-direction: column; gap: var(--sp-2);

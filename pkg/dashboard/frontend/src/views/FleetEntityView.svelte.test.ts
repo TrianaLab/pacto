@@ -296,7 +296,8 @@ describe('FleetEntityView — rich service page (D)', () => {
     const targets = listUnder('Operational targets');
     // Full width: outside the card grids, so a long target name is not cut into four lines.
     expect(targets.closest('.se-grid')).toBeNull();
-    expect(targets.classList.contains('ref-clip')).toBe(true);
+    // Targets lay out in columns (name, then environment); the columns ellipsize a long name.
+    expect(targets.classList.contains('pl-list--cols')).toBe(true);
     // The whole name stays in the title of the clipped label.
     expect(targets.querySelector('.ei-label')?.getAttribute('title')).toBeTruthy();
     // A revision's version is at the end of its name, so revision lists never clip.

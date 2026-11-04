@@ -26,6 +26,8 @@ import RelationshipList from './RelationshipList.svelte';
 import FindingList from './FindingList.svelte';
 // @ts-expect-error
 import PageHeader from './PageHeader.svelte';
+// @ts-expect-error
+import OwnershipFact from './OwnershipFact.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
 let target: HTMLElement;
@@ -374,6 +376,41 @@ describe('KnowledgeBanner names its own subject', () => {
 
     comp = mount(KnowledgeBanner, { target, props: { knowledge: snapshotKnowledge(null), noun: 'page' } });
     expect((target.textContent || '').replace(/\s+/g, ' ')).toContain('It did not report how complete it is, so this page may be incomplete.');
+  });
+});
+
+describe('OwnershipFact', () => {
+  const norm = () => (target.textContent || '').replace(/\s+/g, ' ').trim();
+  const owner = { kind: 'owner', key: 'team/a', label: 'team/a', href: '/fleet/owners/team%2Fa' };
+
+  // What the revision and target pages pass: no new props, so nothing may change there.
+  it('renders the three existing states as before when given only ownership', () => {
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: false } } });
+    expect(norm()).toBe('No declared owner');
+    expect(target.querySelector('a')).toBeNull();
+    unmount(comp);
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: true, ref: owner } } });
+    expect(target.querySelector('a')?.getAttribute('href')).toBe('#/fleet/owners/team%2Fa');
+    expect(norm()).not.toContain('Declared in');
+    unmount(comp);
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: true } } });
+    expect(norm()).toBe('Ownership declared No Team or DRI identity');
+    unmount(comp);
+    // Unknown without a destination stays text.
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: false, unknown: true } } });
+    expect(norm()).toBe('Owner unknown');
+    expect(target.querySelector('a')).toBeNull();
+  });
+
+  it('links only the unowned states to unownedHref', () => {
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: false }, unownedHref: '#/x' } });
+    expect(target.querySelector('a')?.getAttribute('href')).toBe('#/x');
+    unmount(comp);
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: false, unknown: true }, unownedHref: '#/x' } });
+    expect(target.querySelector('a')?.textContent).toBe('Owner unknown');
+    unmount(comp);
+    comp = mount(OwnershipFact, { target, props: { ownership: { declared: true }, unownedHref: '#/x' } });
+    expect(target.querySelector('a')).toBeNull();
   });
 });
 

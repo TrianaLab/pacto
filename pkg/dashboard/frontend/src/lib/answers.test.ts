@@ -24,6 +24,16 @@ describe('postureAnswer', () => {
   it('says nothing runs when nothing runs', () => {
     expect(postureAnswer({ targets: 0 }).lead).toBe('Nothing running yet.');
   });
+  it('never says healthy while evidence is stale or missing', () => {
+    expect(postureAnswer({ targets: 2, compliance: { compliant: 2 }, evidence: { stale: 1 } }))
+      .toEqual({ tone: 'warn', lead: 'Needs a look.', rest: '1 running target has stale evidence.' });
+    expect(postureAnswer({ targets: 2, compliance: { compliant: 2 }, evidence: { withoutEvidence: 1 } }).rest)
+      .toBe('1 running target was never observed.');
+    expect(postureAnswer({ targets: 2, compliance: { compliant: 2 }, evidence: { stale: 0, withoutEvidence: 0 } }).lead).toBe('Healthy.');
+    // An owner or domain summary carries the same evidence window, so its answer changes too.
+    const owner = { services: 3, targets: 4, compliance: { compliant: 4 }, evidence: { stale: 2 } };
+    expect(postureAnswer(owner).lead).toBe('Needs a look.');
+  });
   it('joins without an Oxford comma', () => {
     expect(joinAnd(['a', 'b', 'c'])).toBe('a, b and c');
   });

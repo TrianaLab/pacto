@@ -231,7 +231,9 @@ describe('FleetOverview — every band draws a complete population', () => {
     // once: a sentence restating it under the bars put the same number on the page twice.
     expect(posture).toMatch(/Exact\s*3\b/);
     // A proportion is a way in, not a picture.
-    expect(linkIn(target, 'ov-posture', 'Ambiguous')?.getAttribute('href')).toBe('#/fleet/attention?category=unresolved');
+    // Revision-match buckets have no list to open: attention `unresolved` is about
+    // dependencies, so Ambiguous stays plain text.
+    expect(linkIn(target, 'ov-posture', 'Ambiguous')).toBeFalsy();
     unmount(component); document.body.removeChild(target);
   });
 

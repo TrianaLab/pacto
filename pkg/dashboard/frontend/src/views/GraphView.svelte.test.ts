@@ -663,6 +663,25 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('names external dependencies in the fold of dependencies outside the graph', async () => {
+    neighborhoodFn.mockResolvedValue(neighborhood({
+      unresolvedDependencies: { total: 2, count: 2, truncated: false, items: [
+        { from: ref('service', 'domain-a/web', 'web'), ref: 'oci://reg/db', external: true, version: '15' },
+        { from: ref('service', 'domain-a/web', 'web'), ref: 'ghost', requestedRef: 'oci://x/ghost', reason: 'no provider' },
+      ] },
+    }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-unresolved"]')).toBeTruthy());
+    const fold = q(target, '[data-testid="graph-unresolved"]')!;
+    expect(q(fold, '.gv-fold-title')?.textContent).toBe('Dependencies outside the graph');
+    expect(fold.textContent).toContain('Declared, with no known service to draw. External ones are delivered outside Pacto; unresolved ones match nothing Pacto knows.');
+    const rows = qa(fold, '[data-testid="graph-unresolved-list"] li').map((li) => (li.textContent ?? '').replace(/\s+/g, ' '));
+    expect(rows[0]).toContain('declares external oci://reg/db');
+    expect(q(fold, '[data-testid="graph-unresolved-list"] li .tag')?.textContent).toBe('external');
+    expect(rows[1]).toContain('declares oci://x/ghost: no provider');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('Reset focus returns to the discovery state', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-reset"]')).toBeTruthy());

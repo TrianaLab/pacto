@@ -425,13 +425,31 @@ describe('PostureBars', () => {
     expect(hrefs.every((h) => h?.includes('service=svc'))).toBe(true);
     expect(hrefs).toContain('#/fleet/attention?service=svc&category=non-compliant');
     expect(hrefs).toContain('#/fleet/attention?service=svc&category=unknown');
-    expect(hrefs).toContain('#/fleet/attention?service=svc&category=unresolved');
     expect(hrefs).toContain('#/fleet/attention?service=svc&category=stale');
     // Compliant and Exact have no destination by design: there is no list of things
     // that are fine, and inventing one would be a dead link.
     const linked = Array.from(target.querySelectorAll('.dist-legend a')).map((a) => a.textContent || '');
     expect(linked.some((t) => t.includes('Compliant') && !t.includes('Non-compliant'))).toBe(false);
     expect(linked.some((t) => t.startsWith('Exact'))).toBe(false);
+  });
+
+  // Attention `unresolved` lists unresolved DEPENDENCIES, so a revision-match bucket
+  // linking there opened a list of something else.
+  it('never links the Ambiguous or Unresolved revision-match buckets', () => {
+    comp = mount(PostureBars, {
+      target,
+      props: {
+        summary: { ...posture, links: { exact: 3, ambiguous: 1, unresolved: 2 } },
+        attentionUrl: (c: string) => `#/fleet/attention?category=${c}`,
+      },
+    });
+    const anchors = Array.from(target.querySelectorAll('.dist-legend a'));
+    const hrefs = anchors.map((a) => a.getAttribute('href') || '');
+    expect(hrefs.some((h) => h.includes('category=unresolved'))).toBe(false);
+    const linked = anchors.map((a) => a.textContent || '');
+    expect(linked.some((t) => t.includes('Ambiguous') || t.includes('Unresolved'))).toBe(false);
+    expect(hrefs).toContain('#/fleet/attention?category=non-compliant');
+    expect(hrefs).toContain('#/fleet/attention?category=stale');
   });
 
   it('renders plain text, not dead links, when the caller has no scoped destination', () => {
