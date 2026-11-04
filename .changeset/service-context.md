@@ -7,7 +7,10 @@ the contract it runs, its capabilities and the sources that saw it, and the owne
 reads Owner unknown when Pacto could not read any of its contracts. Expected
 dependencies list external and unresolved dependencies, and operational targets
 show their environment. A Delivery section lists the service's Stages, found
-through new exact `service` and `domain` filters on `/api/delivery/environments`. The
+through new exact `service` and `domain` filters on `/api/delivery/environments`
+and `/api/delivery/history`; its links open the board and the history narrowed
+to that service, and a Stage that names no domain is marked as matched by name
+only. The
 dependency drift counts dependencies outside their accepted range and those that
 cannot be observed, and a readiness bar tallies the service's revisions. When a
 revision is read from a registry, Pacto checks its bundle signature against the

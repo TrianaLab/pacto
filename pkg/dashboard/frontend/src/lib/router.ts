@@ -266,7 +266,7 @@ function parseFleet(path: string, query: string): Route {
 }
 
 // The URL state of a delivery list: which Stage, which page and the filter.
-const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'held', 'frozen', 'errored', 'blockers', 'show'];
+const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain'];
 
 function parseDelivery(path: string, query: string): Route {
   const rest = path.slice('delivery'.length).replace(/^\//, '');
@@ -282,6 +282,8 @@ function parseDelivery(path: string, query: string): Route {
   }
   // One Stage's history needs both halves of its name.
   if (!params.namespace || !params.stage) { delete params.namespace; delete params.stage; }
+  // A domain only narrows an exact service.
+  if (!params.service) delete params.domain;
   const views: Record<string, Route['view']> = {
     environments: 'delivery-environments', autonomy: 'delivery-autonomy', publish: 'delivery-publish', history: 'delivery-history',
   };

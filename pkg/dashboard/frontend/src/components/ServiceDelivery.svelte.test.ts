@@ -59,8 +59,9 @@ describe('ServiceDelivery', () => {
     expect(v.target.textContent).not.toContain('9.9.9');
     const link = v.target.querySelector('[data-testid="service-delivery-row"] a') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=orders');
-    expect(v.target.querySelector('a[href="#/delivery/history?q=orders"]')?.textContent).toContain('Delivery history');
-    expect(v.target.querySelector('a[href="#/delivery/environments?q=orders"]')?.textContent).toContain('Open in Delivery');
+    expect(v.target.querySelector('a[href="#/delivery/history?service=orders"]')?.textContent).toContain('Delivery history');
+    expect(v.target.querySelector('a[href="#/delivery/environments?service=orders"]')?.textContent).toContain('Open in Delivery');
+    expect(v.target.querySelector('[data-testid="service-delivery-nodomain"]')).toBeNull(); // no domain, nothing to tell apart
     v.destroy();
   });
 
@@ -76,6 +77,14 @@ describe('ServiceDelivery', () => {
     expect(v.target.textContent).toContain('1.0.0');
     expect(v.target.textContent).not.toContain('2.0.0');
     expect(v.target.textContent).toContain('3.0.0'); // names no domain, so it matches any
+    // ...and only that row says the match is by name only.
+    const notes = [...v.target.querySelectorAll('[data-testid="service-delivery-nodomain"]')];
+    expect(notes.length).toBe(1);
+    expect(notes[0].closest('[data-testid="service-delivery-row"]')?.textContent).toContain('3.0.0');
+    expect(notes[0].textContent).toContain('Stage names no domain: matched by service name only');
+    // The links carry the same exact service and domain.
+    expect(v.target.querySelector('a[href="#/delivery/history?service=orders&domain=ghcr.io%2Fa"]')).not.toBeNull();
+    expect(v.target.querySelector('a[href="#/delivery/environments?service=orders&domain=ghcr.io%2Fa"]')).not.toBeNull();
     v.destroy();
   });
 

@@ -53,12 +53,17 @@ waiting. A Stage belongs to the service when its `spec.service.name` equals the
 service name exactly, so `orders` never shows the Stages of `orders-api`. A
 Stage that names a registry domain in `spec.service.domain` shows only on the
 page of the service in that domain. A Stage that names no domain shows on the
-page of every service with that name. When
+page of every service with that name. When the service has a domain, such a row
+reads **Stage names no domain**: the match is by service name only. When
 no Stage matches, the section says so: delivery is opt-in per service. When the
 dashboard does not serve delivery, the section says why, and when Pacto cannot
-reach the cluster it shows the error with a retry. The dashboard API filters
-Stages the same way with
-`/api/delivery/environments?service=<name>&domain=<registry domain>`.
+reach the cluster it shows the error with a retry.
+
+The **Delivery history** and **Open in Delivery** links open the delivery
+history and the environments board narrowed to the same Stages. Both pages name
+the service they show and link back to every service. The dashboard API filters
+Stages the same way with the `service` and `domain` parameters of
+`/api/delivery/environments` and `/api/delivery/history`.
 
 ## Readiness, policies and configuration
 

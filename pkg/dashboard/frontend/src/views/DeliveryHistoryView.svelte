@@ -20,6 +20,7 @@
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
+  import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
   import HelpTip from '../components/HelpTip.svelte';
 
   // What happened on each Stage: from its signed records where the recorder
@@ -28,15 +29,19 @@
   // one Stage's changes newest first, or every Stage as one line (by namespace
   // and name): its newest change, how it ended, how many changes it has and a
   // link to them.
-  let { namespace = '', stage = '', offset = '', limit = '', q = '', refreshTick = 0, miraURL = '' } = $props();
+  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', refreshTick = 0, miraURL = '' } = $props();
 
   const one = $derived(!!(namespace && stage));
+  // The exact service filter narrows every Stage; one Stage is already one.
+  const svc = $derived(one ? '' : service);
+  const dom = $derived(svc ? domain : '');
   const loader = createProductLoader(() => api.deliveryHistory(namespace, stage, {
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
+    service: svc || undefined, domain: dom || undefined,
   }));
-  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}`);
+  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${namespace}/${stage}@@${q}`);
+  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -45,7 +50,7 @@
   const histories = $derived(data?.histories ?? []);
   // One Stage pages its changes; every Stage pages the Stages.
   const page = $derived(one ? histories[0]?.entriesPage : data?.page);
-  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
+  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
   const version = (d) => versionLabel(d, data?.versions);
   // A level change moves between levels, named as Autonomy names them.
   const side = (en, d) => (en.type === AUTONOMY_TYPE ? (d ? levelLabel(d) : '') : version(d));
@@ -191,7 +196,8 @@
   </PageHeader>
   <DeliveryNav current="delivery-history" />
   {#if stage}<p class="t-body-2"><a class="hv-link" href={deliveryHistoryUrl()}>Show every Stage</a></p>{/if}
-  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v })} testid="history-filter"
+  <DeliveryServiceFilter service={svc} domain={dom} clear={deliveryHistoryUrl({ q })} />
+  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v, service: svc, domain: dom })} testid="history-filter"
     label={one ? 'Filter changes by person, change, outcome or reason' : 'Filter Stages by name or service'}
     placeholder={one ? 'Person, change, outcome or reason' : 'Stage or service'} />
 
@@ -207,7 +213,7 @@
       </p>
     {/if}
     {#if histories.length === 0}
-      <div class="state-box"><h2>{q ? 'Nothing matches the filter' : 'No history yet'}</h2><p>{q ? `No ${one ? 'change' : 'Stage'} you can see matches “${q}”.` : 'No Stage you can see has a change on record.'}</p></div>
+      <div class="state-box"><h2>{q || svc ? 'Nothing matches the filter' : 'No history yet'}</h2><p>{q ? `No ${one ? 'change' : 'Stage'} you can see matches “${q}”.` : svc ? `No Stage you can see belongs to ${svc}.` : 'No Stage you can see has a change on record.'}</p></div>
     {:else if !one}
       <div class="data-scroll">
         <table class="data-table hv-table" data-testid="history-summary">

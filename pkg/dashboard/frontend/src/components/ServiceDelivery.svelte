@@ -17,7 +17,9 @@
 
   // Paging counts services, so one service is one page. The exact `service`
   // and `domain` filter already returns only its Stages; the row guard keeps it
-  // that way. A Stage that names no domain matches any.
+  // that way. A Stage that names no domain matches any; when this service has
+  // a domain, its row says the match is by name only.
+  const NO_DOMAIN = 'matched by service name only, so it may be a same-named service in another domain';
   const tag = $derived(`${domain}/${service}`);
   const loader = createProductLoader(() => api.deliveryEnvironments({ service, domain, limit: 1 }));
   $effect(() => { if (state === 'enabled') loader.sync(`${tag}@@${refreshTick}`, tag); });
@@ -31,8 +33,8 @@
 {#snippet links()}
   {#if state === 'enabled'}
     <p class="t-body-2 sd-links">
-      <a href={deliveryHistoryUrl({ q: service })}>Delivery history</a>
-      <a href={deliveryEnvironmentsUrl({ q: service })}>Open in Delivery</a>
+      <a href={deliveryHistoryUrl({ service, domain })}>Delivery history</a>
+      <a href={deliveryEnvironmentsUrl({ service, domain })}>Open in Delivery</a>
     </p>
   {/if}
 {/snippet}
@@ -60,6 +62,7 @@
       <a href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })} title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
       <DeliveryBadges row={r} />
       {#if r.frozen && r.frozenReason}<span class="t-meta">Frozen: {sentence(r.frozenReason)}</span>{/if}
+      {#if domain && !r.domain}<span class="t-meta sd-nodomain" data-testid="service-delivery-nodomain" title={NO_DOMAIN}>Stage names no domain<span class="visually-hidden">: {NO_DOMAIN}</span></span>{/if}
       {#if r.candidate || r.candidateVersion}<span class="t-meta">Candidate {r.candidateVersion || shortDigest(r.candidate)}</span>{/if}
     </div>
   {/each}
@@ -70,5 +73,6 @@
 <style>
   .sd-row { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; padding: var(--sp-1) 0; }
   .sd-env { min-width: 8rem; font-weight: 600; }
+  .sd-nodomain { border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: 0 var(--sp-1); }
   .sd-links { display: flex; gap: var(--sp-3); margin: var(--sp-2) 0 0; }
 </style>

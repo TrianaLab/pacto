@@ -19,6 +19,7 @@
   import Select from '../components/Select.svelte';
   import ShowAll from '../components/ShowAll.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
+  import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import { cap } from '../lib/cap.svelte.ts';
 
@@ -28,15 +29,15 @@
   // keeps every environment as a column on every page. Past a few columns
   // each service is one row of status dots, one per environment, under a
   // rotated name and its tier; a dot opens the full cell.
-  let { offset = '', limit = '', q = '', environment = '', tier = '', refreshTick = 0, miraURL = '' } = $props();
+  let { offset = '', limit = '', q = '', environment = '', tier = '', service = '', domain = '', refreshTick = 0, miraURL = '' } = $props();
 
   const loader = createProductLoader(() => api.deliveryEnvironments({
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
-    environment: environment || undefined, tier: tier || undefined,
+    environment: environment || undefined, tier: tier || undefined, service: service || undefined, domain: domain || undefined,
   }));
-  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${environment}@@${tier}`);
+  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${environment}@@${tier}@@${domain}/${service}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${q}@@${environment}@@${tier}`);
+  const listQuestion = $derived(`${q}@@${environment}@@${tier}@@${domain}/${service}`);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -49,8 +50,8 @@
   const tiers = $derived(data?.environmentTiers ?? {});
   const shown = $derived(environment ? [environment] : tier ? environments.filter((e) => tiers[e] === tier) : environments);
   const tierOptions = $derived(['dev', 'test', 'prod'].filter((t) => Object.values(tiers).includes(t)));
-  const filtered = $derived(!!(q || environment || tier));
-  const go = (over) => { location.hash = deliveryEnvironmentsUrl({ q, environment, tier, ...over }); };
+  const filtered = $derived(!!(q || environment || tier || service));
+  const go = (over) => { location.hash = deliveryEnvironmentsUrl({ q, environment, tier, service, domain, ...over }); };
   // A column a person can read is 12rem: past four the board becomes the strip.
   // The strip's columns are one dot wide and fit their content, so the State
   // column takes the rest; 50 environments scroll sideways like the board does.
@@ -109,7 +110,7 @@
     return m;
   }, new Map()));
   const cell = (svc, env) => cells.get(`${svc}\u0000${env}`) ?? [];
-  const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
+  const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, service, domain, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
   // The '–' key is only worth reading when a '–' cell is on the page.
   const anyMissing = $derived(services.some((svc) => shown.some((env) => cell(svc, env).length === 0)));
   const serviceTotal = $derived(data?.page?.total ?? services.length);
@@ -190,8 +191,9 @@
     {/if}
   </PageHeader>
   <DeliveryNav current="delivery-environments" />
+  <DeliveryServiceFilter {service} {domain} clear={deliveryEnvironmentsUrl({ q, environment, tier })} />
   <div class="ev-tools">
-    <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v, environment, tier })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
+    <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v, environment, tier, service, domain })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
     <span class="ev-picks">
       {#if tierOptions.length > 1 || tier}
         <Select label="Tier" value={tier} options={[{ value: '', label: 'Every tier' }, ...tierOptions]} onchange={(e) => go({ tier: e.currentTarget.value, environment: '' })} />
@@ -209,7 +211,7 @@
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
     {#if rows.length === 0 && filtered}
-      <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{tier ? ` has a Stage in a ${tier} environment` : ''}.</p></div>
+      <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{service ? ` named ${service}` : ''}{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{tier ? ` has a Stage in a ${tier} environment` : ''}.</p></div>
     {:else if rows.length === 0}
       <div class="state-box" data-testid="environments-empty">
         <h2>No Stages yet</h2>

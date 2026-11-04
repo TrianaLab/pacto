@@ -4275,6 +4275,10 @@ export interface operations {
                 namespace?: string;
                 /** @description One Stage's name */
                 stage?: string;
+                /** @description Without a stage: keep only the Stages of the service with exactly this name */
+                service?: string;
+                /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
+                domain?: string;
                 /** @description Where the page starts. Past the end answers the last page */
                 offset?: number;
                 /** @description How many per page; 0 means the list's default */

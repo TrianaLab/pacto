@@ -73,6 +73,18 @@ test.describe('WASM demo — service context', () => {
     await expect(revConfig.locator('.kv-table tbody tr').first()).toBeVisible();
   });
 
+  test('the Delivery links open the board and the history narrowed to the exact service', async ({ page }) => {
+    await openPaymentsService(page);
+    const delivery = page.getByTestId('service-delivery');
+    await expect(delivery.getByRole('link', { name: 'Delivery history' })).toHaveAttribute('href', /^#\/delivery\/history\?service=payments-service(&domain=|$)/, { timeout: T });
+    await delivery.getByRole('link', { name: 'Open in Delivery' }).click();
+    const filter = page.getByTestId('delivery-service-filter');
+    await expect(filter).toContainText('Only the Stages of payments-service', { timeout: T });
+    await filter.getByRole('link', { name: 'Show every service' }).click();
+    await expect(page.getByTestId('delivery-service-filter')).toHaveCount(0);
+    await expect(page).toHaveURL(/#\/delivery\/environments$/);
+  });
+
   test('the service and revision pages hold their layout at 1280px with a wide font', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await openPaymentsService(page);

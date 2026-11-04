@@ -383,6 +383,18 @@ describe('environments', () => {
     destroy();
   });
 
+  it('narrows to one exact service, keeps it across the filters and clears it', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: [], environments: [] });
+    const { target, destroy } = render(DeliveryEnvironmentsView, { service: 'payments', domain: 'ghcr.io/a', tier: 'prod' });
+    await settle();
+    expect(fns.environments).toHaveBeenCalledWith(expect.objectContaining({ service: 'payments', domain: 'ghcr.io/a', tier: 'prod' }));
+    const note = target.querySelector('[data-testid="delivery-service-filter"]') as HTMLElement;
+    expect(text(note)).toContain('Only the Stages of payments in ghcr.io/a.');
+    expect(note.querySelector('a')?.getAttribute('href')).toBe('#/delivery/environments?tier=prod');
+    expect(text(target)).toContain('No service you can see named payments');
+    destroy();
+  });
+
   it('narrows to one environment, keeps empty cells quiet and caps what Pacto would have done', async () => {
     const shadow = [{ candidate: D2, predicted: 'Proceeds' }];
     const row = (service: string, environment: string) => ({ namespace: environment, stage: `${service}-${environment}`, service, environment, verified: false, failed: false,
@@ -1380,6 +1392,27 @@ describe('history and published', () => {
     const { target, destroy } = render(DeliveryHistoryView, { q: 'nope' });
     await settle();
     expect(text(target)).toContain('Nothing matches the filter');
+    destroy();
+  });
+
+  it('narrows every Stage to one exact service and says how to clear it', async () => {
+    fns.history.mockResolvedValue({ ...listing, histories: [] });
+    const { target, destroy } = render(DeliveryHistoryView, { service: 'pay', domain: 'ghcr.io/a', q: 'x' });
+    await settle();
+    expect(fns.history).toHaveBeenCalledWith('', '', expect.objectContaining({ service: 'pay', domain: 'ghcr.io/a', q: 'x' }));
+    const note = target.querySelector('[data-testid="delivery-service-filter"]') as HTMLElement;
+    expect(text(note)).toContain('Only the Stages of pay in ghcr.io/a.');
+    expect(note.querySelector('a')?.getAttribute('href')).toBe('#/delivery/history?q=x');
+    expect(text(target)).toContain('Nothing matches the filter');
+    destroy();
+  });
+
+  it('one Stage ignores the service filter', async () => {
+    fns.history.mockResolvedValue({ ...listing, histories: [] });
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', service: 'pay' });
+    await settle();
+    expect(fns.history).toHaveBeenLastCalledWith('prod', 'pay', expect.not.objectContaining({ service: expect.anything() }));
+    expect(target.querySelector('[data-testid="delivery-service-filter"]')).toBeNull();
     destroy();
   });
 
