@@ -12,20 +12,20 @@ pacto fleet search --local examples/demo/bundles
   auth-service                 NotEvaluated owner=identity-team  revs=1 targets=0
   campaign-service             NotEvaluated owner=growth-team    revs=2 targets=0
   carrier-gateway              NotEvaluated owner=logistics-team revs=2 targets=0
-  catalog-service              NotEvaluated owner=catalog-team   revs=3 targets=0
+  catalog-service              NotEvaluated owner=catalog-team   revs=4 targets=0
   email-provider               NotEvaluated owner=-              revs=1 targets=0
   event-bus                    NotEvaluated owner=data-platform  revs=2 targets=0
   experiment-service           NotEvaluated owner=growth-team    revs=1 targets=0
   feature-store                NotEvaluated owner=data-platform  revs=1 targets=0
-  fraud-service                NotEvaluated owner=payments-team  revs=1 targets=0
+  fraud-service                NotEvaluated owner=payments-team  revs=2 targets=0
   frontend                     NotEvaluated owner=frontend-team  revs=1 targets=0
-  fulfillment-service          NotEvaluated owner=logistics-team revs=2 targets=0
-  inventory-service            NotEvaluated owner=catalog-team   revs=3 targets=0
+  fulfillment-service          NotEvaluated owner=logistics-team revs=3 targets=0
+  inventory-service            NotEvaluated owner=catalog-team   revs=4 targets=0
   loyalty-service              NotEvaluated owner=growth-team    revs=2 targets=0
   notification-worker          NotEvaluated owner=commerce-team  revs=1 targets=0
-  orders-service               NotEvaluated owner=commerce-team  revs=3 targets=0
+  orders-service               NotEvaluated owner=commerce-team  revs=4 targets=0
   pacto-demo                   NotEvaluated owner=platform-foundations revs=1 targets=0
-  payments-service             NotEvaluated owner=payments-team  revs=6 targets=0
+  payments-service             NotEvaluated owner=payments-team  revs=7 targets=0
   platform-app-config          NotEvaluated owner=platform-foundations revs=1 targets=0
   platform-http-policy         NotEvaluated owner=platform-foundations revs=1 targets=0
   platform-worker-config       NotEvaluated owner=platform-foundations revs=1 targets=0
@@ -37,7 +37,7 @@ pacto fleet search --local examples/demo/bundles
   returns-service              NotEvaluated owner=logistics-team revs=2 targets=0
   search-indexer               NotEvaluated owner=catalog-team   revs=1 targets=0
   shipping-rates               NotEvaluated owner=logistics-team revs=3 targets=0
-  storefront-web               Invalid      owner=frontend-team  revs=3 targets=0
+  storefront-web               Invalid      owner=frontend-team  revs=4 targets=0
   stripe-api                   NotEvaluated owner=external/stripe revs=1 targets=0
   support-assistant            NotEvaluated owner=support-team   revs=1 targets=0
   ticketing-service            NotEvaluated owner=support-team   revs=2 targets=0
