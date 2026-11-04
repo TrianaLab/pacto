@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -23,7 +24,19 @@ type OCISource struct {
 	resolver *oci.Resolver
 	store    oci.BundleStore
 	refs     []string
+	// Provenance, when set, checks what is attached to each revision's digest
+	// in the registry. Nil leaves revisions without provenance.
+	Provenance ProvenanceFunc
 }
+
+// ProvenanceFunc checks the signature and lists the referrers of the revision
+// read from ref by source, whose bundle declares c. It never fails: what it
+// cannot check it reports as unknown.
+type ProvenanceFunc func(ctx context.Context, source, ref string, c *contract.Contract) *fleet.BundleProvenance
+
+// provenanceBudget bounds all provenance checks of one Collect, so an
+// unreachable registry costs a refresh at most this long.
+const provenanceBudget = 20 * time.Second
 
 // NewOCISource returns an OCI-backed revision source over the given refs.
 func NewOCISource(id string, store oci.BundleStore, refs []string) *OCISource {
@@ -41,7 +54,7 @@ func (s *OCISource) Kind() string { return "oci" }
 
 // Collect resolves each configured ref into a revision.
 func (s *OCISource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	return collectRefs(ctx, s.id, s.resolver, s.store, s.refs)
+	return collectRefs(ctx, s.id, s.resolver, s.store, s.refs, s.Provenance)
 }
 
 // CacheSource enumerates every bundle in the local OCI disk cache and includes
@@ -106,8 +119,14 @@ func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 
 // collectRefs resolves refs into revisions, turning per-ref failures into
 // record-level limitations so a partial result is never mistaken for empty.
-func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []string) (*fleet.Collection, error) {
+func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []string, check ProvenanceFunc) (*fleet.Collection, error) {
 	col := &fleet.Collection{}
+	pctx := ctx
+	if check != nil {
+		var cancel context.CancelFunc
+		pctx, cancel = context.WithTimeout(ctx, provenanceBudget)
+		defer cancel()
+	}
 	for _, ref := range refs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -138,7 +157,11 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		// OTHER reference is a miss there rather than an answer. A branch here for
 		// "the record named a different reference" restated that rule as its
 		// opposite and could never run.
-		col.Revisions = append(col.Revisions, revisionOf(ref, concrete, rec, bundle))
+		rev := revisionOf(ref, concrete, rec, bundle)
+		if check != nil {
+			rev.Provenance = check(pctx, id, rev.ResolvedRef, bundle.Contract)
+		}
+		col.Revisions = append(col.Revisions, rev)
 	}
 	return col, nil
 }

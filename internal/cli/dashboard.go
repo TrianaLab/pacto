@@ -564,7 +564,9 @@ func dashboardFleetOptions(dir string, repos []string, namespace string, observa
 	// defaults the window off because there a human picks --freshness per query;
 	// a long-running dashboard has nobody to ask, and "never evaluated" is not a
 	// safe thing to render as fresh.
-	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow}
+	// One provenance checker for the dashboard's life: every refresh copies
+	// these options and keeps the pointer, so its memo outlives each refresh.
+	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker()}
 	if det.local && dir != "" {
 		fopts.LocalRoots = []string{dir}
 	}

@@ -27,6 +27,14 @@ const (
 	maxReferrers  = 256
 )
 
+// VerifyDigest's outcomes a caller can tell apart: no signature referrer was
+// found, or every signature read failed verification and none was unreadable.
+// Any other error means the check could not be completed.
+var (
+	ErrNoSignature      = errors.New("no signature")
+	ErrSignatureInvalid = errors.New("no signature verifies")
+)
+
 // Signer signs a DSSE payload into a Sigstore bundle (pkg/signing.Signer).
 type Signer = delivery.Signer
 
@@ -58,7 +66,9 @@ func SignDigest(ctx context.Context, reg Registry, s Signer, repo, digest string
 }
 
 // VerifyDigest returns nil when one of repo@digest's signature referrers
-// verifies, and otherwise why none did.
+// verifies, and otherwise why none did: ErrNoSignature when none is a
+// signature, ErrSignatureInvalid when signatures were read and none verified
+// with nothing left unread, and a plain error otherwise.
 func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo, digest string) error {
 	h, err := v1.NewHash(digest)
 	if err != nil {
@@ -70,6 +80,7 @@ func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo
 		return err
 	}
 	var why []string
+	unreadable, invalid := false, 0
 	// ponytail: attestations cost a fetch each before their annotation says
 	// so; maxReferrers bounds that work, maxSignatures the signatures checked.
 	seen := 0
@@ -77,11 +88,13 @@ func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo
 		if i == maxReferrers || seen == maxSignatures {
 			why = append(why, fmt.Sprintf("%d referrers were not read: one check reads at most %d referrers and %d signatures",
 				len(refs)-i, maxReferrers, maxSignatures))
+			unreadable = true
 			break
 		}
 		bundle, ann, err := reg.Layer(ctx, repo, r)
 		if err != nil {
 			why = append(why, r+": "+err.Error()) // one unreadable referrer hides no other
+			unreadable = true
 			continue
 		}
 		if ann[deliveryrecord.AnnPredicateType] != SignPredicate {
@@ -96,12 +109,16 @@ func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo
 		}
 		if err != nil {
 			why = append(why, r+": "+err.Error())
+			invalid++
 			continue
 		}
 		return nil
 	}
 	if len(why) == 0 {
-		return errors.New("no signature")
+		return ErrNoSignature
+	}
+	if invalid > 0 && !unreadable {
+		return fmt.Errorf("%w: %s", ErrSignatureInvalid, strings.Join(why, "; "))
 	}
 	return errors.New("no signature verifies: " + strings.Join(why, "; "))
 }

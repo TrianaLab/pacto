@@ -157,6 +157,21 @@ func (c *Client) Referrers(ctx context.Context, repo, digest, artifactType strin
 	return out, nil
 }
 
+// ReferrerDescriptors lists every referrer of repo@digest, unfiltered, with
+// its artifact type and annotations as the registry reports them.
+func (c *Client) ReferrerDescriptors(ctx context.Context, repo, digest string) ([]v1.Descriptor, error) {
+	var idx v1.ImageIndex
+	err := c.oci.Do(ctx, repo+"@"+digest, func(r name.Reference, opts []remote.Option) (err error) {
+		idx, err = remote.Referrers(r.(name.Digest), opts...)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	m, _ := idx.IndexManifest() // Referrers parsed the index already
+	return append([]v1.Descriptor{}, m.Manifests...), nil
+}
+
 // maxLayer bounds what Layer reads: a signature bundle is a few kilobytes.
 const maxLayer = 4 << 20
 

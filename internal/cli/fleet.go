@@ -144,6 +144,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		IncludeK8s:         includeK8s,
 		K8sNamespace:       namespace,
 		FreshnessWindow:    freshness,
+		Provenance:         app.NewProvenanceChecker(),
 	}
 }
 
