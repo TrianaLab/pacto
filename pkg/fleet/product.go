@@ -89,6 +89,10 @@ type EntityRef struct {
 	// consumer can match a requested version to a canonical RevisionKey without parsing a
 	// label -- e.g. the legacy version-bookmark migration.
 	Version string `json:"version,omitempty"`
+	// FetchedAt is when a source read a REVISION reference's contract, set only
+	// for revision refs and only by sources that record it (local files and the
+	// catalog).
+	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
 	// Owner is who a SERVICE reference's revisions name, set only on list answers:
 	// the owner's label when they agree on one, "N owners claim it" when they do
 	// not, and empty when none declares an owner.
@@ -205,6 +209,7 @@ func revisionEntityRef(r *ContractRevision) EntityRef {
 	return EntityRef{
 		Kind: KindRevision, Key: string(r.Key), Label: label, Secondary: r.Digest,
 		Status: status, Domain: r.Domain, BusinessDomain: declaredBusinessDomain(r), ParentService: string(r.ServiceKey), Version: r.Version,
+		FetchedAt: copyTime(r.FetchedAt),
 	}
 }
 

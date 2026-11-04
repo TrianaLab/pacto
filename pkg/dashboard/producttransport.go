@@ -285,14 +285,16 @@ func toProductNeighborhood(nb *fleet.Neighborhood) *ProductNeighborhood {
 	for i, e := range nb.Edges {
 		out.Edges[i] = productEdge(e)
 	}
-	deps := make([]ProductUnresolvedDependency, len(nb.UnresolvedDependencies.Items))
-	for i, u := range nb.UnresolvedDependencies.Items {
+	out.UnresolvedDependencies = productUnresolvedDependencies(nb.UnresolvedDependencies)
+	return out
+}
+
+func productUnresolvedDependencies(p fleet.UnresolvedDependenciesPreview) ProductUnresolvedDependenciesPreview {
+	deps := make([]ProductUnresolvedDependency, len(p.Items))
+	for i, u := range p.Items {
 		deps[i] = ProductUnresolvedDependency{UnresolvedDependency: u, From: productRef(u.From)}
 	}
-	out.UnresolvedDependencies = ProductUnresolvedDependenciesPreview{
-		UnresolvedDependenciesPreview: nb.UnresolvedDependencies, Items: deps,
-	}
-	return out
+	return ProductUnresolvedDependenciesPreview{UnresolvedDependenciesPreview: p, Items: deps}
 }
 
 // ── entity detail (discriminated) ────────────────────────────────────────────
@@ -300,33 +302,39 @@ func toProductNeighborhood(nb *fleet.Neighborhood) *ProductNeighborhood {
 // ProductServiceDetail is the navigable service-kind detail payload.
 type ProductServiceDetail struct {
 	fleet.ServiceDetailData
-	Ownership       *ProductOwnership                   `json:"ownership,omitempty"`
-	Revisions       ProductRefPreview                   `json:"revisions"`
-	ActiveRevisions ProductRefPreview                   `json:"activeRevisions"`
-	Deployments     ProductRefPreview                   `json:"deployments"`
-	Dependencies    ProductRefPreview                   `json:"dependencies"`
-	Dependents      ProductRefPreview                   `json:"dependents"`
-	ReferencedBy    ProductRefPreview                   `json:"referencedBy"`
-	Relationships   ProductRelationshipsPreview         `json:"relationships"`
-	Findings        ProductAttributedFindingsPreview    `json:"findings"`
-	Evidence        ProductEvidencePreview              `json:"evidence"`
-	Limitations     ProductAttributedLimitationsPreview `json:"limitations"`
+	Ownership              *ProductOwnership                    `json:"ownership,omitempty"`
+	OwnerRevision          *ProductRef                          `json:"ownerRevision,omitempty"`
+	Sources                ProductRefPreview                    `json:"sources"`
+	UnresolvedDependencies ProductUnresolvedDependenciesPreview `json:"unresolvedDependencies"`
+	Revisions              ProductRefPreview                    `json:"revisions"`
+	ActiveRevisions        ProductRefPreview                    `json:"activeRevisions"`
+	Deployments            ProductRefPreview                    `json:"deployments"`
+	Dependencies           ProductRefPreview                    `json:"dependencies"`
+	Dependents             ProductRefPreview                    `json:"dependents"`
+	ReferencedBy           ProductRefPreview                    `json:"referencedBy"`
+	Relationships          ProductRelationshipsPreview          `json:"relationships"`
+	Findings               ProductAttributedFindingsPreview     `json:"findings"`
+	Evidence               ProductEvidencePreview               `json:"evidence"`
+	Limitations            ProductAttributedLimitationsPreview  `json:"limitations"`
 }
 
 func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 	return &ProductServiceDetail{
-		ServiceDetailData: *d,
-		Ownership:         productOwnership(d.Ownership),
-		Revisions:         productRefPreview(d.Revisions),
-		ActiveRevisions:   productRefPreview(d.ActiveRevisions),
-		Deployments:       productRefPreview(d.Deployments),
-		Dependencies:      productRefPreview(d.Dependencies),
-		Dependents:        productRefPreview(d.Dependents),
-		ReferencedBy:      productRefPreview(d.ReferencedBy),
-		Relationships:     productRelationshipsPreview(d.Relationships),
-		Findings:          productAttributedFindingsPreview(d.Findings),
-		Evidence:          productEvidencePreview(d.Evidence),
-		Limitations:       productAttributedLimitationsPreview(d.Limitations),
+		ServiceDetailData:      *d,
+		Ownership:              productOwnership(d.Ownership),
+		OwnerRevision:          productRefPtr(d.OwnerRevision),
+		Sources:                productRefPreview(d.Sources),
+		UnresolvedDependencies: productUnresolvedDependencies(d.UnresolvedDependencies),
+		Revisions:              productRefPreview(d.Revisions),
+		ActiveRevisions:        productRefPreview(d.ActiveRevisions),
+		Deployments:            productRefPreview(d.Deployments),
+		Dependencies:           productRefPreview(d.Dependencies),
+		Dependents:             productRefPreview(d.Dependents),
+		ReferencedBy:           productRefPreview(d.ReferencedBy),
+		Relationships:          productRelationshipsPreview(d.Relationships),
+		Findings:               productAttributedFindingsPreview(d.Findings),
+		Evidence:               productEvidencePreview(d.Evidence),
+		Limitations:            productAttributedLimitationsPreview(d.Limitations),
 	}
 }
 

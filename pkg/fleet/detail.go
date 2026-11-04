@@ -38,6 +38,11 @@ type OwnershipInfo struct {
 	// owner renders as Unowned, which tells an operator to go and find a team that
 	// already wrote down how to reach them.
 	Declared bool `json:"declared"`
+	// Unknown is set only on a service: no readable contract revision and no
+	// source that reads the contract its targets run, so Pacto cannot tell
+	// whether an owner is declared. The fleet still counts the service as
+	// unowned.
+	Unknown bool `json:"unknown,omitempty"`
 	// Contacts is the declared contact block, and it is present ONLY where the
 	// ownership shown IS the entity's own declaration — that is, on a contract
 	// revision. A service or a target shows a DERIVED owner (one revision's
@@ -320,6 +325,21 @@ func keysBounded[V any](m map[string]V, limit int) (keys []string, all bool) {
 type ServiceDetailData struct {
 	Domain    string         `json:"domain,omitempty"`
 	Ownership *OwnershipInfo `json:"ownership,omitempty"`
+	// OwnerRevision is the newest revision that declares an owner, the one the
+	// service owner is taken from and where its contacts are shown. Nil when no
+	// revision declares one (the owner, if any, comes from a target).
+	OwnerRevision *EntityRef `json:"ownerRevision,omitempty"`
+	// Capabilities are the distinct capability types the service's readable
+	// revisions declare.
+	Capabilities StringsPreview `json:"capabilities"`
+	// Sources are the sources that contributed a revision or a target of the
+	// service, each with its health.
+	Sources RefPreview `json:"sources"`
+	// UnresolvedDependencies are the declared dependencies no service in the
+	// fleet resolves, external ones included, one row per ref. Together with
+	// Dependencies and HiddenDependencies they add up to
+	// Summary.DeclaredDependencies.
+	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`
 	// Summary aggregates the COMPLETE target/revision/edge populations. The
 	// previews below are bounded, so a consumer that needs a proportion or a total
 	// must read it here and never count preview Items.
@@ -611,10 +631,19 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 			active = append(active, r)
 		}
 	}
+	self := serviceEntityRef(s)
+	ownership := serviceOwnership(s, view.Revisions)
+	ownership.Unknown = !ownership.Declared && q.ownershipUnknown(s)
+	nb, nbErr := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()})
+	rels, nbLims := serviceRelationships(nb, nbErr, self)
 	data := &ServiceDetailData{
-		Domain:    s.Domain,
-		Ownership: serviceOwnership(s, view.Revisions),
-		Summary:   summary,
+		Domain:                 s.Domain,
+		Ownership:              ownership,
+		OwnerRevision:          q.ownerRevision(s),
+		Capabilities:           stringsPreview(slices.DeleteFunc(q.serviceCapabilities(s), func(c string) bool { return c == "" })),
+		Sources:                refPreview(q.serviceSources(view)),
+		UnresolvedDependencies: unresolvedDependencyItems(self, view.Dependencies),
+		Summary:                summary,
 		// Newest first, in revision chronology: a version list ordered by content
 		// digest is unreadable as history.
 		Revisions:          refPreview(chronologicalRevisionRefs(view.Revisions)),
@@ -627,16 +656,11 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		ReferencedBy:       refPreview(q.referencingServices(s.Key)),
 		Findings:           attributedTargetFindingsPreview(view.Targets),
 		Evidence:           evidencePreview(evidenceForTargets(view.Targets)),
-		Limitations:        attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
-	}
-	if nb, e := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()}); e == nil {
-		// The neighborhood is ALREADY bounded (nodes and edges). Build the relationships
-		// preview from it so a truncated neighborhood reports Truncated=true AND an
-		// UNKNOWN total (never the pre-truncation scanned edge count as the total).
-		data.Relationships = relationshipsPreviewFromNeighborhood(nb)
+		Relationships:      rels,
+		Limitations:        serviceLimitations(nbLims, view.Targets),
 	}
 	return &EntityDetail{
-		Meta: q.productMeta(), Entity: serviceEntityRef(s), Status: s.Status,
+		Meta: q.productMeta(), Entity: self, Status: s.Status,
 		Service: data, Actions: []string{"open-graph", "compare", "impact"},
 	}, nil
 }
@@ -1214,6 +1238,125 @@ func serviceOwnership(s *ServiceRecord, revs []*ContractRevision) *OwnershipInfo
 	}
 	info.Conflicts = stringsPreview(conflicts)
 	return info
+}
+
+// ownershipUnknown reports whether Pacto cannot tell if the service declares an
+// owner: no revision has a readable contract that is not invalid, and no source
+// read the contract a target runs. Domain validity is deliberately not part of
+// it; an invalid domain slug says nothing about the owner block.
+func (q *Query) ownershipUnknown(s *ServiceRecord) bool {
+	for _, rk := range s.Revisions {
+		if r := q.snap.Revisions[rk]; r.Contract != nil && (!r.validated || r.Valid) {
+			return false
+		}
+	}
+	for _, tk := range s.Targets {
+		if q.snap.Targets[tk].domainKnown {
+			return false
+		}
+	}
+	return true
+}
+
+// ownerRevision is the newest revision (see [lessRevisionChrono]) that declares an
+// owner, the one [deriveOwner] takes the service owner from; nil when none does.
+func (q *Query) ownerRevision(s *ServiceRecord) *EntityRef {
+	var newest *ContractRevision
+	for _, rk := range s.Revisions {
+		if r := q.snap.Revisions[rk]; !r.Owner.IsEmpty() && (newest == nil || lessRevisionChrono(newest, r)) {
+			newest = r
+		}
+	}
+	if newest == nil {
+		return nil
+	}
+	ref := revisionEntityRef(newest)
+	return &ref
+}
+
+// serviceSources is every source that contributed a revision or a target of the
+// service, sorted by id, with the source's health when the snapshot holds it.
+func (q *Query) serviceSources(view *ServiceView) []EntityRef {
+	ids := map[string]bool{}
+	add := func(primary string, all []string) {
+		for _, id := range append([]string{primary}, all...) {
+			if id != "" {
+				ids[id] = true
+			}
+		}
+	}
+	for _, t := range view.Targets {
+		add(t.Source, t.Sources)
+	}
+	for _, r := range view.Revisions {
+		add(r.Source, r.Sources)
+	}
+	states := map[string]SourceState{}
+	for _, st := range q.snap.Sources {
+		states[st.ID] = st
+	}
+	out := make([]EntityRef, 0, len(ids))
+	for _, id := range slices.Sorted(maps.Keys(ids)) {
+		st, ok := states[id]
+		if !ok {
+			st = SourceState{ID: id}
+		}
+		out = append(out, sourceEntityRef(st))
+	}
+	return out
+}
+
+// unresolvedDependencyItems lists the service's declared dependencies (deps is
+// [ServiceView.Dependencies]) that no
+// visible service resolves (external ones included), one row per ref: External
+// is set when any declaring revision marks it external, Version is the first
+// one declared. A dependency hidden by permissions is counted in
+// HiddenDependencies instead, so the three lists add up to the declared count.
+func unresolvedDependencyItems(self EntityRef, deps []Relationship) UnresolvedDependenciesPreview {
+	byRef := map[string]int{}
+	var out []UnresolvedDependency
+	for _, rel := range deps {
+		if rel.ToService != "" || rel.Hidden { // deps is ServiceView.Dependencies: declared dependencies only
+			continue
+		}
+		i, ok := byRef[rel.To]
+		if !ok {
+			byRef[rel.To] = len(out)
+			out = append(out, unresolvedDep(self, rel))
+			continue
+		}
+		out[i].External = out[i].External || rel.External
+		if out[i].Version == "" {
+			out[i].Version = rel.Version
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
+	it, total, trunc := boundSlice(out, MaxUnresolvedDependencies)
+	return UnresolvedDependenciesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+}
+
+// serviceRelationships builds the relationships preview from the service's
+// neighborhood, which is ALREADY bounded (nodes and edges), so a truncated
+// neighborhood reports Truncated=true and an UNKNOWN total. When the neighborhood
+// cannot be computed the preview is empty with an unknown total and a limitation
+// says why, so an empty list never reads as "no relationships".
+func serviceRelationships(nb *Neighborhood, err error, self EntityRef) (RelationshipsPreview, []AttributedLimitation) {
+	if err != nil {
+		return RelationshipsPreview{Items: []NeighborhoodEdge{}}, []AttributedLimitation{{
+			Entity: self,
+			Limitation: Limitation{
+				Code:    LimitationNeighborhoodUnavailable,
+				Message: "The relationships of this service could not be computed: " + err.Error(),
+			},
+		}}
+	}
+	return relationshipsPreviewFromNeighborhood(nb), nil
+}
+
+// serviceLimitations puts the service's own limitations first, so the bound
+// never drops them behind its targets' limitations.
+func serviceLimitations(own []AttributedLimitation, targets []*TargetRecord) AttributedLimitationsPreview {
+	return attributedLimitationsPreview(append(own, attributedTargetLimitations(targets)...))
 }
 
 // revisionOwnership reports the owner declared by THIS revision, with the owner ref the

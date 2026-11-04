@@ -3190,6 +3190,7 @@ export interface components {
             declared: boolean;
             owner?: string;
             ref?: components["schemas"]["ProductRef"];
+            unknown?: boolean;
         };
         ProductPoliciesPreview: {
             /** Format: int64 */
@@ -3212,6 +3213,8 @@ export interface components {
             domain?: string;
             environment?: string;
             explanation?: string;
+            /** Format: date-time */
+            fetchedAt?: string;
             href: string;
             key: string;
             /** @enum {string} */
@@ -3286,6 +3289,7 @@ export interface components {
         };
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
+            capabilities: components["schemas"]["Fleet.StringsPreview"];
             dependencies: components["schemas"]["ProductRefPreview"];
             dependents: components["schemas"]["ProductRefPreview"];
             deployments: components["schemas"]["ProductRefPreview"];
@@ -3297,11 +3301,14 @@ export interface components {
             /** Format: int64 */
             hiddenDependents?: number;
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
+            ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
             referencedBy: components["schemas"]["ProductRefPreview"];
             relationships: components["schemas"]["ProductRelationshipsPreview"];
             revisions: components["schemas"]["ProductRefPreview"];
+            sources: components["schemas"]["ProductRefPreview"];
             summary: components["schemas"]["Fleet.ServiceSummary"];
+            unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
         };
         ProductSourceDetail: {
             contributed: components["schemas"]["Fleet.SourceContribution"];
@@ -3357,11 +3364,13 @@ export interface components {
             truncated: boolean;
         };
         ProductUnresolvedDependency: {
+            external?: boolean;
             from: components["schemas"]["ProductRef"];
             reason?: string;
             ref: string;
             requestedRef?: string;
             sourceRevision?: string;
+            version?: string;
         };
         PromotionCount: {
             /** Format: int64 */

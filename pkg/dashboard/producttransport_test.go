@@ -502,3 +502,27 @@ func TestProductOwnership_AbsentStaysAbsent(t *testing.T) {
 		t.Errorf("productOwnership(nil) = %+v, want nil", got)
 	}
 }
+
+// TestProductServiceDetail_NewRefsHref: the owner revision, every source and the
+// origin of every unresolved dependency carry a canonical href.
+func TestProductServiceDetail_NewRefsHref(t *testing.T) {
+	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "svc@1"}
+	d := toProductServiceDetail(&fleet.ServiceDetailData{
+		OwnerRevision: &rev,
+		Sources:       fleet.RefPreview{Total: 1, Count: 1, Items: []fleet.EntityRef{{Kind: fleet.KindSource, Key: "oci"}}},
+		UnresolvedDependencies: fleet.UnresolvedDependenciesPreview{Total: 1, Count: 1, Items: []fleet.UnresolvedDependency{
+			{From: fleet.EntityRef{Kind: fleet.KindService, Key: "svc"}, Ref: "oci://x/db", External: true},
+		}},
+	})
+	if d.OwnerRevision == nil || d.OwnerRevision.Href == "" {
+		t.Errorf("ownerRevision = %+v", d.OwnerRevision)
+	}
+	for _, s := range d.Sources.Items {
+		if s.Href == "" {
+			t.Errorf("source %s has no href", s.Key)
+		}
+	}
+	if u := d.UnresolvedDependencies.Items; len(u) != 1 || u[0].From.Href == "" || !u[0].External {
+		t.Errorf("unresolvedDependencies = %+v", u)
+	}
+}

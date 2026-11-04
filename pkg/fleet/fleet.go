@@ -317,6 +317,9 @@ const (
 	// LimitationObservedNotTargetScoped: runtime observation establishes
 	// service-to-service traffic, not which concrete provider target served it.
 	LimitationObservedNotTargetScoped = "OBSERVED_NOT_TARGET_SCOPED"
+	// LimitationNeighborhoodUnavailable: the relationships of a service could not
+	// be computed, so its relationship list is empty for that reason alone.
+	LimitationNeighborhoodUnavailable = "NEIGHBORHOOD_UNAVAILABLE"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
