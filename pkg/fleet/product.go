@@ -620,14 +620,17 @@ type AttentionFilter struct {
 	// IDENTITY, exactly as on [EntityFilter]: a backlog opened from an owner page
 	// carries OwnerKey, so it holds that owner's estate and not every owner whose
 	// name contains theirs. They compose.
-	Owner     string
-	OwnerKey  string
-	Source    string
-	Severity  string
-	Status    string
-	StaleOnly bool
-	Limit     int
-	Offset    int
+	Owner    string
+	OwnerKey string
+	// BusinessDomain keeps the items of services in this business domain, or of
+	// services with none for NoBusinessDomain.
+	BusinessDomain string
+	Source         string
+	Severity       string
+	Status         string
+	StaleOnly      bool
+	Limit          int
+	Offset         int
 }
 
 // AttentionList is a bounded, deterministically ordered, offset-pageable
@@ -861,7 +864,18 @@ func (q *Query) attentionMatches(it AttentionItem, f AttentionFilter) bool {
 		return false
 	}
 	return (f.Owner == "" || q.serviceOwnedBy(it.Service, f.Owner)) &&
-		(f.OwnerKey == "" || q.serviceOwnedByKey(it.Service, f.OwnerKey))
+		(f.OwnerKey == "" || q.serviceOwnedByKey(it.Service, f.OwnerKey)) &&
+		(f.BusinessDomain == "" || q.serviceInBusinessDomain(it.Service, f.BusinessDomain))
+}
+
+// serviceInBusinessDomain reports whether the service is in the business domain,
+// with NoBusinessDomain matching a service that has none.
+func (q *Query) serviceInBusinessDomain(key, want string) bool {
+	s := q.snap.Services[ServiceKey(key)]
+	if want == NoBusinessDomain {
+		want = ""
+	}
+	return s != nil && s.BusinessDomain == want
 }
 
 // optEq reports whether an optional filter value (empty means unset) matches have.

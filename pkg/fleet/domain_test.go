@@ -15,7 +15,7 @@ import (
 // pay moved from payments (v1.0.0) to commerce (v1.1.0); orders declares commerce
 // and no owner; web declares no domain; ghost is a target-only service no source
 // read a contract for.
-func domainFleet(t *testing.T) *Query {
+func domainFleet(t *testing.T, extra ...RawTarget) *Query {
 	t.Helper()
 	c := func(name, version, domain string, owner contract.Owner) RawRevision {
 		k := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: version, Domain: domain, Owner: owner}, Readiness: readyContract()}
@@ -29,11 +29,11 @@ func domainFleet(t *testing.T) *Query {
 			c("orders", "1.0.0", "commerce", contract.Owner{}),
 			c("web", "1.0.0", "", contract.Owner{Team: "web-team"}),
 		},
-		Targets: []RawTarget{
+		Targets: append([]RawTarget{
 			{Scope: "prod", Kind: "k8s", Name: "pay-app", Service: "pay", Domain: "ghcr.io/acme", Digest: "sha256:pay1.1.0", Compliance: StatusNonCompliant, EvidenceAt: fresh},
 			{Scope: "prod", Kind: "k8s", Name: "orders-app", Service: "orders", Domain: "ghcr.io/acme", Digest: "sha256:orders1.0.0", Compliance: StatusCompliant, EvidenceAt: fresh},
 			{Scope: "prod", Kind: "k8s", Name: "ghost-app", Service: "ghost", Compliance: StatusCompliant, EvidenceAt: fresh},
-		},
+		}, extra...),
 	})
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, FreshnessWindow: time.Hour}, src)
 	if err != nil {
@@ -178,5 +178,99 @@ func TestEntities_BusinessDomainSkipsOwnersAndSources(t *testing.T) {
 	}
 	if l.Aggregate.Services != 2 || l.Aggregate.Domains != 1 {
 		t.Errorf("aggregate = %+v", l.Aggregate)
+	}
+}
+
+func TestEntityDetail_Domain(t *testing.T) {
+	q := domainFleet(t)
+	d, err := q.EntityDetail(KindDomain, "commerce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dd := d.Domain
+	if d.Entity.Kind != KindDomain || d.Entity.Key != "commerce" || dd == nil {
+		t.Fatalf("detail = %+v", d)
+	}
+	if dd.Summary.Services != 2 || dd.Summary.Revisions != 3 || dd.Summary.Targets != 2 || dd.Summary.Compliance.NonCompliant != 1 {
+		t.Errorf("summary = %+v", dd.Summary)
+	}
+	if dd.Ownership.Unowned != 1 || dd.Ownership.Consistent != 1 {
+		t.Errorf("ownership = %+v", dd.Ownership)
+	}
+	if dd.Owners.Total != 1 || dd.Owners.Items[0].Key != "team:pay-team" {
+		t.Errorf("owners = %+v", dd.Owners)
+	}
+	if dd.Services.Total != 2 || dd.Deployments.Total != 2 {
+		t.Errorf("services = %+v, deployments = %+v", dd.Services, dd.Deployments)
+	}
+	al, err := q.Attention(AttentionFilter{BusinessDomain: "commerce"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if al.Total == 0 || dd.Attention.Total != al.Total {
+		t.Errorf("attention total = %d, want %d (and not zero)", dd.Attention.Total, al.Total)
+	}
+}
+
+func TestEntityDetail_DomainNotFound(t *testing.T) {
+	q := domainFleet(t)
+	for _, key := range []string{"", NoBusinessDomain, "nope"} {
+		_, err := q.EntityDetail(KindDomain, key)
+		var nf *NotFoundError
+		if !errors.As(err, &nf) || nf.Kind != "domain" {
+			t.Errorf("EntityDetail(domain, %q) = %v, want a domain NotFoundError", key, err)
+		}
+	}
+}
+
+func TestEntityDetail_DomainInvalidRevision(t *testing.T) {
+	bad := mustParse(t, invalidYAML)
+	bad.Service.Domain = "commerce"
+	src := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
+		{Bundle: &contract.Bundle{Contract: bad, RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}},
+	}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := NewQuery(snap).EntityDetail(KindDomain, "commerce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Domain.Summary.InvalidRevisions != 1 {
+		t.Errorf("invalid revisions = %d, want 1", d.Domain.Summary.InvalidRevisions)
+	}
+}
+
+func TestAttention_NoBusinessDomainFilter(t *testing.T) {
+	q := domainFleet(t)
+	al, err := q.Attention(AttentionFilter{BusinessDomain: NoBusinessDomain, Limit: MaxAttentionLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	web, ghost := string(NewServiceKeyDomain("ghcr.io/acme", "web")), string(NewServiceKeyDomain("", "ghost"))
+	for _, it := range al.Items {
+		if it.Service != web && it.Service != ghost {
+			t.Errorf("item %s %s belongs to %s, which has a domain", it.Code, it.Label, it.Service)
+		}
+	}
+}
+
+func TestEntityDetail_DomainRespectsRestriction(t *testing.T) {
+	q := domainFleet(t, RawTarget{Scope: "secret", Kind: SourceKindKubernetes, Name: "pay-secret", Service: "pay", Domain: "ghcr.io/acme", Compliance: StatusCompliant})
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	d, err := r.EntityDetail(KindDomain, "commerce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Domain.Summary.Services != 1 {
+		t.Errorf("restricted domain counts %d services, want 1", d.Domain.Summary.Services)
+	}
+	l, err := r.Entities(EntityFilter{Kinds: []EntityKind{KindDomain}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Entities) != 1 || l.Entities[0].Services != 1 {
+		t.Errorf("restricted domain list = %+v", l.Entities)
 	}
 }

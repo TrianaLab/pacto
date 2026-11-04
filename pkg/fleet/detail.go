@@ -2,6 +2,8 @@ package fleet
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -444,6 +446,18 @@ type OwnerDetailData struct {
 	Attention   AttentionPreview `json:"attention"`
 }
 
+// DomainDetailData is the domain-kind payload: the estate of the services whose
+// business domain this is (see ServiceRecord.BusinessDomain). Summary.Revisions
+// counts those services' revisions, whatever domain each one declared.
+type DomainDetailData struct {
+	Summary     OwnerSummary     `json:"summary"`
+	Ownership   OwnershipTally   `json:"ownership"`
+	Services    RefPreview       `json:"services"`
+	Owners      RefPreview       `json:"owners"`
+	Deployments RefPreview       `json:"deployments"`
+	Attention   AttentionPreview `json:"attention"`
+}
+
 // SourceContribution counts the DISTINCT product entities attributable to one
 // source, per kind, over the COMPLETE attributable population — never over the
 // bounded [SourceDetailData.Entities] preview.
@@ -506,6 +520,7 @@ type EntityDetail struct {
 	Target   *TargetDetailData   `json:"target,omitempty"`
 	Owner    *OwnerDetailData    `json:"owner,omitempty"`
 	Source   *SourceDetailData   `json:"source,omitempty"`
+	Domain   *DomainDetailData   `json:"domain,omitempty"`
 	Actions  []string            `json:"actions,omitempty"`
 }
 
@@ -535,6 +550,8 @@ func (q *Query) entityDetail(kind EntityKind, key string) (*EntityDetail, error)
 		return q.ownerDetail(key)
 	case KindSource:
 		return q.sourceDetail(key)
+	case KindDomain:
+		return q.domainDetail(key)
 	default:
 		return nil, &InvalidQueryError{Field: "kind", Value: string(kind), Reason: "not a known entity kind"}
 	}
@@ -734,6 +751,60 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 			Revisions:   refPreview(revisions),
 			Deployments: refPreview(deployments),
 			Attention:   attentionPreviewFromList(ownerAttention),
+		},
+	}, nil
+}
+
+// domainDetail is the estate of one business domain, walked the way ownerDetail
+// walks an owner's: the summary and the previews come from one pass over the same
+// services. No domain has no page; it is the NoBusinessDomain filter.
+func (q *Query) domainDetail(key string) (*EntityDetail, error) {
+	var services, deployments []EntityRef
+	var sum OwnerSummary
+	var ownership OwnershipTally
+	owners := map[string]bool{}
+	for _, s := range q.snap.Services {
+		if key == "" || s.BusinessDomain != key {
+			continue
+		}
+		services = append(services, serviceEntityRef(s))
+		q.addOwnership(&ownership, s)
+		for _, k := range q.ownerClaimsOf(s).keys {
+			owners[k] = true
+		}
+		for _, rk := range s.Revisions {
+			sum.Revisions++
+			if revisionStatus(q.snap.Revisions[rk]) == StatusInvalid {
+				sum.InvalidRevisions++
+			}
+		}
+		for _, tk := range s.Targets {
+			t := q.snap.Targets[tk]
+			deployments = append(deployments, targetEntityRef(t))
+			sum.addTarget(t)
+		}
+	}
+	if len(services) == 0 {
+		return nil, &NotFoundError{Kind: "domain", ID: key}
+	}
+	ownerRefs := make([]EntityRef, 0, len(owners))
+	for _, k := range slices.Sorted(maps.Keys(owners)) {
+		ownerRefs = append(ownerRefs, ownerEntityRef(k))
+	}
+	sum.Services, sum.Targets = len(services), len(deployments)
+	sortEntityRefs(services)
+	sortEntityRefs(deployments)
+	// A constant, valid filter never errors.
+	attention, _ := q.Attention(AttentionFilter{BusinessDomain: key})
+	return &EntityDetail{
+		Meta: q.productMeta(), Entity: domainEntityRef(key),
+		Domain: &DomainDetailData{
+			Summary:     sum,
+			Ownership:   ownership,
+			Services:    refPreview(services),
+			Owners:      refPreview(ownerRefs),
+			Deployments: refPreview(deployments),
+			Attention:   attentionPreviewFromList(attention),
 		},
 	}, nil
 }

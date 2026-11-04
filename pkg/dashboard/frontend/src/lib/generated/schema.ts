@@ -1664,6 +1664,28 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
+        "Fleet.AttentionItem": {
+            /** @enum {string} */
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range";
+            code: string;
+            entity: components["schemas"]["Fleet.EntityRef"];
+            label: string;
+            nextStep?: string;
+            reason: string;
+            service?: string;
+            /** @enum {string} */
+            severity: "error" | "warning" | "info";
+            source?: string;
+            summary: string;
+        };
+        "Fleet.AttentionPreview": {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["Fleet.AttentionItem"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         "Fleet.CapabilitiesPreview": {
             /** Format: int64 */
             count: number;
@@ -1784,6 +1806,14 @@ export interface components {
             path: string;
             title: string;
         };
+        "Fleet.DomainDetailData": {
+            attention: components["schemas"]["Fleet.AttentionPreview"];
+            deployments: components["schemas"]["Fleet.RefPreview"];
+            owners: components["schemas"]["Fleet.RefPreview"];
+            ownership: components["schemas"]["Fleet.OwnershipTally"];
+            services: components["schemas"]["Fleet.RefPreview"];
+            summary: components["schemas"]["Fleet.OwnerSummary"];
+        };
         "Fleet.EntityAggregate": {
             /** Format: int64 */
             beyondRanking?: number;
@@ -1812,6 +1842,25 @@ export interface components {
             targets: number;
             /** Format: int64 */
             unidentifiedOwnership?: number;
+        };
+        "Fleet.EntityRef": {
+            businessDomain?: string;
+            domain?: string;
+            explanation?: string;
+            key: string;
+            /** @enum {string} */
+            kind: "service" | "revision" | "target" | "owner" | "source" | "domain";
+            label: string;
+            owner?: string;
+            parentService?: string;
+            scope?: string;
+            secondary?: string;
+            /** Format: int64 */
+            services?: number;
+            status?: string;
+            /** Format: int64 */
+            targets?: number;
+            version?: string;
         };
         "Fleet.EnvironmentResult": {
             file: string;
@@ -2194,6 +2243,14 @@ export interface components {
             notDeclared: number;
             /** Format: int64 */
             passing: number;
+        };
+        "Fleet.RefPreview": {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["Fleet.EntityRef"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
         };
         "Fleet.Relationship": {
             compatibility?: string;
@@ -2975,6 +3032,7 @@ export interface components {
         };
         ProductEntityDetail: {
             actions?: string[] | null;
+            domain?: components["schemas"]["Fleet.DomainDetailData"];
             entity: components["schemas"]["ProductRef"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             owner?: components["schemas"]["ProductOwnerDetail"];

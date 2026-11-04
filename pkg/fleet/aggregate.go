@@ -546,6 +546,9 @@ type ServiceSummary struct {
 // owner — which is not always the same set, because a revision may declare an owner
 // other than its service's (that disagreement is the ownership conflict the service
 // page reports).
+//
+// A domain page summarizes its services with the same type: it describes any
+// service estate.
 type OwnerSummary struct {
 	Services         int             `json:"services"`
 	Revisions        int             `json:"revisions"`
