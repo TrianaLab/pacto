@@ -292,6 +292,7 @@ type EntityAggregate struct {
 	Targets   int `json:"targets"`
 	Owners    int `json:"owners"`
 	Sources   int `json:"sources"`
+	Domains   int `json:"domains"`
 	// ServiceCompliance partitions Services and TargetCompliance partitions Targets.
 	// They are kept apart rather than summed: a service status is a roll-up of its
 	// targets, so adding the two would count the same operational reality twice.
@@ -424,6 +425,8 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 			agg.Owners++
 		case KindSource:
 			agg.Sources++
+		case KindDomain:
+			agg.Domains++
 		}
 	}
 	agg.RankedOwners = len(byOwner)

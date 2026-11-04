@@ -386,15 +386,20 @@ type Coverage struct {
 // targets by key rather than copying them, and only carries an aggregate Status
 // when the derivation is unambiguous.
 type ServiceRecord struct {
-	Key       ServiceKey        `json:"key"`
-	Domain    string            `json:"domain,omitempty"`
-	Name      string            `json:"name"`
-	Owner     contract.Owner    `json:"owner,omitzero"`
-	Revisions []RevisionKey     `json:"revisions,omitempty"`
-	Targets   []TargetKey       `json:"targets,omitempty"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	Status    string            `json:"status,omitempty"`
-	Sources   []string          `json:"sources,omitempty"`
+	Key ServiceKey `json:"key"`
+	// Domain is the registry path in the service key (oci://ghcr.io/acme/pay ->
+	// ghcr.io/acme), shown as Registry. BusinessDomain is the business domain.
+	Domain string `json:"domain,omitempty"`
+	// BusinessDomain is the service.domain of the service's newest revision whose
+	// contract was read (see deriveBusinessDomain). Empty means No domain.
+	BusinessDomain string            `json:"businessDomain,omitempty"`
+	Name           string            `json:"name"`
+	Owner          contract.Owner    `json:"owner,omitzero"`
+	Revisions      []RevisionKey     `json:"revisions,omitempty"`
+	Targets        []TargetKey       `json:"targets,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Status         string            `json:"status,omitempty"`
+	Sources        []string          `json:"sources,omitempty"`
 	// HiddenDependencies and HiddenDependents count the services this one
 	// depends on or calls, and that depend on or call it, which the caller's
 	// Kubernetes permissions hide. They are never named. Zero outside a
@@ -479,6 +484,9 @@ type ContractRevision struct {
 	// was run through the validator at build time. Stored so status queries never
 	// dereference the build-only bundle after Build.
 	validated bool
+	// serviceDomain is the BusinessDomain of the service this revision belongs to,
+	// stamped by deriveBusinessDomain so a reference carries it without a lookup.
+	serviceDomain string
 	// lockConflict, when non-empty, is why this revision has no lock: two sources
 	// contributed it with disagreeing pacto.lock resolutions, so Lock was dropped
 	// (see mergeRevisionLock). Like docConflict it carries a reason rather than a
@@ -552,10 +560,14 @@ type TargetRecord struct {
 	// Owner is the owner the observing source read from the contract it
 	// evaluates (the operator reports it in status.contract.owner). It lets a
 	// fleet with no contract revisions still say who owns the service.
-	Owner     contract.Owner    `json:"owner,omitzero"`
-	Findings  []finding.Finding `json:"findings,omitempty"`
-	Coverage  *Coverage         `json:"coverage,omitempty"`
-	Readiness *readiness.Result `json:"readiness,omitempty"`
+	Owner contract.Owner `json:"owner,omitzero"`
+	// BusinessDomain is the service.domain the observing source read from the
+	// contract it evaluates (the operator reports it in status.contract.domain).
+	// Like Owner, it lets a fleet with no contract revisions group the service.
+	BusinessDomain string            `json:"businessDomain,omitempty"`
+	Findings       []finding.Finding `json:"findings,omitempty"`
+	Coverage       *Coverage         `json:"coverage,omitempty"`
+	Readiness      *readiness.Result `json:"readiness,omitempty"`
 	// ObservedRuntime is the BOUNDED, deterministic projection of the source's raw
 	// observed-runtime map, computed ONCE at Build time (the single unbounded-source
 	// pass) from the untrusted, arbitrarily wide/deep source data. The raw map is not
@@ -580,6 +592,9 @@ type TargetRecord struct {
 	// on it, so this is the only way the detail path can honor the same
 	// bound-once-at-Build rule ObservedRuntime already follows.
 	labels RuntimePreview
+	// serviceDomain is the BusinessDomain of the service this target belongs to (see
+	// ContractRevision.serviceDomain).
+	serviceDomain string
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with

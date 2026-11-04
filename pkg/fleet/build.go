@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -431,6 +432,7 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 	if existing.Owner.IsEmpty() {
 		existing.Owner = add.Owner
 	}
+	existing.BusinessDomain = cmp.Or(existing.BusinessDomain, add.BusinessDomain)
 	if targetFresher(add, existing) {
 		applyEvaluation(existing, add)
 	}
@@ -1029,9 +1031,12 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		Digest:       raw.Digest,
 		Compliance:   compliance,
 		Owner:        cloneOwner(raw.Owner),
-		Findings:     findings,
-		Coverage:     cloneCoverage(raw.Coverage),
-		Readiness:    cloneReadiness(raw.Readiness),
+		// ponytail: not validated against the slug rule; the operator only reports a
+		// value its own validator accepted.
+		BusinessDomain: raw.BusinessDomain,
+		Findings:       findings,
+		Coverage:       cloneCoverage(raw.Coverage),
+		Readiness:      cloneReadiness(raw.Readiness),
 		// Bound the untrusted, arbitrarily wide/deep source runtime map ONCE here (the
 		// single unbounded-source pass); the raw map is never retained on the snapshot.
 		ObservedRuntime: runtimePreview(raw.ObservedRuntime),
@@ -1335,6 +1340,37 @@ func aggregateServices(snap *FleetSnapshot) {
 	for _, s := range snap.Services {
 		s.Status = serviceStatus(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
+		deriveBusinessDomain(snap, s)
+	}
+}
+
+// deriveBusinessDomain sets a service's business domain: the service.domain of
+// its newest revision ([lessRevisionChrono]) whose contract was read. An older
+// revision that declares another domain is a move, not a conflict, so nothing is
+// reported. With no read revision (a fleet seen only through Kubernetes), it falls
+// back to the first domain, by target key, an observing source read from the
+// contract a target runs. It then stamps the result on the service's revisions and
+// targets, so their references carry it.
+func deriveBusinessDomain(snap *FleetSnapshot, s *ServiceRecord) {
+	var newest *ContractRevision
+	for _, rk := range s.Revisions {
+		if r := snap.Revisions[rk]; r.Contract != nil && (newest == nil || lessRevisionChrono(newest, r)) {
+			newest = r
+		}
+	}
+	targets := slices.Sorted(slices.Values(s.Targets))
+	if newest != nil {
+		s.BusinessDomain = newest.Contract.Service.Domain
+	} else {
+		for _, tk := range targets {
+			s.BusinessDomain = cmp.Or(s.BusinessDomain, snap.Targets[tk].BusinessDomain)
+		}
+	}
+	for _, rk := range s.Revisions {
+		snap.Revisions[rk].serviceDomain = s.BusinessDomain
+	}
+	for _, tk := range targets {
+		snap.Targets[tk].serviceDomain = s.BusinessDomain
 	}
 }
 

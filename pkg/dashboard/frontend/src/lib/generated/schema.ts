@@ -1791,6 +1791,8 @@ export interface components {
             /** Format: int64 */
             distinctOwners?: number;
             /** Format: int64 */
+            domains: number;
+            /** Format: int64 */
             matched: number;
             /** Format: int64 */
             owners: number;
@@ -2306,6 +2308,7 @@ export interface components {
             targetCount: number;
         };
         "Fleet.ServiceRecord": {
+            businessDomain?: string;
             domain?: string;
             /** Format: int64 */
             hiddenDependencies?: number;
@@ -2429,6 +2432,7 @@ export interface components {
             truncated: boolean;
         };
         "Fleet.TargetRecord": {
+            businessDomain?: string;
             compliance: string;
             contractRevision?: string;
             coverage?: components["schemas"]["Fleet.Coverage"];
@@ -3148,12 +3152,13 @@ export interface components {
             target?: string;
         };
         ProductRef: {
+            businessDomain?: string;
             domain?: string;
             explanation?: string;
             href: string;
             key: string;
             /** @enum {string} */
-            kind: "service" | "revision" | "target" | "owner" | "source";
+            kind: "service" | "revision" | "target" | "owner" | "source" | "domain";
             label: string;
             owner?: string;
             parentService?: string;

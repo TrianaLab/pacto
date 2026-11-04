@@ -41,12 +41,14 @@ const (
 	KindTarget   EntityKind = "target"
 	KindOwner    EntityKind = "owner"
 	KindSource   EntityKind = "source"
+	// KindDomain is a business domain (service.domain), keyed by its name.
+	KindDomain EntityKind = "domain"
 )
 
 // validEntityKind reports whether k is a known entity kind.
 func validEntityKind(k EntityKind) bool {
 	switch k {
-	case KindService, KindRevision, KindTarget, KindOwner, KindSource:
+	case KindService, KindRevision, KindTarget, KindOwner, KindSource, KindDomain:
 		return true
 	default:
 		return false
@@ -60,17 +62,22 @@ func validEntityKind(k EntityKind) bool {
 // product transport adds a canonical href from the canonical key (ADR-2). Human
 // labels are primary; the raw Key is secondary copyable metadata.
 type EntityRef struct {
-	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source"`
+	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source,domain"`
 	Key       string     `json:"key"`
 	Label     string     `json:"label"`
 	Secondary string     `json:"secondary,omitempty"`
 	// Status is polymorphic by kind (a compliance status for service/revision/
 	// target, a source-health value for source), so it carries no single enum.
-	Status        string `json:"status,omitempty"`
-	Explanation   string `json:"explanation,omitempty"`
-	Domain        string `json:"domain,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	ParentService string `json:"parentService,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Explanation string `json:"explanation,omitempty"`
+	// Domain is the registry path, shown as Registry (see ServiceRecord.Domain).
+	Domain string `json:"domain,omitempty"`
+	// BusinessDomain is the business domain of the service a service, revision or
+	// target reference belongs to, and the name of a domain reference. Empty means
+	// No domain.
+	BusinessDomain string `json:"businessDomain,omitempty"`
+	Scope          string `json:"scope,omitempty"`
+	ParentService  string `json:"parentService,omitempty"`
 	// Version is the declared contract version a REVISION reference carries, set only for
 	// revision refs. It is surfaced explicitly (not folded into the display label) so a
 	// consumer can match a requested version to a canonical RevisionKey without parsing a
@@ -172,7 +179,7 @@ func (q *Query) ProductMeta() ProductMeta { return q.productMeta() }
 func serviceEntityRef(s *ServiceRecord) EntityRef {
 	return EntityRef{
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
-		Status: s.Status, Domain: s.Domain,
+		Status: s.Status, Domain: s.Domain, BusinessDomain: s.BusinessDomain,
 	}
 }
 
@@ -191,7 +198,7 @@ func revisionEntityRef(r *ContractRevision) EntityRef {
 	}
 	return EntityRef{
 		Kind: KindRevision, Key: string(r.Key), Label: label, Secondary: r.Digest,
-		Status: status, Domain: r.Domain, ParentService: string(r.ServiceKey), Version: r.Version,
+		Status: status, Domain: r.Domain, BusinessDomain: r.serviceDomain, ParentService: string(r.ServiceKey), Version: r.Version,
 	}
 }
 
@@ -199,7 +206,7 @@ func revisionEntityRef(r *ContractRevision) EntityRef {
 func targetEntityRef(t *TargetRecord) EntityRef {
 	return EntityRef{
 		Kind: KindTarget, Key: string(t.Key), Label: t.DisplayName(), Secondary: t.Scope,
-		Status: t.Compliance, Domain: t.Domain, Scope: t.Scope,
+		Status: t.Compliance, Domain: t.Domain, BusinessDomain: t.serviceDomain, Scope: t.Scope,
 		ParentService: string(t.ServiceKey),
 	}
 }
@@ -213,6 +220,11 @@ func ownerEntityRef(key string) EntityRef {
 		ref.Label, ref.Secondary = k.Value, k.KindLabel()
 	}
 	return ref
+}
+
+// domainEntityRef builds a route-neutral reference to a business domain.
+func domainEntityRef(name string) EntityRef {
+	return EntityRef{Kind: KindDomain, Key: name, Label: name, BusinessDomain: name}
 }
 
 // sourceEntityRef builds a route-neutral reference to a source.
