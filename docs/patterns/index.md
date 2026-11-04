@@ -129,11 +129,13 @@ configurations:
 **Example: a postgres infrastructure contract.**
 
 ```yaml
-pactoVersion: "2.0"
+pactoVersion: "2.5"
 
 service:
   name: postgres
   version: 17.0.0
+  offering: postgresql
+  summary: Managed PostgreSQL for transactional data
   owner:
     team: platform
 
@@ -156,6 +158,26 @@ configurations:
 **How services consume it.** A service contract references the infra contract as a configuration (see [Configurations as composable claims](#configurations-as-composable-claims)). When CI generates deployment artifacts, it reads `metadata.labels` from the resolved infra contract to decide which claim to create, so CI needs no hardcoded mapping from a configuration name to a claim kind. Adding a new infrastructure type takes one new contract and no change to CI.
 
 **Versioning the contract is versioning the platform interface.** A bump from `postgres:17.0.0` to `postgres:18.0.0` lets services migrate at their own pace by ref-pinning, and the policy can tighten with each major version (see [Progressive policy versioning](#progressive-policy-versioning)).
+
+### Discover and consume platform offerings
+
+Set `service.offering` and `service.summary` on the infrastructure contract, as
+in the example above. The [operational graph](../operational-graph-reference.md#platform-offerings)
+lists every contract that declares the same offering as one of its providers.
+
+Developers find providers on the dashboard's Offerings page, with
+`pacto fleet search --offering postgresql` or with the `offering` argument of
+`pacto_fleet_search`. Each provider shows its owner, versions, interfaces,
+configuration and policies, and a snippet to copy into a consuming contract.
+
+The demo consumes `postgresql` as a dependency with a range, which suits a
+provider with a workload or an interface. A configuration reference carries the
+provisioning schema instead. Both are valid, and the snippet emits whichever
+the provider supports.
+
+The same pattern serves offerings beyond infrastructure, such as shared
+configuration and policy. Pacto lists what contracts declare. Provisioning
+stays in your platform's tools.
 
 ---
 

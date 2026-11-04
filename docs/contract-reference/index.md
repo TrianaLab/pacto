@@ -32,7 +32,9 @@ dependency `requires`, and
 [`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json),
 which adds `environments`, and
 [`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json),
-which adds `service.domain`. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
+which adds `service.domain`, and
+[`pacto-v2.5.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.5.schema.json),
+which adds `service.offering` and `service.summary`. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
 
 ---
 

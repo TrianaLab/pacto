@@ -9,19 +9,21 @@ dependencies and state are in
 
 ## `pactoVersion`
 
-The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"` or `"2.4"`. 2.1 adds
+The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`. 2.1 adds
 [`publish`](publish.md), [`checks`](checks.md), external dependencies and the `mcp` interface type.
 2.2 adds the [interface lifecycle](#interface-lifecycle), an interface's
 [`compatibilityEpoch`](#compatibility-epoch), its [`guarantees`](#guarantees) and
 [`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
 2.3 adds [`environments`](environments.md).
 2.4 adds [`service.domain`](#business-domain).
+2.5 adds [`service.offering`](#platform-offering) and [`service.summary`](#summary).
 Every 2.0 contract is also valid under 2.1, every 2.1 contract under 2.2,
-every 2.2 contract under 2.3 and every 2.3 contract under 2.4.
+every 2.2 contract under 2.3, every 2.3 contract under 2.4 and every 2.4
+contract under 2.5.
 A 2.1 contract needs Pacto core 4.1.0 or later and operator 6.1.0 or later.
 A 2.2 contract needs Pacto core 4.3.0 or later and operator 6.3.0 or later.
 A 2.3 contract needs Pacto core 4.4.0 or later and operator 6.4.0 or later.
-A 2.4 contract needs Pacto core 4.5.0 or later and operator 6.5.0 or later;
+A 2.4 or 2.5 contract needs Pacto core 4.5.0 or later and operator 6.5.0 or later;
 see [Versions](../installation.md#versions).
 
 ```yaml
@@ -32,12 +34,13 @@ The version picks the JSON Schema the contract is validated against:
 [`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json),
 [`pacto-v2.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.1.schema.json),
 [`pacto-v2.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.2.schema.json),
-[`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json)
+[`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json),
+[`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json)
 or
-[`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json).
+[`pacto-v2.5.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.5.schema.json).
 Any other value is a hard error: the contract fails to load before validation
 runs and reports `PARSE_ERROR` (`unsupported pactoVersion "3.0"; supported: 2.0,
-2.1, 2.2, 2.3, 2.4`). See [Validation layers](validation.md).
+2.1, 2.2, 2.3, 2.4, 2.5`). See [Validation layers](validation.md).
 
 ---
 
@@ -51,6 +54,8 @@ Identifies the service.
 | `version` | string | Yes | Parses as semver (for example `2.1.0`). See the note below |
 | `owner` | [OwnerInfo](#ownerinfo) | No | Object only (string form removed) |
 | `domain` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.4 |
+| `offering` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.5 |
+| `summary` | string | No | 1 to 200 characters on one line. pactoVersion 2.5 |
 
 `service` carries identity only. The contract has no `image` or `chart` field:
 how you build and deploy a service is a delivery concern that lives outside the
@@ -88,6 +93,33 @@ service:
 The business domain differs from the registry path in a service's key, such as
 `ghcr.io/acme`, which the dashboard shows as Registry. A `"2.0"` to `"2.3"`
 contract that sets `domain` reports `NEEDS_PACTO_2_4`.
+
+### Platform offering
+
+`service.offering` names the kind of offering a service provides to other
+teams, such as `postgresql` or `shared-config`. The
+[operational graph](../operational-graph-reference.md#platform-offerings) lists
+providers of the same offering together. The value is an open lowercase slug:
+a new kind of offering needs no change to Pacto. The offering is unrelated to
+[`capabilities`](#capabilities), which are assertions the service makes about
+itself.
+
+### Summary
+
+`service.summary` is a one-line purpose that the graph shows next to the
+service, such as on an offering's provider list.
+
+```yaml
+pactoVersion: "2.5"
+service:
+  name: postgresql
+  version: 16.0.1
+  offering: postgresql
+  summary: Primary relational database for transactional data
+```
+
+A `"2.0"` to `"2.4"` contract that sets `offering` or `summary` reports
+`NEEDS_PACTO_2_5`.
 
 ### OwnerInfo
 
