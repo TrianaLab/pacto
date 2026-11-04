@@ -64,7 +64,7 @@ test.describe('WASM demo — fleet product IA', () => {
     await result.click();
     // Opened an exact entity route (any kind). The canonical key is still there, one
     // disclosure away; the page-ready signal is the entity's own heading.
-    await expect(page).toHaveURL(/#\/fleet\/(services|revisions|targets|owners|sources)\//);
+    await expect(page).toHaveURL(/#\/fleet\/(services|revisions|targets|owners|sources|domains)\//);
     expect(await entityHeading(page)).not.toBe('');
   });
 

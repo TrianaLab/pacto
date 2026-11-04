@@ -461,12 +461,12 @@
   }
 
   /* ─── Tight ─── */
-  /* With seven tabs the roomy bar needs about 1,330px. Below that it sheds the version
-     tag and some padding (about 150px) before it gives up the tabs, so a 1,280px
-     laptop still gets the full nav. */
-  @media (max-width: 1340px) {
+  /* With eight tabs the roomy bar needs about 1,420px. Below that it sheds the version
+     tag and some padding before it gives up the tabs, so a 1,280px laptop still gets
+     the full nav. */
+  @media (max-width: 1440px) {
     .navbar { padding: 0 var(--sp-4); }
-    .nav-link { padding: 6px 7px; }
+    .nav-link { padding: 6px 5px; }
     .version-tag { display: none; }
     .search-trigger { min-width: 7rem; }
   }
