@@ -688,3 +688,32 @@ func TestEntities_KindlessQueryOmitsDomains(t *testing.T) {
 		t.Error("an explicit domain kind found nothing")
 	}
 }
+
+// TestAttention_UnownedUnknownSaysSo: a service whose contracts Pacto cannot
+// read gets an item that says the owner is unknown, never that none is declared.
+func TestAttention_UnownedUnknownSaysSo(t *testing.T) {
+	u, n := ServiceKey("unread"), ServiceKey("ownerless")
+	q := NewQuery(&FleetSnapshot{
+		Services: map[ServiceKey]*ServiceRecord{
+			u: {Key: u, Name: "unread", Revisions: []RevisionKey{"u@1"}},
+			n: {Key: n, Name: "ownerless", Revisions: []RevisionKey{"n@1"}},
+		},
+		Revisions: map[RevisionKey]*ContractRevision{
+			"u@1": {Key: "u@1", Service: "unread", ServiceKey: u},
+			"n@1": {Key: "n@1", Service: "ownerless", ServiceKey: n, Contract: &contract.Contract{Service: contract.Service{Name: "ownerless"}}},
+		},
+	})
+	al, err := q.Attention(AttentionFilter{Category: "unowned", Limit: MaxAttentionLimit})
+	if err != nil || al.Total != 2 {
+		t.Fatalf("unowned = %+v, %v", al, err)
+	}
+	for _, it := range al.Items {
+		unknown := strings.Contains(it.Summary, "Owner unknown")
+		if unknown != (it.Service == string(u)) || it.Code != "UNOWNED_SERVICE" {
+			t.Errorf("%s: %+v", it.Service, it)
+		}
+		if unknown && strings.Contains(it.NextStep, "Declare service.owner") {
+			t.Errorf("an unreadable contract is told to declare an owner: %+v", it)
+		}
+	}
+}

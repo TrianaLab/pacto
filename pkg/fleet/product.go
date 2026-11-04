@@ -867,12 +867,20 @@ func (q *Query) unownedAttention() []AttentionItem {
 		if n, _ := q.ownershipState(s); n != 0 {
 			continue
 		}
-		out = append(out, AttentionItem{
+		it := AttentionItem{
 			Entity: serviceEntityRef(s), Service: string(s.Key), Label: s.Name,
 			Severity: severityInfo, Code: "UNOWNED_SERVICE", Category: categoryUnowned,
 			Summary: "Service has no declared owner", Reason: "no contract revision of this service declares service.owner, and no source reports an owner for it",
 			NextStep: "Declare service.owner in the contract",
-		})
+		}
+		// Unreadable is not ownerless: say what Pacto cannot tell, never that the
+		// contract lacks an owner block it may well have.
+		if q.ownershipUnknown(s) {
+			it.Summary = "Owner unknown: no contract of this service could be read"
+			it.Reason = "Pacto could not read any contract revision of this service, so it cannot tell whether an owner is declared"
+			it.NextStep = "Make a contract revision of this service readable"
+		}
+		out = append(out, it)
 	}
 	return out
 }
