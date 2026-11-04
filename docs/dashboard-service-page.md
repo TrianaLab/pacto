@@ -50,11 +50,15 @@ Each operational target shows its environment, or **Environment unknown** when
 no source reported one. The **Delivery** section lists the service's Stages:
 the version each environment runs and whether it is verified, failed, frozen or
 waiting. A Stage belongs to the service when its `spec.service.name` equals the
-service name exactly, so `orders` never shows the Stages of `orders-api`. When
+service name exactly, so `orders` never shows the Stages of `orders-api`. A
+Stage that names a registry domain in `spec.service.domain` shows only on the
+page of the service in that domain. A Stage that names no domain shows on the
+page of every service with that name. When
 no Stage matches, the section says so: delivery is opt-in per service. When the
 dashboard does not serve delivery, the section says why, and when Pacto cannot
 reach the cluster it shows the error with a retry. The dashboard API filters
-Stages the same way with `/api/delivery/environments?service=<name>`.
+Stages the same way with
+`/api/delivery/environments?service=<name>&domain=<registry domain>`.
 
 ## Readiness, policies and configuration
 
@@ -77,9 +81,9 @@ cache or a catalog read **Not checked**.
 | Status | When |
 |---|---|
 | `verified` | A Sigstore bundle verifies against the keyless identity and issuer the contract's `publish.sign` declares |
-| `unverified` | A signature was read and does not verify against that identity and issuer |
+| `unverified` | A signature was read and does not verify against that identity and issuer. The page shows the declared identity as the **Expected signer**, because who signed it is not known |
 | `unsigned` | No Sigstore bundle is attached to the digest, or the attached bundles hold no signature |
-| `unknown` | Pacto could not decide: the registry could not list the referrers, the revision has no digest, the contract names no signer or signs with a key or KMS key, the trusted root could not be fetched, or the checks ran out of time. The reason is shown |
+| `unknown` | Pacto could not decide: the registry could not list the referrers or returned only their first page, the revision has no digest, the contract names no signer or signs with a key or KMS key, the trusted root could not be fetched, or the checks ran out of time. The reason is shown |
 
 `verified` means the identity the contract itself declares signed the bundle.
 It is a signature check and makes no trust decision: anyone who can push a
