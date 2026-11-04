@@ -121,12 +121,7 @@ func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 // record-level limitations so a partial result is never mistaken for empty.
 func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []string, check ProvenanceFunc) (*fleet.Collection, error) {
 	col := &fleet.Collection{}
-	pctx := ctx
-	if check != nil {
-		var cancel context.CancelFunc
-		pctx, cancel = context.WithTimeout(ctx, provenanceBudget)
-		defer cancel()
-	}
+	var contracts []*contract.Contract
 	for _, ref := range refs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -157,11 +152,18 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		// OTHER reference is a miss there rather than an answer. A branch here for
 		// "the record named a different reference" restated that rule as its
 		// opposite and could never run.
-		rev := revisionOf(ref, concrete, rec, bundle)
-		if check != nil {
-			rev.Provenance = check(pctx, id, rev.ResolvedRef, bundle.Contract)
-		}
-		col.Revisions = append(col.Revisions, rev)
+		col.Revisions = append(col.Revisions, revisionOf(ref, concrete, rec, bundle))
+		contracts = append(contracts, bundle.Contract)
+	}
+	if check == nil {
+		return col, nil
+	}
+	// The budget starts only once every ref is resolved: charging resolution to it
+	// would leave the later refs past the deadline on every refresh, unknown forever.
+	pctx, cancel := context.WithTimeout(ctx, provenanceBudget)
+	defer cancel()
+	for i := range col.Revisions {
+		col.Revisions[i].Provenance = check(pctx, id, col.Revisions[i].ResolvedRef, contracts[i])
 	}
 	return col, nil
 }

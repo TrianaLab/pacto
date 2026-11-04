@@ -827,7 +827,8 @@ func TestRevisionDomain_IsTheSharedIdentityRule(t *testing.T) {
 
 // TestOCISourceProvenanceHook: the hook gets the source id, the digest-pinned
 // ref and the bundle's contract under a deadline of at most the budget, and
-// its result lands on the revision; no hook leaves provenance nil.
+// its result lands on the revision; no hook leaves provenance nil. Every ref
+// resolves before the first check, so resolution never spends the budget.
 func TestOCISourceProvenanceHook(t *testing.T) {
 	dgstA := validDigest("a")
 	store := &fakeStore{
@@ -841,6 +842,7 @@ func TestOCISourceProvenanceHook(t *testing.T) {
 		t.Fatalf("no hook: %v %+v", err, col.Revisions[0].Provenance)
 	}
 	var seen []string
+	var resolvesAtCheck []int
 	start := time.Now()
 	s.Provenance = func(ctx context.Context, source, ref string, c *contract.Contract) *fleet.BundleProvenance {
 		dl, ok := ctx.Deadline()
@@ -848,6 +850,7 @@ func TestOCISourceProvenanceHook(t *testing.T) {
 			t.Errorf("deadline %v %v", dl, ok)
 		}
 		seen = append(seen, source+" "+ref+" "+c.Service.Name)
+		resolvesAtCheck = append(resolvesAtCheck, store.resolves)
 		return &fleet.BundleProvenance{Source: source, Signature: fleet.BundleSignature{Status: fleet.SignatureUnknown}}
 	}
 	col, err = s.Collect(t.Context())
@@ -857,6 +860,9 @@ func TestOCISourceProvenanceHook(t *testing.T) {
 	want := []string{"reg oci://ghcr.io/x/a@" + dgstA + " a", "reg ghcr.io/x/b:1.0.0 b"}
 	if strings.Join(seen, "|") != strings.Join(want, "|") {
 		t.Fatalf("hook calls %q, want %q", seen, want)
+	}
+	if resolvesAtCheck[0] != store.resolves {
+		t.Errorf("checks started at %d resolutions of %d: resolution is charged to the budget", resolvesAtCheck[0], store.resolves)
 	}
 	for _, r := range col.Revisions {
 		if r.Provenance == nil || r.Provenance.Source != "reg" {
