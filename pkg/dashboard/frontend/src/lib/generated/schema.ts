@@ -1814,6 +1814,21 @@ export interface components {
             services: components["schemas"]["Fleet.RefPreview"];
             summary: components["schemas"]["Fleet.OwnerSummary"];
         };
+        "Fleet.DomainTally": {
+            domain: string;
+            /** Format: int64 */
+            nonCompliant: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            stale: number;
+            /** Format: int64 */
+            targets: number;
+            /** Format: int64 */
+            unknown: number;
+            /** Format: int64 */
+            unowned: number;
+        };
         "Fleet.EntityAggregate": {
             /** Format: int64 */
             beyondRanking?: number;
@@ -2053,11 +2068,14 @@ export interface components {
         "Fleet.OverviewSummary": {
             /** Format: int64 */
             ambiguousTargetLinks: number;
+            byDomain: components["schemas"]["Fleet.DomainTally"][] | null;
             byScope: components["schemas"]["Fleet.ScopeTally"][] | null;
             /** Format: int64 */
             compliantTargets: number;
             /** Format: int64 */
             degradedSources: number;
+            /** Format: int64 */
+            domains: number;
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
             /** Format: int64 */
             exactTargetLinks: number;

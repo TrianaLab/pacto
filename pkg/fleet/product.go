@@ -296,6 +296,74 @@ type OverviewSummary struct {
 	// bounded to overviewScopeLimit; Scopes is how many scopes there are in all.
 	ByScope []ScopeTally `json:"byScope"`
 	Scopes  int          `json:"scopes"`
+	// ByDomain breaks every service down by business domain, the domain with the
+	// most non-compliant targets first, and ends with the No domain row (Domain
+	// empty) whenever a service has no domain, even when the list is bounded to
+	// overviewScopeLimit. Domains counts the named domains only.
+	ByDomain []DomainTally `json:"byDomain"`
+	Domains  int           `json:"domains"`
+}
+
+// DomainTally counts the services of one business domain, the targets they run
+// on, how many of those targets are broken, unknown or stale, and how many of the
+// services have no declared owner. An empty Domain is the No domain row.
+type DomainTally struct {
+	Domain       string `json:"domain"`
+	Services     int    `json:"services"`
+	Targets      int    `json:"targets"`
+	NonCompliant int    `json:"nonCompliant"`
+	Unknown      int    `json:"unknown"`
+	Stale        int    `json:"stale"`
+	Unowned      int    `json:"unowned"`
+}
+
+// tallyDomains fills ByDomain and Domains from every service.
+func (q *Query) tallyDomains(sum *OverviewSummary) {
+	by := map[string]*DomainTally{}
+	for _, s := range q.snap.Services {
+		dt := by[s.BusinessDomain]
+		if dt == nil {
+			dt = &DomainTally{Domain: s.BusinessDomain}
+			by[s.BusinessDomain] = dt
+		}
+		dt.Services++
+		if n, _ := q.ownershipState(s); n == 0 {
+			dt.Unowned++
+		}
+		for _, tk := range s.Targets {
+			t := q.snap.Targets[tk]
+			dt.Targets++
+			dt.NonCompliant += b2i(t.Compliance == StatusNonCompliant)
+			dt.Unknown += b2i(t.Compliance == StatusUnknown)
+			dt.Stale += b2i(t.Stale)
+		}
+	}
+	none, hasNone := by[""]
+	delete(by, "")
+	named := make([]DomainTally, 0, len(by))
+	for _, dt := range by {
+		named = append(named, *dt)
+	}
+	slices.SortFunc(named, func(a, b DomainTally) int {
+		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(b.Unknown, a.Unknown),
+			cmp.Compare(b.Unowned, a.Unowned), cmp.Compare(a.Domain, b.Domain))
+	})
+	limit := overviewScopeLimit
+	if hasNone {
+		limit-- // the last slot is the No domain row's
+	}
+	sum.ByDomain, sum.Domains, _ = boundSlice(named, limit)
+	if hasNone {
+		sum.ByDomain = append(sum.ByDomain, *none)
+	}
+}
+
+// b2i is 1 for true and 0 for false.
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // ScopeTally counts the targets of one scope and how many of them are broken,
@@ -440,6 +508,7 @@ func (q *Query) Overview() *Overview {
 	q.tallyRelationships(sum)
 	q.tallySources(sum)
 	q.tallyScopes(sum)
+	q.tallyDomains(sum)
 
 	sum.ServicesNeedingAttention = q.servicesNeedingAttention()
 	// A constant, valid filter never errors; ignore it deliberately. The attention

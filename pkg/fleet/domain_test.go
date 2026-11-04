@@ -274,3 +274,58 @@ func TestEntityDetail_DomainRespectsRestriction(t *testing.T) {
 		t.Errorf("restricted domain list = %+v", l.Entities)
 	}
 }
+
+func TestOverview_ByDomainCoversEveryService(t *testing.T) {
+	q := domainFleet(t)
+	s := q.Overview().Summary
+	total := 0
+	for _, row := range s.ByDomain {
+		total += row.Services
+	}
+	if total != s.Services {
+		t.Errorf("domain rows hold %d services, want all %d", total, s.Services)
+	}
+	if len(s.ByDomain) != 2 || s.Domains != 1 {
+		t.Fatalf("byDomain = %+v, domains = %d", s.ByDomain, s.Domains)
+	}
+	if c := s.ByDomain[0]; c.Domain != "commerce" || c.Services != 2 || c.Targets != 2 || c.NonCompliant != 1 || c.Unowned != 1 {
+		t.Errorf("commerce row = %+v", c)
+	}
+	if last := s.ByDomain[1]; last.Domain != "" || last.Services != 2 || last.Unowned != 1 {
+		t.Errorf("no-domain row = %+v, want 2 services with ghost unowned", last)
+	}
+}
+
+func TestTallyDomains_BoundedNoDomainLast(t *testing.T) {
+	var revs []RawRevision
+	var targets []RawTarget
+	for i := range 10 {
+		name := "svc" + string(rune('a'+i))
+		k := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: "1.0.0", Domain: "d" + string(rune('a'+i))}}
+		revs = append(revs, RawRevision{Bundle: &contract.Bundle{Contract: k, FS: fstest.MapFS{}}, Digest: "sha256:" + name})
+	}
+	// One unknown and one stale target, so the ordering has something to order by.
+	targets = append(targets,
+		RawTarget{Scope: "p", Kind: "k8s", Name: "u", Service: "svcj", Compliance: StatusUnknown},
+		RawTarget{Scope: "p", Kind: "k8s", Name: "s", Service: "svca", Compliance: StatusCompliant, EvidenceAt: ptrTime(fixedNow().Add(-48 * time.Hour))},
+		RawTarget{Scope: "p", Kind: "k8s", Name: "none", Service: "undeclared"})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, FreshnessWindow: time.Hour}, NewMemorySource("l", "local", &Collection{Revisions: revs, Targets: targets}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewQuery(snap).Overview().Summary
+	if len(s.ByDomain) != overviewScopeLimit || s.Domains != 10 {
+		t.Fatalf("rows = %d, domains = %d", len(s.ByDomain), s.Domains)
+	}
+	if s.ByDomain[0].Domain != "dj" || s.ByDomain[0].Unknown != 1 {
+		t.Errorf("first row = %+v, want the domain with the unknown target", s.ByDomain[0])
+	}
+	if last := s.ByDomain[len(s.ByDomain)-1]; last.Domain != "" || last.Services != 1 {
+		t.Errorf("last row = %+v, want the No domain row", last)
+	}
+	for _, row := range s.ByDomain {
+		if row.Domain == "da" && row.Stale != 1 {
+			t.Errorf("da row = %+v, want one stale target", row)
+		}
+	}
+}
