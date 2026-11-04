@@ -851,7 +851,7 @@ pacto fleet search [text] [flags]
 **Flags:**
 
 ```
-      --business-domain string   filter by declared business domain, or (none)
+      --business-domain string   filter by business domain, (none) for none or (unknown) for unknown
       --compliance string        filter to services with a target of this compliance
       --has-capability           only services declaring a capability
       --has-dependency           only services declaring a dependency
