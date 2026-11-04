@@ -30,15 +30,18 @@ var schemaV23Bytes []byte
 //go:embed schema/pacto-v2.4.schema.json
 var schemaV24Bytes []byte
 
+//go:embed schema/pacto-v2.5.schema.json
+var schemaV25Bytes []byte
+
 // SchemaBytes returns the raw embedded JSON Schema bytes of the newest version
-// (2.4, a superset of 2.3, 2.2, 2.1 and 2.0). The doc package extracts field
-// descriptions from it.
-func SchemaBytes() []byte { return schemaV24Bytes }
+// (2.5, a superset of 2.4, 2.3, 2.2, 2.1 and 2.0). The doc package extracts
+// field descriptions from it.
+func SchemaBytes() []byte { return schemaV25Bytes }
 
 // schemaBytes is the embedded JSON Schema of each pactoVersion. The versions
 // supported are contract.SupportedVersions; init panics on one without a
 // schema here.
-var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes, "2.4": schemaV24Bytes}
+var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes, "2.4": schemaV24Bytes, "2.5": schemaV25Bytes}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
 var compiledSchemas = map[string]*jsonschema.Schema{}
@@ -114,8 +117,11 @@ func ValidateStructural(data any) ValidationResult {
 	}
 
 	var mcp []int
+	if olderThan(version, "2.5") {
+		data = needsServiceFields(&result, data, "2.5", finding.CodeNeedsPacto25, "offering", "summary")
+	}
 	if olderThan(version, "2.4") {
-		data = needs24(&result, data)
+		data = needsServiceFields(&result, data, "2.4", finding.CodeNeedsPacto24, "domain")
 	}
 	if olderThan(version, "2.3") {
 		data = needs23(&result, data)
@@ -150,19 +156,27 @@ func olderThan(version, than string) bool {
 	return slices.Index(contract.SupportedVersions, version) < slices.Index(contract.SupportedVersions, than)
 }
 
-// needs24 records a NEEDS_PACTO_2_4 error for service.domain, the field only
-// pactoVersion 2.4 has, in an older contract in place of the older schema's
-// generic "not allowed", and returns data with a service without it for that
-// schema to check the rest.
-func needs24(result *ValidationResult, data any) any {
+// needsServiceFields records a code error for each of the service fields only
+// pactoVersion version has, in an older contract in place of the older
+// schema's generic "not allowed", and returns data with a service without
+// them for that schema to check the rest.
+func needsServiceFields(result *ValidationResult, data any, version string, code finding.Code, fields ...string) any {
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	svc, _ := m["service"].(map[string]any)
-	if _, ok := svc["domain"]; !ok {
+	var found []string
+	for _, f := range fields {
+		if _, ok := svc[f]; ok {
+			found = append(found, f)
+		}
+	}
+	if len(found) == 0 {
 		return data
 	}
-	result.AddError("service.domain", string(finding.CodeNeedsPacto24), `service.domain needs pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`)
 	svc = maps.Clone(svc)
-	delete(svc, "domain")
+	for _, f := range found {
+		result.AddError("service."+f, string(code), fmt.Sprintf(`service.%s needs pactoVersion %q; set pactoVersion: %q, which keeps every older field`, f, version, version))
+		delete(svc, f)
+	}
 	out := maps.Clone(m)
 	out["service"] = svc
 	return out

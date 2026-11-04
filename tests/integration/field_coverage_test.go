@@ -85,17 +85,19 @@ const (
 	needs22         = "NEEDS_PACTO_2_2" // a 2.2-only part in a 2.0 or 2.1 contract
 	needs23         = "NEEDS_PACTO_2_3" // a 2.3-only part in an older contract
 	needs24         = "NEEDS_PACTO_2_4" // a 2.4-only part in an older contract
+	needs25         = "NEEDS_PACTO_2_5" // a 2.5-only part in an older contract
 	unmet           = "GUARANTEE_UNMET" // a requirement the provider bundle does not meet
 )
 
 var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
-	valid("pactoVersion=2.4", set("pactoVersion", "2.4")),
-	valid("pactoVersion=2.3", set("pactoVersion", "2.3"), del("service.domain")),
-	valid("pactoVersion=2.2", set("pactoVersion", "2.2"), del("service.domain"), del("environments")),
-	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("service.domain"), del("environments"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
-	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("service.domain"), del("environments"), del("publish"), del("checks"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
+	valid("pactoVersion=2.5", set("pactoVersion", "2.5")),
+	valid("pactoVersion=2.4", set("pactoVersion", "2.4"), del("service.offering"), del("service.summary")),
+	valid("pactoVersion=2.3", set("pactoVersion", "2.3"), del("service.domain"), del("service.offering"), del("service.summary")),
+	valid("pactoVersion=2.2", set("pactoVersion", "2.2"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments")),
+	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
+	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("publish"), del("checks"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
@@ -105,7 +107,13 @@ var fieldCoverageCases = []fcCase{
 	invalid("service.version/invalid", "INVALID_SEMVER", set("service.version", "abc")),
 	valid("service.domain/valid", set("service.domain", "payments")),
 	invalid("service.domain/invalid", schemaViolation, set("service.domain", "Pay Ments")),
-	invalid("service.domain/needs-2.4", needs24, set("pactoVersion", "2.3")),
+	invalid("service.domain/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.offering"), del("service.summary")),
+	valid("service.offering/valid", set("service.offering", "postgresql")),
+	invalid("service.offering/invalid", schemaViolation, set("service.offering", "Shared Config")),
+	invalid("service.offering/needs-2.5", needs25, set("pactoVersion", "2.4"), del("service.summary")),
+	valid("service.summary/valid", set("service.summary", "Primary database for the storefront")),
+	invalid("service.summary/invalid", schemaViolation, set("service.summary", "line\nbreak")),
+	invalid("service.summary/needs-2.5", needs25, set("pactoVersion", "2.4"), del("service.offering")),
 	valid("service.owner/valid", del("service.owner")),
 	invalid("service.owner/invalid", schemaViolation, set("service.owner", map[string]any{})),
 	valid("service.owner.team/valid", del("service.owner.dri")),
@@ -147,13 +155,13 @@ var fieldCoverageCases = []fcCase{
 	valid("interfaces[].type=grpc", set("interfaces.0.type", "grpc"), set("interfaces.0.ref", "interfaces/orders.proto")),
 	valid("interfaces[].type=mcp", set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
 	invalid("interfaces[].type=mcp/no-tools", "INVALID_MCP_TOOLS", set("interfaces.0.type", "mcp")),
-	invalid("interfaces[].type=mcp/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("service.domain"), del("publish"), del("checks"),
+	invalid("interfaces[].type=mcp/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("service.domain"), del("service.offering"), del("service.summary"), del("publish"), del("checks"),
 		set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
 	valid("interfaces[].ref/valid", set("interfaces.0.ref", "interfaces/asyncapi.yaml")),
 	invalid("interfaces[].ref/invalid", "FILE_NOT_FOUND", set("interfaces.0.ref", "interfaces/missing.yaml")),
 	valid("interfaces[].guarantees/valid", del("interfaces.0.guarantees")),
 	invalid("interfaces[].guarantees/invalid", parseError, set("interfaces.0.guarantees.latency", "1s")),
-	invalid("interfaces[].guarantees/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("service.domain"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
+	invalid("interfaces[].guarantees/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
 	valid("interfaces[].guarantees.profile/valid", del("interfaces.0.guarantees.profile")),
 	invalid("interfaces[].guarantees.profile/invalid", schemaViolation, set("interfaces.0.guarantees.profile", "2")),
 	valid("interfaces[].guarantees.profile=1", set("interfaces.0.guarantees.profile", "1")),
@@ -175,14 +183,14 @@ var fieldCoverageCases = []fcCase{
 	invalid("interfaces[].guarantees.timeout/invalid", schemaViolation, set("interfaces.0.guarantees.timeout", "-1s")),
 	valid("interfaces[].compatibilityEpoch/valid", set("interfaces.0.compatibilityEpoch", 3)),
 	invalid("interfaces[].compatibilityEpoch/invalid", schemaViolation, set("interfaces.0.compatibilityEpoch", -1)),
-	invalid("interfaces[].compatibilityEpoch/needs-2.2", needs22, set("pactoVersion", "2.1"), del("service.domain"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
+	invalid("interfaces[].compatibilityEpoch/needs-2.2", needs22, set("pactoVersion", "2.1"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
 	valid("interfaces[].visibility/valid", del("interfaces.0.visibility")),
 	invalid("interfaces[].visibility/invalid", schemaViolation, set("interfaces.0.visibility", "private")),
 	valid("interfaces[].visibility=public", set("interfaces.0.visibility", "public")),
 	valid("interfaces[].visibility=internal", set("interfaces.0.visibility", "internal")),
 	valid("interfaces[].lifecycle/valid", del("interfaces.0.lifecycle")),
 	invalid("interfaces[].lifecycle/invalid", schemaViolation, set("interfaces.0.lifecycle", map[string]any{})),
-	invalid("interfaces[].lifecycle/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("service.domain"), del("environments"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
+	invalid("interfaces[].lifecycle/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees"), del("dependencies.1.requires")),
 	valid("interfaces[].lifecycle.deprecated/valid", set("interfaces.0.lifecycle.deprecated", "2025-12-01")),
 	invalid("interfaces[].lifecycle.deprecated/invalid", "INVALID_INTERFACE_LIFECYCLE", set("interfaces.0.lifecycle.deprecated", "2026-1-15")),
 	valid("interfaces[].lifecycle.sunset/valid", del("interfaces.0.lifecycle.sunset")),
@@ -208,7 +216,7 @@ var fieldCoverageCases = []fcCase{
 
 	valid("environments/valid", del("environments")),
 	invalid("environments/invalid", parseError, set("environments", "staging")),
-	invalid("environments/needs-2.3", needs23, set("pactoVersion", "2.2"), del("service.domain")),
+	invalid("environments/needs-2.3", needs23, set("pactoVersion", "2.2"), del("service.domain"), del("service.offering"), del("service.summary")),
 	valid("environments[]/valid", set("environments.1", map[string]any{"name": "production", "file": "environments/production.json"})),
 	invalid("environments[]/invalid", parseError, set("environments.0.cluster", "eu-1")),
 	valid("environments[].name/valid", set("environments.0.name", "staging-eu-1")),
@@ -247,10 +255,10 @@ var fieldCoverageCases = []fcCase{
 	invalid("dependencies[].compatibility/invalid", "INVALID_COMPATIBILITY", set("dependencies.0.compatibility", "not-a-range")),
 	valid("dependencies[].external/valid", set("dependencies.0.external", true)),
 	invalid("dependencies[].external/invalid", "DEPENDENCY_REF_REQUIRED", del("dependencies.0.ref")),
-	invalid("dependencies[].external/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("service.domain"), del("publish"), del("checks"), set("dependencies.0.external", true)),
+	invalid("dependencies[].external/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("service.domain"), del("service.offering"), del("service.summary"), del("publish"), del("checks"), set("dependencies.0.external", true)),
 	valid("dependencies[].requires/valid", del("dependencies.1.requires")),
 	invalid("dependencies[].requires/invalid", unmet, set("dependencies.1.requires.0.dedupeWindow", "1h")),
-	invalid("dependencies[].requires/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("service.domain"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees")),
+	invalid("dependencies[].requires/invalid-2.1", needs22, set("pactoVersion", "2.1"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.compatibilityEpoch"), del("interfaces.0.guarantees")),
 	valid("dependencies[].requires[]/valid", set("dependencies.1.requires.1", map[string]any{"interface": "events", "idempotent": true})),
 	invalid("dependencies[].requires[]/invalid", parseError, set("dependencies.1.requires.0", "events")),
 	valid("dependencies[].requires[].interface/valid", set("dependencies.1.requires.0.interface", "events")),
@@ -392,7 +400,7 @@ var fieldCoverageCases = []fcCase{
 
 	valid("publish/valid"),
 	invalid("publish/invalid", parseError, set("publish", "ghcr.io")),
-	invalid("publish/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("service.domain")),
+	invalid("publish/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("service.domain"), del("service.offering"), del("service.summary")),
 	valid("publish.bundle/valid", set("publish.bundle", "oci://registry.example.com:5000/acme/pacto/orders")),
 	invalid("publish.bundle/invalid", schemaViolation, set("publish.bundle", "oci://ghcr.io/acme/pacto/orders:1.0.0")),
 	valid("publish.deploy/valid", del("publish.deploy")),
@@ -448,7 +456,7 @@ var fieldCoverageCases = []fcCase{
 
 	valid("checks/valid", del("checks")),
 	invalid("checks/invalid", parseError, set("checks", "evals")),
-	invalid("checks/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("service.domain"), del("publish")),
+	invalid("checks/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("service.domain"), del("service.offering"), del("service.summary"), del("publish")),
 	valid("checks[]/valid", set("checks.1", map[string]any{"name": "smoke", "file": "evals/suite.yaml"})),
 	invalid("checks[]/invalid", "DUPLICATE_CHECK_NAME", set("checks.1", map[string]any{"name": "evals", "file": "evals/suite.yaml"})),
 	valid("checks[].name/valid", set("checks.0.name", "refunds")),
@@ -462,13 +470,15 @@ var fieldCoverageCases = []fcCase{
 	invalid("extensions/invalid", parseError, set("extensions", "acme")),
 }
 
-// fieldCoverageBase declares every field of the v2.4 schema at least once
+// fieldCoverageBase declares every field of the v2.5 schema at least once
 // (publish.sign declares one of its three ways; the cases cover the others).
-const fieldCoverageBase = `pactoVersion: "2.4"
+const fieldCoverageBase = `pactoVersion: "2.5"
 service:
   name: orders
   version: 1.0.0
   domain: commerce
+  offering: shared-config
+  summary: Orders API for the storefront
   owner:
     team: payments
     dri: alice

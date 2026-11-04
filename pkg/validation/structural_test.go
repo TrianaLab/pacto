@@ -748,8 +748,7 @@ func TestNeeds23(t *testing.T) {
 	}
 }
 
-// TestPactoVersion24: 2.4 is supported, keeps every 2.3 field and is the
-// schema SchemaBytes returns; the next version is still refused by name.
+// TestPactoVersion24: 2.4 is supported and keeps every 2.3 field.
 func TestPactoVersion24(t *testing.T) {
 	min := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}}
 	if r := ValidateStructural(min); !r.IsValid() {
@@ -759,13 +758,6 @@ func TestPactoVersion24(t *testing.T) {
 		"environments": []any{map[string]any{"name": "staging", "file": "environments/staging.yaml"}}}
 	if r := ValidateStructural(envs); !r.IsValid() {
 		t.Fatalf("2.4 with environments: %v", r.Errors)
-	}
-	r := ValidateStructural(map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
-	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4") {
-		t.Fatalf("2.5: %v", r.Errors)
-	}
-	if !strings.Contains(string(SchemaBytes()), `"title": "Pacto Service Contract v2.4"`) {
-		t.Fatal("SchemaBytes is not the 2.4 schema")
 	}
 }
 
@@ -798,6 +790,75 @@ func TestNeeds24(t *testing.T) {
 		r := ValidateStructural(doc(bad))
 		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
 			t.Errorf("%v: %v", bad, r.Errors)
+		}
+	}
+}
+
+// TestPactoVersion25: 2.5 is supported, keeps every 2.4 field and is the
+// schema SchemaBytes returns; the next version is still refused by name.
+func TestPactoVersion25(t *testing.T) {
+	min := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"}}
+	if r := ValidateStructural(min); !r.IsValid() {
+		t.Fatalf("minimal 2.5: %v", r.Errors)
+	}
+	older := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0", "domain": "payments"},
+		"environments": []any{map[string]any{"name": "staging", "file": "environments/staging.yaml"}}}
+	if r := ValidateStructural(older); !r.IsValid() {
+		t.Fatalf("2.5 with environments and a domain: %v", r.Errors)
+	}
+	r := ValidateStructural(map[string]any{"pactoVersion": "2.6", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
+	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4, 2.5") {
+		t.Fatalf("2.6: %v", r.Errors)
+	}
+	if !strings.Contains(string(SchemaBytes()), `"title": "Pacto Service Contract v2.5"`) {
+		t.Fatal("SchemaBytes is not the 2.5 schema")
+	}
+}
+
+// TestNeeds25: service.offering and service.summary in an older contract are
+// each told to set pactoVersion 2.5, the rest is still checked and the
+// caller's data is left alone; a 2.5 contract takes a slug offering and a
+// one-line summary and refuses anything else.
+func TestNeeds25(t *testing.T) {
+	for _, version := range []string{"2.0", "2.1", "2.2", "2.3", "2.4"} {
+		svc := map[string]any{"name": "svc", "version": "1.0.0", "offering": "postgresql", "summary": "Primary database"}
+		data := map[string]any{"pactoVersion": version, "service": svc, "workload": "nonsense"}
+		var got []string
+		for _, e := range ValidateStructural(data).Errors {
+			got = append(got, e.Code+" "+e.Path)
+		}
+		slices.Sort(got)
+		if want := []string{"NEEDS_PACTO_2_5 service.offering", "NEEDS_PACTO_2_5 service.summary", "SCHEMA_VIOLATION workload"}; !slices.Equal(got, want) {
+			t.Fatalf("%s: got %v, want %v", version, got, want)
+		}
+		if _, ok := svc["offering"]; !ok {
+			t.Fatal("the caller's data was changed")
+		}
+		if _, ok := svc["summary"]; !ok {
+			t.Fatal("the caller's data was changed")
+		}
+	}
+	doc := func(field string, value any) map[string]any {
+		return map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0", field: value}}
+	}
+	for _, good := range []string{"postgresql", "object-storage"} {
+		if r := ValidateStructural(doc("offering", good)); !r.IsValid() {
+			t.Fatalf("2.5 with offering %q: %v", good, r.Errors)
+		}
+	}
+	for _, bad := range []any{"Postgres", "pg sql", "-pg", "pg-", "", strings.Repeat("a", 64), 7} {
+		r := ValidateStructural(doc("offering", bad))
+		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
+			t.Errorf("offering %v: %v", bad, r.Errors)
+		}
+	}
+	if r := ValidateStructural(doc("summary", "Primary database")); !r.IsValid() {
+		t.Fatalf("2.5 with a summary: %v", r.Errors)
+	}
+	for _, bad := range []any{"", strings.Repeat("a", 201), "a\nb"} {
+		r := ValidateStructural(doc("summary", bad))
+		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
+			t.Errorf("summary %q: %v", bad, r.Errors)
 		}
 	}
 }
