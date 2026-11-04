@@ -142,6 +142,14 @@ describe('service page: capabilities and sources', () => {
     done();
   });
 
+  it('labels the capabilities as self-declared and explains them', async () => {
+    const { target, done } = await render(detail());
+    const f = fact(target, 'service-capabilities');
+    expect(text(f)).toContain('Declared capabilities');
+    expect(f?.querySelector('button')?.getAttribute('aria-label') ?? '').toMatch(/Declared capabilities/);
+    done();
+  });
+
   it('says when no capability is declared', async () => {
     const { target, done } = await render(detail());
     expect(text(fact(target, 'service-capabilities'))).toContain('None declared');
@@ -417,6 +425,63 @@ describe('service page: policies and configuration', () => {
     expect(text(sec)).toContain('app');
     expect(text(sec)).toContain('tls');
     expect(text(sec)).toContain('From');
+    done();
+  });
+});
+
+describe('service page: platform offerings', () => {
+  beforeEach(() => detailFn.mockReset());
+  const pg = ref('service', 'ghcr.io/acme/postgresql', 'postgresql');
+  const cfg = ref('service', 'ghcr.io/acme/platform-app-config', 'platform-app-config');
+
+  it('links each offering the service uses, with its provider and range', async () => {
+    const used = preview([
+      { offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: pg, via: 'dependency', compatibility: '^16.0.0', rangeStatus: 'satisfied' },
+      { offering: 'shared-config', consumer: ref('service', KEY, 'payments'), provider: cfg, via: 'configuration_reference' },
+    ]);
+    const { target, done } = await render(detail({ consumedOfferings: used, inferredOfferings: [] }));
+    const f = fact(target, 'service-offerings-used');
+    expect(text(f)).toContain('Platform offerings used');
+    expect(hrefs(f)).toEqual(['#/fleet/offerings/postgresql', '#/fleet/offerings/shared-config']);
+    expect(text(f)).toContain('from postgresql');
+    expect(f?.querySelector('.tone-ok')?.textContent).toBe('satisfied');
+    done();
+  });
+
+  it('says None declared when the service uses no offering', async () => {
+    const { target, done } = await render(detail());
+    expect(text(fact(target, 'service-offerings-used'))).toContain('None declared');
+    done();
+  });
+
+  it('marks an inferred provider on its dependency row and never counts it as used', async () => {
+    const unresolved = preview([{ ref: 'oci://other.io/x/redis', requestedRef: 'oci://other.io/x/redis', reason: 'no match' }]);
+    const inferred = [{ ref: 'oci://other.io/x/redis', offering: ref('offering', 'redis', 'redis', { href: '/fleet/offerings/redis' }), reason: 'offering-name' }];
+    const { target, done } = await render(detail({ unresolvedDependencies: unresolved, inferredOfferings: inferred, consumedOfferings: preview([]) }));
+    const row = target.querySelector('[data-testid="unresolved-dependency"]') as HTMLElement;
+    expect(text(row)).toContain('inferred');
+    expect(text(row)).toContain('Matched by name only; the contract does not declare it');
+    const link = row.querySelector('[data-testid="inferred-offering"]') as HTMLAnchorElement;
+    expect(link.textContent).toBe('may be the redis offering');
+    expect(link.getAttribute('href')).toBe('#/fleet/offerings/redis');
+    expect(text(fact(target, 'service-offerings-used'))).toContain('None declared');
+    expect(hrefs(fact(target, 'service-offerings-used'))).not.toContain('#/fleet/offerings/redis');
+    done();
+  });
+
+  it('shows the offering the service provides and its summary under the title', async () => {
+    const d = detail();
+    d.entity = { ...d.entity, offering: 'postgresql', summary: 'The primary database for payments.' };
+    const { target, done } = await render(d);
+    expect(hrefs(fact(target, 'service-offering'))).toEqual(['#/fleet/offerings/postgresql']);
+    expect(target.querySelector('.page-hd-sub')?.textContent).toBe('The primary database for payments.');
+    done();
+  });
+
+  it('shows no Provides fact or summary when the service declares neither', async () => {
+    const { target, done } = await render(detail());
+    expect(target.querySelector('[data-testid="service-offering"]')).toBeNull();
+    expect(target.querySelector('.page-hd-sub')).toBeNull();
     done();
   });
 });
