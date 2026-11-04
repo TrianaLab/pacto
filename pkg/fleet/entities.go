@@ -281,10 +281,12 @@ func validateFilterCombos(f EntityFilter) error {
 	return nil
 }
 
-// kindSet returns the set of requested kinds; an empty request means all kinds.
+// kindSet returns the set of requested kinds. An empty request means every kind
+// but KindDomain: domains came later and are returned only when asked for, so a
+// kind-less query keeps the answer it always had.
 func kindSet(kinds []EntityKind) map[EntityKind]bool {
 	if len(kinds) == 0 {
-		return map[EntityKind]bool{KindService: true, KindRevision: true, KindTarget: true, KindOwner: true, KindSource: true, KindDomain: true}
+		return map[EntityKind]bool{KindService: true, KindRevision: true, KindTarget: true, KindOwner: true, KindSource: true}
 	}
 	m := map[EntityKind]bool{}
 	for _, k := range kinds {

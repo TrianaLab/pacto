@@ -177,7 +177,7 @@ func TestEntities_BusinessDomainSkipsOwnersAndSources(t *testing.T) {
 			t.Errorf("%s %s matched a business domain", e.Kind, e.Key)
 		}
 	}
-	if l.Aggregate.Services != 2 || l.Aggregate.Domains != 1 {
+	if l.Aggregate.Services != 2 || l.Aggregate.Domains != 0 {
 		t.Errorf("aggregate = %+v", l.Aggregate)
 	}
 }
@@ -660,5 +660,23 @@ func TestRestrict_BusinessDomainFromVisibleTargetsOnly(t *testing.T) {
 func TestServiceInBusinessDomain_UnknownService(t *testing.T) {
 	if domainFleet(t).serviceInBusinessDomain("oci://nope", NoBusinessDomain) {
 		t.Error("a service not in the snapshot matched (none)")
+	}
+}
+
+// Domains are a kind a caller asks for: a kind-less query returns what it did
+// before business domains existed.
+func TestEntities_KindlessQueryOmitsDomains(t *testing.T) {
+	q := domainFleet(t)
+	l, err := q.Entities(EntityFilter{Limit: MaxEntityLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range l.Entities {
+		if e.Kind == KindDomain {
+			t.Errorf("kind-less query returned domain %s", e.Key)
+		}
+	}
+	if got := entityKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService, KindDomain}, Text: "commerce"}); len(got) == 0 {
+		t.Error("an explicit domain kind found nothing")
 	}
 }
