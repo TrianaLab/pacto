@@ -538,7 +538,8 @@ type DomainDetailData struct {
 
 // OfferingUse is one service consuming a provider of a platform offering, by a
 // declared dependency or a configuration or policy reference. Compatibility and
-// RangeStatus are the relationship's own.
+// RangeStatus are the relationship's own, merged over the consumer's revisions:
+// Compatibility is empty and RangeStatus unknown when they disagree.
 type OfferingUse struct {
 	Offering      string    `json:"offering"`
 	Consumer      EntityRef `json:"consumer"`
@@ -1070,10 +1071,14 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 		}
 		k := useKey{rel.FromService, rel.ToService, rel.Type}
 		if j, ok := seen[k]; ok {
-			if u := &uses[j]; u.RangeStatus == "" {
+			u := &uses[j]
+			if u.RangeStatus == "" {
 				u.RangeStatus = rel.RangeStatus
 			} else if rel.RangeStatus != "" && rel.RangeStatus != u.RangeStatus {
 				u.RangeStatus = RangeUnknown
+			}
+			if rel.Compatibility != u.Compatibility {
+				u.Compatibility = ""
 			}
 			continue
 		}

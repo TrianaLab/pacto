@@ -612,3 +612,21 @@ func TestRestrictedView_ConflictFromHiddenTargetDoesNotLeak(t *testing.T) {
 		}
 	}
 }
+
+// Consumer revisions that declare different ranges leave no range to show.
+func TestOfferingDetail_ConsumerRevisionsDisagreeOnRange(t *testing.T) {
+	pg := svc25("postgresql", "16.0.1", "postgresql")
+	pg.Workload = contract.WorkloadService
+	jobs := func(version, rng string) *contract.Contract {
+		c := svc25("jobs", version, "")
+		c.Dependencies = []contract.Dependency{{Name: "postgresql", Ref: "oci://ghcr.io/acme/postgresql", Required: true, Compatibility: rng}}
+		return c
+	}
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
+		ociRev("ghcr.io/acme", pg, nil), ociRev("ghcr.io/acme", jobs("1.0.0", "^15.0.0"), nil), ociRev("ghcr.io/acme", jobs("2.0.0", "^16.0.0"), nil),
+	}})
+	o := offeringData(t, q, "postgresql")
+	if len(o.Consumers.Items) != 1 || o.Consumers.Items[0].Compatibility != "" || o.Consumers.Items[0].RangeStatus != RangeUnknown {
+		t.Errorf("consumers = %+v", o.Consumers.Items)
+	}
+}
