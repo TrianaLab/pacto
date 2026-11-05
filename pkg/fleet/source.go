@@ -57,6 +57,11 @@ type Collection struct {
 	// An endpoint that resolves to zero or multiple services is never coerced to a
 	// domain — it becomes an explicit limitation instead.
 	Observed []ObservedEdge
+	// ObservedUndeclaredOnly says the source reports only calls no contract
+	// declares and never witnesses a declared call, so its observations cannot
+	// show a declared edge unobserved: [Build] folds them but does not count them
+	// when it reconciles declared edges.
+	ObservedUndeclaredOnly bool
 }
 
 // ObservedEdge is one runtime-observed caller→provider dependency. From and To are

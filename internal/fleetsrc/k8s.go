@@ -111,11 +111,53 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	if err := json.Unmarshal(data, &list); err != nil {
 		return nil, fmt.Errorf("decoding %s list: %w", resource, err)
 	}
-	col := &fleet.Collection{}
-	for _, item := range list.Items {
-		col.Targets = append(col.Targets, s.targetFrom(item))
+	// The same bytes decoded into list above, so they decode here too.
+	var raw struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	_ = json.Unmarshal(data, &raw)
+	col := &fleet.Collection{ObservedUndeclaredOnly: true}
+	for i, item := range list.Items {
+		t := s.targetFrom(item)
+		if v, ok := s.runtimeView(raw.Items[i], item, col); ok {
+			col.Observed = append(col.Observed, delivery.ObservedEdges(v)...)
+			t.Limitations = s.callerLimitations(v, t.ReconciledAt)
+		}
+		col.Targets = append(col.Targets, t)
 	}
 	return col, nil
+}
+
+// LimitationPactoStatusUnreadable marks a Pacto whose runtime observation (its
+// observed callers and their coverage) does not decode. Its target is still
+// collected; only its runtime calls are missing.
+const LimitationPactoStatusUnreadable = "PACTO_STATUS_UNREADABLE"
+
+// runtimeView decodes what the operator's runtime observation wrote into a
+// reconciled Pacto's status. ok is false for a Pacto with no reconciled contract,
+// and for one whose status does not decode, which adds a limitation to col.
+func (s *K8sSource) runtimeView(raw json.RawMessage, item k8sItem, col *fleet.Collection) (delivery.PactoView, bool) {
+	var v delivery.PactoView
+	if item.Status.Contract == nil || item.Status.Contract.ServiceName == "" {
+		return v, false
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: LimitationPactoStatusUnreadable, Source: s.id,
+			Message: "the runtime observation of Pacto " + item.Metadata.Namespace + "/" + item.Metadata.Name + " could not be read; its runtime calls are missing",
+		})
+		return v, false
+	}
+	return v, true
+}
+
+// callerLimitations is [delivery.CallerLimitations], attributed to this source.
+func (s *K8sSource) callerLimitations(v delivery.PactoView, reconciled *time.Time) []fleet.Limitation {
+	lims := delivery.CallerLimitations(v, reconciled, time.Now())
+	for i := range lims {
+		lims[i].Source = s.id
+	}
+	return lims
 }
 
 // targetFrom projects one CR into a fleet target. It maps only status the

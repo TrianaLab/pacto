@@ -100,6 +100,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 
 	seenSourceIDs := map[string]bool{}
 	var observed []observedInput
+	undeclaredOnly := map[string]bool{}
 	// Sources are processed in declared order so composition is deterministic
 	// regardless of goroutine completion order.
 	for i := range results {
@@ -125,6 +126,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		}
 		ingestCollection(snap, src, r.col, generatedAt, opts.FreshnessWindow)
 		if r.col != nil {
+			undeclaredOnly[src.ID()] = r.col.ObservedUndeclaredOnly
 			for _, e := range r.col.Observed {
 				observed = append(observed, observedInput{edge: e, source: src.ID()})
 			}
@@ -136,7 +138,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	aggregateServices(snap)
 	buildRelationships(snap)
 	foldObservedRelationships(snap, observed)
-	reconcileDeclared(snap)
+	reconcileDeclared(snap, undeclaredOnly)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	sortSnapshot(snap)
@@ -1909,16 +1911,20 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 // insufficient (no observation data at all — so it cannot be reconciled). This is
 // the ONLY source of a relationship's reconciliation state; a declared edge is
 // never "reconciled" merely because its provider is deployed. Runs after
-// foldObservedRelationships so the observed edges are present.
-func reconcileDeclared(snap *FleetSnapshot) {
+// foldObservedRelationships so the observed edges are present. An edge only
+// sources in undeclaredOnly witnessed corroborates a declared edge but is no
+// observation data: those sources never report a declared call, so their silence
+// says nothing about one.
+func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	type edge struct{ from, to ServiceKey }
 	observed := map[edge]bool{}
+	haveObservation := false
 	for _, rel := range snap.Relationships {
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved {
 			observed[edge{rel.FromService, rel.ToService}] = true
+			haveObservation = haveObservation || slices.ContainsFunc(rel.ObservedSources, func(s ObservedSourceStat) bool { return !undeclaredOnly[s.Source] })
 		}
 	}
-	haveObservation := len(observed) > 0
 	for i := range snap.Relationships {
 		rel := &snap.Relationships[i]
 		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {

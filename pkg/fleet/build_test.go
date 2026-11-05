@@ -1535,9 +1535,9 @@ func TestReconcileDeclared(t *testing.T) {
 	snap := &FleetSnapshot{Relationships: []Relationship{
 		{Type: RelationshipDependency, Provenance: ProvenanceDeclared, FromService: "d/web", ToService: "d/api"},
 		{Type: RelationshipDependency, Provenance: ProvenanceDeclared, FromService: "d/web", ToService: "d/cache"},
-		{Type: RelationshipDependency, Provenance: ProvenanceObserved, FromService: "d/web", ToService: "d/api"},
+		{Type: RelationshipDependency, Provenance: ProvenanceObserved, FromService: "d/web", ToService: "d/api", ObservedSources: []ObservedSourceStat{{Source: "otel", Count: 1}}},
 	}}
-	reconcileDeclared(snap)
+	reconcileDeclared(snap, nil)
 	got := map[ServiceKey]string{}
 	for _, r := range snap.Relationships {
 		if r.Provenance == ProvenanceDeclared {
@@ -1556,7 +1556,7 @@ func TestReconcileDeclared_InsufficientWithoutObservation(t *testing.T) {
 	snap := &FleetSnapshot{Relationships: []Relationship{
 		{Type: RelationshipDependency, Provenance: ProvenanceDeclared, FromService: "d/web", ToService: "d/api"},
 	}}
-	reconcileDeclared(snap)
+	reconcileDeclared(snap, nil)
 	if snap.Relationships[0].Reconciliation != ReconciliationInsufficient {
 		t.Errorf("no observation data must be insufficient, got %q", snap.Relationships[0].Reconciliation)
 	}

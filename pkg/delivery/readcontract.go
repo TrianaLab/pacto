@@ -192,9 +192,9 @@ func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Re
 			Scope: p.Metadata.Namespace, Kind: fleet.SourceKindKubernetes, Name: p.Metadata.Name,
 			Service: c.ServiceName, Domain: rev.Domain, ResolvedRef: c.ResolvedRef, Digest: digest,
 			Compliance: p.Status.ContractStatus, EvidenceAt: reconciled, ReconciledAt: reconciled,
-			Limitations: callerLimitations(p, reconciled, now),
+			Limitations: CallerLimitations(p, reconciled, now),
 		})
-		col.Observed = append(col.Observed, observedEdges(p)...)
+		col.Observed = append(col.Observed, ObservedEdges(p)...)
 	}
 	src := fleet.NewMemorySource(SnapshotSourceID, fleet.SourceKindKubernetes, col)
 	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, src)
@@ -205,12 +205,12 @@ func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Re
 // updating. It stays on the target, so the rest of the snapshot stays complete.
 const LimitationCallersUnseen = "OBSERVED_CALLERS_UNSEEN"
 
-// callerLimitations says when the Pacto's runtime callers cannot be ruled out.
+// CallerLimitations says when the Pacto's runtime callers cannot be ruled out.
 // A coverage the operator has not rewritten within twice its refresh interval
 // is stale whatever it says: an operator that stopped would otherwise leave a
 // complete coverage in place forever. No coverage means runtime observation is
-// not configured, which changes nothing.
-func callerLimitations(p PactoView, reconciled *time.Time, now time.Time) []fleet.Limitation {
+// not configured, which changes nothing. p must carry status.contract.
+func CallerLimitations(p PactoView, reconciled *time.Time, now time.Time) []fleet.Limitation {
 	cov := p.Status.ObservedCallersCoverage
 	if cov == nil {
 		return nil
@@ -255,12 +255,13 @@ func InitClusterCommand(namespace string) string {
 	return "pacto init --cluster --namespace " + namespace + " --out <dir>"
 }
 
-// observedEdges are the runtime calls a Pacto's status shows: one edge per
+// ObservedEdges are the runtime calls a Pacto's status shows: one edge per
 // DEPENDENCY_UNDECLARED finding the node agent raised, from this service to
 // the one it called, and one per uncontracted caller of this service, under a
 // k8s: name that never resolves to a contracted service. They carry no count
-// or time, so the snapshot changes only when the set of calls does.
-func observedEdges(p PactoView) []fleet.ObservedEdge {
+// or time, so the snapshot changes only when the set of calls does. p must
+// carry status.contract.
+func ObservedEdges(p PactoView) []fleet.ObservedEdge {
 	svc := p.Status.Contract.ServiceName
 	var out []fleet.ObservedEdge
 	for _, f := range p.Status.Findings {
