@@ -427,3 +427,27 @@ func TestTallyScopes_WorstScopeFirst(t *testing.T) {
 		t.Errorf("byScope = %+v, want %+v", sum.ByScope, want)
 	}
 }
+
+// TestEntityKindsAreValidAndProductKindsASubset pins the shared kind lists the
+// MCP enums and the CLI --kind checks read: every listed kind is one the query
+// accepts, and the default listing kinds are among them.
+func TestEntityKindsAreValidAndProductKindsASubset(t *testing.T) {
+	all := EntityKinds()
+	if len(all) != 7 {
+		t.Fatalf("EntityKinds = %v, want all seven kinds", all)
+	}
+	for _, k := range all {
+		if !validEntityKind(EntityKind(k)) {
+			t.Errorf("EntityKinds lists %q, which validEntityKind rejects", k)
+		}
+	}
+	want := []string{"service", "owner", "domain", "offering"}
+	if got := ProductKinds(); !slices.Equal(got, want) {
+		t.Fatalf("ProductKinds = %v, want %v", got, want)
+	}
+	for _, k := range want {
+		if !slices.Contains(all, k) {
+			t.Errorf("ProductKinds lists %q, missing from EntityKinds", k)
+		}
+	}
+}
