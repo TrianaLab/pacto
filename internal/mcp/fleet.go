@@ -39,7 +39,7 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"'reconciliation'; each graph node says how it was reached. Say which kind each fact is: " +
 	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in three " +
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
-	"version match, and a relationship provenance reserved for future use. Use " +
+	"version match and a relationship provenance reserved for future use. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first."
 

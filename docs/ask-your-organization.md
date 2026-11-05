@@ -19,9 +19,9 @@ queries, so an agent and a person asking the same question get the same answer.
 
 ## Read the answer
 
-Every fleet answer carries `meta`: `asOf`, the time it describes, `snapshotId`,
-which proves two answers came from the same view, `sources`, what each source
-contributed, and `limitations`, what Pacto could not see. `pacto_impact`
+Every fleet answer carries `meta`. `asOf` is the time it describes and
+`snapshotId` proves two answers came from the same view. `sources` says what
+each source contributed and `limitations` what Pacto could not see. `pacto_impact`
 carries the same fields at the top level. Cite them when you repeat an answer.
 When `completeness` is `partial`, a missing result means unknown.
 
@@ -32,7 +32,7 @@ Each fact says how Pacto knows it:
   operator.
 - **Inferred**: Pacto derived it. The word has three uses: a transitive
   consumer in `pacto_impact`, a target linked to a revision by tag or version
-  match, and a relationship provenance reserved for future use.
+  match and a relationship provenance reserved for future use.
 
 An edge carries `provenance` (`declared`, `observed` or `declared+observed`),
 and a graph node says how the edge that first reached it was known. A runtime
