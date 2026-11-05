@@ -41,6 +41,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newFleetEntitiesCommand(svc, v))
 	cmd.AddCommand(newFleetEntityCommand(svc, v))
 	cmd.AddCommand(newFleetAttentionCommand(svc, v))
+	cmd.AddCommand(newFleetNeighborhoodCommand(svc, v))
 	return cmd
 }
 

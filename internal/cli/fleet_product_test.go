@@ -115,6 +115,36 @@ func TestFleetAttention(t *testing.T) {
 	}
 }
 
+func TestFleetNeighborhood(t *testing.T) {
+	root, ev := writeFleetFixture(t)
+	base := []string{"fleet", "neighborhood", "payments", "--direction", "dependents", "--local", root, "--target-state", ev}
+
+	out, _, err := execFleet(t, base...)
+	if err != nil {
+		t.Fatalf("neighborhood: %v", err)
+	}
+	if !regexp.MustCompile(`(?m)^  orders  depth=1  owner=commerce  status=\S+$`).MatchString(out) ||
+		!regexp.MustCompile(`(?m)^  payments  depth=0  owner=billing  status=\S+$`).MatchString(out) {
+		t.Errorf("neighborhood text:\n%s", out)
+	}
+
+	out, _, err = execFleet(t, append(base, "--max-nodes", "1")...)
+	if err != nil || !strings.Contains(out, "truncated: 1 of 2 services shown; raise --max-nodes to see more\n") {
+		t.Errorf("neighborhood --max-nodes 1 = %v:\n%s", err, out)
+	}
+
+	jout, _, err := execFleet(t, append(base, "--views", "expected", "--depth", "2", "--max-nodes", "5", "--output-format", "json")...)
+	if err != nil || !strings.Contains(jout, `"requestedFocus"`) || !strings.Contains(jout, `"snapshotId"`) || !strings.Contains(jout, `"views": [`+"\n"+`    "expected"`+"\n"+`  ]`) {
+		t.Errorf("neighborhood json = %v:\n%s", err, jout)
+	}
+
+	for _, args := range [][]string{{"ghost"}, {"payments", "--direction", "sideways"}, {"payments", "--views", "everything"}, {}} {
+		if _, _, err := execFleet(t, append(append([]string{"fleet", "neighborhood"}, args...), "--local", root, "--target-state", ev)...); err == nil {
+			t.Errorf("neighborhood %v is an error", args)
+		}
+	}
+}
+
 func TestFleetProductPartialWarning(t *testing.T) {
 	root, _ := writeFleetFixture(t)
 	missing := filepath.Join(t.TempDir(), "missing.yaml")
@@ -122,6 +152,7 @@ func TestFleetProductPartialWarning(t *testing.T) {
 		{"fleet", "entities"},
 		{"fleet", "entity", "service", "orders"},
 		{"fleet", "attention"},
+		{"fleet", "neighborhood", "payments"},
 	} {
 		_, stderr, err := execFleet(t, append(args, "--local", root, "--target-state", missing)...)
 		if err != nil || !strings.Contains(stderr, "warning: answer is partial") || !strings.Contains(stderr, "SOURCE_UNAVAILABLE") {

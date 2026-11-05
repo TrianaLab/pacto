@@ -56,7 +56,8 @@ See [`pacto mcp` reference](cli-reference.md#pacto-mcp) for source flags and [Th
 
 With `--dashboard-url <url>`, each entity in a `pacto_fleet_search`,
 `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_entities`,
-`pacto_fleet_entity` and `pacto_fleet_attention` answer carries an `href` to its
+`pacto_fleet_entity`, `pacto_fleet_attention` and `pacto_fleet_neighborhood`
+answer carries an `href` to its
 page on that dashboard.
 
 ## The authoring tools

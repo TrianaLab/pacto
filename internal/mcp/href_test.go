@@ -10,6 +10,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // hrefFleet is checkout (business domain payments) depending on ledger, with
@@ -55,10 +56,16 @@ func TestDashboardHrefs(t *testing.T) {
 		{"pacto_fleet_graph", map[string]any{"service": "checkout"}, []string{`"href": "` + base + `/fleet/services/ledger"`, `"rootHref": "` + base + `/fleet/services/checkout"`}},
 		{"pacto_fleet_status", map[string]any{}, []string{`"href": "` + base + `/fleet/`}},
 		{"pacto_fleet_get", map[string]any{"service": "checkout"}, nil},
+		{"pacto_fleet_neighborhood", map[string]any{"service": "checkout"}, []string{`"href": "` + base + `/fleet/services/checkout"`, `"href": "` + base + `/fleet/services/ledger"`}},
+		{"pacto_impact", map[string]any{"old_ref": "a", "new_ref": "b"}, []string{`"href": "` + base + `/fleet/services/acme%2Fcheckout"`}},
 	}
 	q := hrefFleet(t)
-	linked := NewFleetServer("test", staticFleet(q), nil, FleetOptions{DashboardURL: "https://dash.example/"})
-	plain := NewFleetServer("test", staticFleet(q), nil, FleetOptions{})
+	provide := stubImpact(&impact.Result{Consumers: []impact.AffectedConsumer{
+		{Service: "checkout", Domain: "acme"},
+		{Service: "k8s:prod/Deployment/cron", Uncontracted: true},
+	}}, nil, nil)
+	linked := NewFleetServer("test", staticFleet(q), nil, FleetOptions{DashboardURL: "https://dash.example/", Impact: provide})
+	plain := NewFleetServer("test", staticFleet(q), nil, FleetOptions{Impact: provide})
 	for _, c := range calls {
 		text := resultText(t, callToolOn(t, linked, c.tool, c.args))
 		for _, w := range c.want {
@@ -76,6 +83,9 @@ func TestDashboardHrefs(t *testing.T) {
 	// An error answer passes through untouched.
 	if res := callToolOn(t, linked, "pacto_fleet_get", map[string]any{"service": "ghost"}); !res.IsError {
 		t.Errorf("unknown service must stay an error, got %s", resultText(t, res))
+	}
+	if text := resultText(t, callToolOn(t, linked, "pacto_impact", map[string]any{"old_ref": "a", "new_ref": "b"})); strings.Count(text, `"href"`) != 1 {
+		t.Errorf("only the contracted consumer links to a page:\n%s", text)
 	}
 	if got := addLegacyHrefs("pacto_fleet_search", []any{}); len(got.([]any)) != 0 {
 		t.Errorf("a non-object answer must pass through, got %v", got)

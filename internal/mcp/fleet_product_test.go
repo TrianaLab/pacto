@@ -165,4 +165,15 @@ func TestFleetInstructionsGroundAnswers(t *testing.T) {
 			t.Errorf("fleetInstructions lack %q", want)
 		}
 	}
+	// The neighbourhood and Mira sentences come after the existing text, which
+	// stays unchanged.
+	const appended = "pacto_fleet_attention for what needs attention, most severe first. " +
+		"pacto_fleet_neighborhood lists the services around one service with their owners, for the blast radius of a problem. " +
+		"Observed edges from a source of kind mira come from Mira's sampled service map: an edge Mira did not see may still exist. " +
+		"For when a problem started and which signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, " +
+		"correlate, get_trace and render_rca) with the service names Pacto reports, and cite them. " +
+		"A Mira read with no spans is unknown, never healthy."
+	if !strings.HasPrefix(fleetInstructions, "Pacto also exposes READ-ONLY fleet tools over the operational graph: ") || !strings.HasSuffix(fleetInstructions, appended) {
+		t.Errorf("fleetInstructions must keep their text and end with the neighbourhood sentences:\n%s", fleetInstructions)
+	}
 }
