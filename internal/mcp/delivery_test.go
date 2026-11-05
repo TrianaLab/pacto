@@ -356,6 +356,8 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 		"service filters the walk; leave stage empty": {"namespace": "prod", "stage": "s", "service": "payments"},
 		"since is not an RFC 3339 time":               {"namespace": "prod", "stage": "s", "since": "yesterday"},
 		"until is not an RFC 3339 time":               {"until": "2h"},
+		"domain needs service":                        {"domain": "d"},
+		"since is after until":                        {"since": "2026-11-05T11:00:00Z", "until": "2026-11-05T09:00:00Z"},
 	} {
 		if res := callToolOn(t, server, "pacto_delivery_history", want); !res.IsError || !strings.Contains(resultText(t, res), args) {
 			t.Fatalf("%v: %s", want, resultText(t, res))

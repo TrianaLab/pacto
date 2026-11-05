@@ -343,6 +343,12 @@ func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.C
 		return errorResult(err), nil, nil
 	}
 	until, err := rfc3339("until", a.Until)
+	if err == nil {
+		err = delivery.CheckWindow(since, until)
+	}
+	if err == nil && a.Domain != "" && a.Service == "" {
+		err = errors.New("domain needs service")
+	}
 	if err != nil {
 		return errorResult(err), nil, nil
 	}

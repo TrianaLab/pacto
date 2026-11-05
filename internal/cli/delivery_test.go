@@ -247,6 +247,8 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 	checkDeliveryRuns(t, d, []deliveryRun{
 		{"text", append(history, "--service", "payments"), true, []string{"--service and --domain need --all"}},
 		{"text", append(history, "--domain", "d"), true, []string{"--service and --domain need --all"}},
+		{"text", []string{"history", "--all", "--domain", "d"}, true, []string{"--domain needs --service"}},
+		{"text", append(history, "--since", "30m", "--until", "2h"), true, []string{"since is after until"}},
 		{"text", append(history, "--until", "yesterday"), true, []string{"--until takes an RFC 3339 time or a duration", `"yesterday"`}},
 		{"text", append(history, "--since", "soon"), true, []string{"--since takes an RFC 3339 time"}},
 	})

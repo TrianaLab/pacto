@@ -311,4 +311,6 @@ func TestDeliveryHistoryWindow(t *testing.T) {
 	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "since"), "a bad since is refused: %d %v", code, body)
 	code, body = call(t, http.MethodGet, base+"/api/delivery/history?until=soon", nil)
 	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "until"), "a bad until is refused: %d %v", code, body)
+	code, body = call(t, http.MethodGet, base+"/api/delivery/history?since=2026-11-03T00:00:00Z&until=2026-11-02T00:00:00Z", nil)
+	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "since is after until"), "an inverted window is refused: %d %v", code, body)
 }

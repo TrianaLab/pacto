@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"cmp"
+	"errors"
 	"slices"
 	"time"
 )
@@ -21,6 +22,15 @@ func WindowEntries(h History, since, until time.Time) History {
 		h.Note += "; only changes " + windowWords(since, until) + " are listed"
 	}
 	return h
+}
+
+// CheckWindow refuses a window that ends before it starts: it would drop every
+// timed change and read as nothing changed.
+func CheckWindow(since, until time.Time) error {
+	if !since.IsZero() && !until.IsZero() && since.After(until) {
+		return errors.New("since is after until")
+	}
+	return nil
 }
 
 // outside reports whether e certainly ran only before since or after until.

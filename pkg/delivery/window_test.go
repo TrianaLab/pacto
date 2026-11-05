@@ -81,6 +81,16 @@ func TestOfService(t *testing.T) {
 	}
 }
 
+func TestCheckWindow(t *testing.T) {
+	nine, ten := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC), time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
+	if CheckWindow(nine, ten) != nil || CheckWindow(ten, ten) != nil || CheckWindow(ten, time.Time{}) != nil || CheckWindow(time.Time{}, nine) != nil {
+		t.Fatal("a window that ends at or after it starts, or is open, is refused")
+	}
+	if err := CheckWindow(ten, nine); err == nil || err.Error() != "since is after until" {
+		t.Fatalf("an inverted window = %v", err)
+	}
+}
+
 func TestWithUnsignedMoveCopiesApplied(t *testing.T) {
 	o := ansOp("a", "u1", 1, "", ansA)
 	o.Status.Times.Applied = "2026-11-05T10:00:00Z"

@@ -752,6 +752,9 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	if err != nil {
 		return nil, err
 	}
+	if err := delivery.CheckWindow(since, until); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err

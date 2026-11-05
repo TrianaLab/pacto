@@ -636,15 +636,21 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 }
 
 // historyFilters reads --since, --until, --service and --domain; a duration
-// is that long before now. The service flags narrow a walk, so they need --all.
+// is that long before now. The service flags narrow a walk, so they need --all,
+// and --domain only qualifies --service.
 func historyFilters(cmd *cobra.Command, all bool, now time.Time) (since, until time.Time, of delivery.ServiceRef, err error) {
 	of.Name, _ = cmd.Flags().GetString("service")
 	of.Domain, _ = cmd.Flags().GetString("domain")
-	if (of.Name != "" || of.Domain != "") && !all {
+	switch {
+	case (of.Name != "" || of.Domain != "") && !all:
 		return since, until, of, errors.New("--service and --domain need --all")
+	case of.Domain != "" && of.Name == "":
+		return since, until, of, errors.New("--domain needs --service")
 	}
 	if since, err = whenFlag(cmd, "since", now); err == nil {
-		until, err = whenFlag(cmd, "until", now)
+		if until, err = whenFlag(cmd, "until", now); err == nil {
+			err = delivery.CheckWindow(since, until)
+		}
 	}
 	return since, until, of, err
 }
