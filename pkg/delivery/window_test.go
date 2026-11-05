@@ -16,12 +16,13 @@ func TestWindowEntries(t *testing.T) {
 		{Operation: "in-flight", Since: at(9)},
 		{Operation: "timeless"},
 		{Operation: "unparseable", Finished: "yesterday"},
+		{Operation: "unparseable-finish", Applied: at(1), Finished: "later"},
 		{Operation: "applied-before-finished-inside", Applied: at(7), Finished: at(10)},
 		{Operation: "finished-before", Applied: at(5), Finished: at(6)},
 		{Operation: "started-after", Since: at(20)},
 	}
 	h := History{Completeness: "partial", Note: "n", Problems: []string{"p"}, Unreadable: []string{"u"}, Entries: entries}
-	all := []string{"applied-finished", "finished-only", "in-flight", "timeless", "unparseable",
+	all := []string{"applied-finished", "finished-only", "in-flight", "timeless", "unparseable", "unparseable-finish",
 		"applied-before-finished-inside", "finished-before", "started-after"}
 	for _, c := range []struct {
 		name         string
@@ -31,11 +32,11 @@ func TestWindowEntries(t *testing.T) {
 	}{
 		{"identity", time.Time{}, time.Time{}, all, "n"},
 		{"window", tm(8), tm(12), []string{"applied-finished", "finished-only", "in-flight", "timeless", "unparseable",
-			"applied-before-finished-inside"}, "n; only changes between 2026-11-05T08:00:00Z and 2026-11-05T12:00:00Z are listed"},
-		{"open start", time.Time{}, tm(8), []string{"timeless", "unparseable", "applied-before-finished-inside",
+			"unparseable-finish", "applied-before-finished-inside"}, "n; only changes between 2026-11-05T08:00:00Z and 2026-11-05T12:00:00Z are listed"},
+		{"open start", time.Time{}, tm(8), []string{"timeless", "unparseable", "unparseable-finish", "applied-before-finished-inside",
 			"finished-before"}, "n; only changes at or before 2026-11-05T08:00:00Z are listed"},
 		{"open end", tm(11), time.Time{}, []string{"applied-finished", "finished-only", "in-flight", "timeless", "unparseable",
-			"started-after"}, "n; only changes at or after 2026-11-05T11:00:00Z are listed"},
+			"unparseable-finish", "started-after"}, "n; only changes at or after 2026-11-05T11:00:00Z are listed"},
 		{"nothing dropped", tm(0), tm(23), all, "n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -52,7 +53,7 @@ func TestWindowEntries(t *testing.T) {
 			}
 		})
 	}
-	if len(h.Entries) != len(entries) || h.Entries[6].Operation != "finished-before" || h.Note != "n" {
+	if len(h.Entries) != len(entries) || h.Entries[7].Operation != "finished-before" || h.Note != "n" {
 		t.Fatalf("the input history was mutated: %+v", h)
 	}
 }
