@@ -79,17 +79,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.observedForward = restrictIndex(s.observedForward, keep, keep)
 	out.forwardDepsByRevision = restrictIndex(s.forwardDepsByRevision, func(k RevisionKey) bool { return out.Revisions[k] != nil }, keep)
 
-	hiddenSvcNames := map[string]bool{}
-	for k := range hiddenSvc {
-		hiddenSvcNames[s.Services[k].Name] = true
-	}
-	out.UncontractedCallers = slices.DeleteFunc(slices.Clone(s.UncontractedCallers), func(c UncontractedCaller) bool {
-		rest, k8s := strings.CutPrefix(c.Caller, "k8s:")
-		ns, _, _ := strings.Cut(rest, "/")
-		// A caller name a hidden service shares may be that service's call, and
-		// its ambiguity counts the hidden service, so it goes.
-		return hiddenSvc[c.ToService] || (k8s && hiddenNS[ns]) || (!k8s && hiddenSvcNames[c.Caller])
-	})
+	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS)
 	recountSources(&out)
 
 	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...))
@@ -98,6 +88,21 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.Completeness = CompletenessPartial
 	out.SnapshotID = computeSnapshotID(&out)
 	return NewQuery(&out)
+}
+
+// restrictCallers is s's uncontracted callers without those of a hidden
+// service, those in a hidden namespace and those a hidden service shares a name
+// with: such a caller may be that service's call, and its ambiguity counts it.
+func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool) []UncontractedCaller {
+	hiddenNames := map[string]bool{}
+	for k := range hiddenSvc {
+		hiddenNames[s.Services[k].Name] = true
+	}
+	return slices.DeleteFunc(slices.Clone(s.UncontractedCallers), func(c UncontractedCaller) bool {
+		rest, k8s := strings.CutPrefix(c.Caller, "k8s:")
+		ns, _, _ := strings.Cut(rest, "/")
+		return hiddenSvc[c.ToService] || (k8s && hiddenNS[ns]) || (!k8s && hiddenNames[c.Caller])
+	})
 }
 
 // restrictLimitations keeps the limitations that name nothing hidden and
