@@ -959,22 +959,30 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 	for c := range want {
 		want[c] = want[c] || sq.NeedsAttention || none
 	}
-	items := []StatusItem{}
+	type ranked struct {
+		sev int
+		StatusItem
+	}
+	var all []ranked
 	for _, it := range q.collectAttention() {
 		if !want[it.Category] {
 			continue
 		}
-		items = append(items, StatusItem{
+		all = append(all, ranked{severityOrder[it.Severity], StatusItem{
 			Kind: string(it.Entity.Kind), Name: it.Entity.Key, Code: it.Code, Reason: it.Reason,
-		})
+		}})
 	}
 
-	// Reason is the third key because it is the only field that separates two
-	// unresolved dependencies of the same service: they now share a Kind, a Name and
-	// a Code, and sort.Slice is not stable, so without it the truncated list would
-	// vary between runs on the same snapshot.
-	sort.Slice(items, func(i, j int) bool {
-		a, b := items[i], items[j]
+	// Most severe first, so a truncated list keeps its errors. Reason is the last
+	// key because it is the only field that separates two unresolved dependencies
+	// of the same service: they share a Kind, a Name and a Code, and sort.Slice is
+	// not stable, so without it the truncated list would vary between runs on the
+	// same snapshot.
+	sort.Slice(all, func(i, j int) bool {
+		a, b := all[i], all[j]
+		if a.sev != b.sev {
+			return a.sev < b.sev
+		}
 		if a.Code != b.Code {
 			return a.Code < b.Code
 		}
@@ -983,6 +991,10 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		}
 		return a.Reason < b.Reason
 	})
+	items := make([]StatusItem, len(all))
+	for i, r := range all {
+		items[i] = r.StatusItem
+	}
 	limit := sq.Limit
 	if limit <= 0 {
 		limit = DefaultStatusLimit
