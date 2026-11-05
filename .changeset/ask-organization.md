@@ -15,6 +15,6 @@ reports now join the fleet, and leave declared edges `insufficient`.
 each node's `provenance`. `pacto_fleet_status` and `pacto fleet status` report
 services with no declared owner, `total` and `truncated`. `pacto_fleet_search`
 takes `offset`. `pacto_impact` reports `sources`. `pacto mcp --fleet` rebuilds
-its snapshot when a call arrives 30 seconds or more after the last build and
+its snapshot when a call arrives 30 seconds or more after the last rebuild attempt and
 shares it with `pacto_impact`, and `--dashboard-url` links fleet answers to
 their dashboard pages.

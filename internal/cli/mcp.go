@@ -45,7 +45,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"its startup view even when a registry tag moves. Roots that fail to resolve stay visible " +
 			"as partial knowledge. The catalog grants no authorization and executes nothing.\n\n" +
 			"With --fleet, the server exposes the read-only operational-graph query tools " +
-			"over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last build. " +
+			"over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. " +
 			"With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, " +
 			"--evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose " +
 			"that snapshot and are read in --fleet mode only.\n\n" +

@@ -1288,7 +1288,7 @@ When a bundle reference (local directory or oci:// ref) is given, the server als
 
 With --root, the server exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so the session keeps its startup view even when a registry tag moves. Roots that fail to resolve stay visible as partial knowledge. The catalog grants no authorization and executes nothing.
 
-With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last build. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
+With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
 
 With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
@@ -1403,7 +1403,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 
-With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last build, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make fleet answers carry an `href` to each entity's page on that Pacto dashboard.
+With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity and attention answers carry an `href` to each entity's page on that Pacto dashboard.
 
 See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.
 

@@ -61,6 +61,7 @@ Start the server with the URL of a running Pacto dashboard:
 pacto mcp --fleet --k8s --dashboard-url https://pacto.example.com
 ```
 
-Fleet answers then carry an `href` to each entity's page on that dashboard, so
+Search, graph, status, entities, entity and attention answers then carry an
+`href` to each entity's page on that dashboard, so
 an agent can hand you a link to the service, owner or attention list it is
 talking about. Without the flag, answers carry no links.

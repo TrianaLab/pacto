@@ -37,11 +37,11 @@ invocation registers.
 
 ### Fleet query safety
 
-- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. `pacto_impact` also resolves both refs on every call, so each invocation reaches your registry with the server's credentials.
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. `pacto_impact` also resolves both refs on every call, so each invocation reaches your registry with the server's credentials. When no source holds the changed service, it rebuilds the snapshot with the new revision added, so the call reaches every source (your cluster too if `--k8s` is on) with the server's credentials.
 - **They expose knowledge only.** They never grant, scope or revoke a permission.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **Under partial coverage, a missing result means unknown.** If a source was unavailable, "not found" means "not known here".
-- **The snapshot refreshes on demand.** A call 30 seconds or more after the last build rebuilds it first, reaching your sources again. Calls inside that interval share one `snapshotId`, and a failed rebuild keeps the last good snapshot until the next interval.
+- **The snapshot refreshes on demand.** A call 30 seconds or more after the last rebuild attempt rebuilds it first, reaching your sources again. Calls inside that interval share one `snapshotId`, and a failed rebuild keeps the last good snapshot until the next interval.
 - **The server keeps no state.** The [Kubernetes operator](integrations/kubernetes/overview.md) acts on contracts in a cluster, and durable evidence lives in an [Evidence Server](evidence.md). The MCP server's state ends with its process.
 
 `--fleet` names its sources the same way `pacto fleet` does:
@@ -54,8 +54,10 @@ See [`pacto mcp` reference](cli-reference.md#pacto-mcp) for source flags and [Th
 
 ### Link answers to the dashboard
 
-With `--dashboard-url <url>`, each entity in a fleet answer carries an `href` to
-its page on that dashboard.
+With `--dashboard-url <url>`, each entity in a `pacto_fleet_search`,
+`pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_entities`,
+`pacto_fleet_entity` and `pacto_fleet_attention` answer carries an `href` to its
+page on that dashboard.
 
 ## The authoring tools
 

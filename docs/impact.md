@@ -209,7 +209,8 @@ to the **fleet query**
 [family](mcp-reference.md#three-tool-families-and-their-boundaries) and shares
 that family's boundaries: it projects the operational graph. It is read-only and grants no permission.
 It analyses over the same snapshot as the `pacto_fleet_*` tools, so an impact
-answer and a graph answer from the same interval carry the same `snapshotId`.
+answer and a graph answer from the same interval carry the same `snapshotId`,
+unless the impact answer carries `newRevisionAdded: true`.
 
 In the dashboard the analysis is one half of the **Change analysis** workspace,
 served by `/api/fleet/impact`. It is entered from the service or revision you are

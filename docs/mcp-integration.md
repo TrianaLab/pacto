@@ -134,7 +134,7 @@ change.
   `./my-service` argument) are read
   once when the server starts. Restart it to see newer services or versions.
   `--fleet` rebuilds its snapshot when a call arrives 30 seconds or more
-  after the last build.
+  after the last rebuild attempt.
 - **Over the network, callers must sign in.** By default the server talks
   over standard input and output. With `-t http` it serves HTTP on this
   machine only. Serving other machines needs `--auth-issuer` and `--resource`,
