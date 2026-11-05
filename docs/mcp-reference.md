@@ -145,7 +145,7 @@ pacto mcp \
 
 `--root` is repeatable and takes a local bundle directory or an `oci://` reference. It never crawls a registry, guesses repository names or reads a catalog file.
 
-The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource carries the schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root, resolved or not and why. The closure resource carries every deduplicated revision with its content identity, rank and retained paths, every dependency edge, resolved or not, and every conflict and cycle found.
+The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource carries the schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root, resolved or not and why. The closure resource carries every deduplicated revision with its content identity, rank and retained paths; every dependency edge, resolved or not; and every conflict and cycle found.
 
 Catalog mode registers nothing else, so a server started for read-only discovery cannot modify a contract. A root or a dependency that could not be resolved stays visible with a category such as `NOT_FOUND`, `AUTH_FAILED` or `UNAVAILABLE` in place of the raw registry error, and the whole answer is marked `partial`. Under `partial`, a revision missing from the answer is *unknown*.
 
