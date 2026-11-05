@@ -36,8 +36,8 @@
 # pulling them, so a CI shard pulls nothing from a public registry.
 #
 # Keys and kubeconfigs live in tmp/delivery-demo/ (ignored by git), so every
-# subcommand finds them. Host ports 3300, 8585, 5556, 8443 and 5602 must be
-# free, so the demo cannot run beside delivery.sh.
+# subcommand finds them. Host ports 3300, 8585, 5556, 8443, 5602 and 5603 must
+# be free, so the demo cannot run beside delivery.sh.
 #
 # What is generated rather than real: the payments workload is a stand-in
 # (podinfo), its telemetry comes from a span generator in the cluster, and the
@@ -56,6 +56,7 @@ NS=pacto-system
 DNS=pacto-delivery
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5602
+MIRA_PORT=5603
 FLUX_VERSION=v2.9.5
 FLUX_INSTALL_SHA256=cc3dcd743af16215838b6937e1fce83745bf24c0dcc6c59737c59df15429caaf
 FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5@sha256:6f20d232d596a758c923d2861f23511718fc303b8a2e36a1434a7c736b9f4268
@@ -252,16 +253,28 @@ while True:
             labels = get(f"/apis/apps/v1/namespaces/{env}/deployments/payments")["spec"]["template"]["metadata"]["labels"]
         except Exception:
             continue
-        mode = modes.get(env + "." + labels.get("app.kubernetes.io/version", ""), "ok")
+        version = labels.get("app.kubernetes.io/version", "")
+        mode = modes.get(env + "." + version, "ok")
         n, errors, now = (0 if mode == "silent" else 10), (5 if mode == "errors" else 0), time.time_ns()
         if n == 0:
             continue
-        attrs = [{"key": "service.name", "value": {"stringValue": "payments"}},
-                 {"key": "deployment.environment", "value": {"stringValue": env}}]
-        spans = [{"traceId": os.urandom(16).hex(), "spanId": os.urandom(8).hex(), "name": "POST /payments", "kind": 2,
-                  "startTimeUnixNano": str(now - i * 1000), "endTimeUnixNano": str(now - i * 1000 + 2_000_000),
-                  "status": {"code": 2 if i < errors else 1}} for i in range(n)]
-        body = json.dumps({"resourceSpans": [{"resource": {"attributes": attrs}, "scopeSpans": [{"spans": spans}]}]}).encode()
+        def resource(name, ver):
+            return {"attributes": [{"key": k, "value": {"stringValue": v}} for k, v in
+                                   (("service.name", name), ("service.version", ver), ("deployment.environment", env), ("k8s.namespace.name", env))]}
+        # Every payments server span is the child of an orders client span in
+        # the same trace: Mira's service map draws orders calling payments.
+        calls, spans = [], []
+        for i in range(n):
+            trace, parent, start = os.urandom(16).hex(), os.urandom(8).hex(), now - i * 1000
+            calls.append({"traceId": trace, "spanId": parent, "name": "POST /orders/checkout", "kind": 3,
+                          "startTimeUnixNano": str(start - 1_000_000), "endTimeUnixNano": str(start + 3_000_000),
+                          "attributes": [{"key": "peer.service", "value": {"stringValue": "payments"}}]})
+            spans.append({"traceId": trace, "spanId": os.urandom(8).hex(), "parentSpanId": parent, "name": "POST /payments", "kind": 2,
+                          "startTimeUnixNano": str(start), "endTimeUnixNano": str(start + 2_000_000),
+                          "status": {"code": 2 if i < errors else 1}})
+        body = json.dumps({"resourceSpans": [
+            {"resource": resource("orders", "1.0.0"), "scopeSpans": [{"spans": calls}]},
+            {"resource": resource("payments", version), "scopeSpans": [{"spans": spans}]}]}).encode()
         try:
             urllib.request.urlopen(urllib.request.Request("http://mira:4318/v1/traces", data=body,
                                    headers={"content-type": "application/json"}), timeout=5)
@@ -422,6 +435,27 @@ spec: {selector: {app: mira}, ports: [{name: http, port: 4318, targetPort: 4318}
 YAML
 }
 
+# mira_map — Mira's service map shows the generated orders calls to payments,
+# and pacto's Mira source reads them as an observed orders -> payments call
+# through a port-forward: the only run of --mira-source against a real Mira.
+mira_map() {
+  mira_map_edge() {
+    kubectl -n "$NS" exec deploy/span-generator -- python -c 'import urllib.request; print(urllib.request.urlopen(urllib.request.Request("http://mira:4318/api/v1/map", data=b"{\"from\": \"-5m\"}", headers={"content-type": "application/json"}), timeout=10).read().decode())' 2>/dev/null \
+      | jq -e '(.map.nodes | map({key, value: .name}) | from_entries) as $n | any(.map.edges[]; $n[.from] == "orders" and $n[.to] == "payments")' >/dev/null
+  }
+  eventually 20 mira_map_edge || fail "Mira's service map never showed orders calling payments"
+  pass "Mira's service map shows orders calling payments"
+  local dir="$WORK/mira-fleet" s
+  for s in orders/1.4.0 payments/2.3.0; do rm -rf "${dir:?}/${s%/*}"; mkdir -p "$dir/${s%/*}"; cp -R "$STORY/contracts/$s/." "$dir/${s%/*}/"; done
+  local pid; pid="$(pf "$MIRA_PORT" svc/mira 4318)" || fail "could not port-forward Mira"; PF_PIDS+=" $pid"
+  pacto_mira_edge() {
+    timeout 30 "$PACTO" fleet graph payments --direction dependents --local "$dir" --no-cache --mira-source "http://127.0.0.1:$MIRA_PORT" --output-format json 2>/dev/null \
+      | jq -e 'any(.edges[]; .fromService == "orders" and .toService == "payments" and .provenance == "observed" and any(.observedSources[]?; .source == "mira"))' >/dev/null
+  }
+  eventually 20 pacto_mira_edge || fail "pacto never read orders calling payments from Mira"
+  pass "pacto reads Mira's service map: orders calls payments"
+}
+
 # agent_kubeconfig — pay-agent, a ServiceAccount, by token: how the agent's
 # own tools reach the cluster.
 agent_kubeconfig() {
@@ -540,6 +574,8 @@ cmd_up() {
   section "the story's starting point"
   registry_pf
   bootstrap
+  # Spans flow once payments runs; the agent shard seeds no service.
+  [ "${DEMO_SEED:-all}" = none ] || mira_map
   stop_pf
   pass "the demo is up"
   next_steps up
