@@ -851,7 +851,12 @@ type StatusQuery struct {
 	// UnsatisfiedRanges reports declared dependencies whose provider is in the
 	// fleet at a version outside the consumer's compatibility range.
 	UnsatisfiedRanges bool
-	Limit             int
+	// Unowned reports services no source knows an owner for.
+	Unowned bool
+	// Undeclared reports runtime calls no contract declares and callers with no
+	// contract.
+	Undeclared bool
+	Limit      int
 }
 
 // StatusItem is one attention-worthy finding.
@@ -864,8 +869,12 @@ type StatusItem struct {
 
 // StatusResult is a bounded, deterministically ordered list of attention items.
 type StatusResult struct {
-	Meta  Meta         `json:"meta"`
-	Items []StatusItem `json:"items"`
+	Meta Meta `json:"meta"`
+	// Total is how many items matched before the limit cut the list; Truncated
+	// reports that Items holds fewer than Total.
+	Total     int          `json:"total"`
+	Truncated bool         `json:"truncated,omitempty"`
+	Items     []StatusItem `json:"items"`
 }
 
 // Status reports the entities needing attention in the selected categories. It is
@@ -884,6 +893,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		categoryReadiness:    sq.MissingReadiness,
 		categoryUnresolved:   sq.UnresolvedDeps,
 		categoryOutOfRange:   sq.UnsatisfiedRanges,
+		categoryUndeclared:   sq.Undeclared,
+		categoryUnowned:      sq.Unowned,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".
@@ -922,10 +933,11 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 	if limit <= 0 {
 		limit = DefaultStatusLimit
 	}
-	if len(items) > limit {
+	total := len(items)
+	if total > limit {
 		items = items[:limit]
 	}
-	return &StatusResult{Meta: q.meta(), Items: items}
+	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items}
 }
 
 // AssertionRef identifies the declared assertion a reason is about.

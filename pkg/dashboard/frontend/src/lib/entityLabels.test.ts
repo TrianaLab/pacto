@@ -41,6 +41,8 @@ describe('attentionCategoryLabel', () => {
     }
     expect(attentionCategoryLabel('non-compliant')).toBe('Not compliant');
     expect(attentionCategoryLabel('readiness')).toBe('Readiness gate');
+    expect(attentionCategoryLabel('undeclared')).toBe('Undeclared dependency');
+    expect(ATTENTION_CATEGORIES).toContain('undeclared');
   });
 
   // Readiness is triaged as a DIMENSION of attention, not a separate workspace, so it

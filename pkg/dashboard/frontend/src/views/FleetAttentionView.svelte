@@ -146,7 +146,7 @@
   // filter link so the chart is a triage control, not a picture.
   const CATEGORY_TONE = {
     'non-compliant': 'err', invalid: 'err', unknown: 'warn', stale: 'warn',
-    unresolved: 'warn', readiness: 'info', unowned: 'info',
+    unresolved: 'warn', 'out-of-range': 'warn', undeclared: 'info', readiness: 'info', unowned: 'info',
   };
   const categoryBars = $derived((list?.categories ?? []).map((b) => ({
     label: attentionCategoryLabel(b.category),

@@ -213,7 +213,7 @@ describe('OperationalSummary', () => {
       { label: 'Services needing attention', count: 2, view: 'attention', severity: 'warning', href: '/fleet/attention' },
       { label: 'Operational targets not compliant', count: 2, view: 'attention', category: 'non-compliant', severity: 'error', href: '/fleet/attention?category=non-compliant' },
       { label: 'Operational targets with stale evidence', count: 4, view: 'attention', category: 'stale', severity: 'warning', href: '/fleet/attention?category=stale' },
-      { label: 'Undeclared runtime dependencies observed', count: 3, view: 'services', severity: 'info', href: '/fleet/services' },
+      { label: 'Undeclared runtime dependencies observed', count: 3, view: 'attention', category: 'undeclared', severity: 'info', href: '/fleet/attention?category=undeclared' },
       // View "overview" means "this very page" -- its href is /fleet.
       { label: 'Incomplete sources', count: 1, view: 'overview', severity: 'warning', href: '/fleet' },
     ],

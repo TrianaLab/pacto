@@ -250,8 +250,8 @@ func TestAttention_AllAndOrdering(t *testing.T) {
 	if list.Meta.SchemaVersion != ProductSchemaVersion {
 		t.Errorf("schema version = %q", list.Meta.SchemaVersion)
 	}
-	if list.Total != 7 {
-		t.Fatalf("total attention = %d, want 7 (items: %+v)", list.Total, codesOf(list.Items))
+	if list.Total != 8 {
+		t.Fatalf("total attention = %d, want 8 (items: %+v)", list.Total, codesOf(list.Items))
 	}
 	// Errors lead, info trails.
 	if list.Items[0].Severity != severityError {
@@ -281,10 +281,10 @@ func TestAttention_Filters(t *testing.T) {
 		{"kind target", AttentionFilter{Kind: string(KindTarget)}, 4},
 		{"severity error", AttentionFilter{Severity: severityError}, 2},
 		{"severity info", AttentionFilter{Severity: severityInfo}, 1},
-		{"service beta", AttentionFilter{Service: "beta"}, 2},
+		{"service beta", AttentionFilter{Service: "beta"}, 3}, // beta-app twice + beta calls alpha undeclared
 		{"stale only", AttentionFilter{StaleOnly: true}, 2},
 		{"owner team-a", AttentionFilter{Owner: "team-a"}, 2},                   // alpha: unresolved dep + stale alpha-ancient
-		{"status NonCompliant", AttentionFilter{Status: StatusNonCompliant}, 2}, // beta-app is non-compliant AND stale
+		{"status NonCompliant", AttentionFilter{Status: StatusNonCompliant}, 3}, // beta-app is non-compliant AND stale; beta (non-compliant) calls alpha undeclared
 		{"key miss", AttentionFilter{Key: "does-not-exist"}, 0},
 		{"source local", AttentionFilter{Source: "local"}, 6}, // all but the unresolved-dep item (no source)
 	}
@@ -313,7 +313,7 @@ func TestAttention_LimitBounds(t *testing.T) {
 	if !list.Truncated {
 		t.Error("a limited attention page over its total must report truncation")
 	}
-	if list.Total != 7 {
+	if list.Total != 8 {
 		t.Errorf("total must reflect pre-limit size, got %d", list.Total)
 	}
 }

@@ -167,6 +167,26 @@ describe('FleetAttentionView — triage filters (I)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('names the undeclared category in the filter chip and tones its bar', async () => {
+    attentionFn.mockImplementation(() => Promise.resolve({
+      ...page(0), total: 1, count: 1, truncated: false, nextOffset: undefined,
+      categories: [{ category: 'undeclared', count: 1 }, { category: 'out-of-range', count: 0 }],
+      items: [{
+        entity: { kind: 'service', key: 'a', label: 'a', href: '/fleet/services/a' },
+        severity: 'warning', category: 'undeclared', code: 'DEPENDENCY_UNDECLARED', label: 'a calls c', summary: 'Runtime call with no declared dependency',
+      }],
+    }));
+    const { target, component } = mountView({ category: 'undeclared' });
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    const chips = Array.from(target.querySelectorAll('.chip .chip-value')).map((c) => c.textContent);
+    expect(chips).toContain('Undeclared dependency');
+    const rows = Array.from(target.querySelectorAll('.hb-row'));
+    const row = (label: string) => rows.find((r) => r.textContent?.includes(label)) as HTMLElement;
+    expect(row('Undeclared dependency').className).not.toContain('tone-neutral');
+    expect(row('Version out of range').className).toContain('tone-warn');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('grades severity in its own vocabulary, not the compliance one', async () => {
     // Severity went through the compliance badge, which had no case for it: an `error`
     // row printed a grey lowercase "error" — the loudest fact on the triage screen

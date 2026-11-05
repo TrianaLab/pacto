@@ -231,3 +231,22 @@ func TestRestrictUnscoped(t *testing.T) {
 		t.Errorf("search finds the hidden reg: %+v", res)
 	}
 }
+
+func TestRestrictHidesUndeclaredOfHiddenServices(t *testing.T) {
+	rv := undeclaredFleet(t).Restrict(func(ns string) bool { return ns != "secret" })
+	al := attentionOf(t, rv, AttentionFilter{Category: categoryUndeclared})
+	if al.Total != 2 {
+		t.Errorf("restricted undeclared total = %d, want 2 (d calls b, pay calls b)", al.Total)
+	}
+	var labels []string
+	for _, it := range al.Items {
+		labels = append(labels, it.Label)
+		if strings.Contains(it.Label+it.Reason+it.NextStep+it.Entity.Key, "secret") {
+			t.Errorf("restricted item names a hidden namespace: %+v", it)
+		}
+	}
+	slices.Sort(labels)
+	if !slices.Equal(labels, []string{"d calls b", "pay calls b"}) {
+		t.Errorf("restricted undeclared labels = %v", labels)
+	}
+}

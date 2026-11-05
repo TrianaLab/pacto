@@ -568,11 +568,9 @@ func (q *Query) Overview() *Overview {
 }
 
 // tallyRelationships counts unresolved declared dependencies and observed-only
-// (undeclared runtime) relationships, using the same declared/observed split the
-// engine keeps: an observed edge is "observed-only" iff no declared edge exists
-// for the same (from, to) service pair.
+// (undeclared runtime) relationships, by the one declared/observed split in
+// [Query.observedOnly].
 func (q *Query) tallyRelationships(sum *OverviewSummary) {
-	declared := map[[2]ServiceKey]bool{}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared {
@@ -582,19 +580,31 @@ func (q *Query) tallyRelationships(sum *OverviewSummary) {
 			if rel.RangeStatus == RangeUnsatisfied {
 				sum.UnsatisfiedRanges++
 			}
-			if rel.ToService != "" {
-				declared[[2]ServiceKey{rel.FromService, rel.ToService}] = true
-			}
 		}
 	}
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		if rel.Provenance == ProvenanceObserved && rel.ToService != "" &&
-			!declared[[2]ServiceKey{rel.FromService, rel.ToService}] {
-			sum.ObservedOnlyRelationships++
-		}
-	}
+	sum.ObservedOnlyRelationships = len(q.observedOnly(""))
 	sum.UncontractedCallers = len(q.snap.UncontractedCallers)
+}
+
+// observedOnly returns the observed relationships from the service (every
+// service when from is empty) for which no declared dependency exists for the
+// same (from, to) service pair. It is the one rule the overview, the service
+// summary and the undeclared attention items count by.
+func (q *Query) observedOnly(from ServiceKey) []Relationship {
+	mine := func(rel Relationship) bool { return rel.ToService != "" && (from == "" || rel.FromService == from) }
+	declared := map[[2]ServiceKey]bool{}
+	for _, rel := range q.snap.Relationships {
+		if rel.Type == RelationshipDependency && rel.Provenance != ProvenanceObserved && mine(rel) {
+			declared[[2]ServiceKey{rel.FromService, rel.ToService}] = true
+		}
+	}
+	var out []Relationship
+	for _, rel := range q.snap.Relationships {
+		if rel.Provenance == ProvenanceObserved && mine(rel) && !declared[[2]ServiceKey{rel.FromService, rel.ToService}] {
+			out = append(out, rel)
+		}
+	}
+	return out
 }
 
 // tallySources counts degraded, stale and unavailable sources.
@@ -670,8 +680,9 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid, Severity: severityError},
 		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved, Severity: severityWarning},
 		{Label: "Dependencies outside their accepted range", Count: sum.UnsatisfiedRanges, View: EntryPointAttention, Category: categoryOutOfRange, Severity: severityWarning},
-		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices, Severity: severityInfo},
-		{Label: "Uncontracted callers observed", Count: sum.UncontractedCallers, View: EntryPointServices, Severity: severityInfo},
+		// One tile for both kinds of undeclared item, so it opens a list of exactly
+		// Count rows; graded like its most severe item.
+		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships + sum.UncontractedCallers, View: EntryPointAttention, Category: categoryUndeclared, Severity: undeclaredSeverity(sum)},
 		{Label: "Services with no declared owner", Count: sum.Ownership.Unowned, View: EntryPointAttention, Category: categoryUnowned, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
 	}
@@ -682,6 +693,15 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		}
 	}
 	return out
+}
+
+// undeclaredSeverity grades the undeclared tile like the items it opens: an
+// observed-only call is a warning, an uncontracted caller is info.
+func undeclaredSeverity(sum *OverviewSummary) string {
+	if sum.ObservedOnlyRelationships > 0 {
+		return severityWarning
+	}
+	return severityInfo
 }
 
 // AttentionItem is one attention row. Every item carries the
@@ -695,7 +715,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,unowned"`
+	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,undeclared,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -711,6 +731,7 @@ const (
 	categoryReadiness    = "readiness"
 	categoryUnresolved   = "unresolved"
 	categoryOutOfRange   = "out-of-range"
+	categoryUndeclared   = "undeclared"
 	categoryUnowned      = "unowned"
 )
 
@@ -830,7 +851,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "readiness", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "undeclared", "readiness", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -868,7 +889,42 @@ func (q *Query) collectAttention() []AttentionItem {
 	}
 	items = append(items, q.unresolvedAttention()...)
 	items = append(items, q.unownedAttention()...)
+	items = append(items, q.undeclaredAttention()...)
 	return items
+}
+
+// undeclaredAttention reports each observed-only runtime call against the
+// calling service, and each uncontracted caller against the service it calls,
+// so its total is the undeclared Overview tile's count.
+func (q *Query) undeclaredAttention() []AttentionItem {
+	var out []AttentionItem
+	for _, rel := range q.observedOnly("") {
+		from, to := q.snap.Services[rel.FromService].Name, q.snap.Services[rel.ToService].Name
+		out = append(out, AttentionItem{
+			Entity: q.serviceRef(rel.FromService), Service: string(rel.FromService), Label: from + " calls " + to,
+			Severity: severityWarning, Code: string(finding.CodeDependencyUndeclared), Category: categoryUndeclared,
+			Summary:  "Runtime call with no declared dependency",
+			Reason:   "observed calls from " + from + " to " + to + ", and no contract revision of " + from + " declares " + to,
+			NextStep: "Declare " + to + " in " + from + "'s contract, or find out why " + from + " calls it",
+		})
+	}
+	for _, c := range q.snap.UncontractedCallers {
+		to := q.snap.Services[c.ToService].Name
+		it := AttentionItem{
+			Entity: q.serviceRef(c.ToService), Service: string(c.ToService), Label: c.Caller + " calls " + to,
+			Severity: severityInfo, Code: "UNCONTRACTED_CALLER", Category: categoryUndeclared,
+			Summary:  "Caller with no contract",
+			Reason:   c.Caller + " calls " + to + " and no contract describes " + c.Caller,
+			NextStep: "Give " + c.Caller + " a contract, or find out why it calls " + to,
+		}
+		if c.Ambiguous {
+			it.Summary = "Caller matches more than one service"
+			it.Reason = c.Caller + " matches more than one service, so Pacto cannot tell which one calls " + to
+			it.NextStep = "Make " + c.Caller + "'s name match one contracted service"
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // unownedAttention reports each service no source knows an owner for (no revision
