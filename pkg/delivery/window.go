@@ -8,10 +8,11 @@ import (
 
 // WindowEntries keeps the changes of h that ran at some time between since
 // and until; a zero bound is open. A change runs from when it was applied
-// (or, still in flight, since when it waits; or else when it finished) until
-// it finished, or until now while in flight. A change with no time, or a time
-// that does not parse, is kept: an unknown time is never evidence that it
-// fell outside. Completeness, problems and what was unreadable are kept as
+// (or, still in flight, since when it waits) until it finished, or until now
+// while in flight. A finish time only bounds the end: a change with no start,
+// such as a refused record or a gap, is never dropped for starting after
+// until. A change with no time, or a time that does not parse, is kept: an
+// unknown time is never evidence that it fell outside. Completeness, problems and what was unreadable are kept as
 // they are: a filter never makes a history more complete. h is not changed.
 func WindowEntries(h History, since, until time.Time) History {
 	n := len(h.Entries)
@@ -23,18 +24,14 @@ func WindowEntries(h History, since, until time.Time) History {
 }
 
 // outside reports whether e certainly ran only before since or after until.
+// A missing or unparseable time decides nothing; in flight, it runs until now.
 func outside(e HistoryEntry, since, until time.Time) bool {
-	start, err := time.Parse(time.RFC3339, cmp.Or(e.Applied, e.Since, e.Finished))
-	if err != nil {
-		return false // no time, or one that does not parse
+	start, err := time.Parse(time.RFC3339, cmp.Or(e.Applied, e.Since))
+	if err == nil && !until.IsZero() && start.After(until) {
+		return true
 	}
-	var end time.Time // in flight: it runs until now
-	if e.Finished != "" {
-		if end, err = time.Parse(time.RFC3339, e.Finished); err != nil {
-			return false
-		}
-	}
-	return !until.IsZero() && start.After(until) || !since.IsZero() && !end.IsZero() && end.Before(since)
+	end, err := time.Parse(time.RFC3339, e.Finished)
+	return err == nil && !since.IsZero() && end.Before(since)
 }
 
 // windowWords says a window in words.

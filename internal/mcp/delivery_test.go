@@ -22,7 +22,7 @@ type stubDelivery struct {
 
 // stubEntries are a change that finished at ten and one with no time.
 func stubEntries() []delivery.HistoryEntry {
-	return []delivery.HistoryEntry{{Operation: "at-ten", Finished: "2026-11-05T10:00:00Z"}, {Operation: "timeless"}}
+	return []delivery.HistoryEntry{{Operation: "at-ten", Applied: "2026-11-05T09:50:00Z", Finished: "2026-11-05T10:00:00Z"}, {Operation: "timeless"}}
 }
 
 func (s *stubDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {

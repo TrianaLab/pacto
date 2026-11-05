@@ -158,7 +158,7 @@ func WithUnsignedMove(e HistoryEntry, ops []OperationObject, uid string) History
 	}
 	s := StatusEntry(ops[i])
 	e.Type, e.From, e.To, e.Actor, e.ActorClass = s.Type, s.From, s.To, s.Actor, s.ActorClass
-	e.Outcome, e.Verification, e.Pointer = s.Outcome, s.Verification, s.Pointer
+	e.Outcome, e.Verification, e.Pointer, e.Applied = s.Outcome, s.Verification, s.Pointer, s.Applied
 	return e
 }
 

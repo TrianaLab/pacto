@@ -226,7 +226,7 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 			finished := time.Now().Add(-time.Duration(1+2*i) * time.Hour).UTC().Format(time.RFC3339)
 			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1alpha1", "Operation", name, map[string]any{
 				"spec":   map[string]any{"type": delivery.TypePromote, "stage": "payments-prod"},
-				"status": map[string]any{"phase": "Concluded", "seq": int64(i + 1), "times": map[string]any{"finished": finished}}}),
+				"status": map[string]any{"phase": "Concluded", "seq": int64(i + 1), "times": map[string]any{"applied": finished, "finished": finished}}}),
 				metav1.CreateOptions{})
 		}
 		return c, err

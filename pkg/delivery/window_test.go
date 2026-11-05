@@ -33,8 +33,10 @@ func TestWindowEntries(t *testing.T) {
 		{"identity", time.Time{}, time.Time{}, all, "n"},
 		{"window", tm(8), tm(12), []string{"applied-finished", "finished-only", "in-flight", "timeless", "unparseable",
 			"unparseable-finish", "applied-before-finished-inside"}, "n; only changes between 2026-11-05T08:00:00Z and 2026-11-05T12:00:00Z are listed"},
-		{"open start", time.Time{}, tm(8), []string{"timeless", "unparseable", "unparseable-finish", "applied-before-finished-inside",
-			"finished-before"}, "n; only changes at or before 2026-11-05T08:00:00Z are listed"},
+		// finished-only has no start: finishing at 12 says nothing about whether
+		// it already ran at 8 (a refused record, a gap, an unconfirmed apply).
+		{"open start", time.Time{}, tm(8), []string{"finished-only", "timeless", "unparseable", "unparseable-finish",
+			"applied-before-finished-inside", "finished-before"}, "n; only changes at or before 2026-11-05T08:00:00Z are listed"},
 		{"open end", tm(11), time.Time{}, []string{"applied-finished", "finished-only", "in-flight", "timeless", "unparseable",
 			"unparseable-finish", "started-after"}, "n; only changes at or after 2026-11-05T11:00:00Z are listed"},
 		{"nothing dropped", tm(0), tm(23), all, "n"},
@@ -76,6 +78,14 @@ func TestOfService(t *testing.T) {
 		if got := OfService(c.st, c.service, c.domain); got != c.want {
 			t.Errorf("OfService(%+v, %q, %q) = %v", c.st.Spec.Service, c.service, c.domain, got)
 		}
+	}
+}
+
+func TestWithUnsignedMoveCopiesApplied(t *testing.T) {
+	o := ansOp("a", "u1", 1, "", ansA)
+	o.Status.Times.Applied = "2026-11-05T10:00:00Z"
+	if e := WithUnsignedMove(HistoryEntry{Kind: RecordUnrecordable}, []OperationObject{o}, o.Metadata.UID); e.Applied != "2026-11-05T10:00:00Z" {
+		t.Fatalf("unrecordable line = %+v, want the Operation's applied time", e)
 	}
 }
 
