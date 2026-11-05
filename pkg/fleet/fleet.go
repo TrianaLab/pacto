@@ -516,6 +516,9 @@ type ContractRevision struct {
 	// contributor that happens to agree with one side must not reinstate pins the
 	// fleet has already reported as contested.
 	lockConflict string
+	// fixedPolicy records that the contract declares no policy but its bundle
+	// serves policy/schema.json, which a policy reference to it resolves to.
+	fixedPolicy bool
 	// configurations is the bounded projection of Contract.Configurations, built
 	// ONCE here at the source boundary. Each scope's values map is author-controlled
 	// and arbitrarily wide, and selecting its bounded key set is O(width * bound);

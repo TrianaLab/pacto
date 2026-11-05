@@ -51,4 +51,11 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(page.getByTestId('offering-consumer').filter({ hasText: 'payments-service' }).first()).toBeVisible();
     expect(await noSideScroll(page)).toBe(true);
   });
+
+  test('the shared-policy provider shows a policies snippet', async ({ page }) => {
+    await page.goto('/#/fleet/offerings/shared-policy');
+    const snippet = page.getByTestId('offering-provider').getByTestId('consume').locator('pre.consume-snippet');
+    await expect(snippet).toContainText('policies:', { timeout: T });
+    await expect(snippet).toContainText('name: platform-http-policy');
+  });
 });

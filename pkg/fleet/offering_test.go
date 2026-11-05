@@ -411,6 +411,18 @@ func TestConsumeSnippet_PolicyOnly(t *testing.T) {
 	}
 }
 
+// A policy provider that declares no policy, since a declared one would apply to
+// itself, still serves the fixed-path policy/schema.json to consumers.
+func TestConsumeSnippet_FixedPathPolicy(t *testing.T) {
+	c := svc25("platform-http-policy", "1.0.1", "shared-policy")
+	files := fstest.MapFS{"policy/schema.json": {Data: []byte(`{"type":"object"}`)}}
+	sn := snippetFor(t, ociRev("ghcr.io/acme", c, files))
+	want := "policies:\n  - name: platform-http-policy\n    ref: oci://ghcr.io/acme/platform-http-policy\n"
+	if sn == nil || sn.YAML != want || !sn.Policy {
+		t.Errorf("snippet = %+v, want %q", sn, want)
+	}
+}
+
 func TestConsumeSnippet_NoOCIRef(t *testing.T) {
 	c := svc25("redis", "7.0.0", "redis")
 	c.Workload = contract.WorkloadService

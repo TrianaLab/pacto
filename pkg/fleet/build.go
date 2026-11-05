@@ -360,6 +360,17 @@ func sameResolutions(a, b *lock.Lock) bool {
 	return reflect.DeepEqual(x, y)
 }
 
+// fixedPathPolicy reports whether a contract that declares no policy serves one
+// at the fixed path policy/schema.json, the schema a policy reference to its
+// bundle falls back to.
+func fixedPathPolicy(c *contract.Contract, b *contract.Bundle) bool {
+	if len(c.Policies) > 0 || b == nil || b.FS == nil {
+		return false
+	}
+	_, err := fs.Stat(b.FS, validation.PolicySchemaPath)
+	return err == nil
+}
+
 // mergeRevisionDocs folds a second contributor's documents into the revision.
 //
 // Documents are the one projection backed by bytes the snapshot does not own, so
@@ -383,7 +394,7 @@ func mergeRevisionDocs(existing, add *ContractRevision) []Limitation {
 	case !hasFS(add):
 		return nil
 	case !hasFS(existing):
-		existing.Docs, existing.bundle = add.Docs, add.bundle
+		existing.Docs, existing.bundle, existing.fixedPolicy = add.Docs, add.bundle, add.fixedPolicy
 		return nil
 	case existing.docConflict != "" || sameDocSet(existing.Docs, add.Docs):
 		return nil
@@ -757,6 +768,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		// the cost of every revision-detail request; the query joins reference
 		// resolutions onto a copy of this projection.
 		configurations: configurationsPreview(c.Configurations),
+		fixedPolicy:    fixedPathPolicy(c, b),
 	}
 	// Owner references the cloned contract so it never aliases source memory.
 	rev.Owner = rev.Contract.Service.Owner

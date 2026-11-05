@@ -298,7 +298,7 @@ newest revision:
 - a `configurations` entry named after the provider when the provider declares
   a required configuration;
 - a `policies` entry named after the provider when the provider declares a
-  policy and neither entry above applies.
+  policy or ships `policy/schema.json`, and neither entry above applies.
 
 The `ref` is the provider's registry repository without a tag or digest. A
 provider that is not published to a registry has no snippet.

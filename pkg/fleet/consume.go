@@ -14,7 +14,8 @@ import (
 //   - a dependency when it declares a workload or an interface, with the range
 //     majorRange gives for its version, or a line asking for one when none does;
 //   - a configuration reference when it declares a required configuration;
-//   - a policy reference when it declares a policy and neither applies.
+//   - a policy reference when it declares a policy, or ships the fixed-path
+//     policy/schema.json, and neither applies.
 //
 // It is nil when newest has no OCI reference or nothing to consume.
 func consumeSnippet(provider *ServiceRecord, newest *ContractRevision) *ConsumeSnippet {
@@ -32,7 +33,7 @@ func consumeSnippet(provider *ServiceRecord, newest *ContractRevision) *ConsumeS
 		Dependency:    c.Workload != "" || len(c.Interfaces) > 0,
 		Configuration: slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool { return cfg.Required }),
 	}
-	sn.Policy = !sn.Dependency && !sn.Configuration && len(c.Policies) > 0
+	sn.Policy = !sn.Dependency && !sn.Configuration && (len(c.Policies) > 0 || newest.fixedPolicy)
 	var b strings.Builder
 	if sn.Dependency {
 		sn.Compatibility = majorRange(newest.Version)
