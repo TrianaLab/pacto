@@ -173,8 +173,8 @@ func TestNewFleetToolsAnswerFromTheView(t *testing.T) {
 // TestNeighborhoodToolAnswersFromTheView: for a viewer who may not read the
 // cluster scope, pacto_fleet_neighborhood names neither the hidden service, its
 // owner, its namespace, a caller from that namespace nor a caller with no
-// namespace, and the focus counts the hidden service and the bare caller as
-// hidden dependents.
+// namespace, and the focus counts the hidden service, the secretns caller and
+// the bare caller as hidden dependents.
 func TestNeighborhoodToolAnswersFromTheView(t *testing.T) {
 	q := secretFleet(t, fleet.ObservedEdge{From: "legacy-batch", To: "web", Count: 2})
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
@@ -192,8 +192,8 @@ func TestNeighborhoodToolAnswersFromTheView(t *testing.T) {
 		var nb fleet.Neighborhood
 		decode(t, res, &nb)
 		for _, n := range nb.Nodes {
-			if n.Focus && n.HiddenDependents != 2 {
-				t.Errorf("%s: focus hiddenDependents = %d, want vaultsvc and legacy-batch", dir, n.HiddenDependents)
+			if n.Focus && n.HiddenDependents != 3 {
+				t.Errorf("%s: focus hiddenDependents = %d, want vaultsvc, spy and legacy-batch", dir, n.HiddenDependents)
 			}
 		}
 	}

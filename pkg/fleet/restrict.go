@@ -17,7 +17,7 @@ const LimitationHiddenByPermissions = "HIDDEN_BY_PERMISSIONS"
 const hiddenMessage = "some services are hidden because Kubernetes permissions do not let you read their namespace"
 
 // Namespaces lists, sorted, the namespaces the snapshot's Kubernetes targets
-// run in: the ones a caller's permissions decide.
+// and k8s uncontracted callers run in: the ones a caller's permissions decide.
 func (q *Query) Namespaces() []string {
 	seen := map[string]bool{}
 	for _, t := range q.snap.Targets {
@@ -25,7 +25,20 @@ func (q *Query) Namespaces() []string {
 			seen[t.Scope] = true
 		}
 	}
+	for _, c := range q.snap.UncontractedCallers {
+		if ns, ok := callerNamespace(c); ok {
+			seen[ns] = true
+		}
+	}
 	return slices.Sorted(maps.Keys(seen))
+}
+
+// callerNamespace is the namespace of a k8s caller, false for a caller with
+// no namespace.
+func callerNamespace(c UncontractedCaller) (string, bool) {
+	rest, k8s := strings.CutPrefix(c.Caller, "k8s:")
+	ns, _, _ := strings.Cut(rest, "/")
+	return ns, k8s
 }
 
 // Restrict is the snapshot as a caller who may read only the namespaces
@@ -46,7 +59,9 @@ func (q *Query) Namespaces() []string {
 // name with no namespace to check: every uncontracted caller outside
 // Kubernetes, whatever source observed it, is hidden and counted into the
 // service it calls, and the unresolved observed names of each source become
-// one count. Restrict returns q when nothing is hidden.
+// one count. Every uncontracted caller Restrict removes from a visible service
+// is counted into its hidden dependents. Restrict returns q when nothing is
+// hidden.
 func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	s := q.snap
 	hiddenNS := map[string]bool{}
@@ -78,9 +93,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 		}
 	}
 	hiddenDeps, hiddenDependents := restrictRelationships(&out, s.Relationships, hiddenSvc)
-	if restricted {
-		countBareCallers(s, hiddenSvc, hiddenDependents)
-	}
+	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenDeps, hiddenDependents)...)
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
@@ -90,7 +103,6 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.observedForward = restrictIndex(s.observedForward, keep, keep)
 	out.forwardDepsByRevision = restrictIndex(s.forwardDepsByRevision, func(k RevisionKey) bool { return out.Revisions[k] != nil }, keep)
 
-	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted)
 	recountSources(&out)
 
 	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...), restricted)
@@ -104,16 +116,28 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 // restrictCallers is s's uncontracted callers without those of a hidden
 // service, those in a hidden namespace and those a hidden service shares a name
 // with: such a caller may be that service's call, and its ambiguity counts it.
-// With hideBare, every caller with no namespace goes.
-func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool, hideBare bool) []UncontractedCaller {
+// With hideBare, every caller with no namespace goes. Each caller removed from
+// a visible service is counted into its dependents.
+func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool, hideBare bool, dependents map[ServiceKey]map[ServiceKey]bool) []UncontractedCaller {
 	hiddenNames := map[string]bool{}
 	for k := range hiddenSvc {
 		hiddenNames[s.Services[k].Name] = true
 	}
 	return slices.DeleteFunc(slices.Clone(s.UncontractedCallers), func(c UncontractedCaller) bool {
-		rest, k8s := strings.CutPrefix(c.Caller, "k8s:")
-		ns, _, _ := strings.Cut(rest, "/")
-		return hiddenSvc[c.ToService] || (k8s && hiddenNS[ns]) || (!k8s && (hideBare || hiddenNames[c.Caller]))
+		if hiddenSvc[c.ToService] {
+			return true
+		}
+		ns, k8s := callerNamespace(c)
+		if (k8s && !hiddenNS[ns]) || (!k8s && !hideBare && !hiddenNames[c.Caller]) {
+			return false
+		}
+		if dependents[c.ToService] == nil {
+			dependents[c.ToService] = map[ServiceKey]bool{}
+		}
+		// ponytail: a pseudo key only counted, never emitted, so a caller and a
+		// service of the same name count twice.
+		dependents[c.ToService][ServiceKey("caller:"+c.Caller)] = true
+		return true
 	})
 }
 
@@ -126,22 +150,6 @@ func bareCaller(c UncontractedCaller) bool { return !strings.HasPrefix(c.Caller,
 func hasBareNames(s *FleetSnapshot) bool {
 	return slices.ContainsFunc(s.UncontractedCallers, bareCaller) ||
 		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationObservedIdentityUnresolved })
-}
-
-// countBareCallers counts each bare caller of a visible service into its
-// hidden dependents.
-func countBareCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, dependents map[ServiceKey]map[ServiceKey]bool) {
-	for _, c := range s.UncontractedCallers {
-		if !bareCaller(c) || hiddenSvc[c.ToService] {
-			continue
-		}
-		if dependents[c.ToService] == nil {
-			dependents[c.ToService] = map[ServiceKey]bool{}
-		}
-		// ponytail: a pseudo key only counted, never emitted, so a caller and a
-		// service of the same name count twice.
-		dependents[c.ToService][ServiceKey("caller:"+c.Caller)] = true
-	}
 }
 
 // unresolvedCounts drops the unresolved observed names from limitations and

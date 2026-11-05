@@ -105,8 +105,9 @@ func TestRestrictServiceRecords(t *testing.T) {
 	if d := s.Services[db]; len(d.Targets) != 1 || d.Status != StatusCompliant || orig.Services[db].Status != StatusNonCompliant {
 		t.Errorf("db = %+v, want its shop target only and a status from it", d)
 	}
-	if w := s.Services[web]; w.HiddenDependencies != 1 || w.HiddenDependents != 1 {
-		t.Errorf("web hidden counts = %d/%d, want 1/1", w.HiddenDependencies, w.HiddenDependents)
+	// web's hidden dependents: api and the k8s caller in secret.
+	if w := s.Services[web]; w.HiddenDependencies != 1 || w.HiddenDependents != 2 {
+		t.Errorf("web hidden counts = %d/%d, want 1/2", w.HiddenDependencies, w.HiddenDependents)
 	}
 	if s.Services[reg].HiddenDependents != 1 || s.Services[reg] == orig.Services[reg] {
 		t.Error("reg is called by the hidden api: a copied record with one hidden dependent")
@@ -160,11 +161,11 @@ func TestRestrictQueries(t *testing.T) {
 		if n.Ref.Key == string(api) {
 			t.Error("the neighbourhood reaches api")
 		}
-		if n.Focus && (n.HiddenDependencies != 1 || n.HiddenDependents != 1) {
+		if n.Focus && (n.HiddenDependencies != 1 || n.HiddenDependents != 2) {
 			t.Errorf("focus node = %+v", n)
 		}
 	}
-	if d, err := r.EntityDetail(KindService, string(web)); err != nil || d.Service.HiddenDependencies != 1 || d.Service.HiddenDependents != 1 {
+	if d, err := r.EntityDetail(KindService, string(web)); err != nil || d.Service.HiddenDependencies != 1 || d.Service.HiddenDependents != 2 {
 		t.Errorf("web detail = %+v, %v", d, err)
 	}
 	if nb.UnresolvedDependencies.Total != 0 {
@@ -432,6 +433,36 @@ func TestRestrictKeepsNamespacedCallers(t *testing.T) {
 	s := q.Restrict(restrictedVisible).SnapshotForSerialization()
 	if names := callerNames(s); !slices.Equal(names, []string{"k8s:shop/Deployment/x"}) {
 		t.Errorf("restricted callers = %v, want only the shop one", names)
+	}
+	if pay := s.Services[NewServiceKey("payments")]; pay.HiddenDependents != 4 {
+		t.Errorf("payments hidden dependents = %d, want the hidden k8s caller counted with the three others", pay.HiddenDependents)
+	}
+}
+
+// TestRestrictHidesCallersInNamespacesWithoutTargets: a k8s caller in a
+// namespace no target runs in is still a namespace the viewer's permissions
+// decide, so the viewer is asked about it and, refused, sees only a count.
+func TestRestrictHidesCallersInNamespacesWithoutTargets(t *testing.T) {
+	q := bareCallerFleet(t, ObservedEdge{From: "k8s:fraud/Deployment/scanner", To: "payments", Count: 1})
+	if got := q.Namespaces(); !slices.Equal(got, []string{"fraud", "hidden", "shop"}) {
+		t.Fatalf("Namespaces = %v, want the caller's namespace too", got)
+	}
+	var asked []string
+	r := q.Restrict(func(ns string) bool { asked = append(asked, ns); return ns != "fraud" })
+	if !slices.Contains(asked, "fraud") {
+		t.Errorf("Restrict asked %v, never about the caller's namespace", asked)
+	}
+	s := r.SnapshotForSerialization()
+	if names := callerNames(s); slices.Contains(names, "k8s:fraud/Deployment/scanner") {
+		t.Errorf("restricted callers = %v, want the fraud caller hidden", names)
+	}
+	if pay := s.Services[NewServiceKey("payments")]; pay.HiddenDependents != 1 {
+		t.Errorf("payments hidden dependents = %d, want the fraud caller counted", pay.HiddenDependents)
+	}
+	for _, l := range s.Limitations {
+		if strings.Contains(l.Message, "fraud") || strings.Contains(l.Message, "scanner") {
+			t.Errorf("a limitation names the hidden caller: %+v", l)
+		}
 	}
 }
 
