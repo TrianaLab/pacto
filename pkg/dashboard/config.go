@@ -36,7 +36,7 @@ type DashboardConfig struct {
 	TokenLogin         bool   `json:"PACTO_DASHBOARD_TOKEN_LOGIN,omitempty" default:"false" doc:"Let people sign in by pasting a Kubernetes bearer token; a token session never decides"`
 	DeliveryNamespace  string `json:"PACTO_DASHBOARD_DELIVERY_NAMESPACE,omitempty" default:"pacto-delivery" doc:"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads"`
 	DeliveryTrust      string `json:"PACTO_DASHBOARD_DELIVERY_TRUST,omitempty" doc:"Trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config)"`
-	MiraURL            string `json:"PACTO_DASHBOARD_MIRA_URL,omitempty" doc:"Mira's address, to link health-check citations"`
+	MiraURL            string `json:"PACTO_DASHBOARD_MIRA_URL,omitempty" doc:"Mira's address, to link health-check citations and open a service in Mira"`
 }
 
 // ExportConfigSchema generates a JSON Schema for DashboardConfig using Huma's

@@ -210,7 +210,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)")
-	cmd.Flags().String("mira-url", "", "Mira's address, to link the health-check citations of delivery verdicts")
+	cmd.Flags().String("mira-url", "", "Mira's address, to link health-check citations and open a service in Mira")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
 		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")

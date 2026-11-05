@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -689,6 +690,8 @@ type historyInput struct {
 	Stage     string `query:"stage" doc:"One Stage's name"`
 	Service   string `query:"service" doc:"Without a stage: keep only the Stages of the service with exactly this name"`
 	Domain    string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+	Since     string `query:"since" doc:"RFC 3339 time: keep only changes that ran at or after it. A change with no time, or still in flight, is kept"`
+	Until     string `query:"until" doc:"RFC 3339 time: keep only changes that started at or before it. A change with no time is kept"`
 	// With a Stage, the page is of its changes; without, of Stages, each
 	// with its newest changes.
 	PageQuery
@@ -741,6 +744,14 @@ type Labels struct {
 }
 
 func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*historyOutput, error) {
+	since, err := queryTime("since", in.Since)
+	if err != nil {
+		return nil, err
+	}
+	until, err := queryTime("until", in.Until)
+	if err != nil {
+		return nil, err
+	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err
@@ -788,7 +799,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		if errs[i] != nil {
 			return nil, errs[i]
 		}
-		h := hs[i]
+		h := new(delivery.WindowEntries(*hs[i], since, until))
 		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h, ProblemCount: len(h.Problems), UnreadableCount: len(h.Unreadable)}
 		entries := slices.Clone(h.Entries)
 		slices.Reverse(entries) // newest first: what a reader looks for is the latest change
@@ -813,6 +824,18 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	versionsAll(ctx, api, out.Body.Versions, nil, on...)
 	out.Body.People = s.named(actors...)
 	return out, nil
+}
+
+// queryTime reads an optional RFC 3339 query parameter.
+func queryTime(name, v string) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}, huma.Error400BadRequest(name + " is not an RFC 3339 time")
+	}
+	return t, nil
 }
 
 // historyCounts counts the Stages that wait for a person and the frozen ones.

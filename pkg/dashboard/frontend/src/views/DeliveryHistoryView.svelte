@@ -29,7 +29,9 @@
   // one Stage's changes newest first, or every Stage as one line (by namespace
   // and name): its newest change, how it ended, how many changes it has and a
   // link to them.
-  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', refreshTick = 0, miraURL = '' } = $props();
+  // since and until (RFC 3339) keep the changes that ran in that window; the
+  // server keeps those with no time and those still in flight.
+  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', since = '', until = '', refreshTick = 0, miraURL = '' } = $props();
 
   const one = $derived(!!(namespace && stage));
   // The exact service filter narrows every Stage; one Stage is already one.
@@ -37,11 +39,14 @@
   const dom = $derived(svc ? domain : '');
   const loader = createProductLoader(() => api.deliveryHistory(namespace, stage, {
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
-    service: svc || undefined, domain: dom || undefined,
+    service: svc || undefined, domain: dom || undefined, since: since || undefined, until: until || undefined,
   }));
-  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}`);
+  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}@@${since}/${until}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}`);
+  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}@@${since}/${until}`);
+  // The window in words, when there is one.
+  const windowText = $derived(since && until ? `between ${timeLabel(since)} and ${timeLabel(until)}`
+    : since ? `at or after ${timeLabel(since)}` : until ? `at or before ${timeLabel(until)}` : '');
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -50,7 +55,7 @@
   const histories = $derived(data?.histories ?? []);
   // One Stage pages its changes; every Stage pages the Stages.
   const page = $derived(one ? histories[0]?.entriesPage : data?.page);
-  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
+  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
   const version = (d) => versionLabel(d, data?.versions);
   // A level change moves between levels, named as Autonomy names them.
   const side = (en, d) => (en.type === AUTONOMY_TYPE ? (d ? levelLabel(d) : '') : version(d));
@@ -196,8 +201,11 @@
   </PageHeader>
   <DeliveryNav current="delivery-history" />
   {#if stage}<p class="t-body-2"><a class="hv-link" href={deliveryHistoryUrl()}>Show every Stage</a></p>{/if}
-  <DeliveryServiceFilter service={svc} domain={dom} clear={deliveryHistoryUrl({ q })} />
-  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v, service: svc, domain: dom })} testid="history-filter"
+  <DeliveryServiceFilter service={svc} domain={dom} clear={deliveryHistoryUrl({ q, since, until })} />
+  {#if windowText}
+    <p class="t-body-2" data-testid="history-window">Changes {windowText}. <a href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom })}>Show all changes</a></p>
+  {/if}
+  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v, service: svc, domain: dom, since, until })} testid="history-filter"
     label={one ? 'Filter changes by person, change, outcome or reason' : 'Filter Stages by name or service'}
     placeholder={one ? 'Person, change, outcome or reason' : 'Stage or service'} />
 
@@ -228,7 +236,7 @@
                   <span class="hv-group-name">{h.namespace}</span>{#if groupSource[h.namespace]}<span class="t-meta hv-group-source">{groupSource[h.namespace]}</span>{/if}
                 </th></tr>
               {/if}
-              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name })}
+              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name, since, until })}
               {@const issues = (h.problemCount ?? 0) + (h.unreadableCount ?? 0)}
               {@const total = h.entriesPage?.total ?? h.entries?.length ?? 0}
               <tr data-testid="history-stage-row" data-stage={`${h.namespace}/${h.stage.name}`}>
@@ -246,7 +254,7 @@
                       <span>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</span>
                       {#if en.from || en.to}<span class="t-meta cell-clip" title={moveTitle(en)}>{move(en)}</span>{/if}
                     </div>
-                  {:else}<span class="hv-none">None kept</span>{/if}
+                  {:else}<span class="hv-none">{windowText ? 'None in this window' : 'None kept'}</span>{/if}
                 </td>
                 <td data-label="How it ended">{#if en}<span class="badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>{/if}</td>
                 <td data-label="When">{@render when(en)}</td>
@@ -291,7 +299,7 @@
             <BlamePanel namespace={h.namespace} stage={h.stage.name} {miraURL} onClose={close} />
           {/if}
           {#if (h.entries ?? []).length === 0}
-            <p class="t-body-2 hv-none">{q ? 'No change matches the filter.' : 'No change kept for this Stage.'}</p>
+            <p class="t-body-2 hv-none">{q ? 'No change matches the filter.' : windowText ? 'No change in this window.' : 'No change kept for this Stage.'}</p>
           {:else}
             <div class="data-scroll">
               <table class="data-table hv-table">

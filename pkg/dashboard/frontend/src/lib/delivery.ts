@@ -215,6 +215,26 @@ export function miraLink(citation: Record<string, string> | undefined, miraURL: 
   return `${base}/#/${q.signal}?q=${encodeURIComponent(terms.join(' '))}&range=all`;
 }
 
+/**
+ * miraServiceLink opens a service's spans in Mira's trace view over the last
+ * `range` (one of Mira's own ranges). Mira matches by service name only.
+ * Null without a web address.
+ */
+export function miraServiceLink(name: string, miraURL: string | undefined, range = '-1h'): string | null {
+  if (!miraURL || !/^https?:\/\//i.test(miraURL)) return null;
+  const base = miraURL.replace(/\/+$/, '');
+  return `${base}/#/traces?q=${encodeURIComponent(`service.name="${name}"`)}&range=${encodeURIComponent(range)}`;
+}
+
+/**
+ * entityMiraURL is the Mira address a service page may link to: only for a
+ * caller whose permissions hide nothing. Mira has no sign-in and matches by
+ * name, so a hidden same-named service would be one click away.
+ */
+export function entityMiraURL(caps: { miraURL?: string; auth?: { hidden?: boolean } } | null | undefined): string {
+  return caps && !caps.auth?.hidden ? caps.miraURL ?? '' : '';
+}
+
 const OUTCOMES: Record<string, string> = { Succeeded: 'succeeded', Failed: 'failed', Rejected: 'was rejected', Errored: 'could not finish' };
 const VERIFICATIONS: Record<string, string> = { Verified: 'verified', Unverified: 'not verified', AcceptedUnknown: 'a person accepted the unknown' };
 const PHASES: Record<string, string> = { Held: 'waits for a person', Pending: 'waits its turn', Running: 'is running', Verifying: 'is being checked', '': 'is not admitted yet' };

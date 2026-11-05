@@ -234,7 +234,7 @@ pacto dashboard [sources...] [flags]
   -h, --help                              help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
       --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
-      --mira-url string                   Mira's address, to link the health-check citations of delivery verdicts
+      --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
       --namespace string                  Kubernetes namespace (empty = all namespaces)
       --oidc-ca-file string               PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)
       --oidc-client-id string             OpenID Connect client id of the dashboard

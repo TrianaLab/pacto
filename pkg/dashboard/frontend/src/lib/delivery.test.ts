@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision,
-  keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
+  keepPending, pendingFor, dropPending, miraLink, miraServiceLink, entityMiraURL, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel,
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
 } from './delivery.ts';
@@ -283,5 +283,27 @@ describe('blockerReason', () => {
     expect(blockerReason('simulated: incident for aml-media.', 'aml-media')).toBe('simulated: incident.');
     expect(blockerReason('a release failed here', 'orders')).toBe('a release failed here');
     expect(blockerReason('incident for orders-api', 'orders')).toBe('incident for orders-api');
+  });
+});
+
+describe('miraServiceLink', () => {
+  it("opens a service's spans in Mira's trace view", () => {
+    expect(miraServiceLink('payments', 'https://mira.example/')).toBe('https://mira.example/#/traces?q=service.name%3D%22payments%22&range=-1h');
+    expect(miraServiceLink('payments', 'https://m', '-6h')).toBe('https://m/#/traces?q=service.name%3D%22payments%22&range=-6h');
+    expect(miraServiceLink('a"b', 'https://m')).toBe('https://m/#/traces?q=service.name%3D%22a%22b%22&range=-1h');
+  });
+  it('is null without a web address', () => {
+    expect(miraServiceLink('payments', 'javascript:alert(1)')).toBeNull();
+    expect(miraServiceLink('payments', '')).toBeNull();
+    expect(miraServiceLink('payments', undefined)).toBeNull();
+  });
+});
+
+describe('entityMiraURL', () => {
+  it('gives the Mira address only to a caller with nothing hidden', () => {
+    expect(entityMiraURL({ miraURL: 'https://m', auth: { hidden: false } })).toBe('https://m');
+    expect(entityMiraURL({ miraURL: 'https://m', auth: { hidden: true } })).toBe('');
+    expect(entityMiraURL(undefined)).toBe('');
+    expect(entityMiraURL(null)).toBe('');
   });
 });

@@ -280,3 +280,35 @@ func TestDeliveryHistoryServiceFilter(t *testing.T) {
 		expect(t, slices.Equal(got, want) && page(h["page"])["total"] == float64(len(want)), "%q: Stages %v, want %v", domain, got, want)
 	}
 }
+
+// since and until keep the changes that ran in the window, plus those with no
+// time and those still in flight, before paging; a bad time is refused.
+func TestDeliveryHistoryWindow(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments"}, Completeness: "complete", Entries: []delivery.HistoryEntry{
+		{Seq: 1, Operation: "before", Applied: "2026-11-01T08:00:00Z", Finished: "2026-11-01T09:00:00Z"},
+		{Seq: 2, Operation: "timeless"},
+		{Seq: 3, Operation: "inside", Applied: "2026-11-02T10:00:00Z", Finished: "2026-11-02T11:00:00Z"},
+		{Seq: 4, Operation: "flight", Applied: "2026-11-01T08:00:00Z"},
+		{Seq: 5, Operation: "after", Applied: "2026-11-04T10:00:00Z", Finished: "2026-11-04T11:00:00Z"},
+	}}
+	window := "&since=2026-11-02T00:00:00Z&until=2026-11-03T00:00:00Z"
+	_, h := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments"+window, nil)
+	one := page(h["histories"].([]any)[0])
+	var ops []string
+	for _, e := range one["entries"].([]any) {
+		ops = append(ops, page(e)["operation"].(string))
+	}
+	expect(t, strings.Join(ops, ",") == "flight,inside,timeless" && page(one["entriesPage"])["total"] == float64(3),
+		"in-window, in-flight and timeless changes, newest first: %v %v", ops, one["entriesPage"])
+	expect(t, strings.Contains(one["note"].(string), "only changes between"), "the note says the list is windowed: %v", one["note"])
+	_, h = call(t, http.MethodGet, base+"/api/delivery/history?until=2026-11-03T00:00:00Z", nil)
+	first := page(h["histories"].([]any)[0])
+	expect(t, page(first["entries"].([]any)[0])["operation"] == "flight" && page(first["entriesPage"])["total"] == float64(4),
+		"each Stage's newest change is the newest in the window: %v", first)
+	code, body := call(t, http.MethodGet, base+"/api/delivery/history?since=yesterday", nil)
+	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "since"), "a bad since is refused: %d %v", code, body)
+	code, body = call(t, http.MethodGet, base+"/api/delivery/history?until=soon", nil)
+	expect(t, code == http.StatusBadRequest && strings.Contains(fmt.Sprint(body), "until"), "a bad until is refused: %d %v", code, body)
+}

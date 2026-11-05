@@ -944,7 +944,7 @@ export interface components {
             fleet: boolean;
             /** @description The impact endpoint is served */
             impact: boolean;
-            /** @description Mira's address, to link health-check citations */
+            /** @description Mira's address, to link health-check citations and open a service in Mira */
             miraURL?: string;
             /** @description An observation source backs impact analysis */
             observed: boolean;
@@ -4370,6 +4370,10 @@ export interface operations {
                 service?: string;
                 /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
                 domain?: string;
+                /** @description RFC 3339 time: keep only changes that ran at or after it. A change with no time, or still in flight, is kept */
+                since?: string;
+                /** @description RFC 3339 time: keep only changes that started at or before it. A change with no time is kept */
+                until?: string;
                 /** @description Where the page starts. Past the end answers the last page */
                 offset?: number;
                 /** @description How many per page; 0 means the list's default */

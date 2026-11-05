@@ -102,7 +102,7 @@ type Options struct {
 	DeliveryNamespace string
 	// Auth is the identity layer: sign-in, sessions and request guards.
 	Auth *Auth
-	// MiraURL, when set, turns Mira citations into links.
+	// MiraURL, when set, turns Mira citations into links and lets a service page open the service in Mira.
 	MiraURL string
 }
 

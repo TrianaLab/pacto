@@ -9,10 +9,10 @@ import { mount, unmount, flushSync } from 'svelte';
 import { fleetAttentionUrl, fleetServicesUrl, fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
 import { formatDate } from '../../lib/dateFormat.ts';
 
-const { detailFn } = vi.hoisted(() => ({ detailFn: vi.fn() }));
+const { detailFn, entitiesFn } = vi.hoisted(() => ({ detailFn: vi.fn(), entitiesFn: vi.fn() }));
 vi.mock('../../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api.ts')>();
-  return { ...actual, api: { fleetEntityDetail: (...a: unknown[]) => detailFn(...a) } };
+  return { ...actual, api: { fleetEntityDetail: (...a: unknown[]) => detailFn(...a), fleetEntities: (...a: unknown[]) => entitiesFn(...a) } };
 });
 
 // @ts-expect-error — Svelte component has no declaration file
@@ -50,11 +50,11 @@ function detail(service: Record<string, any> = {}, meta: Record<string, any> = {
   };
 }
 
-async function render(d: unknown) {
+async function render(d: unknown, props: Record<string, unknown> = {}) {
   detailFn.mockResolvedValue(d);
   const target = document.createElement('div');
   document.body.appendChild(target);
-  const component = mount(FleetEntityView, { target, props: { kind: 'service', entityKey: KEY, refreshTick: 0 } });
+  const component = mount(FleetEntityView, { target, props: { kind: 'service', entityKey: KEY, refreshTick: 0, ...props } });
   await vi.waitFor(() => expect(target.querySelector('.svc-entity')).toBeTruthy());
   flushSync();
   return { target, done: () => { unmount(component); target.remove(); } };
@@ -483,6 +483,56 @@ describe('service page: platform offerings', () => {
     const { target, done } = await render(detail());
     expect(target.querySelector('[data-testid="service-offering"]')).toBeNull();
     expect(target.querySelector('.page-hd-sub')).toBeNull();
+    done();
+  });
+});
+
+describe('service page: open in Mira', () => {
+  beforeEach(() => { detailFn.mockReset(); entitiesFn.mockReset(); });
+  const svc = (domain: string) => ref('service', `${domain}/payments`, 'payments');
+  const mira = (t: HTMLElement) => t.querySelector('[data-testid="service-relationships"] [data-testid="service-mira-link"]');
+
+  it('links the service in Mira when its name is unique', async () => {
+    entitiesFn.mockResolvedValue({ entities: [svc('domain-a')], truncated: false });
+    const { target, done } = await render(detail(), { miraURL: 'https://mira.example' });
+    expect(entitiesFn).toHaveBeenCalledWith({ kinds: ['service'], text: 'payments', limit: 50 });
+    await vi.waitFor(() => expect(mira(target)).toBeTruthy());
+    const a = mira(target) as HTMLAnchorElement;
+    expect(a.getAttribute('href')).toBe('https://mira.example/#/traces?q=service.name%3D%22payments%22&range=-1h');
+    expect(a.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(a.getAttribute('target')).toBe('_blank');
+    expect(text(a)).toBe('Open in Mira');
+    done();
+  });
+
+  it('gives no link when two domains share the name', async () => {
+    entitiesFn.mockResolvedValue({ entities: [svc('domain-a'), svc('domain-b')], truncated: false });
+    const { target, done } = await render(detail(), { miraURL: 'https://mira.example' });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
+    await Promise.resolve(); flushSync();
+    expect(mira(target)).toBeNull();
+    done();
+  });
+
+  it('gives no link when the answer is cut short or fails', async () => {
+    entitiesFn.mockResolvedValueOnce({ entities: [svc('domain-a')], truncated: true });
+    let r = await render(detail(), { miraURL: 'https://mira.example' });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(1));
+    await Promise.resolve(); flushSync();
+    expect(mira(r.target)).toBeNull();
+    r.done();
+    entitiesFn.mockRejectedValueOnce(new Error('down'));
+    r = await render(detail(), { miraURL: 'https://mira.example' });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(2));
+    await Promise.resolve(); flushSync();
+    expect(mira(r.target)).toBeNull();
+    r.done();
+  });
+
+  it('asks nothing without a Mira address', async () => {
+    const { target, done } = await render(detail());
+    expect(mira(target)).toBeNull();
+    expect(entitiesFn).not.toHaveBeenCalled();
     done();
   });
 });

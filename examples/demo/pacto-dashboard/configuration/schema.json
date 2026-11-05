@@ -20,7 +20,7 @@
       "type": "string"
     },
     "PACTO_DASHBOARD_MIRA_URL": {
-      "description": "Mira's address, to link health-check citations",
+      "description": "Mira's address, to link health-check citations and open a service in Mira",
       "type": "string"
     },
     "PACTO_DASHBOARD_NAMESPACE": {
