@@ -115,7 +115,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200,
-          "pattern": "^[^\\p{Cc}]+$",
+          "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$",
           "description": "One line that says what the service is for. Search and the operational graph show it."
         }
       }
