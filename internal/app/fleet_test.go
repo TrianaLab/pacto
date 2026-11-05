@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -391,5 +392,47 @@ func TestService_Fleet_DisallowPartial(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error with DisallowPartial and a missing target-state file")
+	}
+}
+
+func TestFleetMiraSources(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"map":{"nodes":[{"key":"1","name":"payments"},{"key":"2","name":"orders"}],"edges":[{"from":"2","to":"1","calls":3}]},"stats":{"rows_scanned":6}}`))
+	}))
+	defer srv.Close()
+	root := t.TempDir()
+	writeLocalBundle(t, filepath.Join(root, "orders"), "orders")
+	writeLocalBundle(t, filepath.Join(root, "payments"), "payments")
+
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{LocalRoots: []string{root}, MiraURLs: []string{srv.URL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(snap.Sources, func(s fleet.SourceState) bool { return s.ID == "mira" && s.Kind == fleet.SourceKindMira }) {
+		t.Fatalf("sources = %+v, want mira/mira", snap.Sources)
+	}
+	if !slices.ContainsFunc(snap.Relationships, func(r fleet.Relationship) bool {
+		return r.Provenance == fleet.ProvenanceObserved && string(r.FromService) == "orders" && string(r.ToService) == "payments" &&
+			len(r.ObservedSources) > 0 && r.ObservedSources[0].Source == "mira"
+	}) {
+		t.Fatalf("relationships = %+v, want observed orders->payments from mira", snap.Relationships)
+	}
+
+	snap, err = svc.Fleet(context.Background(), FleetOptions{MiraURLs: []string{srv.URL, srv.URL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"mira-1", "mira-2"} {
+		if !slices.ContainsFunc(snap.Sources, func(s fleet.SourceState) bool { return s.ID == id }) {
+			t.Fatalf("sources = %+v, want %s", snap.Sources, id)
+		}
+	}
+}
+
+func TestFleetRejectsBadMiraURL(t *testing.T) {
+	snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{MiraURLs: []string{"https://user:pw@mira.example"}})
+	if err == nil || snap != nil || strings.Contains(err.Error(), "pw") {
+		t.Fatalf("snap=%v err=%v, want no snapshot and an error without the password", snap, err)
 	}
 }

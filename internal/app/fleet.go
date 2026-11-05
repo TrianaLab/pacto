@@ -39,6 +39,9 @@ type FleetOptions struct {
 	// records live in the contract registry, and only the Evidence Server holds
 	// the credentials and the verification logic that make them meaningful.
 	EvidenceURLs []string
+	// MiraURLs are base URLs of Mira nodes whose /api/v1/map supplies observed
+	// edges; operator configuration only, never taken from a request.
+	MiraURLs []string
 	// ObservationSources are offline OTLP/JSON trace files supplying
 	// runtime-observed dependency edges; each becomes an observation source whose
 	// edges Build folds into the snapshot as domain-qualified observed
@@ -93,10 +96,11 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	for i, path := range opts.TargetStateFiles {
 		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
 	}
-	for i, url := range opts.EvidenceURLs {
-		id := sourceID("evidence-http", i, len(opts.EvidenceURLs))
-		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(id, url))
+	remote, err := httpSources(opts)
+	if err != nil {
+		return nil, err
 	}
+	sources = append(sources, remote...)
 	for _, spec := range opts.ObservationSources {
 		sources = append(sources, fleetsrc.NewObservationSource(spec.ID, spec.Root, spec.Path))
 	}
@@ -227,6 +231,23 @@ func TraceFileSources(paths []string) []ObservationSourceSpec {
 		specs = append(specs, ObservationSourceSpec{ID: sourceID("observation", i, len(paths)), Path: p})
 	}
 	return specs
+}
+
+// httpSources returns the Evidence Server sources, then the Mira sources. Every
+// Mira URL is checked first: a bad one fails the whole build, like a duplicate
+// source id.
+func httpSources(opts FleetOptions) ([]fleet.Source, error) {
+	var sources []fleet.Source
+	for i, url := range opts.EvidenceURLs {
+		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(sourceID("evidence-http", i, len(opts.EvidenceURLs)), url))
+	}
+	for i, u := range opts.MiraURLs {
+		if err := fleetsrc.CheckMiraURL(u); err != nil {
+			return nil, err
+		}
+		sources = append(sources, fleetsrc.NewMiraSource(sourceID("mira", i, len(opts.MiraURLs)), u))
+	}
+	return sources, nil
 }
 
 // sourceID returns a stable provenance id, suffixing the index only when more
