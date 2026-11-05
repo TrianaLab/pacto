@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -23,7 +24,10 @@ func miraNodes(names map[string]string) []miraNode {
 }
 
 func TestNormalizeMiraMap(t *testing.T) {
-	nodes := miraNodes(map[string]string{"1": "payments", "2": "payments", "3": "orders", "4": "unknown", "5": "audit"})
+	nodes := miraNodes(map[string]string{
+		"1": "payments", "2": "payments", "3": "orders", "4": "unknown", "5": "audit",
+		"6": "k8s:secret/Deployment/ledger", "7": "evil\x1b]8;;http://x\x07", "8": strings.Repeat("a", 254), "9": "",
+	})
 	cases := []struct {
 		name         string
 		edges        []miraEdge
@@ -50,9 +54,33 @@ func TestNormalizeMiraMap(t *testing.T) {
 			edges: []miraEdge{
 				{From: "4", To: "1", Calls: 1},
 				{From: "99", To: "1", Calls: 1},
+				{From: "3", To: "4", Calls: 1},
+				{From: "3", To: "99", Calls: 1},
 				{From: "3", To: "1", Calls: 1},
 			},
 			want:         []fleet.ObservedEdge{{From: "orders", To: "payments", Count: 1}},
+			unattributed: 4,
+		},
+		{
+			name: "names Mira cannot vouch for are dropped and counted",
+			edges: []miraEdge{
+				{From: "6", To: "1", Calls: 1},
+				{From: "7", To: "1", Calls: 1},
+				{From: "8", To: "1", Calls: 1},
+				{From: "9", To: "1", Calls: 1},
+				{From: "3", To: "6", Calls: 1},
+			},
+			unattributed: 5,
+		},
+		{
+			name: "calls that count nothing are dropped and counted, sums saturate",
+			edges: []miraEdge{
+				{From: "3", To: "5", Calls: 0},
+				{From: "3", To: "5", Calls: -50},
+				{From: "3", To: "1", Calls: math.MaxInt - 1},
+				{From: "3", To: "2", Calls: math.MaxInt - 1},
+			},
+			want:         []fleet.ObservedEdge{{From: "orders", To: "payments", Count: math.MaxInt}},
 			unattributed: 2,
 		},
 		{
@@ -255,6 +283,10 @@ func TestCheckMiraURL(t *testing.T) {
 		{"", false},
 		{"https://", false},
 		{"%zz", false},
+		{"http://mira:4318/?token=x", false},
+		{"http://mira:4318/#frag", false},
+		{"http://mira:4318/#", false},
+		{"http://mira:4318/base/", true},
 	}
 	for _, tc := range cases {
 		err := CheckMiraURL(tc.url)

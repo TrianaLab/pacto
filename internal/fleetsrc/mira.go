@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -23,6 +25,7 @@ const (
 	miraRequest      = `{"from":"-15m","to":"now","max_spans":200000}`
 	miraMaxSpans     = 200000
 	maxMiraBodyBytes = 16 << 20 // 16 MiB; a value cut at the limit fails to decode
+	maxMiraNameBytes = 253      // a DNS name; OTel service names are far shorter
 )
 
 // miraMap is the part of Mira's POST /api/v1/map answer this source reads. The
@@ -114,13 +117,16 @@ func (s *MiraSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 
 // normalizeMiraMap folds Mira's per-instance edges into one edge per pair of
 // service names, sorted by (From, To). Root spans and calls within one service
-// are dropped; a call touching a key missing from nodes or a resource named
-// "unknown" is dropped and counted, because a call Pacto cannot attribute is
-// uncertainty. FirstSeen/LastSeen stay zero: Mira gives no per-edge window.
+// are dropped; a call touching a key missing from nodes, a name Mira cannot
+// vouch for (see attributableMiraName) or counting no calls is dropped and
+// counted, because a call Pacto cannot attribute is uncertainty. Sums saturate.
+// FirstSeen/LastSeen stay zero: Mira gives no per-edge window.
 func normalizeMiraMap(m miraMap) (edges []fleet.ObservedEdge, unattributed int) {
 	names := make(map[string]string, len(m.Map.Nodes))
 	for _, n := range m.Map.Nodes {
-		names[n.Key] = n.Name
+		if attributableMiraName(n.Name) {
+			names[n.Key] = n.Name
+		}
 	}
 	index := map[[2]string]int{}
 	for _, e := range m.Map.Edges {
@@ -130,13 +136,13 @@ func normalizeMiraMap(m miraMap) (edges []fleet.ObservedEdge, unattributed int) 
 		from, okFrom := names[e.From]
 		to, okTo := names[e.To]
 		switch {
-		case !okFrom || !okTo || from == "unknown" || to == "unknown":
+		case !okFrom || !okTo || e.Calls <= 0:
 			unattributed++
 		case from == to:
 		default:
 			k := [2]string{from, to}
 			if i, ok := index[k]; ok {
-				edges[i].Count += e.Calls
+				edges[i].Count = min(edges[i].Count, math.MaxInt-e.Calls) + e.Calls
 				continue
 			}
 			index[k] = len(edges)
@@ -147,6 +153,15 @@ func normalizeMiraMap(m miraMap) (edges []fleet.ObservedEdge, unattributed int) 
 		return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To))
 	})
 	return edges, unattributed
+}
+
+// attributableMiraName reports whether a service name from Mira can enter the
+// fleet: printable, at most maxMiraNameBytes, not "unknown", and not shaped like
+// a k8s caller, a Kubernetes identity Mira cannot vouch for and whose namespace
+// restricted views would trust.
+func attributableMiraName(name string) bool {
+	return name != "" && name != "unknown" && len(name) <= maxMiraNameBytes && !strings.HasPrefix(name, "k8s:") &&
+		!strings.ContainsFunc(name, func(r rune) bool { return !unicode.IsPrint(r) })
 }
 
 // miraPartial joins the reasons the map is incomplete, counts only (never
@@ -171,7 +186,8 @@ func miraPartial(m miraMap, unattributed int) string {
 	return "Mira's service map is incomplete: " + strings.Join(clauses, "; ")
 }
 
-// CheckMiraURL accepts an http(s) URL with a host and no userinfo. Mira URLs are
+// CheckMiraURL accepts an http(s) URL with a host and no userinfo, query or
+// fragment (the map path is appended to it). Mira URLs are
 // operator configuration only; the error names the scheme and host, never
 // credentials or the raw value.
 func CheckMiraURL(u string) error {
@@ -186,6 +202,8 @@ func CheckMiraURL(u string) error {
 		return errors.New("mira source: the URL has no host")
 	case p.User != nil:
 		return fmt.Errorf("mira source %s://%s: credentials in the URL are not allowed", p.Scheme, p.Hostname())
+	case strings.ContainsAny(u, "?#"):
+		return fmt.Errorf("mira source %s://%s: a query or fragment in the URL is not allowed", p.Scheme, p.Hostname())
 	}
 	return nil
 }
