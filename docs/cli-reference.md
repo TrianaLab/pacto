@@ -881,6 +881,24 @@ pacto fleet graph <service> [flags]
       --transitive         traverse transitively (cycle-safe)
 ```
 
+### `pacto fleet neighborhood`
+
+Shows who a service depends on and who depends on it, to the requested depth, each with its owner and status. The service is a name, or its key when the name is used in more than one domain.
+
+```
+pacto fleet neighborhood <service> [flags]
+```
+
+**Flags:**
+
+```
+      --depth int          how many hops to walk (0 = 1, at most 6)
+      --direction string   which side to walk (dependencies, dependents, both) (default "both")
+  -h, --help               help for neighborhood
+      --max-nodes int      maximum services (0 = 60, at most 500)
+      --views string       comma-separated knowledge views (expected, observed, differences) (default "expected,observed")
+```
+
 ### `pacto fleet reconcile`
 
 Reconciles what the fleet's contracts declare against what runtime traces prove. Reports matched dependencies, declared-but-not-observed (dormant or unseen in the trace window, so possibly still in use) and observed-but-not-declared (shadow dependencies).
@@ -1403,11 +1421,12 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `ownership`, `status`, `sort`, `limit`, `offset` |
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
 | `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `limit`, `offset` |
+| `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`) and `max_nodes` |
 | `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 
-With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity and attention answers carry an `href` to each entity's page on that Pacto dashboard.
+With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity, attention and neighborhood answers carry an `href` to each entity's page on that Pacto dashboard.
 
 See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.
 
