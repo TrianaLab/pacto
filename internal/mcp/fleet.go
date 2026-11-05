@@ -3,10 +3,12 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/trianalab/pacto/v4/pkg/dashboard/productview"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -41,21 +43,36 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first."
 
+// FleetQuerySource returns the query the fleet tools answer from: the current
+// snapshot. It is asked once per call, so a long session follows a refreshing
+// snapshot while each answer comes from exactly one.
+type FleetQuerySource func(ctx context.Context) (*fleet.Query, error)
+
+// FleetOptions configures the fleet tools beyond their query source.
+type FleetOptions struct {
+	// Impact registers pacto_impact; nil omits it, so a caller that cannot
+	// resolve revisions degrades cleanly.
+	Impact impactProvider
+	// View, when set, narrows every fleet tool, impact included, to the calling
+	// agent's view of the snapshot.
+	View FleetView
+	// DashboardURL, when set, is the base URL of a Pacto dashboard: fleet answers
+	// then carry an href to each entity's page there.
+	DashboardURL string
+}
+
 // NewFleetServer builds a server with the authoring tools plus the read-only
-// fleet query tools backed by q. When q is nil, only authoring tools register
-// (identical to NewServer) so a caller with no fleet sources degrades cleanly.
-// When provideImpact is non-nil the pacto_impact tool is registered too; a nil
-// provider omits it, so a caller that cannot resolve revisions degrades cleanly.
-// When view is non-nil every fleet tool, impact included, answers from the
-// calling agent's view of q.
-func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider, validate Validator, view FleetView) *mcpsdk.Server {
+// fleet query tools backed by src. When src is nil, only authoring tools
+// register (identical to NewServer) so a caller with no fleet sources degrades
+// cleanly.
+func NewFleetServer(version string, src FleetQuerySource, validate Validator, opts FleetOptions) *mcpsdk.Server {
 	instructions := baseInstructions
-	if q != nil {
+	if src != nil {
 		instructions += "\n\n" + fleetInstructions
 	}
 	server := newServer(version, instructions, validate)
-	if q != nil {
-		registerFleetTools(server, q, provideImpact, view)
+	if src != nil {
+		registerFleetTools(server, src, opts)
 	}
 	return server
 }
@@ -64,43 +81,60 @@ func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider
 // stdio). An error is answered as the tool's error, never as a smaller answer.
 type FleetView func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error)
 
-// viewed is handler h over the caller's view of q, or over q without a view.
-func viewed[A any](view FleetView, q *fleet.Query, h func(*fleet.Query) mcpsdk.ToolHandlerFor[A, any]) mcpsdk.ToolHandlerFor[A, any] {
-	if view == nil {
-		return h(q)
-	}
+// viewed is handler h over the current query from src, narrowed by view when
+// one is set.
+func viewed[A any](src FleetQuerySource, view FleetView, h func(*fleet.Query) mcpsdk.ToolHandlerFor[A, any]) mcpsdk.ToolHandlerFor[A, any] {
 	return func(ctx context.Context, req *mcpsdk.CallToolRequest, a A) (*mcpsdk.CallToolResult, any, error) {
-		var caller *auth.TokenInfo
-		if req != nil && req.Extra != nil {
-			caller = req.Extra.TokenInfo
-		}
-		vq, err := view(ctx, caller, q)
+		q, err := src(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-		return h(vq)(ctx, req, a)
+		if view != nil {
+			var caller *auth.TokenInfo
+			if req != nil && req.Extra != nil {
+				caller = req.Extra.TokenInfo
+			}
+			if q, err = view(ctx, caller, q); err != nil {
+				return errorResult(err), nil, nil
+			}
+		}
+		return h(q)(ctx, req, a)
 	}
+}
+
+// addFleetTool registers one fleet tool: answered from the current (viewed)
+// query and, with a dashboard URL, linked to the dashboard.
+func addFleetTool[A any](server *mcpsdk.Server, tool *mcpsdk.Tool, src FleetQuerySource, opts FleetOptions, h func(*fleet.Query) mcpsdk.ToolHandlerFor[A, any]) {
+	prefix := ""
+	if opts.DashboardURL != "" {
+		prefix = strings.TrimRight(opts.DashboardURL, "/") + "/#"
+	}
+	mcpsdk.AddTool(server, tool, linkHrefs(tool.Name, prefix, viewed(src, opts.View, h)))
 }
 
 // registerFleetTools adds the read-only fleet query tools, plus the
 // read-only pacto_impact tool when an impact provider is supplied.
-func registerFleetTools(server *mcpsdk.Server, q *fleet.Query, provideImpact impactProvider, view FleetView) {
-	mcpsdk.AddTool(server, fleetSearchTool(), viewed(view, q, fleetSearchHandler))
-	mcpsdk.AddTool(server, fleetGetTool(), viewed(view, q, fleetGetHandler))
-	mcpsdk.AddTool(server, fleetGraphTool(), viewed(view, q, fleetGraphHandler))
-	mcpsdk.AddTool(server, fleetStatusTool(), viewed(view, q, fleetStatusHandler))
-	mcpsdk.AddTool(server, fleetExplainTool(), viewed(view, q, fleetExplainHandler))
-	mcpsdk.AddTool(server, fleetEntitiesTool(), viewed(view, q, fleetEntitiesHandler))
-	mcpsdk.AddTool(server, fleetEntityTool(), viewed(view, q, fleetEntityHandler))
-	mcpsdk.AddTool(server, fleetAttentionTool(), viewed(view, q, fleetAttentionHandler))
-	if provideImpact != nil {
-		// Without a view the provider builds a fresh snapshot per call; with
-		// one it analyses over the caller's view, the snapshot the other tools answer from.
-		mcpsdk.AddTool(server, impactTool(), viewed(view, q, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
-			if view == nil {
-				return impactHandler(provideImpact, nil)
-			}
-			return impactHandler(provideImpact, vq.SnapshotForSerialization())
+func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetOptions) {
+	link := opts.DashboardURL != ""
+	addFleetTool(server, fleetSearchTool(), src, opts, fleetSearchHandler)
+	addFleetTool(server, fleetGetTool(), src, opts, fleetGetHandler)
+	addFleetTool(server, fleetGraphTool(), src, opts, fleetGraphHandler)
+	addFleetTool(server, fleetStatusTool(), src, opts, fleetStatusHandler)
+	addFleetTool(server, fleetExplainTool(), src, opts, fleetExplainHandler)
+	addFleetTool(server, fleetEntitiesTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetEntitiesArgs, any] {
+		return fleetEntitiesHandler(q, link)
+	})
+	addFleetTool(server, fleetEntityTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
+		return fleetEntityHandler(q, link)
+	})
+	addFleetTool(server, fleetAttentionTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
+		return fleetAttentionHandler(q, link)
+	})
+	if opts.Impact != nil {
+		// Impact analyses over the snapshot the other tools answer from (the
+		// caller's view of it when there is one), so one session's answers agree.
+		mcpsdk.AddTool(server, impactTool(), viewed(src, opts.View, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
+			return impactHandler(opts.Impact, vq.SnapshotForSerialization())
 		}))
 	}
 }
@@ -390,7 +424,7 @@ type fleetEntitiesArgs struct {
 	Offset         int    `json:"offset"`
 }
 
-func fleetEntitiesHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetEntitiesArgs, any] {
+func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntitiesArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntitiesArgs) (*mcpsdk.CallToolResult, any, error) {
 		kinds := productKinds
 		if a.Kind != "" {
@@ -400,7 +434,7 @@ func fleetEntitiesHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetEntitiesArg
 		for _, k := range kinds {
 			ks = append(ks, fleet.EntityKind(k))
 		}
-		return productResult(q.Entities(fleet.EntityFilter{
+		return productResult(link, productview.ToEntityList)(q.Entities(fleet.EntityFilter{
 			Text: a.Text, Kinds: ks, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
 			Offering: a.Offering, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 		}))
@@ -428,9 +462,9 @@ type fleetEntityArgs struct {
 	Key  string `json:"key"`
 }
 
-func fleetEntityHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
+func fleetEntityHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntityArgs) (*mcpsdk.CallToolResult, any, error) {
-		return productResult(q.EntityDetail(fleet.EntityKind(a.Kind), a.Key))
+		return productResult(link, productview.ToEntityDetail)(q.EntityDetail(fleet.EntityKind(a.Kind), a.Key))
 	}
 }
 
@@ -465,20 +499,28 @@ type fleetAttentionArgs struct {
 	Offset         int    `json:"offset"`
 }
 
-func fleetAttentionHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
+func fleetAttentionHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetAttentionArgs) (*mcpsdk.CallToolResult, any, error) {
-		return productResult(q.Attention(fleet.AttentionFilter{
+		return productResult(link, productview.ToAttentionList)(q.Attention(fleet.AttentionFilter{
 			Category: a.Category, Severity: a.Severity, Owner: a.Owner, OwnerKey: a.OwnerKey,
 			BusinessDomain: a.BusinessDomain, Service: a.Service, Limit: a.Limit, Offset: a.Offset,
 		}))
 	}
 }
 
-// productResult answers a product query's result, or its error as the tool's error.
-func productResult[T any](res T, err error) (*mcpsdk.CallToolResult, any, error) {
-	if err != nil {
-		return errorResult(err), nil, nil
+// productResult answers a product query's result, or its error as the tool's
+// error. With link set it answers the dashboard's transport type instead, whose
+// references carry hrefs.
+func productResult[T, P any](link bool, to func(*T) P) func(*T, error) (*mcpsdk.CallToolResult, any, error) {
+	return func(res *T, err error) (*mcpsdk.CallToolResult, any, error) {
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		var v any = res
+		if link {
+			v = to(res)
+		}
+		r, err := jsonResult(v)
+		return r, nil, err
 	}
-	r, err := jsonResult(res)
-	return r, nil, err
 }

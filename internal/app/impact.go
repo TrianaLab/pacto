@@ -34,27 +34,43 @@ type ImpactOptions struct {
 	Traces []byte
 }
 
-// Impact resolves the old and new contract revisions, builds a fleet snapshot
-// from the configured sources, and analyzes the change's blast radius over it.
-// Each call builds a fresh snapshot; the dashboard uses ImpactWithSnapshot to
-// analyze against its already-published snapshot instead (so the impact answer's
-// snapshotId matches the graph the user is looking at).
-//
-// When no source holds the changed service, the snapshot is built again with
-// the new revision added as one more source. The services that depend on it
-// are then found, where before the answer said "no affected consumers" about a
-// service it could not see.
+// Impact builds a fleet snapshot from the configured sources and analyzes the
+// change's blast radius over it (see [Service.ImpactOnSnapshot], with the new
+// revision added when no source holds the changed service).
 func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Result, error) {
-	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
 	snap, err := s.Fleet(ctx, opts.Fleet)
 	if err != nil {
 		return nil, fmt.Errorf("build fleet snapshot: %w", err)
 	}
+	return s.ImpactOnSnapshot(ctx, opts, snap, true)
+}
+
+// ImpactWithSnapshot analyzes a change's blast radius over an ALREADY-BUILT
+// snapshot, resolving only the old and new contract revisions. It exists so a
+// caller holding a published snapshot (the dashboard's Fleet Manager) can get an
+// impact answer bound to that exact snapshot — same snapshotId, same as-of time,
+// same completeness — rather than a freshly rebuilt one. opts.Fleet is ignored.
+func (s *Service) ImpactWithSnapshot(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
+	return s.ImpactOnSnapshot(ctx, opts, snap, false)
+}
+
+// ImpactOnSnapshot resolves the old and new contract revisions and analyzes the
+// change's blast radius over snap.
+//
+// With addMissing set and no source holding the changed service, the snapshot
+// is built again from opts.Fleet with the new revision added as one more
+// source. The services that depend on it are then found, where before the
+// answer said "no affected consumers" about a service it could not see. Without
+// it the answer is bound to snap and says SERVICE_NOT_IN_FLEET; a caller
+// answering from a restricted view must pass false, so no unrestricted rebuild
+// leaks.
+func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool) (*impact.Result, error) {
+	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
 	domain := revisionDomain(opts.NewPath)
-	added := snap.Services[fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)] == nil
+	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)] == nil
 	if added {
 		rev := fleet.RawRevision{Bundle: newBundle, Domain: domain, RequestedRef: opts.NewPath}
 		// The content digest the local source gives its bundles, so the added
@@ -76,19 +92,6 @@ func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Resul
 	}
 	res.NewRevisionAdded = added
 	return res, nil
-}
-
-// ImpactWithSnapshot analyzes a change's blast radius over an ALREADY-BUILT
-// snapshot, resolving only the old and new contract revisions. It exists so a
-// caller holding a published snapshot (the dashboard's Fleet Manager) can get an
-// impact answer bound to that exact snapshot — same snapshotId, same as-of time,
-// same completeness — rather than a freshly rebuilt one. opts.Fleet is ignored.
-func (s *Service) ImpactWithSnapshot(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
-	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-	return s.analyzeImpact(ctx, opts, snap, oldBundle, newBundle)
 }
 
 func (s *Service) resolveImpactPair(ctx context.Context, opts ImpactOptions) (oldBundle, newBundle *contract.Bundle, err error) {

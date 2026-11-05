@@ -1,4 +1,7 @@
-package dashboard
+// Package productview is the dashboard product transport: fleet product answers
+// wrapped with canonical hash-router hrefs. It imports only net/url and pkg/fleet,
+// so the MCP server builds the same hrefs without linking the dashboard server.
+package productview
 
 import "github.com/trianalab/pacto/v4/pkg/fleet"
 
@@ -6,7 +9,7 @@ import "github.com/trianalab/pacto/v4/pkg/fleet"
 // route-neutral facts; this layer wraps each fleet product answer in a transport
 // DTO that adds a canonical navigation href to every entity reference. Every href
 // is derived from the EXACT canonical key via the single route builder
-// (fleetroute.go), never from a display label. The conversion functions are pure
+// (route.go), never from a display label. The conversion functions are pure
 // and total; they are what the HTTP handlers return so the OpenAPI contract and
 // the typed frontend client see concrete, href-bearing shapes. Each transport
 // type embeds its fleet counterpart and shadows only the reference-bearing fields
@@ -22,22 +25,25 @@ type ProductRef struct {
 	Href string `json:"href"`
 }
 
-func productRef(e fleet.EntityRef) ProductRef {
-	return ProductRef{EntityRef: e, Href: hrefForEntity(e.Kind, e.Key)}
+// Ref wraps an entity reference with its canonical dashboard href.
+func Ref(e fleet.EntityRef) ProductRef {
+	return ProductRef{EntityRef: e, Href: Entity(e.Kind, e.Key)}
 }
 
-func productRefPtr(e *fleet.EntityRef) *ProductRef {
+// RefPtr is [Ref] for an optional reference; nil stays nil.
+func RefPtr(e *fleet.EntityRef) *ProductRef {
 	if e == nil {
 		return nil
 	}
-	r := productRef(*e)
+	r := Ref(*e)
 	return &r
 }
 
-func productRefs(es []fleet.EntityRef) []ProductRef {
+// Refs is [Ref] over a slice.
+func Refs(es []fleet.EntityRef) []ProductRef {
 	out := make([]ProductRef, len(es))
 	for i, e := range es {
-		out[i] = productRef(e)
+		out[i] = Ref(e)
 	}
 	return out
 }
@@ -50,8 +56,9 @@ type ProductRefPreview struct {
 	Items []ProductRef `json:"items"`
 }
 
-func productRefPreview(p fleet.RefPreview) ProductRefPreview {
-	return ProductRefPreview{RefPreview: p, Items: productRefs(p.Items)}
+// RefPreview wraps every reference of a bounded preview.
+func RefPreview(p fleet.RefPreview) ProductRefPreview {
+	return ProductRefPreview{RefPreview: p, Items: Refs(p.Items)}
 }
 
 // ProductEvidenceItem links a navigable target to when it was evidenced.
@@ -69,7 +76,7 @@ type ProductEvidencePreview struct {
 func productEvidencePreview(p fleet.EvidencePreview) ProductEvidencePreview {
 	items := make([]ProductEvidenceItem, len(p.Items))
 	for i, e := range p.Items {
-		items[i] = ProductEvidenceItem{EvidenceItem: e, Target: productRef(e.Target)}
+		items[i] = ProductEvidenceItem{EvidenceItem: e, Target: Ref(e.Target)}
 	}
 	return ProductEvidencePreview{EvidencePreview: p, Items: items}
 }
@@ -81,7 +88,7 @@ type ProductAttentionItem struct {
 }
 
 func productAttentionItem(it fleet.AttentionItem) ProductAttentionItem {
-	return ProductAttentionItem{AttentionItem: it, Entity: productRef(it.Entity)}
+	return ProductAttentionItem{AttentionItem: it, Entity: Ref(it.Entity)}
 }
 
 // ProductAttentionPreview is a bounded preview of attention items.
@@ -109,10 +116,10 @@ type ProductEdge struct {
 
 func productEdge(e fleet.NeighborhoodEdge) ProductEdge {
 	return ProductEdge{
-		NeighborhoodEdge: e, From: productRef(e.From), To: productRef(e.To),
+		NeighborhoodEdge: e, From: Ref(e.From), To: Ref(e.To),
 		// Focus the target endpoint in its OWN kind's graph (a mixed projection has
 		// revision and target endpoints, not only services).
-		Href: hrefForGraph(e.To.Kind, e.To.Key),
+		Href: Graph(e.To.Kind, e.To.Key),
 	}
 }
 
@@ -145,7 +152,7 @@ type ProductAttributedFindingsPreview struct {
 func productAttributedFindingsPreview(p fleet.AttributedFindingsPreview) ProductAttributedFindingsPreview {
 	items := make([]ProductAttributedFinding, len(p.Items))
 	for i, f := range p.Items {
-		items[i] = ProductAttributedFinding{AttributedFinding: f, Entity: productRef(f.Entity)}
+		items[i] = ProductAttributedFinding{AttributedFinding: f, Entity: Ref(f.Entity)}
 	}
 	return ProductAttributedFindingsPreview{AttributedFindingsPreview: p, Items: items}
 }
@@ -165,7 +172,7 @@ type ProductAttributedLimitationsPreview struct {
 func productAttributedLimitationsPreview(p fleet.AttributedLimitationsPreview) ProductAttributedLimitationsPreview {
 	items := make([]ProductAttributedLimitation, len(p.Items))
 	for i, l := range p.Items {
-		items[i] = ProductAttributedLimitation{AttributedLimitation: l, Entity: productRef(l.Entity)}
+		items[i] = ProductAttributedLimitation{AttributedLimitation: l, Entity: Ref(l.Entity)}
 	}
 	return ProductAttributedLimitationsPreview{AttributedLimitationsPreview: p, Items: items}
 }
@@ -180,7 +187,7 @@ func productOwnership(o *fleet.OwnershipInfo) *ProductOwnership {
 	if o == nil {
 		return nil
 	}
-	return &ProductOwnership{OwnershipInfo: *o, Ref: productRefPtr(o.Ref)}
+	return &ProductOwnership{OwnershipInfo: *o, Ref: RefPtr(o.Ref)}
 }
 
 // ── overview ─────────────────────────────────────────────────────────────────
@@ -200,13 +207,14 @@ type ProductOverview struct {
 	EntryPoints    []ProductEntryPoint     `json:"entryPoints"`
 }
 
-func toProductOverview(ov *fleet.Overview) *ProductOverview {
+// ToOverview adds an href to every overview entry point.
+func ToOverview(ov *fleet.Overview) *ProductOverview {
 	out := &ProductOverview{Overview: *ov}
 	out.Attention = productAttentionPreview(ov.Attention)
 	out.RecentEvidence = productEvidencePreview(ov.RecentEvidence)
 	out.EntryPoints = make([]ProductEntryPoint, len(ov.EntryPoints))
 	for i, ep := range ov.EntryPoints {
-		out.EntryPoints[i] = ProductEntryPoint{EntryPoint: ep, Href: hrefForEntryPoint(ep.View, ep.Category)}
+		out.EntryPoints[i] = ProductEntryPoint{EntryPoint: ep, Href: EntryPoint(ep.View, ep.Category)}
 	}
 	return out
 }
@@ -219,8 +227,9 @@ type ProductEntityList struct {
 	Entities []ProductRef `json:"entities"`
 }
 
-func toProductEntityList(l *fleet.EntityList) *ProductEntityList {
-	return &ProductEntityList{EntityList: *l, Entities: productRefs(l.Entities)}
+// ToEntityList adds an href to every listed entity.
+func ToEntityList(l *fleet.EntityList) *ProductEntityList {
+	return &ProductEntityList{EntityList: *l, Entities: Refs(l.Entities)}
 }
 
 // ── attention ────────────────────────────────────────────────────────────────
@@ -231,7 +240,8 @@ type ProductAttentionList struct {
 	Items []ProductAttentionItem `json:"items"`
 }
 
-func toProductAttentionList(l *fleet.AttentionList) *ProductAttentionList {
+// ToAttentionList adds an href to every attention item.
+func ToAttentionList(l *fleet.AttentionList) *ProductAttentionList {
 	items := make([]ProductAttentionItem, len(l.Items))
 	for i, it := range l.Items {
 		items[i] = productAttentionItem(it)
@@ -270,16 +280,17 @@ type ProductNeighborhood struct {
 	UnresolvedDependencies ProductUnresolvedDependenciesPreview `json:"unresolvedDependencies"`
 }
 
-func toProductNeighborhood(nb *fleet.Neighborhood) *ProductNeighborhood {
+// ToNeighborhood adds an href to every neighborhood node and edge.
+func ToNeighborhood(nb *fleet.Neighborhood) *ProductNeighborhood {
 	out := &ProductNeighborhood{
 		Neighborhood:    *nb,
-		RequestedFocus:  productRef(nb.RequestedFocus),
-		ProjectionFocus: productRefPtr(nb.ProjectionFocus),
-		FocusService:    productRef(nb.FocusService),
+		RequestedFocus:  Ref(nb.RequestedFocus),
+		ProjectionFocus: RefPtr(nb.ProjectionFocus),
+		FocusService:    Ref(nb.FocusService),
 	}
 	out.Nodes = make([]ProductNode, len(nb.Nodes))
 	for i, n := range nb.Nodes {
-		out.Nodes[i] = ProductNode{NeighborhoodNode: n, Ref: productRef(n.Ref)}
+		out.Nodes[i] = ProductNode{NeighborhoodNode: n, Ref: Ref(n.Ref)}
 	}
 	out.Edges = make([]ProductEdge, len(nb.Edges))
 	for i, e := range nb.Edges {
@@ -292,7 +303,7 @@ func toProductNeighborhood(nb *fleet.Neighborhood) *ProductNeighborhood {
 func productUnresolvedDependencies(p fleet.UnresolvedDependenciesPreview) ProductUnresolvedDependenciesPreview {
 	deps := make([]ProductUnresolvedDependency, len(p.Items))
 	for i, u := range p.Items {
-		deps[i] = ProductUnresolvedDependency{UnresolvedDependency: u, From: productRef(u.From)}
+		deps[i] = ProductUnresolvedDependency{UnresolvedDependency: u, From: Ref(u.From)}
 	}
 	return ProductUnresolvedDependenciesPreview{UnresolvedDependenciesPreview: p, Items: deps}
 }
@@ -315,7 +326,7 @@ type ProductRevisionSignaturesPreview struct {
 func productRevisionSignatures(p fleet.RevisionSignaturesPreview) ProductRevisionSignaturesPreview {
 	items := make([]ProductRevisionSignature, len(p.Items))
 	for i, s := range p.Items {
-		items[i] = ProductRevisionSignature{RevisionSignature: s, Revision: productRef(s.Revision)}
+		items[i] = ProductRevisionSignature{RevisionSignature: s, Revision: Ref(s.Revision)}
 	}
 	return ProductRevisionSignaturesPreview{RevisionSignaturesPreview: p, Items: items}
 }
@@ -349,21 +360,21 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 	return &ProductServiceDetail{
 		ServiceDetailData:      *d,
 		Ownership:              productOwnership(d.Ownership),
-		OwnerRevision:          productRefPtr(d.OwnerRevision),
-		Sources:                productRefPreview(d.Sources),
+		OwnerRevision:          RefPtr(d.OwnerRevision),
+		Sources:                RefPreview(d.Sources),
 		UnresolvedDependencies: productUnresolvedDependencies(d.UnresolvedDependencies),
 		ConsumedOfferings:      productOfferingUses(d.ConsumedOfferings),
 		InferredOfferings:      productInferredOfferings(d.InferredOfferings),
-		CurrentRevision:        productRefPtr(d.CurrentRevision),
+		CurrentRevision:        RefPtr(d.CurrentRevision),
 		Policies:               productPoliciesPreview(d.Policies),
 		Configurations:         productConfigurationsPreview(d.Configurations),
-		Revisions:              productRefPreview(d.Revisions),
-		ActiveRevisions:        productRefPreview(d.ActiveRevisions),
+		Revisions:              RefPreview(d.Revisions),
+		ActiveRevisions:        RefPreview(d.ActiveRevisions),
 		Signatures:             productRevisionSignatures(d.Signatures),
-		Deployments:            productRefPreview(d.Deployments),
-		Dependencies:           productRefPreview(d.Dependencies),
-		Dependents:             productRefPreview(d.Dependents),
-		ReferencedBy:           productRefPreview(d.ReferencedBy),
+		Deployments:            RefPreview(d.Deployments),
+		Dependencies:           RefPreview(d.Dependencies),
+		Dependents:             RefPreview(d.Dependents),
+		ReferencedBy:           RefPreview(d.ReferencedBy),
 		Relationships:          productRelationshipsPreview(d.Relationships),
 		Findings:               productAttributedFindingsPreview(d.Findings),
 		Evidence:               productEvidencePreview(d.Evidence),
@@ -387,7 +398,7 @@ func productRefResolution(r *fleet.RefResolution) *ProductRefResolution {
 	if r == nil {
 		return nil
 	}
-	return &ProductRefResolution{RefResolution: *r, Service: productRefPtr(r.Service)}
+	return &ProductRefResolution{RefResolution: *r, Service: RefPtr(r.Service)}
 }
 
 // ProductConfigurationSummary is a declared configuration scope whose ref, when
@@ -448,14 +459,14 @@ type ProductRevisionDetail struct {
 func toProductRevisionDetail(d *fleet.RevisionDetailData) *ProductRevisionDetail {
 	return &ProductRevisionDetail{
 		RevisionDetailData: *d,
-		Service:            productRef(d.Service),
+		Service:            Ref(d.Service),
 		Configurations:     productConfigurationsPreview(d.Configurations),
 		Policies:           productPoliciesPreview(d.Policies),
 		Dependencies:       productRelationshipsPreview(d.Dependencies),
-		ExactTargets:       productRefPreview(d.ExactTargets),
-		InferredTargets:    productRefPreview(d.InferredTargets),
-		Previous:           productRefPtr(d.Previous),
-		Next:               productRefPtr(d.Next),
+		ExactTargets:       RefPreview(d.ExactTargets),
+		InferredTargets:    RefPreview(d.InferredTargets),
+		Previous:           RefPtr(d.Previous),
+		Next:               RefPtr(d.Next),
 		Ownership:          productOwnership(d.Ownership),
 	}
 }
@@ -472,8 +483,8 @@ type ProductTargetDetail struct {
 func toProductTargetDetail(d *fleet.TargetDetailData) *ProductTargetDetail {
 	return &ProductTargetDetail{
 		TargetDetailData:     *d,
-		Service:              productRef(d.Service),
-		Revision:             productRefPtr(d.Revision),
+		Service:              Ref(d.Service),
+		Revision:             RefPtr(d.Revision),
 		ServiceRelationships: productRelationshipsPreview(d.ServiceRelationships),
 		Ownership:            productOwnership(d.Ownership),
 	}
@@ -491,9 +502,9 @@ type ProductOwnerDetail struct {
 func toProductOwnerDetail(d *fleet.OwnerDetailData) *ProductOwnerDetail {
 	return &ProductOwnerDetail{
 		OwnerDetailData: *d,
-		Services:        productRefPreview(d.Services),
-		Revisions:       productRefPreview(d.Revisions),
-		Deployments:     productRefPreview(d.Deployments),
+		Services:        RefPreview(d.Services),
+		Revisions:       RefPreview(d.Revisions),
+		Deployments:     RefPreview(d.Deployments),
 		Attention:       productAttentionPreview(d.Attention),
 	}
 }
@@ -510,9 +521,9 @@ type ProductDomainDetail struct {
 func toProductDomainDetail(d *fleet.DomainDetailData) *ProductDomainDetail {
 	return &ProductDomainDetail{
 		DomainDetailData: *d,
-		Services:         productRefPreview(d.Services),
-		Owners:           productRefPreview(d.Owners),
-		Deployments:      productRefPreview(d.Deployments),
+		Services:         RefPreview(d.Services),
+		Owners:           RefPreview(d.Owners),
+		Deployments:      RefPreview(d.Deployments),
 		Attention:        productAttentionPreview(d.Attention),
 	}
 }
@@ -534,7 +545,7 @@ type ProductOfferingUsesPreview struct {
 func productOfferingUses(p fleet.OfferingUsesPreview) ProductOfferingUsesPreview {
 	items := make([]ProductOfferingUse, len(p.Items))
 	for i, u := range p.Items {
-		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: productRef(u.Consumer), Provider: productRef(u.Provider)}
+		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: Ref(u.Consumer), Provider: Ref(u.Provider)}
 	}
 	return ProductOfferingUsesPreview{OfferingUsesPreview: p, Items: items}
 }
@@ -549,7 +560,7 @@ type ProductInferredOffering struct {
 func productInferredOfferings(in []fleet.InferredOffering) []ProductInferredOffering {
 	out := make([]ProductInferredOffering, len(in))
 	for i, o := range in {
-		out[i] = ProductInferredOffering{InferredOffering: o, Offering: productRef(o.Offering), Provider: productRefPtr(o.Provider)}
+		out[i] = ProductInferredOffering{InferredOffering: o, Offering: Ref(o.Offering), Provider: RefPtr(o.Provider)}
 	}
 	return out
 }
@@ -584,11 +595,11 @@ func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail
 	for i, p := range d.Providers.Items {
 		items[i] = ProductOfferingProvider{
 			OfferingProvider: p,
-			Service:          productRef(p.Service),
+			Service:          Ref(p.Service),
 			Ownership:        productOwnership(p.Ownership),
-			CurrentRevision:  productRefPtr(p.CurrentRevision),
-			Revisions:        productRefPreview(p.Revisions),
-			ActiveRevisions:  productRefPreview(p.ActiveRevisions),
+			CurrentRevision:  RefPtr(p.CurrentRevision),
+			Revisions:        RefPreview(p.Revisions),
+			ActiveRevisions:  RefPreview(p.ActiveRevisions),
 			Policies:         productPoliciesPreview(p.Policies),
 			Configurations:   productConfigurationsPreview(p.Configurations),
 		}
@@ -607,7 +618,7 @@ type ProductSourceDetail struct {
 }
 
 func toProductSourceDetail(d *fleet.SourceDetailData) *ProductSourceDetail {
-	return &ProductSourceDetail{SourceDetailData: *d, Entities: productRefPreview(d.Entities)}
+	return &ProductSourceDetail{SourceDetailData: *d, Entities: RefPreview(d.Entities)}
 }
 
 // ProductRevisionDocument is one lazily-read in-bundle document with a navigable
@@ -617,8 +628,9 @@ type ProductRevisionDocument struct {
 	Revision ProductRef `json:"revision"`
 }
 
-func toProductRevisionDocument(d *fleet.RevisionDocument) *ProductRevisionDocument {
-	return &ProductRevisionDocument{RevisionDocument: *d, Revision: productRef(d.Revision)}
+// ToRevisionDocument adds an href to the owning revision.
+func ToRevisionDocument(d *fleet.RevisionDocument) *ProductRevisionDocument {
+	return &ProductRevisionDocument{RevisionDocument: *d, Revision: Ref(d.Revision)}
 }
 
 // ProductEntityDetail is the navigable, discriminated entity-detail envelope.
@@ -636,8 +648,9 @@ type ProductEntityDetail struct {
 	Offering *ProductOfferingDetail `json:"offering,omitempty"`
 }
 
-func toProductEntityDetail(d *fleet.EntityDetail) *ProductEntityDetail {
-	out := &ProductEntityDetail{EntityDetail: *d, Entity: productRef(d.Entity)}
+// ToEntityDetail adds an href to every reference of an entity detail.
+func ToEntityDetail(d *fleet.EntityDetail) *ProductEntityDetail {
+	out := &ProductEntityDetail{EntityDetail: *d, Entity: Ref(d.Entity)}
 	switch {
 	case d.Service != nil:
 		out.Service = toProductServiceDetail(d.Service)

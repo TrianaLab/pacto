@@ -1,4 +1,4 @@
-package dashboard
+package productview
 
 import (
 	"net/url"
@@ -13,12 +13,12 @@ import (
 // route construction is never duplicated. The strings are plain paths; the
 // frontend hash-router prepends "#".
 
-const fleetRouteRoot = "/fleet"
+const Root = "/fleet"
 
-// hrefForEntity returns the canonical detail href for any entity kind, built from
+// Entity returns the canonical detail href for any entity kind, built from
 // the exact canonical key. An unknown kind falls back to the overview href rather
 // than forging a broken per-kind path.
-func hrefForEntity(kind fleet.EntityKind, key string) string {
+func Entity(kind fleet.EntityKind, key string) string {
 	switch kind {
 	case fleet.KindService:
 		return routeEntity("services", key)
@@ -35,33 +35,33 @@ func hrefForEntity(kind fleet.EntityKind, key string) string {
 	case fleet.KindOffering:
 		return routeEntity("offerings", key)
 	default:
-		return fleetRouteRoot
+		return Root
 	}
 }
 
-// hrefForGraph returns the canonical focused-graph href for an entity.
-func hrefForGraph(kind fleet.EntityKind, key string) string {
-	return fleetRouteRoot + "/graph/" + url.PathEscape(string(kind)) + "/" + url.PathEscape(key)
+// Graph returns the canonical focused-graph href for an entity.
+func Graph(kind fleet.EntityKind, key string) string {
+	return Root + "/graph/" + url.PathEscape(string(kind)) + "/" + url.PathEscape(key)
 }
 
-// hrefForEntryPoint maps a route-neutral overview entry-point descriptor
+// EntryPoint maps a route-neutral overview entry-point descriptor
 // (view + optional category) to a canonical href.
-func hrefForEntryPoint(view fleet.EntryPointView, category string) string {
+func EntryPoint(view fleet.EntryPointView, category string) string {
 	switch view {
 	case fleet.EntryPointAttention:
 		if category == "" {
-			return fleetRouteRoot + "/attention"
+			return Root + "/attention"
 		}
-		return fleetRouteRoot + "/attention?category=" + url.QueryEscape(category)
+		return Root + "/attention?category=" + url.QueryEscape(category)
 	case fleet.EntryPointServices:
-		return fleetRouteRoot + "/services"
+		return Root + "/services"
 	default: // overview
-		return fleetRouteRoot
+		return Root
 	}
 }
 
 // routeEntity builds "/fleet/<kind>/<escaped-key>". The key is path-escaped so a
 // slash-bearing key (a domain-qualified ServiceKey or a TargetKey) round-trips.
 func routeEntity(kind, key string) string {
-	return fleetRouteRoot + "/" + kind + "/" + url.PathEscape(key)
+	return Root + "/" + kind + "/" + url.PathEscape(key)
 }

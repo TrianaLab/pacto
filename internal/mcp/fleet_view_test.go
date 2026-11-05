@@ -33,16 +33,16 @@ func TestViewedFleetTools(t *testing.T) {
 	req := func(user string) *mcpsdk.CallToolRequest {
 		return &mcpsdk.CallToolRequest{Extra: &mcpsdk.RequestExtra{TokenInfo: &auth.TokenInfo{UserID: user}}}
 	}
-	res, _, err := viewed(view, q, fleetSearchHandler)(context.Background(), req("alice"), fleetSearchArgs{})
+	res, _, err := viewed(staticFleet(q), view, fleetSearchHandler)(context.Background(), req("alice"), fleetSearchArgs{})
 	var out fleet.SearchResult
 	decode(t, res, &out)
 	if err != nil || out.Total != 0 || caller == nil || caller.UserID != "alice" {
 		t.Errorf("search through the view: %d services for %+v, %v", out.Total, caller, err)
 	}
-	if res, _, _ := viewed(view, q, fleetSearchHandler)(context.Background(), req("boom"), fleetSearchArgs{}); !res.IsError {
+	if res, _, _ := viewed(staticFleet(q), view, fleetSearchHandler)(context.Background(), req("boom"), fleetSearchArgs{}); !res.IsError {
 		t.Error("a failed view must be the tool's error")
 	}
-	if _, _, _ = viewed(view, q, fleetSearchHandler)(context.Background(), nil, fleetSearchArgs{}); caller != nil {
+	if _, _, _ = viewed(staticFleet(q), view, fleetSearchHandler)(context.Background(), nil, fleetSearchArgs{}); caller != nil {
 		t.Error("no request extra is no caller")
 	}
 
@@ -51,14 +51,34 @@ func TestViewedFleetTools(t *testing.T) {
 		got = snap
 		return &impact.Result{}, nil
 	}
-	server := NewFleetServer("test", q, provide, nil, view)
+	server := NewFleetServer("test", staticFleet(q), nil, FleetOptions{Impact: provide, View: view})
 	callToolOn(t, server, "pacto_impact", map[string]any{"old_ref": "a", "new_ref": "b"})
 	if got != empty.SnapshotForSerialization() {
 		t.Error("impact must analyse over the caller's view")
 	}
-	callToolOn(t, NewFleetServer("test", q, provide, nil, nil), "pacto_impact", map[string]any{"old_ref": "a", "new_ref": "b"})
-	if got != nil {
-		t.Error("without a view impact builds a fresh snapshot (nil)")
+	failing := func(context.Context) (*fleet.Query, error) { return nil, errors.New("no snapshot yet") }
+	if res, _, _ := viewed(failing, nil, fleetSearchHandler)(context.Background(), nil, fleetSearchArgs{}); !res.IsError {
+		t.Error("a failed source must be the tool's error")
+	}
+}
+
+// TestImpactUsesTheCurrentSnapshot: pacto_impact analyses over the same
+// snapshot the source returned, with and without a view, so it agrees with the
+// other fleet tools of the session.
+func TestImpactUsesTheCurrentSnapshot(t *testing.T) {
+	q := buildFleetQuery(t)
+	var got *fleet.FleetSnapshot
+	provide := func(_ context.Context, snap *fleet.FleetSnapshot, _, _ string, _ bool, _ string) (*impact.Result, error) {
+		got = snap
+		return &impact.Result{}, nil
+	}
+	same := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) { return q, nil }
+	for _, view := range []FleetView{nil, same} {
+		got = nil
+		callToolOn(t, NewFleetServer("test", staticFleet(q), nil, FleetOptions{Impact: provide, View: view}), "pacto_impact", map[string]any{"old_ref": "a", "new_ref": "b"})
+		if got != q.SnapshotForSerialization() {
+			t.Errorf("view %v: impact analysed over %p, want the source's snapshot %p", view != nil, got, q.SnapshotForSerialization())
+		}
 	}
 }
 
@@ -100,7 +120,7 @@ func TestNewFleetToolsAnswerFromTheView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
 	}
-	server := NewFleetServer("test", fleet.NewQuery(snap), nil, nil, view)
+	server := NewFleetServer("test", staticFleet(fleet.NewQuery(snap)), nil, FleetOptions{View: view})
 	calls := []struct {
 		tool string
 		args map[string]any

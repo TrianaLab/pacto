@@ -307,12 +307,20 @@ func TestFleetExplainHandler_NotFound(t *testing.T) {
 
 // --- server registration ---------------------------------------------------
 
+// staticFleet is a source that always answers q; a nil q is no source.
+func staticFleet(q *fleet.Query) FleetQuerySource {
+	if q == nil {
+		return nil
+	}
+	return func(context.Context) (*fleet.Query, error) { return q, nil }
+}
+
 // connectFleetServer wires an in-memory client to a fleet server and returns the
 // session for tool/instruction inspection.
 func connectFleetServer(t *testing.T, q *fleet.Query, provideImpact impactProvider) *mcpsdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewFleetServer("test", q, provideImpact, nil, nil)
+	server := NewFleetServer("test", staticFleet(q), nil, FleetOptions{Impact: provideImpact})
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
 	t1, t2 := mcpsdk.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, t1, nil); err != nil {

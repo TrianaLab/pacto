@@ -104,8 +104,7 @@ func TestService_Impact_FleetError(t *testing.T) {
 	writeImpactService(t, oldDir, "orders", "1.0.0")
 	writeImpactService(t, newDir, "orders", "2.0.0")
 
-	// A cancelled context is fatal in fleet.Build, so snapshot assembly fails
-	// after both revisions resolve.
+	// A cancelled context is fatal in fleet.Build, so snapshot assembly fails.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	svc := NewService(nil, nil)
@@ -302,5 +301,38 @@ func TestService_ImpactWithSnapshot_ResolveError(t *testing.T) {
 	}
 	if _, err := NewService(nil, nil).ImpactWithSnapshot(context.Background(), ImpactOptions{OldPath: "/nonexistent/old", NewPath: newDir}, snap); err == nil {
 		t.Error("expected error for a nonexistent old path")
+	}
+}
+
+// TestService_ImpactOnSnapshot: on a snapshot without the changed service,
+// addMissing adds the new revision; without it the answer stays bound to the
+// given snapshot and says SERVICE_NOT_IN_FLEET.
+func TestService_ImpactOnSnapshot(t *testing.T) {
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeImpactService(t, oldDir, "orders", "1.0.0")
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	svc := NewService(nil, nil)
+	snap, err := svc.Fleet(context.Background(), FleetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := ImpactOptions{OldPath: oldDir, NewPath: newDir}
+	added, err := svc.ImpactOnSnapshot(context.Background(), opts, snap, true)
+	if err != nil || !added.NewRevisionAdded {
+		t.Fatalf("addMissing: added=%v err=%v", added != nil && added.NewRevisionAdded, err)
+	}
+	bound, err := svc.ImpactOnSnapshot(context.Background(), opts, snap, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound.NewRevisionAdded || bound.SnapshotID != snap.SnapshotID {
+		t.Errorf("without addMissing: added=%v snapshot %q, want %q", bound.NewRevisionAdded, bound.SnapshotID, snap.SnapshotID)
+	}
+	missing := false
+	for _, l := range bound.Limitations {
+		missing = missing || l.Code == "SERVICE_NOT_IN_FLEET"
+	}
+	if !missing {
+		t.Errorf("limitations %+v lack SERVICE_NOT_IN_FLEET", bound.Limitations)
 	}
 }

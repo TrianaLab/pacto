@@ -10,9 +10,9 @@ import (
 )
 
 // impactProvider resolves the old and new contract revisions and analyzes the
-// change's blast radius over snap, or over a fresh fleet snapshot when snap is
-// nil. It is supplied by the command layer (from app.Service.Impact) so this
-// package depends only on the pure result type — never on OCI, Kubernetes or
+// change's blast radius over snap, the snapshot the fleet tools answer from.
+// It is supplied by the command layer (from app.Service) so this package
+// depends only on the pure result type — never on OCI, Kubernetes or
 // the app service.
 type impactProvider func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error)
 
@@ -44,8 +44,8 @@ type impactArgs struct {
 	Traces          string `json:"traces"`
 }
 
-// impactHandler analyses over snap: the caller's view of the fleet, or nil for
-// a fresh snapshot.
+// impactHandler analyses over snap: the current snapshot, or the caller's view
+// of it.
 func impactHandler(provide impactProvider, snap *fleet.FleetSnapshot) mcpsdk.ToolHandlerFor[impactArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, a impactArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := provide(ctx, snap, a.OldRef, a.NewRef, a.IncludeObserved, a.Traces)

@@ -13,7 +13,8 @@ import (
 // TestFleetStaysRouteNeutral enforces ADR-2: pkg/fleet owns canonical identities
 // and route-neutral entity references, but NEVER dashboard routes or hrefs. Route
 // emission is a transport concern; MCP and other non-dashboard consumers use the
-// same fleet facts and must never receive dashboard URLs. If a dashboard route
+// same fleet facts, and MCP receives dashboard URLs only when the operator passes
+// `pacto mcp --dashboard-url` (built by pkg/dashboard/productview). If a dashboard route
 // concept returns to pkg/fleet, this test fails and forces it back to the
 // transport boundary.
 //

@@ -47,7 +47,7 @@ func TestFleetEntitiesTool(t *testing.T) {
 	q := buildProductQuery(t)
 	list := func(args map[string]any) fleet.EntityList {
 		var out fleet.EntityList
-		decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q), args), &out)
+		decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), args), &out)
 		return out
 	}
 	if got := entityKeys(list(map[string]any{"kind": "owner"})); !slices.Equal(got, []string{"owner/team:billing", "owner/team:commerce"}) {
@@ -75,14 +75,14 @@ func TestFleetEntitiesTool(t *testing.T) {
 func TestFleetEntitiesToolPagingAndErrors(t *testing.T) {
 	q := buildProductQuery(t)
 	var page fleet.EntityList
-	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q), map[string]any{"kind": "service", "limit": 1, "offset": 1, "sort": "name"}), &page)
+	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "service", "limit": 1, "offset": 1, "sort": "name"}), &page)
 	if page.Total != 3 || !page.Truncated || entityKeys(page)[0] != "service/orders" {
 		t.Errorf("paged = %+v", page)
 	}
-	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q), map[string]any{"kind": "revision"}); !res.IsError {
+	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"kind": "revision"}); !res.IsError {
 		t.Error("kind=revision is outside the enum")
 	}
-	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q), map[string]any{"offset": -1}); !res.IsError {
+	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"offset": -1}); !res.IsError {
 		t.Error("a negative offset is an invalid query")
 	}
 }
@@ -91,7 +91,7 @@ func TestFleetEntityTool(t *testing.T) {
 	q := buildProductQuery(t)
 	detail := func(kind, key string) fleet.EntityDetail {
 		var out fleet.EntityDetail
-		decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q), map[string]any{"kind": kind, "key": key}), &out)
+		decode(t, callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": kind, "key": key}), &out)
 		return out
 	}
 	if d := detail("domain", "shop"); d.Domain == nil || d.Entity.Kind != fleet.KindDomain {
@@ -100,13 +100,13 @@ func TestFleetEntityTool(t *testing.T) {
 	if d := detail("offering", "payments-api"); d.Offering == nil {
 		t.Errorf("offering detail = %+v", d)
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q), map[string]any{"kind": "planet", "key": "x"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "planet", "key": "x"}); !res.IsError {
 		t.Error("an unknown kind is rejected by the schema")
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q), map[string]any{"kind": "service"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "service"}); !res.IsError {
 		t.Error("a missing key is an error result")
 	}
-	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q), map[string]any{"kind": "service", "key": "ghost"}); !res.IsError {
+	if res := callHandler(t, fleetEntityTool(), fleetEntityHandler(q, false), map[string]any{"kind": "service", "key": "ghost"}); !res.IsError {
 		t.Error("an unknown key is an error result")
 	}
 }
@@ -114,19 +114,19 @@ func TestFleetEntityTool(t *testing.T) {
 func TestFleetAttentionTool(t *testing.T) {
 	q := buildProductQuery(t)
 	var out fleet.AttentionList
-	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q), map[string]any{"category": "unowned"}), &out)
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"category": "unowned"}), &out)
 	if out.Total != 1 || out.Items[0].Code != "UNOWNED_SERVICE" || out.Items[0].NextStep == "" {
 		t.Errorf("category=unowned = %+v", out)
 	}
 	var page fleet.AttentionList
-	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q), map[string]any{"limit": 1}), &page)
+	decode(t, callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"limit": 1}), &page)
 	if page.Total < 2 || !page.Truncated || page.NextOffset == nil || *page.NextOffset != 1 || page.Count != 1 {
 		t.Errorf("limit=1 = %+v", page)
 	}
-	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q), map[string]any{"category": "bogus"}); !res.IsError {
+	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"category": "bogus"}); !res.IsError {
 		t.Error("an unknown category is rejected by the schema")
 	}
-	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q), map[string]any{"offset": -1}); !res.IsError {
+	if res := callHandler(t, fleetAttentionTool(), fleetAttentionHandler(q, false), map[string]any{"offset": -1}); !res.IsError {
 		t.Error("a negative offset is an invalid query")
 	}
 }

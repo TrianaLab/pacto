@@ -3,14 +3,17 @@ package cli
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/rest"
 
@@ -59,12 +62,12 @@ func TestMCPImpactProvider(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
-	provide := mcpImpactProvider(cmd, svc)
-	if _, err := provide(context.Background(), nil, "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
+	provide := mcpImpactProvider(cmd, svc, true)
+	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")
 	}
 	// A nonexistent traces path is a read error before any resolution.
-	if _, err := provide(context.Background(), nil, "/old", "/new", false, "/nonexistent/traces.json"); err == nil {
+	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, "/old", "/new", false, "/nonexistent/traces.json"); err == nil {
 		t.Fatal("expected a traces read error")
 	}
 	// A readable traces file is consumed (implying include-observed), then the
@@ -73,13 +76,8 @@ func TestMCPImpactProvider(t *testing.T) {
 	if err := os.WriteFile(tf, []byte(`{"resourceSpans":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provide(context.Background(), nil, "/nonexistent/old", "/nonexistent/new", false, tf); err == nil {
+	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, "/nonexistent/old", "/nonexistent/new", false, tf); err == nil {
 		t.Fatal("expected a resolution error after reading traces")
-	}
-	// Handed a snapshot (the caller's view), it analyses over it: the
-	// nonexistent revisions still fail first.
-	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, "/nonexistent/old", "/nonexistent/new", false, ""); err == nil {
-		t.Fatal("expected a resolution error over a handed snapshot")
 	}
 }
 
@@ -750,5 +748,103 @@ func TestManagerPublishedNeverBuilds(t *testing.T) {
 			t.Fatal("the finished build was never served")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestMCPFleetSourceRefreshesAfterInterval: calls inside the refresh interval
+// share one snapshot; a call after it rebuilds; a failed rebuild keeps the last
+// good snapshot and is not retried until the interval passes again; a
+// cancelled request never reaches the build, which runs on the lifetime
+// context; a failed first build fails startup.
+func TestMCPFleetSourceRefreshesAfterInterval(t *testing.T) {
+	life := context.Background()
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := func() time.Time { return clock }
+	builds, fail := 0, false
+	build := func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+		if ctx.Err() != nil {
+			t.Error("the build must run on the lifetime context, not the request's")
+		}
+		builds++
+		if fail {
+			return nil, errors.New("source down")
+		}
+		return &fleet.FleetSnapshot{SnapshotID: "s" + strconv.Itoa(builds)}, nil
+	}
+	src, err := mcpFleetSource(life, build, 30*time.Second, now)
+	if err != nil || builds != 1 {
+		t.Fatalf("startup: builds=%d err=%v", builds, err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	call := func(at time.Duration, wantID string, wantBuilds int) {
+		t.Helper()
+		clock = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(at)
+		q, err := src(cancelled)
+		if err != nil || q.SnapshotID() != wantID || builds != wantBuilds {
+			t.Errorf("+%s: snapshot %v builds %d err %v, want %s and %d builds", at, q, builds, err, wantID, wantBuilds)
+		}
+	}
+	call(0, "s1", 1)
+	call(29*time.Second, "s1", 1)
+	call(30*time.Second, "s2", 2)
+	fail = true
+	call(60*time.Second, "s2", 3) // failed: last good stays
+	call(61*time.Second, "s2", 3) // not retried inside the interval
+	fail = false
+	call(90*time.Second, "s4", 4)
+
+	if _, err := mcpFleetSource(life, func(context.Context) (*fleet.FleetSnapshot, error) {
+		return nil, errors.New("broken source")
+	}, time.Second, now); err == nil {
+		t.Error("a failed first build must fail startup")
+	}
+}
+
+// TestMCPDashboardURL: --dashboard-url reaches the fleet server, and without
+// --fleet it is an error naming both flags.
+func TestMCPDashboardURL(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v", defaultDeps())
+	cmd.SetContext(context.Background())
+	local := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(local, "orders"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(local, "orders", "pacto.yaml"), []byte("pactoVersion: \"2.0\"\nservice:\n  name: orders\n  version: \"1.0.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range map[string]string{"fleet": "true", "local": local, "dashboard-url": "https://dash.example/"} {
+		if err := cmd.Flags().Set(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, st := mcpsdk.NewInMemoryTransports()
+	if _, err := server.Connect(context.Background(), st, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "pacto_fleet_search", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := res.Content[0].(*mcpsdk.TextContent).Text; !strings.Contains(text, "https://dash.example/#/fleet/services/") {
+		t.Errorf("search answer carries no dashboard href:\n%s", text)
+	}
+
+	root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
+	root.SetArgs([]string{"mcp", "--dashboard-url", "https://dash.example/"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "--dashboard-url") || !strings.Contains(err.Error(), "--fleet") {
+		t.Errorf("--dashboard-url without --fleet: %v", err)
 	}
 }

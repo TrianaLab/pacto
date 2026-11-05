@@ -1288,7 +1288,7 @@ When a bundle reference (local directory or oci:// ref) is given, the server als
 
 With --root, the server exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so the session keeps its startup view even when a registry tag moves. Roots that fail to resolve stay visible as partial knowledge. The catalog grants no authorization and executes nothing.
 
-With --fleet, the server exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
+With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last build. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
 
 With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
@@ -1331,6 +1331,7 @@ pacto mcp [bundle-ref] [flags]
       --auth-issuer string            OpenID issuer whose bearer tokens every HTTP request must carry
       --base-url string               base URL for live invocation (overrides the OpenAPI servers[] URL)
       --cache                         include every bundle in the local OCI cache as an offline baseline revision
+      --dashboard-url string          with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there
       --delivery                      expose the Pacto delivery tools over the ambient cluster
       --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string         in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
@@ -1401,6 +1402,8 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
+
+With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last build, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make fleet answers carry an `href` to each entity's page on that Pacto dashboard.
 
 See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.
 
