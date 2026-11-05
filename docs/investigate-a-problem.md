@@ -25,8 +25,8 @@ pacto mcp --delivery
 ```
 
 The servers stay separate because each has its own authorization model. Fleet
-answers can be restricted to what a caller may read, delivery reads run as the
-caller against the cluster, and Mira has no authentication. Pacto reads only
+answers can be restricted to what a caller may read. Delivery reads run as the
+caller against the cluster. Mira has no authentication. Pacto reads only
 Mira's service map, and only from the URL the operator passes with
 `--mira-source`; no tool argument can point it anywhere else.
 
@@ -42,7 +42,7 @@ Mira.
 | Which signals indicate degradation? | Mira `query_metric`, `list_alerts`, `get_trace` | Series and exemplar trace ids |
 | Which deployments or changes happened around then? | `pacto_delivery_history` with `service`, `since` and `until`; `pacto_delivery_explain` for verdict citations; `pacto_impact` with `include_observed=true` on a suspected change | Record ids, `applied`, `cause`, `completeness` and affected consumers |
 | Which dependencies are involved? | `pacto_fleet_graph`, `pacto_fleet_neighborhood` with `views=differences`; Mira `service_map` | Edge `provenance`, `reconciliation` and `observedSources` |
-| Which other services are affected? | `pacto_fleet_neighborhood` with `direction=dependents` and `depth=2` (views default to `expected,observed`); `pacto_fleet_graph` with `direction=dependents` and `transitive=true`; `pacto_fleet_get` for `uncontractedCallers`, the callers with no contract that the neighborhood does not list | Nodes, `uncontractedCallers` and `hiddenDependents`. A restricted viewer sees only a count of hidden services and callers. |
+| Which other services are affected? | `pacto_fleet_neighborhood` with `direction=dependents` and `depth=2` (views default to `expected,observed`); `pacto_fleet_graph` with `direction=dependents` and `transitive=true`; `pacto_fleet_attention` with `category=undeclared` and `service`, for the callers with no contract that the neighborhood does not list | Nodes, attention items and `hiddenDependents`. A restricted viewer sees only a count of hidden services and callers. |
 | Which teams own the affected components? | `pacto_fleet_neighborhood` owners, `pacto_fleet_entity` with `kind=owner` | Owner keys |
 | What is the likely cause? | The agent or person concludes; Mira `render_rca` writes it up with citations | Every citation above |
 | What evidence supports the conclusion? | Every answer above | `meta.asOf`, `snapshotId`, `sources`, `limitations`, delivery record ids and Mira queries with absolute times |
@@ -68,7 +68,8 @@ Unknown is never healthy. Treat these as limits on what an answer proves:
   see counts every namespace's traffic under those service names, including
   namespaces you may not read.
 - A restricted Pacto view hides every caller that has no namespace, whichever
-  source saw it, and counts it in `hiddenDependents`.
+  source saw it, and every caller in a namespace the viewer may not read. It
+  counts each one in `hiddenDependents`.
 - The dashboard shows "Open in Mira" only to viewers with nothing hidden,
   because Mira has no authentication. In Open mode the dashboard serves the
   whole fleet to everyone.

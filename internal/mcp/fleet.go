@@ -521,7 +521,8 @@ func fleetNeighborhoodTool() *mcpsdk.Tool {
 		Description: "Show the services around one service: who it depends on and who depends on it, to the " +
 			"requested depth, each with its owner and status. Edges say whether they are declared, observed or " +
 			"both; views defaults to expected,observed. hiddenDependents counts the services, or callers with no " +
-			"contract, that your permissions hide; callers with no contract are listed by pacto_fleet_get. Use it " +
+			"contract, that your permissions hide; pacto_fleet_attention with category=undeclared and service lists " +
+			"the callers with no contract. Use it " +
 			"to find the affected services and the teams that own them. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service":   {Type: "string", Description: "Service name, or its key when the name is used in more than one domain"},
