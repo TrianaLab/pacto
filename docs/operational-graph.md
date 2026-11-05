@@ -145,9 +145,11 @@ flowchart LR
   gathers one service's owner, contract, dependencies, targets, delivery and
   signatures.
 - **CLI (`pacto fleet …`)**: the five queries on the command line, plus
-  `reconcile` and `snapshot`. Scriptable, deterministic output.
+  `entities`, `entity` and `attention` for owners, domains, offerings and
+  what needs attention, and `reconcile` and `snapshot`. Scriptable, deterministic output.
 - **MCP fleet tools**: `pacto_fleet_search`, `pacto_fleet_get`,
-  `pacto_fleet_graph`, `pacto_fleet_status` and `pacto_fleet_explain`, plus
+  `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`,
+  `pacto_fleet_entities`, `pacto_fleet_entity` and `pacto_fleet_attention`, plus
   [`pacto_impact`](impact.md), give an agent read-only understanding of the
   operational system. See [MCP integration](mcp-reference.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.

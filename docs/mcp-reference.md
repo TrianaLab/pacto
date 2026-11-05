@@ -9,7 +9,7 @@ walkthrough, start with [Drive Pacto from an agent](mcp-integration.md).
 |--------|-------|--------------|-----------------|
 | **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files only. `pacto_edit` writes only after validation. |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call has a 30-second timeout and follows no redirect, so a 3xx comes back to the agent as the result. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, relationships and what needs attention. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
 
 Outside these families: `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools are listed [below](#publish-and-delivery-servers).
 
@@ -37,11 +37,11 @@ invocation registers.
 
 ### Fleet query safety
 
-- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. The `pacto_fleet_*` tools answer from the snapshot built at startup. `pacto_impact` re-resolves both refs and rebuilds the snapshot on every call, so each invocation reaches your registry, and your cluster if `--k8s` is on, with the server's credentials.
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. `pacto_impact` also resolves both refs on every call, so each invocation reaches your registry with the server's credentials.
 - **They expose knowledge only.** They never grant, scope or revoke a permission.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **Under partial coverage, a missing result means unknown.** If a source was unavailable, "not found" means "not known here".
-- **The snapshot is frozen for the session.** A service deployed after the server started appears in `pacto_fleet_*` answers only after you restart the server.
+- **The snapshot refreshes on demand.** A call 30 seconds or more after the last build rebuilds it first, reaching your sources again. Calls inside that interval share one `snapshotId`, and a failed rebuild keeps the last good snapshot until the next interval.
 - **The server keeps no state.** The [Kubernetes operator](integrations/kubernetes/overview.md) acts on contracts in a cluster, and durable evidence lives in an [Evidence Server](evidence.md). The MCP server's state ends with its process.
 
 `--fleet` names its sources the same way `pacto fleet` does:
@@ -51,6 +51,11 @@ pacto mcp --fleet --k8s --oci ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
 See [`pacto mcp` reference](cli-reference.md#pacto-mcp) for source flags and [The Pacto Operational Graph](operational-graph.md) for the read model.
+
+### Link answers to the dashboard
+
+With `--dashboard-url <url>`, each entity in a fleet answer carries an `href` to
+its page on that dashboard.
 
 ## The authoring tools
 
@@ -119,7 +124,7 @@ Each operation becomes an MCP tool named by its `operationId` (or derived as `<m
 
 **`pacto_skill`.** Bundles may ship domain knowledge as `skills/*.md`. The `pacto_skill` tool lists them and returns their content.
 
-**What a session freezes.** Bundle mode, `--fleet` and `--root` resolve their inputs once at startup. To pick up changes, restart the server. Two exceptions: `pacto_skill` reads from disk on every call, and the authoring tools act on whatever is on disk.
+**What a session freezes.** Bundle mode and `--root` resolve their inputs once at startup. To pick up changes, restart the server. Two exceptions: `pacto_skill` reads from disk on every call, and the authoring tools act on whatever is on disk.
 
 ## Catalog mode
 
@@ -132,7 +137,7 @@ pacto mcp \
   --root ./experimental-platform
 ```
 
-`--root` is repeatable and takes either a local bundle directory or an `oci://` reference. Pacto discovers only what you name, plus its dependency closure. It never crawls a registry, guesses repository names or reads a catalog file.
+`--root` is repeatable and takes either a local bundle directory or an `oci://` reference. It never crawls a registry, guesses repository names or reads a catalog file.
 
 The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource answers: schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root, including roots that did not resolve and why. The closure resource answers: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and every conflict and cycle, reported as found.
 

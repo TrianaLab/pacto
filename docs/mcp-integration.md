@@ -94,6 +94,8 @@ it in your project; for Claude Desktop, have the agent pass full paths.
 `--local ./contracts` for folders, `--oci <ref>` for published contracts and
 `--k8s` for your kubeconfig's cluster. See
 [`pacto mcp`](cli-reference.md#pacto-mcp).
+[Ask questions about your organization](ask-your-organization.md) lists the
+questions an agent can answer with it.
 
 **Credentials.** `--publish`, `--root` and `--fleet` use the registry logins
 of `pacto login`. A bundle's API calls use `--auth name=value` for the
@@ -128,9 +130,11 @@ change.
 - **Partial answers say so.** Fleet answers carry `asOf`, the time
   they describe, and `completeness`, `complete` or `partial`. When a source was unreachable the answer says `partial`,
   and "not found" then means "not known".
-- **Answers are frozen at start.** `--root`, `--fleet` and a bundle (the
+- **Most answers are frozen at start.** `--root` and a bundle (the
   `./my-service` argument) are read
   once when the server starts. Restart it to see newer services or versions.
+  `--fleet` rebuilds its snapshot when a call arrives 30 seconds or more
+  after the last build.
 - **Over the network, callers must sign in.** By default the server talks
   over standard input and output. With `-t http` it serves HTTP on this
   machine only. Serving other machines needs `--auth-issuer` and `--resource`,
@@ -145,7 +149,7 @@ change.
 |---|---|---|
 | `pacto_create`, `pacto_edit` | every mode but `--root` | Write contract files. `pacto_create` with `pactify: true` does what `pacto init` does for a folder or a cluster (see [Pactify a service](pactify.md)) |
 | `pacto_check`, `pacto_schema` | every mode but `--root` | Read |
-| `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_impact` | `--fleet` | Read |
+| `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_impact` | `--fleet` | Read |
 | `pacto_catalog_revision`, plus two MCP resources (documents the agent reads): `pacto://catalog` and `pacto://catalog/closure`, the contracts you named plus everything they depend on | `--root` | Read |
 | One tool per API operation, named by its `operationId` (or `<method>_<path>`) | a bundle | Calls your service: read-only, or its write operations too with `--allow-writes` |
 | `pacto_skill` | a bundle | Read: returns the notes a bundle ships for agents in `skills/*.md` |
