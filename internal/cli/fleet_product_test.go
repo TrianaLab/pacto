@@ -45,6 +45,9 @@ func TestFleetEntities(t *testing.T) {
 	if _, _, err := execFleet(t, append(append([]string{}, base...), "--sort", "bogus")...); err == nil {
 		t.Error("an invalid --sort is an error")
 	}
+	if _, _, err := execFleet(t, append(append([]string{}, base...), "--kind", "revision")...); err == nil {
+		t.Error("--kind takes the four kinds pacto_fleet_entities takes")
+	}
 }
 
 func TestFleetEntity(t *testing.T) {
@@ -100,8 +103,10 @@ func TestFleetAttention(t *testing.T) {
 	if err != nil || !strings.Contains(jout, `"nextOffset": 1`) || !strings.Contains(jout, `"categories"`) {
 		t.Errorf("attention json = %v:\n%s", err, jout)
 	}
-	if _, _, err := execFleet(t, append(append([]string{}, base...), "--offset", "-1")...); err == nil {
-		t.Error("a negative --offset is an error")
+	for _, f := range [][]string{{"--offset", "-1"}, {"--category", "undeclard"}, {"--severity", "critical"}} {
+		if _, _, err := execFleet(t, append(append([]string{}, base...), f...)...); err == nil {
+			t.Errorf("attention %v is an error", f)
+		}
 	}
 }
 

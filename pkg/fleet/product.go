@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"cmp"
+	"errors"
 	"slices"
 	"sort"
 	"strings"
@@ -46,6 +47,21 @@ const (
 	// KindOffering is a platform offering (service.offering), keyed by its slug.
 	KindOffering EntityKind = "offering"
 )
+
+// ProductKinds are the kinds the entities listing answers by default:
+// services, owners, business domains and platform offerings. Revisions, targets
+// and sources are reached through an entity's detail.
+func ProductKinds() []string {
+	return []string{string(KindService), string(KindOwner), string(KindDomain), string(KindOffering)}
+}
+
+// EntityKinds are every entity kind, in the order an entity detail lists them.
+func EntityKinds() []string {
+	return []string{
+		string(KindService), string(KindRevision), string(KindTarget), string(KindOwner),
+		string(KindSource), string(KindDomain), string(KindOffering),
+	}
+}
 
 // validEntityKind reports whether k is a known entity kind.
 func validEntityKind(k EntityKind) bool {
@@ -800,8 +816,13 @@ func validateAttentionFilter(f AttentionFilter) error {
 	return validateFields([]fieldCheck{
 		{"kind", f.Kind, "not a known entity kind", func(k string) bool { return validEntityKind(EntityKind(k)) }},
 		{"status", f.Status, "not a canonical status", ValidStatus},
+		{"category", f.Category, "not an attention category", func(c string) bool { return slices.Contains(attentionCategoryOrder, c) }},
+		{"severity", f.Severity, "not error, warning or info", func(s string) bool { return slices.Contains(attentionSeverityLevels, s) }},
 	})
 }
+
+// attentionSeverityLevels are the severities an attention item carries.
+var attentionSeverityLevels = []string{"error", "warning", "info"}
 
 // Attention reports attention items across every category, filtered, sorted and
 // offset-paged. Items are computed directly from the snapshot (not via the
@@ -812,6 +833,16 @@ func validateAttentionFilter(f AttentionFilter) error {
 func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
 	if err := validateAttentionFilter(f); err != nil {
 		return nil, err
+	}
+	// A bare service name resolves to its key the way the graph resolves it; a
+	// name several domains share is an error, never a silent empty answer.
+	if f.Service != "" {
+		var amb *AmbiguousError
+		if svc, err := q.resolveService(f.Service); err == nil {
+			f.Service = string(svc.Key)
+		} else if errors.As(err, &amb) {
+			return nil, err
+		}
 	}
 	items := q.collectAttention()
 	filtered := items[:0:0]

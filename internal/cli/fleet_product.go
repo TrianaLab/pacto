@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -9,10 +11,6 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
-
-// productKinds are the kinds `fleet entities` lists with no --kind, the same
-// four pacto_fleet_entities lists.
-var productKinds = []string{string(fleet.KindService), string(fleet.KindOwner), string(fleet.KindDomain), string(fleet.KindOffering)}
 
 func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
@@ -23,6 +21,9 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if k, _ := cmd.Flags().GetString("kind"); k != "" && !slices.Contains(fleet.ProductKinds(), k) {
+				return fmt.Errorf("--kind %q: want one of %s", k, strings.Join(fleet.ProductKinds(), ", "))
+			}
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
 				return err
@@ -45,7 +46,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("sort", "", "order: name, health (least healthy first) or services (owners with the most services first)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
 	f.Int("offset", 0, "result offset for paging")
-	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(productKinds...))
+	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.ProductKinds()...))
 	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
 	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices))
@@ -56,7 +57,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	get := func(name string) string { s, _ := cmd.Flags().GetString(name); return s }
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
-	kinds := productKinds
+	kinds := fleet.ProductKinds()
 	if k := get("kind"); k != "" {
 		kinds = []string{k}
 	}
@@ -80,10 +81,7 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		// expensive to build at the prompt.
 		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 			if len(args) == 0 {
-				return []string{
-					string(fleet.KindService), string(fleet.KindRevision), string(fleet.KindTarget), string(fleet.KindOwner),
-					string(fleet.KindSource), string(fleet.KindDomain), string(fleet.KindOffering),
-				}, cobra.ShellCompDirectiveNoFileComp
+				return fleet.EntityKinds(), cobra.ShellCompDirectiveNoFileComp
 			}
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
@@ -126,7 +124,7 @@ func newFleetAttentionCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("owner", "", "free-text owner search over team, DRI and contacts")
 	f.String("owner-key", "", "exact owner key, such as team:platform or dri:alice")
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
-	f.String("service", "", "items of this service")
+	f.String("service", "", "items of this service: its key, or a name only one domain uses")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultAttentionLimit, fleet.MaxAttentionLimit))
 	f.Int("offset", 0, "result offset for paging")
 	_ = cmd.RegisterFlagCompletionFunc("category", staticCompletions(fleet.AttentionCategoriesList()...))

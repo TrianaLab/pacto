@@ -262,7 +262,7 @@ func fleetGraphTool() *mcpsdk.Tool {
 			"declared, observed or declared+observed), cycles, unresolved dependencies and 'truncated'. " +
 			"Each edge carries 'provenance' and, for a declared edge, 'reconciliation'. " +
 			"A declared edge appears once per contract revision that declares it ('fromRevision'). " +
-			"Rooted at a revision or target, a dependencies traversal follows that revision's declared edges only. Read-only.",
+			"Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service":    {Type: "string", Description: "Root logical service name (aggregates across its revisions)"},
 			"revision":   {Type: "string", Description: "Root a specific contract revision key (exact, not latest)"},
@@ -383,10 +383,6 @@ func fleetExplainHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetExplainArgs,
 	}
 }
 
-// productKinds are the entity kinds pacto_fleet_entities lists; revisions,
-// targets and sources are reached through pacto_fleet_get and pacto_fleet_entity.
-var productKinds = []string{string(fleet.KindService), string(fleet.KindOwner), string(fleet.KindDomain), string(fleet.KindOffering)}
-
 func fleetEntitiesTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_entities",
@@ -396,7 +392,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"no declared owner and sort=health for the least healthy first. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"text":            {Type: "string", Description: "Substring over name, key and owner"},
-			"kind":            {Type: "string", Description: "Entity kind (empty lists all four)", Enum: productKinds},
+			"kind":            {Type: "string", Description: "Entity kind (empty lists all four)", Enum: fleet.ProductKinds()},
 			"owner":           {Type: "string", Description: "Free-text owner search over team, DRI and contacts"},
 			"owner_key":       {Type: "string", Description: "Exact owner key, such as team:platform or dri:alice"},
 			"business_domain": {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
@@ -426,7 +422,7 @@ type fleetEntitiesArgs struct {
 
 func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntitiesArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntitiesArgs) (*mcpsdk.CallToolResult, any, error) {
-		kinds := productKinds
+		kinds := fleet.ProductKinds()
 		if a.Kind != "" {
 			kinds = []string{a.Kind}
 		}
@@ -448,10 +444,7 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"or platform offering. A domain or owner answer summarizes its services; an offering answer lists " +
 			"providers and consumers. Read-only.",
 		InputSchema: inputSchema(map[string]property{
-			"kind": {Type: "string", Description: "Entity kind", Enum: []string{
-				string(fleet.KindService), string(fleet.KindRevision), string(fleet.KindTarget), string(fleet.KindOwner),
-				string(fleet.KindSource), string(fleet.KindDomain), string(fleet.KindOffering),
-			}},
+			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key": {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},
 		}, []string{"kind", "key"}),
 	}
@@ -481,7 +474,7 @@ func fleetAttentionTool() *mcpsdk.Tool {
 			"owner":           {Type: "string", Description: "Free-text owner search over team, DRI and contacts"},
 			"owner_key":       {Type: "string", Description: "Exact owner key, such as team:platform or dri:alice"},
 			"business_domain": {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
-			"service":         {Type: "string", Description: "Items of this service"},
+			"service":         {Type: "string", Description: "Items of this service: its key, or a name only one domain uses"},
 			"limit":           {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":          {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),

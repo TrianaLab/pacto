@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -206,6 +207,33 @@ func TestObservedOnlyCountsUnchanged(t *testing.T) {
 		rv.tallyServiceEdges(&s, k)
 		if got := len(rv.observedOnly(k)); got != 0 || s.ObservedNotDeclared != 0 {
 			t.Errorf("restricted %s: observedOnly=%d observedNotDeclared=%d", k, got, s.ObservedNotDeclared)
+		}
+	}
+}
+
+// TestAttentionServiceFilterResolvesNames: a bare name resolves to its service
+// key, and a name two domains share is an error, never an empty answer.
+func TestAttentionServiceFilterResolvesNames(t *testing.T) {
+	c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "orders", Version: "1.0.0"}}
+	src := NewMemorySource("k8s", "kubernetes", &Collection{
+		Revisions: []RawRevision{{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Domain: "eu", Digest: "sha256:o"}},
+		Targets:   []RawTarget{{Scope: "shop", Kind: SourceKindKubernetes, Name: "orders", Service: "orders", Domain: "eu", Compliance: StatusNonCompliant}},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if al := attentionOf(t, NewQuery(snap), AttentionFilter{Service: "orders"}); al.Total == 0 {
+		t.Error("service=orders matches nothing in domain eu")
+	}
+	q := undeclaredFleet(t)
+	var amb *AmbiguousError
+	if _, err := q.Attention(AttentionFilter{Service: "pay"}); !errors.As(err, &amb) {
+		t.Errorf("service=pay err = %v, want AmbiguousError", err)
+	}
+	for _, f := range []AttentionFilter{{Category: "undeclard"}, {Severity: "critical"}} {
+		if _, err := q.Attention(f); err == nil {
+			t.Errorf("%+v is not an error", f)
 		}
 	}
 }
