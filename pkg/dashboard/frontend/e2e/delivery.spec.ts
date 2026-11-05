@@ -400,7 +400,9 @@ test.describe('Delivery views', () => {
     const box = await title.boundingBox();
     const lineHeight = await title.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 0);
     expect(box && lineHeight && box.height < lineHeight * 1.5).toBeTruthy();
-    await audit(page, 'service page with Mira');
+    // Only the section the link lives in: the rest of the page has suites of its own.
+    const r = await new AxeBuilder({ page }).include('[data-testid="service-relationships"]').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+    expect(r.violations).toEqual([]);
   });
 
   test('history says when it comes from signed records and when it is only partial', async ({ page }) => {
