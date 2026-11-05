@@ -231,3 +231,110 @@ func TestRestrictUnscoped(t *testing.T) {
 		t.Errorf("search finds the hidden reg: %+v", res)
 	}
 }
+
+func TestRestrictHidesUndeclaredOfHiddenServices(t *testing.T) {
+	rv := undeclaredFleet(t).Restrict(func(ns string) bool { return ns != "secret" })
+	al := attentionOf(t, rv, AttentionFilter{Category: categoryUndeclared})
+	if al.Total != 2 {
+		t.Errorf("restricted undeclared total = %d, want 2 (d calls b, pay calls b)", al.Total)
+	}
+	var labels []string
+	for _, it := range al.Items {
+		labels = append(labels, it.Label)
+		if strings.Contains(it.Label+it.Reason+it.NextStep+it.Entity.Key, "secret") {
+			t.Errorf("restricted item names a hidden namespace: %+v", it)
+		}
+	}
+	slices.Sort(labels)
+	if !slices.Equal(labels, []string{"d calls b", "pay calls b"}) {
+		t.Errorf("restricted undeclared labels = %v", labels)
+	}
+}
+
+// TestRestrictRebuildsTargetOwner: a Kubernetes-only service takes its owner
+// from its targets, so the owner only a hidden target reported, and the
+// conflict it caused, never show.
+func TestRestrictRebuildsTargetOwner(t *testing.T) {
+	k := SourceKindKubernetes
+	src := NewMemorySource("k8s", "kubernetes", &Collection{Targets: []RawTarget{
+		{Scope: "shop", Kind: k, Name: "x-shop", Service: "x", Compliance: StatusCompliant, Owner: contract.Owner{Team: "visible-team"}},
+		{Scope: "aaa-secret", Kind: k, Name: "x-sec", Service: "x", Compliance: StatusCompliant, Owner: contract.Owner{Team: "hidden-team"}},
+	}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rv := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" })
+	s := rv.SnapshotForSerialization()
+	if got := s.Services[NewServiceKey("x")].Owner.Team; got != "visible-team" {
+		t.Errorf("restricted owner = %q, want visible-team", got)
+	}
+	for _, l := range s.Limitations {
+		if l.Code == LimitationOwnerConflict {
+			t.Errorf("restricted snapshot keeps %v", l)
+		}
+	}
+}
+
+// TestRestrictHidesCallerNamedLikeHiddenService: an uncontracted caller whose
+// name a hidden service shares may be that service, and "matches more than one
+// service" would count it, so it goes, whether one or every match is hidden.
+func TestRestrictHidesCallerNamedLikeHiddenService(t *testing.T) {
+	for name, payNS := range map[string][2]string{"one hidden": {"shop", "secret"}, "both hidden": {"secret", "secret"}} {
+		t.Run(name, func(t *testing.T) {
+			mk := func(name, domain string) RawRevision {
+				c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}
+				return RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Domain: domain, Digest: "sha256:" + domain + name}
+			}
+			k := SourceKindKubernetes
+			src := NewMemorySource("k8s", "kubernetes", &Collection{
+				Revisions: []RawRevision{mk("b", ""), mk("pay", "eu"), mk("pay", "us")},
+				Targets: []RawTarget{
+					{Scope: "shop", Kind: k, Name: "b", Service: "b", Compliance: StatusCompliant},
+					{Scope: payNS[0], Kind: k, Name: "pay-eu", Service: "pay", Domain: "eu", Compliance: StatusCompliant},
+					{Scope: payNS[1], Kind: k, Name: "pay-us", Service: "pay", Domain: "us", Compliance: StatusCompliant},
+				},
+				Observed: []ObservedEdge{{From: "pay", To: "b", Count: 1}},
+			})
+			snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(snap.UncontractedCallers) != 1 || !snap.UncontractedCallers[0].Ambiguous {
+				t.Fatalf("fixture: want one ambiguous caller, got %+v", snap.UncontractedCallers)
+			}
+			rv := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" })
+			if al := attentionOf(t, rv, AttentionFilter{Category: categoryUndeclared}); al.Total != 0 {
+				t.Errorf("restricted undeclared = %+v, want none", al.Items)
+			}
+		})
+	}
+}
+
+// TestRestrictObservedGraph: a hidden service reached only by an observed call
+// is neither a node nor an edge of a restricted graph.
+func TestRestrictObservedGraph(t *testing.T) {
+	q, r, _, _ := restrictShop(t)
+	if res, _ := q.Graph(GraphQuery{Service: "reg", Direction: DirectionDependents, IncludeObserved: true}); len(res.Nodes) != 1 || res.Nodes[0].Key != rAPI {
+		t.Fatalf("fixture: api's observed call reaches reg unrestricted, got %+v", res.Nodes)
+	}
+	if res, _ := r.Graph(GraphQuery{Service: "reg", Direction: DirectionDependents, IncludeObserved: true}); len(res.Nodes) != 0 || len(res.Edges) != 0 {
+		t.Errorf("restricted: hidden observed caller of reg shows: %+v %+v", res.Nodes, res.Edges)
+	}
+	for _, dir := range []Direction{DirectionDependencies, DirectionDependents} {
+		res, err := r.Graph(GraphQuery{Service: "web", Direction: dir, Transitive: true, IncludeObserved: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range res.Nodes {
+			if n.Key == rAPI || slices.Contains(n.Path, rAPI) {
+				t.Errorf("%s: hidden api is a node", dir)
+			}
+		}
+		for _, e := range res.Edges {
+			if e.FromService == rAPI || e.ToService == rAPI {
+				t.Errorf("%s: edge names hidden api: %+v", dir, e)
+			}
+		}
+	}
+}

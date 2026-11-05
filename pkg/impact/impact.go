@@ -142,6 +142,10 @@ type Result struct {
 	// LimitationsTruncated reports that the snapshot and analysis produced more
 	// limitations than the answer carries.
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
+	// Sources is the health of the sources the snapshot was built from, bounded
+	// like every fleet answer's meta; SourcesTruncated reports that more exist.
+	Sources          []fleet.SourceState `json:"sources,omitempty"`
+	SourcesTruncated bool                `json:"sourcesTruncated,omitempty"`
 	// NewRevisionAdded reports that the changed service was in none of the fleet
 	// sources, so the new revision itself was added to the snapshot to find the
 	// services that depend on it. The changed service then has no targets.
@@ -298,18 +302,22 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.FS, snap *fleet.FleetSnapshot, opts Options) *Result {
 	d := diff.Compare(ctx, old, new, oldFS, newFS)
 	svc := new.Service.Name
+	q := fleet.NewQuery(snap)
+	meta := q.ProductMeta()
 
 	res := &Result{
-		SchemaVersion:  SchemaVersion,
-		SnapshotID:     snap.SnapshotID,
-		AsOf:           snap.GeneratedAt,
-		Service:        svc,
-		OldVersion:     old.Service.Version,
-		NewVersion:     new.Service.Version,
-		Classification: d.Classification.String(),
-		Completeness:   snap.Completeness,
-		Limitations:    append([]fleet.Limitation(nil), snap.Limitations...),
-		Consumers:      []AffectedConsumer{},
+		SchemaVersion:    SchemaVersion,
+		SnapshotID:       snap.SnapshotID,
+		AsOf:             snap.GeneratedAt,
+		Service:          svc,
+		OldVersion:       old.Service.Version,
+		NewVersion:       new.Service.Version,
+		Classification:   d.Classification.String(),
+		Completeness:     snap.Completeness,
+		Limitations:      append([]fleet.Limitation(nil), snap.Limitations...),
+		Consumers:        []AffectedConsumer{},
+		Sources:          meta.Sources,
+		SourcesTruncated: meta.SourcesTruncated,
 	}
 	// Breaking and potentially-breaking changes are kept SEPARATE: a
 	// POTENTIAL_BREAKING change is not a confirmed break and must not be presented
@@ -326,7 +334,6 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	}
 
 	svcKey := fleet.NewServiceKeyDomain(opts.Domain, svc)
-	q := fleet.NewQuery(snap)
 	graph, err := q.Graph(fleet.GraphQuery{Service: string(svcKey), Direction: fleet.DirectionDependents, Transitive: true})
 	if err != nil {
 		// The changed service is not in the graph, so NO consumer can be ruled in

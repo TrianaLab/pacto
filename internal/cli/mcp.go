@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -44,7 +45,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"its startup view even when a registry tag moves. Roots that fail to resolve stay visible " +
 			"as partial knowledge. The catalog grants no authorization and executes nothing.\n\n" +
 			"With --fleet, the server exposes the read-only operational-graph query tools " +
-			"over one snapshot. The shared fleet source flags (--local, --target-state, " +
+			"over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. " +
+			"With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, " +
 			"--evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose " +
 			"that snapshot and are read in --fleet mode only.\n\n" +
 			"With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the " +
@@ -83,6 +85,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			s.port, _ = cmd.Flags().GetInt("port")
 			if err := checkMCPTransport(s.transport); err != nil {
 				return err
+			}
+			if fm, _ := cmd.Flags().GetBool("fleet"); !fm && cmd.Flags().Changed("dashboard-url") {
+				return errDashboardURLNeedsFleet
 			}
 			if pub, _ := cmd.Flags().GetBool("publish"); pub && s.transport != "stdio" {
 				return errPublishOverHTTP
@@ -123,6 +128,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
+	cmd.Flags().String("dashboard-url", "", "with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there")
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
@@ -166,16 +172,72 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 		}
 		return pactomcp.NewCatalogServer(version, cat), nil
 	case fleetMode:
-		q, err := buildQuery(cmd, svc)
-		if err != nil {
-			return nil, err
-		}
-		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc), svc.ValidationReport, mcpFleetView(cmd, d)), nil
+		return buildFleetServer(cmd, svc, version, d)
 	case len(args) > 0:
 		return buildCapabilityServer(cmd, svc, version, args[0])
 	}
 	return pactomcp.NewServer(svc.ValidationReport, version), nil
 }
+
+// buildFleetServer exposes the fleet tools over a snapshot that rebuilds after
+// the dashboard's refresh interval. The first build fails startup; later ones
+// run on the command's lifetime context, never a request's, so a cancelled call
+// cannot abort the build other sessions wait on.
+func buildFleetServer(cmd *cobra.Command, svc *app.Service, version string, d deps) (*mcpsdk.Server, error) {
+	fopts := fleetOptions(cmd)
+	src, err := mcpFleetSource(cmd.Context(), func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+		return svc.Fleet(ctx, fopts)
+	}, fleetRefreshInterval, time.Now)
+	if err != nil {
+		return nil, err
+	}
+	view := mcpFleetView(cmd, d)
+	url, _ := cmd.Flags().GetString("dashboard-url")
+	return pactomcp.NewFleetServer(version, src, svc.ValidationReport, pactomcp.FleetOptions{
+		// Under a view the new revision is never added: the rebuild would read
+		// the unrestricted sources.
+		Impact: mcpImpactProvider(cmd, svc, view == nil), View: view, DashboardURL: url,
+	}), nil
+}
+
+// mcpFleetSource builds the first snapshot (its error fails startup) and
+// returns a source that rebuilds when a call arrives at least interval after
+// the last attempt, successful or not, so a broken source is retried once per
+// interval, never per call. A failed rebuild keeps the last good snapshot.
+// ponytail: lazy, not a ticker, so an idle stdio session never polls a cluster.
+func mcpFleetSource(life context.Context, build fleet.Builder, interval time.Duration, now func() time.Time) (pactomcp.FleetQuerySource, error) {
+	mgr := fleet.NewManager(build)
+	if err := mgr.Refresh(life); err != nil {
+		return nil, err
+	}
+	var mu sync.Mutex
+	last := now()
+	return func(ctx context.Context) (*fleet.Query, error) {
+		mu.Lock()
+		due := now().Sub(last) >= interval
+		if due {
+			last = now()
+		}
+		mu.Unlock()
+		if due {
+			// The build runs on life; the call waits for it only as long as its
+			// own context lives, then answers from the last good snapshot.
+			done := make(chan struct{})
+			go func() {
+				_ = mgr.Refresh(life) // a failure keeps the last good snapshot
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-ctx.Done():
+			}
+		}
+		return mgr.Query()
+	}, nil
+}
+
+// errDashboardURLNeedsFleet: only the fleet tools answer with entities to link.
+var errDashboardURLNeedsFleet = errors.New("--dashboard-url needs --fleet: only the fleet tools link answers to a dashboard")
 
 // checkMCPMode rejects an invocation that selects more than one server. The
 // modes expose disjoint surfaces, so honouring one and dropping the rest would
@@ -309,12 +371,11 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
 }
 
-// mcpImpactProvider builds the impact provider for pacto_impact from svc.Impact,
-// using the same fleet source flags as the fleet query. Extracted so the wiring
-// is directly testable. Handed no snapshot, it resolves the old/new refs and
-// builds the snapshot on each call, so the tool always analyzes against fresh
-// contract and graph state; handed the caller's view, it analyses over that.
-func mcpImpactProvider(cmd *cobra.Command, svc *app.Service) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
+// mcpImpactProvider builds the impact provider for pacto_impact. It analyses
+// over the snapshot the fleet tools answer from; with addMissing it adds the new
+// revision, rebuilt from the same fleet source flags, when no source holds the
+// changed service. Extracted so the wiring is directly testable.
+func mcpImpactProvider(cmd *cobra.Command, svc *app.Service, addMissing bool) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
 	fopts := fleetOptions(cmd)
 	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
 		var traces []byte
@@ -326,10 +387,7 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service) func(ctx context.Co
 			includeObserved = true
 		}
 		opts := app.ImpactOptions{OldPath: oldRef, NewPath: newRef, Fleet: fopts, IncludeObserved: includeObserved, Traces: traces}
-		if snap != nil {
-			return svc.ImpactWithSnapshot(ctx, opts, snap)
-		}
-		return svc.Impact(ctx, opts)
+		return svc.ImpactOnSnapshot(ctx, opts, snap, addMissing)
 	}
 }
 

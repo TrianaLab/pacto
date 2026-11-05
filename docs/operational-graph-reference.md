@@ -29,7 +29,10 @@ compliance evidence that a source carries.
   picture of the running fleet.
 - **Live Kubernetes** (`--k8s [--namespace]`): Pacto CRs read from a running
   cluster: which revision runs in which target, and its operator-computed
-  compliance, findings, coverage and observed runtime.
+  compliance, findings, coverage and observed runtime. The operator also
+  reports runtime calls no contract declares and callers with no contract,
+  which join the graph as `observed`. It reports only undeclared calls, so
+  this observation alone leaves every declared edge `insufficient`.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
@@ -111,8 +114,8 @@ I/O. A single snapshot serves concurrent queries.
 |-------|---------|
 | **search** | Which logical services match this filter (owner, label, status, compliance, capability, dependency, readiness). Bounded and deterministically ordered. |
 | **get** | Everything about one service (its owner, revisions, targets, declared dependencies, dependents, tools and skills) or one target. |
-| **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. |
-| **status** | What needs attention: non-compliant or unknown targets, invalid contracts, stale evidence, missing readiness, unresolved dependencies and dependencies outside their accepted range. With no category selected it reports every category. |
+| **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. The CLI and MCP graph also follow observed-only edges, and each node's `provenance` (`declared`, `observed` or `declared+observed`) says how the edge that first reached it was known. Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. |
+| **status** | What needs attention, in the [attention categories](#attention-categories). With no category selected it reports every category. `total` counts every match and `truncated` says the limit cut the list. |
 | **explain** | Deterministic, structured reasons for a subject's state. An agent can turn them into prose; Pacto itself embeds no model. |
 
 Two more operations sit beside the queries: `snapshot` emits the whole read model and
@@ -175,6 +178,26 @@ separate from a failing one.
 missing subject is a *failure*. `pacto fleet get ghost` exits 1
 with `service "ghost" not found in the fleet snapshot` on stderr. These answers have no `meta` and so no `completeness`. Read `completeness` from
 `search` before you treat a subject miss as an absence.
+
+### Attention categories
+
+Attention items fall into these categories, worst first:
+
+| Category | Code | Severity |
+|----------|------|----------|
+| `non-compliant` | `NON_COMPLIANT` | error |
+| `invalid` | `INVALID_CONTRACT` | error |
+| `unknown` | `UNKNOWN` | warning |
+| `stale` | `STALE_EVIDENCE` | warning |
+| `unresolved` | `UNRESOLVED_DEPENDENCY` | warning |
+| `out-of-range` | `DEPENDENCY_RANGE_UNSATISFIED` | warning |
+| `undeclared` | `DEPENDENCY_UNDECLARED`, a runtime call no contract declares | warning |
+| `undeclared` | `UNCONTRACTED_CALLER`, a caller with no contract | info |
+| `readiness` | `MISSING_READINESS` | info |
+| `unowned` | `UNOWNED_SERVICE` | info |
+
+The Overview tile "Undeclared runtime dependencies observed" opens both kinds
+of `undeclared` item.
 
 ### Resolved dependencies and accepted ranges
 

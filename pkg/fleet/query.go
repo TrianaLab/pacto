@@ -620,6 +620,10 @@ type GraphQuery struct {
 	// MaxNodes caps the answer. 0 takes MaxGraphNodes and a larger value is clamped
 	// to it, so no caller — HTTP, MCP or CLI — can ask for an unbounded traversal.
 	MaxNodes int
+	// IncludeObserved also follows observed runtime calls, so the walk reaches
+	// services no contract connects. It is opt-in: impact reads the dependents of
+	// a graph as declared consumers and must not gain observed-only callers.
+	IncludeObserved bool
 }
 
 // GraphNode is one reached node with its depth and the path taken to reach it.
@@ -630,6 +634,9 @@ type GraphNode struct {
 	Name  string       `json:"name"`
 	Depth int          `json:"depth"`
 	Path  []ServiceKey `json:"path"`
+	// Provenance is how the edge that first reached the node is known: declared,
+	// observed or declared+observed.
+	Provenance string `json:"provenance" enum:"declared,observed,declared+observed"`
 }
 
 // GraphResult is a deterministic, cycle-safe traversal answer. Aggregated is true
@@ -675,14 +682,8 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	}
 
 	res := &GraphResult{Meta: q.meta(), Root: rootSvc, Revision: scopeRev, Aggregated: aggregated, Direction: dir, Nodes: []GraphNode{}}
-	neighbors := func(key ServiceKey) []ServiceKey {
-		if dir == DirectionDependents {
-			return q.snap.reverseDeps[key]
-		}
-		if key == rootSvc && scopeRev != "" {
-			return q.snap.forwardDepsByRevision[scopeRev]
-		}
-		return q.snap.forwardDeps[key]
+	neighbors := func(key ServiceKey) []graphStep {
+		return q.graphNeighbours(key, rootSvc, scopeRev, dir, gq.IncludeObserved)
 	}
 
 	// expanded is the set of nodes whose neighbors the walk follows: the root, and
@@ -695,7 +696,8 @@ bfs:
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
-		for _, next := range neighbors(cur.Key) {
+		for _, step := range neighbors(cur.Key) {
+			next := step.Key
 			if next == rootSvc || nodeSet[next] {
 				continue // already reached at a depth no greater than this one
 			}
@@ -708,7 +710,7 @@ bfs:
 			}
 			nodeSet[next] = true
 			_, name := ParseServiceKey(next)
-			n := GraphNode{Key: next, Name: name, Depth: cur.Depth + 1, Path: append(append([]ServiceKey(nil), cur.Path...), next)}
+			n := GraphNode{Key: next, Name: name, Depth: cur.Depth + 1, Path: append(append([]ServiceKey(nil), cur.Path...), next), Provenance: step.Provenance}
 			res.Nodes = append(res.Nodes, n)
 			if gq.Transitive && (gq.MaxDepth == 0 || n.Depth < gq.MaxDepth) {
 				expanded[next] = true
@@ -717,9 +719,61 @@ bfs:
 		}
 	}
 
-	res.Cycles = graphCycles(rootSvc, neighbors, expanded)
+	res.Cycles = graphCycles(rootSvc, func(key ServiceKey) []ServiceKey {
+		steps := neighbors(key)
+		keys := make([]ServiceKey, len(steps))
+		for i, s := range steps {
+			keys[i] = s.Key
+		}
+		return keys
+	}, expanded)
 	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
 	return res, nil
+}
+
+// graphStep is one neighbour of a graph node and how the edge to it is known.
+type graphStep struct {
+	Key        ServiceKey
+	Provenance string
+}
+
+// graphNeighbours returns a node's neighbours in sorted key order. Declared
+// neighbours come from the dependency indexes; with observed set, observed
+// runtime calls are merged in. A revision- or target-rooted dependencies walk
+// keeps its root declared-only: the root's declared edges are exact to that
+// revision and runtime observation is service-level, so merging it would claim
+// the revision makes calls no one saw it make. A dependents walk is
+// service-level whatever the root, so it follows observed callers too.
+func (q *Query) graphNeighbours(key, rootSvc ServiceKey, scopeRev RevisionKey, dir Direction, observed bool) []graphStep {
+	var declared []ServiceKey
+	switch {
+	case dir == DirectionDependents:
+		declared = q.snap.reverseDeps[key]
+	case key == rootSvc && scopeRev != "":
+		declared = q.snap.forwardDepsByRevision[scopeRev]
+		observed = false
+	default:
+		declared = q.snap.forwardDeps[key]
+	}
+	prov := make(map[ServiceKey]string, len(declared))
+	for _, k := range declared {
+		prov[k] = ProvenanceDeclared
+	}
+	if observed {
+		for _, k := range q.adjacent(key, dir, false, true) {
+			if prov[k] == ProvenanceDeclared {
+				prov[k] = ProvenanceDeclaredObserved
+			} else {
+				prov[k] = ProvenanceObserved
+			}
+		}
+	}
+	steps := make([]graphStep, 0, len(prov))
+	for k, p := range prov {
+		steps = append(steps, graphStep{Key: k, Provenance: p})
+	}
+	sort.Slice(steps, func(i, j int) bool { return steps[i].Key < steps[j].Key })
+	return steps
 }
 
 // graphCycles finds cycles with a depth-first walk over the expanded set: a
@@ -851,7 +905,12 @@ type StatusQuery struct {
 	// UnsatisfiedRanges reports declared dependencies whose provider is in the
 	// fleet at a version outside the consumer's compatibility range.
 	UnsatisfiedRanges bool
-	Limit             int
+	// Unowned reports services no source knows an owner for.
+	Unowned bool
+	// Undeclared reports runtime calls no contract declares and callers with no
+	// contract.
+	Undeclared bool
+	Limit      int
 }
 
 // StatusItem is one attention-worthy finding.
@@ -864,8 +923,12 @@ type StatusItem struct {
 
 // StatusResult is a bounded, deterministically ordered list of attention items.
 type StatusResult struct {
-	Meta  Meta         `json:"meta"`
-	Items []StatusItem `json:"items"`
+	Meta Meta `json:"meta"`
+	// Total is how many items matched before the limit cut the list; Truncated
+	// reports that Items holds fewer than Total.
+	Total     int          `json:"total"`
+	Truncated bool         `json:"truncated,omitempty"`
+	Items     []StatusItem `json:"items"`
 }
 
 // Status reports the entities needing attention in the selected categories. It is
@@ -884,6 +947,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		categoryReadiness:    sq.MissingReadiness,
 		categoryUnresolved:   sq.UnresolvedDeps,
 		categoryOutOfRange:   sq.UnsatisfiedRanges,
+		categoryUndeclared:   sq.Undeclared,
+		categoryUnowned:      sq.Unowned,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".
@@ -894,22 +959,30 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 	for c := range want {
 		want[c] = want[c] || sq.NeedsAttention || none
 	}
-	items := []StatusItem{}
+	type ranked struct {
+		sev int
+		StatusItem
+	}
+	var all []ranked
 	for _, it := range q.collectAttention() {
 		if !want[it.Category] {
 			continue
 		}
-		items = append(items, StatusItem{
+		all = append(all, ranked{severityOrder[it.Severity], StatusItem{
 			Kind: string(it.Entity.Kind), Name: it.Entity.Key, Code: it.Code, Reason: it.Reason,
-		})
+		}})
 	}
 
-	// Reason is the third key because it is the only field that separates two
-	// unresolved dependencies of the same service: they now share a Kind, a Name and
-	// a Code, and sort.Slice is not stable, so without it the truncated list would
-	// vary between runs on the same snapshot.
-	sort.Slice(items, func(i, j int) bool {
-		a, b := items[i], items[j]
+	// Most severe first, so a truncated list keeps its errors. Reason is the last
+	// key because it is the only field that separates two unresolved dependencies
+	// of the same service: they share a Kind, a Name and a Code, and sort.Slice is
+	// not stable, so without it the truncated list would vary between runs on the
+	// same snapshot.
+	sort.Slice(all, func(i, j int) bool {
+		a, b := all[i], all[j]
+		if a.sev != b.sev {
+			return a.sev < b.sev
+		}
 		if a.Code != b.Code {
 			return a.Code < b.Code
 		}
@@ -918,14 +991,19 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		}
 		return a.Reason < b.Reason
 	})
+	items := make([]StatusItem, len(all))
+	for i, r := range all {
+		items[i] = r.StatusItem
+	}
 	limit := sq.Limit
 	if limit <= 0 {
 		limit = DefaultStatusLimit
 	}
-	if len(items) > limit {
+	total := len(items)
+	if total > limit {
 		items = items[:limit]
 	}
-	return &StatusResult{Meta: q.meta(), Items: items}
+	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items}
 }
 
 // AssertionRef identifies the declared assertion a reason is about.

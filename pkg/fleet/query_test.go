@@ -857,10 +857,16 @@ func TestStatus_NeedsAttentionAndOrderAndLimit(t *testing.T) {
 	if len(all.Items) < 5 {
 		t.Errorf("NeedsAttention should aggregate every category, got %d", len(all.Items))
 	}
-	// Deterministic order: sorted by Code, then Name.
+	// Deterministic order: most severe first, then by Code, then Name, so a
+	// truncated list keeps its errors.
+	sev := map[string]int{}
+	for _, it := range q.collectAttention() {
+		sev[it.Entity.Key+" "+it.Code] = severityOrder[it.Severity]
+	}
 	for i := 1; i < len(all.Items); i++ {
 		a, b := all.Items[i-1], all.Items[i]
-		if a.Code > b.Code || (a.Code == b.Code && a.Name > b.Name) {
+		sa, sb := sev[a.Name+" "+a.Code], sev[b.Name+" "+b.Code]
+		if sa > sb || (sa == sb && (a.Code > b.Code || (a.Code == b.Code && a.Name > b.Name))) {
 			t.Errorf("items not sorted at %d: %+v then %+v", i, a, b)
 		}
 	}

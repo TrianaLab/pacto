@@ -151,11 +151,3 @@ func TestProductRevisionDetail_ContractReferencesAreNavigable(t *testing.T) {
 		t.Errorf("referencedBy = %+v", rb.Items)
 	}
 }
-
-// A reference with no resolution at all must transport as no resolution, not as
-// an empty object that reads like a failed lookup.
-func TestProductRefResolution_NilStaysNil(t *testing.T) {
-	if got := productRefResolution(nil); got != nil {
-		t.Errorf("want nil, got %+v", got)
-	}
-}

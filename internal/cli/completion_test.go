@@ -69,7 +69,7 @@ func TestClosedSetFlagsComplete(t *testing.T) {
 // proves the function is reached — an unset one gives candidates and the
 // default directive, which is exactly the filename fallback.
 func TestFleetPositionalsOfferNoFilenames(t *testing.T) {
-	for _, verb := range []string{"search", "get", "graph", "explain"} {
+	for _, verb := range []string{"search", "get", "graph", "explain", "entities"} {
 		t.Run(verb, func(t *testing.T) {
 			root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
 			out, directive := completeFlag(t, root, []string{"fleet", verb, ""})
@@ -80,6 +80,19 @@ func TestFleetPositionalsOfferNoFilenames(t *testing.T) {
 				t.Errorf("directive = %v, want NoFileComp; this positional is never a path", directive)
 			}
 		})
+	}
+}
+
+// `fleet entity` completes its kind from the closed vocabulary and its key
+// from nothing, and never offers filenames for either.
+func TestFleetEntityCompletesTheKindOnly(t *testing.T) {
+	out, directive := completeFlag(t, NewRootCommand(newTestService(t), VersionInfo{Version: "dev"}), []string{"fleet", "entity", ""})
+	if !slices.Contains(out, "offering") || !slices.Contains(out, "revision") || directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("kind completions = %v (%v)", out, directive)
+	}
+	out, directive = completeFlag(t, NewRootCommand(newTestService(t), VersionInfo{Version: "dev"}), []string{"fleet", "entity", "service", ""})
+	if len(out) != 0 || directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("key completions = %v (%v)", out, directive)
 	}
 }
 

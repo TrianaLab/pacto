@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/trianalab/pacto/v4/pkg/dashboard/productview"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -75,7 +76,7 @@ func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverview
 	if err != nil {
 		return nil, err
 	}
-	return &fleetOverviewOutput{Body: toProductOverview(q.Overview())}, nil
+	return &fleetOverviewOutput{Body: productview.ToOverview(q.Overview())}, nil
 }
 
 type fleetEntitiesInput struct {
@@ -117,7 +118,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	if err != nil {
 		return nil, productQueryError(err)
 	}
-	return &fleetEntitiesOutput{Body: toProductEntityList(res)}, nil
+	return &fleetEntitiesOutput{Body: productview.ToEntityList(res)}, nil
 }
 
 type fleetEntityDetailInput struct {
@@ -136,7 +137,7 @@ func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInp
 	if err != nil {
 		return nil, productQueryError(err)
 	}
-	return &fleetEntityDetailOutput{Body: toProductEntityDetail(res)}, nil
+	return &fleetEntityDetailOutput{Body: productview.ToEntityDetail(res)}, nil
 }
 
 type fleetRevisionDocumentInput struct {
@@ -155,7 +156,7 @@ func (s *Server) fleetRevisionDocument(ctx context.Context, in *fleetRevisionDoc
 	if err != nil {
 		return nil, productQueryError(err)
 	}
-	return &fleetRevisionDocumentOutput{Body: toProductRevisionDocument(res)}, nil
+	return &fleetRevisionDocumentOutput{Body: productview.ToRevisionDocument(res)}, nil
 }
 
 type fleetNeighborhoodInput struct {
@@ -184,7 +185,7 @@ func (s *Server) fleetNeighborhood(ctx context.Context, in *fleetNeighborhoodInp
 	if err != nil {
 		return nil, productQueryError(err)
 	}
-	return &fleetNeighborhoodOutput{Body: toProductNeighborhood(res)}, nil
+	return &fleetNeighborhoodOutput{Body: productview.ToNeighborhood(res)}, nil
 }
 
 type fleetAttentionInput struct {
@@ -218,7 +219,7 @@ func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*
 	if err != nil {
 		return nil, productQueryError(err)
 	}
-	return &fleetAttentionOutput{Body: toProductAttentionList(res)}, nil
+	return &fleetAttentionOutput{Body: productview.ToAttentionList(res)}, nil
 }
 
 // ProductImpactConsumer is a navigable affected consumer with a bounded path.
@@ -251,16 +252,16 @@ type ProductImpact struct {
 func toProductImpact(p *impact.Product) *ProductImpact {
 	items := make([]ProductImpactConsumer, len(p.Consumers.Items))
 	for i, c := range p.Consumers.Items {
-		items[i] = ProductImpactConsumer{ProductConsumer: c, Service: productRef(c.Service), Path: productRefs(c.Path)}
+		items[i] = ProductImpactConsumer{ProductConsumer: c, Service: productview.Ref(c.Service), Path: productview.Refs(c.Path)}
 	}
 	return &ProductImpact{
 		Product:       *p,
-		Service:       productRef(p.Service),
-		OldRevision:   productRefPtr(p.OldRevision),
-		NewRevision:   productRefPtr(p.NewRevision),
+		Service:       productview.Ref(p.Service),
+		OldRevision:   productview.RefPtr(p.OldRevision),
+		NewRevision:   productview.RefPtr(p.NewRevision),
 		Consumers:     ProductImpactConsumersPage{ConsumersPage: p.Consumers, Items: items},
-		Owners:        productRefPreview(p.Owners),
-		ActiveTargets: productRefPreview(p.ActiveTargets),
+		Owners:        productview.RefPreview(p.Owners),
+		ActiveTargets: productview.RefPreview(p.ActiveTargets),
 	}
 }
 

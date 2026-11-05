@@ -150,7 +150,7 @@ func APIConfig() huma.Config {
 // half moved to its own leaf, they are still aliased back from here, and the
 // generated TypeScript SDK is built from those exact component names. Qualifying
 // them would rename every schema in the published document.
-var unqualifiedSchemaPkgs = []string{"/pkg/dashboard", "/pkg/contractview"}
+var unqualifiedSchemaPkgs = []string{"/pkg/dashboard", "/pkg/contractview", "/pkg/dashboard/productview"}
 
 // fleetSchemaNamer disambiguates OpenAPI component names. The fleet and impact
 // endpoints pull engine types (contract, finding, readiness, lock, fleet, diff,

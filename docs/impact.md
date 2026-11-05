@@ -44,8 +44,8 @@ transitive. Each dependent becomes an *affected consumer*, annotated with the
 evidence Pacto has for that edge, and the result rolls up the **active
 targets** the change would land in and the **owners** to notify.
 
-Every answer inherits the snapshot's `asOf` time, `completeness` and
-`limitations`, so a partial fleet always reads as partial. When no fleet source
+Every answer inherits the snapshot's `asOf` time, `completeness`,
+`limitations` and `sources`, so a partial fleet always reads as partial. When no fleet source
 holds the changed service, `pacto impact` adds the new revision to the snapshot
 so the services that depend on it are found, and the answer carries
 `newRevisionAdded: true`. A snapshot it cannot add to, such as the dashboard's
@@ -208,10 +208,9 @@ Agents get the same analysis as the read-only `pacto_impact` MCP tool. It belong
 to the **fleet query**
 [family](mcp-reference.md#three-tool-families-and-their-boundaries) and shares
 that family's boundaries: it projects the operational graph. It is read-only and grants no permission.
-It is the one fleet tool that rebuilds the graph on every call; the others serve
-a frozen snapshot. Its `asOf`
-therefore advances, while the `pacto_fleet_*` tools' stays at the value they were
-started with. When the two disagree they describe the same system at two moments.
+It analyses over the same snapshot as the `pacto_fleet_*` tools, so an impact
+answer and a graph answer from the same interval carry the same `snapshotId`,
+unless the impact answer carries `newRevisionAdded: true`.
 
 In the dashboard the analysis is one half of the **Change analysis** workspace,
 served by `/api/fleet/impact`. It is entered from the service or revision you are

@@ -692,7 +692,6 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 		}
 		return "ref:" + rel.To
 	}
-	declared := map[ServiceKey]bool{}
 	seen := map[string]bool{}
 	unresolved := map[string]bool{}
 	unsatisfied := map[string]bool{}
@@ -704,18 +703,9 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 		if rel.Provenance == ProvenanceObserved {
 			continue
 		}
-		declared[rel.ToService] = true
 		tallyDeclaredEdge(sum, rel, depKey(rel), seen, unresolved, unsatisfied)
 	}
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		if rel.FromService != key || rel.Provenance != ProvenanceObserved {
-			continue
-		}
-		if !declared[rel.ToService] {
-			sum.ObservedNotDeclared++
-		}
-	}
+	sum.ObservedNotDeclared = len(q.observedOnly(key))
 }
 
 // tallyDeclaredEdge counts one declared relationship into the per-dependency

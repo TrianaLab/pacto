@@ -35,7 +35,6 @@
     'Unresolved declared dependencies': 'unresolved dependencies',
     'Dependencies outside their accepted range': 'out-of-range dependencies',
     'Undeclared runtime dependencies observed': 'undeclared runtime calls',
-    'Uncontracted callers observed': 'uncontracted callers',
     'Incomplete sources': 'incomplete sources',
     'Services with no declared owner': 'services with no owner',
   };

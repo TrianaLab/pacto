@@ -52,11 +52,11 @@ func TestSeenBy(t *testing.T) {
 // reached through.
 func TestPrintFleetGraph_IndentsUnderShortestPathParent(t *testing.T) {
 	res := &fleet.GraphResult{Root: "r", Direction: fleet.DirectionDependencies, Nodes: []fleet.GraphNode{
-		{Key: "a", Name: "a", Depth: 1, Path: []fleet.ServiceKey{"r", "a"}},
-		{Key: "z", Name: "z", Depth: 1, Path: []fleet.ServiceKey{"r", "z"}},
-		{Key: "b", Name: "b", Depth: 2, Path: []fleet.ServiceKey{"r", "a", "b"}},
-		{Key: "t", Name: "t", Depth: 2, Path: []fleet.ServiceKey{"r", "z", "t"}},
-	}}
+		{Key: "a", Name: "a", Depth: 1, Path: []fleet.ServiceKey{"r", "a"}, Provenance: "declared"},
+		{Key: "z", Name: "z", Depth: 1, Path: []fleet.ServiceKey{"r", "z"}, Provenance: "observed"},
+		{Key: "b", Name: "b", Depth: 2, Path: []fleet.ServiceKey{"r", "a", "b"}, Provenance: "declared+observed"},
+		{Key: "t", Name: "t", Depth: 2, Path: []fleet.ServiceKey{"r", "z", "t"}, Provenance: "declared"},
+	}, Truncated: true}
 	cmd := &cobra.Command{}
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -64,14 +64,48 @@ func TestPrintFleetGraph_IndentsUnderShortestPathParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "dependencies of r (4 node(s)):\n" +
-		"    a (depth 1)\n" +
-		"      b (depth 2)\n" +
-		"    z (depth 1)\n" +
-		"      t (depth 2)\n"
+		"    a (depth 1, declared)\n" +
+		"      b (depth 2, declared+observed)\n" +
+		"    z (depth 1, observed)\n" +
+		"      t (depth 2, declared)\n" +
+		"  truncated: the answer stops at 4 nodes\n"
 	if out.String() != want {
 		t.Errorf("got:\n%s\nwant:\n%s", out.String(), want)
 	}
 	if res.Nodes[1].Key != "z" {
 		t.Error("printing must not reorder the caller's answer")
+	}
+}
+
+// A search row names the business domain and the offering, a dash when empty.
+func TestPrintFleetSearch_RowsNameDomainAndOffering(t *testing.T) {
+	res := &fleet.SearchResult{Total: 2, Count: 2, Services: []fleet.ServiceHit{
+		{Name: "pay", Status: "Compliant", BusinessDomain: "money", Offering: "payments-api", RevisionCount: 1},
+		{Name: "lone"},
+	}}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := printFleetSearch(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"domain=money", "offering=payments-api", "domain=-", "offering=-"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("search text lacks %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// The status header says how many items the limit kept out of how many matched.
+func TestPrintFleetStatus_HeaderReportsTotal(t *testing.T) {
+	res := &fleet.StatusResult{Total: 5, Truncated: true, Items: []fleet.StatusItem{{Kind: "service", Name: "a", Code: "UNOWNED_SERVICE"}}}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := printFleetStatus(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out.String(), "1 of 5 attention item(s):\n") {
+		t.Errorf("status header:\n%s", out.String())
 	}
 }

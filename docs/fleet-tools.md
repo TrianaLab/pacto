@@ -31,12 +31,16 @@ Its HTTP API is described at `/openapi.json`; see [Dashboard container](dashboar
 
 `pacto fleet` answers the same questions from a terminal or a CI job: it builds
 one snapshot from the sources you name, then queries it with `search`, `get`,
-`graph`, `status` and `explain`.
+`graph`, `status` and `explain`. `entities`, `entity` and `attention` list
+owners, business domains and offerings, inspect one of them and list what
+needs attention, most severe first. [Ask questions about your
+organization](ask-your-organization.md) maps common questions to these
+commands.
 
 ```bash
 $ pacto fleet search --local ./contracts --oci ghcr.io/acme/unreachable-pacto:1.0.0
 1 of 1 service(s):
-  payments-api                 NotEvaluated owner=acme/payments  revs=1 targets=0
+  payments-api                 NotEvaluated owner=acme/payments  domain=-            offering=-            revs=1 targets=0
 warning: answer is partial (as of 2026-08-23T01:30:40+02:00)
   - [SOURCE_PARTIAL] source oci returned a partial result
   - [SOURCE_RECORD_INVALID] ref ghcr.io/acme/unreachable-pacto:1.0.0 could not be resolved: artifact not found: ghcr.io/acme/unreachable-pacto:1.0.0

@@ -1941,6 +1941,8 @@ export interface components {
             key: string;
             name: string;
             path: string[] | null;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "declared+observed";
         };
         "Fleet.GraphResult": {
             aggregated: boolean;
@@ -2532,6 +2534,9 @@ export interface components {
         "Fleet.StatusResult": {
             items: components["schemas"]["Fleet.StatusItem"][] | null;
             meta: components["schemas"]["Fleet.Meta"];
+            /** Format: int64 */
+            total: number;
+            truncated?: boolean;
         };
         "Fleet.StringsPreview": {
             /** Format: int64 */
@@ -2757,6 +2762,8 @@ export interface components {
             schemaVersion: string;
             service: string;
             snapshotId: string;
+            sources?: components["schemas"]["Fleet.SourceState"][] | null;
+            sourcesTruncated?: boolean;
         };
         "Impact.TallyBucket": {
             /** Format: int64 */
@@ -2990,7 +2997,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "unowned";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "undeclared" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;

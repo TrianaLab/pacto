@@ -210,3 +210,23 @@ func TestCallerHelpers(t *testing.T) {
 		t.Fatal("caller names")
 	}
 }
+
+func TestObservedEdgesExported(t *testing.T) {
+	p := paymentsPacto(&CallerCoverageView{State: "partial", Reason: "stale-node", RefreshSeconds: 300}, legacy)
+	p.Status.Findings = []FindingView{
+		{Code: "DEPENDENCY_UNDECLARED", Subject: "dependency/ledger", EvidenceRefs: []EvidenceRefView{{Collector: "ebpf"}}},
+		{Code: "DEPENDENCY_UNDECLARED", Subject: "dependency/static", EvidenceRefs: []EvidenceRefView{{Collector: "manifest"}}},
+	}
+	edges := ObservedEdges(p)
+	if len(edges) != 2 || edges[0].From != "payments" || edges[0].To != "ledger" || edges[1].From != "k8s:prod/Deployment/legacy" || edges[1].To != "payments" {
+		t.Fatalf("edges = %+v", edges)
+	}
+	reconciled := now
+	lims := CallerLimitations(p, &reconciled, now)
+	if len(lims) != 1 || lims[0].Code != LimitationCallersUnseen || !strings.Contains(lims[0].Message, "a node agent has not reported recently") {
+		t.Fatalf("limitations = %+v", lims)
+	}
+	if CallerLimitations(paymentsPacto(complete()), &reconciled, now) != nil {
+		t.Fatal("complete coverage must add no limitation")
+	}
+}

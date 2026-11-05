@@ -771,6 +771,66 @@ pacto fleet [flags]
       --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
+### `pacto fleet attention`
+
+Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract.
+
+```
+pacto fleet attention [flags]
+```
+
+**Flags:**
+
+```
+      --business-domain string   exact business domain, (none) for none or (unknown) for unknown
+      --category string          attention category
+  -h, --help                     help for attention
+      --limit int                maximum results (0 = 200, capped at 500)
+      --offset int               result offset for paging
+      --owner string             free-text owner search over team, DRI and contacts
+      --owner-key string         exact owner key, such as team:platform or dri:alice
+      --service string           items of this service: its key, or a name only one domain uses
+      --severity string          attention severity (error, warning, info)
+```
+
+### `pacto fleet entities`
+
+Lists services, owners, business domains and platform offerings, paged. Use --kind owner to learn the owner keys (team:NAME, dri:NAME) that --owner-key takes.
+
+```
+pacto fleet entities [text] [flags]
+```
+
+**Flags:**
+
+```
+      --business-domain string   exact business domain, (none) for none or (unknown) for unknown
+  -h, --help                     help for entities
+      --kind string              entity kind (service, owner, domain, offering; empty lists all four)
+      --limit int                maximum results (0 = 100, capped at 500)
+      --offering string          services that provide this platform offering, and the offering itself
+      --offset int               result offset for paging
+      --owner string             free-text owner search over team, DRI and contacts
+      --owner-key string         exact owner key, such as team:platform or dri:alice
+      --ownership string         how a service's revisions declare ownership (consistent, conflicting, unowned)
+      --sort string              order: name, health (least healthy first) or services (owners with the most services first)
+      --status string            canonical compliance status
+```
+
+### `pacto fleet entity`
+
+Inspect one service, revision, target, owner, source, business domain or offering
+
+```
+pacto fleet entity <kind> <key> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for entity
+```
+
 ### `pacto fleet explain`
 
 Explain the deterministic reasons for a service or target state
@@ -802,7 +862,7 @@ pacto fleet get [service] [flags]
 
 ### `pacto fleet graph`
 
-Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest').
+Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed).
 
 ```
 pacto fleet graph <service> [flags]
@@ -885,7 +945,7 @@ pacto fleet snapshot [flags]
 
 ### `pacto fleet status`
 
-Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies and dependencies whose provider version is outside the declared range. With no category flag it reports every category.
+Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services with no declared owner and undeclared runtime dependencies. With no category flag it reports every category.
 
 ```
 pacto fleet status [flags]
@@ -901,7 +961,9 @@ pacto fleet status [flags]
       --needs-attention      report every attention category
       --non-compliant        report non-compliant targets
       --stale                report targets with stale evidence
+      --undeclared           report runtime calls no contract declares and callers with no contract
       --unknown              report targets with unknown compliance
+      --unowned              report services with no declared owner
       --unresolved-deps      report unresolved declared dependencies
       --unsatisfied-ranges   report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
 ```
@@ -1226,7 +1288,7 @@ When a bundle reference (local directory or oci:// ref) is given, the server als
 
 With --root, the server exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so the session keeps its startup view even when a registry tag moves. Roots that fail to resolve stay visible as partial knowledge. The catalog grants no authorization and executes nothing.
 
-With --fleet, the server exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
+With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
 
 With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
@@ -1269,6 +1331,7 @@ pacto mcp [bundle-ref] [flags]
       --auth-issuer string            OpenID issuer whose bearer tokens every HTTP request must carry
       --base-url string               base URL for live invocation (overrides the OpenAPI servers[] URL)
       --cache                         include every bundle in the local OCI cache as an offline baseline revision
+      --dashboard-url string          with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there
       --delivery                      expose the Pacto delivery tools over the ambient cluster
       --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string         in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
@@ -1328,14 +1391,19 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 
 | Tool | Arguments |
 |------|-----------|
-| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |
+| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit`, `offset` |
 | `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
-| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`; plus `limit`. No category, including empty input, reports every category |
+| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`, `unowned`, `undeclared`; plus `limit`. No category, including empty input, reports every category |
 | `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
+| `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `ownership`, `status`, `sort`, `limit`, `offset` |
+| `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
+| `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `limit`, `offset` |
 | `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
+
+With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity and attention answers carry an `href` to each entity's page on that Pacto dashboard.
 
 See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.
 

@@ -689,7 +689,7 @@ type EntityDetail struct {
 
 // EntityDetail returns the unified detail envelope for one entity, deep-cloned so
 // the caller can mutate it freely. Supported kinds: service, revision, target,
-// owner, source.
+// owner, source, domain and offering.
 func (q *Query) EntityDetail(kind EntityKind, key string) (*EntityDetail, error) {
 	d, err := q.entityDetail(kind, key)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -421,5 +422,72 @@ func TestK8sSource_BusinessDomainKnownOnlyFromDomainFormat(t *testing.T) {
 		if got := col.Targets[0].BusinessDomainKnown; got != c.known {
 			t.Errorf("%s: BusinessDomainKnown = %v, want %v", c.name, got, c.known)
 		}
+	}
+}
+
+// collectList runs Collect over a fake list.
+func collectList(t *testing.T, list string) *fleet.Collection {
+	t.Helper()
+	col, err := NewK8sSource("prod-cluster", &fakeK8sClient{
+		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+		listData: []byte(list),
+	}, "").Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return col
+}
+
+func TestK8sSourceCollectsObservedEdges(t *testing.T) {
+	col := collectList(t, `{"items":[
+	  {"metadata":{"name":"payments","namespace":"prod"},"status":{
+	    "contract":{"serviceName":"payments"},
+	    "findings":[{"code":"DEPENDENCY_UNDECLARED","subject":"dependency/ledger","evidenceRefs":[{"collector":"ebpf"}]}],
+	    "observedCallers":[{"namespace":"billing","kind":"Deployment","name":"legacy"}]}},
+	  {"metadata":{"name":"orphan","namespace":"prod"},"status":{"observedCallers":[{"namespace":"x","kind":"Deployment","name":"y"}]}}
+	]}`)
+	want := []fleet.ObservedEdge{{From: "payments", To: "ledger", Count: 1}, {From: "k8s:billing/Deployment/legacy", To: "payments", Count: 1}}
+	if !reflect.DeepEqual(col.Observed, want) {
+		t.Fatalf("observed = %+v, want %+v", col.Observed, want)
+	}
+	if !col.ObservedUndeclaredOnly {
+		t.Fatal("the Kubernetes source reports only undeclared calls")
+	}
+	if len(col.Targets) != 2 || len(col.Limitations) != 0 {
+		t.Fatalf("targets = %d, limitations = %+v", len(col.Targets), col.Limitations)
+	}
+}
+
+func TestK8sSourceCallerCoverageLimitation(t *testing.T) {
+	fresh := time.Now().UTC().Format(time.RFC3339)
+	item := func(name, state string) string {
+		return `{"metadata":{"name":"` + name + `","namespace":"prod"},"status":{"lastReconciledAt":"` + fresh + `",
+		  "contract":{"serviceName":"` + name + `"},
+		  "observedCallersCoverage":{"state":"` + state + `","reason":"stale-node","refreshSeconds":30}}}`
+	}
+	col := collectList(t, `{"items":[`+item("partial", "partial")+`,`+item("complete", "complete")+`]}`)
+	lims := col.Targets[0].Limitations
+	if len(lims) != 1 || lims[0].Code != delivery.LimitationCallersUnseen || lims[0].Source != "prod-cluster" {
+		t.Fatalf("partial coverage limitations = %+v", lims)
+	}
+	if col.Targets[1].Limitations != nil {
+		t.Fatalf("complete coverage limitations = %+v", col.Targets[1].Limitations)
+	}
+}
+
+func TestK8sSourceObservedDecodeIsLenient(t *testing.T) {
+	col := collectList(t, `{"items":[
+	  {"metadata":{"name":"broken","namespace":"prod"},"status":{"contract":{"serviceName":"broken"},"observedCallers":"oops"}},
+	  {"metadata":{"name":"payments","namespace":"prod"},"status":{"contract":{"serviceName":"payments"},
+	    "observedCallers":[{"namespace":"billing","kind":"Deployment","name":"legacy"}]}}
+	]}`)
+	if len(col.Targets) != 2 || col.Targets[0].Service != "broken" {
+		t.Fatalf("targets = %+v", col.Targets)
+	}
+	if len(col.Observed) != 1 || col.Observed[0].To != "payments" {
+		t.Fatalf("observed = %+v", col.Observed)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != LimitationPactoStatusUnreadable || !strings.Contains(col.Limitations[0].Message, "prod/broken") {
+		t.Fatalf("limitations = %+v", col.Limitations)
 	}
 }

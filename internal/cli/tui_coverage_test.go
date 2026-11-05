@@ -13,9 +13,12 @@ import (
 // is a screen. A verb may still yank the equivalent line, but that is not what
 // the screen does. They are covered, not excluded.
 var embodiedByTUI = map[string]string{
-	"tui":          "this is the command under test",
-	"fleet status": "the list screen is a live fleet status",
-	"fleet search": "the / filter is a live fleet search, and y on an owner or a source yanks the filter form",
+	"tui":             "this is the command under test",
+	"fleet status":    "the list screen is a live fleet status",
+	"fleet search":    "the / filter is a live fleet search, and y on an owner or a source yanks the filter form",
+	"fleet entities":  "the list screen pages the same fleet entities query (internal/tui/list.go)",
+	"fleet entity":    "enter on a row opens the same entity detail (internal/tui/detail.go)",
+	"fleet attention": "the attention screen pages the same attention query (internal/tui/attention.go)",
 	// Partial, and the reason says so rather than rounding up. The g verb walks
 	// a fleet.Neighborhood (internal/tui/graphscreen.go:37) and renders it through
 	// the same graph.Result the CLI prints, so a service already in the snapshot

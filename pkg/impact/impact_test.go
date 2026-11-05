@@ -2,6 +2,7 @@ package impact
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -776,5 +777,28 @@ func TestAnalyze_NotesRangeOnlyMatches(t *testing.T) {
 		if c.Note != "" {
 			t.Errorf("%s: a non-breaking change must not be noted: %q", c.Service, c.Note)
 		}
+	}
+}
+
+func TestResultCarriesSources(t *testing.T) {
+	snap := buildChain(t)
+	old := svcContract("auth-service", "1.0.0", contract.Owner{})
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{})
+	res := Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	got, _ := json.Marshal(res.Sources)
+	want, _ := json.Marshal(snap.Sources)
+	if string(got) != string(want) || res.SourcesTruncated {
+		t.Fatalf("sources = %+v (truncated %v), want %+v", res.Sources, res.SourcesTruncated, snap.Sources)
+	}
+	res.Sources[0].ID = "mutated"
+	if snap.Sources[0].ID == "mutated" {
+		t.Error("the result aliases the snapshot's sources")
+	}
+	for i := range fleet.MaxMetaSources {
+		snap.Sources = append(snap.Sources, fleet.SourceState{ID: fmt.Sprintf("extra-%d", i), Status: fleet.SourceAvailable})
+	}
+	res = Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	if len(res.Sources) != fleet.MaxMetaSources || !res.SourcesTruncated {
+		t.Errorf("sources = %d, truncated %v", len(res.Sources), res.SourcesTruncated)
 	}
 }

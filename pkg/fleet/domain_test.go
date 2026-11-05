@@ -717,3 +717,24 @@ func TestAttention_UnownedUnknownSaysSo(t *testing.T) {
 		}
 	}
 }
+
+func TestUndeclaredEntryPoint(t *testing.T) {
+	tiles := func(sum OverviewSummary) []EntryPoint {
+		var out []EntryPoint
+		for _, ep := range entryPoints(&sum) {
+			if ep.Label == "Undeclared runtime dependencies observed" || ep.Label == "Uncontracted callers observed" {
+				out = append(out, ep)
+			}
+		}
+		return out
+	}
+	got := tiles(undeclaredFleet(t).Overview().Summary)
+	if len(got) != 1 || got[0].Label != "Undeclared runtime dependencies observed" || got[0].View != EntryPointAttention ||
+		got[0].Category != "undeclared" || got[0].Count != 4 || got[0].Severity != "warning" {
+		t.Fatalf("undeclared tiles = %+v", got)
+	}
+	got = tiles(OverviewSummary{UncontractedCallers: 2})
+	if len(got) != 1 || got[0].Count != 2 || got[0].Severity != "info" {
+		t.Fatalf("callers-only tiles = %+v", got)
+	}
+}
