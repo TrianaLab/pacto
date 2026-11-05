@@ -789,7 +789,7 @@ pacto fleet attention [flags]
       --offset int               result offset for paging
       --owner string             free-text owner search over team, DRI and contacts
       --owner-key string         exact owner key, such as team:platform or dri:alice
-      --service string           items of this service
+      --service string           items of this service: its key, or a name only one domain uses
       --severity string          attention severity (error, warning, info)
 ```
 
@@ -862,7 +862,7 @@ pacto fleet get [service] [flags]
 
 ### `pacto fleet graph`
 
-Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest').
+Traverse the operational graph from an explicit root. Give a service name to aggregate across its revisions, or --revision/--target to root an exact revision (never 'latest'). The walk also follows observed runtime calls, so services no contract connects appear too; each node reports its provenance (declared, observed or declared+observed).
 
 ```
 pacto fleet graph <service> [flags]

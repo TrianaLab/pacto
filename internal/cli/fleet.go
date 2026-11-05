@@ -310,7 +310,9 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Short: "Traverse fleet dependencies or dependents",
 		Long: "Traverse the operational graph from an explicit root. Give a service " +
 			"name to aggregate across its revisions, or --revision/--target to root " +
-			"an exact revision (never 'latest').",
+			"an exact revision (never 'latest'). The walk also follows observed " +
+			"runtime calls, so services no contract connects appear too; each node " +
+			"reports its provenance (declared, observed or declared+observed).",
 		Args: cobra.MaximumNArgs(1),
 		// Same as `fleet get`: the candidates live in a snapshot too expensive to
 		// build at the prompt, and this positional is never a path.
