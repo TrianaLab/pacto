@@ -38,11 +38,16 @@ type ImpactOptions struct {
 // change's blast radius over it (see [Service.ImpactOnSnapshot], with the new
 // revision added when no source holds the changed service).
 func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Result, error) {
+	// Resolve the revisions first, so a bad ref fails before a fleet build.
+	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
 	snap, err := s.Fleet(ctx, opts.Fleet)
 	if err != nil {
 		return nil, fmt.Errorf("build fleet snapshot: %w", err)
 	}
-	return s.ImpactOnSnapshot(ctx, opts, snap, true)
+	return s.impactOnResolved(ctx, opts, snap, true, oldBundle, newBundle)
 }
 
 // ImpactWithSnapshot analyzes a change's blast radius over an ALREADY-BUILT
@@ -69,6 +74,12 @@ func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap
 	if err != nil {
 		return nil, err
 	}
+	return s.impactOnResolved(ctx, opts, snap, addMissing, oldBundle, newBundle)
+}
+
+// impactOnResolved is [Service.ImpactOnSnapshot] with the revisions resolved.
+func (s *Service) impactOnResolved(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool, oldBundle, newBundle *contract.Bundle) (*impact.Result, error) {
+	var err error
 	domain := revisionDomain(opts.NewPath)
 	added := addMissing && snap.Services[fleet.NewServiceKeyDomain(domain, newBundle.Contract.Service.Name)] == nil
 	if added {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -86,6 +87,19 @@ func TestService_Impact_OldPathError(t *testing.T) {
 	svc := NewService(nil, nil)
 	if _, err := svc.Impact(context.Background(), ImpactOptions{OldPath: "/nonexistent/old", NewPath: newDir}); err == nil {
 		t.Error("expected error for a nonexistent old path")
+	}
+}
+
+// A bad ref fails before the fleet is built, so a fleet error never hides it.
+func TestService_Impact_ResolvesRefsBeforeFleet(t *testing.T) {
+	newDir := t.TempDir()
+	writeImpactService(t, newDir, "orders", "2.0.0")
+	dup := []ObservationSourceSpec{{ID: "x"}, {ID: "x"}}
+	_, err := NewService(nil, nil).Impact(context.Background(), ImpactOptions{
+		OldPath: "/nonexistent/old", NewPath: newDir, Fleet: FleetOptions{ObservationSources: dup},
+	})
+	if err == nil || !strings.HasPrefix(err.Error(), "old revision") {
+		t.Errorf("err = %v, want the old revision error", err)
 	}
 }
 
