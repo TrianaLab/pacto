@@ -5240,7 +5240,7 @@ export interface operations {
                 businessDomain?: string;
                 /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities) */
                 environment?: string;
-                /** @description Capability type a service's revisions declare (service entities) */
+                /** @description Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost */
                 capability?: string;
                 /** @description Exact platform offering (service.offering) a service provides (service and offering entities) */
                 offering?: string;
