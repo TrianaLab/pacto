@@ -310,3 +310,31 @@ func TestRestrictHidesCallerNamedLikeHiddenService(t *testing.T) {
 		})
 	}
 }
+
+// TestRestrictObservedGraph: a hidden service reached only by an observed call
+// is neither a node nor an edge of a restricted graph.
+func TestRestrictObservedGraph(t *testing.T) {
+	q, r, _, _ := restrictShop(t)
+	if res, _ := q.Graph(GraphQuery{Service: "reg", Direction: DirectionDependents, IncludeObserved: true}); len(res.Nodes) != 1 || res.Nodes[0].Key != rAPI {
+		t.Fatalf("fixture: api's observed call reaches reg unrestricted, got %+v", res.Nodes)
+	}
+	if res, _ := r.Graph(GraphQuery{Service: "reg", Direction: DirectionDependents, IncludeObserved: true}); len(res.Nodes) != 0 || len(res.Edges) != 0 {
+		t.Errorf("restricted: hidden observed caller of reg shows: %+v %+v", res.Nodes, res.Edges)
+	}
+	for _, dir := range []Direction{DirectionDependencies, DirectionDependents} {
+		res, err := r.Graph(GraphQuery{Service: "web", Direction: dir, Transitive: true, IncludeObserved: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range res.Nodes {
+			if n.Key == rAPI || slices.Contains(n.Path, rAPI) {
+				t.Errorf("%s: hidden api is a node", dir)
+			}
+		}
+		for _, e := range res.Edges {
+			if e.FromService == rAPI || e.ToService == rAPI {
+				t.Errorf("%s: edge names hidden api: %+v", dir, e)
+			}
+		}
+	}
+}

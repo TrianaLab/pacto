@@ -38,4 +38,9 @@ func TestUndeclaredOnlyObservationKeepsDeclaredInsufficient(t *testing.T) {
 	if got := reconciliationOfAB(declared, undeclaredOnly, regular); got != ReconciliationDeclaredNotObserved {
 		t.Fatalf("regular observation: a->b = %q, want declared-not-observed", got)
 	}
+	// The same edge from both kinds of source: the regular one still counts.
+	shared := NewMemorySource("traces", "observation", &Collection{Observed: []ObservedEdge{{From: "a", To: "c", Count: 1}}})
+	if got := reconciliationOfAB(declared, undeclaredOnly, shared); got != ReconciliationDeclaredNotObserved {
+		t.Fatalf("shared edge: a->b = %q, want declared-not-observed", got)
+	}
 }

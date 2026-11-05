@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
+
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -77,5 +79,66 @@ func TestDashboardHrefs(t *testing.T) {
 	}
 	if got := addLegacyHrefs("pacto_fleet_search", []any{}); len(got.([]any)) != 0 {
 		t.Errorf("a non-object answer must pass through, got %v", got)
+	}
+}
+
+// TestDashboardHrefsUnderView: under a restricted view no answer, href
+// included, names the hidden service, its owner or its business domain.
+func TestDashboardHrefsUnderView(t *testing.T) {
+	mk := func(name, team, domain string, deps ...string) *contract.Contract {
+		var d []contract.Dependency
+		for _, dep := range deps {
+			d = append(d, contract.Dependency{Name: dep, Ref: "oci://x/" + dep, Required: true})
+		}
+		return &contract.Contract{PactoVersion: "2.5", Dependencies: d,
+			Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: team}, Domain: domain}}
+	}
+	k := fleet.SourceKindKubernetes
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }},
+		fleet.NewMemorySource("k8s", k, &fleet.Collection{
+			Revisions: []fleet.RawRevision{
+				{Bundle: &contract.Bundle{Contract: mk("checkout", "money", "payments", "vault")}, Digest: "sha256:c"},
+				{Bundle: &contract.Bundle{Contract: mk("vault", "hushteam", "hushdomain")}, Digest: "sha256:v"},
+			},
+			Targets: []fleet.RawTarget{
+				{Scope: "shop", Kind: k, Name: "checkout", Service: "checkout", Compliance: fleet.StatusUnknown},
+				{Scope: "hushns", Kind: k, Name: "vault", Service: "vault", Compliance: fleet.StatusNonCompliant},
+			},
+			Observed: []fleet.ObservedEdge{{From: "vault", To: "checkout", Count: 1}},
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		return q.Restrict(func(ns string) bool { return ns == "shop" }), nil
+	}
+	server := NewFleetServer("test", staticFleet(fleet.NewQuery(snap)), nil, FleetOptions{View: view, DashboardURL: "https://dash.example/"})
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"pacto_fleet_entities", map[string]any{}},
+		{"pacto_fleet_entity", map[string]any{"kind": "service", "key": "checkout"}},
+		{"pacto_fleet_attention", map[string]any{}},
+		{"pacto_fleet_search", map[string]any{}},
+		{"pacto_fleet_graph", map[string]any{"service": "checkout", "direction": "dependents"}},
+		{"pacto_fleet_graph", map[string]any{"service": "checkout"}},
+		{"pacto_fleet_status", map[string]any{}},
+	} {
+		text := resultText(t, callToolOn(t, server, c.tool, c.args))
+		if !strings.Contains(text, "https://dash.example/#/fleet/") {
+			t.Errorf("%s %v: no href in\n%s", c.tool, c.args, text)
+		}
+		// checkout's own contract declares vault, so a dependencies walk may name
+		// it, but never link to it.
+		hiddenMarks := []string{"services/vault", "hushteam", "hushdomain", "hushns"}
+		if c.args["direction"] != nil || c.tool != "pacto_fleet_graph" {
+			hiddenMarks = append(hiddenMarks, "vault")
+		}
+		for _, hidden := range hiddenMarks {
+			if strings.Contains(text, hidden) {
+				t.Errorf("%s %v names hidden %q:\n%s", c.tool, c.args, hidden, text)
+			}
+		}
 	}
 }

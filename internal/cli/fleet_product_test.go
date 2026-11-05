@@ -42,11 +42,16 @@ func TestFleetEntities(t *testing.T) {
 		t.Errorf("no --kind lists services, owners, domains and offerings only:\n%s", jout)
 	}
 
-	if _, _, err := execFleet(t, append(append([]string{}, base...), "--sort", "bogus")...); err == nil {
-		t.Error("an invalid --sort is an error")
-	}
-	if _, _, err := execFleet(t, append(append([]string{}, base...), "--kind", "revision")...); err == nil {
-		t.Error("--kind takes the four kinds pacto_fleet_entities takes")
+}
+
+// TestFleetEntitiesRejects: an invalid --sort is an error, and --kind takes
+// only the four kinds pacto_fleet_entities takes.
+func TestFleetEntitiesRejects(t *testing.T) {
+	root, ev := writeFleetFixture(t)
+	for _, f := range [][]string{{"--sort", "bogus"}, {"--kind", "revision"}} {
+		if _, _, err := execFleet(t, append([]string{"fleet", "entities", "--local", root, "--target-state", ev}, f...)...); err == nil {
+			t.Errorf("entities %v is an error", f)
+		}
 	}
 }
 
