@@ -182,7 +182,7 @@ describe('FleetAttentionView — triage filters (I)', () => {
     expect(chips).toContain('Undeclared dependency');
     const rows = Array.from(target.querySelectorAll('.hb-row'));
     const row = (label: string) => rows.find((r) => r.textContent?.includes(label)) as HTMLElement;
-    expect(row('Undeclared dependency').className).not.toContain('tone-neutral');
+    expect(row('Undeclared dependency').className).toContain('tone-warn'); // its observed-only calls are warnings
     expect(row('Version out of range').className).toContain('tone-warn');
     unmount(component); document.body.removeChild(target);
   });
