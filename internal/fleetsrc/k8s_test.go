@@ -93,7 +93,7 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	    "metadata":{"name":"payments-prod","namespace":"prod","labels":{"app":"payments","delivery.pacto.trianalab.io/environment":"production"}},
 	    "status":{
 	      "contractStatus":"NonCompliant",
-	      "contract":{"serviceName":"payments","domain":"payments","resolvedRef":"ghcr.io/x/payments:1.2.0@sha256:abcd",
+	      "contract":{"serviceName":"payments","domain":"payments","offering":"postgresql","summary":"Primary database","resolvedRef":"ghcr.io/x/payments:1.2.0@sha256:abcd",
 	        "owner":{"team":"payments","dri":"alice","contacts":[{"type":"email","value":"pay@x","purpose":"escalation"}]},"ownerDisplay":"payments"},
 	      "evaluationCoverage":{"evaluated":3,"required":5},
 	      "observedRuntime":{"workloadKind":"Deployment","hasPVC":false},
@@ -141,6 +141,8 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 		Compliance:      "NonCompliant",
 		Owner:           contract.Owner{Team: "payments", DRI: "alice", Contacts: []contract.OwnerContact{{Type: "email", Value: "pay@x", Purpose: "escalation"}}},
 		BusinessDomain:  "payments",
+		Offering:        "postgresql",
+		Summary:         "Primary database",
 		Coverage:        &fleet.Coverage{Evaluated: 3, Required: 5},
 		ObservedRuntime: map[string]any{"workloadKind": "Deployment", "hasPVC": false},
 		Findings: []finding.Finding{{
@@ -213,7 +215,7 @@ func TestK8sSource_Collect_MinimalItem(t *testing.T) {
 	if tg.Service != "orphan" {
 		t.Errorf("service = %q, want orphan (CR name fallback)", tg.Service)
 	}
-	if tg.ResolvedRef != "" || tg.Digest != "" || tg.Coverage != nil || tg.ReconciledAt != nil || tg.Findings != nil {
+	if tg.ResolvedRef != "" || tg.Digest != "" || tg.Coverage != nil || tg.ReconciledAt != nil || tg.Findings != nil || tg.Offering != "" || tg.Summary != "" {
 		t.Errorf("expected zero optional fields, got %+v", tg)
 	}
 }

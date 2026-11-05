@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -369,5 +370,19 @@ func TestResolveSelectionForADomainSkipsTheDetail(t *testing.T) {
 	sel, err := resolveSelection(c, fleet.EntityRef{Kind: fleet.KindDomain, Key: "payments", Label: "payments"})
 	if err != nil || sel.Ref != "" || sel.Kind != fleet.KindDomain {
 		t.Fatalf("domain resolution = %+v, %v", sel, err)
+	}
+}
+
+func TestResolveSelectionForAnOfferingSkipsTheDetail(t *testing.T) {
+	c := newLoadedContext(t)
+	sel, err := resolveSelection(c, fleet.EntityRef{Kind: fleet.KindOffering, Key: "redis", Label: "redis"})
+	if err != nil || sel.Ref != "" || sel.Kind != fleet.KindOffering {
+		t.Fatalf("offering resolution = %+v, %v", sel, err)
+	}
+	if !slices.Contains(newListScreen(c).(*listScreen).kinds(), fleet.KindOffering) {
+		t.Error("the list has no offering tab")
+	}
+	if why := explainable(Selection{Kind: fleet.KindOffering}); !strings.Contains(why, "--offering") {
+		t.Errorf("explainable(offering) = %q", why)
 	}
 }

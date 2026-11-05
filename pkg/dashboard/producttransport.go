@@ -327,6 +327,8 @@ type ProductServiceDetail struct {
 	OwnerRevision          *ProductRef                          `json:"ownerRevision,omitempty"`
 	Sources                ProductRefPreview                    `json:"sources"`
 	UnresolvedDependencies ProductUnresolvedDependenciesPreview `json:"unresolvedDependencies"`
+	ConsumedOfferings      ProductOfferingUsesPreview           `json:"consumedOfferings"`
+	InferredOfferings      []ProductInferredOffering            `json:"inferredOfferings"`
 	CurrentRevision        *ProductRef                          `json:"currentRevision,omitempty"`
 	Policies               ProductPoliciesPreview               `json:"policies"`
 	Configurations         ProductConfigurationsPreview         `json:"configurations"`
@@ -350,6 +352,8 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 		OwnerRevision:          productRefPtr(d.OwnerRevision),
 		Sources:                productRefPreview(d.Sources),
 		UnresolvedDependencies: productUnresolvedDependencies(d.UnresolvedDependencies),
+		ConsumedOfferings:      productOfferingUses(d.ConsumedOfferings),
+		InferredOfferings:      productInferredOfferings(d.InferredOfferings),
 		CurrentRevision:        productRefPtr(d.CurrentRevision),
 		Policies:               productPoliciesPreview(d.Policies),
 		Configurations:         productConfigurationsPreview(d.Configurations),
@@ -513,6 +517,89 @@ func toProductDomainDetail(d *fleet.DomainDetailData) *ProductDomainDetail {
 	}
 }
 
+// ProductOfferingUse is one service consuming a provider of a platform offering,
+// both navigable.
+type ProductOfferingUse struct {
+	fleet.OfferingUse
+	Consumer ProductRef `json:"consumer"`
+	Provider ProductRef `json:"provider"`
+}
+
+// ProductOfferingUsesPreview is a bounded preview of offering uses.
+type ProductOfferingUsesPreview struct {
+	fleet.OfferingUsesPreview
+	Items []ProductOfferingUse `json:"items"`
+}
+
+func productOfferingUses(p fleet.OfferingUsesPreview) ProductOfferingUsesPreview {
+	items := make([]ProductOfferingUse, len(p.Items))
+	for i, u := range p.Items {
+		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: productRef(u.Consumer), Provider: productRef(u.Provider)}
+	}
+	return ProductOfferingUsesPreview{OfferingUsesPreview: p, Items: items}
+}
+
+// ProductInferredOffering is a navigable inferred offering suggestion.
+type ProductInferredOffering struct {
+	fleet.InferredOffering
+	Offering ProductRef  `json:"offering"`
+	Provider *ProductRef `json:"provider,omitempty"`
+}
+
+func productInferredOfferings(in []fleet.InferredOffering) []ProductInferredOffering {
+	out := make([]ProductInferredOffering, len(in))
+	for i, o := range in {
+		out[i] = ProductInferredOffering{InferredOffering: o, Offering: productRef(o.Offering), Provider: productRefPtr(o.Provider)}
+	}
+	return out
+}
+
+// ProductOfferingProvider is one navigable provider of a platform offering.
+type ProductOfferingProvider struct {
+	fleet.OfferingProvider
+	Service         ProductRef                   `json:"service"`
+	Ownership       *ProductOwnership            `json:"ownership,omitempty"`
+	CurrentRevision *ProductRef                  `json:"currentRevision,omitempty"`
+	Revisions       ProductRefPreview            `json:"revisions"`
+	ActiveRevisions ProductRefPreview            `json:"activeRevisions"`
+	Policies        ProductPoliciesPreview       `json:"policies"`
+	Configurations  ProductConfigurationsPreview `json:"configurations"`
+}
+
+// ProductOfferingProvidersPreview is a bounded preview of offering providers.
+type ProductOfferingProvidersPreview struct {
+	fleet.OfferingProvidersPreview
+	Items []ProductOfferingProvider `json:"items"`
+}
+
+// ProductOfferingDetail is the navigable offering-kind detail payload.
+type ProductOfferingDetail struct {
+	fleet.OfferingDetailData
+	Providers ProductOfferingProvidersPreview `json:"providers"`
+	Consumers ProductOfferingUsesPreview      `json:"consumers"`
+}
+
+func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail {
+	items := make([]ProductOfferingProvider, len(d.Providers.Items))
+	for i, p := range d.Providers.Items {
+		items[i] = ProductOfferingProvider{
+			OfferingProvider: p,
+			Service:          productRef(p.Service),
+			Ownership:        productOwnership(p.Ownership),
+			CurrentRevision:  productRefPtr(p.CurrentRevision),
+			Revisions:        productRefPreview(p.Revisions),
+			ActiveRevisions:  productRefPreview(p.ActiveRevisions),
+			Policies:         productPoliciesPreview(p.Policies),
+			Configurations:   productConfigurationsPreview(p.Configurations),
+		}
+	}
+	return &ProductOfferingDetail{
+		OfferingDetailData: *d,
+		Providers:          ProductOfferingProvidersPreview{OfferingProvidersPreview: d.Providers, Items: items},
+		Consumers:          productOfferingUses(d.Consumers),
+	}
+}
+
 // ProductSourceDetail is the navigable source-kind detail payload.
 type ProductSourceDetail struct {
 	fleet.SourceDetailData
@@ -535,7 +622,7 @@ func toProductRevisionDocument(d *fleet.RevisionDocument) *ProductRevisionDocume
 }
 
 // ProductEntityDetail is the navigable, discriminated entity-detail envelope.
-// Exactly one of Service/Revision/Target/Owner/Source/Domain is populated, matching
+// Exactly one of Service/Revision/Target/Owner/Source/Domain/Offering is populated, matching
 // Entity.Kind.
 type ProductEntityDetail struct {
 	fleet.EntityDetail
@@ -546,6 +633,7 @@ type ProductEntityDetail struct {
 	Owner    *ProductOwnerDetail    `json:"owner,omitempty"`
 	Source   *ProductSourceDetail   `json:"source,omitempty"`
 	Domain   *ProductDomainDetail   `json:"domain,omitempty"`
+	Offering *ProductOfferingDetail `json:"offering,omitempty"`
 }
 
 func toProductEntityDetail(d *fleet.EntityDetail) *ProductEntityDetail {
@@ -563,6 +651,8 @@ func toProductEntityDetail(d *fleet.EntityDetail) *ProductEntityDetail {
 		out.Source = toProductSourceDetail(d.Source)
 	case d.Domain != nil:
 		out.Domain = toProductDomainDetail(d.Domain)
+	case d.Offering != nil:
+		out.Offering = toProductOfferingDetail(d.Offering)
 	}
 	return out
 }

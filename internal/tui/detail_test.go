@@ -552,8 +552,9 @@ func TestRenderDetailForADomain(t *testing.T) {
 			t.Errorf("domain detail never says %q:\n%s", want, out)
 		}
 	}
-	svc := renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{BusinessDomain: "payments"}, Service: &fleet.ServiceDetailData{Domain: "ghcr.io/acme"}})
-	if !strings.Contains(svc, "domain") || !strings.Contains(svc, "payments") || !strings.Contains(svc, "registry") {
+	svc := renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{BusinessDomain: "payments", Offering: "postgres"}, Service: &fleet.ServiceDetailData{Domain: "ghcr.io/acme"}})
+	if !strings.Contains(svc, "domain") || !strings.Contains(svc, "payments") || !strings.Contains(svc, "registry") ||
+		!strings.Contains(svc, "offering") || !strings.Contains(svc, "postgres") {
 		t.Errorf("service detail = %s", svc)
 	}
 }
@@ -565,5 +566,27 @@ func TestBusinessDomainTextSaysUnknown(t *testing.T) {
 	}
 	if got := businessDomainText(fleet.EntityRef{BusinessDomain: "pay"}); got != "pay" {
 		t.Errorf("businessDomainText = %q", got)
+	}
+}
+
+func TestRenderDetailForAnOffering(t *testing.T) {
+	out := renderDetail(&fleet.EntityDetail{
+		Entity: fleet.EntityRef{Kind: fleet.KindOffering, Key: "postgres"},
+		Offering: &fleet.OfferingDetailData{
+			Providers: fleet.OfferingProvidersPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.OfferingProvider{{
+				Service:   fleet.EntityRef{Label: "pg-operator"},
+				Ownership: &fleet.OwnershipInfo{Owner: "team-data"},
+				Revisions: fleet.RefPreview{Total: 2, Count: 2, Items: []fleet.EntityRef{{Label: "1.0.0"}, {Label: "1.1.0"}}},
+				Consume:   &fleet.ConsumeSnippet{Ref: "oci://ghcr.io/acme/pg-operator"},
+			}, {Service: fleet.EntityRef{Label: "bare"}}}},
+			Consumers: fleet.OfferingUsesPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.OfferingUse{{
+				Consumer: fleet.EntityRef{Label: "orders"}, Provider: fleet.EntityRef{Label: "pg-operator"},
+			}}},
+		},
+	})
+	for _, want := range []string{"Providers (2)", "pg-operator", "team-data", "1.0.0, 1.1.0", "oci://ghcr.io/acme/pg-operator", "bare", "Consumers (2)", "orders -> pg-operator", "and 1 more"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("offering detail never says %q:\n%s", want, out)
+		}
 	}
 }

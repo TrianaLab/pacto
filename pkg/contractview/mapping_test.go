@@ -15,16 +15,21 @@ import (
 func TestServiceFromContract(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.Service{
-			Name:    "my-service",
-			Version: "1.2.3",
-			Owner:   contract.Owner{Team: "team-a"},
-			Domain:  "payments",
+			Name:     "my-service",
+			Version:  "1.2.3",
+			Owner:    contract.Owner{Team: "team-a"},
+			Domain:   "payments",
+			Offering: "postgresql",
+			Summary:  "Primary database",
 		},
 	}
 
 	svc := ServiceFromContract(c, "local")
 	if svc.Domain != "payments" {
 		t.Errorf("expected domain 'payments', got %q", svc.Domain)
+	}
+	if svc.Offering != "postgresql" || svc.Summary != "Primary database" {
+		t.Errorf("expected offering and summary, got %q %q", svc.Offering, svc.Summary)
 	}
 	if svc.Name != "my-service" {
 		t.Errorf("expected name 'my-service', got %q", svc.Name)

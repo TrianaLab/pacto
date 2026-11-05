@@ -87,6 +87,22 @@ type DependencyInput struct {
 	Version  string `json:"version,omitempty"`
 }
 
+// ConfigurationRefInput describes a configuration reference to add: a
+// published contract whose configuration this service takes. Name defaults to
+// the last segment of the ref's repository.
+type ConfigurationRefInput struct {
+	Name     string `json:"name,omitempty"`
+	Ref      string `json:"ref"`
+	Required bool   `json:"required,omitempty"`
+}
+
+// PolicyRefInput describes a policy reference to add. Name defaults to the
+// last segment of the ref's repository.
+type PolicyRefInput struct {
+	Name string `json:"name,omitempty"`
+	Ref  string `json:"ref"`
+}
+
 // ConfigProperty describes a configuration property.
 type ConfigProperty struct {
 	Name     string `json:"name"`
@@ -113,11 +129,17 @@ type EditInput struct {
 	Owner   *string
 	// Domain sets service.domain and raises an older pactoVersion to 2.4.
 	Domain *string
+	// Offering and Summary set service.offering and service.summary and
+	// raise an older pactoVersion to 2.5.
+	Offering *string
+	Summary  *string
 
-	AddInterfaces    []InterfaceInput
-	RemoveInterfaces []string
-	AddDependencies  []DependencyInput
-	RemoveDeps       []string
+	AddInterfaces        []InterfaceInput
+	RemoveInterfaces     []string
+	AddDependencies      []DependencyInput
+	RemoveDeps           []string
+	AddConfigurationRefs []ConfigurationRefInput
+	AddPolicyRefs        []PolicyRefInput
 
 	Workload                  *string
 	StoresData                *bool
@@ -160,6 +182,8 @@ type ContractSummary struct {
 	Version      string            `json:"version"`
 	Owner        string            `json:"owner,omitempty"`
 	Domain       string            `json:"domain,omitempty"`
+	Offering     string            `json:"offering,omitempty"`
+	Summary      string            `json:"summary,omitempty"`
 	Interfaces   []string          `json:"interfaces,omitempty"`
 	Dependencies []string          `json:"dependencies,omitempty"`
 	Environments []string          `json:"environments,omitempty"`
@@ -590,27 +614,7 @@ func (o fileOps) edit(input EditInput) (*EditResult, error) {
 func applyEdits(m map[string]any, input EditInput) []string {
 	var changes []string
 
-	svc, _ := m["service"].(map[string]any)
-	if svc == nil {
-		svc = map[string]any{}
-		m["service"] = svc
-	}
-
-	if input.Name != nil {
-		svc["name"] = *input.Name
-		changes = append(changes, fmt.Sprintf("renamed service to %q", *input.Name))
-	}
-	if input.Version != nil {
-		svc["version"] = *input.Version
-		changes = append(changes, fmt.Sprintf("set version to %s", *input.Version))
-	}
-	if input.Owner != nil {
-		svc["owner"] = map[string]any{"team": *input.Owner}
-		changes = append(changes, fmt.Sprintf("set owner to %q", *input.Owner))
-	}
-	if input.Domain != nil {
-		changes = append(changes, setDomain(m, svc, *input.Domain)...)
-	}
+	changes = append(changes, applyServiceEdits(m, input)...)
 
 	// Interfaces
 	if len(input.RemoveInterfaces) > 0 {
@@ -627,6 +631,8 @@ func applyEdits(m map[string]any, input EditInput) []string {
 	if len(input.AddDependencies) > 0 {
 		changes = append(changes, addDependencies(m, input.AddDependencies)...)
 	}
+	changes = append(changes, addConfigurationRefs(m, input.AddConfigurationRefs)...)
+	changes = append(changes, addPolicyRefs(m, input.AddPolicyRefs)...)
 
 	// Workload and state
 	if input.Workload != nil {
@@ -648,6 +654,38 @@ func applyEdits(m map[string]any, input EditInput) []string {
 		changes = append(changes, applyMetadataEdits(m, input.SetMetadata, input.RemoveMetadata)...)
 	}
 
+	return changes
+}
+
+// applyServiceEdits applies the edits to the service block.
+func applyServiceEdits(m map[string]any, input EditInput) []string {
+	var changes []string
+	svc, _ := m["service"].(map[string]any)
+	if svc == nil {
+		svc = map[string]any{}
+		m["service"] = svc
+	}
+	if input.Name != nil {
+		svc["name"] = *input.Name
+		changes = append(changes, fmt.Sprintf("renamed service to %q", *input.Name))
+	}
+	if input.Version != nil {
+		svc["version"] = *input.Version
+		changes = append(changes, fmt.Sprintf("set version to %s", *input.Version))
+	}
+	if input.Owner != nil {
+		svc["owner"] = map[string]any{"team": *input.Owner}
+		changes = append(changes, fmt.Sprintf("set owner to %q", *input.Owner))
+	}
+	if input.Domain != nil {
+		changes = append(changes, setServiceField(m, svc, "domain", *input.Domain, "2.4")...)
+	}
+	if input.Offering != nil {
+		changes = append(changes, setServiceField(m, svc, "offering", *input.Offering, "2.5")...)
+	}
+	if input.Summary != nil {
+		changes = append(changes, setServiceField(m, svc, "summary", *input.Summary, "2.5")...)
+	}
 	return changes
 }
 
@@ -746,16 +784,49 @@ func addDependencies(m map[string]any, inputs []DependencyInput) []string {
 	return changes
 }
 
-// setDomain sets service.domain and, in a contract older than pactoVersion
-// 2.4, raises pactoVersion to 2.4, which keeps every older field.
-func setDomain(m, svc map[string]any, domain string) []string {
+// setServiceField sets service.<field> and, in a contract older than
+// pactoVersion minVersion, raises pactoVersion to minVersion, which keeps
+// every older field.
+func setServiceField(m, svc map[string]any, field, value, minVersion string) []string {
 	var changes []string
-	if v, _ := m["pactoVersion"].(string); slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, "2.4") {
-		m["pactoVersion"] = "2.4"
-		changes = append(changes, `set pactoVersion to "2.4"`)
+	if v, _ := m["pactoVersion"].(string); slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, minVersion) {
+		m["pactoVersion"] = minVersion
+		changes = append(changes, fmt.Sprintf("set pactoVersion to %q", minVersion))
 	}
-	svc["domain"] = domain
-	return append(changes, fmt.Sprintf("set domain to %q", domain))
+	svc[field] = value
+	return append(changes, fmt.Sprintf("set %s to %q", field, value))
+}
+
+// addConfigurationRefs appends a configurations[] entry for each reference.
+func addConfigurationRefs(m map[string]any, inputs []ConfigurationRefInput) []string {
+	if len(inputs) == 0 {
+		return nil
+	}
+	var changes []string
+	configs, _ := m["configurations"].([]any)
+	for _, in := range inputs {
+		name := dependencyName(DependencyInput{Name: in.Name, Ref: in.Ref})
+		configs = append(configs, map[string]any{"name": name, "ref": in.Ref, "required": in.Required})
+		changes = append(changes, fmt.Sprintf("added configuration reference %q", name))
+	}
+	m["configurations"] = configs
+	return changes
+}
+
+// addPolicyRefs appends a policies[] entry for each reference.
+func addPolicyRefs(m map[string]any, inputs []PolicyRefInput) []string {
+	if len(inputs) == 0 {
+		return nil
+	}
+	var changes []string
+	policies, _ := m["policies"].([]any)
+	for _, in := range inputs {
+		name := dependencyName(DependencyInput{Name: in.Name, Ref: in.Ref})
+		policies = append(policies, map[string]any{"name": name, "ref": in.Ref})
+		changes = append(changes, fmt.Sprintf("added policy reference %q", name))
+	}
+	m["policies"] = policies
+	return changes
 }
 
 func applyStateEdits(m map[string]any, input EditInput) []string {
@@ -1340,6 +1411,8 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 		Version:  c.Service.Version,
 		Owner:    c.Service.Owner.DisplayString(),
 		Domain:   c.Service.Domain,
+		Offering: c.Service.Offering,
+		Summary:  c.Service.Summary,
 		Workload: c.Workload,
 		Sections: assessSections(c),
 	}
@@ -1487,6 +1560,13 @@ func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
 		})
 	}
 
+	if providerShaped(c) {
+		suggestions = append(suggestions, Suggestion{
+			Message:  "No platform offering declared. If other teams consume this service as a platform offering, set service.offering and service.summary so they can find it.",
+			ToolCall: &ToolCall{Tool: "pacto_edit", Params: map[string]any{"offering": "<offering>", "summary": "<one line>"}},
+		})
+	}
+
 	if team := c.Service.Owner.Team; pactify.OwnerHint(team) != "" {
 		suggestions = append(suggestions, Suggestion{
 			Message:  pactify.OwnerHint(team) + ".",
@@ -1506,6 +1586,14 @@ func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
 	}
 
 	return suggestions
+}
+
+// providerShaped reports whether c declares no offering yet looks like one:
+// no interfaces and no dependencies, but a workload, a configuration or a
+// policy, as a database or a shared configuration bundle does.
+func providerShaped(c *contract.Contract) bool {
+	return c.Service.Offering == "" && len(c.Interfaces) == 0 && len(c.Dependencies) == 0 &&
+		(c.Workload != "" || len(c.Configurations) > 0 || len(c.Policies) > 0)
 }
 
 // ownerWarnings warns about an owner that is not a bare team name.

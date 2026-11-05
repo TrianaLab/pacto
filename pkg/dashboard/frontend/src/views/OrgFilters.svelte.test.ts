@@ -66,12 +66,32 @@ describe('FleetServicesView — Registry, Domain and capability filters', () => 
     expect(target.querySelector('input[aria-label="Filter by registry path"]')?.getAttribute('placeholder')).toBe('exact registry path');
     expect(target.querySelector('[data-testid="svc-search"]')?.getAttribute('aria-label')).toBe('Search services by name, key or registry');
     expect(target.querySelector('[data-testid="svc-domain"]')).toBeTruthy();
-    const opts = Array.from(target.querySelectorAll('select[aria-label="Filter by declared capability"] option')).map((o) => o.textContent);
-    expect(opts).toEqual(['Any capability', 'health (1)', 'metrics (3)']);
+    const opts = Array.from(target.querySelectorAll('select[aria-label="Filter by self-declared capability"] option')).map((o) => o.textContent);
+    expect(opts).toEqual(['Any', 'health (1)', 'metrics (3)']);
+    expect(text).toContain('Declared capability');
     const chips = Array.from(target.querySelectorAll('.chip, [data-testid="filter-chip"]')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
     expect(chips.join(' | ')).toMatch(/Registry/);
     expect(chips.join(' | ')).toMatch(/Domain.*No domain/);
-    expect(chips.join(' | ')).toMatch(/Capability.*health/);
+    expect(chips.join(' | ')).toMatch(/Declared capability.*health/);
+    done();
+  });
+
+  it('filters by platform offering from the aggregate', async () => {
+    entitiesFn.mockResolvedValue(listResp(
+      [{ kind: 'service', key: 'redis', label: 'redis', href: '/fleet/services/redis', offering: 'redis' }],
+      { aggregate: { matched: 1, services: 1, offerings: [{ type: 'shared-config', services: 2 }, { type: 'redis', services: 1 }], offeringCount: 0 } },
+    ));
+    const { target, done } = mountView(FleetServicesView, { offering: 'postgresql' });
+    await vi.waitFor(() => expect(target.querySelectorAll('.sv-item').length).toBe(1));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], offering: 'postgresql' }));
+    const sel = target.querySelector('select[aria-label="Filter by platform offering"]') as HTMLSelectElement;
+    // A selected offering the match no longer holds stays listed, so the select never reads Any.
+    expect(Array.from(sel.options).map((o) => o.textContent)).toEqual(['Any', 'postgresql (0)', 'shared-config (2)', 'redis (1)']);
+    const chips = Array.from(target.querySelectorAll('.chip, [data-testid="filter-chip"]')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
+    expect(chips.join(' | ')).toMatch(/Offering.*postgresql/);
+    sel.value = 'redis';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/services?offering=redis');
     done();
   });
 });

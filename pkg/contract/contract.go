@@ -196,6 +196,11 @@ type Service struct {
 	Owner   Owner  `yaml:"owner,omitempty" json:"owner,omitempty"`
 	// Domain is the business domain the service belongs to (pactoVersion 2.4).
 	Domain string `yaml:"domain,omitempty" json:"domain,omitempty"`
+	// Offering is the kind of platform offering the service provides to other
+	// teams (pactoVersion 2.5).
+	Offering string `yaml:"offering,omitempty" json:"offering,omitempty"`
+	// Summary is a one-line purpose of the service (pactoVersion 2.5).
+	Summary string `yaml:"summary,omitempty" json:"summary,omitempty"`
 }
 
 // Interface describes a service interface declaration.

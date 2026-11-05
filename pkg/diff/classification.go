@@ -33,6 +33,12 @@ var rules = map[classificationKey]Classification{
 	{"service.domain", Added}:            NonBreaking,
 	{"service.domain", Modified}:         NonBreaking,
 	{"service.domain", Removed}:          NonBreaking,
+	{"service.offering", Added}:          NonBreaking,
+	{"service.offering", Modified}:       NonBreaking,
+	{"service.offering", Removed}:        NonBreaking,
+	{"service.summary", Added}:           NonBreaking,
+	{"service.summary", Modified}:        NonBreaking,
+	{"service.summary", Removed}:         NonBreaking,
 
 	// Workload (top-level in v2)
 	{"workload", Modified}: Breaking,

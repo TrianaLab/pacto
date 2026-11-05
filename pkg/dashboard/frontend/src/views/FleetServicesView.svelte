@@ -37,14 +37,14 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
   const order = $derived(sort || 'name');
-  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability || offering));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -69,6 +69,7 @@
     domain: domain || undefined,
     businessDomain: businessDomain || undefined,
     capability: capability || undefined,
+    offering: offering || undefined,
     offset: pageOffset || undefined,
     limit: pageLimit,
     sort: order,
@@ -79,9 +80,9 @@
   // retaining them across a filter change would be showing one query's answer under
   // another query's heading, so `list` is gated on the tag matching. A page turn is the
   // exception: the old page stays, under a "Loading another page" line, until the next lands.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${order}`);
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -109,6 +110,7 @@
       domain: patch.domain ?? domain,
       businessDomain: patch.businessDomain ?? businessDomain,
       capability: patch.capability ?? capability,
+      offering: patch.offering ?? offering,
       offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE),
       sort: (patch.sort ?? sort) || undefined,
@@ -161,7 +163,8 @@
     ownership ? { key: 'ownership', label: 'Ownership', value: bucketLabel(OWNERSHIP_STATES, ownership) } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain) } : null,
-    capability ? { key: 'capability', label: 'Capability', value: capability } : null,
+    capability ? { key: 'capability', label: 'Declared capability', value: capability } : null,
+    offering ? { key: 'offering', label: 'Offering', value: offering } : null,
     domain ? { key: 'domain', label: 'Registry', value: domain } : null,
   ].filter(Boolean));
 
@@ -184,6 +187,12 @@
   const capabilityOptions = $derived.by(() => {
     const opts = (agg?.capabilities ?? []).map((c) => ({ value: c.type, label: `${c.type} (${formatCount(c.services)})` }));
     if (capability && !opts.some((o) => o.value === capability)) opts.unshift({ value: capability, label: `${capability} (0)` });
+    return opts;
+  });
+  // The platform offerings the matched services provide, from the same aggregate.
+  const offeringOptions = $derived.by(() => {
+    const opts = (agg?.offerings ?? []).map((c) => ({ value: c.type, label: `${c.type} (${formatCount(c.services)})` }));
+    if (offering && !opts.some((o) => o.value === offering)) opts.unshift({ value: offering, label: `${offering} (0)` });
     return opts;
   });
 
@@ -313,10 +322,17 @@
       />
     </div>
     <label class="sv-field">
-      <span>Declares capability</span>
-      <select value={capability} aria-label="Filter by declared capability" onchange={(e) => apply({ capability: e.currentTarget.value })}>
-        <option value="">Any capability</option>
+      <span>Declared capability</span>
+      <select value={capability} aria-label="Filter by self-declared capability" onchange={(e) => apply({ capability: e.currentTarget.value })}>
+        <option value="">Any</option>
         {#each capabilityOptions as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+      </select>
+    </label>
+    <label class="sv-field">
+      <span>Offering</span>
+      <select value={offering} aria-label="Filter by platform offering" onchange={(e) => apply({ offering: e.currentTarget.value })}>
+        <option value="">Any</option>
+        {#each offeringOptions as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
       </select>
     </label>
     <label class="sv-field">

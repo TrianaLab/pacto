@@ -16,7 +16,7 @@ broken field can hide the rest.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json` or `pacto-v2.4.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json`, `pacto-v2.4.schema.json` or `pacto-v2.5.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
@@ -33,10 +33,11 @@ instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
 `pactoVersion: "2.2"`. A `"2.0"`, `"2.1"` or `"2.2"` contract that declares
 `environments` reports `NEEDS_PACTO_2_3`: set `pactoVersion: "2.3"`. A `"2.0"`
 to `"2.3"` contract that sets `service.domain` reports `NEEDS_PACTO_2_4`: set
-`pactoVersion: "2.4"`.
+`pactoVersion: "2.4"`. A `"2.0"` to `"2.4"` contract that sets `service.offering`
+or `service.summary` reports `NEEDS_PACTO_2_5`: set `pactoVersion: "2.5"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"` or `"2.3"`, fails before any layer runs and reports
+`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`, fails before any layer runs and reports
 `PARSE_ERROR`. Loading is the parse step that turns `pacto.yaml` into a
 contract. Validation starts once it succeeds.
 

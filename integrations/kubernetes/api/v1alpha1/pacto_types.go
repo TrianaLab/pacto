@@ -347,6 +347,16 @@ type ContractInfo struct {
 	// +optional
 	Domain string `json:"domain,omitempty"`
 
+	// Offering is the platform offering the contract declares
+	// (service.offering, pactoVersion 2.5). Omitted when it declares none.
+	// +optional
+	Offering string `json:"offering,omitempty"`
+
+	// Summary is the one-line purpose the contract declares (service.summary,
+	// pactoVersion 2.5). Omitted when it declares none.
+	// +optional
+	Summary string `json:"summary,omitempty"`
+
 	// Owner contains the structured ownership metadata from the contract
 	// (team, DRI, and contacts).
 	// +optional

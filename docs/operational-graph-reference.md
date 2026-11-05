@@ -262,3 +262,51 @@ Domains are returned only to a query that asks for the `domain` kind.
 The registry path in the service key, such as `ghcr.io/acme`, is a different
 value. The API keeps it as `domain` and the dashboard shows it as Registry. The
 business domain is `businessDomain` in the API.
+
+## Platform offerings
+
+A service's platform offering and summary are the
+[`service.offering`](contract-reference/sections.md#platform-offering) and
+[`service.summary`](contract-reference/sections.md#summary) of its newest valid
+revision, by the rule business domains use. When no revision declares an
+offering, the service takes the one the operator read from the contract each
+target runs (`status.contract.offering` and `status.contract.summary`). When
+those operators report different offerings, the service has none and the graph
+raises an `OFFERING_CONFLICT` limitation. Different summaries leave the summary
+empty and raise no limitation.
+
+Each distinct offering is an `offering` entity. The `offering` filter keeps the
+services that provide it. Offerings are returned only to a query that asks for
+the `offering` kind.
+
+An offering's detail lists its providers and its consumers:
+
+- each provider with its owner, summary, current revision, versions,
+  interfaces, configuration and policies, at most 25 providers with the true
+  total;
+- each consumer that reaches a provider through a dependency, a configuration
+  reference or a policy reference, with the range status of a dependency.
+
+Each provider carries a consume snippet to add to a contract, built from its
+newest revision:
+
+- a `dependencies` entry when the provider declares a workload or an interface,
+  with `compatibility` set to the widest caret range that admits the newest
+  version: `^<major>.0.0`, `^0.<minor>.0` for a 0.x version or the version
+  itself for a prerelease. A version that is not semver gets an empty
+  `compatibility` to fill in;
+- a `configurations` entry named after the provider when the provider declares
+  a required configuration;
+- a `policies` entry named after the provider when the provider declares a
+  policy or ships `policy/schema.json`, and neither entry above applies.
+
+The `ref` is the provider's registry repository without a tag or digest. A
+provider that is not published to a registry has no snippet.
+
+A service's detail lists the offerings it consumes (`consumedOfferings`) and,
+separately, inferred suggestions (`inferredOfferings`). A suggestion is an
+external or unresolved dependency whose name exactly matches an offering or a
+provider's name, ignoring case. Suggestions are never counted as consumption.
+
+The `capability` filter and facet count each declared capability by its key:
+`health`, `metrics` or, for an extension, its ref, such as `acme.io/cost`.

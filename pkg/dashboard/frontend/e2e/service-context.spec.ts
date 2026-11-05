@@ -31,11 +31,12 @@ test.describe('WASM demo — service context', () => {
   test('the service page states every fact, including the missing ones', async ({ page }) => {
     await openPaymentsService(page);
 
-    for (const id of ['service-domain', 'service-owner', 'service-contract', 'service-capabilities', 'service-sources']) {
+    for (const id of ['service-domain', 'service-owner', 'service-contract', 'service-offerings-used', 'service-capabilities', 'service-sources']) {
       await expect(page.getByTestId(id)).toBeVisible();
     }
     await expect(page.getByTestId('service-contract').locator('a.entity-link')).toHaveAttribute('href', /\/fleet\/revisions\/.*payments-service/);
     await expect(page.getByTestId('service-sources')).toContainText('k8s-production');
+    await expect(page.getByTestId('service-offerings-used').locator('a.se-chip', { hasText: /^postgresql$/ })).toHaveAttribute('href', /\/fleet\/offerings\/postgresql$/);
 
     // Every operational target names its environment or says it is unknown.
     const targets = page.getByTestId('service-targets').locator('li.ref-row');

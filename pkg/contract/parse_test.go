@@ -476,3 +476,10 @@ func TestParse_Version24(t *testing.T) {
 		t.Fatalf("2.4: %v %v", c, err)
 	}
 }
+
+func TestParse_Version25(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader("pactoVersion: \"2.5\"\nservice: {name: svc, version: 1.0.0, offering: postgresql, summary: Primary database}\n"))
+	if err != nil || c.PactoVersion != "2.5" || c.Service.Offering != "postgresql" || c.Service.Summary != "Primary database" {
+		t.Fatalf("2.5: %v %v", c, err)
+	}
+}

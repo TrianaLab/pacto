@@ -1158,7 +1158,9 @@ export interface components {
         "Contract.Service": {
             domain?: string;
             name: string;
+            offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
+            summary?: string;
             version: string;
         };
         "Contract.State": {
@@ -1698,11 +1700,6 @@ export interface components {
             path?: string;
             type?: string;
         };
-        "Fleet.CapabilityCount": {
-            /** Format: int64 */
-            services: number;
-            type: string;
-        };
         "Fleet.CapabilitySummary": {
             binding?: components["schemas"]["Fleet.CapabilityBindingSummary"];
             ref?: string;
@@ -1725,6 +1722,14 @@ export interface components {
             unknown: number;
             /** Format: int64 */
             warning: number;
+        };
+        "Fleet.ConsumeSnippet": {
+            compatibility?: string;
+            configuration: boolean;
+            dependency: boolean;
+            policy: boolean;
+            ref: string;
+            yaml: string;
         };
         "Fleet.ContactsPreview": {
             /** Format: int64 */
@@ -1833,7 +1838,7 @@ export interface components {
             /** Format: int64 */
             beyondRanking?: number;
             byOwner?: components["schemas"]["Fleet.OwnerCount"][] | null;
-            capabilities?: components["schemas"]["Fleet.CapabilityCount"][] | null;
+            capabilities?: components["schemas"]["Fleet.TypeCount"][] | null;
             /** Format: int64 */
             capabilityTypes?: number;
             /** Format: int64 */
@@ -1842,6 +1847,11 @@ export interface components {
             domains: number;
             /** Format: int64 */
             matched: number;
+            /** Format: int64 */
+            offeringCount: number;
+            /** Format: int64 */
+            offeringTypes?: number;
+            offerings?: components["schemas"]["Fleet.TypeCount"][] | null;
             /** Format: int64 */
             owners: number;
             ownership: components["schemas"]["Fleet.OwnershipTally"];
@@ -2376,11 +2386,13 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
+            offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
             /** Format: int64 */
             revisionCount: number;
             sources?: string[] | null;
             status?: string;
+            summary?: string;
             /** Format: int64 */
             targetCount: number;
         };
@@ -2397,10 +2409,12 @@ export interface components {
                 [key: string]: string;
             };
             name: string;
+            offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
             revisions?: string[] | null;
             sources?: string[] | null;
             status?: string;
+            summary?: string;
             targets?: string[] | null;
         };
         "Fleet.ServiceSummary": {
@@ -2589,6 +2603,11 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.TypeCount": {
+            /** Format: int64 */
+            services: number;
+            type: string;
         };
         "Fleet.UncontractedCaller": {
             ambiguous?: boolean;
@@ -3092,6 +3111,7 @@ export interface components {
             domain?: components["schemas"]["ProductDomainDetail"];
             entity: components["schemas"]["ProductRef"];
             meta: components["schemas"]["Fleet.ProductMeta"];
+            offering?: components["schemas"]["ProductOfferingDetail"];
             owner?: components["schemas"]["ProductOwnerDetail"];
             revision?: components["schemas"]["ProductRevisionDetail"];
             service?: components["schemas"]["ProductServiceDetail"];
@@ -3189,6 +3209,13 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductInferredOffering: {
+            offering: components["schemas"]["ProductRef"];
+            provider?: components["schemas"]["ProductRef"];
+            /** @enum {string} */
+            reason: "offering-name" | "provider-name";
+            ref: string;
+        };
         ProductNeighborhood: {
             /** Format: int64 */
             depth: number;
@@ -3229,6 +3256,48 @@ export interface components {
             ref: components["schemas"]["ProductRef"];
             revisionState?: string;
             status?: string;
+        };
+        ProductOfferingDetail: {
+            consumers: components["schemas"]["ProductOfferingUsesPreview"];
+            providers: components["schemas"]["ProductOfferingProvidersPreview"];
+        };
+        ProductOfferingProvider: {
+            activeRevisions: components["schemas"]["ProductRefPreview"];
+            configurations: components["schemas"]["ProductConfigurationsPreview"];
+            consume?: components["schemas"]["Fleet.ConsumeSnippet"];
+            currentRevision?: components["schemas"]["ProductRef"];
+            interfaces: components["schemas"]["Fleet.InterfacesPreview"];
+            ownership?: components["schemas"]["ProductOwnership"];
+            policies: components["schemas"]["ProductPoliciesPreview"];
+            revisions: components["schemas"]["ProductRefPreview"];
+            service: components["schemas"]["ProductRef"];
+            summary?: string;
+        };
+        ProductOfferingProvidersPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductOfferingProvider"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        ProductOfferingUse: {
+            compatibility?: string;
+            consumer: components["schemas"]["ProductRef"];
+            offering: string;
+            provider: components["schemas"]["ProductRef"];
+            /** @enum {string} */
+            rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
+            /** @enum {string} */
+            via: "dependency" | "configuration_reference" | "policy_reference";
+        };
+        ProductOfferingUsesPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductOfferingUse"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
         };
         ProductOverview: {
             attention: components["schemas"]["ProductAttentionPreview"];
@@ -3279,8 +3348,9 @@ export interface components {
             href: string;
             key: string;
             /** @enum {string} */
-            kind: "service" | "revision" | "target" | "owner" | "source" | "domain";
+            kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
+            offering?: string;
             owner?: string;
             parentService?: string;
             scope?: string;
@@ -3288,6 +3358,7 @@ export interface components {
             /** Format: int64 */
             services?: number;
             status?: string;
+            summary?: string;
             /** Format: int64 */
             targets?: number;
             version?: string;
@@ -3371,6 +3442,7 @@ export interface components {
             activeRevisions: components["schemas"]["ProductRefPreview"];
             capabilities: components["schemas"]["Fleet.StringsPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
+            consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
             currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];
             dependents: components["schemas"]["ProductRefPreview"];
@@ -3382,6 +3454,7 @@ export interface components {
             hiddenDependencies?: number;
             /** Format: int64 */
             hiddenDependents?: number;
+            inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
@@ -3686,6 +3759,7 @@ export interface components {
             name: string;
             namespace?: string;
             observedRuntime?: components["schemas"]["ObservedRuntime"];
+            offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
             policies?: components["schemas"]["PolicyInfo"][] | null;
             readiness?: components["schemas"]["ReadinessInfo"];
@@ -3697,6 +3771,7 @@ export interface components {
             sources?: string[] | null;
             stages?: components["schemas"]["Fleet.ValidationStage"][] | null;
             state?: components["schemas"]["StateInfo"];
+            summary?: string;
             tools?: components["schemas"]["CapabilityTool"][] | null;
             validation?: components["schemas"]["ValidationInfo"];
             version: string;
@@ -3725,10 +3800,12 @@ export interface components {
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             name: string;
             namespace?: string;
+            offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
             readiness?: components["schemas"]["ReadinessInfo"];
             source: string;
             sources?: string[] | null;
+            summary?: string;
             topInsight?: string;
             updateAvailable?: boolean;
             version: string;
@@ -5151,8 +5228,8 @@ export interface operations {
         parameters: {
             query?: {
                 text?: string;
-                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain) */
-                kinds?: ("service" | "revision" | "target" | "owner" | "source" | "domain")[] | null;
+                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain). An offering is a platform offering (service.offering) */
+                kinds?: ("service" | "revision" | "target" | "owner" | "source" | "domain" | "offering")[] | null;
                 /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
                 /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
@@ -5163,8 +5240,10 @@ export interface operations {
                 businessDomain?: string;
                 /** @description Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities) */
                 environment?: string;
-                /** @description Capability type a service's revisions declare (service entities) */
+                /** @description Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost */
                 capability?: string;
+                /** @description Exact platform offering (service.offering) a service provides (service and offering entities) */
+                offering?: string;
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
@@ -5217,7 +5296,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description Entity kind: service, revision, target, owner, source or domain */
+                /** @description Entity kind: service, revision, target, owner, source, domain or offering */
                 kind: string;
             };
             cookie?: never;

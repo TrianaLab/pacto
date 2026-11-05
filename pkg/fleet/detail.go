@@ -1,10 +1,13 @@
 package fleet
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -340,6 +343,12 @@ type ServiceDetailData struct {
 	// Dependencies and HiddenDependencies they add up to
 	// Summary.DeclaredDependencies.
 	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`
+	// ConsumedOfferings are the platform offerings the service consumes: its
+	// declared dependencies and references that resolve to a provider.
+	ConsumedOfferings OfferingUsesPreview `json:"consumedOfferings"`
+	// InferredOfferings are suggestions, never declared consumption: an external or
+	// unresolved dependency whose name equals an offering or a provider's name.
+	InferredOfferings []InferredOffering `json:"inferredOfferings"`
 	// CurrentRevision is the newest revision in use (see [lessRevisionChrono]),
 	// else the newest known one; nil when the service has no revision.
 	// Policies and Configurations are what it declares, with local schema
@@ -527,6 +536,90 @@ type DomainDetailData struct {
 	Attention   AttentionPreview `json:"attention"`
 }
 
+// OfferingUse is one service consuming a provider of a platform offering, by a
+// declared dependency or a configuration or policy reference. Compatibility and
+// RangeStatus are the relationship's own, merged over the consumer's revisions:
+// Compatibility is empty and RangeStatus unknown when they disagree.
+type OfferingUse struct {
+	Offering      string    `json:"offering"`
+	Consumer      EntityRef `json:"consumer"`
+	Provider      EntityRef `json:"provider"`
+	Via           string    `json:"via" enum:"dependency,configuration_reference,policy_reference"`
+	Compatibility string    `json:"compatibility,omitempty"`
+	RangeStatus   string    `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
+}
+
+// OfferingUsesPreview is a bounded preview of offering uses.
+type OfferingUsesPreview struct {
+	Total     int           `json:"total"`
+	Count     int           `json:"count"`
+	Truncated bool          `json:"truncated"`
+	Items     []OfferingUse `json:"items"`
+}
+
+func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
+	it, total, trunc := boundSlice(uses, MaxDetailPreview)
+	return OfferingUsesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+}
+
+// ConsumeSnippet is the contract YAML a service adds to consume a provider of a
+// platform offering, rendered once so every surface shows the same text.
+// Dependency, Configuration and Policy say which blocks YAML holds.
+type ConsumeSnippet struct {
+	Ref           string `json:"ref"`
+	Compatibility string `json:"compatibility,omitempty"`
+	Dependency    bool   `json:"dependency"`
+	Configuration bool   `json:"configuration"`
+	Policy        bool   `json:"policy"`
+	YAML          string `json:"yaml"`
+}
+
+// InferredOffering suggests the offering an external or unresolved dependency
+// may be: its name equals the offering (offering-name) or the name of a service
+// that provides it (provider-name, with Provider set).
+type InferredOffering struct {
+	// Ref is the UnresolvedDependency.Ref it was matched from.
+	Ref      string     `json:"ref"`
+	Offering EntityRef  `json:"offering"`
+	Provider *EntityRef `json:"provider,omitempty"`
+	Reason   string     `json:"reason" enum:"offering-name,provider-name"`
+}
+
+// OfferingProvider is one service providing a platform offering: who owns it,
+// its versions, what its current revision declares and how to consume it.
+// Consume is nil when the provider has no OCI reference to consume.
+type OfferingProvider struct {
+	Service         EntityRef             `json:"service"`
+	Ownership       *OwnershipInfo        `json:"ownership,omitempty"`
+	Summary         string                `json:"summary,omitempty"`
+	CurrentRevision *EntityRef            `json:"currentRevision,omitempty"`
+	Revisions       RefPreview            `json:"revisions"`
+	ActiveRevisions RefPreview            `json:"activeRevisions"`
+	Interfaces      InterfacesPreview     `json:"interfaces"`
+	Configurations  ConfigurationsPreview `json:"configurations"`
+	Policies        PoliciesPreview       `json:"policies"`
+	Consume         *ConsumeSnippet       `json:"consume,omitempty"`
+}
+
+// OfferingProvidersPreview is a bounded preview of offering providers.
+type OfferingProvidersPreview struct {
+	Total     int                `json:"total"`
+	Count     int                `json:"count"`
+	Truncated bool               `json:"truncated"`
+	Items     []OfferingProvider `json:"items"`
+}
+
+// MaxOfferingProviders bounds OfferingDetailData.Providers.
+const MaxOfferingProviders = 25
+
+// OfferingDetailData is the offering-kind payload: the services that provide a
+// platform offering (see ServiceRecord.Offering) and the services that consume
+// them.
+type OfferingDetailData struct {
+	Providers OfferingProvidersPreview `json:"providers"`
+	Consumers OfferingUsesPreview      `json:"consumers"`
+}
+
 // SourceContribution counts the DISTINCT product entities attributable to one
 // source, per kind, over the COMPLETE attributable population — never over the
 // bounded [SourceDetailData.Entities] preview.
@@ -590,6 +683,7 @@ type EntityDetail struct {
 	Owner    *OwnerDetailData    `json:"owner,omitempty"`
 	Source   *SourceDetailData   `json:"source,omitempty"`
 	Domain   *DomainDetailData   `json:"domain,omitempty"`
+	Offering *OfferingDetailData `json:"offering,omitempty"`
 	Actions  []string            `json:"actions,omitempty"`
 }
 
@@ -621,6 +715,8 @@ func (q *Query) entityDetail(kind EntityKind, key string) (*EntityDetail, error)
 		return q.sourceDetail(key)
 	case KindDomain:
 		return q.domainDetail(key)
+	case KindOffering:
+		return q.offeringDetail(key)
 	default:
 		return nil, &InvalidQueryError{Field: "kind", Value: string(kind), Reason: "not a known entity kind"}
 	}
@@ -647,13 +743,16 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	nb, nbErr := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()})
 	rels, nbLims := serviceRelationships(nb, nbErr, self)
 	current, cfgs, pols := q.currentRevisionContent(active, view.Revisions)
+	unresolved := unresolvedDependencyItems(self, view.Dependencies)
 	data := &ServiceDetailData{
 		Domain:                 s.Domain,
 		Ownership:              ownership,
 		OwnerRevision:          q.ownerRevision(s),
 		Capabilities:           stringsPreview(slices.DeleteFunc(q.serviceCapabilities(s), func(c string) bool { return c == "" })),
 		Sources:                refPreview(q.serviceSources(view)),
-		UnresolvedDependencies: unresolvedDependencyItems(self, view.Dependencies),
+		UnresolvedDependencies: unresolved,
+		ConsumedOfferings:      offeringUsesPreview(q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)),
+		InferredOfferings:      q.inferredOfferings(unresolved.Items),
 		CurrentRevision:        current,
 		Policies:               pols,
 		Configurations:         cfgs,
@@ -887,6 +986,150 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 			Attention:   attentionPreviewFromList(attention),
 		},
 	}, nil
+}
+
+// offeringDetail is one platform offering: its providers, bounded, and the
+// services that consume any of them. No offering has no page.
+func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
+	var providers []EntityRef
+	for _, s := range q.snap.Services {
+		if key != "" && s.Offering == key {
+			providers = append(providers, serviceEntityRef(s))
+		}
+	}
+	if len(providers) == 0 {
+		return nil, &NotFoundError{Kind: "offering", ID: key}
+	}
+	sortEntityRefs(providers)
+	shown, total, trunc := boundSlice(providers, MaxOfferingProviders)
+	items := make([]OfferingProvider, 0, len(shown))
+	for _, ref := range shown {
+		items = append(items, q.offeringProvider(q.snap.Services[ServiceKey(ref.Key)]))
+	}
+	uses := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == key }, "")
+	return &EntityDetail{
+		Meta: q.productMeta(), Entity: offeringEntityRef(key),
+		Offering: &OfferingDetailData{
+			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
+			Consumers: offeringUsesPreview(uses),
+		},
+	}, nil
+}
+
+// offeringProvider projects one provider of an offering from the snapshot.
+func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
+	inUse := map[RevisionKey]bool{}
+	for _, tk := range s.Targets {
+		inUse[q.snap.Targets[tk].ContractRevision] = true
+	}
+	var all, active []*ContractRevision
+	var newest *ContractRevision
+	for _, rk := range s.Revisions {
+		r := q.snap.Revisions[rk]
+		all = append(all, r)
+		if inUse[rk] {
+			active = append(active, r)
+		}
+		if readableRevision(r) && (newest == nil || lessRevisionChrono(newest, r)) {
+			newest = r
+		}
+	}
+	current, cfgs, pols := q.currentRevisionContent(active, all)
+	p := OfferingProvider{
+		Service: serviceEntityRef(s), Ownership: serviceOwnership(s, all), Summary: s.Summary, CurrentRevision: current,
+		Revisions: refPreview(chronologicalRevisionRefs(all)), ActiveRevisions: refPreview(chronologicalRevisionRefs(active)),
+		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
+		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(s, newest),
+	}
+	if current != nil {
+		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {
+			p.Interfaces = interfacesPreview(rec.Contract.Interfaces, rec.Tools, rec.SpecsRead, q.snap.GeneratedAt)
+		}
+	}
+	return p
+}
+
+// offeringUses is every service consuming a provider match accepts, from one
+// consumer when from is set: one row per consumer, provider and relationship
+// type, over every revision. Revisions that disagree on the range status make
+// it unknown.
+func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) []OfferingUse {
+	type useKey struct {
+		consumer, provider ServiceKey
+		via                string
+	}
+	seen := map[useKey]int{}
+	var uses []OfferingUse
+	for i := range q.snap.Relationships {
+		rel := &q.snap.Relationships[i]
+		if !offeringRelationship(rel, from) {
+			continue
+		}
+		p := q.snap.Services[rel.ToService]
+		if p == nil || p.Offering == "" || !match(p) {
+			continue
+		}
+		k := useKey{rel.FromService, rel.ToService, rel.Type}
+		if j, ok := seen[k]; ok {
+			u := &uses[j]
+			if u.RangeStatus == "" {
+				u.RangeStatus = rel.RangeStatus
+			} else if rel.RangeStatus != "" && rel.RangeStatus != u.RangeStatus {
+				u.RangeStatus = RangeUnknown
+			}
+			if rel.Compatibility != u.Compatibility {
+				u.Compatibility = ""
+			}
+			continue
+		}
+		seen[k] = len(uses)
+		uses = append(uses, OfferingUse{
+			Offering: p.Offering, Consumer: q.serviceRef(rel.FromService), Provider: serviceEntityRef(p),
+			Via: rel.Type, Compatibility: rel.Compatibility, RangeStatus: rel.RangeStatus,
+		})
+	}
+	slices.SortStableFunc(uses, func(a, b OfferingUse) int {
+		return cmp.Or(cmp.Compare(a.Consumer.Key, b.Consumer.Key), cmp.Compare(a.Provider.Key, b.Provider.Key), cmp.Compare(a.Via, b.Via))
+	})
+	return uses
+}
+
+// inferredOfferings suggests an offering for each unresolved dependency whose
+// name, the last segment of its ref, equals an offering or, failing that, the
+// name of a provider, compared case-insensitively. A partial match is no match.
+func (q *Query) inferredOfferings(unresolved []UnresolvedDependency) []InferredOffering {
+	out := []InferredOffering{}
+	if len(unresolved) == 0 {
+		return out
+	}
+	offerings, providers := map[string]bool{}, map[string]*ServiceRecord{}
+	for _, k := range slices.Sorted(maps.Keys(q.snap.Services)) {
+		if s := q.snap.Services[k]; s.Offering != "" {
+			offerings[s.Offering] = true
+			if lower := strings.ToLower(s.Name); providers[lower] == nil {
+				providers[lower] = s
+			}
+		}
+	}
+	// ponytail: bounded by the unresolved preview.
+	for _, u := range unresolved {
+		repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(cmp.Or(u.RequestedRef, u.Ref)))
+		name := strings.ToLower(path.Base(repo))
+		switch p := providers[name]; {
+		case offerings[name]:
+			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(name), Reason: "offering-name"})
+		case p != nil:
+			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(p.Offering), Provider: new(serviceEntityRef(p)), Reason: "provider-name"})
+		}
+	}
+	return out
+}
+
+// offeringRelationship reports whether rel can consume an offering: a declared,
+// resolved and visible dependency or configuration or policy reference to
+// another service, from from when it is set. An observed call is no declared use.
+func offeringRelationship(rel *Relationship, from ServiceKey) bool {
+	return rel.Provenance == ProvenanceDeclared && rel.Resolved && !rel.Hidden && rel.ToService != rel.FromService && (from == "" || rel.FromService == from)
 }
 
 func (q *Query) sourceDetail(key string) (*EntityDetail, error) {

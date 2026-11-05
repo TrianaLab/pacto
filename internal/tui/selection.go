@@ -102,14 +102,15 @@ func bundleRef(id fleet.RevisionIdentity) (ref string, local bool) {
 // resolveSelection turns a list row into a runnable selection. A revision
 // resolves directly; a service resolves through its first active revision,
 // which is what the CLI would have picked; a target resolves through the
-// revision it is running; an owner, a source or a domain has no bundle at all.
+// revision it is running; an owner, a source, a domain or an offering has no
+// bundle at all.
 func resolveSelection(c *Context, ref fleet.EntityRef) (Selection, error) {
 	sel := Selection{
 		Kind: ref.Kind, Key: ref.Key, Label: ref.Label,
 		Version: ref.Version, ParentService: ref.ParentService,
 	}
 	switch ref.Kind {
-	case fleet.KindOwner, fleet.KindSource, fleet.KindDomain:
+	case fleet.KindOwner, fleet.KindSource, fleet.KindDomain, fleet.KindOffering:
 		return sel, nil
 	}
 	det, err := requireDetail(c.Query.EntityDetail(ref.Kind, ref.Key))

@@ -14,7 +14,7 @@ pacto fleet search --local examples/demo/bundles
   carrier-gateway              NotEvaluated owner=logistics-team revs=2 targets=0
   catalog-service              NotEvaluated owner=catalog-team   revs=4 targets=0
   email-provider               NotEvaluated owner=-              revs=1 targets=0
-  event-bus                    NotEvaluated owner=data-platform  revs=2 targets=0
+  event-bus                    NotEvaluated owner=data-platform  revs=3 targets=0
   experiment-service           NotEvaluated owner=growth-team    revs=1 targets=0
   feature-store                NotEvaluated owner=data-platform  revs=1 targets=0
   fraud-service                NotEvaluated owner=payments-team  revs=2 targets=0
@@ -26,13 +26,13 @@ pacto fleet search --local examples/demo/bundles
   orders-service               NotEvaluated owner=commerce-team  revs=4 targets=0
   pacto-demo                   NotEvaluated owner=platform-foundations revs=1 targets=0
   payments-service             NotEvaluated owner=payments-team  revs=7 targets=0
-  platform-app-config          NotEvaluated owner=platform-foundations revs=1 targets=0
-  platform-http-policy         NotEvaluated owner=platform-foundations revs=1 targets=0
-  platform-worker-config       NotEvaluated owner=platform-foundations revs=1 targets=0
-  postgresql                   NotEvaluated owner=infra-data     revs=1 targets=0
+  platform-app-config          NotEvaluated owner=platform-foundations revs=2 targets=0
+  platform-http-policy         NotEvaluated owner=platform-foundations revs=2 targets=0
+  platform-worker-config       NotEvaluated owner=platform-foundations revs=2 targets=0
+  postgresql                   NotEvaluated owner=infra-data     revs=2 targets=0
   pricing-service              NotEvaluated owner=catalog-team   revs=2 targets=0
   recommendations              NotEvaluated owner=growth-team    revs=2 targets=0
-  redis                        NotEvaluated owner=infra-data     revs=1 targets=0
+  redis                        NotEvaluated owner=infra-data     revs=2 targets=0
   reporting-api                NotEvaluated owner=data-platform  revs=1 targets=0
   returns-service              NotEvaluated owner=logistics-team revs=2 targets=0
   search-indexer               NotEvaluated owner=catalog-team   revs=1 targets=0

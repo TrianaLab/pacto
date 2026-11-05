@@ -174,6 +174,7 @@ export type ServiceEntityDetail = Detail & {
   owner?: never;
   source?: never;
   domain?: never;
+  offering?: never;
 };
 export type RevisionEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'revision' };
@@ -183,6 +184,7 @@ export type RevisionEntityDetail = Detail & {
   owner?: never;
   source?: never;
   domain?: never;
+  offering?: never;
 };
 export type TargetEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'target' };
@@ -192,6 +194,7 @@ export type TargetEntityDetail = Detail & {
   owner?: never;
   source?: never;
   domain?: never;
+  offering?: never;
 };
 export type OwnerEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'owner' };
@@ -201,6 +204,7 @@ export type OwnerEntityDetail = Detail & {
   target?: never;
   source?: never;
   domain?: never;
+  offering?: never;
 };
 export type SourceEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'source' };
@@ -210,6 +214,7 @@ export type SourceEntityDetail = Detail & {
   target?: never;
   owner?: never;
   domain?: never;
+  offering?: never;
 };
 export type DomainEntityDetail = Detail & {
   entity: DetailEntity & { kind: 'domain' };
@@ -219,6 +224,17 @@ export type DomainEntityDetail = Detail & {
   target?: never;
   owner?: never;
   source?: never;
+  offering?: never;
+};
+export type OfferingEntityDetail = Detail & {
+  entity: DetailEntity & { kind: 'offering' };
+  offering: NonNullable<Detail['offering']>;
+  service?: never;
+  revision?: never;
+  target?: never;
+  owner?: never;
+  source?: never;
+  domain?: never;
 };
 
 /** NarrowedEntityDetail is the discriminated view of a ProductEntityDetail. */
@@ -228,7 +244,8 @@ export type NarrowedEntityDetail =
   | TargetEntityDetail
   | OwnerEntityDetail
   | SourceEntityDetail
-  | DomainEntityDetail;
+  | DomainEntityDetail
+  | OfferingEntityDetail;
 
 export const isServiceDetail = (d: ProductEntityDetail): d is ServiceEntityDetail =>
   d.entity?.kind === 'service';
@@ -242,10 +259,12 @@ export const isSourceDetail = (d: ProductEntityDetail): d is SourceEntityDetail 
   d.entity?.kind === 'source';
 export const isDomainDetail = (d: ProductEntityDetail): d is DomainEntityDetail =>
   d.entity?.kind === 'domain';
+export const isOfferingDetail = (d: ProductEntityDetail): d is OfferingEntityDetail =>
+  d.entity?.kind === 'offering';
 
 // DETAIL_KINDS is the closed set of entity-detail payload discriminants; it doubles
 // as the payload-field names (each kind's payload lives under the same key).
-const DETAIL_KINDS = ['service', 'revision', 'target', 'owner', 'source', 'domain'] as const;
+const DETAIL_KINDS = ['service', 'revision', 'target', 'owner', 'source', 'domain', 'offering'] as const;
 
 /**
  * narrowEntityDetail validates the runtime invariant the generated broad shape

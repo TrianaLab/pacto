@@ -264,3 +264,17 @@ func TestExplain_Domain(t *testing.T) {
 		t.Errorf("Domain = %q", result.Domain)
 	}
 }
+
+func TestExplain_OfferingAndSummary(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\n  offering: postgresql\n  summary: Primary database\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Offering != "postgresql" || result.Summary != "Primary database" {
+		t.Errorf("Offering = %q, Summary = %q", result.Offering, result.Summary)
+	}
+}

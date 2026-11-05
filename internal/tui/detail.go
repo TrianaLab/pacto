@@ -99,6 +99,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 	switch {
 	case d.Service != nil:
 		field(&b, "domain", businessDomainText(d.Entity))
+		field(&b, "offering", d.Entity.Offering)
 		renderServiceDetail(&b, d.Service)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
@@ -110,6 +111,8 @@ func renderDetail(d *fleet.EntityDetail) string {
 		renderSourceDetail(&b, d.Source)
 	case d.Domain != nil:
 		renderDomainDetail(&b, d.Domain)
+	case d.Offering != nil:
+		renderOfferingDetail(&b, d.Offering)
 	default:
 		return warnStyle.Render("the fleet returned a detail envelope with no payload")
 	}
@@ -305,6 +308,36 @@ func renderDomainDetail(b *strings.Builder, d *fleet.DomainDetailData) {
 	field(b, "owners", fmt.Sprintf("%d", d.Owners.Total))
 	field(b, "no owner", fmt.Sprintf("%d", d.Ownership.Unowned))
 	renderOwnerDetail(b, &fleet.OwnerDetailData{Summary: d.Summary, Services: d.Services, Attention: d.Attention})
+}
+
+// renderOfferingDetail lists the services that provide an offering, with the
+// owner, versions and ref to consume each, and the services that consume them.
+func renderOfferingDetail(b *strings.Builder, o *fleet.OfferingDetailData) {
+	section(b, fmt.Sprintf("Providers (%d)", o.Providers.Total))
+	for _, p := range o.Providers.Items {
+		fmt.Fprintf(b, "  %s\n", safeText(p.Service.Label))
+		if p.Ownership != nil {
+			field(b, "  owner", p.Ownership.Owner)
+		}
+		versions := make([]string, 0, len(p.Revisions.Items))
+		for _, r := range p.Revisions.Items {
+			versions = append(versions, r.Label)
+		}
+		field(b, "  versions", strings.Join(versions, ", "))
+		if p.Consume != nil {
+			field(b, "  consume", p.Consume.Ref)
+		}
+	}
+	if o.Providers.Truncated {
+		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", o.Providers.Total-len(o.Providers.Items))) + "\n")
+	}
+	section(b, fmt.Sprintf("Consumers (%d)", o.Consumers.Total))
+	for _, u := range o.Consumers.Items {
+		fmt.Fprintf(b, "  %s -> %s\n", safeText(u.Consumer.Label), safeText(u.Provider.Label))
+	}
+	if o.Consumers.Truncated {
+		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", o.Consumers.Total-len(o.Consumers.Items))) + "\n")
+	}
 }
 
 func renderSourceDetail(b *strings.Builder, s *fleet.SourceDetailData) {

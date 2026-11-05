@@ -113,7 +113,7 @@
   .page-hd-title-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
   .page-hd-title-row :global(h1) { margin: 0; }
   .page-hd-count { font-variant-numeric: tabular-nums; }
-  .page-hd-sub { margin: 0; max-width: 72ch; }
+  .page-hd-sub { margin: 0; max-width: 72ch; overflow-wrap: anywhere; }
   /* Tint only: the word swaps between "Checking for changes" and an age on every poll,
      and a line that also slid or faded would be the busiest thing on a quiet page. */
   .page-hd-age { margin: 0; color: var(--c-text-3); transition: var(--motion-flip); transition-property: color; }

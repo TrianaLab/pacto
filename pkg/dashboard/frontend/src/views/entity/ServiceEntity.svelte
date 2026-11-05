@@ -1,9 +1,10 @@
 <script>
-  import { fleetGraphFocusUrl, fleetEntityListUrl, fleetAttentionUrl, fleetServicesUrl } from '../../lib/router.ts';
+  import { fleetGraphFocusUrl, fleetEntityListUrl, fleetAttentionUrl, fleetServicesUrl, fleetEntityUrl } from '../../lib/router.ts';
   import { abbreviateDigests } from '../../lib/format.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
+  import HelpTip from '../../components/HelpTip.svelte';
   import { businessDomainLabel, UNKNOWN_DOMAIN } from '../../lib/entityLabels.ts';
   import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
@@ -63,6 +64,12 @@
   );
   const caps = $derived(d.capabilities ?? { items: [], total: 0, count: 0 });
   const unresolved = $derived(d.unresolvedDependencies?.items ?? []);
+  const provides = $derived(detail.entity?.offering ?? '');
+  const used = $derived(d.consumedOfferings ?? { items: [], total: 0, count: 0 });
+  // Suggestions matched by name only, keyed by the unresolved ref they came from. They
+  // never join the offerings this service declares that it uses.
+  const inferred = $derived(new Map((d.inferredOfferings ?? []).map((s) => [s.ref, s])));
+  const RANGE_TONE = { satisfied: 'ok', unsatisfied: 'warn', unknown: 'neutral' };
   const findings = $derived((d.findings?.items ?? []).map((it) => (it.entity ? { ...it, entity: inService(it.entity, self) } : it)));
 
   const sum = $derived(d.summary ?? {});
@@ -137,8 +144,33 @@
         <span class="se-none">No known revision</span>
       {/if}
     </div>
+    {#if provides}
+      <div class="se-fact" data-testid="service-offering">
+        <span class="se-k">Provides</span>
+        <EntityLink ref={{ kind: 'offering', key: provides, label: provides }} showStatus={false} showKind={false} />
+      </div>
+    {/if}
+    <div class="se-fact" data-testid="service-offerings-used">
+      <span class="se-k">Platform offerings used</span>
+      {#if (used.items ?? []).length}
+        <ul class="se-chips">
+          {#each used.items as u, ui (`${u.offering}:${u.provider?.key}:${u.via}:${ui}`)}
+            <li class="se-use">
+              <a class="se-chip" href={fleetEntityUrl('offering', u.offering)}>{u.offering}</a>
+              <span class="se-note">from {u.provider?.label ?? u.provider?.key}</span>
+              {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
+            </li>
+          {/each}
+          {#if used.truncated}<li class="se-note">+{(used.total ?? 0) - (used.count ?? 0)} more</li>{/if}
+        </ul>
+      {:else}
+        <span class="se-none">None resolved</span>
+        <span class="se-note">Unresolved references are not counted</span>
+      {/if}
+    </div>
     <div class="se-fact" data-testid="service-capabilities">
-      <span class="se-k">Capabilities</span>
+      <span class="se-k">Declared capabilities</span>
+      <HelpTip label="Declared capabilities" text="Health, metrics and extension assertions this service's contract makes about itself." />
       {#if (caps.items ?? []).length}
         <ul class="se-chips">
           {#each caps.items as c (c)}<li><a class="se-chip" href={fleetServicesUrl({ capability: c })}>{c}</a></li>{/each}
@@ -294,6 +326,11 @@
                 {:else}
                   <IdentityBadge label="unresolved" tone="warn" title={u.reason || ''} describe />{' '}<code>{u.requestedRef || u.ref}</code>
                 {/if}
+                {#if inferred.get(u.ref)}
+                  {@const s = inferred.get(u.ref)}
+                  {' '}<IdentityBadge label="inferred" tone="neutral" title="Matched by name only; the contract does not declare it" describe />
+                  {' '}<a href={fleetEntityUrl('offering', s.offering?.key)} data-testid="inferred-offering">may be the {s.offering?.label ?? s.offering?.key} offering</a>
+                {/if}
               </li>
             {/each}
           </ul>
@@ -371,6 +408,7 @@
   .se-chip { display: inline-block; font-size: var(--text-xs); padding: 2px 8px; border-radius: var(--radius-xs); color: var(--c-text); background: var(--c-surface-inset); border: 1px solid var(--c-border); text-decoration: none; overflow-wrap: anywhere; }
   .se-chip:hover { color: var(--c-accent); border-color: var(--c-accent); }
   .se-note { color: var(--c-text-3); font-size: var(--text-xs); }
+  .se-use { display: inline-flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; min-width: 0; }
   .se-none { color: var(--c-text-3); }
   .se-wrap { display: contents; }
   .se-unresolved { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }

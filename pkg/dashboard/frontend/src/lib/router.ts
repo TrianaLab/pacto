@@ -15,6 +15,7 @@ export interface Route {
     | 'fleet-owners'    // /fleet/owners     product owner list
     | 'fleet-sources'   // /fleet/sources    product source list
     | 'fleet-domains'   // /fleet/domains    business-domain list
+    | 'fleet-offerings' // /fleet/offerings  platform-offering list
     | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
     | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
     | 'fleet-attention' // /fleet/attention  attention list
@@ -32,10 +33,10 @@ export interface Route {
 // plural segment; the product entity-detail facade takes the singular kind. These
 // two maps are the ONE place the frontend translates between them.
 const KIND_PLURAL: Record<string, string> = {
-  service: 'services', revision: 'revisions', target: 'targets', owner: 'owners', source: 'sources', domain: 'domains',
+  service: 'services', revision: 'revisions', target: 'targets', owner: 'owners', source: 'sources', domain: 'domains', offering: 'offerings',
 };
 const PLURAL_KIND: Record<string, string> = {
-  services: 'service', revisions: 'revision', targets: 'target', owners: 'owner', sources: 'source', domains: 'domain',
+  services: 'service', revisions: 'revision', targets: 'target', owners: 'owner', sources: 'source', domains: 'domain', offerings: 'offering',
 };
 
 export function parseHash(hash: string | null | undefined): Route {
@@ -214,7 +215,7 @@ function parseFleet(path: string, query: string): Route {
     // unowned), and it is what makes "12 services have no declared owner" a link.
     // `domain` is the registry path; `businessDomain` is the business domain, with
     // `(none)` for the services that declare none.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offset', 'limit', 'sort']) {
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -245,18 +246,18 @@ function parseFleet(path: string, query: string): Route {
 
   // Bare /fleet/owners and /fleet/sources are the product owner/source LISTS. They
   // must be matched before the entity-detail regex (which needs a trailing key).
-  if (rest === 'owners' || rest === 'sources' || rest === 'domains') {
+  if (rest === 'owners' || rest === 'sources' || rest === 'domains' || rest === 'offerings') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
     for (const k of ['text', 'sourceHealth', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
-    const views: Record<string, Route['view']> = { owners: 'fleet-owners', sources: 'fleet-sources', domains: 'fleet-domains' };
+    const views: Record<string, Route['view']> = { owners: 'fleet-owners', sources: 'fleet-sources', domains: 'fleet-domains', offerings: 'fleet-offerings' };
     return { view: views[rest], params };
   }
 
-  const ent = rest.match(/^(services|revisions|targets|owners|sources|domains)\/(.+)$/);
+  const ent = rest.match(/^(services|revisions|targets|owners|sources|domains|offerings)\/(.+)$/);
   if (ent) {
     return { view: 'fleet-entity', params: { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) } };
   }
@@ -448,7 +449,7 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string;
-  businessDomain?: string; capability?: string; offset?: number;
+  businessDomain?: string; capability?: string; offering?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
@@ -466,6 +467,7 @@ export function fleetServicesUrl(opts: {
   if (opts.domain) qs.set('domain', opts.domain);
   if (opts.businessDomain) qs.set('businessDomain', opts.businessDomain);
   if (opts.capability) qs.set('capability', opts.capability);
+  if (opts.offering) qs.set('offering', opts.offering);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';
@@ -489,6 +491,14 @@ export function fleetDomainsUrl(opts: { text?: string } & ListPaging = {}): stri
   return str ? `#/fleet/domains?${str}` : '#/fleet/domains';
 }
 
+export function fleetOfferingsUrl(opts: { text?: string } & ListPaging = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.text) qs.set('text', opts.text);
+  setPaging(qs, opts);
+  const str = qs.toString();
+  return str ? `#/fleet/offerings?${str}` : '#/fleet/offerings';
+}
+
 export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
@@ -507,7 +517,7 @@ export function fleetEntityListUrl(kind: string, opts: {
   service?: string; text?: string; status?: string; scope?: string; readiness?: string; environment?: string;
 } & ListPaging = {}): string {
   if (kind !== 'revision' && kind !== 'target') {
-    const lists: Record<string, () => string> = { owner: fleetOwnersUrl, source: fleetSourcesUrl, domain: fleetDomainsUrl };
+    const lists: Record<string, () => string> = { owner: fleetOwnersUrl, source: fleetSourcesUrl, domain: fleetDomainsUrl, offering: fleetOfferingsUrl };
     return (lists[kind] ?? fleetServicesUrl)();
   }
   const qs = new URLSearchParams();

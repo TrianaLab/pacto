@@ -291,6 +291,10 @@ const (
 	// business domain and the sources observing its targets report different ones,
 	// so its domain is unknown rather than picked.
 	LimitationDomainConflict = "DOMAIN_CONFLICT"
+	// LimitationOfferingConflict: no contract revision of a service declares a
+	// platform offering and the sources observing its targets report different
+	// ones, so it has none rather than one picked.
+	LimitationOfferingConflict = "OFFERING_CONFLICT"
 	// LimitationObservedIdentityUnresolved: a runtime-observed endpoint name could
 	// not be mapped to exactly one domain-qualified fleet service.
 	LimitationObservedIdentityUnresolved = "OBSERVED_IDENTITY_UNRESOLVED"
@@ -401,15 +405,21 @@ type ServiceRecord struct {
 	// deriveBusinessDomain). Empty means No domain, unless BusinessDomainUnknown
 	// says Pacto cannot tell: no readable revision and no source that reports the
 	// domain, or sources that disagree on it.
-	BusinessDomain        string            `json:"businessDomain,omitempty"`
-	BusinessDomainUnknown bool              `json:"businessDomainUnknown,omitempty"`
-	Name                  string            `json:"name"`
-	Owner                 contract.Owner    `json:"owner,omitzero"`
-	Revisions             []RevisionKey     `json:"revisions,omitempty"`
-	Targets               []TargetKey       `json:"targets,omitempty"`
-	Labels                map[string]string `json:"labels,omitempty"`
-	Status                string            `json:"status,omitempty"`
-	Sources               []string          `json:"sources,omitempty"`
+	BusinessDomain        string `json:"businessDomain,omitempty"`
+	BusinessDomainUnknown bool   `json:"businessDomainUnknown,omitempty"`
+	// Offering is the platform offering (service.offering) the service provides
+	// and Summary its one-line purpose (service.summary), derived like
+	// BusinessDomain (see deriveOffering). Both are exported so a detail answer
+	// cloned through JSON keeps them.
+	Offering  string            `json:"offering,omitempty"`
+	Summary   string            `json:"summary,omitempty"`
+	Name      string            `json:"name"`
+	Owner     contract.Owner    `json:"owner,omitzero"`
+	Revisions []RevisionKey     `json:"revisions,omitempty"`
+	Targets   []TargetKey       `json:"targets,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	Status    string            `json:"status,omitempty"`
+	Sources   []string          `json:"sources,omitempty"`
 	// HiddenDependencies and HiddenDependents count the services this one
 	// depends on or calls, and that depend on or call it, which the caller's
 	// Kubernetes permissions hide. They are never named. Zero outside a
@@ -506,6 +516,9 @@ type ContractRevision struct {
 	// contributor that happens to agree with one side must not reinstate pins the
 	// fleet has already reported as contested.
 	lockConflict string
+	// fixedPolicy records that the contract declares no policy but its bundle
+	// serves policy/schema.json, which a policy reference to it resolves to.
+	fixedPolicy bool
 	// configurations is the bounded projection of Contract.Configurations, built
 	// ONCE here at the source boundary. Each scope's values map is author-controlled
 	// and arbitrarily wide, and selecting its bounded key set is O(width * bound);
@@ -618,6 +631,9 @@ type TargetRecord struct {
 	// domain.
 	reportedDomains []string
 	domainKnown     bool
+	// reportedOfferings and reportedSummaries are the service.offering and
+	// service.summary values the observing sources read from that contract.
+	reportedOfferings, reportedSummaries []string
 	// environmentConflict: sources disagree on the TargetEnvironmentLabel, so the
 	// label is dropped from Labels and Environment stays empty.
 	environmentConflict bool

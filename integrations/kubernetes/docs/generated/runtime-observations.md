@@ -136,6 +136,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `NEEDS_PACTO_2_2` | `InvalidVersion` |
 | `NEEDS_PACTO_2_3` | `InvalidVersion` |
 | `NEEDS_PACTO_2_4` | `InvalidVersion` |
+| `NEEDS_PACTO_2_5` | `InvalidVersion` |
 | `PERSISTENCE_MISMATCH` | `RuntimeDrift` |
 | `POLICY_ENFORCEMENT_ERROR` | `PolicyViolation` |
 | `POLICY_REF_CYCLE` | `ReferenceCycle` |

@@ -80,13 +80,14 @@ func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverview
 
 type fleetEntitiesInput struct {
 	Text           string   `query:"text"`
-	Kinds          []string `query:"kinds" enum:"service,revision,target,owner,source,domain" doc:"Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain)"`
+	Kinds          []string `query:"kinds" enum:"service,revision,target,owner,source,domain,offering" doc:"Comma-separated entity kinds; an unknown or empty kind is rejected. A domain is a business domain (service.domain). An offering is a platform offering (service.offering)"`
 	Owner          string   `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
 	OwnerKey       string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
 	Domain         string   `query:"domain" doc:"Exact registry path (the domain part of the canonical service key), shown as Registry"`
 	BusinessDomain string   `query:"businessDomain" doc:"Exact business domain (service.domain) of the service an entity belongs to (a revision is kept by its service's domain), (none) for the services with no domain, or (unknown) for the services whose domain Pacto cannot tell"`
 	Environment    string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities)"`
-	Capability     string   `query:"capability" doc:"Capability type a service's revisions declare (service entities)"`
+	Capability     string   `query:"capability" doc:"Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost"`
+	Offering       string   `query:"offering" doc:"Exact platform offering (service.offering) a service provides (service and offering entities)"`
 	Scope          string   `query:"scope"`
 	Status         string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
 	Ownership      string   `query:"ownership" enum:"consistent,conflicting,unowned" doc:"Declared-ownership filter for service entities"`
@@ -108,7 +109,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(in.Kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
-		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability,
+		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
 		Ownership: in.Ownership, Readiness: in.Readiness,
 		Service: in.Service, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
@@ -120,7 +121,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 }
 
 type fleetEntityDetailInput struct {
-	Kind string `path:"kind" doc:"Entity kind: service, revision, target, owner, source or domain"`
+	Kind string `path:"kind" doc:"Entity kind: service, revision, target, owner, source, domain or offering"`
 	Key  string `query:"key" required:"true" doc:"Canonical entity key (a slash-bearing key is transported safely as a query param)"`
 }
 
