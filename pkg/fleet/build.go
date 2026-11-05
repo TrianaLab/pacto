@@ -1592,6 +1592,12 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 			}
 		}
 	}
+	return ownerConflict(snap, s)
+}
+
+// ownerConflict is the OWNER_CONFLICT limitation for a service whose contracts
+// declare different owners, nil when they agree.
+func ownerConflict(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	if claims := serviceOwnerClaims(snap, s); claims.len() > 1 {
 		return []Limitation{{
 			Code: LimitationOwnerConflict, Source: "fleet",

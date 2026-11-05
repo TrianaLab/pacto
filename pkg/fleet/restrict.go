@@ -4,6 +4,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // LimitationHiddenByPermissions: the answer leaves out services the caller may
@@ -77,10 +79,16 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.observedForward = restrictIndex(s.observedForward, keep, keep)
 	out.forwardDepsByRevision = restrictIndex(s.forwardDepsByRevision, func(k RevisionKey) bool { return out.Revisions[k] != nil }, keep)
 
+	hiddenSvcNames := map[string]bool{}
+	for k := range hiddenSvc {
+		hiddenSvcNames[s.Services[k].Name] = true
+	}
 	out.UncontractedCallers = slices.DeleteFunc(slices.Clone(s.UncontractedCallers), func(c UncontractedCaller) bool {
 		rest, k8s := strings.CutPrefix(c.Caller, "k8s:")
 		ns, _, _ := strings.Cut(rest, "/")
-		return hiddenSvc[c.ToService] || (k8s && hiddenNS[ns])
+		// A caller name a hidden service shares may be that service's call, and
+		// its ambiguity counts the hidden service, so it goes.
+		return hiddenSvc[c.ToService] || (k8s && hiddenNS[ns]) || (!k8s && hiddenSvcNames[c.Caller])
 	})
 	recountSources(&out)
 
@@ -93,7 +101,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 }
 
 // restrictLimitations keeps the limitations that name nothing hidden and
-// rebuilds the domain and offering conflicts from what out still holds.
+// rebuilds the domain, offering and owner conflicts from what out still holds.
 func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNames []string) {
 	// ponytail: a limitation's subject is only in its prose, so any that mentions
 	// a hidden name goes, even where the match is a coincidence. It costs
@@ -103,7 +111,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	out.Limitations = slices.DeleteFunc(slices.Clone(limitations), func(l Limitation) bool {
 		// A conflict lists values hidden targets may have reported, so it is
 		// rebuilt from what out still holds below.
-		if l.Code == LimitationDomainConflict || l.Code == LimitationOfferingConflict {
+		if l.Code == LimitationDomainConflict || l.Code == LimitationOfferingConflict || l.Code == LimitationOwnerConflict {
 			return true
 		}
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
@@ -111,7 +119,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	for _, svc := range out.Services {
 		_, _, dc := businessDomainOf(out, svc)
 		_, oc := offeringOf(out, svc)
-		out.Limitations = append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...)
+		out.Limitations = append(append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...), ownerConflict(out, svc)...)
 	}
 }
 
@@ -202,6 +210,9 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 		cp.Status = serviceStatus(out, &cp)
 		restrictBusinessDomain(out, &cp)
 		restrictOffering(out, &cp)
+		// A target-only owner may have come from a hidden target.
+		cp.Owner = contract.Owner{}
+		deriveOwner(out, &cp)
 		out.Services[k] = &cp
 	}
 	return hiddenNames
