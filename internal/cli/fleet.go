@@ -38,6 +38,9 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newFleetSnapshotCommand(svc, v))
 	cmd.AddCommand(newFleetExplainCommand(svc, v))
 	cmd.AddCommand(newFleetReconcileCommand(svc, v))
+	cmd.AddCommand(newFleetEntitiesCommand(svc, v))
+	cmd.AddCommand(newFleetEntityCommand(svc, v))
+	cmd.AddCommand(newFleetAttentionCommand(svc, v))
 	return cmd
 }
 
@@ -351,8 +354,9 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "status",
 		Short: "Report services and targets needing attention",
 		Long: "Reports what needs attention: non-compliant, unknown, invalid and stale targets, " +
-			"revisions without readiness, unresolved dependencies and dependencies whose provider " +
-			"version is outside the declared range. With no category flag it reports every category.",
+			"revisions without readiness, unresolved dependencies, dependencies whose provider " +
+			"version is outside the declared range, services with no declared owner and undeclared " +
+			"runtime dependencies. With no category flag it reports every category.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
@@ -371,6 +375,8 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("missing-readiness", false, "report revisions without a readiness assessment")
 	cmd.Flags().Bool("unresolved-deps", false, "report unresolved declared dependencies")
 	cmd.Flags().Bool("unsatisfied-ranges", false, "report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)")
+	cmd.Flags().Bool("unowned", false, "report services with no declared owner")
+	cmd.Flags().Bool("undeclared", false, "report runtime calls no contract declares and callers with no contract")
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d)", fleet.DefaultStatusLimit))
 	return cmd
 }
@@ -384,7 +390,7 @@ func statusQueryFromCmd(cmd *cobra.Command) fleet.StatusQuery {
 		NeedsAttention: get("needs-attention"), NonCompliant: get("non-compliant"),
 		Unknown: get("unknown"), Invalid: get("invalid"), StaleEvidence: get("stale"),
 		MissingReadiness: get("missing-readiness"), UnresolvedDeps: get("unresolved-deps"),
-		UnsatisfiedRanges: get("unsatisfied-ranges"), Limit: limit,
+		UnsatisfiedRanges: get("unsatisfied-ranges"), Unowned: get("unowned"), Undeclared: get("undeclared"), Limit: limit,
 	}
 }
 

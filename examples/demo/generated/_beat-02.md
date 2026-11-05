@@ -6,40 +6,40 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
 
 ```console
 36 of 36 service(s):
-  analytics-pipeline           NotEvaluated owner=data-platform  revs=2 targets=0
-  api-gateway                  NotEvaluated owner=platform-foundations revs=3 targets=0
-  audit-log                    NotEvaluated owner=platform-foundations-security revs=1 targets=0
-  auth-service                 Unknown      owner=identity-team  revs=1 targets=1
-  campaign-service             NotEvaluated owner=growth-team    revs=2 targets=0
-  carrier-gateway              NotEvaluated owner=logistics-team revs=2 targets=0
-  catalog-service              NotEvaluated owner=catalog-team   revs=4 targets=0
-  email-provider               NotEvaluated owner=-              revs=1 targets=0
-  event-bus                    NotEvaluated owner=data-platform  revs=3 targets=0
-  experiment-service           NotEvaluated owner=growth-team    revs=1 targets=0
-  feature-store                NotEvaluated owner=data-platform  revs=1 targets=0
-  fraud-service                Compliant    owner=payments-team  revs=2 targets=1
-  frontend                     NotEvaluated owner=frontend-team  revs=1 targets=0
-  fulfillment-service          NotEvaluated owner=logistics-team revs=3 targets=0
-  inventory-service            NotEvaluated owner=catalog-team   revs=4 targets=0
-  loyalty-service              NotEvaluated owner=growth-team    revs=2 targets=0
-  notification-worker          NotEvaluated owner=commerce-team  revs=1 targets=0
-  orders-service               NonCompliant owner=commerce-team  revs=4 targets=1
-  pacto-demo                   NotEvaluated owner=platform-foundations revs=1 targets=0
-  payments-service             Compliant    owner=payments-team  revs=7 targets=1
-  platform-app-config          NotEvaluated owner=platform-foundations revs=2 targets=0
-  platform-http-policy         NotEvaluated owner=platform-foundations revs=2 targets=0
-  platform-worker-config       NotEvaluated owner=platform-foundations revs=2 targets=0
-  postgresql                   NotEvaluated owner=infra-data     revs=2 targets=0
-  pricing-service              NotEvaluated owner=catalog-team   revs=2 targets=0
-  recommendations              NotEvaluated owner=growth-team    revs=2 targets=0
-  redis                        NotEvaluated owner=infra-data     revs=2 targets=0
-  reporting-api                NotEvaluated owner=data-platform  revs=1 targets=0
-  returns-service              NotEvaluated owner=logistics-team revs=2 targets=0
-  search-indexer               NotEvaluated owner=catalog-team   revs=1 targets=0
-  shipping-rates               NotEvaluated owner=logistics-team revs=3 targets=0
-  storefront-web               Invalid      owner=frontend-team  revs=4 targets=0
-  stripe-api                   NotEvaluated owner=external/stripe revs=1 targets=0
-  support-assistant            NotEvaluated owner=support-team   revs=1 targets=0
-  ticketing-service            NotEvaluated owner=support-team   revs=2 targets=0
-  warehouse-scanner            NotEvaluated owner=logistics-team revs=1 targets=0
+  analytics-pipeline           NotEvaluated owner=data-platform  domain=-            offering=-            revs=2 targets=0
+  api-gateway                  NotEvaluated owner=platform-foundations domain=-            offering=-            revs=3 targets=0
+  audit-log                    NotEvaluated owner=platform-foundations-security domain=-            offering=-            revs=1 targets=0
+  auth-service                 Unknown      owner=identity-team  domain=-            offering=-            revs=1 targets=1
+  campaign-service             NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
+  carrier-gateway              NotEvaluated owner=logistics-team domain=-            offering=-            revs=2 targets=0
+  catalog-service              NotEvaluated owner=catalog-team   domain=commerce     offering=-            revs=4 targets=0
+  email-provider               NotEvaluated owner=-              domain=-            offering=-            revs=1 targets=0
+  event-bus                    NotEvaluated owner=data-platform  domain=-            offering=messaging    revs=3 targets=0
+  experiment-service           NotEvaluated owner=growth-team    domain=-            offering=-            revs=1 targets=0
+  feature-store                NotEvaluated owner=data-platform  domain=-            offering=-            revs=1 targets=0
+  fraud-service                Compliant    owner=payments-team  domain=payments     offering=-            revs=2 targets=1
+  frontend                     NotEvaluated owner=frontend-team  domain=-            offering=-            revs=1 targets=0
+  fulfillment-service          NotEvaluated owner=logistics-team domain=fulfillment  offering=-            revs=3 targets=0
+  inventory-service            NotEvaluated owner=catalog-team   domain=fulfillment  offering=-            revs=4 targets=0
+  loyalty-service              NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
+  notification-worker          NotEvaluated owner=commerce-team  domain=-            offering=-            revs=1 targets=0
+  orders-service               NonCompliant owner=commerce-team  domain=commerce     offering=-            revs=4 targets=1
+  pacto-demo                   NotEvaluated owner=platform-foundations domain=-            offering=-            revs=1 targets=0
+  payments-service             Compliant    owner=payments-team  domain=payments     offering=-            revs=7 targets=1
+  platform-app-config          NotEvaluated owner=platform-foundations domain=-            offering=shared-config revs=2 targets=0
+  platform-http-policy         NotEvaluated owner=platform-foundations domain=-            offering=shared-policy revs=2 targets=0
+  platform-worker-config       NotEvaluated owner=platform-foundations domain=-            offering=shared-config revs=2 targets=0
+  postgresql                   NotEvaluated owner=infra-data     domain=-            offering=postgresql   revs=2 targets=0
+  pricing-service              NotEvaluated owner=catalog-team   domain=-            offering=-            revs=2 targets=0
+  recommendations              NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
+  redis                        NotEvaluated owner=infra-data     domain=-            offering=redis        revs=2 targets=0
+  reporting-api                NotEvaluated owner=data-platform  domain=-            offering=-            revs=1 targets=0
+  returns-service              NotEvaluated owner=logistics-team domain=-            offering=-            revs=2 targets=0
+  search-indexer               NotEvaluated owner=catalog-team   domain=-            offering=-            revs=1 targets=0
+  shipping-rates               NotEvaluated owner=logistics-team domain=-            offering=-            revs=3 targets=0
+  storefront-web               Invalid      owner=frontend-team  domain=-            offering=-            revs=4 targets=0
+  stripe-api                   NotEvaluated owner=external/stripe domain=-            offering=-            revs=1 targets=0
+  support-assistant            NotEvaluated owner=support-team   domain=-            offering=-            revs=1 targets=0
+  ticketing-service            NotEvaluated owner=support-team   domain=-            offering=-            revs=2 targets=0
+  warehouse-scanner            NotEvaluated owner=logistics-team domain=-            offering=-            revs=1 targets=0
 ```

@@ -730,6 +730,9 @@ func TestFleetBuildError(t *testing.T) {
 		{"fleet", "status"},
 		{"fleet", "explain", "orders"},
 		{"fleet", "snapshot"},
+		{"fleet", "entities"},
+		{"fleet", "entity", "service", "orders"},
+		{"fleet", "attention"},
 	}
 	for _, sc := range subcommands {
 		ctx, cancel := context.WithCancel(context.Background())

@@ -17,8 +17,8 @@ func printFleetSearch(cmd *cobra.Command, res *fleet.SearchResult, format string
 		w := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(w, "%d of %d service(s):\n", res.Count, res.Total)
 		for _, s := range res.Services {
-			_, _ = fmt.Fprintf(w, "  %-28s %-12s owner=%-14s revs=%d targets=%d\n",
-				s.Name, orDash(s.Status), orDash(s.Owner.DisplayString()), s.RevisionCount, s.TargetCount)
+			_, _ = fmt.Fprintf(w, "  %-28s %-12s owner=%-14s domain=%-12s offering=%-12s revs=%d targets=%d\n",
+				s.Name, orDash(s.Status), orDash(s.Owner.DisplayString()), orDash(s.BusinessDomain), orDash(s.Offering), s.RevisionCount, s.TargetCount)
 		}
 		warnPartial(cmd, res.Meta)
 		return nil
@@ -148,7 +148,7 @@ func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) 
 func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string) error {
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
-		_, _ = fmt.Fprintf(w, "%d attention item(s):\n", len(res.Items))
+		_, _ = fmt.Fprintf(w, "%d of %d attention item(s):\n", len(res.Items), res.Total)
 		for _, it := range res.Items {
 			_, _ = fmt.Fprintf(w, "  [%s] %s %s — %s\n", it.Code, it.Kind, it.Name, it.Reason)
 		}

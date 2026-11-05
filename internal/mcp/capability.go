@@ -211,6 +211,7 @@ var reservedToolNames = map[string]bool{
 	"pacto_create": true, "pacto_edit": true, "pacto_check": true, "pacto_schema": true,
 	"pacto_fleet_search": true, "pacto_fleet_get": true, "pacto_fleet_graph": true,
 	"pacto_fleet_status": true, "pacto_fleet_explain": true,
+	"pacto_fleet_entities": true, "pacto_fleet_entity": true, "pacto_fleet_attention": true,
 	"pacto_impact": true, "pacto_catalog_revision": true, "pacto_skill": true,
 }
 

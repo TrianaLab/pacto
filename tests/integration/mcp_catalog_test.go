@@ -548,6 +548,47 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 		t.Errorf("bare pacto_fleet_status returned no items on a demo fleet that needs attention; payload:\n%s", bareStatusText)
 	}
 
+	// The product tools answer from the same snapshot: owners list their keys,
+	// one owner opens by its key and the demo's traces surface undeclared calls.
+	call := func(name string, args map[string]any, v any) {
+		t.Helper()
+		res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			t.Fatalf("CallTool(%s): %v", name, err)
+		}
+		if text := mcpResultText(t, res); res.IsError || json.Unmarshal([]byte(text), v) != nil {
+			t.Fatalf("%s %v answered:\n%s", name, args, text)
+		}
+	}
+	var owners struct {
+		Entities []struct {
+			Key string `json:"key"`
+		} `json:"entities"`
+	}
+	call("pacto_fleet_entities", map[string]any{"kind": "owner"}, &owners)
+	if len(owners.Entities) == 0 || !strings.HasPrefix(owners.Entities[0].Key, "team:") {
+		t.Fatalf("pacto_fleet_entities kind=owner = %+v", owners.Entities)
+	}
+	var owner struct {
+		Entity struct {
+			Key string `json:"key"`
+		} `json:"entity"`
+	}
+	call("pacto_fleet_entity", map[string]any{"kind": "owner", "key": owners.Entities[0].Key}, &owner)
+	if owner.Entity.Key != owners.Entities[0].Key {
+		t.Errorf("pacto_fleet_entity answered %q for %q", owner.Entity.Key, owners.Entities[0].Key)
+	}
+	var undeclared struct {
+		Total int `json:"total"`
+		Items []struct {
+			Category string `json:"category"`
+		} `json:"items"`
+	}
+	call("pacto_fleet_attention", map[string]any{"category": "undeclared"}, &undeclared)
+	if undeclared.Total == 0 || undeclared.Items[0].Category != "undeclared" {
+		t.Errorf("pacto_fleet_attention category=undeclared = %+v", undeclared)
+	}
+
 	if err := session.Close(); err != nil {
 		t.Errorf("closing the session: %v", err)
 	}
