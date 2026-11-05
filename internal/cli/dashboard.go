@@ -85,6 +85,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			corsOrigin := v.GetString("dashboard.cors-origin")
 			traces := v.GetStringSlice("dashboard.traces")
 			traceSources := v.GetStringSlice("dashboard.trace-sources")
+			miraURLs := v.GetStringSlice("dashboard.mira-sources")
 
 			dir, repos, err := parseDashboardArgs(args, v.GetString("dashboard.repo"))
 			if err != nil {
@@ -97,6 +98,13 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			observation, err := observationSources(traces, traceSources)
 			if err != nil {
 				return err
+			}
+			// The dashboard builds only inside the Manager, where a bad URL would
+			// surface as a failed refresh; refuse it here instead.
+			for _, u := range miraURLs {
+				if err := fleetsrc.CheckMiraURL(u); err != nil {
+					return err
+				}
 			}
 
 			cacheDir := v.GetString("cache-dir")
@@ -118,6 +126,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				cache:       !noCache && cacheHasEntries(cacheDir),
 				cluster:     cluster,
 				evidenceURL: v.GetString("evidence-source-url"),
+				miraURLs:    miraURLs,
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespace, observation, det)
@@ -189,6 +198,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
+	cmd.Flags().StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)")
 	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and every action runs as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
 	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
 	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
@@ -212,6 +222,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
+	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
 		"session-idle-timeout", "session-max-age", "token-login", "mira-url", "delivery-namespace", "delivery-trust"} {
@@ -296,6 +307,9 @@ type dashboardSources struct {
 	// evidenceURL is the operator-wired Evidence Server (PACTO_EVIDENCE_SOURCE_URL);
 	// empty means none is configured.
 	evidenceURL string
+	// miraURLs are the operator-configured Mira nodes (--mira-source,
+	// PACTO_DASHBOARD_MIRA_SOURCES), already checked by fleetsrc.CheckMiraURL.
+	miraURLs []string
 }
 
 // localRootHasBundle reports whether dir looks like a place contracts live: a
@@ -358,6 +372,7 @@ func configuredSources(fopts app.FleetOptions) []string {
 		{"k8s", fopts.IncludeK8s},
 		{"observation", len(fopts.ObservationSources) > 0},
 		{"evidence", len(fopts.EvidenceURLs) > 0},
+		{"mira", len(fopts.MiraURLs) > 0},
 	} {
 		if s.on {
 			names = append(names, s.name)
@@ -595,5 +610,6 @@ func dashboardFleetOptions(dir string, repos []string, namespace string, observa
 	if det.evidenceURL != "" {
 		fopts.EvidenceURLs = append(fopts.EvidenceURLs, det.evidenceURL)
 	}
+	fopts.MiraURLs = det.miraURLs
 	return fopts
 }

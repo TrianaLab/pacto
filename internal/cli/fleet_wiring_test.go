@@ -880,3 +880,15 @@ func TestMCPDashboardURL(t *testing.T) {
 		t.Errorf("--dashboard-url without --fleet: %v", err)
 	}
 }
+
+// TestDashboardFleetOptions_Mira proves --mira-source / PACTO_DASHBOARD_MIRA_SOURCES
+// adds Mira sources and names them in the startup banner.
+func TestDashboardFleetOptions_Mira(t *testing.T) {
+	fopts := dashboardFleetOptions("", nil, "", nil, dashboardSources{miraURLs: []string{"http://mira:4318"}})
+	if !slices.Equal(fopts.MiraURLs, []string{"http://mira:4318"}) {
+		t.Errorf("MiraURLs = %v", fopts.MiraURLs)
+	}
+	if got := configuredSources(app.FleetOptions{MiraURLs: []string{"x"}}); !slices.Equal(got, []string{"mira"}) {
+		t.Errorf("configuredSources = %v, want [mira]", got)
+	}
+}

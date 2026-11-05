@@ -420,3 +420,28 @@ func TestNewDashboardCommand_IdentityModes(t *testing.T) {
 		t.Errorf("an incomplete OIDC configuration must fail: %v", err)
 	}
 }
+
+// TestDashboardMiraSourcesFromEnv reads PACTO_DASHBOARD_MIRA_SOURCES as a
+// space-separated list, like the other repeatable dashboard settings.
+func TestDashboardMiraSourcesFromEnv(t *testing.T) {
+	t.Setenv("PACTO_DASHBOARD_MIRA_SOURCES", "http://a:4318 http://b:4318")
+	v := viper.New()
+	v.SetEnvPrefix("PACTO")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	newDashboardCommand(app.NewService(nil, nil), v, "test", defaultDeps())
+	if got := v.GetStringSlice("dashboard.mira-sources"); len(got) != 2 || got[0] != "http://a:4318" || got[1] != "http://b:4318" {
+		t.Errorf("dashboard.mira-sources = %v", got)
+	}
+}
+
+// TestDashboardRejectsBadMiraSource proves a Mira URL the source would refuse
+// stops the dashboard at startup, before any snapshot or server starts.
+func TestDashboardRejectsBadMiraSource(t *testing.T) {
+	isolateHost(t)
+	_, err := runDashboard(t, app.NewService(nil, nil), viper.New(),
+		t.TempDir(), "--port", "0", "--mira-source", "ftp://x")
+	if err == nil || !strings.Contains(err.Error(), `scheme "ftp" is not http or https`) {
+		t.Fatalf("err = %v, want the CheckMiraURL refusal", err)
+	}
+}

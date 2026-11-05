@@ -202,3 +202,26 @@ func TestSharedFleetFlagTypesAreConsistent(t *testing.T) {
 		}
 	}
 }
+
+// TestMiraSourceFlagReachesFleetOptions pins --mira-source on every surface that
+// shares the fleet source flags: fleet, mcp, tui and impact declare it, and
+// fleetOptions hands each value to the Mira source.
+func TestMiraSourceFlagReachesFleetOptions(t *testing.T) {
+	root := NewRootCommand(newTestService(t), VersionInfo{Version: "test"})
+	for _, path := range [][]string{{"fleet", "search"}, {"mcp"}, {"tui"}, {"impact"}} {
+		cmd, _, err := root.Find(path)
+		if err != nil {
+			t.Fatalf("find %v: %v", path, err)
+		}
+		if cmd.Flag("mira-source") == nil {
+			t.Errorf("pacto %v does not declare --mira-source", path)
+		}
+	}
+	search, _, _ := root.Find([]string{"fleet", "search"})
+	if err := search.ParseFlags([]string{"--mira-source", "http://a:4318", "--mira-source", "http://b:4318"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fleetOptions(search).MiraURLs; !slices.Equal(got, []string{"http://a:4318", "http://b:4318"}) {
+		t.Errorf("MiraURLs = %v", got)
+	}
+}

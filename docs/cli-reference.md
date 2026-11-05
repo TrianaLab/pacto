@@ -233,6 +233,7 @@ pacto dashboard [sources...] [flags]
       --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
   -h, --help                              help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
+      --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
       --mira-url string                   Mira's address, to link the health-check citations of delivery verdicts
       --namespace string                  Kubernetes namespace (empty = all namespaces)
       --oidc-ca-file string               PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)
@@ -764,6 +765,7 @@ pacto fleet [flags]
   -h, --help                       help for fleet
       --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
@@ -1070,6 +1072,7 @@ pacto impact <old> <new> [flags]
       --include-observed           let observed (runtime) relationships raise consumer confidence
       --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --new-set stringArray        set a value on the new contract (e.g. --new-set service.version=2.0.0)
       --new-values stringArray     values file to merge into the new contract (can be repeated)
@@ -1344,6 +1347,7 @@ pacto mcp [bundle-ref] [flags]
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
       --k8s                           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
       --oidc-groups-claim string      ID token claim the API server takes the groups from; must match its claim mapping (default groups)
@@ -1659,6 +1663,7 @@ pacto tui [flags]
   -h, --help                       help for tui
       --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --read-only                  hide every write verb
@@ -1839,10 +1844,12 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespace filter (empty = all) |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | `--cors-origin` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
+| `PACTO_DASHBOARD_MIRA_SOURCES` | `--mira-source` | Space-separated Mira base URLs whose service map supplies observed calls |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | `--trace-source` | Named offline trace sources as `NAME=PATH`, where `NAME` is the source's identity (what the fleet, the API and the dashboard's Data Source list call it) and `PATH` is the trace file location. Identity and location are separate, so reordering the configuration or moving the file keeps the source's name. Two sources whose files share a basename stay two sources. A name must be unique across every Data Source the dashboard assembles. |
 
-!!! warning "The two list variables split on **whitespace**"
-    `PACTO_DASHBOARD_TRACES` and `PACTO_DASHBOARD_TRACE_SOURCES` go through the
+!!! warning "The three list variables split on **whitespace**"
+    `PACTO_DASHBOARD_TRACES`, `PACTO_DASHBOARD_TRACE_SOURCES` and
+    `PACTO_DASHBOARD_MIRA_SOURCES` go through the
     same generic flag binding as every other dashboard variable, which splits a
     multi-valued string on spaces. `PACTO_DASHBOARD_TRACES="a.json b.json"` supplies
     two files; `PACTO_DASHBOARD_TRACES=a.json,b.json` supplies **one**, named

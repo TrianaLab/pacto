@@ -49,6 +49,7 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_DASHBOARD_OIDC_ISSUER_URL` | Identity provider people sign in with before the dashboard shows anything; every view then follows their Kubernetes RBAC (also `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_EXTRA_SCOPES`, `_DISPLAY_NAME` for the provider's name on the sign-in button and the claim mapping, see [dashboard authentication](integrations/kubernetes/dashboard-authentication.md)) | `""` (no sign-in) |
 | `PACTO_DASHBOARD_TOKEN_LOGIN` | `true` lets people sign in by pasting a Kubernetes bearer token | `false` |
 | `PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT`, `PACTO_DASHBOARD_SESSION_MAX_AGE` | How long a session lasts idle and in all | `1h`, `12h` |
+| `PACTO_DASHBOARD_MIRA_SOURCES` | Mira base URLs whose service map supplies observed calls. **Space-separated** list | `""` |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | The same input with a stable identity per file: **space-separated** `NAME=PATH` entries, where `NAME` is the Data Source name the API and UI show | `""` |
 | `PACTO_CACHE_DIR` | Directory the dashboard scans for cached OCI bundles (read side) | `/home/pacto/.cache/pacto/oci` |
 | `PACTO_NO_CACHE` | Disable OCI bundle caching (`1`) | `0` |
@@ -57,9 +58,10 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_REGISTRY_PASSWORD` | Registry authentication password | `""` |
 | `PACTO_REGISTRY_TOKEN` | Registry authentication token | `""` |
 
-Most `PACTO_DASHBOARD_*` variables map to the CLI flag of the same name. Two
-are different: `PACTO_DASHBOARD_REPO` is the repository positional argument, and
-`PACTO_DASHBOARD_TRACE_SOURCES` maps to `--trace-source`, singular.
+Most `PACTO_DASHBOARD_*` variables map to the CLI flag of the same name. Three
+are different: `PACTO_DASHBOARD_REPO` is the repository positional argument,
+`PACTO_DASHBOARD_TRACE_SOURCES` maps to `--trace-source` and
+`PACTO_DASHBOARD_MIRA_SOURCES` maps to `--mira-source`, both singular.
 
 The two trace variables let the dashboard learn which services really call
 each other, from trace files. Pacto has no OpenTelemetry (OTLP) receiver, so

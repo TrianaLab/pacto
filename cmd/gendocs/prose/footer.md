@@ -35,10 +35,12 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespace filter (empty = all) |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | `--cors-origin` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
+| `PACTO_DASHBOARD_MIRA_SOURCES` | `--mira-source` | Space-separated Mira base URLs whose service map supplies observed calls |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | `--trace-source` | Named offline trace sources as `NAME=PATH`, where `NAME` is the source's identity (what the fleet, the API and the dashboard's Data Source list call it) and `PATH` is the trace file location. Identity and location are separate, so reordering the configuration or moving the file keeps the source's name. Two sources whose files share a basename stay two sources. A name must be unique across every Data Source the dashboard assembles. |
 
-!!! warning "The two list variables split on **whitespace**"
-    `PACTO_DASHBOARD_TRACES` and `PACTO_DASHBOARD_TRACE_SOURCES` go through the
+!!! warning "The three list variables split on **whitespace**"
+    `PACTO_DASHBOARD_TRACES`, `PACTO_DASHBOARD_TRACE_SOURCES` and
+    `PACTO_DASHBOARD_MIRA_SOURCES` go through the
     same generic flag binding as every other dashboard variable, which splits a
     multi-valued string on spaces. `PACTO_DASHBOARD_TRACES="a.json b.json"` supplies
     two files; `PACTO_DASHBOARD_TRACES=a.json,b.json` supplies **one**, named

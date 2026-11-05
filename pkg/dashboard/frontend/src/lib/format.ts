@@ -212,6 +212,7 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   'evidence-ingest': 'Evidence Server — signed reports accepted by this server',
   observation: 'Observation — recorded calls between services',
   catalog: 'Catalog — contracts discovered in a registry',
+  mira: 'Mira — calls between services seen in its trace store',
 };
 
 export function sourceTooltip(src: string): string {
