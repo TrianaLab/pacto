@@ -84,13 +84,23 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	})
 	recountSources(&out)
 
+	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...))
+	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage})
+	sortSnapshotLimitations(&out)
+	out.Completeness = CompletenessPartial
+	out.SnapshotID = computeSnapshotID(&out)
+	return NewQuery(&out)
+}
+
+// restrictLimitations keeps the limitations that name nothing hidden and
+// rebuilds the domain and offering conflicts from what out still holds.
+func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNames []string) {
 	// ponytail: a limitation's subject is only in its prose, so any that mentions
 	// a hidden name goes, even where the match is a coincidence. It costs
 	// limitations x hidden names substring checks, once per snapshot and set of
 	// visible namespaces. Structured subjects on Limitation would make it exact
 	// and linear.
-	hiddenNames = append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...)
-	out.Limitations = slices.DeleteFunc(slices.Clone(s.Limitations), func(l Limitation) bool {
+	out.Limitations = slices.DeleteFunc(slices.Clone(limitations), func(l Limitation) bool {
 		// A conflict lists values hidden targets may have reported, so it is
 		// rebuilt from what out still holds below.
 		if l.Code == LimitationDomainConflict || l.Code == LimitationOfferingConflict {
@@ -99,15 +109,10 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
 	for _, svc := range out.Services {
-		_, _, dc := businessDomainOf(&out, svc)
-		_, oc := offeringOf(&out, svc)
+		_, _, dc := businessDomainOf(out, svc)
+		_, oc := offeringOf(out, svc)
 		out.Limitations = append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...)
 	}
-	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage})
-	sortSnapshotLimitations(&out)
-	out.Completeness = CompletenessPartial
-	out.SnapshotID = computeSnapshotID(&out)
-	return NewQuery(&out)
 }
 
 // kubeTarget reports whether t is a Kubernetes target with a namespace, the
