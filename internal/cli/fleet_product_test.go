@@ -124,13 +124,19 @@ func TestFleetNeighborhood(t *testing.T) {
 		t.Fatalf("neighborhood: %v", err)
 	}
 	if !regexp.MustCompile(`(?m)^  orders  depth=1  owner=commerce  status=\S+$`).MatchString(out) ||
-		!regexp.MustCompile(`(?m)^  payments  depth=0  owner=billing  status=\S+$`).MatchString(out) {
+		!regexp.MustCompile(`(?m)^  payments  depth=0  owner=billing  status=\S+$`).MatchString(out) ||
+		!regexp.MustCompile(`(?m)^  orders -> payments  declared\S*  \S+$`).MatchString(out) {
 		t.Errorf("neighborhood text:\n%s", out)
 	}
 
 	out, _, err = execFleet(t, append(base, "--max-nodes", "1")...)
 	if err != nil || !strings.Contains(out, "truncated: 1 of 2 services shown; raise --max-nodes to see more\n") {
 		t.Errorf("neighborhood --max-nodes 1 = %v:\n%s", err, out)
+	}
+
+	out, _, err = execFleet(t, append(base, "--max-edges", "1")...)
+	if err != nil || !strings.Contains(out, "  orders -> payments  declared") || strings.Contains(out, "truncated") {
+		t.Errorf("neighborhood --max-edges 1 = %v:\n%s", err, out)
 	}
 
 	jout, _, err := execFleet(t, append(base, "--views", "expected", "--depth", "2", "--max-nodes", "5", "--output-format", "json")...)

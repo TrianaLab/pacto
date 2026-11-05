@@ -59,7 +59,8 @@ func newFleetNeighborhoodCommand(svc *app.Service, v *viper.Viper) *cobra.Comman
 		Use:   "neighborhood <service>",
 		Short: "Show the services around one service, with their owners",
 		Long: "Shows who a service depends on and who depends on it, to the requested depth, each with its owner " +
-			"and status. The service is a name, or its key when the name is used in more than one domain.",
+			"and status, then the edges between them: each says whether a contract declares it, telemetry observed it " +
+			"or both, and how the two compare. The service is a name, or its key when the name is used in more than one domain.",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -72,9 +73,10 @@ func newFleetNeighborhoodCommand(svc *app.Service, v *viper.Viper) *cobra.Comman
 			views, _ := f.GetString("views")
 			depth, _ := f.GetInt("depth")
 			maxNodes, _ := f.GetInt("max-nodes")
+			maxEdges, _ := f.GetInt("max-edges")
 			nb, err := q.Neighborhood(fleet.NeighborhoodQuery{
 				Kind: fleet.KindService, Key: args[0], Direction: fleet.Direction(dir),
-				Depth: depth, Views: mcp.SplitViews(views), MaxNodes: maxNodes,
+				Depth: depth, Views: mcp.SplitViews(views), MaxNodes: maxNodes, MaxEdges: maxEdges,
 			})
 			if err != nil {
 				return err
@@ -87,6 +89,7 @@ func newFleetNeighborhoodCommand(svc *app.Service, v *viper.Viper) *cobra.Comman
 	f.Int("depth", 0, fmt.Sprintf("how many hops to walk (0 = %d, at most %d)", fleet.DefaultNeighborhoodDepth, fleet.MaxNeighborhoodDepth))
 	f.String("views", "expected,observed", "comma-separated knowledge views (expected, observed, differences)")
 	f.Int("max-nodes", 0, fmt.Sprintf("maximum services (0 = %d, at most %d)", fleet.DefaultMaxNodes, fleet.MaxNeighborhoodNodes))
+	f.Int("max-edges", 0, fmt.Sprintf("maximum edges (0 = %d, at most %d)", fleet.DefaultMaxEdges, fleet.MaxNeighborhoodEdges))
 	_ = cmd.RegisterFlagCompletionFunc("direction", staticCompletions(string(fleet.DirectionDependencies), string(fleet.DirectionDependents), string(fleet.DirectionBoth)))
 	return cmd
 }
@@ -220,8 +223,14 @@ func printFleetNeighborhood(cmd *cobra.Command, nb *fleet.Neighborhood, format s
 		for _, n := range nb.Nodes {
 			_, _ = fmt.Fprintf(w, "  %s  depth=%d  owner=%s  status=%s\n", n.Ref.Label, n.Depth, orDash(n.Owner), orDash(n.Status))
 		}
+		for _, e := range nb.Edges {
+			_, _ = fmt.Fprintf(w, "  %s -> %s  %s  %s\n", e.From.Label, e.To.Label, e.Provenance, orDash(e.Difference))
+		}
 		if nb.Truncated {
 			_, _ = fmt.Fprintf(w, "truncated: %d of %d services shown; raise --max-nodes to see more\n", len(nb.Nodes), nb.TotalNodes)
+		}
+		if nb.TruncatedEdges {
+			_, _ = fmt.Fprintln(w, "truncated: some edges are not shown; raise --max-edges to see more")
 		}
 		warnProductPartial(cmd, nb.Meta)
 		return nil

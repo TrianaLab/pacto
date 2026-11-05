@@ -887,7 +887,7 @@ pacto fleet graph <service> [flags]
 
 ### `pacto fleet neighborhood`
 
-Shows who a service depends on and who depends on it, to the requested depth, each with its owner and status. The service is a name, or its key when the name is used in more than one domain.
+Shows who a service depends on and who depends on it, to the requested depth, each with its owner and status, then the edges between them: each says whether a contract declares it, telemetry observed it or both, and how the two compare. The service is a name, or its key when the name is used in more than one domain.
 
 ```
 pacto fleet neighborhood <service> [flags]
@@ -899,6 +899,7 @@ pacto fleet neighborhood <service> [flags]
       --depth int          how many hops to walk (0 = 1, at most 6)
       --direction string   which side to walk (dependencies, dependents, both) (default "both")
   -h, --help               help for neighborhood
+      --max-edges int      maximum edges (0 = 120, at most 1000)
       --max-nodes int      maximum services (0 = 60, at most 500)
       --views string       comma-separated knowledge views (expected, observed, differences) (default "expected,observed")
 ```

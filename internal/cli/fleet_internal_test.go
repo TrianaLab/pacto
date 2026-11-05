@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -13,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func newTestService(t *testing.T) *app.Service {
@@ -223,5 +226,18 @@ func TestMiraSourceFlagReachesFleetOptions(t *testing.T) {
 	}
 	if got := fleetOptions(search).MiraURLs; !slices.Equal(got, []string{"http://a:4318", "http://b:4318"}) {
 		t.Errorf("MiraURLs = %v", got)
+	}
+}
+
+// TestPrintFleetNeighborhoodTruncatedEdges: the edge budget cutting the answer
+// is said in text, since the services it shows may all be there.
+func TestPrintFleetNeighborhoodTruncatedEdges(t *testing.T) {
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	if err := printFleetNeighborhood(cmd, &fleet.Neighborhood{TruncatedEdges: true}, "text"); err != nil ||
+		!strings.Contains(out.String(), "truncated: some edges are not shown; raise --max-edges to see more\n") {
+		t.Fatalf("text = %v:\n%s", err, out.String())
 	}
 }
