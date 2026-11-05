@@ -744,16 +744,9 @@ type Labels struct {
 }
 
 func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*historyOutput, error) {
-	since, err := queryTime("since", in.Since)
+	since, until, err := queryWindow(in.Since, in.Until)
 	if err != nil {
 		return nil, err
-	}
-	until, err := queryTime("until", in.Until)
-	if err != nil {
-		return nil, err
-	}
-	if err := delivery.CheckWindow(since, until); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
 	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
@@ -827,6 +820,21 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	versionsAll(ctx, api, out.Body.Versions, nil, on...)
 	out.Body.People = s.named(actors...)
 	return out, nil
+}
+
+// queryWindow reads the since and until query parameters and refuses a window
+// that ends before it starts.
+func queryWindow(sinceQ, untilQ string) (since, until time.Time, err error) {
+	if since, err = queryTime("since", sinceQ); err != nil {
+		return since, until, err
+	}
+	if until, err = queryTime("until", untilQ); err != nil {
+		return since, until, err
+	}
+	if err = delivery.CheckWindow(since, until); err != nil {
+		err = huma.Error400BadRequest(err.Error())
+	}
+	return since, until, err
 }
 
 // queryTime reads an optional RFC 3339 query parameter.

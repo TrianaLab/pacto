@@ -134,11 +134,6 @@ func TestFleetNeighborhood(t *testing.T) {
 		t.Errorf("neighborhood --max-nodes 1 = %v:\n%s", err, out)
 	}
 
-	out, _, err = execFleet(t, append(base, "--max-edges", "1")...)
-	if err != nil || !strings.Contains(out, "  orders -> payments  declared") || strings.Contains(out, "truncated") {
-		t.Errorf("neighborhood --max-edges 1 = %v:\n%s", err, out)
-	}
-
 	jout, _, err := execFleet(t, append(base, "--views", "expected", "--depth", "2", "--max-nodes", "5", "--output-format", "json")...)
 	if err != nil || !strings.Contains(jout, `"requestedFocus"`) || !strings.Contains(jout, `"snapshotId"`) || !strings.Contains(jout, `"views": [`+"\n"+`    "expected"`+"\n"+`  ]`) {
 		t.Errorf("neighborhood json = %v:\n%s", err, jout)
@@ -148,6 +143,14 @@ func TestFleetNeighborhood(t *testing.T) {
 		if _, _, err := execFleet(t, append(append([]string{"fleet", "neighborhood"}, args...), "--local", root, "--target-state", ev)...); err == nil {
 			t.Errorf("neighborhood %v is an error", args)
 		}
+	}
+}
+
+func TestFleetNeighborhoodMaxEdges(t *testing.T) {
+	root, ev := writeFleetFixture(t)
+	out, _, err := execFleet(t, "fleet", "neighborhood", "payments", "--max-edges", "1", "--local", root, "--target-state", ev)
+	if err != nil || !strings.Contains(out, "  orders -> payments  declared") || strings.Contains(out, "truncated") {
+		t.Errorf("neighborhood --max-edges 1 = %v:\n%s", err, out)
 	}
 }
 
