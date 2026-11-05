@@ -588,6 +588,18 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 	if undeclared.Total == 0 || undeclared.Items[0].Category != "undeclared" {
 		t.Errorf("pacto_fleet_attention category=undeclared = %+v", undeclared)
 	}
+	var nb struct {
+		RequestedFocus struct {
+			Label string `json:"label"`
+		} `json:"requestedFocus"`
+		Nodes []struct {
+			Owner string `json:"owner"`
+		} `json:"nodes"`
+	}
+	call("pacto_fleet_neighborhood", map[string]any{"service": "orders-service"}, &nb)
+	if nb.RequestedFocus.Label != "orders-service" || len(nb.Nodes) < 2 {
+		t.Errorf("pacto_fleet_neighborhood service=orders-service = %+v", nb)
+	}
 
 	if err := session.Close(); err != nil {
 		t.Errorf("closing the session: %v", err)

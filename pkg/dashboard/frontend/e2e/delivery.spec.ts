@@ -386,6 +386,25 @@ test.describe('Delivery views', () => {
     await expect(page.getByTestId('decide-approve')).toHaveCount(0);
   });
 
+  test('a service page opens the service in Mira beside its observed traffic', async ({ page }) => {
+    await as(page, 'carol');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/services/payments-service');
+    await page.addStyleTag({ content: '*{font-family: Verdana, "DejaVu Sans", sans-serif !important}' });
+    const observed = page.getByTestId('service-relationships');
+    const link = observed.getByRole('link', { name: 'Open in Mira' });
+    await expect(link).toHaveAttribute('href', 'https://mira.example/#/traces?q=service.name%3D%22payments-service%22&range=-1h', { timeout: T });
+    await expect(link).toHaveAttribute('target', '_blank');
+    // The link sits under the section: its title stays on one line.
+    const title = observed.getByRole('heading', { name: 'Observed traffic and differences' });
+    const box = await title.boundingBox();
+    const lineHeight = await title.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 0);
+    expect(box && lineHeight && box.height < lineHeight * 1.5).toBeTruthy();
+    // Only the section the link lives in: the rest of the page has suites of its own.
+    const r = await new AxeBuilder({ page }).include('[data-testid="service-relationships"]').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+    expect(r.violations).toEqual([]);
+  });
+
   test('history says when it comes from signed records and when it is only partial', async ({ page }) => {
     await as(page, 'carol');
     // Every environment is one line: its newest change, how many and its problems, linked to the rest.

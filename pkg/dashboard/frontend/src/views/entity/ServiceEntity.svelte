@@ -20,6 +20,8 @@
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import { readinessSegments, signatureSegments, signatureState, segmentTotal, READINESS_STATES } from '../../lib/distributions.ts';
   import { dropService, inService } from '../../lib/identityContext.ts';
+  import { api } from '../../lib/api.ts';
+  import { miraServiceLink } from '../../lib/delivery.ts';
 
   // The principal operational service page. It renders ONLY the
   // product entity-detail payload (never the snapshot): owner + ownership conflicts,
@@ -32,7 +34,7 @@
   // the service's COMPLETE target / revision / edge populations. It is deliberately not
   // computed from the previews beside it: those are capped at 200 items, so counting
   // them would quietly turn "the first 200 targets" into "this service".
-  let { detail, deliveryState = 'unknown', refreshTick = 0 } = $props();
+  let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '' } = $props();
   const d = $derived(detail.service ?? {});
   const key = $derived(detail.entity?.key ?? '');
   const bd = $derived(detail.entity?.businessDomain ?? '');
@@ -56,6 +58,20 @@
   // part that differs. A target's name is its scope, kind and name; its environment is
   // a column of its own.
   const self = $derived(detail.entity?.label ?? '');
+  // Open in Mira: Mira matches spans by service name only, so the link shows
+  // only when no other service you can see shares this name.
+  const miraHref = $derived(miraServiceLink(self, miraURL));
+  let miraFor = $state('');
+  $effect(() => {
+    const name = self;
+    miraFor = '';
+    if (!miraHref || !name) return;
+    let live = true;
+    api.fleetEntities({ kinds: ['service'], text: name, limit: 50 }).then((r) => {
+      if (live && !r.truncated && (r.entities ?? []).filter((e) => e.label === name).length === 1) miraFor = name;
+    }, () => {});
+    return () => { live = false; };
+  });
   const own = (items) => (items ?? []).map((r) => inService(r, self));
   // The contract this service runs: the newest revision in use, else the newest known.
   const contract = $derived(
@@ -267,6 +283,12 @@
     <PreviewSection title="Observed traffic and differences" total={d.relationships?.total ?? null} count={d.relationships?.count ?? 0} truncated={d.relationships?.truncated} viewAllHref={graphHref} viewAllLabel="Open differences view" empty={relEmpty} help="What Pacto has actually seen this service talk to, and where that disagrees with what its contract declares.">
       <RelationshipList items={d.relationships?.items ?? []} selfKey={key} showClaims />
     </PreviewSection>
+    {#if miraHref && miraFor === self}
+      <p class="t-body-2 se-mira">
+        <a href={miraHref} target="_blank" rel="noopener noreferrer" data-testid="service-mira-link">Open in Mira</a>
+        <HelpTip label="Open in Mira" text="Opens this service's spans in Mira. Mira matches by service name only." />
+      </p>
+    {/if}
   </div>
 
   <!-- Inventory: WHAT this service is made of. It answers a navigation question, not an

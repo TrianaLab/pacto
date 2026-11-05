@@ -360,11 +360,12 @@ func audit[T any](ctx context.Context, stages []delivery.StageObject, read func(
 }
 
 // HistoryAll reads the history of every Stage in namespace, or in every
-// namespace the caller can list for "".
-func (d *Delivery) HistoryAll(ctx context.Context, namespace string) (*delivery.Histories, error) {
+// namespace the caller can list for "", keeping only the Stages of service
+// of when it names one.
+func (d *Delivery) HistoryAll(ctx context.Context, namespace string, of delivery.ServiceRef) (*delivery.Histories, error) {
 	ctx, cancel := context.WithTimeout(ctx, auditTimeout) // the walk counts against the audit's time
 	defer cancel()
-	stages, forbidden, err := d.auditStages(ctx, namespace)
+	stages, forbidden, err := d.auditStages(ctx, namespace, of)
 	if err != nil {
 		return nil, err
 	}
@@ -379,11 +380,12 @@ func (d *Delivery) HistoryAll(ctx context.Context, namespace string) (*delivery.
 // auditStages lists the Stages a fleet audit walks: those in namespace, or in
 // every namespace for "". A caller who may not list Stages cluster-wide gets
 // the Stages of each namespace it can read, and every namespace it cannot is
-// named in forbidden.
-func (d *Delivery) auditStages(ctx context.Context, namespace string) (stages []delivery.StageObject, forbidden []string, err error) {
+// named in forbidden. Only the Stages of service of are kept when it names
+// one, before anything counts toward the walk's bound.
+func (d *Delivery) auditStages(ctx context.Context, namespace string, of delivery.ServiceRef) (stages []delivery.StageObject, forbidden []string, err error) {
 	stages, err = d.Stages(ctx, namespace)
 	if namespace != "" || !apierrors.IsForbidden(err) {
-		return stages, nil, err
+		return ofService(stages, of), nil, err
 	}
 	type named struct {
 		Metadata delivery.ObjectMeta `json:"metadata"`
@@ -398,7 +400,7 @@ func (d *Delivery) auditStages(ctx context.Context, namespace string) (stages []
 	g.SetLimit(auditParallel)
 	for i, ns := range nss {
 		g.Go(func() error {
-			per[i], errs[i] = d.namespaceStages(ctx, ns.Metadata.Name, &read)
+			per[i], errs[i] = d.namespaceStages(ctx, ns.Metadata.Name, of, &read)
 			return nil
 		})
 	}
@@ -413,8 +415,9 @@ func (d *Delivery) auditStages(ctx context.Context, namespace string) (stages []
 }
 
 // namespaceStages lists one namespace's Stages for the walk, unless the walk
-// already read auditLimit Stages or ran out of time; read counts them.
-func (d *Delivery) namespaceStages(ctx context.Context, ns string, read *atomic.Int64) ([]delivery.StageObject, error) {
+// already read auditLimit Stages or ran out of time; read counts the ones of
+// service of.
+func (d *Delivery) namespaceStages(ctx context.Context, ns string, of delivery.ServiceRef, read *atomic.Int64) ([]delivery.StageObject, error) {
 	switch {
 	case read.Load() >= auditLimit:
 		return nil, fmt.Errorf("namespace %s was not read: one walk reads at most %d Stages", ns, auditLimit)
@@ -422,8 +425,14 @@ func (d *Delivery) namespaceStages(ctx context.Context, ns string, read *atomic.
 		return nil, fmt.Errorf("namespace %s was not read: %w", ns, ctx.Err())
 	}
 	s, err := d.Stages(ctx, ns)
+	s = ofService(s, of)
 	read.Add(int64(len(s)))
 	return s, err
+}
+
+// ofService keeps the Stages of service of; an empty of keeps them all.
+func ofService(stages []delivery.StageObject, of delivery.ServiceRef) []delivery.StageObject {
+	return slices.DeleteFunc(stages, func(st delivery.StageObject) bool { return !delivery.OfService(st, of.Name, of.Domain) })
 }
 
 // Histories reads the history of each of stages.
@@ -459,7 +468,7 @@ func (d *Delivery) VerifyAll(ctx context.Context, namespace string) (*delivery.S
 	}
 	ctx, cancel := context.WithTimeout(ctx, auditTimeout)
 	defer cancel()
-	stages, forbidden, err := d.auditStages(ctx, namespace)
+	stages, forbidden, err := d.auditStages(ctx, namespace, delivery.ServiceRef{})
 	if err != nil {
 		return nil, err
 	}

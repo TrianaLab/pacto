@@ -244,3 +244,37 @@ func TestPersonFromTokenInfo(t *testing.T) {
 		t.Errorf("mapped caller is %+v", p)
 	}
 }
+
+// TestViewerCallerNamespaces: a k8s caller in a namespace no target runs in is
+// reviewed like any other namespace: alice, who may not read f, sees neither
+// its name nor its namespace, only a count, and keeps the caller in a.
+func TestViewerCallerNamespaces(t *testing.T) {
+	k := fleet.SourceKindKubernetes
+	col := &fleet.Collection{
+		Targets:  []fleet.RawTarget{{Scope: "a", Kind: k, Name: "svc-a", Service: "svc-a"}},
+		Observed: []fleet.ObservedEdge{{From: "k8s:f/Deployment/spy", To: "svc-a", Count: 1}, {From: "k8s:a/Deployment/friend", To: "svc-a", Count: 1}},
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", k, col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, r, _ := testViewer()
+	got, err := v.Query(context.Background(), alice, fleet.NewQuery(snap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(r.asked, "f") {
+		t.Errorf("asked %v, never about the caller's namespace", r.asked)
+	}
+	s := got.SnapshotForSerialization()
+	var callers []string
+	for _, c := range s.UncontractedCallers {
+		callers = append(callers, c.Caller)
+	}
+	if !slices.Equal(callers, []string{"k8s:a/Deployment/friend"}) {
+		t.Errorf("alice sees callers %v, want only the one in a", callers)
+	}
+	if svc := s.Services[fleet.NewServiceKey("svc-a")]; svc == nil || svc.HiddenDependents != 1 {
+		t.Errorf("svc-a = %+v, want the f caller counted", svc)
+	}
+}

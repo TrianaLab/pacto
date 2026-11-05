@@ -1912,15 +1912,15 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 }
 
 // reconcileDeclared classifies each declared dependency edge against the
-// snapshot's observed edges: matched (an observed edge corroborates it),
-// declared-not-observed (observation data exists but did not witness it), or
-// insufficient (no observation data at all — so it cannot be reconciled). This is
-// the ONLY source of a relationship's reconciliation state; a declared edge is
-// never "reconciled" merely because its provider is deployed. Runs after
-// foldObservedRelationships so the observed edges are present. An edge only
-// sources in undeclaredOnly witnessed corroborates a declared edge but is no
-// observation data: those sources never report a declared call, so their silence
-// says nothing about one.
+// snapshot's observed edges: matched (an observed edge from any source
+// corroborates it), declared-not-observed (full-coverage observation data exists
+// but did not witness it), or insufficient (no full-coverage observation data —
+// so it cannot be reconciled). This is the ONLY source of a relationship's
+// reconciliation state; a declared edge is never "reconciled" merely because its
+// provider is deployed. Runs after foldObservedRelationships so the observed
+// edges are present. Sources in undeclaredOnly corroborate a declared edge they
+// witnessed but are no observation data otherwise: they never report, or see
+// only part of, the declared calls, so their silence says nothing about one.
 func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	type edge struct{ from, to ServiceKey }
 	observed := map[edge]bool{}
@@ -1937,10 +1937,10 @@ func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 			continue
 		}
 		switch {
-		case !haveObservation:
-			rel.Reconciliation = ReconciliationInsufficient
 		case observed[edge{rel.FromService, rel.ToService}]:
 			rel.Reconciliation = ReconciliationMatched
+		case !haveObservation:
+			rel.Reconciliation = ReconciliationInsufficient
 		case rel.External:
 			// Not expected to run where Pacto observes, so not seeing it is no finding.
 		default:

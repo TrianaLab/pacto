@@ -28,7 +28,8 @@
   // and owns the shared shell: entity-relationship breadcrumbs, identity header,
   // canonical key, knowledge caveat and contextual actions. The kind-specific rich
   // body is delegated to the per-kind component.
-  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown' } = $props();
+  // miraURL: Mira's address, only for a caller whose permissions hide nothing.
+  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '' } = $props();
 
   // Four lifecycle events, three behaviours -- the distinction this page used to lack.
   //
@@ -176,7 +177,7 @@
            this body, not the page: without a boundary it left the skeleton up for ever. -->
       <svelte:boundary>
         {#if detail.service}
-          <ServiceEntity {detail} {deliveryState} {refreshTick} />
+          <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} />
         {:else if detail.revision}
           <RevisionEntity {detail} />
         {:else if detail.target}

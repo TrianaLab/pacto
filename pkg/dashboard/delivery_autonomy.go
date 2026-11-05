@@ -3,6 +3,7 @@ package dashboard
 import (
 	"cmp"
 	"context"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -284,6 +285,9 @@ func autonomy(stages []delivery.StageObject, callers []uncontractedCaller) ([]Au
 	return rows, blockers, count
 }
 
+// namespaceName is a Kubernetes namespace name (an RFC 1123 label).
+var namespaceName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+
 // fixFor is what a person copies for a blocker: a pacto init command for a
 // missing contract, a dependencies entry for a range the consumer does not
 // declare. service is the Stage's service the blocker came from; an
@@ -296,7 +300,9 @@ func fixFor(kind, subject, service string, have *BlockerFix) *BlockerFix {
 			ns, _, _ = strings.Cut(rest, "/")
 		}
 		cmd := "pacto init --cluster --out ./pacto-drafts"
-		if ns != "" {
+		// The caller name comes from telemetry, so only a Kubernetes namespace
+		// name reaches the shell command a person copies.
+		if namespaceName.MatchString(ns) {
 			cmd = "pacto init --cluster --namespace " + ns + " --out ./pacto-drafts"
 		}
 		return &BlockerFix{Command: cmd}

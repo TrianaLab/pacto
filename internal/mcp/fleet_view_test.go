@@ -82,13 +82,10 @@ func TestImpactUsesTheCurrentSnapshot(t *testing.T) {
 	}
 }
 
-// TestNewFleetToolsAnswerFromTheView: under a restricted view the entities,
-// entity, attention and graph tools never name a hidden service, its owner, its
-// namespace or an uncontracted caller from that namespace, and their
-// limitations come from the restricted snapshot. (A visible contract's own
-// declared dependency keeps the name it declares, by Restrict's design, so the
-// hidden service here is only ever a caller.)
-func TestNewFleetToolsAnswerFromTheView(t *testing.T) {
+// secretFleet: web runs in shop and vaultsvc in secretns, which calls web and
+// declares it; a Deployment in secretns calls web too.
+func secretFleet(t *testing.T, extra ...fleet.ObservedEdge) *fleet.Query {
+	t.Helper()
 	k := fleet.SourceKindKubernetes
 	mk := func(name, team, domain string, deps ...string) *contract.Contract {
 		var d []contract.Dependency
@@ -107,20 +104,31 @@ func TestNewFleetToolsAnswerFromTheView(t *testing.T) {
 			{Scope: "shop", Kind: k, Name: "web", Service: "web", Compliance: fleet.StatusCompliant},
 			{Scope: "secretns", Kind: k, Name: "vaultsvc", Service: "vaultsvc", Compliance: fleet.StatusNonCompliant},
 		},
-		Observed: []fleet.ObservedEdge{
+		Observed: append([]fleet.ObservedEdge{
 			{From: "vaultsvc", To: "web", Count: 1},
 			{From: "k8s:secretns/Deployment/spy", To: "web", Count: 1},
-		},
+		}, extra...),
 		Limitations: []fleet.Limitation{{Code: "X", Message: "something about vaultsvc"}},
 	})
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, src)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return fleet.NewQuery(snap)
+}
+
+// TestNewFleetToolsAnswerFromTheView: under a restricted view the entities,
+// entity, attention and graph tools never name a hidden service, its owner, its
+// namespace or an uncontracted caller from that namespace, and their
+// limitations come from the restricted snapshot. (A visible contract's own
+// declared dependency keeps the name it declares, by Restrict's design, so the
+// hidden service here is only ever a caller.)
+func TestNewFleetToolsAnswerFromTheView(t *testing.T) {
+	q := secretFleet(t)
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
 	}
-	server := NewFleetServer("test", staticFleet(fleet.NewQuery(snap)), nil, FleetOptions{View: view})
+	server := NewFleetServer("test", staticFleet(q), nil, FleetOptions{View: view})
 	calls := []struct {
 		tool string
 		args map[string]any
@@ -158,6 +166,35 @@ func TestNewFleetToolsAnswerFromTheView(t *testing.T) {
 	for _, args := range []map[string]any{{"kind": "service", "key": "vaultsvc"}, {"kind": "owner", "key": "team:secretteam"}, {"kind": "domain", "key": "secretdomain"}} {
 		if res := callToolOn(t, server, "pacto_fleet_entity", args); !res.IsError {
 			t.Errorf("entity %v is hidden, got %s", args, resultText(t, res))
+		}
+	}
+}
+
+// TestNeighborhoodToolAnswersFromTheView: for a viewer who may not read the
+// cluster scope, pacto_fleet_neighborhood names neither the hidden service, its
+// owner, its namespace, a caller from that namespace nor a caller with no
+// namespace, and the focus counts the hidden service, the secretns caller and
+// the bare caller as hidden dependents.
+func TestNeighborhoodToolAnswersFromTheView(t *testing.T) {
+	q := secretFleet(t, fleet.ObservedEdge{From: "legacy-batch", To: "web", Count: 2})
+	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		return q.Restrict(func(ns string) bool { return ns != "" && ns != "secretns" }), nil
+	}
+	server := NewFleetServer("test", staticFleet(q), nil, FleetOptions{View: view})
+	for _, dir := range []string{"dependents", "both"} {
+		res := callToolOn(t, server, "pacto_fleet_neighborhood", map[string]any{"service": "web", "direction": dir, "depth": 3})
+		text := resultText(t, res)
+		for _, hidden := range []string{"vaultsvc", "secretteam", "secretdomain", "secretns", "spy", "legacy-batch"} {
+			if strings.Contains(text, hidden) {
+				t.Errorf("%s names %q:\n%s", dir, hidden, text)
+			}
+		}
+		var nb fleet.Neighborhood
+		decode(t, res, &nb)
+		for _, n := range nb.Nodes {
+			if n.Focus && n.HiddenDependents != 3 {
+				t.Errorf("%s: focus hiddenDependents = %d, want vaultsvc, spy and legacy-batch", dir, n.HiddenDependents)
+			}
 		}
 	}
 }

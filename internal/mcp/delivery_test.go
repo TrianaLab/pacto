@@ -17,6 +17,12 @@ type stubDelivery struct {
 	op      *delivery.OperationObject
 	err     error
 	cancels []string
+	of      delivery.ServiceRef
+}
+
+// stubEntries are a change that finished at ten and one with no time.
+func stubEntries() []delivery.HistoryEntry {
+	return []delivery.HistoryEntry{{Operation: "at-ten", Applied: "2026-11-05T09:50:00Z", Finished: "2026-11-05T10:00:00Z"}, {Operation: "timeless"}}
 }
 
 func (s *stubDelivery) Plan(_ context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
@@ -61,7 +67,7 @@ func (s *stubDelivery) History(_ context.Context, _, stage string) (*delivery.Hi
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &delivery.History{Stage: delivery.StageNow{Name: stage}, Completeness: "partial"}, nil
+	return &delivery.History{Stage: delivery.StageNow{Name: stage}, Completeness: "partial", Entries: stubEntries()}, nil
 }
 
 func (s *stubDelivery) Blame(_ context.Context, _, stage, digest string) (*delivery.Blame, error) {
@@ -78,11 +84,13 @@ func (s *stubDelivery) Undo(_ context.Context, ns, name, stage string) (*deliver
 	return &delivery.Undo{Operation: ns + "/" + name, Kind: "rollback", Note: stage}, nil
 }
 
-func (s *stubDelivery) HistoryAll(_ context.Context, ns string) (*delivery.Histories, error) {
+func (s *stubDelivery) HistoryAll(_ context.Context, ns string, of delivery.ServiceRef) (*delivery.Histories, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &delivery.Histories{Completeness: "partial", Note: "ns=" + ns}, nil
+	s.of = of
+	return &delivery.Histories{Completeness: "partial", Note: "ns=" + ns,
+		Histories: []delivery.StageHistory{{History: delivery.History{Entries: stubEntries()}}}}, nil
 }
 
 func (s *stubDelivery) VerifyAll(_ context.Context, ns string) (*delivery.StreamVerifications, error) {
@@ -310,6 +318,62 @@ func TestDeliveryFleetToolErrors(t *testing.T) {
 	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_record_verify"} {
 		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod"}); !res.IsError {
 			t.Fatalf("%s of every Stage must surface the error", tool)
+		}
+	}
+}
+
+// TestDeliveryHistoryWindowAndService: since and until keep the changes
+// around a time and every change whose time is unknown; service narrows the
+// walk and makes no sense with one Stage.
+func TestDeliveryHistoryWindowAndService(t *testing.T) {
+	api := &stubDelivery{}
+	server := NewDeliveryServer("v", api, false, nil)
+	names := func(es []delivery.HistoryEntry) string {
+		var out []string
+		for _, e := range es {
+			out = append(out, e.Operation)
+		}
+		return strings.Join(out, ",")
+	}
+	var h delivery.History
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s",
+		"since": "2026-11-05T11:00:00Z"}), &h)
+	if names(h.Entries) != "timeless" || !strings.Contains(h.Note, "at or after 2026-11-05T11:00:00Z") {
+		t.Fatalf("history after eleven: %+v", h)
+	}
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s",
+		"since": "2026-11-05T09:00:00Z", "until": "2026-11-05T10:30:00Z"}), &h)
+	if names(h.Entries) != "at-ten,timeless" {
+		t.Fatalf("history around ten: %+v", h)
+	}
+	var hs delivery.Histories
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"service": "payments", "domain": "d",
+		"until": "2026-11-05T09:00:00Z"}), &hs)
+	if api.of != (delivery.ServiceRef{Name: "payments", Domain: "d"}) || names(hs.Histories[0].Entries) != "timeless" {
+		t.Fatalf("walk for payments before nine: %+v of %+v", hs, api.of)
+	}
+	for args, want := range map[string]map[string]any{
+		"service filters the walk; leave stage empty": {"namespace": "prod", "stage": "s", "service": "payments"},
+		"since is not an RFC 3339 time":               {"namespace": "prod", "stage": "s", "since": "yesterday"},
+		"until is not an RFC 3339 time":               {"until": "2h"},
+		"domain needs service":                        {"domain": "d"},
+		"since is after until":                        {"since": "2026-11-05T11:00:00Z", "until": "2026-11-05T09:00:00Z"},
+	} {
+		if res := callToolOn(t, server, "pacto_delivery_history", want); !res.IsError || !strings.Contains(resultText(t, res), args) {
+			t.Fatalf("%v: %s", want, resultText(t, res))
+		}
+	}
+}
+
+// TestRecordVerifySchemaHasNoWindow: record verify shares the audit schema,
+// which takes no time window or service.
+func TestRecordVerifySchemaHasNoWindow(t *testing.T) {
+	for _, k := range []string{"since", "until", "service", "domain"} {
+		if _, ok := auditSchema()["properties"].(map[string]any)[k]; ok {
+			t.Fatalf("the audit schema takes %s", k)
+		}
+		if _, ok := historySchema()["properties"].(map[string]any)[k]; !ok {
+			t.Fatalf("the history schema lacks %s", k)
 		}
 	}
 }

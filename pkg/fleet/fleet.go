@@ -421,9 +421,9 @@ type ServiceRecord struct {
 	Status    string            `json:"status,omitempty"`
 	Sources   []string          `json:"sources,omitempty"`
 	// HiddenDependencies and HiddenDependents count the services this one
-	// depends on or calls, and that depend on or call it, which the caller's
-	// Kubernetes permissions hide. They are never named. Zero outside a
-	// restricted answer.
+	// depends on or calls, and the services, or callers with no contract, that
+	// depend on or call it, which the caller's permissions hide. They are never
+	// named. Zero outside a restricted answer.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
 	HiddenDependents   int `json:"hiddenDependents,omitempty"`
 }

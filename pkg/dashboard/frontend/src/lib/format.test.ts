@@ -192,7 +192,8 @@ describe('sourceTooltip', () => {
     expect(sourceTooltip('oci')).toContain('OCI');
     expect(sourceTooltip('local')).toContain('Local');
     expect(sourceTooltip('cache')).toContain('Cache');
-    for (const kind of ['target-state', 'evidence-http', 'evidence-ingest', 'observation', 'catalog']) {
+    expect(sourceTooltip('mira')).toContain('Mira');
+    for (const kind of ['target-state', 'evidence-http', 'evidence-ingest', 'observation', 'catalog', 'mira']) {
       expect(sourceTooltip(kind)).not.toBe(kind);
     }
   });

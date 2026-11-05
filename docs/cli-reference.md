@@ -233,7 +233,8 @@ pacto dashboard [sources...] [flags]
       --delivery-trust string             the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
   -h, --help                              help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
-      --mira-url string                   Mira's address, to link the health-check citations of delivery verdicts
+      --mira-source stringArray           base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)
+      --mira-url string                   Mira's address, to link health-check citations and open a service in Mira
       --namespace string                  Kubernetes namespace (empty = all namespaces)
       --oidc-ca-file string               PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)
       --oidc-client-id string             OpenID Connect client id of the dashboard
@@ -398,9 +399,13 @@ pacto delivery history [flags]
 **Flags:**
 
 ```
-      --all            walk every Stage in the namespace given with -n, or in every namespace you can list
-  -h, --help           help for history
-      --stage string   the Stage (this or --all)
+      --all              walk every Stage in the namespace given with -n, or in every namespace you can list
+      --domain string    with --service, its registry domain; a Stage that names none matches any
+  -h, --help             help for history
+      --service string   with --all, only the Stages of this service
+      --since string     only changes at or after this RFC 3339 time, or this long before now (2h)
+      --stage string     the Stage (this or --all)
+      --until string     only changes at or before this RFC 3339 time, or this long before now (30m)
 ```
 
 ### `pacto delivery plan`
@@ -764,6 +769,7 @@ pacto fleet [flags]
   -h, --help                       help for fleet
       --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
@@ -877,6 +883,25 @@ pacto fleet graph <service> [flags]
       --revision string    root an exact contract revision key
       --target string      root the revision linked to this target key or name
       --transitive         traverse transitively (cycle-safe)
+```
+
+### `pacto fleet neighborhood`
+
+Shows who a service depends on and who depends on it, to the requested depth, each with its owner and status, then the edges between them: each says whether a contract declares it, telemetry observed it or both, and how the two compare. The service is a name, or its key when the name is used in more than one domain.
+
+```
+pacto fleet neighborhood <service> [flags]
+```
+
+**Flags:**
+
+```
+      --depth int          how many hops to walk (0 = 1, at most 6)
+      --direction string   which side to walk (dependencies, dependents, both) (default "both")
+  -h, --help               help for neighborhood
+      --max-edges int      maximum edges (0 = 120, at most 1000)
+      --max-nodes int      maximum services (0 = 60, at most 500)
+      --views string       comma-separated knowledge views (expected, observed, differences) (default "expected,observed")
 ```
 
 ### `pacto fleet reconcile`
@@ -1070,6 +1095,7 @@ pacto impact <old> <new> [flags]
       --include-observed           let observed (runtime) relationships raise consumer confidence
       --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --new-set stringArray        set a value on the new contract (e.g. --new-set service.version=2.0.0)
       --new-values stringArray     values file to merge into the new contract (can be repeated)
@@ -1288,7 +1314,7 @@ When a bundle reference (local directory or oci:// ref) is given, the server als
 
 With --root, the server exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so the session keeps its startup view even when a registry tag moves. Roots that fail to resolve stay visible as partial knowledge. The catalog grants no authorization and executes nothing.
 
-With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
+With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --mira-source, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
 
 With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
@@ -1344,6 +1370,7 @@ pacto mcp [bundle-ref] [flags]
       --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
       --k8s                           include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
       --oidc-groups-claim string      ID token claim the API server takes the groups from; must match its claim mapping (default groups)
@@ -1399,11 +1426,12 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `ownership`, `status`, `sort`, `limit`, `offset` |
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
 | `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `limit`, `offset` |
+| `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`) and `max_nodes` |
 | `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 
-With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity and attention answers carry an `href` to each entity's page on that Pacto dashboard.
+With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity, attention and neighborhood answers carry an `href` to each entity's page on that Pacto dashboard, and each contracted consumer in a `pacto_impact` answer an `href` to its service page.
 
 See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.
 
@@ -1659,6 +1687,7 @@ pacto tui [flags]
   -h, --help                       help for tui
       --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --mira-source stringArray    base URL of a Mira node whose service map supplies observed calls between services (repeatable)
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --read-only                  hide every write verb
@@ -1839,10 +1868,12 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespace filter (empty = all) |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | `--cors-origin` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
+| `PACTO_DASHBOARD_MIRA_SOURCES` | `--mira-source` | Space-separated Mira base URLs whose service map supplies observed calls |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | `--trace-source` | Named offline trace sources as `NAME=PATH`, where `NAME` is the source's identity (what the fleet, the API and the dashboard's Data Source list call it) and `PATH` is the trace file location. Identity and location are separate, so reordering the configuration or moving the file keeps the source's name. Two sources whose files share a basename stay two sources. A name must be unique across every Data Source the dashboard assembles. |
 
-!!! warning "The two list variables split on **whitespace**"
-    `PACTO_DASHBOARD_TRACES` and `PACTO_DASHBOARD_TRACE_SOURCES` go through the
+!!! warning "The three list variables split on **whitespace**"
+    `PACTO_DASHBOARD_TRACES`, `PACTO_DASHBOARD_TRACE_SOURCES` and
+    `PACTO_DASHBOARD_MIRA_SOURCES` go through the
     same generic flag binding as every other dashboard variable, which splits a
     multi-valued string on spaces. `PACTO_DASHBOARD_TRACES="a.json b.json"` supplies
     two files; `PACTO_DASHBOARD_TRACES=a.json,b.json` supplies **one**, named

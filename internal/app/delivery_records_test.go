@@ -592,11 +592,11 @@ func TestFleetAudit(t *testing.T) {
 	e := newRecordEnv(t)
 	e.twoRecords()
 	ctx := context.Background()
-	hs, err := e.d.HistoryAll(ctx, "")
+	hs, err := e.d.HistoryAll(ctx, "", delivery.ServiceRef{})
 	if err != nil || len(hs.Histories) != 2 || hs.Completeness != "partial" || len(hs.Unreadable) != 0 {
 		t.Fatalf("history of every Stage (payments-test has no records) = %+v %v", hs, err)
 	}
-	if hs, _ = e.d.HistoryAll(ctx, "prod"); len(hs.Histories) != 1 || hs.Histories[0].Namespace != "prod" || hs.Completeness != "complete" {
+	if hs, _ = e.d.HistoryAll(ctx, "prod", delivery.ServiceRef{}); len(hs.Histories) != 1 || hs.Histories[0].Namespace != "prod" || hs.Completeness != "complete" {
 		t.Fatalf("history of every Stage in prod = %+v", hs)
 	}
 }
@@ -624,14 +624,14 @@ func TestFleetAuditUnreadable(t *testing.T) {
 	e.c.PrependReactor("list", "operations", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("gone")
 	})
-	if hs, _ := e.d.HistoryAll(ctx, ""); len(hs.Histories) != 0 || len(hs.Unreadable) != 2 || hs.Completeness != "partial" ||
+	if hs, _ := e.d.HistoryAll(ctx, "", delivery.ServiceRef{}); len(hs.Histories) != 0 || len(hs.Unreadable) != 2 || hs.Completeness != "partial" ||
 		!strings.Contains(hs.Note, "may still have happened") {
 		t.Fatalf("unreadable Stages = %+v", hs)
 	}
 	e.c.PrependReactor("list", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("forbidden")
 	})
-	_, err := e.d.HistoryAll(ctx, "")
+	_, err := e.d.HistoryAll(ctx, "", delivery.ServiceRef{})
 	wantErrContaining(t, err, "forbidden")
 	_, err = e.d.VerifyAll(ctx, "")
 	wantErrContaining(t, err, "forbidden")
@@ -653,7 +653,7 @@ func TestFleetAuditPerNamespace(t *testing.T) {
 		}
 		return false, nil, nil
 	})
-	hs, err := e.d.HistoryAll(ctx, "")
+	hs, err := e.d.HistoryAll(ctx, "", delivery.ServiceRef{})
 	if err != nil || len(hs.Histories) != 1 || hs.Histories[0].Namespace != "prod" || hs.Completeness != "partial" {
 		t.Fatalf("history with Stages listable per namespace only = %+v %v", hs, err)
 	}
@@ -664,7 +664,7 @@ func TestFleetAuditPerNamespace(t *testing.T) {
 	if err != nil || len(vs.Streams) != 1 || vs.Completeness != "partial" || len(vs.Unreadable) != 1 {
 		t.Fatalf("verify with Stages listable per namespace only = %+v %v", vs, err)
 	}
-	if _, err := e.d.HistoryAll(ctx, "test"); !apierrors.IsForbidden(err) {
+	if _, err := e.d.HistoryAll(ctx, "test", delivery.ServiceRef{}); !apierrors.IsForbidden(err) {
 		t.Fatalf("a namespace named with -n is not walked around: %v", err)
 	}
 }
@@ -691,15 +691,70 @@ func TestFleetAuditWalkIsBounded(t *testing.T) {
 	})
 	gone, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
 	defer cancel()
-	hs, err := e.d.HistoryAll(gone, "")
+	hs, err := e.d.HistoryAll(gone, "", delivery.ServiceRef{})
 	if err != nil || hs.Completeness != "partial" || len(hs.Unreadable) != 20 || !strings.Contains(hs.Unreadable[0], "namespace ns0 was not read: context deadline exceeded") {
 		t.Fatalf("a walk past its deadline = %+v %v", hs, err)
 	}
 	lists.Store(0)
-	stages, forbidden, err := e.d.auditStages(context.Background(), "")
+	stages, forbidden, err := e.d.auditStages(context.Background(), "", delivery.ServiceRef{})
 	if err != nil || lists.Load() > auditParallel+1 || len(stages) > auditParallel*auditLimit ||
 		len(forbidden) < 20-auditParallel || !strings.Contains(forbidden[len(forbidden)-1], "one walk reads at most 500 Stages") {
 		t.Fatalf("a walk past %d Stages: %d lists, %d Stages, unread %v, %v", auditLimit, lists.Load(), len(stages), forbidden, err)
+	}
+}
+
+// serviceStages lists 600 Stages of orders and 3 of payments in ns.
+func serviceStages(ns string) *unstructured.UnstructuredList {
+	l := &unstructured.UnstructuredList{}
+	for i := range 603 {
+		svc := map[string]any{"name": "orders"}
+		if i >= 600 {
+			svc = map[string]any{"name": "payments"}
+		}
+		l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", ns, fmt.Sprint("s", i),
+			map[string]any{"spec": map[string]any{"service": svc}}))
+	}
+	return l
+}
+
+// capped reports whether a walk left Stages unread at its bound.
+func capped(hs *delivery.Histories) bool {
+	return strings.Contains(strings.Join(hs.Unreadable, "|"), "one walk reads at most")
+}
+
+// TestHistoryAllFiltersBeforeTheCap: the service filter only narrows what
+// the caller could list, and is applied before any Stage counts toward the
+// walk's bound, cluster-wide and namespace by namespace.
+func TestHistoryAllFiltersBeforeTheCap(t *testing.T) {
+	payments := delivery.ServiceRef{Name: "payments"}
+	e := newRecordEnv(t, obj("v1", "Namespace", "", "a", nil), obj("v1", "Namespace", "", "b", nil))
+	e.c.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		return true, serviceStages(a.GetNamespace()), nil
+	})
+	ctx := context.Background()
+	if hs, err := e.d.HistoryAll(ctx, "", payments); err != nil || len(hs.Histories) != 3 || capped(hs) {
+		t.Fatalf("cluster-wide walk for payments = %+v, %v", hs, err)
+	}
+	if hs, _ := e.d.HistoryAll(ctx, "", delivery.ServiceRef{}); !capped(hs) {
+		t.Fatalf("without a filter the walk is still bounded: %v", hs.Unreadable)
+	}
+	// Per namespace: the cluster-wide list and namespace b are forbidden.
+	e.c.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		if ns := a.GetNamespace(); ns == "" || ns == "b" {
+			return true, nil, apierrors.NewForbidden(gvrStages.GroupResource(), "", errors.New("no"))
+		}
+		return false, nil, nil
+	})
+	var read atomic.Int64
+	if got, err := e.d.namespaceStages(ctx, "a", payments, &read); err != nil || len(got) != 3 || read.Load() != 3 {
+		t.Fatalf("one namespace for payments = %d Stages, %d counted, %v", len(got), read.Load(), err)
+	}
+	hs, err := e.d.HistoryAll(ctx, "", payments)
+	if err != nil || len(hs.Histories) != 3 || capped(hs) || hs.Completeness != "partial" {
+		t.Fatalf("per-namespace walk for payments = %+v, %v", hs, err)
+	}
+	if got := strings.Join(hs.Unreadable, "|"); !strings.Contains(got, "in b") {
+		t.Fatalf("the forbidden namespace is not named: %s", got)
 	}
 }
 
@@ -713,7 +768,7 @@ func TestFleetAuditNoNamespaces(t *testing.T) {
 	e.c.PrependReactor("list", "namespaces", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, apierrors.NewForbidden(gvrNamespaces.GroupResource(), "", errors.New("no"))
 	})
-	_, err := e.d.HistoryAll(context.Background(), "")
+	_, err := e.d.HistoryAll(context.Background(), "", delivery.ServiceRef{})
 	wantErrContaining(t, err, "name one with -n")
 }
 

@@ -38,7 +38,8 @@ func linkHrefs[A any](tool, prefix string, h mcpsdk.ToolHandlerFor[A, any]) mcps
 
 // addLegacyHrefs adds dashboard paths to the answers that have no product
 // transport type: each search service and graph node (by service key), the
-// graph root (as rootHref) and each status item (by kind and name).
+// graph root (as rootHref), each status item (by kind and name) and each
+// contracted impact consumer (by domain and service).
 func addLegacyHrefs(tool string, v any) any {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -58,6 +59,13 @@ func addLegacyHrefs(tool string, v any) any {
 	case "pacto_fleet_status":
 		each(m["items"], func(o map[string]any) {
 			o["href"] = productview.Entity(fleet.EntityKind(str(o["kind"])), str(o["name"]))
+		})
+	case "pacto_impact":
+		// A caller with no contract has no entity page to link to.
+		each(m["consumers"], func(o map[string]any) {
+			if o["uncontracted"] != true {
+				o["href"] = productview.Entity(fleet.KindService, string(fleet.NewServiceKeyDomain(str(o["domain"]), str(o["service"]))))
+			}
 		})
 	}
 	return m

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -335,19 +336,6 @@ func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObjec
 	return out
 }
 
-// sameDomain reports whether a Stage naming stage as its service's domain may
-// be the service in domain. A Stage that names no domain cannot be told apart
-// by it, so it matches any.
-// ponytail: an unscoped Stage still matches every same-named service; the
-// service page marks such a row "Stage names no domain" instead of hiding it.
-func sameDomain(stage, domain string) bool { return stage == "" || stage == domain }
-
-// ofService reports whether st is a Stage of service in domain; no service
-// keeps every Stage.
-func ofService(st delivery.StageObject, service, domain string) bool {
-	return service == "" || st.Spec.Service.Name == service && sameDomain(st.Spec.Service.Domain, domain)
-}
-
 // EnvironmentRow is one Stage: one service in one environment.
 type EnvironmentRow struct {
 	Namespace        string   `json:"namespace"`
@@ -504,7 +492,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 		}
 	}
 	stages = filter(stages, func(st delivery.StageObject) bool {
-		return matches(in.Q, st.Spec.Service.Name) && ofService(st, in.Service, in.Domain)
+		return matches(in.Q, st.Spec.Service.Name) && delivery.OfService(st, in.Service, in.Domain)
 	})
 	out := &environmentsOutput{}
 	out.Body.Listing, out.Body.Environments = l, []EnvironmentRow{}
@@ -702,6 +690,8 @@ type historyInput struct {
 	Stage     string `query:"stage" doc:"One Stage's name"`
 	Service   string `query:"service" doc:"Without a stage: keep only the Stages of the service with exactly this name"`
 	Domain    string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+	Since     string `query:"since" doc:"RFC 3339 time: keep only changes that ran at or after it. A change with no time, or still in flight, is kept"`
+	Until     string `query:"until" doc:"RFC 3339 time: keep only changes that started at or before it. A change with no time is kept"`
 	// With a Stage, the page is of its changes; without, of Stages, each
 	// with its newest changes.
 	PageQuery
@@ -754,6 +744,10 @@ type Labels struct {
 }
 
 func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*historyOutput, error) {
+	since, until, err := queryWindow(in.Since, in.Until)
+	if err != nil {
+		return nil, err
+	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err
@@ -781,7 +775,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		}
 		stages = filter(stages, func(st delivery.StageObject) bool {
 			return matches(in.Q, st.Metadata.Namespace+"/"+st.Metadata.Name, st.Spec.Service.Name, st.Spec.Environment) &&
-				ofService(st, in.Service, in.Domain)
+				delivery.OfService(st, in.Service, in.Domain)
 		})
 		out.Body.Counts = historyCounts(stages, ops)
 		slices.SortFunc(stages, func(a, b delivery.StageObject) int {
@@ -801,7 +795,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		if errs[i] != nil {
 			return nil, errs[i]
 		}
-		h := hs[i]
+		h := new(delivery.WindowEntries(*hs[i], since, until))
 		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h, ProblemCount: len(h.Problems), UnreadableCount: len(h.Unreadable)}
 		entries := slices.Clone(h.Entries)
 		slices.Reverse(entries) // newest first: what a reader looks for is the latest change
@@ -826,6 +820,33 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	versionsAll(ctx, api, out.Body.Versions, nil, on...)
 	out.Body.People = s.named(actors...)
 	return out, nil
+}
+
+// queryWindow reads the since and until query parameters and refuses a window
+// that ends before it starts.
+func queryWindow(sinceQ, untilQ string) (since, until time.Time, err error) {
+	if since, err = queryTime("since", sinceQ); err != nil {
+		return since, until, err
+	}
+	if until, err = queryTime("until", untilQ); err != nil {
+		return since, until, err
+	}
+	if err = delivery.CheckWindow(since, until); err != nil {
+		err = huma.Error400BadRequest(err.Error())
+	}
+	return since, until, err
+}
+
+// queryTime reads an optional RFC 3339 query parameter.
+func queryTime(name, v string) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}, huma.Error400BadRequest(name + " is not an RFC 3339 time")
+	}
+	return t, nil
 }
 
 // historyCounts counts the Stages that wait for a person and the frozen ones.

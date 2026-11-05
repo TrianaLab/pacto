@@ -1407,6 +1407,47 @@ describe('history and published', () => {
     destroy();
   });
 
+  it('lists the changes of a time window and says how to see them all', async () => {
+    fns.history.mockResolvedValue({ ...listing, histories: [] });
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', since: '2026-11-02T00:00:00Z', until: '2026-11-03T00:00:00Z' });
+    await settle();
+    expect(fns.history).toHaveBeenCalledWith('prod', 'pay', expect.objectContaining({ since: '2026-11-02T00:00:00Z', until: '2026-11-03T00:00:00Z' }));
+    const note = target.querySelector('[data-testid="history-window"]') as HTMLElement;
+    expect(text(note)).toContain('Changes between 2026-11-02 00:00 UTC and 2026-11-03 00:00 UTC.');
+    expect(note.querySelector('a')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
+    destroy();
+  });
+
+  it('a window with no change says so and keeps the window on the Stage links', async () => {
+    const h = (entries: unknown[]) => ({ namespace: 'prod', stage: { name: 'pay', pointer: D1 }, source: 'records', verified: true, completeness: 'complete', entries, entriesPage: { total: entries.length, offset: 0, limit: 50 } });
+    fns.history.mockResolvedValue({ ...listing, histories: [h([])], page: { total: 1, offset: 0, limit: 25 } });
+    let r = render(DeliveryHistoryView, { since: '2026-11-02T00:00:00Z' });
+    await settle();
+    expect(text(r.target)).toContain('None in this window');
+    expect(r.target.querySelector('[data-testid="history-all-changes"]')?.getAttribute('href')).toContain('since=2026-11-02T00%3A00%3A00Z');
+    r.destroy();
+    r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', since: '2026-11-02T00:00:00Z' });
+    await settle();
+    expect(text(r.target)).toContain('No change in this window.');
+    r.destroy();
+  });
+
+  it('says an open-ended window in words', async () => {
+    fns.history.mockResolvedValue({ ...listing, histories: [] });
+    let r = render(DeliveryHistoryView, { since: '2026-11-02T00:00:00Z' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="history-window"]') as HTMLElement)).toContain('Changes at or after 2026-11-02 00:00 UTC.');
+    r.destroy();
+    r = render(DeliveryHistoryView, { until: '2026-11-03T00:00:00Z' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="history-window"]') as HTMLElement)).toContain('Changes at or before 2026-11-03 00:00 UTC.');
+    r.destroy();
+    r = render(DeliveryHistoryView);
+    await settle();
+    expect(r.target.querySelector('[data-testid="history-window"]')).toBeNull();
+    r.destroy();
+  });
+
   it('one Stage ignores the service filter', async () => {
     fns.history.mockResolvedValue({ ...listing, histories: [] });
     const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', service: 'pay' });

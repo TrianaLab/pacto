@@ -35,7 +35,9 @@ one snapshot from the sources you name, then queries it with `search`, `get`,
 owners, business domains and offerings, inspect one of them and list what
 needs attention, most severe first. [Ask questions about your
 organization](ask-your-organization.md) maps common questions to these
-commands.
+commands. `pacto fleet neighborhood <service>` lists who a service depends on
+and who depends on it, with their owners, and `--mira-source <url>` adds the
+calls a Mira node saw as observed edges.
 
 ```bash
 $ pacto fleet search --local ./contracts --oci ghcr.io/acme/unreachable-pacto:1.0.0

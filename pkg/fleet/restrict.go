@@ -3,6 +3,7 @@ package fleet
 import (
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -16,7 +17,7 @@ const LimitationHiddenByPermissions = "HIDDEN_BY_PERMISSIONS"
 const hiddenMessage = "some services are hidden because Kubernetes permissions do not let you read their namespace"
 
 // Namespaces lists, sorted, the namespaces the snapshot's Kubernetes targets
-// run in: the ones a caller's permissions decide.
+// and k8s uncontracted callers run in: the ones a caller's permissions decide.
 func (q *Query) Namespaces() []string {
 	seen := map[string]bool{}
 	for _, t := range q.snap.Targets {
@@ -24,7 +25,20 @@ func (q *Query) Namespaces() []string {
 			seen[t.Scope] = true
 		}
 	}
+	for _, c := range q.snap.UncontractedCallers {
+		if ns, ok := callerNamespace(c); ok {
+			seen[ns] = true
+		}
+	}
 	return slices.Sorted(maps.Keys(seen))
+}
+
+// callerNamespace is the namespace of a k8s caller, false for a caller with
+// no namespace.
+func callerNamespace(c UncontractedCaller) (string, bool) {
+	rest, k8s := strings.CutPrefix(c.Caller, "k8s:")
+	ns, _, _ := strings.Cut(rest, "/")
+	return ns, k8s
 }
 
 // Restrict is the snapshot as a caller who may read only the namespaces
@@ -39,7 +53,15 @@ func (q *Query) Namespaces() []string {
 // depend on it, never naming them. Its own declared dependency on a hidden
 // service stays as a Hidden relationship, its resolution blanked. Counts,
 // sources, limitations and the snapshot id are recomputed, so nothing is
-// derived from what was hidden. Restrict returns q when nothing is hidden.
+// derived from what was hidden.
+//
+// A caller who may not read the cluster scope (visible("") false) never sees a
+// name with no namespace to check: every uncontracted caller outside
+// Kubernetes, whatever source observed it, is hidden and counted into the
+// service it calls, and the unresolved observed names of each source become
+// one count. Every uncontracted caller Restrict removes from a visible service
+// is counted into its hidden dependents. Restrict returns q when nothing is
+// hidden.
 func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	s := q.snap
 	hiddenNS := map[string]bool{}
@@ -48,8 +70,9 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 			hiddenNS[ns] = true
 		}
 	}
-	hiddenSvc := hiddenServices(s, hiddenNS, !visible(""))
-	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 {
+	restricted := !visible("")
+	hiddenSvc := hiddenServices(s, hiddenNS, restricted)
+	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && (!restricted || !hasBareNames(s)) {
 		return q
 	}
 
@@ -70,6 +93,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 		}
 	}
 	hiddenDeps, hiddenDependents := restrictRelationships(&out, s.Relationships, hiddenSvc)
+	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenDeps, hiddenDependents)...)
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
@@ -79,10 +103,9 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.observedForward = restrictIndex(s.observedForward, keep, keep)
 	out.forwardDepsByRevision = restrictIndex(s.forwardDepsByRevision, func(k RevisionKey) bool { return out.Revisions[k] != nil }, keep)
 
-	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS)
 	recountSources(&out)
 
-	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...))
+	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...), restricted)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage})
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
@@ -93,27 +116,70 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 // restrictCallers is s's uncontracted callers without those of a hidden
 // service, those in a hidden namespace and those a hidden service shares a name
 // with: such a caller may be that service's call, and its ambiguity counts it.
-func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool) []UncontractedCaller {
+// With hideBare, every caller with no namespace goes. Each caller removed from
+// a visible service is counted into its dependents.
+func restrictCallers(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[string]bool, hideBare bool, dependents map[ServiceKey]map[ServiceKey]bool) []UncontractedCaller {
 	hiddenNames := map[string]bool{}
 	for k := range hiddenSvc {
 		hiddenNames[s.Services[k].Name] = true
 	}
 	return slices.DeleteFunc(slices.Clone(s.UncontractedCallers), func(c UncontractedCaller) bool {
-		rest, k8s := strings.CutPrefix(c.Caller, "k8s:")
-		ns, _, _ := strings.Cut(rest, "/")
-		return hiddenSvc[c.ToService] || (k8s && hiddenNS[ns]) || (!k8s && hiddenNames[c.Caller])
+		if hiddenSvc[c.ToService] {
+			return true
+		}
+		ns, k8s := callerNamespace(c)
+		if (k8s && !hiddenNS[ns]) || (!k8s && !hideBare && !hiddenNames[c.Caller]) {
+			return false
+		}
+		if dependents[c.ToService] == nil {
+			dependents[c.ToService] = map[ServiceKey]bool{}
+		}
+		// ponytail: a pseudo key only counted, never emitted, so a caller and a
+		// service of the same name count twice.
+		dependents[c.ToService][ServiceKey("caller:"+c.Caller)] = true
+		return true
 	})
+}
+
+// bareCaller reports whether c carries no namespace to check permissions
+// against: any caller outside Kubernetes, whatever source observed it.
+func bareCaller(c UncontractedCaller) bool { return !strings.HasPrefix(c.Caller, "k8s:") }
+
+// hasBareNames reports whether s holds a name with no namespace: a bare caller
+// or an unresolved observed name.
+func hasBareNames(s *FleetSnapshot) bool {
+	return slices.ContainsFunc(s.UncontractedCallers, bareCaller) ||
+		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationObservedIdentityUnresolved })
+}
+
+// unresolvedCounts drops the unresolved observed names from limitations and
+// returns them with how many each source had.
+func unresolvedCounts(limitations []Limitation) ([]Limitation, map[string]int) {
+	counts := map[string]int{}
+	return slices.DeleteFunc(limitations, func(l Limitation) bool {
+		if l.Code == LimitationObservedIdentityUnresolved {
+			counts[l.Source]++
+			return true
+		}
+		return false
+	}), counts
 }
 
 // restrictLimitations keeps the limitations that name nothing hidden and
 // rebuilds the domain, offering and owner conflicts from what out still holds.
-func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNames []string) {
+// With hideBare, each source's unresolved observed names become one count.
+func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNames []string, hideBare bool) {
+	limitations = slices.Clone(limitations)
+	var unresolved map[string]int
+	if hideBare {
+		limitations, unresolved = unresolvedCounts(limitations)
+	}
 	// ponytail: a limitation's subject is only in its prose, so any that mentions
 	// a hidden name goes, even where the match is a coincidence. It costs
 	// limitations x hidden names substring checks, once per snapshot and set of
 	// visible namespaces. Structured subjects on Limitation would make it exact
 	// and linear.
-	out.Limitations = slices.DeleteFunc(slices.Clone(limitations), func(l Limitation) bool {
+	out.Limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
 		// A conflict lists values hidden targets may have reported, so it is
 		// rebuilt from what out still holds below.
 		if l.Code == LimitationDomainConflict || l.Code == LimitationOfferingConflict || l.Code == LimitationOwnerConflict {
@@ -125,6 +191,12 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		_, _, dc := businessDomainOf(out, svc)
 		_, oc := offeringOf(out, svc)
 		out.Limitations = append(append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...), ownerConflict(out, svc)...)
+	}
+	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
+		out.Limitations = append(out.Limitations, Limitation{
+			Code: LimitationObservedIdentityUnresolved, Source: src,
+			Message: strconv.Itoa(unresolved[src]) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against",
+		})
 	}
 }
 

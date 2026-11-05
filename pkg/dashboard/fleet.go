@@ -31,7 +31,7 @@ type capabilitiesOutput struct {
 		// or a dashboard people sign in to).
 		Delivery bool           `json:"delivery" doc:"The delivery views and actions are served"`
 		Auth     capabilityAuth `json:"auth" doc:"What this caller's Kubernetes permissions leave out of the fleet views"`
-		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations"`
+		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations and open a service in Mira"`
 	}
 }
 

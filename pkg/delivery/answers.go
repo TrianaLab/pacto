@@ -72,6 +72,9 @@ func AssembleHistory(st *StageObject, ops []OperationObject, r *RecordsRead, rea
 		h.Unreadable, h.Note = []string{readErr.Error()}, "the records could not be read, so this is "+historyNote
 	}
 	recorded := map[string]bool{}
+	// newest is the policy the newest record that kept one signed: what the
+	// Stage delivers when the Stage itself does not say.
+	var newest StageSpec
 	// Without records the Operations are all the history there is, so one
 	// deleted after it concluded is a gap to name, never a quiet omission.
 	h.Problems = MissingSeqs(st, ops)
@@ -83,7 +86,11 @@ func AssembleHistory(st *StageObject, ops []OperationObject, r *RecordsRead, rea
 			uid := rec.Statement.Predicate.Intent.UID
 			recorded[uid] = true
 			h.Entries = append(h.Entries, WithUnsignedMove(RecordEntry(rec), ops, uid))
+			if h.Stage.Service == nil && rec.Statement.Predicate.Policy != nil {
+				newest = *rec.Statement.Predicate.Policy
+			}
 		}
+		h.Stage = h.Stage.withService(newest, "record")
 	}
 	for _, o := range ops {
 		if !recorded[o.Metadata.UID] {
@@ -98,7 +105,8 @@ func StatusEntry(o OperationObject) HistoryEntry {
 	s := o.Status
 	e := HistoryEntry{Seq: s.Seq, Operation: o.Metadata.Name, Type: o.Spec.Type, From: o.Spec.Params.From,
 		To: o.Spec.Params.To, Actor: o.Spec.Actor.User, ActorClass: s.ActorClass, Phase: s.Phase, Outcome: s.Outcome,
-		Verification: s.Verification, Reason: s.Reason, Finished: s.Times.Finished}
+		Verification: s.Verification, Reason: s.Reason, Finished: s.Times.Finished, Applied: s.Times.Applied,
+		Cause: o.Spec.Cause, CorrelationID: o.Spec.CorrelationID}
 	if e.Finished == "" {
 		e.Since = cmp.Or(s.Times.Held, s.Times.Admitted, o.Metadata.CreationTimestamp)
 	}
@@ -150,7 +158,7 @@ func WithUnsignedMove(e HistoryEntry, ops []OperationObject, uid string) History
 	}
 	s := StatusEntry(ops[i])
 	e.Type, e.From, e.To, e.Actor, e.ActorClass = s.Type, s.From, s.To, s.Actor, s.ActorClass
-	e.Outcome, e.Verification, e.Pointer = s.Outcome, s.Verification, s.Pointer
+	e.Outcome, e.Verification, e.Pointer, e.Applied = s.Outcome, s.Verification, s.Pointer, s.Applied
 	return e
 }
 

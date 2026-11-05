@@ -26,8 +26,8 @@ You need Docker with a builder that can export OCI images
 [kind](https://kind.sigs.k8s.io/), kubectl, Helm, Go, Node,
 [oras](https://oras.land/), cosign, jq, openssl and GNU `timeout` (on macOS,
 `brew install coreutils`), and a clone of the Pacto repository. It builds the
-images from the clone. Host ports 3300, 8585, 5556, 8443 and 5602 must
-be free.
+images from the clone. Host ports 3300, 8585, 5556, 8443, 5602 and 5603
+must be free.
 
 ```sh
 make e2e-delivery-demo-up      # the cluster and everything on it

@@ -47,7 +47,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"With --fleet, the server exposes the read-only operational-graph query tools " +
 			"over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. " +
 			"With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, " +
-			"--evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose " +
+			"--evidence-url, --traces, --mira-source, --oci, --cache, --k8s, --namespace and --freshness) compose " +
 			"that snapshot and are read in --fleet mode only.\n\n" +
 			"With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the " +
 			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the " +

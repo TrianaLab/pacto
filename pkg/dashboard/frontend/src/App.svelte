@@ -7,6 +7,7 @@
   import { syncPageTitle } from './lib/pageTitle.ts';
   import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
+  import { entityMiraURL } from './lib/delivery.ts';
   import { session as auth, me, loadSession, hostSignsIn, teamGroups } from './lib/session.svelte.ts';
   import Person from './components/Person.svelte';
   import SignInScreen from './components/SignInScreen.svelte';
@@ -462,7 +463,7 @@
     />
   {:else if route.view === 'fleet-entity'}
     {#key route.params.kind + '@@' + route.params.key}
-      <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} {refreshTick} {deliveryState} />
+      <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)} />
     {/key}
   {:else if route.view === 'fleet-attention'}
     <FleetAttentionView

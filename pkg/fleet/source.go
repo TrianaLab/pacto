@@ -21,6 +21,10 @@ import (
 // cluster. The dashboard's /api/sources pills use the same name.
 const SourceKindKubernetes = "kubernetes"
 
+// SourceKindMira is the Kind of a source reading the service map of a Mira
+// trace store. It labels the source only; pkg/fleet never branches on it.
+const SourceKindMira = "mira"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.
@@ -57,10 +61,11 @@ type Collection struct {
 	// An endpoint that resolves to zero or multiple services is never coerced to a
 	// domain — it becomes an explicit limitation instead.
 	Observed []ObservedEdge
-	// ObservedUndeclaredOnly says the source reports only calls no contract
-	// declares and never witnesses a declared call, so its observations cannot
-	// show a declared edge unobserved: [Build] folds them but does not count them
-	// when it reconciles declared edges.
+	// ObservedUndeclaredOnly says the source cannot show a declared edge
+	// unobserved: it reports only calls no contract declares (Kubernetes) or sees
+	// only part of the calls (Mira's sampled, instrumented-only service map).
+	// [Build] folds its observations and lets them corroborate a declared edge,
+	// but its silence never counts against one.
 	ObservedUndeclaredOnly bool
 }
 

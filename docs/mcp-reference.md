@@ -9,7 +9,7 @@ walkthrough, start with [Drive Pacto from an agent](mcp-integration.md).
 |--------|-------|--------------|-----------------|
 | **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files only. `pacto_edit` writes only after validation. |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call has a 30-second timeout and follows no redirect, so a 3xx comes back to the agent as the result. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, relationships and what needs attention. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, relationships and what needs attention. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
 
 Outside these families: `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools are listed [below](#publish-and-delivery-servers).
 
@@ -50,14 +50,18 @@ invocation registers.
 pacto mcp --fleet --k8s --oci ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
+`--mira-source <url>` adds the calls [Mira](investigate-a-problem.md) saw as
+observed edges.
+
 See [`pacto mcp` reference](cli-reference.md#pacto-mcp) for source flags and [The Pacto Operational Graph](operational-graph.md) for the read model.
 
 ### Link answers to the dashboard
 
 With `--dashboard-url <url>`, each entity in a `pacto_fleet_search`,
 `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_entities`,
-`pacto_fleet_entity` and `pacto_fleet_attention` answer carries an `href` to its
-page on that dashboard.
+`pacto_fleet_entity`, `pacto_fleet_attention` and `pacto_fleet_neighborhood`
+answer carries an `href` to its
+page on that dashboard, as does each contracted `pacto_impact` consumer.
 
 ## The authoring tools
 
@@ -98,9 +102,9 @@ Every mode except `--root` carries these four.
 | `worker`, `consumer`, `processor` | a `job` workload |
 | `cron`, `scheduled`, `periodic`, `batch` | a `scheduled` workload (wins over `job`) |
 
-Interfaces are inferred only when the call passes none. The match is a keyword heuristic: "no HTTP" still matches `HTTP`.
+The match is a keyword heuristic: "no HTTP" still matches `HTTP`.
 
-State is never inferred: without the state flags the contract is stateless. Naming `postgres` declares a database dependency and leaves the service stateless.
+State is never inferred: naming `postgres` declares a database dependency and leaves the service stateless.
 
 ## Bundle capabilities
 
@@ -110,7 +114,7 @@ Pass a bundle reference and Pacto turns that bundle's OpenAPI operations into ex
 pacto mcp ./my-service --base-url https://api.example.com
 ```
 
-Each operation becomes an MCP tool named by its `operationId` (or derived as `<method>_<path>`).
+Each operation becomes a tool named by its `operationId` (or `<method>_<path>`).
 
 **The `pacto_` names are reserved.** A contract declaring `operationId: pacto_check` would take over the authoring tool. Pacto skips such operations.
 
@@ -126,7 +130,7 @@ Each operation becomes an MCP tool named by its `operationId` (or derived as `<m
 
 **`pacto_skill`.** Bundles may ship domain knowledge as `skills/*.md`. The `pacto_skill` tool lists them and returns their content.
 
-**What a session freezes.** Bundle mode and `--root` resolve their inputs once at startup. To pick up changes, restart the server. Two exceptions: `pacto_skill` reads from disk on every call, and the authoring tools act on whatever is on disk.
+**What a session freezes.** Bundle mode and `--root` resolve their inputs once at startup; restart to pick up changes. Two exceptions: `pacto_skill` reads from disk on every call, and the authoring tools act on whatever is on disk.
 
 ## Catalog mode
 
@@ -139,9 +143,9 @@ pacto mcp \
   --root ./experimental-platform
 ```
 
-`--root` is repeatable and takes either a local bundle directory or an `oci://` reference. It never crawls a registry, guesses repository names or reads a catalog file.
+`--root` is repeatable and takes a local bundle directory or an `oci://` reference. It never crawls a registry, guesses repository names or reads a catalog file.
 
-The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource answers: schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root, including roots that did not resolve and why. The closure resource answers: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and every conflict and cycle, reported as found.
+The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource carries the schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root, resolved or not and why. The closure resource carries every deduplicated revision with its content identity, rank and retained paths; every dependency edge, resolved or not; and every conflict and cycle found.
 
 Catalog mode registers nothing else, so a server started for read-only discovery cannot modify a contract. A root or a dependency that could not be resolved stays visible with a category such as `NOT_FOUND`, `AUTH_FAILED` or `UNAVAILABLE` in place of the raw registry error, and the whole answer is marked `partial`. Under `partial`, a revision missing from the answer is *unknown*.
 
@@ -150,7 +154,7 @@ Catalog mode registers nothing else, so a server started for read-only discovery
 `pacto_create` with `pactify: true` does what `pacto init` does for a folder
 holding a service: it reads the Dockerfile and Kubernetes files and writes the
 contract. `describe_only: true` leaves out the publish section, for a request
-to describe or document a service. With `delivery: true` it also writes the
+to describe a service. With `delivery: true` it also writes the
 cluster files. `registry`, `environments`, `fleet_roots`,
 `no_transparency_log`, `insecure_registry` and `registry_secret` match the CLI
 flags, and `dry_run` plans without writing. See
@@ -188,3 +192,6 @@ intent digest and the same `reason` and `on_behalf_of`: the digest binds them,
 and `PlanStale` names the one that differs when it can tell. Over HTTP it
 needs token exchange; see
 [agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
+
+`pacto_delivery_history` takes a window (`since`, `until`) and, without a
+`stage`, a `service` and `domain` filter.

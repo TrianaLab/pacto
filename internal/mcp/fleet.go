@@ -41,7 +41,13 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
 	"version match and a relationship provenance reserved for future use. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
-	"for one of them and pacto_fleet_attention for what needs attention, most severe first."
+	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
+	"pacto_fleet_neighborhood lists the services around one service with their owners, for the " +
+	"blast radius of a problem. Observed edges from a source of kind mira come from Mira's sampled " +
+	"service map: an edge Mira did not see may still exist. For when a problem started and which " +
+	"signals degrade, ask Mira's own MCP tools (list_alerts, query_metric, service_map, correlate, " +
+	"get_trace and render_rca) with the service names Pacto reports, and cite them. A Mira read " +
+	"with no spans is unknown, never healthy."
 
 // FleetQuerySource returns the query the fleet tools answer from: the current
 // snapshot. It is asked once per call, so a long session follows a refreshing
@@ -105,11 +111,16 @@ func viewed[A any](src FleetQuerySource, view FleetView, h func(*fleet.Query) mc
 // addFleetTool registers one fleet tool: answered from the current (viewed)
 // query and, with a dashboard URL, linked to the dashboard.
 func addFleetTool[A any](server *mcpsdk.Server, tool *mcpsdk.Tool, src FleetQuerySource, opts FleetOptions, h func(*fleet.Query) mcpsdk.ToolHandlerFor[A, any]) {
-	prefix := ""
-	if opts.DashboardURL != "" {
-		prefix = strings.TrimRight(opts.DashboardURL, "/") + "/#"
+	mcpsdk.AddTool(server, tool, linkHrefs(tool.Name, hrefPrefix(opts), viewed(src, opts.View, h)))
+}
+
+// hrefPrefix is the dashboard base every href is prefixed with, empty without
+// a dashboard URL.
+func hrefPrefix(opts FleetOptions) string {
+	if opts.DashboardURL == "" {
+		return ""
 	}
-	mcpsdk.AddTool(server, tool, linkHrefs(tool.Name, prefix, viewed(src, opts.View, h)))
+	return strings.TrimRight(opts.DashboardURL, "/") + "/#"
 }
 
 // registerFleetTools adds the read-only fleet query tools, plus the
@@ -130,12 +141,15 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 	addFleetTool(server, fleetAttentionTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
 		return fleetAttentionHandler(q, link)
 	})
+	addFleetTool(server, fleetNeighborhoodTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetNeighborhoodArgs, any] {
+		return fleetNeighborhoodHandler(q, link)
+	})
 	if opts.Impact != nil {
 		// Impact analyses over the snapshot the other tools answer from (the
 		// caller's view of it when there is one), so one session's answers agree.
-		mcpsdk.AddTool(server, impactTool(), viewed(src, opts.View, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
+		mcpsdk.AddTool(server, impactTool(), linkHrefs("pacto_impact", hrefPrefix(opts), viewed(src, opts.View, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
 			return impactHandler(opts.Impact, vq.SnapshotForSerialization())
-		}))
+		})))
 	}
 }
 
@@ -499,6 +513,58 @@ func fleetAttentionHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[flee
 			BusinessDomain: a.BusinessDomain, Service: a.Service, Limit: a.Limit, Offset: a.Offset,
 		}))
 	}
+}
+
+func fleetNeighborhoodTool() *mcpsdk.Tool {
+	return &mcpsdk.Tool{
+		Name: "pacto_fleet_neighborhood",
+		Description: "Show the services around one service: who it depends on and who depends on it, to the " +
+			"requested depth, each with its owner and status. Edges say whether they are declared, observed or " +
+			"both; views defaults to expected,observed. hiddenDependents counts the services, or callers with no " +
+			"contract, that your permissions hide; pacto_fleet_attention with category=undeclared and service lists " +
+			"the callers with no contract. Use it " +
+			"to find the affected services and the teams that own them. Read-only.",
+		InputSchema: inputSchema(map[string]property{
+			"service":   {Type: "string", Description: "Service name, or its key when the name is used in more than one domain"},
+			"direction": {Type: "string", Description: "Which side to walk (default both)", Enum: []string{"dependencies", "dependents", "both"}},
+			"depth":     {Type: "integer", Description: fmt.Sprintf("How many hops to walk (0 = %d, at most %d)", fleet.DefaultNeighborhoodDepth, fleet.MaxNeighborhoodDepth)},
+			"views":     {Type: "string", Description: "Comma-separated knowledge views: expected, observed, differences (empty = expected,observed)"},
+			"max_nodes": {Type: "integer", Description: fmt.Sprintf("Maximum services (0 = %d, at most %d)", fleet.DefaultMaxNodes, fleet.MaxNeighborhoodNodes)},
+		}, []string{"service"}),
+	}
+}
+
+type fleetNeighborhoodArgs struct {
+	Service   string `json:"service"`
+	Direction string `json:"direction"`
+	Depth     int    `json:"depth"`
+	Views     string `json:"views"`
+	MaxNodes  int    `json:"max_nodes"`
+}
+
+func fleetNeighborhoodHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetNeighborhoodArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetNeighborhoodArgs) (*mcpsdk.CallToolResult, any, error) {
+		return productResult(link, productview.ToNeighborhood)(q.Neighborhood(fleet.NeighborhoodQuery{
+			Kind: fleet.KindService, Key: a.Service, Direction: fleet.Direction(a.Direction),
+			Depth: a.Depth, Views: SplitViews(a.Views), MaxNodes: a.MaxNodes,
+		}))
+	}
+}
+
+// SplitViews reads a comma-separated list of knowledge views. Blank parts are
+// dropped, and an empty list means expected and observed, so a neighbourhood
+// shows the dependents only observation has seen.
+func SplitViews(s string) []fleet.KnowledgeView {
+	var out []fleet.KnowledgeView
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, fleet.KnowledgeView(p))
+		}
+	}
+	if len(out) == 0 {
+		return []fleet.KnowledgeView{fleet.ViewExpected, fleet.ViewObserved}
+	}
+	return out
 }
 
 // productResult answers a product query's result, or its error as the tool's
