@@ -211,6 +211,7 @@ nav:
       - For developers: developers.md
       - For platform engineers: platform-engineers.md
       - Ask questions about your organization: ask-your-organization.md
+      - Investigate a problem with Mira: investigate-a-problem.md
       - Example contracts: examples/index.md
       - Composition patterns: patterns/index.md
       - CI with GitHub Actions: github-actions.md

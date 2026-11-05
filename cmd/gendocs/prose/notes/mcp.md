@@ -43,6 +43,6 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 
-With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity, attention and neighborhood answers carry an `href` to each entity's page on that Pacto dashboard.
+With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity, attention and neighborhood answers carry an `href` to each entity's page on that Pacto dashboard, and each contracted consumer in a `pacto_impact` answer an `href` to its service page.
 
 See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.

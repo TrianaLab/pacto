@@ -42,16 +42,16 @@ as `DEPENDENCY_UNDECLARED`, and a caller with no contract as
 
 ## Not yet
 
-Three questions need data Pacto does not hold today:
+Two questions need data Pacto does not hold today:
 
 - **Changes in the last 24 hours** need a history of snapshots
   ([#459](https://github.com/TrianaLab/pacto/issues/459)).
 - **Deployment impact** needs the deployment as an input
   ([#471](https://github.com/TrianaLab/pacto/issues/471)). Until then, run
   `pacto impact` on the contract change the deployment carries.
-- **Runtime health** beyond compliance and evidence freshness needs the
-  signals of [Mira](https://github.com/trianalab/mira), an OpenTelemetry trace
-  store ([#470](https://github.com/TrianaLab/pacto/issues/470)).
+
+For runtime health and incidents, [Investigate a problem with
+Mira](investigate-a-problem.md) pairs these answers with Mira's signals.
 
 ## Open the dashboard from an answer
 

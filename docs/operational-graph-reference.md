@@ -42,11 +42,26 @@ compliance evidence that a source carries.
   dashboard` only): observed dependency edges. Pacto reads trace files only and
   ships **no live OTLP receiver** on ports 4317 or 4318. Run a Collector you own
   and point a source at the file it exports.
+- **Mira** (`--mira-source <url>`, or `PACTO_DASHBOARD_MIRA_SOURCES` for `pacto
+  dashboard`): the calls between services that a
+  [Mira](investigate-a-problem.md) node saw in its last 15 minutes of traces,
+  read from its service map as `observed` edges of source kind `mira`. Like
+  the operator, Mira sees only part of the traffic, so a declared edge it did
+  not see stays `insufficient`. A failed read leaves the source unavailable; a
+  truncated or empty map, or calls Pacto cannot attribute to a named service,
+  leave it partial.
 
 `pacto fleet` and `pacto impact` read every source flag above. `pacto mcp
 --fleet` reads all but `--root`, which on `pacto mcp` selects a frozen catalog
 and cannot be combined with `--fleet`. Two are narrower: `impact` takes a single
 `--traces` file, and `--trace-source` is `pacto dashboard` only.
+
+### Observed calls under a restricted view
+
+A declared edge any source saw is `matched`. A restricted view hides each
+caller with no namespace, from any source, and each unresolved observed name,
+counting them in `hiddenDependents` and one `OBSERVED_IDENTITY_UNRESOLVED`
+limitation per source.
 
 ### What a target-state fixture looks like
 
@@ -103,7 +118,7 @@ drops the whole source with `SOURCE_UNAVAILABLE` and marks the snapshot
     closed sets above.
 
 [`examples/demo/fleet-targets.yaml`](https://github.com/TrianaLab/pacto/blob/main/examples/demo/fleet-targets.yaml)
-is a complete worked fixture, and it is the file the live demo runs on.
+is the complete fixture the live demo runs on.
 
 ## Query semantics
 
@@ -259,7 +274,7 @@ revision declares an owner and no source reports one.
 
 A service's business domain is the [`service.domain`](contract-reference/sections.md#business-domain)
 of its newest revision by semver that is valid. An older revision that declares
-another domain is a move, so the service is grouped by its newest revision only.
+another domain is a move.
 When no revision declares a domain, the service takes the domain the operator
 read from the contract each target runs (`status.contract.domain`), as it does
 for owners. A value that is not a lowercase slug is never a domain.
@@ -283,8 +298,7 @@ revision declares, while the filter groups it by its service's domain.
 Domains are returned only to a query that asks for the `domain` kind.
 
 The registry path in the service key, such as `ghcr.io/acme`, is a different
-value. The API keeps it as `domain` and the dashboard shows it as Registry. The
-business domain is `businessDomain` in the API.
+value: `domain` in the API and Registry on the dashboard.
 
 ## Platform offerings
 
