@@ -371,8 +371,9 @@ type ServiceDetailData struct {
 	Deployments  RefPreview                `json:"deployments"`
 	Dependencies RefPreview                `json:"dependencies"`
 	Dependents   RefPreview                `json:"dependents"`
-	// HiddenDependencies and HiddenDependents count the neighbours the caller's
-	// Kubernetes permissions hide (see ServiceRecord), never named.
+	// HiddenDependencies and HiddenDependents count the services, or callers
+	// with no contract, that the caller's permissions hide (see ServiceRecord),
+	// never named.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
 	HiddenDependents   int `json:"hiddenDependents,omitempty"`
 	// ReferencedBy names the services whose revisions declare a configuration or

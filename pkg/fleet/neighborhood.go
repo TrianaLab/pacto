@@ -180,8 +180,8 @@ type NeighborhoodNode struct {
 	Owner         string      `json:"owner,omitempty"`
 	RevisionState string      `json:"revisionState,omitempty"`
 	Expansions    []Direction `json:"expansions,omitempty"`
-	// HiddenDependencies and HiddenDependents count the neighbours the caller's
-	// Kubernetes permissions hide, without naming them.
+	// HiddenDependencies and HiddenDependents count the services, or callers
+	// with no contract, that the caller's permissions hide, without naming them.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
 	HiddenDependents   int `json:"hiddenDependents,omitempty"`
 }

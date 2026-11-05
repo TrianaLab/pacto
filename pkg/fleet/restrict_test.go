@@ -338,3 +338,156 @@ func TestRestrictObservedGraph(t *testing.T) {
 		}
 	}
 }
+
+// restrictedVisible is a namespaced reader who may read every namespace but
+// "hidden", and not the cluster scope, like internal/authn's viewer.
+func restrictedVisible(ns string) bool { return ns != "" && ns != "hidden" }
+
+// bareCallerFleet: payments runs in shop and ledger in hidden, each with an
+// owner conflict. Mira sees legacy-batch, ledger and k8s callers of payments
+// and two names it cannot resolve; a trace source sees cron-x call payments and
+// two names it cannot resolve.
+func bareCallerFleet(t *testing.T, extra ...ObservedEdge) *Query {
+	t.Helper()
+	k := SourceKindKubernetes
+	kube := NewMemorySource("k8s", k, &Collection{Targets: []RawTarget{
+		{Scope: "shop", Kind: k, Name: "payments-a", Service: "payments", Compliance: StatusCompliant, Owner: contract.Owner{Team: "pay-a"}},
+		{Scope: "shop", Kind: k, Name: "payments-b", Service: "payments", Compliance: StatusCompliant, Owner: contract.Owner{Team: "pay-b"}},
+		{Scope: "hidden", Kind: k, Name: "ledger-a", Service: "ledger", Compliance: StatusCompliant, Owner: contract.Owner{Team: "ledger-a"}},
+		{Scope: "hidden", Kind: k, Name: "ledger-b", Service: "ledger", Compliance: StatusCompliant, Owner: contract.Owner{Team: "ledger-b"}},
+	}})
+	mira := NewMemorySource("mira", SourceKindMira, &Collection{ObservedUndeclaredOnly: true, Observed: append([]ObservedEdge{
+		{From: "legacy-batch", To: "payments", Count: 3},
+		{From: "ghost-a", To: "ghost-b", Count: 1},
+		{From: "ledger", To: "payments", Count: 2},
+	}, extra...)})
+	traces := NewMemorySource("traces", "observation", &Collection{Observed: []ObservedEdge{
+		{From: "cron-x", To: "payments", Count: 1},
+		{From: "ghost-c", To: "ghost-d", Count: 1},
+	}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, kube, mira, traces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewQuery(snap)
+}
+
+func callerNames(s *FleetSnapshot) []string {
+	var names []string
+	for _, c := range s.UncontractedCallers {
+		names = append(names, c.Caller)
+	}
+	return names
+}
+
+func TestRestrictHidesCallersWithoutNamespace(t *testing.T) {
+	q := bareCallerFleet(t)
+	orig := q.SnapshotForSerialization()
+	if names := callerNames(orig); !slices.Contains(names, "legacy-batch") || !slices.Contains(names, "cron-x") {
+		t.Fatalf("fixture: callers = %v", names)
+	}
+	s := q.Restrict(restrictedVisible).SnapshotForSerialization()
+	if names := callerNames(s); len(names) != 0 {
+		t.Errorf("restricted callers = %v, want none", names)
+	}
+	if pay := s.Services[NewServiceKey("payments")]; pay == nil || pay.HiddenDependents != 3 {
+		t.Errorf("payments = %+v, want legacy-batch, cron-x and ledger counted", pay)
+	}
+	checkBareLimitations(t, s.Limitations)
+}
+
+// checkBareLimitations: limitations name nothing hidden, each source's
+// unresolved names are one count and only visible conflicts stay.
+func checkBareLimitations(t *testing.T, limitations []Limitation) {
+	t.Helper()
+	unresolved := map[string]int{}
+	var codes []string
+	for _, l := range limitations {
+		codes = append(codes, l.Code)
+		for _, name := range []string{"ghost", "ledger", "legacy-batch", "cron-x"} {
+			if strings.Contains(l.Message, name) {
+				t.Errorf("a limitation names %s: %+v", name, l)
+			}
+		}
+		if l.Code == LimitationObservedIdentityUnresolved {
+			unresolved[l.Source]++
+			if !strings.HasPrefix(l.Message, "2 ") {
+				t.Errorf("aggregate message = %q, want a count of 2", l.Message)
+			}
+		}
+		if l.Code == LimitationOwnerConflict && !strings.Contains(l.Message, "payments") {
+			t.Errorf("a conflict about a hidden service stayed: %+v", l)
+		}
+	}
+	if len(unresolved) != 2 || unresolved["mira"] != 1 || unresolved["traces"] != 1 {
+		t.Errorf("aggregate unresolved limitations per source = %v, want one each for mira and traces", unresolved)
+	}
+	if !slices.Contains(codes, LimitationHiddenByPermissions) || !slices.Contains(codes, LimitationOwnerConflict) {
+		t.Errorf("limitation codes = %v", codes)
+	}
+}
+
+func TestRestrictKeepsNamespacedCallers(t *testing.T) {
+	q := bareCallerFleet(t, ObservedEdge{From: "k8s:shop/Deployment/x", To: "payments", Count: 1}, ObservedEdge{From: "k8s:hidden/Deployment/y", To: "payments", Count: 1})
+	s := q.Restrict(restrictedVisible).SnapshotForSerialization()
+	if names := callerNames(s); !slices.Equal(names, []string{"k8s:shop/Deployment/x"}) {
+		t.Errorf("restricted callers = %v, want only the shop one", names)
+	}
+}
+
+func TestRestrictHidesCallersWhenNothingElseIsHidden(t *testing.T) {
+	k := SourceKindKubernetes
+	build := func(observed ...ObservedEdge) *Query {
+		kube := NewMemorySource("k8s", k, &Collection{Targets: []RawTarget{{Scope: "shop", Kind: k, Name: "payments", Service: "payments", Compliance: StatusCompliant}}})
+		mira := NewMemorySource("mira", SourceKindMira, &Collection{ObservedUndeclaredOnly: true, Observed: observed})
+		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, kube, mira)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return NewQuery(snap)
+	}
+	q := build(ObservedEdge{From: "legacy-batch", To: "payments", Count: 1})
+	r := q.Restrict(restrictedVisible)
+	if r == q {
+		t.Fatal("a restricted view with a bare caller must not return the full query")
+	}
+	s := r.SnapshotForSerialization()
+	if len(s.UncontractedCallers) != 0 || s.Services[NewServiceKey("payments")].HiddenDependents != 1 {
+		t.Errorf("callers %v, payments %+v", callerNames(s), s.Services[NewServiceKey("payments")])
+	}
+	if unresolvedOnly := build(ObservedEdge{From: "ghost-a", To: "ghost-b", Count: 1}); unresolvedOnly.Restrict(restrictedVisible) == unresolvedOnly {
+		t.Error("a restricted view with an unresolved name must not return the full query")
+	}
+	if clean := build(); clean.Restrict(restrictedVisible) != clean {
+		t.Error("a restricted view with nothing to hide must return the full query")
+	}
+}
+
+func TestRestrictKeepsUnrelatedLimitations(t *testing.T) {
+	k := SourceKindKubernetes
+	kube := NewMemorySource("k8s", k, &Collection{Targets: []RawTarget{{Scope: "shop", Kind: k, Name: "payments", Service: "payments", Compliance: StatusCompliant}}})
+	mira := NewMemorySource("mira", SourceKindMira, &Collection{ObservedUndeclaredOnly: true, Observed: []ObservedEdge{{From: "source", To: "payments", Count: 1}}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, kube, mira, NewFailingSource("oci", "oci", context.DeadlineExceeded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewQuery(snap).Restrict(restrictedVisible).SnapshotForSerialization()
+	if !slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationSourceUnavailable }) {
+		t.Errorf("an unrelated limitation went: %+v", s.Limitations)
+	}
+}
+
+func TestRestrictUnrestrictedKeepsCallers(t *testing.T) {
+	q := bareCallerFleet(t)
+	if q.Restrict(func(string) bool { return true }) != q {
+		t.Error("an unrestricted view must return the full query with every caller")
+	}
+}
+
+func TestRestrictCallersSnapshotID(t *testing.T) {
+	q := bareCallerFleet(t)
+	a, b := q.Restrict(restrictedVisible).SnapshotForSerialization(), q.Restrict(restrictedVisible).SnapshotForSerialization()
+	if a.SnapshotID == q.SnapshotForSerialization().SnapshotID || a.SnapshotID != b.SnapshotID {
+		t.Errorf("restricted ids %s/%s, full %s", a.SnapshotID, b.SnapshotID, q.SnapshotForSerialization().SnapshotID)
+	}
+}
