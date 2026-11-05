@@ -60,8 +60,8 @@ Unknown is never healthy. Treat these as limits on what an answer proves:
   marks it partial.
 - Mira's map is sampled, covers only instrumented services and only the last
   15 minutes, so an edge it did not see may still exist. A declared dependency
-  that Mira or any other source saw is `matched`; one it did not see stays
-  `insufficient`.
+  that Mira or any other source saw is `matched`; one Mira did not see stays
+  `insufficient` unless a `--traces` export also observes calls.
 - A Mira node behind `mira proxy` cannot serve the map. Mira keeps traces for
   7 days by default.
 - Mira names carry no namespace. An observed edge between two services you can
