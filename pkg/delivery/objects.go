@@ -89,6 +89,13 @@ type StageNow struct {
 	Verified      []string `json:"verified,omitempty"`
 	FailedDigests []string `json:"failedDigests,omitempty"`
 	LastCheck     *Recheck `json:"lastCheck,omitempty"`
+	// Service and Environment are what the Stage delivers and where.
+	// ServiceFrom says where they were read: stage from the Stage itself,
+	// record from the policy the newest record signed, when the Stage could
+	// not be read.
+	Service     *ServiceRef `json:"service,omitempty"`
+	Environment string      `json:"environment,omitempty"`
+	ServiceFrom string      `json:"serviceFrom,omitempty" enum:"stage,record"`
 }
 
 // HistoryEntry is one operation on a Stage.
@@ -105,6 +112,15 @@ type HistoryEntry struct {
 	Verification Verification `json:"verification,omitempty"`
 	Reason       string       `json:"reason,omitempty"`
 	Finished     string       `json:"finished,omitempty"`
+	// Applied is when the change reached the Stage: from a record, the start
+	// of the window its first verify gate judged; from an Operation's status,
+	// the time the promoter applied it. Empty when neither says.
+	Applied string `json:"applied,omitempty"`
+	// Cause and CorrelationID are why the change was raised and the id that
+	// ties it to an incident or another change, as its intent said. On a
+	// line with no record they are read from the Operation and unsigned.
+	Cause         *Cause `json:"cause,omitempty"`
+	CorrelationID string `json:"correlationID,omitempty"`
 	// Since is when a change still in flight was last held for a person, or
 	// else when it was asked for: what a reader looks at while it waits.
 	Since string `json:"since,omitempty"`

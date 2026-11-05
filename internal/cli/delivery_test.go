@@ -214,6 +214,44 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 	})
 }
 
+// TestDeliveryHistoryWindowAndService: --since takes a duration before now
+// (the client's clock), keeps changes with no time, and --service needs --all.
+func TestDeliveryHistoryWindowAndService(t *testing.T) {
+	d := deliveryDeps("alice", nil)
+	plain := d.newDynamic
+	d.newDynamic = func() (dynamic.Interface, error) {
+		c, err := plain()
+		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}).Namespace("prod")
+		for i, name := range []string{"one-hour-ago", "three-hours-ago"} {
+			finished := time.Now().Add(-time.Duration(1+2*i) * time.Hour).UTC().Format(time.RFC3339)
+			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1alpha1", "Operation", name, map[string]any{
+				"spec":   map[string]any{"type": delivery.TypePromote, "stage": "payments-prod"},
+				"status": map[string]any{"phase": "Concluded", "seq": int64(i + 1), "times": map[string]any{"finished": finished}}}),
+				metav1.CreateOptions{})
+		}
+		return c, err
+	}
+	history := []string{"history", "-n", "prod", "--stage", "payments-prod"}
+	out, err := runDelivery(t, d, "text", append(history, "--since", "2h")...)
+	if err != nil || !strings.Contains(out, "one-hour-ago") || strings.Contains(out, "three-hours-ago") || !strings.Contains(out, "held") ||
+		!strings.Contains(out, "; only changes at or after ") {
+		t.Fatalf("history of the last two hours: %v\n%s", err, out)
+	}
+	if out, err = runDelivery(t, d, "text", "history", "--all", "--service", "payments", "--until", "2000-01-01T00:00:00Z"); err != nil ||
+		strings.Contains(out, "one-hour-ago") || !strings.Contains(out, "== prod/payments-prod") || !strings.Contains(out, "held") {
+		t.Fatalf("history of payments before 2000: %v\n%s", err, out)
+	}
+	if out, _ = runDelivery(t, d, "text", "history", "--all", "--service", "orders"); strings.Contains(out, "==") {
+		t.Fatalf("history of orders lists payments:\n%s", out)
+	}
+	checkDeliveryRuns(t, d, []deliveryRun{
+		{"text", append(history, "--service", "payments"), true, []string{"--service and --domain need --all"}},
+		{"text", append(history, "--domain", "d"), true, []string{"--service and --domain need --all"}},
+		{"text", append(history, "--until", "yesterday"), true, []string{"--until takes an RFC 3339 time or a duration", `"yesterday"`}},
+		{"text", append(history, "--since", "soon"), true, []string{"--since takes an RFC 3339 time"}},
+	})
+}
+
 // A verdict with nothing to run again prints no re-run line.
 func TestDeliveryExplainOmitsEmptyRerun(t *testing.T) {
 	out, err := runDelivery(t, deliveryDeps("alice", nil), "text", "explain", "-n", "prod", "held")

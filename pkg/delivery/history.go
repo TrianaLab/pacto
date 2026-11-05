@@ -2,9 +2,11 @@ package delivery
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // StoredRecord is one record read back from the registry: its id (the sha256
@@ -90,7 +92,8 @@ func seqRange(from, to int64) string {
 func RecordEntry(r StoredRecord) HistoryEntry {
 	p := r.Statement.Predicate
 	e := HistoryEntry{Seq: p.Chain.Seq, Operation: p.Intent.Name, Kind: p.Kind, Record: r.ID, Finished: p.Time.Finished,
-		Phase: PhaseConcluded, Approvals: p.Approvals}
+		Phase: PhaseConcluded, Approvals: p.Approvals, Applied: appliedFrom(p.Verdicts), Cause: p.Intent.Cause,
+		CorrelationID: p.Intent.CorrelationID}
 	if p.Type != nil {
 		e.Type = p.Type.ID
 	}
@@ -114,4 +117,24 @@ func RecordEntry(r StoredRecord) HistoryEntry {
 		e.Reason = fmt.Sprintf("Gap: the operation with local seq %d was gone before it was recorded", p.Gap.Seq)
 	}
 	return e
+}
+
+// appliedFrom is when a recorded change reached its Stage: the start of the
+// window its first verify verdict judged, read from the gate input it cites.
+// The citation's own from is never used: a soak can move it to its newest
+// look. Empty when no verify verdict cites an input with a window.
+func appliedFrom(verdicts []Verdict) string {
+	i := slices.IndexFunc(verdicts, func(v Verdict) bool { return v.Phase == "verify" })
+	if i < 0 {
+		return ""
+	}
+	var in struct {
+		Window struct {
+			From time.Time `json:"from"`
+		} `json:"window"`
+	}
+	if json.Unmarshal([]byte(verdicts[i].Citation["input"]), &in) != nil || in.Window.From.IsZero() {
+		return ""
+	}
+	return in.Window.From.UTC().Format(time.RFC3339)
 }

@@ -3,7 +3,9 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -25,7 +27,8 @@ type DeliveryAPI interface {
 	VerifyRecords(ctx context.Context, namespace, stage string) (*delivery.StreamVerification, error)
 	// HistoryAll and VerifyAll walk every Stage in namespace, or in every
 	// namespace the caller can list for "".
-	HistoryAll(ctx context.Context, namespace string) (*delivery.Histories, error)
+	// HistoryAll keeps only the Stages of service of when it names one.
+	HistoryAll(ctx context.Context, namespace string, of delivery.ServiceRef) (*delivery.Histories, error)
 	VerifyAll(ctx context.Context, namespace string) (*delivery.StreamVerifications, error)
 }
 
@@ -135,14 +138,12 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 			"(source status, always partial). The answer says asOf, completeness, problems (missing seqs, forks, hidden changes) " +
 			"and what was unreadable: when completeness is partial, a change missing from it may still have happened. Leave stage " +
 			"empty to walk every Stage in the namespace (or, with no namespace, every Stage you can list) for a fleet audit; that " +
-			"answer is complete only when every Stage was read and every history is complete. Read-only." + noApprove,
-		InputSchema: auditSchema(),
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
-		if a.Stage == "" {
-			return resultOrError(api.HistoryAll(ctx, a.Namespace))
-		}
-		h, err := api.History(ctx, a.Namespace, a.Stage)
-		return resultOrError(h, err)
+			"answer is complete only when every Stage was read and every history is complete. Pass since and until to list the " +
+			"changes around a time, such as the hour before a problem started; a change running across that time, or whose time " +
+			"is unknown, is always listed. Read-only." + noApprove,
+		InputSchema: historySchema(),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
+		return historyTool(ctx, api, a)
 	})
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "pacto_delivery_blame",
@@ -310,6 +311,71 @@ func stageSchema(extra ...string) map[string]any {
 		props["digest"] = property{Type: "string", Description: "The version (sha256:...) to blame; defaults to the one the Stage runs"}
 	}
 	return inputSchema(props, []string{"namespace", "stage"})
+}
+
+type historyArgs struct {
+	Namespace string `json:"namespace"`
+	Stage     string `json:"stage"`
+	Since     string `json:"since"`
+	Until     string `json:"until"`
+	Service   string `json:"service"`
+	Domain    string `json:"domain"`
+}
+
+// historySchema is the audit schema plus a time window and, for a walk, a
+// service.
+func historySchema() map[string]any {
+	return inputSchema(map[string]property{
+		"namespace": {Type: "string", Description: "Namespace of the Stage; empty with no stage walks every namespace you can list"},
+		"stage":     {Type: "string", Description: "Stage name; empty walks every Stage"},
+		"since":     {Type: "string", Description: "RFC 3339 time; only changes at or after it"},
+		"until":     {Type: "string", Description: "RFC 3339 time; only changes at or before it"},
+		"service":   {Type: "string", Description: "Without a stage: only the Stages of this service"},
+		"domain":    {Type: "string", Description: "With service: its registry domain; a Stage that names none matches any"},
+	}, nil)
+}
+
+// historyTool answers pacto_delivery_history: one Stage's history, or a walk
+// of every Stage, with only the changes in the window a asks for.
+func historyTool(ctx context.Context, api DeliveryAPI, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
+	since, err := rfc3339("since", a.Since)
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	until, err := rfc3339("until", a.Until)
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	if a.Stage == "" {
+		hs, err := api.HistoryAll(ctx, a.Namespace, delivery.ServiceRef{Name: a.Service, Domain: a.Domain})
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		for i := range hs.Histories {
+			hs.Histories[i].History = delivery.WindowEntries(hs.Histories[i].History, since, until)
+		}
+		return resultOrError(hs, nil)
+	}
+	if a.Service != "" || a.Domain != "" {
+		return errorResult(errors.New("service filters the walk; leave stage empty")), nil, nil
+	}
+	h, err := api.History(ctx, a.Namespace, a.Stage)
+	if err == nil {
+		*h = delivery.WindowEntries(*h, since, until)
+	}
+	return resultOrError(h, err)
+}
+
+// rfc3339 reads the tool argument name as an RFC 3339 time; empty is none.
+func rfc3339(name, v string) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s is not an RFC 3339 time: %q", name, v)
+	}
+	return t, nil
 }
 
 // auditSchema is one Stage, or with stage empty every Stage in the

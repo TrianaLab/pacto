@@ -592,10 +592,17 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			since, until, of, err := historyFilters(cmd, all, c.Now())
+			if err != nil {
+				return err
+			}
 			if all {
-				hs, err := c.HistoryAll(cmd.Context(), ns)
+				hs, err := c.HistoryAll(cmd.Context(), ns, of)
 				if err != nil {
 					return err
+				}
+				for i := range hs.Histories {
+					hs.Histories[i].History = delivery.WindowEntries(hs.Histories[i].History, since, until)
 				}
 				return formatResult(cmd, v.GetString(outputFormatKey), hs, func() error {
 					out := cmd.OutOrStdout()
@@ -612,6 +619,7 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			*h = delivery.WindowEntries(*h, since, until)
 			return formatResult(cmd, v.GetString(outputFormatKey), h, func() error {
 				printHistory(cmd.OutOrStdout(), h)
 				return nil
@@ -620,7 +628,41 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 	}
 	cmd.Flags().String("stage", "", "the Stage (this or --all)")
 	cmd.Flags().Bool("all", false, "walk every Stage in the namespace given with -n, or in every namespace you can list")
+	cmd.Flags().String("since", "", "only changes at or after this RFC 3339 time, or this long before now (2h)")
+	cmd.Flags().String("until", "", "only changes at or before this RFC 3339 time, or this long before now (30m)")
+	cmd.Flags().String("service", "", "with --all, only the Stages of this service")
+	cmd.Flags().String("domain", "", "with --service, its registry domain; a Stage that names none matches any")
 	return cmd
+}
+
+// historyFilters reads --since, --until, --service and --domain; a duration
+// is that long before now. The service flags narrow a walk, so they need --all.
+func historyFilters(cmd *cobra.Command, all bool, now time.Time) (since, until time.Time, of delivery.ServiceRef, err error) {
+	of.Name, _ = cmd.Flags().GetString("service")
+	of.Domain, _ = cmd.Flags().GetString("domain")
+	if (of.Name != "" || of.Domain != "") && !all {
+		return since, until, of, errors.New("--service and --domain need --all")
+	}
+	if since, err = whenFlag(cmd, "since", now); err == nil {
+		until, err = whenFlag(cmd, "until", now)
+	}
+	return since, until, of, err
+}
+
+// whenFlag reads the time flag name: an RFC 3339 time or a duration before
+// now; empty is no bound.
+func whenFlag(cmd *cobra.Command, name string, now time.Time) (time.Time, error) {
+	v, _ := cmd.Flags().GetString(name)
+	if v == "" {
+		return time.Time{}, nil
+	}
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, nil
+	}
+	if d, err := time.ParseDuration(v); err == nil {
+		return now.Add(-d), nil
+	}
+	return time.Time{}, fmt.Errorf("--%s takes an RFC 3339 time or a duration before now, such as 2h: %q", name, v)
 }
 
 // stageOrAll reads --stage and --all: exactly one must be set. With --all and

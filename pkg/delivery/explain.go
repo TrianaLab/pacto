@@ -10,7 +10,17 @@ import (
 func NowOf(s *StageObject) StageNow {
 	st := s.Status
 	return StageNow{Name: s.Metadata.Name, Pointer: st.Pointer, Frozen: st.Frozen, FrozenReason: st.FrozenReason, AutoHold: st.AutoHold,
-		Verified: st.Verified, FailedDigests: st.FailedDigests, LastCheck: st.LastCheck}
+		Verified: st.Verified, FailedDigests: st.FailedDigests, LastCheck: st.LastCheck}.withService(s.Spec, "stage")
+}
+
+// withService names the service and environment spec delivers, from where.
+// A spec with no service leaves n as it is.
+func (n StageNow) withService(spec StageSpec, from string) StageNow {
+	if spec.Service.Name != "" {
+		svc := spec.Service
+		n.Service, n.Environment, n.ServiceFrom = &svc, spec.Environment, from
+	}
+	return n
 }
 
 // ExplainOperation explains op in plain terms against its Stage; a nil stage

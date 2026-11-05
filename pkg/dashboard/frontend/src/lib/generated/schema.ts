@@ -1283,7 +1283,10 @@ export interface components {
         "Delivery.HistoryEntry": {
             actor: string;
             actorClass?: string;
+            applied?: string;
             approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
+            cause?: components["schemas"]["Delivery.Cause"];
+            correlationID?: string;
             finished?: string;
             from?: string;
             kind?: string;
@@ -1463,12 +1466,16 @@ export interface components {
         };
         "Delivery.StageNow": {
             autoHold?: boolean;
+            environment?: string;
             failedDigests?: string[] | null;
             frozen?: boolean;
             frozenReason?: string;
             lastCheck?: components["schemas"]["Delivery.Recheck"];
             name: string;
             pointer?: string;
+            service?: components["schemas"]["Delivery.ServiceRef"];
+            /** @enum {string} */
+            serviceFrom?: "stage" | "record";
             verified?: string[] | null;
         };
         "Delivery.StageRef": {
