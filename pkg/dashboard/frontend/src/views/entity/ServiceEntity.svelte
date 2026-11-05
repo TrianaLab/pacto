@@ -164,7 +164,8 @@
           {#if used.truncated}<li class="se-note">+{(used.total ?? 0) - (used.count ?? 0)} more</li>{/if}
         </ul>
       {:else}
-        <span class="se-none">None declared</span>
+        <span class="se-none">None resolved</span>
+        <span class="se-note">Unresolved references are not counted</span>
       {/if}
     </div>
     <div class="se-fact" data-testid="service-capabilities">

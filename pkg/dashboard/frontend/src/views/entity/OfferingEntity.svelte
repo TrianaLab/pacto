@@ -96,7 +96,7 @@
   <!-- ponytail: no route lists an offering's consumers, so a truncated preview says
        "N of M" and has no View all link. -->
   <PreviewSection title="Consumers" total={consumers.total ?? 0} count={consumers.count ?? 0} truncated={consumers.truncated}
-    empty="No service declares that it consumes this offering." help="Services whose contract declares a dependency on a provider of this offering or references its configuration or policy.">
+    empty="No service has a resolved declaration that consumes this offering. References that are not digest-pinned or locked cannot be resolved and are not counted." help="Services whose contract declares a dependency on a provider of this offering or references its configuration or policy, once Pacto resolves the declaration. A configuration or policy reference resolves only when it is digest-pinned or locked.">
     <ul class="oe-uses">
       {#each consumers.items ?? [] as u, ui (`${u.consumer?.key}:${u.provider?.key}:${u.via}:${ui}`)}
         <li data-testid="offering-consumer">

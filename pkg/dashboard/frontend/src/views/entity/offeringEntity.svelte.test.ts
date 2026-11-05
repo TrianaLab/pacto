@@ -125,7 +125,7 @@ describe('offering page', () => {
   it('says the page is read from contracts', async () => {
     const { target, done } = await render(detail({}));
     expect(text(target)).toContain("Pacto lists what contracts declare. Provisioning stays in your platform's tools.");
-    expect(text(target)).toContain('No service declares that it consumes this offering.');
+    expect(text(target)).toContain('No service has a resolved declaration that consumes this offering. References that are not digest-pinned or locked cannot be resolved and are not counted.');
     done();
   });
 });

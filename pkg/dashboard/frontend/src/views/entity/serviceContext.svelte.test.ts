@@ -448,9 +448,10 @@ describe('service page: platform offerings', () => {
     done();
   });
 
-  it('says None declared when the service uses no offering', async () => {
+  it('says None resolved when the service uses no offering', async () => {
     const { target, done } = await render(detail());
-    expect(text(fact(target, 'service-offerings-used'))).toContain('None declared');
+    expect(text(fact(target, 'service-offerings-used'))).toContain('None resolved');
+    expect(text(fact(target, 'service-offerings-used'))).toContain('Unresolved references are not counted');
     done();
   });
 
@@ -464,7 +465,7 @@ describe('service page: platform offerings', () => {
     const link = row.querySelector('[data-testid="inferred-offering"]') as HTMLAnchorElement;
     expect(link.textContent).toBe('may be the redis offering');
     expect(link.getAttribute('href')).toBe('#/fleet/offerings/redis');
-    expect(text(fact(target, 'service-offerings-used'))).toContain('None declared');
+    expect(text(fact(target, 'service-offerings-used'))).toContain('None resolved');
     expect(hrefs(fact(target, 'service-offerings-used'))).not.toContain('#/fleet/offerings/redis');
     done();
   });
