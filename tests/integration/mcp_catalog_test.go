@@ -590,15 +590,15 @@ func TestMCPFleetDemoSurface(t *testing.T) {
 	}
 	var nb struct {
 		RequestedFocus struct {
-			Key string `json:"key"`
+			Label string `json:"label"`
 		} `json:"requestedFocus"`
 		Nodes []struct {
 			Owner string `json:"owner"`
 		} `json:"nodes"`
 	}
-	call("pacto_fleet_neighborhood", map[string]any{"service": "commerce/orders-service"}, &nb)
-	if nb.RequestedFocus.Key != "commerce/orders-service" || len(nb.Nodes) < 2 {
-		t.Errorf("pacto_fleet_neighborhood service=commerce/orders-service = %+v", nb)
+	call("pacto_fleet_neighborhood", map[string]any{"service": "orders-service"}, &nb)
+	if nb.RequestedFocus.Label != "orders-service" || len(nb.Nodes) < 2 {
+		t.Errorf("pacto_fleet_neighborhood service=orders-service = %+v", nb)
 	}
 
 	if err := session.Close(); err != nil {
