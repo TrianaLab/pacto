@@ -445,7 +445,7 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"providers and consumers. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
-			"key": {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},
+			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},
 		}, []string{"kind", "key"}),
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -775,12 +776,10 @@ func TestMCPFleetSourceRefreshesAfterInterval(t *testing.T) {
 	if err != nil || builds != 1 {
 		t.Fatalf("startup: builds=%d err=%v", builds, err)
 	}
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
 	call := func(at time.Duration, wantID string, wantBuilds int) {
 		t.Helper()
 		clock = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(at)
-		q, err := src(cancelled)
+		q, err := src(context.Background())
 		if err != nil || q.SnapshotID() != wantID || builds != wantBuilds {
 			t.Errorf("+%s: snapshot %v builds %d err %v, want %s and %d builds", at, q, builds, err, wantID, wantBuilds)
 		}
@@ -799,6 +798,39 @@ func TestMCPFleetSourceRefreshesAfterInterval(t *testing.T) {
 	}, time.Second, now); err == nil {
 		t.Error("a failed first build must fail startup")
 	}
+}
+
+// TestMCPFleetSourceCancelledCallDoesNotWait: a cancelled call that triggers a
+// rebuild answers from the last good snapshot without waiting for the build,
+// and the build, on the lifetime context, still publishes.
+func TestMCPFleetSourceCancelledCallDoesNotWait(t *testing.T) {
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	release := make(chan struct{})
+	var builds atomic.Int32
+	src, err := mcpFleetSource(context.Background(), func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+		if n := builds.Add(1); n > 1 {
+			<-release
+		}
+		return &fleet.FleetSnapshot{SnapshotID: "s" + strconv.Itoa(int(builds.Load()))}, ctx.Err()
+	}, 30*time.Second, func() time.Time { return clock })
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Minute)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if q, err := src(cancelled); err != nil || q.SnapshotID() != "s1" {
+		t.Errorf("cancelled call = %v, %v; want s1 at once", q, err)
+	}
+	close(release)
+	clock = clock.Add(time.Second) // not due: no new build
+	for range 100 {
+		if q, _ := src(context.Background()); q.SnapshotID() == "s2" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Error("the rebuild never published")
 }
 
 // TestMCPDashboardURL: --dashboard-url reaches the fleet server, and without

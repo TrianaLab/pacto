@@ -212,7 +212,7 @@ func mcpFleetSource(life context.Context, build fleet.Builder, interval time.Dur
 	}
 	var mu sync.Mutex
 	last := now()
-	return func(context.Context) (*fleet.Query, error) {
+	return func(ctx context.Context) (*fleet.Query, error) {
 		mu.Lock()
 		due := now().Sub(last) >= interval
 		if due {
@@ -220,7 +220,17 @@ func mcpFleetSource(life context.Context, build fleet.Builder, interval time.Dur
 		}
 		mu.Unlock()
 		if due {
-			_ = mgr.Refresh(life) // a failure keeps the last good snapshot
+			// The build runs on life; the call waits for it only as long as its
+			// own context lives, then answers from the last good snapshot.
+			done := make(chan struct{})
+			go func() {
+				_ = mgr.Refresh(life) // a failure keeps the last good snapshot
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-ctx.Done():
+			}
 		}
 		return mgr.Query()
 	}, nil
