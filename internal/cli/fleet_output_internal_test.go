@@ -52,11 +52,11 @@ func TestSeenBy(t *testing.T) {
 // reached through.
 func TestPrintFleetGraph_IndentsUnderShortestPathParent(t *testing.T) {
 	res := &fleet.GraphResult{Root: "r", Direction: fleet.DirectionDependencies, Nodes: []fleet.GraphNode{
-		{Key: "a", Name: "a", Depth: 1, Path: []fleet.ServiceKey{"r", "a"}},
-		{Key: "z", Name: "z", Depth: 1, Path: []fleet.ServiceKey{"r", "z"}},
-		{Key: "b", Name: "b", Depth: 2, Path: []fleet.ServiceKey{"r", "a", "b"}},
-		{Key: "t", Name: "t", Depth: 2, Path: []fleet.ServiceKey{"r", "z", "t"}},
-	}}
+		{Key: "a", Name: "a", Depth: 1, Path: []fleet.ServiceKey{"r", "a"}, Provenance: "declared"},
+		{Key: "z", Name: "z", Depth: 1, Path: []fleet.ServiceKey{"r", "z"}, Provenance: "observed"},
+		{Key: "b", Name: "b", Depth: 2, Path: []fleet.ServiceKey{"r", "a", "b"}, Provenance: "declared+observed"},
+		{Key: "t", Name: "t", Depth: 2, Path: []fleet.ServiceKey{"r", "z", "t"}, Provenance: "declared"},
+	}, Truncated: true}
 	cmd := &cobra.Command{}
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -64,10 +64,11 @@ func TestPrintFleetGraph_IndentsUnderShortestPathParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "dependencies of r (4 node(s)):\n" +
-		"    a (depth 1)\n" +
-		"      b (depth 2)\n" +
-		"    z (depth 1)\n" +
-		"      t (depth 2)\n"
+		"    a (depth 1, declared)\n" +
+		"      b (depth 2, declared+observed)\n" +
+		"    z (depth 1, observed)\n" +
+		"      t (depth 2, declared)\n" +
+		"  truncated: the answer stops at 4 nodes\n"
 	if out.String() != want {
 		t.Errorf("got:\n%s\nwant:\n%s", out.String(), want)
 	}

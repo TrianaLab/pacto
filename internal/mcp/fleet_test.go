@@ -218,6 +218,29 @@ func TestFleetGraphHandler_Dependents(t *testing.T) {
 	}
 }
 
+// The graph tool follows observed runtime calls, so an agent asking who calls a
+// service also sees the callers no contract declares.
+func TestFleetGraphHandler_IncludesObservedCallers(t *testing.T) {
+	svc := func(name string) fleet.RawRevision {
+		c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}
+		return fleet.RawRevision{Bundle: &contract.Bundle{Contract: c}, Digest: "sha256:" + name}
+	}
+	src := fleet.NewMemorySource("local", "local", &fleet.Collection{
+		Revisions: []fleet.RawRevision{svc("payments"), svc("audit-log")},
+		Observed:  []fleet.ObservedEdge{{From: "audit-log", To: "payments", Count: 1}},
+	})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := callHandler(t, fleetGraphTool(), fleetGraphHandler(fleet.NewQuery(snap)), map[string]any{"service": "payments", "direction": "dependents"})
+	var out fleet.GraphResult
+	decode(t, res, &out)
+	if len(out.Nodes) != 1 || out.Nodes[0].Key != "audit-log" || out.Nodes[0].Provenance != fleet.ProvenanceObserved {
+		t.Errorf("nodes = %+v, want audit-log reached by an observed edge", out.Nodes)
+	}
+}
+
 func TestFleetGraphHandler_NotFound(t *testing.T) {
 	q := buildFleetQuery(t)
 	res := callHandler(t, fleetGraphTool(), fleetGraphHandler(q), map[string]any{"service": "ghost"})

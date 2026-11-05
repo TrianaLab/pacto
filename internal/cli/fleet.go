@@ -325,6 +325,7 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			res, err := q.Graph(fleet.GraphQuery{
 				Service: optionalArg(args), Revision: fleet.RevisionKey(revision), Target: target,
 				Direction: fleet.Direction(direction), Transitive: transitive, MaxDepth: maxDepth,
+				IncludeObserved: true,
 			})
 			if err != nil {
 				return err

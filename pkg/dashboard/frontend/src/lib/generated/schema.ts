@@ -1941,6 +1941,8 @@ export interface components {
             key: string;
             name: string;
             path: string[] | null;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "declared+observed";
         };
         "Fleet.GraphResult": {
             aggregated: boolean;

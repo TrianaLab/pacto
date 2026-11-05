@@ -210,7 +210,11 @@ func fleetGraphTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_graph",
 		Description: "Traverse fleet dependencies or dependents from a service. Cycle-safe. " +
-			"Reports reached nodes with depth and path, cycles and unresolved dependencies. Read-only.",
+			"Reports reached nodes with depth, path and 'provenance' (how the edge that reached the node is known: " +
+			"declared, observed or declared+observed), cycles, unresolved dependencies and 'truncated'. " +
+			"Each edge carries 'provenance' and, for a declared edge, 'reconciliation'. " +
+			"A declared edge appears once per contract revision that declares it ('fromRevision'). " +
+			"Rooted at a revision or target, a dependencies traversal follows that revision's declared edges only. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service":    {Type: "string", Description: "Root logical service name (aggregates across its revisions)"},
 			"revision":   {Type: "string", Description: "Root a specific contract revision key (exact, not latest)"},
@@ -243,6 +247,7 @@ func fleetGraphHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetGraphArgs, any
 			Target:     a.Target,
 			Direction:  dir,
 			Transitive: a.Transitive, MaxDepth: a.MaxDepth,
+			IncludeObserved: true,
 		})
 		if err != nil {
 			return errorResult(err), nil, nil

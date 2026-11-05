@@ -129,13 +129,16 @@ func printFleetGraph(cmd *cobra.Command, res *fleet.GraphResult, format string) 
 		nodes := slices.Clone(res.Nodes)
 		slices.SortStableFunc(nodes, func(a, b fleet.GraphNode) int { return slices.Compare(a.Path, b.Path) })
 		for _, n := range nodes {
-			_, _ = fmt.Fprintf(w, "  %*s%s (depth %d)\n", n.Depth*2, "", n.Name, n.Depth)
+			_, _ = fmt.Fprintf(w, "  %*s%s (depth %d, %s)\n", n.Depth*2, "", n.Name, n.Depth, orDash(n.Provenance))
 		}
 		for _, c := range res.Cycles {
 			_, _ = fmt.Fprintf(w, "  cycle: %v\n", c)
 		}
 		for _, u := range res.Unresolved {
 			_, _ = fmt.Fprintf(w, "  unresolved: %s -> %s (%s)\n", u.FromService, u.To, orDash(u.Reason))
+		}
+		if res.Truncated {
+			_, _ = fmt.Fprintf(w, "  truncated: the answer stops at %d nodes\n", len(res.Nodes))
 		}
 		warnPartial(cmd, res.Meta)
 		return nil
