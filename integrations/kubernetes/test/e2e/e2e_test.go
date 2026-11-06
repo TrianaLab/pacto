@@ -1130,8 +1130,30 @@ func TestConfigurations(t *testing.T) {
 
 	// A configuration that names its schema by ref: the real loader pulls the provider bundle from a
 	// registry and the bound ConfigMap is validated against the provider's schema.
+	providerRef := pushConfigProvider(t)
 	refContract := "pactoVersion: \"2.6\"\nservice:\n  name: app\n  version: 1.0.0\nconfigurations:\n" +
-		"  - name: appcfg\n    ref: oci://" + pushConfigProvider(t) + "\n    required: true\n"
+		"  - name: appcfg\n    ref: oci://" + providerRef + "\n    required: true\n"
+
+	t.Run("ref_unlisted_loopback_registry_refused_CONFIG_REF_UNVERIFIED", func(t *testing.T) {
+		// The provider sits on loopback, an internal host other than the contract's own registry: the
+		// operator refuses to reach it until the host is listed in PACTO_INSECURE_REGISTRIES.
+		t.Setenv(loader.InsecureRegistriesEnvVar, "")
+		ns := newNamespace(t)
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: refContract},
+			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		f := findFinding(p, "CONFIG_REF_UNVERIFIED")
+		if f == nil || !strings.Contains(f.Message, loader.InsecureRegistriesEnvVar) {
+			t.Fatalf("expected CONFIG_REF_UNVERIFIED naming %s, got %+v", loader.InsecureRegistriesEnvVar, f)
+		}
+	})
+
+	// Listing the loopback registry host lets the operator pull the provider bundle.
+	t.Setenv(loader.InsecureRegistriesEnvVar, strings.SplitN(providerRef, "/", 2)[0])
 
 	t.Run("ref_configmap_conforms_resolved_schema_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
