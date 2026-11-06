@@ -3,6 +3,9 @@
 # overrides/home.html. Keep this note here, in the YAML front matter — an HTML
 # comment in the body is served to every visitor.
 template: home.html
+# The left sidebar would list only this page; the hero spans the width above.
+hide:
+  - navigation
 ---
 
 <h1 hidden>Know which services a change breaks before it ships.</h1>

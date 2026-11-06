@@ -2,62 +2,135 @@
 
 {# Landing hero. Rendered only for pages with `template: home.html` metadata (docs/index.md).
    It sits where the tabs render; the page's markdown renders below it as usual. Copy lives
-   here — edit the headline/tagline/CTAs below. Styles: stylesheets/extra.css.
+   here — edit the headline/tagline/CTAs below. Styles: the "Landing" part of
+   stylesheets/extra.css.
 
    Jinja comments, not HTML ones: an HTML comment inside a rendered block is served to
    every visitor. These notes are for whoever edits the template, not for the browser. #}
 {% block tabs %}
   {{ super() }}
+  <div class="pacto-home">
   {# Named, because a <section> is only a landmark once it has an accessible name.
      Unnamed, a screen reader jumping by region skipped the whole hero. #}
-  <section class="pacto-hero md-typeset" aria-label="Introduction">
-    <div class="pacto-hero__inner">
-      <div class="pacto-hero__brand">
-        <svg class="pacto-hero__logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-             stroke-linejoin="round" role="img" aria-hidden="true">
-          <path d="M10 6 L5 12 L10 18" />
-          <path d="M14 6 L19 12 L14 18" />
-          <circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none" />
-        </svg>
-        <span class="pacto-hero__wordmark">pacto</span>
+  <section class="pacto-hero" aria-label="Introduction">
+    <div class="pacto-hero__grid" aria-hidden="true"></div>
+    <div class="pacto-wrap pacto-hero__inner">
+      <div class="pacto-hero__copy">
+        {# The category. Not "standard": that word promises governance, a
+           conformance suite and a second implementation. The mark spins on click
+           (javascripts/logo-spin.js). #}
+        <p class="pacto-hero__eyebrow">
+          <svg class="pacto-hero__logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 6 L5 12 L10 18" />
+            <path d="M14 6 L19 12 L14 18" />
+            <circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none" />
+          </svg>
+          Service contracts
+        </p>
+        {# This is the page's only <h1>. Material injects one when the rendered markdown
+           has no h1, and here that lands as a meaningless "Home" below the hero.
+           docs/index.md therefore opens with a `hidden` h1 whose only job is to suppress
+           it. Change the headline here and there together. #}
+        <h1 class="pacto-hero__title">Know which services a change <em>breaks</em> before it ships.</h1>
+        {# The positioning sentence lives in the first paragraph of README.md, in mkdocs.yml
+           site_description, in `pacto --help` and in the MCP instructions. The hero
+           uses this tagline instead, so the H1 and the tagline do not repeat each
+           other. "Checks", never "proves": the runtime checks have documented limits.
+           Delivery is introduced below the hero, as opt-in alpha. #}
+        <p class="pacto-hero__tagline">
+          One YAML contract per service. <code>pacto diff</code> flags breaking
+          changes in any pull request, <code>pacto impact</code> names the consumers
+          they break once Pacto can see your fleet, and eBPF checks what is actually
+          running.
+        </p>
+        {# Each label names its true destination: "Live demo" opens the running dashboard
+           at /demo/ (built into the docs tree by `make docs`), not the page describing it.
+           It leads because it costs the reader nothing — no install, no registry, no
+           account; Quickstart is for someone who has already decided. #}
+        <div class="pacto-hero__actions md-typeset">
+          <a href="{{ 'demo/' | url }}#/fleet" class="md-button md-button--primary">Try the live demo</a>
+          <a href="{{ 'pactify/' | url }}" class="md-button">Pactify a service</a>
+          <a href="{{ 'quickstart/' | url }}" class="md-button">Quickstart</a>
+        </div>
+        {# The verified installer from docs/installation.md, which has the flags and
+           the other ways to install. #}
+        <div class="pacto-install"><b aria-hidden="true">$</b><code>curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/<wbr><span>scripts/get-pacto.sh | bash</span></code></div>
+        {# Name the cost next to the button that spends it: the primary CTA fires an
+           ~5 MB download (4.3 MB of gzipped Wasm plus the UI). The second sentence points at the definition, not at the
+           list of exclusions — non-goals cannot build a model the reader lacks. #}
+        <p class="pacto-hero__note">
+          Other ways to install are in <a href="{{ 'installation/' | url }}">Installation</a>.
+          The demo runs in your browser and downloads about 5&nbsp;MB.
+          Pacto is for the teams who operate many services; start with
+          <a href="#what-is-pacto">what Pacto is</a>.
+        </p>
       </div>
-      {# The category. Not "standard": that word promises governance, a
-         conformance suite and a second implementation. #}
-      <p class="pacto-hero__eyebrow">Service contracts</p>
-      {# This is the page's only <h1>. Material injects one when the rendered markdown
-         has no h1, and here that lands as a meaningless "Home" below the hero.
-         docs/index.md therefore opens with a `hidden` h1 whose only job is to suppress
-         it. Change the headline here and there together. #}
-      <h1 class="pacto-hero__title">Know which services a change breaks before it ships.</h1>
-      {# The positioning sentence lives in the first paragraph of README.md, in mkdocs.yml
-         site_description, in `pacto --help` and in the MCP instructions. The hero
-         uses this tagline instead, so the H1 and the tagline do not repeat each
-         other. "Checks", never "proves": the runtime checks have documented limits.
-         Delivery is introduced below the hero, as opt-in alpha. #}
-      <p class="pacto-hero__tagline">
-        One YAML contract per service. <code>pacto diff</code> flags breaking
-        changes in any pull request, <code>pacto impact</code> names the consumers
-        they break once Pacto can see your fleet, and eBPF checks what is actually
-        running.
-      </p>
-      {# Each label names its true destination: "Live demo" opens the running dashboard
-         at /demo/ (built into the docs tree by `make docs`), not the page describing it.
-         It leads because it costs the reader nothing — no install, no registry, no
-         account; Quickstart is for someone who has already decided. #}
-      <div class="pacto-hero__actions">
-        <a href="{{ 'demo/' | url }}#/fleet" class="md-button md-button--primary">Try the live demo</a>
-        <a href="{{ 'pactify/' | url }}" class="md-button">Pactify a service</a>
-        <a href="{{ 'quickstart/' | url }}" class="md-button">Quickstart</a>
+
+      {# The contract graph from the "Who breaks" section of docs/index.md: auth
+         2.1.0 -> 3.0.0 is BREAKING; checkout accepts ^2.0.0 (incompatible),
+         reporting accepts >=2.0.0 <4.0.0 (compatible). The terminal lines are
+         verbatim from that `pacto impact` output. Keep the two in step. #}
+      <div class="pacto-art" role="img"
+           aria-label="pacto impact on auth 2.1.0 to 3.0.0: a breaking change. checkout accepts ^2.0.0 and is incompatible. reporting accepts >=2.0.0 <4.0.0 and is compatible.">
+        <div class="pacto-art__term" aria-hidden="true">
+          <div class="pacto-art__bar"><i></i><i></i><i></i><span>ci / pull request</span></div>
+          <pre><span class="pr">$</span> <span class="w">pacto impact</span> ./auth-2.1.0 ./auth-3.0.0
+Impact: auth 2.1.0 -&gt; 3.0.0
+Classification: <span class="r">BREAKING</span>
+Affected consumers (2)<span class="cur"></span></pre>
+        </div>
+        <div class="pacto-art__graph" aria-hidden="true">
+          <div class="pacto-node pacto-node--provider">
+            <span class="pacto-node__k">provider</span>
+            <span class="pacto-node__name">auth</span>
+            <span class="pacto-node__ver"><s>2.1.0</s> → 3.0.0</span>
+          </div>
+          <div class="pacto-art__edges">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+              <path class="e e--bad" d="M50 0 L25 100" />
+              <path class="e e--ok" d="M50 0 L75 100" />
+            </svg>
+            <span class="pacto-range pacto-range--bad">^2.0.0</span>
+            <span class="pacto-range pacto-range--ok">&gt;=2.0.0 &lt;4.0.0</span>
+          </div>
+          <div class="pacto-art__consumers">
+            <div class="pacto-node pacto-node--bad">
+              <span class="pacto-node__k">consumer · commerce</span>
+              <span class="pacto-node__name">checkout</span>
+              <span class="pacto-node__verdict">✕ incompatible</span>
+            </div>
+            <div class="pacto-node pacto-node--ok">
+              <span class="pacto-node__k">consumer · analytics</span>
+              <span class="pacto-node__name">reporting</span>
+              <span class="pacto-node__verdict">✓ compatible</span>
+            </div>
+          </div>
+        </div>
       </div>
-      {# Name the cost next to the button that spends it: the primary CTA fires an
-         ~5 MB download (4.3 MB of gzipped Wasm plus the UI). The second sentence points at the definition, not at the
-         list of exclusions — non-goals cannot build a model the reader lacks. #}
-      <p class="pacto-hero__note">
-        The demo runs in your browser and downloads about 5&nbsp;MB.
-        Pacto is for the teams who operate many services; start with
-        <a href="#what-is-pacto">what Pacto is</a>.
-      </p>
     </div>
   </section>
+
+  {# Three facts, each one linking to the page that backs it. #}
+  <section class="pacto-facts" aria-label="Pacto at a glance">
+    <div class="pacto-wrap pacto-facts__inner">
+      <div class="pacto-fact">
+        <p class="pacto-fact__k">01 · contract</p>
+        <h2 class="pacto-fact__title"><a href="{{ 'contract-reference/' | url }}">One YAML file per service</a></h2>
+        <p>It names the owner, the interfaces, the dependencies and the versions of each one the service accepts.</p>
+      </div>
+      <div class="pacto-fact">
+        <p class="pacto-fact__k">02 · registry</p>
+        <h2 class="pacto-fact__title"><a href="{{ 'lockfile/' | url }}">Stored in your OCI registry</a></h2>
+        <p>Contracts live in the registry you already run, and <code>pacto.lock</code> pins every dependency by digest.</p>
+      </div>
+      <div class="pacto-fact">
+        <p class="pacto-fact__k">03 · runtime</p>
+        <h2 class="pacto-fact__title"><a href="{{ 'runtime-conformance/' | url }}">Checked while it runs</a></h2>
+        <p>On Linux, eBPF compares what a service does on the network with its contract.</p>
+      </div>
+    </div>
+  </section>
+  </div>
 {% endblock %}
