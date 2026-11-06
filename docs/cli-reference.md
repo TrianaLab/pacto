@@ -1433,7 +1433,7 @@ The **default** server exposes the four authoring tools below. A bundle referenc
 | Tool | Description |
 |------|-------------|
 | `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |
-| `pacto_edit` | Edit an existing contract: add or remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |
+| `pacto_edit` | Edit an existing contract: add or remove interfaces, dependencies and configuration references, add environments and set their values, set the service lifecycle, change runtime, update metadata. Checks values against a referenced contract's schema before writing. Supports dry run. |
 | `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 

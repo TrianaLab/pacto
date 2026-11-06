@@ -106,6 +106,56 @@ pinned as `oci://...@sha256:<digest>`, which must also be one of the server's
 
 ---
 
+## Provisioning reports
+
+A provider adapter reports the state of a resource with the
+`ResourceProvisioned` observation kind. The report is about the consumer's
+contract revision, and its observation subject is the consumer's
+`configuration` or `dependency` that asked for the resource. Decoding rejects
+any key beyond these four, so account ids, regions and secret names have
+nowhere to go:
+
+| Key | Meaning |
+|-----|---------|
+| `provider` | A lowercase slug of at most 63 bytes naming the provider. Pacto keeps no list of providers. |
+| `externalRef` | Optional. An opaque handle of the resource at the provider, at most 253 printable bytes. |
+| `phase` | `Requested`, `Provisioning`, `Ready`, `Failed` or `Deleting`. |
+| `environment` | Optional. The consumer environment the resource serves, a lowercase slug. |
+
+An outcome other than `Observed` carries no payload. `pacto evidence
+provisioned` writes the EvidenceSet; sign and send it like any other:
+
+```bash
+pacto evidence provisioned \
+  --contract oci://registry.example.com/acme/orders@sha256:<digest> \
+  --configuration database --environment production \
+  --provider my-platform --phase Ready \
+  --external-ref databases/orders-production > report.json
+```
+
+The subject defaults to `<repository>/<environment or default>/<name>`. Keep
+one subject per resource: the server keeps the latest report per producer and
+subject.
+
+The server accepts a provisioning report only when:
+
+- its key lists `ResourceProvisioned` in
+  [`allowedObservationKinds`](#trust-store-and-trust-config);
+- the EvidenceSet carries only `ResourceProvisioned` observations;
+- its subject starts with the consumer's repository path, so the key's
+  `allowedSubjects` globs scope which consumers it reports for;
+- each observation names a configuration reference or a dependency the
+  consumer declares, in an environment it declares;
+- it is dated no more than five minutes after the server accepted it.
+
+The server evaluates no compliance findings for a provisioning report and
+lists it under `provisioning` on the targets endpoint, never as a target. The
+[operational graph](platform-offerings.md#provisioning-status) joins it onto
+the offering's uses. A v2 target-state file carries the same reports unsigned,
+for tests and demos.
+
+---
+
 ## CLI commands
 
 | Command | Side | Purpose |
@@ -114,6 +164,7 @@ pinned as `oci://...@sha256:<digest>`, which must also be one of the server's
 | `pacto evidence sign` | producer | Wrap an `EvidenceSet` in a signed envelope. Reads the EvidenceSet JSON, validates it, wraps it and signs with `--key`, `--key-id`, `--producer`, `--sequence`. Default `--ttl 24h`; `--ttl 0` disables expiry. |
 | `pacto evidence send` | producer | Report a signed envelope outbound to an ingestion endpoint. POSTs to `POST /api/evidence/v1/envelopes`. |
 | `pacto evidence verify` | either | Verify a signed envelope against a trust store. Checks signature, freshness, producer authorization and trust. Exits non-zero on failure. |
+| `pacto evidence provisioned` | producer | Write an EvidenceSet with one `ResourceProvisioned` observation about a consumer revision (`--contract`), its `--configuration` or `--dependency`, `--environment`, `--provider`, `--phase` and `--external-ref`. See [Provisioning reports](#provisioning-reports). |
 | `pacto evidence serve` | platform | Run the ingestion endpoint. Loads trust store from `--trust`, resolves every `--subject` (at least one required), verifies and evaluates envelopes and publishes results to the registry as OCI 1.1 referrers. Listens on `127.0.0.1:8686` or `--listen-address`. |
 
 ---
@@ -128,7 +179,12 @@ The ingestion host mounts five endpoints under `/api/evidence/v1`.
 | `GET /api/evidence/v1/health` | Liveness. Independent of the registry. | `200 OK` with `{ "status": "ok" }` |
 | `GET /api/evidence/v1/ready` | Readiness. `503` until every configured subject resolves and answers native Referrers discovery. | `200 OK` with `{ "status": "ready" }` |
 | `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
-| `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source. | `200 OK` with the versioned targets DTO (schema `pacto.dev/evidence-source/v2`) |
+| `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source, plus the latest provisioning reports. | `200 OK` with the versioned targets DTO: schema `pacto.dev/evidence-source/v3` when it carries `provisioning` records, `pacto.dev/evidence-source/v2` otherwise |
+
+The targets endpoint takes no authentication and lists contract references,
+producers and the external references of provisioned resources. Keep it behind
+the same network and auth boundary as the dashboard. Targets and provisioning
+records share one bound, and a response cut by it sets `truncated`.
 
 **POST status codes.** A non-2xx response is a JSON object `{ "code": <stable-code>, "message": <generic> }`. The `code` is stable and the `message` is generic; neither contains the underlying error text, keys or signature bytes. The server logs verification failures and server-side errors and keeps them from the caller. TLS termination is the host's responsibility. Signature verification is always on and cannot be disabled.
 
@@ -205,7 +261,12 @@ keys:
     publicKeyFile: edge-eu-west__edge-eu-west-2026.pub
     allowedSubjects: [payments-*]                  # path.Match globs; empty = any
     allowedContractRepos: [registry.example.com/acme/contracts]  # prefixes; empty = any
+    allowedObservationKinds: [ResourceProvisioned]  # empty = every kind except ResourceProvisioned
 ```
+
+An empty `allowedObservationKinds` withholds `ResourceProvisioned`, so a
+team's runtime key cannot mark its own resources Ready. Give a provider adapter
+its own key that lists it.
 
 Loading validates the schema version, identifier grammar, duplicate key ids, contradictory producer bindings, missing or traversing key files and malformed patterns.
 

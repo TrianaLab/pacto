@@ -17,7 +17,10 @@ follows that person's Kubernetes RBAC and every action runs as them:
 - **The fleet views** show only the namespaces you may read
   ([who sees what](dashboard-access.md)). A service known only from a registry
   belongs to no namespace, so only people who may list Pactos in every
-  namespace see it, and counts and totals leave it out for everyone else.
+  namespace see it, and counts and totals leave it out for everyone else. A
+  platform offering's provider with no Kubernetes target is the exception:
+  every signed-in person sees it, with its targets hidden and its hidden
+  consumers counted.
 
 The dashboard's ServiceAccount stays read-only: it may get, list and watch
 Stages and Operations and ask the API server what a person may read. There is

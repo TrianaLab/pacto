@@ -40,7 +40,8 @@ the diff classifies the revision `BREAKING`, so its consumers are listed.
 
 The diff is computed once over the old→new revision. The changed service is then
 looked up in the graph and traversed in the **dependents** direction, direct and
-transitive. Each dependent becomes an *affected consumer*, annotated with the
+transitive, over declared dependencies and resolved
+[configuration references](#configuration-reference-consumers). Each dependent becomes an *affected consumer*, annotated with the
 evidence Pacto has for that edge, and the result rolls up the **active
 targets** the change would land in and the **owners** to notify.
 
@@ -93,6 +94,30 @@ affected-consumer claim.
 
 A `partial` snapshot is incomplete knowledge, an `unknown` verdict is
 uncertainty and an `inferred` consumer is a lead to verify.
+
+### Configuration-reference consumers
+
+A service that takes a configuration schema from the changed service by `ref`
+is a consumer too. When it also declares a dependency on the changed service,
+that dependency's range speaks for it. When the reference is its only edge,
+Pacto judges it directly: it selects the consumer's configuration in the new
+revision and checks the consumer's inline and environment values against that
+schema.
+
+- Values that pass give `compatible`.
+- Values that fail give `incompatible`, and the note lists each violation as
+  `configuration <name>: <violation> against <provider>@<version>`.
+- `unknown` remains when the consumer's values or the new schema cannot be
+  read, or the selection fails, and the note says why.
+
+These consumers carry `declared` confidence and feed the
+[release gate](#release-gate-and-exit-status): a `BREAKING` change with one of
+them never ends `clear`.
+
+A configuration reference that is neither digest-pinned nor locked cannot be
+placed on a revision. When such references name the changed service, the
+answer adds a `CONFIG_REF_CONSUMERS_UNRESOLVED` limitation and its
+completeness is `partial`, so the gate stays `unverified`.
 
 Observed edges come from OpenTelemetry traces via `--traces <file>`. Beyond
 corroborating declared consumers, traces surface **observed-only (shadow)

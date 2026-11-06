@@ -136,6 +136,33 @@ kubectl port-forward -n pacto-operator-system svc/pacto-evidence 8686:8686 &
 pacto fleet search --evidence-url http://127.0.0.1:8686
 ```
 
+The targets endpoint takes no authentication. It lists contract references,
+producers and the external references of provisioned resources, so keep the
+Service behind the same network and auth boundary as the dashboard.
+
+## Provisioning reports
+
+A provider adapter reports the state of a resource a consumer's contract asked
+for as a [`ResourceProvisioned`](../../evidence.md#provisioning-reports)
+EvidenceSet, written with `pacto evidence provisioned`. The report is stored on
+the consumer's contract revision, so that revision must be one of the
+`evidence.registry.subjects`. Use one EvidenceSet subject per resource: the
+default, `<repository>/<environment or default>/<name>`, keeps each resource's
+latest report apart.
+
+Only a key whose trust entry lists `ResourceProvisioned` in
+`allowedObservationKinds` may report it, so give the adapter its own key. The
+trust Secret the operator mounts is a directory of public keys, which grants
+every runtime kind and withholds `ResourceProvisioned`. To accept provisioning
+reports, run `pacto evidence serve --trust <trust.yaml>` with a
+[structured trust config](../../evidence.md#trust-store-and-trust-config) that
+grants the adapter's key the kind.
+
+The targets endpoint answers with schema `pacto.dev/evidence-source/v3` and a
+`provisioning` list when it holds provisioning reports, and with
+`pacto.dev/evidence-source/v2` otherwise, so an older reader keeps working
+against a server that holds none. A provisioning report is never a target.
+
 Nothing durable lives in the cluster: no PersistentVolumeClaim, no data volume,
 because the registry is the store. Delete and recreate the Deployment and the
 accepted evidence is still there.

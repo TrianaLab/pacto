@@ -71,9 +71,12 @@ The readiness bar tallies every known revision as passing, below its own
 threshold, assessment expired or not assessed, and each bucket opens those revisions. **Policies** and
 **Configuration** show what the current revision declares. For a schema inside
 the bundle, the page shows its title, description and properties, read from the
-bundle when the page is requested. A policy or configuration that references
-another contract links to that contract, which holds its content. A schema
-Pacto cannot read shows why.
+bundle when the page is requested. A policy that references another contract
+links to that contract, which holds its content. A configuration that
+references another contract links to it and, once the reference resolves,
+shows the provider, its version, the selected configuration and that
+schema's content inline. An unresolved reference shows why. A schema Pacto
+cannot read shows why too.
 
 ## Bundle signatures and referrers
 

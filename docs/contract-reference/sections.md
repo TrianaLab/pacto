@@ -9,7 +9,7 @@ dependencies and state are in
 
 ## `pactoVersion`
 
-The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`. 2.1 adds
+The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"`, `"2.5"` or `"2.6"`. 2.1 adds
 [`publish`](publish.md), [`checks`](checks.md), external dependencies and the `mcp` interface type.
 2.2 adds the [interface lifecycle](#interface-lifecycle), an interface's
 [`compatibilityEpoch`](#compatibility-epoch), its [`guarantees`](#guarantees) and
@@ -17,14 +17,12 @@ The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` 
 2.3 adds [`environments`](environments.md).
 2.4 adds [`service.domain`](#business-domain).
 2.5 adds [`service.offering`](#platform-offering) and [`service.summary`](#summary).
-Every 2.0 contract is also valid under 2.1, every 2.1 contract under 2.2,
-every 2.2 contract under 2.3, every 2.3 contract under 2.4 and every 2.4
-contract under 2.5.
-A 2.1 contract needs Pacto core 4.1.0 or later and operator 6.1.0 or later.
-A 2.2 contract needs Pacto core 4.3.0 or later and operator 6.3.0 or later.
-A 2.3 contract needs Pacto core 4.4.0 or later and operator 6.4.0 or later.
-A 2.4 or 2.5 contract needs Pacto core 4.5.0 or later and operator 6.5.0 or later;
-see [Versions](../installation.md#versions).
+2.6 adds the [service lifecycle](#service-lifecycle), and `values` and a
+[`configuration`](configuration-and-policy.md#selecting-a-configuration) selector
+beside a configuration `ref`.
+Each version accepts every contract of the version before it.
+[Versions](../installation.md#versions) lists the Pacto core and operator
+releases each version needs.
 
 ```yaml
 pactoVersion: "2.0"
@@ -35,12 +33,12 @@ The version picks the JSON Schema the contract is validated against:
 [`pacto-v2.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.1.schema.json),
 [`pacto-v2.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.2.schema.json),
 [`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json),
-[`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json)
+[`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json),
+[`pacto-v2.5.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.5.schema.json)
 or
-[`pacto-v2.5.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.5.schema.json).
-Any other value is a hard error: the contract fails to load before validation
-runs and reports `PARSE_ERROR` (`unsupported pactoVersion "3.0"; supported: 2.0,
-2.1, 2.2, 2.3, 2.4, 2.5`). See [Validation layers](validation.md).
+[`pacto-v2.6.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.6.schema.json).
+Any other value fails to load with `PARSE_ERROR` (`unsupported pactoVersion "3.0"; supported: 2.0,
+2.1, 2.2, 2.3, 2.4, 2.5, 2.6`). See [Validation layers](validation.md).
 
 ---
 
@@ -56,6 +54,7 @@ Identifies the service.
 | `domain` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.4 |
 | `offering` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.5 |
 | `summary` | string | No | 1 to 200 characters on one line with no control characters. pactoVersion 2.5 |
+| `lifecycle` | object | No | pactoVersion 2.6. See [service lifecycle](#service-lifecycle) |
 
 `service` carries identity only. The contract has no `image` or `chart` field:
 how you build and deploy a service is a delivery concern that lives outside the
@@ -120,6 +119,37 @@ service:
 
 A `"2.0"` to `"2.4"` contract that sets `offering` or `summary` reports
 `NEEDS_PACTO_2_5`.
+
+### Service lifecycle
+
+`service.lifecycle` retires a whole service on a schedule its consumers can
+see, with the fields of the [interface lifecycle](#interface-lifecycle):
+
+```yaml
+pactoVersion: "2.6"
+service:
+  name: postgresql
+  version: 16.1.0
+  offering: postgresql
+  lifecycle:
+    deprecated: "2026-11-01"
+    sunset: "2027-06-30"
+    successor: oci://ghcr.io/trianalab/pacto/postgresql:17.0.0
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `deprecated` | string | Yes | `YYYY-MM-DD`. The date the service was deprecated |
+| `sunset` | string | No | `YYYY-MM-DD`, not before `deprecated`. The date from which the service may be retired |
+| `successor` | string | No | An absolute URL, such as the `oci://` reference of the service that replaces this one |
+
+Consumers that reach the service through a dependency or a configuration
+reference are warned with `DEPENDENCY_SERVICE_DEPRECATED`, then
+`DEPENDENCY_SERVICE_SUNSET` from the sunset date; see
+[Validation layers](validation.md#configuration-references-stage).
+`pacto diff` reports the schedule
+([change classification](diff.md#service-identity)). A `"2.0"` to `"2.5"`
+contract that sets `lifecycle` reports `NEEDS_PACTO_2_6`.
 
 ### OwnerInfo
 

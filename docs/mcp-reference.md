@@ -17,8 +17,8 @@ These tasks are CLI-only: inspecting a registry contract, resolving a dependency
 graph, diffing revisions, generating docs and the two non-query `pacto fleet`
 operations, `reconcile` (declared dependencies against observed traffic) and
 `snapshot` (the whole read model as one document). Only `pacto_publish` pushes,
-and no tool deploys. In delivery mode an agent can ask for a change, and Pacto's
-checks and people decide it. [Server modes](cli-reference.md#server-modes) lists which tools each
+and no tool deploys. In delivery mode an agent asks for a change; Pacto's
+checks and people decide. [Server modes](cli-reference.md#server-modes) lists which tools each
 invocation registers.
 
 !!! warning "Tools carry no safety annotations"
@@ -37,31 +37,26 @@ invocation registers.
 
 ### Fleet query safety
 
-- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. `pacto_impact` also resolves both refs on every call, so each invocation reaches your registry with the server's credentials. When no source holds the changed service, it rebuilds the snapshot with the new revision added, so the call reaches every source (your cluster too if `--k8s` is on) with the server's credentials.
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. Every fleet tool, `pacto_impact` included, answers from one shared snapshot. `pacto_impact` also resolves both refs on every call with the server's credentials. When no source holds the changed service, it rebuilds the snapshot with the new revision added, reaching every source (your cluster too if `--k8s` is on).
 - **They expose knowledge only.** They never grant, scope or revoke a permission.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **Under partial coverage, a missing result means unknown.** If a source was unavailable, "not found" means "not known here".
-- **The snapshot refreshes on demand.** A call 30 seconds or more after the last rebuild attempt rebuilds it first, reaching your sources again. Calls inside that interval share one `snapshotId`, and a failed rebuild keeps the last good snapshot until the next interval.
-- **The server keeps no state.** The [Kubernetes operator](integrations/kubernetes/overview.md) acts on contracts in a cluster, and durable evidence lives in an [Evidence Server](evidence.md). The MCP server's state ends with its process.
+- **The snapshot refreshes on demand.** A call 30 seconds or more after the last rebuild attempt rebuilds it first, reaching your sources again. Calls inside that interval share one `snapshotId`; a failed rebuild keeps the last good snapshot.
+- **The server keeps no state.** Durable evidence lives in an [Evidence Server](evidence.md); the MCP server's state ends with its process.
 
-`--fleet` names its sources the same way `pacto fleet` does:
+`--fleet` names its sources the same way `pacto fleet` does; see the [`pacto mcp` reference](cli-reference.md#pacto-mcp):
 
 ```bash
 pacto mcp --fleet --k8s --oci ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
-`--mira-source <url>` adds the calls [Mira](investigate-a-problem.md) saw as
-observed edges.
-
-See [`pacto mcp` reference](cli-reference.md#pacto-mcp) for source flags and [The Pacto Operational Graph](operational-graph.md) for the read model.
+`--mira-source <url>` adds the calls [Mira](investigate-a-problem.md) saw.
 
 ### Link answers to the dashboard
 
-With `--dashboard-url <url>`, each entity in a `pacto_fleet_search`,
-`pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_entities`,
-`pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood` and
-`pacto_fleet_versions` answer carries an `href` to its
-page on that dashboard, as does each contracted `pacto_impact` consumer.
+With `--dashboard-url <url>`, each entity in a `pacto_fleet_*` answer except
+`pacto_fleet_get` and `pacto_fleet_explain` carries an `href` to its page on
+that dashboard, as does each contracted `pacto_impact` consumer.
 
 ## The authoring tools
 
@@ -70,7 +65,7 @@ Every mode except `--root` carries these four.
 | Tool | Description |
 |------|-------------|
 | `pacto_create` | Create a new contract from intent-level inputs. Supports dry run. |
-| `pacto_edit` | Edit an existing contract. Supports dry run. |
+| `pacto_edit` | Edit an existing contract, including its configuration references, environments and their values and the service lifecycle. Supports dry run. |
 | `pacto_check` | Validate a contract and return errors, warnings and suggestions. |
 | `pacto_schema` | Return the full JSON Schema reference. |
 
@@ -89,6 +84,8 @@ Every mode except `--root` carries these four.
 **`pacto_check` is `pacto validate`.** It runs the same validation path, including `pacto.lock` verification and recursive `policies[].ref` resolution, so a contract it calls valid is one CI accepts. Its result carries the same `stages` and `next` as `pacto validate --output-format json`, and each error carries `line` and `column` when Pacto can locate it.
 
 **`add_config_properties` writes the schema.** `pacto_edit` merges the properties into the first configuration's local schema file (`configuration/schema.json` when it has to declare one). A property already in the schema is replaced and `required` names are unioned.
+
+**Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only once the bundle passes `pacto_check`.
 
 ### How `pacto_create` reads a description
 
