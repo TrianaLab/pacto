@@ -1,0 +1,14 @@
+lockVersion: 3
+pacto:
+  version: 4.4.2
+root:
+  name: catalog-service
+  version: 1.3.0
+references:
+- kind: config
+  name: database
+  source: oci
+  ref: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+  version: 16.1.0
+  digest: sha256:6ad71ca08027c272f949c48cf3bb991e6374b6187d478ef30579a024a20d19ee
+  contentHash: sha256:bceb93b5ec46a3d27881fd95722426738ac4cc2c59c1d59fce45d1666101b889

@@ -108,7 +108,18 @@ trap cleanup EXIT
 # ---- step 1: copy + repoint + push (no validation gate) ----
 cp -R "$BUNDLES" "$WORK/bundles"
 rewrite_refs "$WORK/bundles" "$COORD"
-find "$WORK/bundles" -name pacto.lock -delete   # regenerated fresh against the live coordinate
+# A bundle that commits a pacto.lock pins a reference the fleet resolves only
+# through that lock (catalog-service 1.3.0 -> postgresql 16.1.0). It is held out
+# of the first push and the immutability gate, then locked with `pacto lock`
+# against the live coordinate once its providers are pushed, and pushed with that
+# lock (step 1b). Every other committed lock is dropped and regenerated fresh.
+HELD="$WORK/held"
+while IFS= read -r d; do
+  rel="${d#"$WORK"/bundles/}"
+  mkdir -p "$HELD/$(dirname "$rel")"
+  mv "$d" "$HELD/$rel"
+done < <(find "$WORK/bundles" -name pacto.lock -exec dirname {} \; | sort)
+find "$WORK" -name pacto.lock -delete   # regenerated fresh against the live coordinate
 # Reproducibility is a property of the packer now: pkg/oci/bundle.go canonicalizes
 # every tar header, so a bundle's OCI digest depends only on content — no `touch -t`
 # mtime normalization needed here or in real `pacto push`.
@@ -201,6 +212,30 @@ fi
 echo "==> push demo bundles to $COORD"
 PUSHED="$WORK/pushed.txt"   # lines: "<svc>:<version> <digest>"
 ( cd "$ROOT/examples/demo" && go run ./publishbundles "$WORK/bundles" "$COORD" ) | tee "$PUSHED" | sed 's/^/    /'
+
+# ---- step 1b: lock and push the held bundles ----
+# Their lock records the Pacto version that wrote it, so a later run would never
+# reproduce the published bytes: a held bundle already at its tag is left as it
+# is, never overwritten and never compared. The production publisher has no
+# pacto binary, so it locks through `go run`.
+pacto_lock() {
+  if [ -x "$PACTO_BIN" ]; then "$PACTO_BIN" lock "$1"; else ( cd "$ROOT" && go run ./cmd/pacto lock "$1" ); fi
+}
+if [ -d "$HELD" ]; then
+  while IFS= read -r dir; do
+    tag="$(cd "$ROOT/examples/demo" && go run ./publishbundles --print-digests "$dir" "$COORD" | awk '{print $1}')"
+    if command -v crane >/dev/null 2>&1; then
+      remote_d="$(rdig "$COORD/$tag")" || { echo "could not read $COORD/$tag" >&2; exit 1; }
+      if [ -n "$remote_d" ]; then
+        echo "    $tag already published with its lock; left as it is"
+        continue
+      fi
+    fi
+    pacto_lock "$dir" >/dev/null
+    ( cd "$ROOT/examples/demo" && go run ./publishbundles "$dir" "$COORD" ) | tee -a "$PUSHED" | sed 's/^/    /'
+  done < <(find "$HELD" -name pacto.yaml -exec dirname {} \; | sort)
+  cp -R "$HELD/." "$WORK/bundles/"   # the proof below covers them too
+fi
 
 if [ "$PROD" = "1" ]; then
   echo "==> production publish complete ($COORD)"; exit 0

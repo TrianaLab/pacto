@@ -12,7 +12,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   auth-service                 Unknown      owner=identity-team  domain=-            offering=-            revs=1 targets=1
   campaign-service             NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
   carrier-gateway              NotEvaluated owner=logistics-team domain=-            offering=-            revs=2 targets=0
-  catalog-service              NotEvaluated owner=catalog-team   domain=commerce     offering=-            revs=4 targets=0
+  catalog-service              NotEvaluated owner=catalog-team   domain=commerce     offering=-            revs=5 targets=0
   email-provider               NotEvaluated owner=-              domain=-            offering=-            revs=1 targets=0
   event-bus                    NotEvaluated owner=data-platform  domain=-            offering=messaging    revs=3 targets=0
   experiment-service           NotEvaluated owner=growth-team    domain=-            offering=-            revs=1 targets=0
@@ -29,7 +29,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   platform-app-config          NotEvaluated owner=platform-foundations domain=-            offering=shared-config revs=2 targets=0
   platform-http-policy         NotEvaluated owner=platform-foundations domain=-            offering=shared-policy revs=2 targets=0
   platform-worker-config       NotEvaluated owner=platform-foundations domain=-            offering=shared-config revs=2 targets=0
-  postgresql                   NotEvaluated owner=infra-data     domain=-            offering=postgresql   revs=2 targets=0
+  postgresql                   NotEvaluated owner=infra-data     domain=-            offering=postgresql   revs=3 targets=0
   pricing-service              NotEvaluated owner=catalog-team   domain=-            offering=-            revs=2 targets=0
   recommendations              NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
   redis                        NotEvaluated owner=infra-data     domain=-            offering=redis        revs=2 targets=0

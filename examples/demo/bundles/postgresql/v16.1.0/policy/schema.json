@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Database standards",
+  "description": "A database contract names the team that owns it.",
+  "type": "object",
+  "properties": {
+    "service": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "object",
+          "properties": {
+            "team": { "type": "string", "minLength": 1 }
+          },
+          "required": ["team"]
+        }
+      },
+      "required": ["owner"]
+    }
+  },
+  "required": ["service"]
+}

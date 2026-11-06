@@ -1,0 +1,4 @@
+database:
+  highAvailability: true
+  backups:
+    retentionDays: 14

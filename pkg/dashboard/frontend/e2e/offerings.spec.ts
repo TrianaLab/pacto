@@ -50,9 +50,31 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(snippet).toContainText('compatibility: "^16.0.0"');
     const consumer = page.getByTestId('offering-consumer').filter({ hasText: 'payments-service' }).first();
     await expect(consumer).toBeVisible();
-    // No provider reports provisioning in this demo, so the badge says Unknown.
+    // No provider reports on payments-service's database, so its badge says Unknown.
     await expect(consumer.getByTestId('provisioning-badge').first().locator('.tag')).toHaveText('Unknown');
     await expect(provider.locator('.ov-chips li').first()).toBeVisible();
+    expect(await noSideScroll(page)).toBe(true);
+  });
+
+  test('postgresql 16.1.0 is current and deprecated, and consumers show what the adapter reports', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings/postgresql');
+    await page.addStyleTag({ content: WIDE_FONT });
+    const provider = page.getByTestId('offering-provider');
+    await expect(provider).toHaveCount(1, { timeout: T });
+    await expect(provider.locator('.oe-row').filter({ hasText: 'Current' })).toContainText('16.1.0');
+    // The provider announces its retirement: deprecated, with its sunset and successor.
+    const lifecycle = provider.locator('.oe-head .tag', { hasText: 'Deprecated' });
+    await expect(lifecycle).toBeVisible();
+    await expect(lifecycle).toHaveAttribute('title', /sunset .*successor oci:\/\/ghcr\.io\/trianalab\/pacto\/postgresql:17\.0\.0/);
+    await expect(provider.locator('.ov-chips li').filter({ hasText: '16.1.0' }).locator('.tag', { hasText: 'Deprecated' })).toBeVisible();
+    // catalog-service requests its database by configuration reference; the adapter reports it Ready.
+    const catalog = page.getByTestId('offering-consumer').filter({ hasText: 'catalog-service' }).filter({ hasText: 'configuration' });
+    await expect(catalog.getByTestId('provisioning-badge').locator('.tag')).toHaveText('production: Ready');
+    await expect(catalog.locator('.tag', { hasText: 'Deprecated' })).toBeVisible();
+    // The adapter could not observe orders-service's database, so it stays Unknown.
+    const orders = page.getByTestId('offering-consumer').filter({ hasText: 'orders-service' });
+    await expect(orders.getByTestId('provisioning-badge').locator('.tag')).toHaveText('Unknown');
     expect(await noSideScroll(page)).toBe(true);
   });
 
