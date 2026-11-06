@@ -823,6 +823,7 @@ func TestAcceptProvisioning(t *testing.T) {
 		{"unknown environment", grant, provisionedSet("ghcr.io/a/orders/staging/db", before, provisioned("configuration", "db", "staging")), ErrInvalidEvidence},
 		{"mixed with WorkloadObserved", nil, provisionedSet("ghcr.io/a/orders/production/db", before, provisioned("configuration", "db", "production"), workload), evidenceenvelope.ErrKindNotAllowed},
 		{"mixed, both kinds granted", append([]string{string(evidence.WorkloadObserved)}, grant...), provisionedSet("ghcr.io/a/orders/production/db", before, provisioned("configuration", "db", "production"), workload), ErrInvalidEvidence},
+		{"empty set from a provisioning-only key", grant, provisionedSet("ghcr.io/a/orders/production/db", before), evidenceenvelope.ErrKindNotAllowed},
 		{"key without the grant", nil, provisionedSet("ghcr.io/a/orders/production/db", before, provisioned("configuration", "db", "production")), evidenceenvelope.ErrKindNotAllowed},
 		{"subject in another repository", grant, provisionedSet("ghcr.io/b/orders/production/db", before, provisioned("configuration", "db", "production")), ErrInvalidEvidence},
 		{"subject prefix without a segment boundary", grant, provisionedSet("ghcr.io/a/orders-other/db", before, provisioned("configuration", "db", "production")), ErrInvalidEvidence},

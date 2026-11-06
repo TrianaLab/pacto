@@ -405,6 +405,9 @@ func TestVerifyObservationKinds(t *testing.T) {
 		evidence.ProvisionedObservation{Provider: "acme-db", Phase: evidence.PhaseReady}, prov())}
 	provisioned := mustSign(t, e, priv)
 	runtime := mustSign(t, baseEnvelope(), priv)
+	emptyEnv := baseEnvelope()
+	emptyEnv.EvidenceSet.Observations = nil
+	empty := mustSign(t, emptyEnv, priv)
 	entry := func(kinds ...string) MapTrustStore {
 		return MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1", AllowedObservationKinds: kinds}}
 	}
@@ -418,6 +421,9 @@ func TestVerifyObservationKinds(t *testing.T) {
 		{"empty list excludes ResourceProvisioned", provisioned, entry(), ErrKindNotAllowed},
 		{"listed ResourceProvisioned", provisioned, entry("ResourceProvisioned"), nil},
 		{"allowlist excludes unlisted kinds", runtime, entry("ResourceProvisioned"), ErrKindNotAllowed},
+		{"empty set needs a runtime grant", empty, entry("ResourceProvisioned"), ErrKindNotAllowed},
+		{"empty set with a runtime grant", empty, entry("ResourceProvisioned", "WorkloadObserved"), nil},
+		{"empty set with the default grant", empty, entry(), nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

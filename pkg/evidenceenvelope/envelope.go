@@ -252,7 +252,20 @@ func (t TrustEntry) authorize(e Envelope) error {
 			return ErrKindNotAllowed
 		}
 	}
+	// An empty set is a runtime report: only a key granted a runtime kind may
+	// send one, so a provisioning-only key never commits a runtime record.
+	if len(e.EvidenceSet.Observations) == 0 && !t.runtimeAllowed() {
+		return ErrKindNotAllowed
+	}
 	return nil
+}
+
+// runtimeAllowed reports whether this key may report any kind other than
+// ResourceProvisioned.
+func (t TrustEntry) runtimeAllowed() bool {
+	return len(t.AllowedObservationKinds) == 0 || slices.ContainsFunc(t.AllowedObservationKinds, func(k string) bool {
+		return k != string(evidence.ResourceProvisioned)
+	})
 }
 
 // validateStructure enforces version, kind, required identity fields and bounds.
