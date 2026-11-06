@@ -1346,7 +1346,7 @@ func TestProvisionedEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The default subject is the full repository path, so two repositories never collide.
-	if set.Subject.Name != "ghcr.io/a/orders/production/db" || !set.ObservedAt.Equal(provisionedAt) || set.Source != "pacto" {
+	if set.Subject.Name != "ghcr.io/a/orders/production/configuration/db" || !set.ObservedAt.Equal(provisionedAt) || set.Source != "pacto" {
 		t.Errorf("set = %+v", set)
 	}
 	p, err := set.Observations[0].GetProvisionedObservation()
@@ -1355,8 +1355,13 @@ func TestProvisionedEvidence(t *testing.T) {
 	}
 	a, _ := svc.ProvisionedEvidence(with(func(*ProvisionedOptions) {}))
 	b, _ := svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) { o.ContractRef = "oci://ghcr.io/b/orders" + provisionedDigest }))
-	if a.Subject.Name != "ghcr.io/a/orders/default/db" || b.Subject.Name != "ghcr.io/b/orders/default/db" {
+	if a.Subject.Name != "ghcr.io/a/orders/default/configuration/db" || b.Subject.Name != "ghcr.io/b/orders/default/configuration/db" {
 		t.Errorf("subjects %q and %q", a.Subject.Name, b.Subject.Name)
+	}
+	// A dependency and a configuration of one name keep their own subjects.
+	dep, _ := svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) { o.Configuration, o.Dependency = "", "db" }))
+	if dep.Subject.Name != "ghcr.io/a/orders/default/dependency/db" {
+		t.Errorf("dependency subject %q", dep.Subject.Name)
 	}
 }
 

@@ -134,7 +134,7 @@ pacto evidence provisioned \
   --external-ref databases/orders-production > report.json
 ```
 
-The subject defaults to `<repository>/<environment or default>/<name>`. Keep
+The subject defaults to `<repository>/<environment or default>/<kind>/<name>`. Keep
 one subject per resource: the server keeps the latest report per producer and
 subject.
 

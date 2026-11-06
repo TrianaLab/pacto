@@ -353,7 +353,7 @@ func TestEvidenceProvisionedCommand(t *testing.T) {
 	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
 		t.Fatalf("invalid set: %v", errs)
 	}
-	if set.Subject.Name != "ghcr.io/acme/orders/production/db" || set.Source != "adapter" {
+	if set.Subject.Name != "ghcr.io/acme/orders/production/configuration/db" || set.Source != "adapter" {
 		t.Errorf("set = %+v", set)
 	}
 

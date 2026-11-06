@@ -235,7 +235,7 @@ func readEvidenceSet(path string, stdin io.Reader) (evidence.EvidenceSet, error)
 // resource.
 type ProvisionedOptions struct {
 	ContractRef   string // the consumer revision: oci://<repo>@sha256:<digest>
-	Subject       string // optional; defaults to <repository>/<environment or default>/<name>
+	Subject       string // optional; defaults to <repository>/<environment or default>/<kind>/<name>
 	Configuration string
 	Dependency    string
 	Environment   string
@@ -250,8 +250,9 @@ type ProvisionedOptions struct {
 // ProvisionedEvidence builds the EvidenceSet a platform adapter reports: the
 // provisioning state of the resource a consumer's configuration reference or
 // dependency asked for, about the consumer's immutable contract revision. The
-// subject sits under the consumer's repository path, one resource per subject,
-// so two resources never replace each other in the latest-per-target store.
+// subject sits under the consumer's repository path, one resource per subject
+// (the kind keeps a dependency and a configuration of one name apart), so two
+// resources never replace each other in the latest-per-target store.
 func (s *Service) ProvisionedEvidence(opts ProvisionedOptions) (evidence.EvidenceSet, error) {
 	if (opts.Configuration == "") == (opts.Dependency == "") {
 		return evidence.EvidenceSet{}, errors.New("set exactly one of configuration or dependency")
@@ -264,7 +265,7 @@ func (s *Service) ProvisionedEvidence(opts ProvisionedOptions) (evidence.Evidenc
 		use = evidence.SubjectRef{Kind: "dependency", Name: opts.Dependency}
 	}
 	repo, _, _ := strings.Cut(contract.TrimOCIScheme(opts.ContractRef), "@")
-	subject := cmp.Or(opts.Subject, repo+"/"+cmp.Or(opts.Environment, "default")+"/"+use.Name)
+	subject := cmp.Or(opts.Subject, repo+"/"+cmp.Or(opts.Environment, "default")+"/"+use.Kind+"/"+use.Name)
 	if !strings.HasPrefix(subject, repo+"/") {
 		return evidence.EvidenceSet{}, fmt.Errorf("subject %q must start with the contract repository %q", subject, repo+"/")
 	}

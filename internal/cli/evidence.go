@@ -41,7 +41,7 @@ func newEvidenceProvisionedCommand(svc *app.Service, _ *viper.Viper) *cobra.Comm
 			"consumer's configuration reference or dependency asked for. Sign it with pacto " +
 			"evidence sign and post it with pacto evidence send. Any adapter (a CI job, a " +
 			"controller, a script) can run it; Pacto keeps no provider-specific code. The " +
-			"subject defaults to <repository>/<environment or default>/<name>, so each " +
+			"subject defaults to <repository>/<environment or default>/<kind>/<name>, so each " +
 			"resource keeps its own latest report. Prints the EvidenceSet JSON.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -78,7 +78,7 @@ func newEvidenceProvisionedCommand(svc *app.Service, _ *viper.Viper) *cobra.Comm
 	cmd.Flags().String("phase", "", "provisioning phase: Requested, Provisioning, Ready, Failed or Deleting")
 	cmd.Flags().String("external-ref", "", "opaque handle of the resource at the provider (at most 253 printable bytes)")
 	cmd.Flags().String("environment", "", "consumer environment the resource serves")
-	cmd.Flags().String("subject", "", "EvidenceSet subject (defaults to <repository>/<environment or default>/<name>)")
+	cmd.Flags().String("subject", "", "EvidenceSet subject (defaults to <repository>/<environment or default>/<kind>/<name>)")
 	cmd.Flags().String("outcome", "Observed", "collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no phase")
 	cmd.Flags().String("observed-at", "", "observation timestamp (RFC3339; defaults to now)")
 	cmd.Flags().String("collector", "", "collector id recorded as provenance (defaults to pacto)")

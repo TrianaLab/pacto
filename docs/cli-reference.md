@@ -653,7 +653,7 @@ pacto evidence keygen [flags]
 
 ### `pacto evidence provisioned`
 
-Writes an EvidenceSet that reports the provisioning state of the resource a consumer's configuration reference or dependency asked for. Sign it with pacto evidence sign and post it with pacto evidence send. Any adapter (a CI job, a controller, a script) can run it; Pacto keeps no provider-specific code. The subject defaults to &lt;repository&gt;/<environment or default>/&lt;name&gt;, so each resource keeps its own latest report. Prints the EvidenceSet JSON.
+Writes an EvidenceSet that reports the provisioning state of the resource a consumer's configuration reference or dependency asked for. Sign it with pacto evidence sign and post it with pacto evidence send. Any adapter (a CI job, a controller, a script) can run it; Pacto keeps no provider-specific code. The subject defaults to &lt;repository&gt;/<environment or default>/&lt;kind&gt;/&lt;name&gt;, so each resource keeps its own latest report. Prints the EvidenceSet JSON.
 
 ```
 pacto evidence provisioned [flags]
@@ -673,7 +673,7 @@ pacto evidence provisioned [flags]
       --outcome string         collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no phase (default "Observed")
       --phase string           provisioning phase: Requested, Provisioning, Ready, Failed or Deleting
       --provider string        provider slug (lowercase letters, digits and hyphens)
-      --subject string         EvidenceSet subject (defaults to <repository>/<environment or default>/<name>)
+      --subject string         EvidenceSet subject (defaults to <repository>/<environment or default>/<kind>/<name>)
 ```
 
 ### `pacto evidence send`

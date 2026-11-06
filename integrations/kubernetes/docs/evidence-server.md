@@ -147,7 +147,7 @@ for as a [`ResourceProvisioned`](../../evidence.md#provisioning-reports)
 EvidenceSet, written with `pacto evidence provisioned`. The report is stored on
 the consumer's contract revision, so that revision must be one of the
 `evidence.registry.subjects`. Use one EvidenceSet subject per resource: the
-default, `<repository>/<environment or default>/<name>`, keeps each resource's
+default, `<repository>/<environment or default>/<kind>/<name>`, keeps each resource's
 latest report apart.
 
 ### Grant the adapter's key

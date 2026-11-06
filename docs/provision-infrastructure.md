@@ -139,8 +139,8 @@ pacto evidence send envelope.json \
 `--phase` is one of `Requested`, `Provisioning`, `Ready`, `Failed` or
 `Deleting`. Use `--dependency` instead of `--configuration` when the resource
 answers a dependency. The subject defaults to the full repository path, the
-environment (or `default`) and the name, such as
-`ghcr.io/acme/orders/production/database`. Keep one subject per resource so
+environment (or `default`), the kind and the name, such as
+`ghcr.io/acme/orders/production/configuration/database`. Keep one subject per resource so
 each resource keeps its own latest report.
 
 Give the adapter its own key. A key may report `ResourceProvisioned` only when
