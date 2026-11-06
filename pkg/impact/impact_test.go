@@ -942,6 +942,34 @@ func TestImpactConfigRefConsumer(t *testing.T) {
 	}
 }
 
+// An unresolved configuration reference names the changed service by its last
+// path segment when the provider came from a directory or the ref is relative,
+// so the gate never clears with that consumer unseen.
+func TestUnresolvedConfigRefConsumersByName(t *testing.T) {
+	for _, ref := range []string{"oci://x/postgresql:16", "../postgresql", "oci://x/postgresql-pacto:16"} {
+		consumer := refConsumer("orders", "", map[string]any{"size": "medium"}, false)
+		consumer.Bundle.Contract.Configurations[0].Ref = ref
+		col := &fleet.Collection{Revisions: []fleet.RawRevision{{
+			Bundle: &contract.Bundle{Contract: pgContract("16.1.0", "provisioning", true), FS: pgSchema("small", "medium", "large")},
+			Digest: "sha256:pg", RequestedRef: "file:///tmp/fleet/postgresql",
+		}, consumer}}
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("local", "local", col))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := Analyze(context.Background(), pgContract("16.1.0", "provisioning", true), pgContract("16.2.0", "provisioning", false),
+			pgSchema("small", "medium", "large"), pgSchema("small", "large"), snap, Options{})
+		if res.Gate != GateUnverified || !hasCode(res.Limitations, "CONFIG_REF_CONSUMERS_UNRESOLVED") {
+			t.Errorf("%s: gate %s (%s), limitations %+v", ref, res.Gate, res.GateReason, res.Limitations)
+		}
+	}
+	if n := unresolvedConfigRefConsumers(&fleet.FleetSnapshot{Relationships: []fleet.Relationship{{
+		Type: fleet.RelationshipConfigRef, Provenance: fleet.ProvenanceDeclared, RequestedRef: "oci://x/redis:7",
+	}}}, fleet.NewServiceKey("postgresql")); n != 0 {
+		t.Errorf("a ref to another name counted %d", n)
+	}
+}
+
 // Each referencing revision is judged and the one that accepts least speaks;
 // what Pacto cannot read is unknown with the reason.
 func TestConfigRefVerdict(t *testing.T) {

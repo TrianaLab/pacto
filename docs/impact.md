@@ -118,7 +118,8 @@ These consumers carry `declared` confidence and feed the
 them never ends `clear`.
 
 A configuration reference that is neither digest-pinned nor locked cannot be
-placed on a revision. When such references name the changed service, the
+placed on a revision. When such references name the changed service, by a
+repository it is published to or by a last path segment that is its name, the
 answer adds a `CONFIG_REF_CONSUMERS_UNRESOLVED` limitation and its
 completeness is `partial`, so the gate stays `unverified`.
 
