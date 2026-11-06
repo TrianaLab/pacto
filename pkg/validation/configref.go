@@ -61,7 +61,7 @@ func ResolveConfigRefs(ctx context.Context, c *contract.Contract, bundleFS fs.FS
 	refs := ConfigRefs{}
 	var res ValidationResult
 	resolve, base := resolvePort(opts.Resolver)
-	given := environmentValueNames(c, bundleFS)
+	given := EnvironmentValueNames(c, bundleFS)
 	for i, cfg := range c.Configurations {
 		if cfg.Ref == "" {
 			continue
@@ -198,10 +198,10 @@ func refRepository(ref string) string {
 	return repo
 }
 
-// environmentValueNames is each configuration some environment of c gives
+// EnvironmentValueNames is each configuration some environment of c gives
 // values for. A file that does not read gives none; the environments stage
 // reports it.
-func environmentValueNames(c *contract.Contract, bundleFS fs.FS) map[string]bool {
+func EnvironmentValueNames(c *contract.Contract, bundleFS fs.FS) map[string]bool {
 	out := map[string]bool{}
 	if bundleFS == nil {
 		return out
@@ -227,7 +227,7 @@ func configRefsNotEnforced(c *contract.Contract, bundleFS fs.FS) (ConfigRefs, Va
 	if bundleFS == nil {
 		return nil, res
 	}
-	given := environmentValueNames(c, bundleFS)
+	given := EnvironmentValueNames(c, bundleFS)
 	for i, cfg := range c.Configurations {
 		if cfg.Ref != "" && (len(cfg.Values) > 0 || given[cfg.Name]) {
 			res.AddWarning(fmt.Sprintf("configurations[%d].ref", i), "CONFIG_REF_NOT_ENFORCED",

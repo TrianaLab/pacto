@@ -199,13 +199,13 @@ func effectiveValues(defaults map[string]any, given any) any {
 	if !ok {
 		return given
 	}
-	mergeValues(out, m)
+	MergeValues(out, m)
 	return out
 }
 
-// mergeValues merges an environment's values src over dst. Objects merge key
+// MergeValues merges an environment's values src over dst. Objects merge key
 // by key and src wins. A null in src removes its key from dst, at any depth.
-func mergeValues(dst, src map[string]any) {
+func MergeValues(dst, src map[string]any) {
 	for k, v := range src {
 		switch v := v.(type) {
 		case nil:
@@ -216,7 +216,7 @@ func mergeValues(dst, src map[string]any) {
 				d = map[string]any{}
 				dst[k] = d
 			}
-			mergeValues(d, v)
+			MergeValues(d, v)
 		default:
 			dst[k] = v
 		}

@@ -383,7 +383,7 @@ func TestDeriveStateMap(t *testing.T) {
 
 func TestEdit_ChangeVersion(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:    dir,
 		Version: strPtr("2.0.0"),
 	})
@@ -400,7 +400,7 @@ func TestEdit_ChangeVersion(t *testing.T) {
 
 func TestEdit_ChangeName(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path: dir,
 		Name: strPtr("renamed-svc"),
 	})
@@ -414,7 +414,7 @@ func TestEdit_ChangeName(t *testing.T) {
 
 func TestEdit_ChangeOwner(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:  dir,
 		Owner: strPtr("team/new"),
 	})
@@ -430,7 +430,7 @@ func TestEdit_DryRun(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	original, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:    dir,
 		Version: strPtr("9.9.9"),
 		DryRun:  true,
@@ -447,7 +447,7 @@ func TestEdit_DryRun(t *testing.T) {
 
 func TestEdit_AddInterface(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path: dir,
 		AddInterfaces: []InterfaceInput{
 			{Name: "events", Type: "asyncapi"},
@@ -464,7 +464,7 @@ func TestEdit_AddInterface(t *testing.T) {
 func TestEdit_RemoveInterface(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	// First add an extra interface, then remove it
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:          dir,
 		AddInterfaces: []InterfaceInput{{Name: "events", Type: "asyncapi"}},
 	})
@@ -472,7 +472,7 @@ func TestEdit_RemoveInterface(t *testing.T) {
 		t.Fatalf("add interface: %v", err)
 	}
 
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:             dir,
 		RemoveInterfaces: []string{"events"},
 	})
@@ -486,7 +486,7 @@ func TestEdit_RemoveInterface(t *testing.T) {
 
 func TestEdit_AddDependency(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path: dir,
 		AddDependencies: []DependencyInput{
 			{Name: "postgres", Ref: "postgres", Required: true, Compatibility: "^1.0.0"},
@@ -504,7 +504,7 @@ func TestEdit_RemoveDependency(t *testing.T) {
 	// First create a bundle with dependencies
 	dir := testutil.WriteTestBundle(t)
 	// Add a dependency first
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:            dir,
 		AddDependencies: []DependencyInput{{Name: "redis", Ref: "redis", Compatibility: "^1.0.0"}},
 	})
@@ -512,7 +512,7 @@ func TestEdit_RemoveDependency(t *testing.T) {
 		t.Fatalf("add dep: %v", err)
 	}
 
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:       dir,
 		RemoveDeps: []string{"redis"},
 	})
@@ -527,7 +527,7 @@ func TestEdit_RemoveDependency(t *testing.T) {
 func TestEdit_ChangeRuntime(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	sd := true
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:       dir,
 		StoresData: &sd,
 	})
@@ -541,7 +541,7 @@ func TestEdit_ChangeRuntime(t *testing.T) {
 
 func TestEdit_Metadata(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:        dir,
 		SetMetadata: map[string]any{"team": "platform"},
 	})
@@ -556,11 +556,11 @@ func TestEdit_Metadata(t *testing.T) {
 func TestEdit_RemoveMetadata(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	// Add then remove
-	_, _ = Edit(EditInput{
+	_, _ = Edit(context.Background(), nil, EditInput{
 		Path:        dir,
 		SetMetadata: map[string]any{"team": "x"},
 	})
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:           dir,
 		RemoveMetadata: []string{"team"},
 	})
@@ -573,7 +573,7 @@ func TestEdit_RemoveMetadata(t *testing.T) {
 }
 
 func TestEdit_InvalidPath(t *testing.T) {
-	_, err := Edit(EditInput{Path: "/nonexistent-path"})
+	_, err := Edit(context.Background(), nil, EditInput{Path: "/nonexistent-path"})
 	if err == nil {
 		t.Error("expected error for invalid path")
 	}
@@ -581,7 +581,7 @@ func TestEdit_InvalidPath(t *testing.T) {
 
 func TestEdit_AddConfigProperties(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:                dir,
 		AddConfigProperties: []ConfigProperty{{Name: "PORT", Type: "integer"}},
 	})
@@ -596,7 +596,7 @@ func TestEdit_AddConfigProperties(t *testing.T) {
 func TestEdit_ChangeWorkload(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	workload := "job"
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:     dir,
 		Workload: &workload,
 	})
@@ -867,7 +867,7 @@ func TestAssessSections(t *testing.T) {
 
 func TestBuildSuggestions(t *testing.T) {
 	t.Run("invalid contract gets no suggestions", func(t *testing.T) {
-		s := buildSuggestions(testutil.TestBundle().Contract, false)
+		s := buildSuggestions(testutil.TestBundle().Contract, nil, false)
 		if len(s) != 0 {
 			t.Error("expected no suggestions for invalid contract")
 		}
@@ -877,7 +877,7 @@ func TestBuildSuggestions(t *testing.T) {
 		bundle := testutil.TestBundle()
 		bundle.Contract.Dependencies = nil
 		bundle.Contract.Configurations = nil
-		s := buildSuggestions(bundle.Contract, true)
+		s := buildSuggestions(bundle.Contract, nil, true)
 		if len(s) == 0 {
 			t.Error("expected suggestions for missing sections")
 		}
@@ -888,7 +888,7 @@ func TestBuildSuggestions(t *testing.T) {
 		bundle.Contract.Service.Owner = contract.Owner{Team: "team/billing"}
 		bundle.Contract.Dependencies = []contract.Dependency{{Name: "ledger", External: true, Version: "v1"}, {Name: "auth", Ref: "oci://r.example/auth", External: true}}
 		var owner, external []Suggestion
-		for _, sg := range buildSuggestions(bundle.Contract, true) {
+		for _, sg := range buildSuggestions(bundle.Contract, nil, true) {
 			if strings.Contains(sg.Message, "owner.team") {
 				owner = append(owner, sg)
 			}
@@ -916,12 +916,12 @@ func TestOwnerWarnings(t *testing.T) {
 		}
 	}
 	for _, dry := range []bool{true, false} {
-		r, err := Edit(EditInput{Path: dir, Owner: strPtr("teams/risk"), DryRun: dry})
+		r, err := Edit(context.Background(), nil, EditInput{Path: dir, Owner: strPtr("teams/risk"), DryRun: dry})
 		if err != nil || len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], `so write "risk"`) {
 			t.Fatalf("edit (dry run %v): %+v %v", dry, r, err)
 		}
 	}
-	if r, err := Edit(EditInput{Path: dir, Version: strPtr("0.2.0")}); err != nil || r.Warnings != nil {
+	if r, err := Edit(context.Background(), nil, EditInput{Path: dir, Version: strPtr("0.2.0")}); err != nil || r.Warnings != nil {
 		t.Fatalf("an edit that leaves the owner: %+v %v", r, err)
 	}
 	if r, err := Create(CreateInput{Name: "svc", Path: filepath.Join(t.TempDir(), "x"), Owner: "billing", DryRun: true}); err != nil || r.Warnings != nil {
@@ -1186,7 +1186,7 @@ func TestEdit_RuntimeWithExistingState(t *testing.T) {
 	sd := true
 	dsr := true
 	dsa := true
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:                      dir,
 		StoresData:                &sd,
 		DataSurvivesRestart:       &dsr,
@@ -1198,7 +1198,7 @@ func TestEdit_RuntimeWithExistingState(t *testing.T) {
 
 	// Now change just data loss impact — should read existing state values
 	impact := "high"
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:           dir,
 		DataLossImpact: &impact,
 	})
@@ -1214,7 +1214,7 @@ func TestEdit_DataSurvivesRestart(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	dsr := true
 	sd := true
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:                dir,
 		StoresData:          &sd,
 		DataSurvivesRestart: &dsr,
@@ -1231,7 +1231,7 @@ func TestEdit_DataSharedAcrossInstances(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	sd := true
 	dsa := true
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:                      dir,
 		StoresData:                &sd,
 		DataSharedAcrossInstances: &dsa,
@@ -1267,7 +1267,7 @@ state:
 	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
 	sd := true
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:       dir,
 		StoresData: &sd,
 	})
@@ -1564,7 +1564,7 @@ func TestCreate_GRPCInference(t *testing.T) {
 
 func TestEdit_DefaultDir(t *testing.T) {
 	// Edit with empty path should use "." — will fail since no pacto.yaml
-	_, err := Edit(EditInput{Version: strPtr("1.0.0")})
+	_, err := Edit(context.Background(), nil, EditInput{Version: strPtr("1.0.0")})
 	if err == nil || !strings.Contains(err.Error(), "pacto.yaml") {
 		t.Errorf("expected pacto.yaml error, got: %v", err)
 	}
@@ -1572,7 +1572,7 @@ func TestEdit_DefaultDir(t *testing.T) {
 
 func TestEdit_AddInterfaceWithPortAndVisibility(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path: dir,
 		AddInterfaces: []InterfaceInput{
 			{Name: "grpc-api", Type: "grpc", Visibility: "internal"},
@@ -1591,7 +1591,7 @@ func TestEdit_NilServiceMap(t *testing.T) {
 	m := map[string]any{
 		"pactoVersion": "1.0",
 	}
-	changes := applyEdits(m, EditInput{Name: strPtr("new")})
+	changes, _ := applyEdits(m, EditInput{Name: strPtr("new")})
 	if !containsStr(changes, "new") {
 		t.Error("expected rename change even with nil service")
 	}
@@ -1614,7 +1614,7 @@ interfaces:
 	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
 	sd := false
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:       dir,
 		StoresData: &sd,
 	})
@@ -1653,7 +1653,7 @@ func TestEdit_PreservesDateScalars(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := tc.setup(t)
-			if _, err := Edit(EditInput{
+			if _, err := Edit(context.Background(), nil, EditInput{
 				Path:          dir,
 				AddInterfaces: []InterfaceInput{{Name: "events", Type: "asyncapi"}},
 			}); err != nil {
@@ -1686,7 +1686,7 @@ func TestEdit_PreservesDateScalars(t *testing.T) {
 // date the validator rejects into one it accepts.
 func TestEdit_KeepsRejectingNonCanonicalDate(t *testing.T) {
 	dir := writeDatedBundle(t, "2099-1-1", "2099-01-01")
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:          dir,
 		AddInterfaces: []InterfaceInput{{Name: "events", Type: "asyncapi"}},
 	})
@@ -1962,7 +1962,7 @@ func TestWriteBundle_ConfigError(t *testing.T) {
 func TestEdit_ParseYAMLError(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("invalid: yaml: {{"), 0644)
-	_, err := Edit(EditInput{Path: dir, Version: strPtr("1.0.0")})
+	_, err := Edit(context.Background(), nil, EditInput{Path: dir, Version: strPtr("1.0.0")})
 	if err == nil {
 		t.Error("expected error for bad YAML")
 	}
@@ -1975,7 +1975,7 @@ func TestEdit_WriteError(t *testing.T) {
 		return fmt.Errorf("write failed")
 	}
 
-	_, err := o.edit(EditInput{
+	_, err := o.edit(context.Background(), nil, EditInput{
 		Path:    dir,
 		Version: strPtr("2.0.0"),
 	})
@@ -2051,7 +2051,7 @@ func TestEdit_ValidationFailure(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	// Set an invalid workload type — should fail validation
 	wl := "INVALID_WORKLOAD"
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:     dir,
 		Workload: &wl,
 	})
@@ -2063,7 +2063,7 @@ func TestEdit_ValidationFailure(t *testing.T) {
 func TestEdit_MarshalAfterEdits(t *testing.T) {
 	// Exercises the full edit→marshal→parse→validate pipeline
 	dir := testutil.WriteTestBundle(t)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:    dir,
 		Version: strPtr("3.0.0"),
 		Owner:   strPtr("team/devops"),
@@ -2158,7 +2158,7 @@ func TestBuildBundleFSForValidation_WalkDirErrorsSkipped(t *testing.T) {
 		Interfaces:     []contract.Interface{{Name: "new-api", Type: "openapi", Ref: "interfaces/new-api.yaml"}},
 		Configurations: []contract.Configuration{{Name: "default", Schema: "configuration/schema.json"}},
 	}
-	mapFS := osFileOps().buildBundleFSForValidation(dir, []byte("test"), c)
+	mapFS := osFileOps().buildBundleFSForValidation(dir, []byte("test"), c, nil)
 	// Should have stub for new interface and config
 	if _, ok := mapFS["interfaces/new-api.yaml"]; !ok {
 		t.Error("expected stub for new interface")
@@ -2187,7 +2187,7 @@ state:
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
 
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:    dir,
 		Version: strPtr("2.0.0"),
 	})
@@ -2282,7 +2282,7 @@ func TestBuildBundleFSForValidation_WalkError(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.Service{Name: "test"},
 	}
-	result := o.buildBundleFSForValidation("/nonexistent", []byte("test"), c)
+	result := o.buildBundleFSForValidation("/nonexistent", []byte("test"), c, nil)
 	if result == nil {
 		t.Error("expected non-nil result even with broken FS")
 	}
@@ -2302,7 +2302,7 @@ func TestBuildBundleFSForValidation_ReadFileError(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.Service{Name: "test"},
 	}
-	result := osFileOps().buildBundleFSForValidation(dir, []byte("test"), c)
+	result := osFileOps().buildBundleFSForValidation(dir, []byte("test"), c, nil)
 	// The unreadable file should be skipped gracefully
 	_ = result
 }
@@ -2325,7 +2325,7 @@ state:
   dataCriticality: low
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yamlContent), 0644)
-	_, err := Edit(EditInput{Path: dir, Version: strPtr("2.0.0")})
+	_, err := Edit(context.Background(), nil, EditInput{Path: dir, Version: strPtr("2.0.0")})
 	if err == nil {
 		t.Error("expected parse error for unknown field")
 	}
@@ -2348,7 +2348,7 @@ func TestEdit_YAMLMarshalError(t *testing.T) {
 	o.marshal = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("edit marshal fail")
 	}
-	_, err := o.edit(EditInput{Path: dir, Version: strPtr("2.0.0")})
+	_, err := o.edit(context.Background(), nil, EditInput{Path: dir, Version: strPtr("2.0.0")})
 	if err == nil || !strings.Contains(err.Error(), "failed to marshal") {
 		t.Errorf("expected marshal error, got: %v", err)
 	}
@@ -2389,7 +2389,7 @@ interfaces:
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(badYAML), 0644)
 
 	ver := "2.0.0"
-	_, err := Edit(EditInput{
+	_, err := Edit(context.Background(), nil, EditInput{
 		Path:    dir,
 		Version: &ver,
 	})
@@ -2473,7 +2473,7 @@ func TestEdit_ScaffoldNewInterfaceError(t *testing.T) {
 		}
 		return oldMkdir(path, perm)
 	}
-	_, err := o.edit(EditInput{
+	_, err := o.edit(context.Background(), nil, EditInput{
 		Path: dir,
 		AddInterfaces: []InterfaceInput{
 			{Name: "new-api", Type: "openapi"},
@@ -2577,7 +2577,7 @@ func TestSummaryShapeAgreesAcrossTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	edited, err := Edit(EditInput{Path: out, Version: strPtr("2.0.0")})
+	edited, err := Edit(context.Background(), nil, EditInput{Path: out, Version: strPtr("2.0.0")})
 	if err != nil {
 		t.Fatalf("Edit: %v", err)
 	}
@@ -2632,10 +2632,10 @@ func TestCreateTool_AsyncAPIRoundTrips(t *testing.T) {
 // replaces.
 func TestEdit_AddConfigProperties_WritesAndMergesSchema(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	if _, err := Edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT", Type: "integer", Required: true}}}); err != nil {
+	if _, err := Edit(context.Background(), nil, EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT", Type: "integer", Required: true}}}); err != nil {
 		t.Fatalf("first edit: %v", err)
 	}
-	if _, err := Edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "LOG_LEVEL"}, {Name: "PORT", Type: "integer", Required: true}}}); err != nil {
+	if _, err := Edit(context.Background(), nil, EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "LOG_LEVEL"}, {Name: "PORT", Type: "integer", Required: true}}}); err != nil {
 		t.Fatalf("second edit: %v", err)
 	}
 	var schema struct {
@@ -2663,7 +2663,7 @@ func TestEdit_AddConfigProperties_WritesAndMergesSchema(t *testing.T) {
 
 func TestEdit_AddConfigProperties_DryRunWritesNothing(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	if _, err := Edit(EditInput{Path: dir, DryRun: true, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err != nil {
+	if _, err := Edit(context.Background(), nil, EditInput{Path: dir, DryRun: true, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "configuration")); !os.IsNotExist(err) {
@@ -2697,7 +2697,7 @@ func TestEdit_AddConfigProperties_SchemaWriteFailuresLeavePactoYAML(t *testing.T
 			before, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 			o := osFileOps()
 			fail(&o)
-			if _, err := o.edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err == nil {
+			if _, err := o.edit(context.Background(), nil, EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err == nil {
 				t.Fatal("expected an error")
 			}
 			after, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
@@ -2818,7 +2818,7 @@ func TestEdit_AddConfigProperties_UnreadableSchemaFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "configuration", "schema.json"), []byte("not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err == nil {
+	if _, err := Edit(context.Background(), nil, EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err == nil {
 		t.Fatal("expected an error for a schema that is not JSON")
 	}
 }
@@ -2842,14 +2842,14 @@ func TestExternalDependencies(t *testing.T) {
 	}
 
 	dir = testutil.WriteTestBundle(t)
-	ed, err := Edit(EditInput{Path: dir, AddDependencies: external})
+	ed, err := Edit(context.Background(), nil, EditInput{Path: dir, AddDependencies: external})
 	if err != nil || !containsStr(ed.Changes, `set pactoVersion "2.1" for the external dependency`) || !containsStr(ed.Changes, `added dependency "model"`) {
 		t.Fatalf("edit: %v %+v", err, ed)
 	}
 	if res, err := Check(context.Background(), nil, dir); err != nil || !res.Valid {
 		t.Fatalf("edited: %v %+v", err, res)
 	}
-	ed, err = Edit(EditInput{Path: dir, AddDependencies: []DependencyInput{{Name: "cache", External: true, Version: "7"}}, RemoveDeps: []string{"model"}})
+	ed, err = Edit(context.Background(), nil, EditInput{Path: dir, AddDependencies: []DependencyInput{{Name: "cache", External: true, Version: "7"}}, RemoveDeps: []string{"model"}})
 	if err != nil || !containsStr(ed.Changes, `removed dependency "model"`) || containsStr(ed.Changes, "pactoVersion") {
 		t.Fatalf("remove by name, already 2.1: %v %+v", err, ed)
 	}
@@ -2908,7 +2908,7 @@ func TestMarshalContract_KeepsEveryTopLevelKey(t *testing.T) {
 func TestEdit_Domain(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.3\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
-	result, err := Edit(EditInput{Path: dir, Domain: strPtr("payments")})
+	result, err := Edit(context.Background(), nil, EditInput{Path: dir, Domain: strPtr("payments")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2924,7 +2924,7 @@ func TestEdit_Domain(t *testing.T) {
 		t.Fatalf("written contract %+v %v", c, err)
 	}
 	// Already 2.4: only the domain changes.
-	result, err = Edit(EditInput{Path: dir, Domain: strPtr("commerce")})
+	result, err = Edit(context.Background(), nil, EditInput{Path: dir, Domain: strPtr("commerce")})
 	if err != nil || !slices.Equal(result.Changes, []string{`set domain to "commerce"`}) {
 		t.Fatalf("second edit %v %v", result, err)
 	}
@@ -2955,7 +2955,7 @@ func TestCheck_DomainSuggestion(t *testing.T) {
 func TestEdit_OfferingAndSummary(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.3\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
-	result, err := Edit(EditInput{Path: dir, Offering: strPtr("postgresql")})
+	result, err := Edit(context.Background(), nil, EditInput{Path: dir, Offering: strPtr("postgresql")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2966,7 +2966,7 @@ func TestEdit_OfferingAndSummary(t *testing.T) {
 		t.Errorf("summary offering %q", result.Summary.Offering)
 	}
 	// Already 2.5: a summary leaves pactoVersion alone, and a domain does not lower it to 2.4.
-	result, err = Edit(EditInput{Path: dir, Summary: strPtr("Primary database"), Domain: strPtr("data")})
+	result, err = Edit(context.Background(), nil, EditInput{Path: dir, Summary: strPtr("Primary database"), Domain: strPtr("data")})
 	if err != nil || !slices.Equal(result.Changes, []string{`set domain to "data"`, `set summary to "Primary database"`}) {
 		t.Fatalf("second edit %v %v", result, err)
 	}
@@ -2983,7 +2983,7 @@ func TestEdit_OfferingAndSummary(t *testing.T) {
 func TestEdit_AddConfigurationAndPolicyRefs(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
-	result, err := Edit(EditInput{
+	result, err := Edit(context.Background(), nil, EditInput{
 		Path:                 dir,
 		AddConfigurationRefs: []ConfigurationRefInput{{Ref: "oci://ghcr.io/acme/platform-app-config", Required: true}},
 		AddPolicyRefs:        []PolicyRefInput{{Ref: "oci://ghcr.io/acme/platform-http-policy:1.0.0"}, {Name: "edge", Ref: "oci://ghcr.io/acme/edge-policy"}},

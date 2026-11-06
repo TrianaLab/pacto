@@ -193,9 +193,12 @@ var newDynamic = k8sclient.NewDynamic
 func editTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_edit",
-		Description: "Edits an existing Pacto contract. Supports adding/removing interfaces " +
-			"and dependencies, changing workload and state semantics, updating metadata, and more. " +
-			"Validates the result before writing. Supports dry_run mode. " +
+		Description: "Edits an existing Pacto contract. Supports adding/removing interfaces, " +
+			"dependencies and configuration references, environments and their values, the service lifecycle, " +
+			"workload and state semantics, metadata and more. " +
+			"Validates the result before writing; when the edit writes configuration values or a provider configuration selector, " +
+			"the edited bundle must pass the same check as pacto_check, so values are checked against the referenced contract's configuration schema, " +
+			"and a reference that cannot be resolved fails the edit. Nothing is written unless the check passes; then every file is written together. Supports dry_run mode. " +
 			"The result lists the changes made and warnings, such as an owner that is not a bare team name.",
 		InputSchema: inputSchema(map[string]property{
 			"path":                         {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
@@ -208,7 +211,11 @@ func editTool() *mcpsdk.Tool {
 			"add_interfaces":               {Type: "string", Description: "JSON array of interfaces to add: [{name, type, visibility?}]"},
 			"remove_interfaces":            {Type: "string", Description: "JSON array of interface names to remove: [\"name1\", \"name2\"]"},
 			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). For a service your company runs with Pacto whose contract is not published yet, give ref as the OCI repository its contract will be published at and compatibility as the versions you accept: Pacto reports it as unresolved until it is published. A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref, and its compatibility stays Unknown"},
-			"add_configuration_refs":       {Type: "string", Description: "JSON array of configuration references to add: [{name?, ref, required?}], each pointing at a published contract whose configuration this service takes, such as a platform offering's"},
+			"add_configuration_refs":       {Type: "string", Description: "JSON array of configuration references to add: [{name?, ref, required?, configuration?, values?}], each pointing at a published contract whose configuration this service takes, such as a platform offering's. configuration names which of the referenced contract's configurations it takes (needed when it declares more than one) and values are this service's values for it, checked against the referenced contract's selected configuration schema before anything is written. Either raises pactoVersion to 2.6"},
+			"remove_configuration_refs":    {Type: "string", Description: "JSON array of configuration references to remove, each by name or ref: [\"db\"]. Their values are removed from every environment file"},
+			"add_environments":             {Type: "string", Description: "JSON array of environments to add: [{name, file?}]. file defaults to environments/<name>.yaml and is created holding {} when it does not exist. Raises pactoVersion to 2.3"},
+			"set_environment_values":       {Type: "string", Description: "JSON array of values to merge into environment files: [{environment, configuration, values}]. The environment and configuration must be declared, by the contract or this edit. Objects merge key by key and a null removes its key. The merged values are checked against the configuration's schema, a referenced contract's included, before anything is written"},
+			"lifecycle":                    {Type: "string", Description: "JSON object that sets service.lifecycle: {deprecated, sunset?, successor?}, dates as YYYY-MM-DD and successor as an absolute URL such as the oci:// reference of the service that replaces this one; {clear: true} removes it. Setting it raises pactoVersion to 2.6"},
 			"add_policy_refs":              {Type: "string", Description: "JSON array of policy references to add: [{name?, ref}]"},
 			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]; an external dependency with no ref is removed by name"},
 			"workload":                     {Type: "string", Description: "New workload type", Enum: []string{"service", "job", "scheduled"}},
@@ -235,6 +242,10 @@ type editArgs struct {
 	Offering                  *string `json:"offering"`
 	Summary                   *string `json:"summary"`
 	AddConfigurationRefs      string  `json:"add_configuration_refs"`
+	RemoveConfigurationRefs   string  `json:"remove_configuration_refs"`
+	AddEnvironments           string  `json:"add_environments"`
+	SetEnvironmentValues      string  `json:"set_environment_values"`
+	Lifecycle                 string  `json:"lifecycle"`
 	AddPolicyRefs             string  `json:"add_policy_refs"`
 	AddInterfaces             string  `json:"add_interfaces"`
 	RemoveInterfaces          string  `json:"remove_interfaces"`
@@ -251,8 +262,8 @@ type editArgs struct {
 	DryRun                    bool    `json:"dry_run"`
 }
 
-func editHandler() mcpsdk.ToolHandlerFor[editArgs, any] {
-	return func(_ context.Context, _ *mcpsdk.CallToolRequest, args editArgs) (*mcpsdk.CallToolResult, any, error) {
+func editHandler(validate Validator) mcpsdk.ToolHandlerFor[editArgs, any] {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args editArgs) (*mcpsdk.CallToolResult, any, error) {
 		input := EditInput{
 			Path:                      args.Path,
 			Name:                      args.Name,
@@ -275,6 +286,10 @@ func editHandler() mcpsdk.ToolHandlerFor[editArgs, any] {
 			{"add_dependencies", args.AddDependencies, &input.AddDependencies},
 			{"remove_dependencies", args.RemoveDependencies, &input.RemoveDeps},
 			{"add_configuration_refs", args.AddConfigurationRefs, &input.AddConfigurationRefs},
+			{"remove_configuration_refs", args.RemoveConfigurationRefs, &input.RemoveConfigurationRefs},
+			{"add_environments", args.AddEnvironments, &input.AddEnvironments},
+			{"set_environment_values", args.SetEnvironmentValues, &input.SetEnvironmentValues},
+			{"lifecycle", args.Lifecycle, &input.Lifecycle},
 			{"add_policy_refs", args.AddPolicyRefs, &input.AddPolicyRefs},
 			{"add_config_properties", args.AddConfigProperties, &input.AddConfigProperties},
 			{"set_metadata", args.SetMetadata, &input.SetMetadata},
@@ -283,7 +298,7 @@ func editHandler() mcpsdk.ToolHandlerFor[editArgs, any] {
 			return nil, nil, err
 		}
 
-		result, err := Edit(input)
+		result, err := Edit(ctx, validate, input)
 		if err != nil {
 			return nil, nil, err
 		}

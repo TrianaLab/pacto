@@ -71,7 +71,7 @@ func newServer(version, instructions string, validate Validator) *mcpsdk.Server 
 // bound a traversal and got an unbounded one.
 func registerTools(server *mcpsdk.Server, validate Validator) {
 	mcpsdk.AddTool(server, createTool(), createHandler())
-	mcpsdk.AddTool(server, editTool(), editHandler())
+	mcpsdk.AddTool(server, editTool(), editHandler(validate))
 	mcpsdk.AddTool(server, checkTool(), checkHandler(validate))
 	mcpsdk.AddTool(server, schemaTool(), schemaHandler())
 }
