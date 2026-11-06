@@ -122,14 +122,18 @@ func (p ProvisionPhase) valid() bool {
 }
 
 // ProvisionedObservation is a provider's report on the resource a consumer asked for. It is limited by
-// design: Provider is a free slug (no product enum), ExternalRef is an opaque handle, and strict decode
-// rejects any other key, so account ids, regions or secret names have nowhere to go.
+// design: Provider is a free slug (no product enum) and strict decode rejects any other key. ExternalRef is
+// an opaque handle the adapter chooses and every viewer of the consumer reads, so the adapter keeps it
+// free of secrets; validation refuses a URL that carries credentials.
 type ProvisionedObservation struct {
 	Provider    string         `json:"provider"`
 	ExternalRef string         `json:"externalRef,omitempty"`
 	Phase       ProvisionPhase `json:"phase"`
 	Environment string         `json:"environment,omitempty"`
 }
+
+// credentialURL matches a URL with userinfo, such as postgres://user:password@host.
+var credentialURL = regexp.MustCompile(`://[^/@]*@`)
 
 // slugPattern is the DNS-label rule a provider slug and an environment name follow.
 var slugPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
@@ -154,6 +158,8 @@ func ValidateProvisioned(p ProvisionedObservation) error {
 		return fmt.Errorf("externalRef exceeds %d bytes", maxExternalRefBytes)
 	case strings.ContainsFunc(p.ExternalRef, func(r rune) bool { return !unicode.IsPrint(r) }):
 		return errors.New("externalRef must be printable text")
+	case credentialURL.MatchString(p.ExternalRef):
+		return errors.New("externalRef must not carry URL credentials")
 	case p.Environment != "" && !validSlug(p.Environment):
 		return fmt.Errorf("environment %q must be a lowercase slug of at most %d bytes", p.Environment, maxSlugBytes)
 	}

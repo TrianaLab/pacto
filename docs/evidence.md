@@ -112,13 +112,12 @@ A provider adapter reports the state of a resource with the
 `ResourceProvisioned` observation kind. The report is about the consumer's
 contract revision, and its observation subject is the consumer's
 `configuration` or `dependency` that asked for the resource. Decoding rejects
-any key beyond these four, so account ids, regions and secret names have
-nowhere to go:
+any key beyond these four:
 
 | Key | Meaning |
 |-----|---------|
 | `provider` | A lowercase slug of at most 63 bytes naming the provider. Pacto keeps no list of providers. |
-| `externalRef` | Optional. An opaque handle of the resource at the provider, at most 253 printable bytes. |
+| `externalRef` | Optional. An opaque handle of the resource at the provider, at most 253 printable bytes. Everyone who can read the consumer sees it, so keep secrets out of it. A URL that carries credentials is rejected. |
 | `phase` | `Requested`, `Provisioning`, `Ready`, `Failed` or `Deleting`. |
 | `environment` | Optional. The consumer environment the resource serves, a lowercase slug. |
 
