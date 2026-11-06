@@ -196,6 +196,7 @@ func TestProductEndpoints_ProviderError(t *testing.T) {
 		"/api/fleet/neighborhood?kind=service&key=x",
 		"/api/fleet/attention",
 		"/api/fleet/revisions/document?key=x&path=docs/overview.md",
+		"/api/fleet/versions?offering=x",
 	} {
 		expectStatus(t, base+path, http.StatusServiceUnavailable)
 	}
