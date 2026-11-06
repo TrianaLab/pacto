@@ -9,7 +9,8 @@ and its settings.
 How a service is deployed stays in its own Kubernetes files. With delivery,
 `pacto publish` ships those files with each version and Flux applies them;
 the contract only points at them (`publish.deploy`). The contract says what
-the service is. Provisioning, scaling and wiring stay your decision.
+the service is. Provisioning runs in your platform's tools; Pacto validates the
+request and shows the result.
 
 ---
 
@@ -106,6 +107,18 @@ sensible way to map them on Kubernetes:
 
 The contract leaves out upgrade strategy, shutdown timing, replica counts
 and autoscaling on purpose. Those stay in your Kubernetes files.
+
+---
+
+## Offerings and infrastructure
+
+Publish a contract for each kind of infrastructure you offer, with
+`service.offering`, a provisioning schema in `configurations[]`, platform rules
+in `policies[]` and a `service.lifecycle` when a version is on its way out.
+Developers request a resource by referencing that contract from their own and
+writing values your schema checks. Your adapter reads the published consumer
+contract, provisions the resource and reports its state as signed evidence.
+See [Provision infrastructure through contracts](provision-infrastructure.md).
 
 ---
 

@@ -117,19 +117,19 @@ configurations:
 
 ## Infrastructure contracts
 
-**Problem.** Your platform offers a fixed set of infrastructure types, such as Postgres, Redis, object storage and secrets, provisioned by some declarative tool (Crossplane, Terraform, an internal operator). You want each type to be self-describing, governed like services and machine-readable by the tool that turns claims into real resources.
+**Problem.** Your platform offers a fixed set of infrastructure types, such as Postgres, Redis, object storage and secrets, provisioned by some declarative tool (Crossplane, Terraform, an internal operator). You want each type to be self-describing, governed like services and machine-readable by the adapter that turns requests into real resources.
 
 **Primitives.**
 
 - **A pacto contract per infrastructure type**, published by the platform team
 - **`policies[]`** carrying the platform rules (HA, backups, version floors)
 - **`configurations[]`** carrying the provisioning schema (the team-controllable subset of fields)
-- **`metadata.labels`** carrying provisioner hints that Pacto passes through and your CI tool reads
+- **`service.lifecycle`** announcing a deprecation, a sunset and a successor
 
 **Example: a postgres infrastructure contract.**
 
 ```yaml
-pactoVersion: "2.5"
+pactoVersion: "2.6"
 
 service:
   name: postgres
@@ -139,23 +139,41 @@ service:
   owner:
     team: platform
 
-metadata:
-  labels:
-    platform/provisioner: crossplane
-    platform/claim-kind: PostgreSQLClaim
-    platform/claim-api-version: database.platform.example.com/v1alpha1
-
 policies:
   - name: postgres-policy
-    schema: policy/schema.json   # requires an owner and provisioner labels
+    schema: policy/schema.json   # requires an owner
 
 configurations:
   - name: provisioning
     required: true
-    schema: configuration/schema.json   # derived from the provisioning claim's OpenAPI schema
+    schema: configuration/schema.json   # the fields a consumer may set
 ```
 
-**How services consume it.** A service contract references the infra contract as a configuration (see [Configurations as composable claims](#configurations-as-composable-claims)). When CI generates deployment artifacts, it reads `metadata.labels` from the resolved infra contract to decide which claim to create, so CI needs no hardcoded mapping from a configuration name to a claim kind. Adding a new infrastructure type takes one new contract and no change to CI.
+When `postgres:16.1.0` is on its way out, its contract carries the window:
+
+```yaml
+service:
+  lifecycle:
+    deprecated: "2026-11-01"
+    sunset: "2027-06-30"
+    successor: oci://ghcr.io/example/pactos/postgres:17.0.0
+```
+
+**How services consume it.** A service contract references the infra contract as a configuration (see [Configurations as composable claims](#configurations-as-composable-claims)), selects the provider's configuration and writes its values:
+
+```yaml
+pactoVersion: "2.6"
+configurations:
+  - name: database
+    ref: oci://ghcr.io/example/pactos/postgres:17.0.0
+    configuration: provisioning
+    required: true
+    values:
+      size: medium
+      storageGi: 50
+```
+
+`pacto validate` checks those values against the provider's schema. The adapter that provisions the resource maps the offering slug to its implementation and reads the published consumer contract, so the infrastructure contract carries no provider hints and adding a new infrastructure type takes one new contract. See [Provision infrastructure through contracts](../provision-infrastructure.md).
 
 **Versioning the contract is versioning the platform interface.** A bump from `postgres:17.0.0` to `postgres:18.0.0` lets services migrate at their own pace by ref-pinning, and the policy can tighten with each major version (see [Progressive policy versioning](#progressive-policy-versioning)).
 
@@ -170,10 +188,10 @@ Developers find providers on the dashboard's Offerings page, with
 `pacto_fleet_search`. Each provider shows its owner, versions, interfaces,
 configuration and policies, and a snippet to copy into a consuming contract.
 
-The demo consumes `postgresql` as a dependency with a range, which suits a
-provider with a workload or an interface. A configuration reference carries the
-provisioning schema instead. Both are valid, and the snippet emits whichever
-the provider supports.
+A dependency with a range suits a provider with a workload or an interface,
+and puts the consumer in impact answers. A configuration reference carries the
+provisioning request. The demo's catalog-service uses both, and the snippet
+emits whichever forms the provider supports.
 
 The same pattern serves offerings beyond infrastructure, such as shared
 configuration and policy. Pacto lists what contracts declare. Provisioning
@@ -227,7 +245,7 @@ configurations:
 `pacto validate -f overrides/values.stg.yaml` validates each entry's `values` against its local `schema`. Your deployment tooling reads the same file and produces: Helm values (`deployment` entry), a Postgres claim (`postgres` entry), a secret-store claim (`secrets` entry). Each value is written once, so a chart's `values.yaml` and a separate `claims/postgres.yaml` cannot drift apart.
 
 !!! info
-    Override files use **Helm-style array replacement** for `configurations`: the override's array replaces the contract's array entirely, with no merge by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `name` and `required` plus either a `schema` (with `values`) or a `ref` (schema-only). Pacto rejects an entry without `required`. Inline `values` require a local `schema`; a `ref`-based entry carries neither.
+    Override files use **Helm-style array replacement** for `configurations`: the override's array replaces the contract's array entirely, with no merge by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `name` and `required` plus either a `schema` or a `ref`. Pacto rejects an entry without `required`. In `pactoVersion` 2.0 to 2.5, inline `values` require a local `schema`, so a `ref`-based entry carries no `values`. From 2.6 a `ref`-based entry may carry `values`, checked against the referenced contract's schema.
 
 **Precedence:** Contract inline `values` → `-f overrides/values.<env>.yaml` → `--set` (wins). See [Precedence](../contract-reference/overrides.md#precedence) for the full chain.
 

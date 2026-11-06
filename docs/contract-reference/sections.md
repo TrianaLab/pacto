@@ -355,7 +355,7 @@ metadata:
 The schema sets `additionalProperties: false` at every level except inside `metadata`, so an unknown field fails validation.
 
 !!! tip
-    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals that their CI or deployment systems read from a contract. For example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Infrastructure contracts](../patterns/index.md#infrastructure-contracts).
+    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals that their CI or deployment systems read from a contract. Provisioning adapters map a provider's `service.offering` to their implementation, so infrastructure contracts need no provider labels. See [Infrastructure contracts](../patterns/index.md#infrastructure-contracts).
 
 ---
 

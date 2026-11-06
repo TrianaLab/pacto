@@ -95,6 +95,19 @@ On Kubernetes, the [operator](integrations/kubernetes/overview.md) checks what y
 
 ---
 
+## Offerings and infrastructure
+
+Your platform team may publish contracts for the infrastructure it offers, such
+as a PostgreSQL database. Find them on the dashboard's Offerings page or with
+`pacto fleet search --offering <slug>`, pick a version with
+`pacto fleet versions <slug>`, then reference the contract from yours and write
+the values its schema lets you control. `pacto validate` checks those values
+against the provider's schema, and the Offerings page shows what the platform
+reports about your resource. See
+[Provision infrastructure through contracts](provision-infrastructure.md).
+
+---
+
 ## What's next
 
 - [Contract reference](contract-reference/index.md): every field, precisely
