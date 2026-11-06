@@ -97,12 +97,17 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 			out.Revisions[k] = r
 		}
 	}
-	out.offeringOnly = offeringOnly
 	restrictRevalidation(&out, s.Relationships, hiddenSvc)
 	hiddenDeps, hiddenDependents, hiddenConsumers := restrictRelationships(&out, s.Relationships, hiddenSvc)
 	out.hiddenConsumers = hiddenConsumers
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenDeps, hiddenDependents)...)
+	out.targetsHidden = offeringOnly
+	for k, svc := range out.Services {
+		if len(svc.Targets) != len(s.Services[k].Targets) {
+			out.targetsHidden[k] = true
+		}
+	}
 	// An allowlist: a report stays only when its consumer is visible, so an
 	// orphaned report or one about a hidden service never reaches the view.
 	out.Provisioning = slices.DeleteFunc(slices.Clone(s.Provisioning), func(rec ProvisioningRecord) bool { return out.Services[rec.ServiceKey] == nil })

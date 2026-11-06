@@ -13,7 +13,7 @@ type ProviderVersion struct {
 	Revision EntityRef `json:"revision"`
 	Version  string    `json:"version,omitempty"`
 	// InUse says whether a target runs this revision. It is absent when the
-	// caller's permissions hide the provider's targets, so "not in use" is never
+	// caller's permissions hide any of the provider's targets, so "not in use" is never
 	// derived from targets the caller cannot see.
 	InUse         *bool                        `json:"inUse,omitempty"`
 	Lifecycle     *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
@@ -58,7 +58,7 @@ func (q *Query) offeringProviderVersions(s *ServiceRecord, rng string) ProviderV
 	items := make([]ProviderVersion, 0, len(revs))
 	for _, r := range revs {
 		v := ProviderVersion{Revision: revisionEntityRef(r), Version: r.Version}
-		if !q.snap.offeringOnly[s.Key] {
+		if !q.snap.targetsHidden[s.Key] {
 			inUse := running[r.Key]
 			v.InUse = &inUse
 		}

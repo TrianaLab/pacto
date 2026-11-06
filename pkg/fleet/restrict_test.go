@@ -678,8 +678,8 @@ func checkOfferingOnlyProvider(t *testing.T, q, r *Query) {
 	if pg == nil || len(pg.Revisions) != 1 || pg.Owner.Team != "platform" || pg.OfferingProvenance != ProvenanceDeclared || len(pg.Targets) != 0 || pg.HiddenDependents != 1 {
 		t.Fatalf("pgprov = %+v", pg)
 	}
-	if !s.offeringOnly[pg.Key] || len(s.Targets) != 2 {
-		t.Errorf("offeringOnly = %v, targets = %v", s.offeringOnly, slices.Collect(maps.Keys(s.Targets)))
+	if !s.targetsHidden[pg.Key] || len(s.Targets) != 2 {
+		t.Errorf("targetsHidden = %v, targets = %v", s.targetsHidden, slices.Collect(maps.Keys(s.Targets)))
 	}
 	for _, name := range []string{"loner", "reported", "vaultdb", "hiddenapp"} {
 		if s.Services[NewServiceKey(name)] != nil {

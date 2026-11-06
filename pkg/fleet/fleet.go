@@ -806,10 +806,11 @@ type FleetSnapshot struct {
 	// older than it (RecentEvidenceWindow when zero) is stale.
 	provisioningWindow time.Duration
 
-	// offeringOnly holds, in a restricted snapshot, the services visible only
-	// because they declare a platform offering and have no Kubernetes placement
-	// (see [Query.Restrict]); their targets are gone from the view.
-	offeringOnly map[ServiceKey]bool
+	// targetsHidden holds, in a restricted snapshot, the visible services that
+	// lost a target to the view: those visible only because they declare a
+	// platform offering (see [Query.Restrict]) and those with a target in a
+	// hidden namespace. What their targets run is not fully known.
+	targetsHidden map[ServiceKey]bool
 	// hiddenConsumers maps, in a restricted snapshot, a provider to the hidden
 	// services with a declared, resolved [ConsumesEdge] to it. Only counted.
 	hiddenConsumers map[ServiceKey]map[ServiceKey]bool

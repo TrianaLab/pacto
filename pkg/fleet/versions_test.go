@@ -158,3 +158,31 @@ func TestProviderVersionsInUseHiddenForOfferingOnly(t *testing.T) {
 		t.Errorf("restricted version = %+v, want inUse absent", v)
 	}
 }
+
+// A provider with a target in a namespace the viewer cannot read never says
+// "not in use" for any version: the hidden target may run it.
+func TestProviderVersionsInUseHiddenForPartlyVisibleProvider(t *testing.T) {
+	rev := func(version string) RawRevision {
+		c := svc25("postgresql", version, "postgresql")
+		c.Workload = contract.WorkloadService
+		return ociRev("ghcr.io/acme", c, nil)
+	}
+	target := func(ns, version string) RawTarget {
+		return RawTarget{Scope: ns, Kind: SourceKindKubernetes, Name: "pg", Service: "postgresql", Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", "postgresql", version)}
+	}
+	q := buildDomainSnap(t, "oci", &Collection{
+		Revisions: []RawRevision{rev("15.0.0"), rev("16.1.0")},
+		Targets:   []RawTarget{target("visible", "16.1.0"), target("secret", "15.0.0")},
+	})
+	for _, v := range q.offeringProviderVersions(acmeService(q, "postgresql"), "").Items {
+		if v.InUse == nil || !*v.InUse {
+			t.Errorf("unrestricted %s = %+v, want in use", v.Version, v.InUse)
+		}
+	}
+	r := q.Restrict(func(ns string) bool { return ns != "secret" })
+	for _, v := range r.offeringProviderVersions(acmeService(r, "postgresql"), "").Items {
+		if v.InUse != nil {
+			t.Errorf("restricted %s inUse = %v, want absent", v.Version, *v.InUse)
+		}
+	}
+}
