@@ -81,11 +81,11 @@ Every mode except `--root` carries these four.
 !!! warning
     Passing a real JSON array or object where the JSON-encoded string is expected is a **silent no-op**. The argument is discarded, the call still succeeds, `changes` comes back `null` and nothing is written. Check the result's `changes` and `summary`. `pacto_check`'s own "add an interface" suggestion carries `add_interfaces` as a real array, so an agent that forwards that tool call verbatim hits this case.
 
-**`pacto_check` is `pacto validate`.** It runs the same validation path, including `pacto.lock` verification and recursive `policies[].ref` resolution, so a contract it calls valid is one CI accepts. Its result carries the same `stages` and `next` as `pacto validate --output-format json`, and each error carries `line` and `column` when Pacto can locate it.
+**`pacto_check` is `pacto validate`.** It runs the same validation, including `pacto.lock` verification and recursive `policies[].ref` resolution, so a contract it accepts passes CI. Its result carries the same `stages` and `next` as `pacto validate --output-format json`, and each error carries `line` and `column` when Pacto can locate it.
 
 **`add_config_properties` writes the schema.** `pacto_edit` merges the properties into the first configuration's local schema file (`configuration/schema.json` when it has to declare one). A property already in the schema is replaced and `required` names are unioned.
 
-**`pacto_edit` edits configuration references, environments and the lifecycle.** Each argument is a JSON-encoded string:
+**`pacto_edit` edits configuration references, environments and the lifecycle:**
 
 - `add_configuration_refs` adds references to published contracts whose configuration the service takes. Each entry's `configuration` picks one of the referenced contract's configurations and `values` holds the service's values for it. Either field raises `pactoVersion` to 2.6.
 - `remove_configuration_refs` removes references by name or ref, and removes their values from every environment file.
@@ -93,7 +93,7 @@ Every mode except `--root` carries these four.
 - `set_environment_values` merges values into environment files. Objects merge key by key and a `null` removes its key.
 - `lifecycle` sets `service.lifecycle` (`deprecated`, `sunset`, `successor`), and `{"clear": true}` removes it. Setting it raises `pactoVersion` to 2.6.
 
-**Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only once the bundle passes `pacto_check`.
+**Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only after `pacto_check` passes.
 
 ### How `pacto_create` reads a description
 
@@ -152,7 +152,7 @@ pacto mcp \
 
 The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource carries the schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root, resolved or not and why. The closure resource carries every deduplicated revision with its content identity, rank and retained paths; every dependency edge, resolved or not; and every conflict and cycle found.
 
-Catalog mode registers nothing else, so a server started for read-only discovery cannot modify a contract. A root or a dependency that could not be resolved stays visible with a category such as `NOT_FOUND`, `AUTH_FAILED` or `UNAVAILABLE` in place of the raw registry error, and the whole answer is marked `partial`. Under `partial`, a revision missing from the answer is *unknown*.
+Catalog mode registers nothing else, so it cannot modify a contract. A root or a dependency that could not be resolved stays visible with a category such as `NOT_FOUND`, `AUTH_FAILED` or `UNAVAILABLE` in place of the raw registry error, and the whole answer is marked `partial`. Under `partial`, a revision missing from the answer is *unknown*.
 
 ## Create a service's files with pactify
 
