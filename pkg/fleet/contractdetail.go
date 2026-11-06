@@ -70,7 +70,10 @@ type RefResolution struct {
 	Resolved bool `json:"resolved"`
 	// Service is the canonical destination, present only when Resolved.
 	Service *EntityRef `json:"service,omitempty"`
-	Reason  string     `json:"reason,omitempty"`
+	// Revision is the destination revision the reference resolves to, present
+	// only when Resolved.
+	Revision *EntityRef `json:"revision,omitempty"`
+	Reason   string     `json:"reason,omitempty"`
 }
 
 // ConfigurationSummary is one declared configuration scope. Values is the

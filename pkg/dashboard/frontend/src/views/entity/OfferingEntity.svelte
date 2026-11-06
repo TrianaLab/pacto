@@ -11,11 +11,14 @@
   import GuaranteeTerms from '../../components/GuaranteeTerms.svelte';
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import PolicyList from '../../components/PolicyList.svelte';
+  import OfferingVersions from '../../components/OfferingVersions.svelte';
+  import ProvisioningBadges from '../../components/ProvisioningBadges.svelte';
 
   // The platform-offering page: every service whose contract declares this
   // service.offering, with what a consumer needs to choose one (owner, versions,
   // interfaces, configuration and policies) and a snippet to consume it, then the
-  // services that already consume it. It is read from published contracts only.
+  // services that already consume it, with what their providers report about the
+  // resources they asked for.
   let { detail } = $props();
   const d = $derived(detail.offering ?? {});
   const key = $derived(detail.entity?.key ?? '');
@@ -23,7 +26,8 @@
   const consumers = $derived(d.consumers ?? { items: [], total: 0, count: 0 });
   const VIA = { dependency: 'dependency', configuration_reference: 'configuration', policy_reference: 'policy' };
   const RANGE_TONE = { satisfied: 'ok', unsatisfied: 'warn', unknown: 'neutral' };
-  const DOCS = 'https://pacto.run/latest/patterns/#discover-and-consume-platform-offerings';
+  const hiddenConsumers = $derived(d.hiddenConsumers ?? 0);
+  const DOCS = 'https://pacto.run/latest/provision-infrastructure/';
 </script>
 
 <div class="offering-entity">
@@ -37,26 +41,14 @@
           <div class="oe-head">
             <EntityLink ref={p.service} showStatus={false} showKind={false} />
             {#if p.ownership}<OwnershipFact ownership={p.ownership} />{/if}
+            {#if p.offeringProvenance === 'observed'}<IdentityBadge label="observed" tone="info" title="Its targets report this offering. Its contract declares none." describe />{/if}
+            <LifecycleBadge lifecycle={p.lifecycle} detail={false} />
           </div>
           {#if p.summary}<p class="oe-summary t-body-2">{p.summary}</p>{/if}
           {#if p.currentRevision}
             <div class="oe-row"><span class="oe-k">Current</span><EntityLink ref={inService(p.currentRevision, self)} showStatus={false} showKind={false} /></div>
           {/if}
-          {#if (p.versions?.items ?? []).length}
-            <div class="oe-row">
-              <span class="oe-k">Versions</span>
-              <ul class="oe-chips">
-                {#each p.versions.items as v (v.revision.key)}
-                  <li>
-                    <EntityLink ref={inService(v.revision, self)} showStatus={false} showKind={false} />
-                    {#if v.inUse}<IdentityBadge label="in use" tone="ok" />{/if}
-                    <LifecycleBadge lifecycle={v.lifecycle} detail={false} />
-                  </li>
-                {/each}
-                {#if p.versions.truncated}<li class="oe-note">+{formatCount(p.versions.total - p.versions.count)} more</li>{/if}
-              </ul>
-            </div>
-          {/if}
+          <OfferingVersions offering={key} provider={p.service} versions={p.versions} {self} />
           {#if (p.interfaces?.items ?? []).length}
             <div class="oe-row oe-col">
               <span class="oe-k">Interfaces</span>
@@ -95,9 +87,8 @@
     {#if providers.truncated}<p class="oe-note">+{formatCount((providers.total ?? 0) - (providers.count ?? 0))} more providers</p>{/if}
   </PreviewSection>
 
-  <!-- ponytail: no route lists an offering's consumers, so a truncated preview says
-       "N of M" and has no View all link. -->
   <PreviewSection title="Consumers" total={consumers.total ?? 0} count={consumers.count ?? 0} truncated={consumers.truncated}
+    viewAllHref={fleetServicesUrl({ consumes: key })} viewAllLabel="View all consumers"
     empty="No service has a resolved declaration that consumes this offering. References that are not digest-pinned or locked cannot be resolved and are not counted." help="Services whose contract declares a dependency on a provider of this offering or references its configuration or policy, once Pacto resolves the declaration. A configuration or policy reference resolves only when it is digest-pinned or locked.">
     <ul class="oe-uses">
       {#each consumers.items ?? [] as u, ui (`${u.consumer?.key}:${u.provider?.key}:${u.via}:${ui}`)}
@@ -107,22 +98,25 @@
           <EntityLink ref={u.provider} showStatus={false} showKind={false} />
           <IdentityBadge label={VIA[u.via] ?? u.via} tone="neutral" />
           {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
+          <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
+          <ProvisioningBadges statuses={u.provisioning ?? []} />
         </li>
       {/each}
     </ul>
   </PreviewSection>
+  <!-- Outside the section so the count shows when every consumer is hidden. -->
+  {#if hiddenConsumers > 0}<p class="oe-note" data-testid="hidden-consumers">{formatCount(hiddenConsumers)} {hiddenConsumers === 1 ? 'consumer' : 'consumers'} you may not see</p>{/if}
 
-  <p class="oe-foot t-body-2">Pacto lists what contracts declare. Provisioning stays in your platform's tools. <a href={DOCS} target="_blank" rel="noopener noreferrer">Discover and consume platform offerings</a></p>
+  <p class="oe-foot t-body-2">Pacto validates what consumers request and shows what providers report. Provisioning runs in your platform's tools. <a href={DOCS} target="_blank" rel="noopener noreferrer">Provision infrastructure through contracts</a></p>
 </div>
 
 <style>
   .offering-entity { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
-  .oe-providers, .oe-uses, .oe-ifaces, .oe-chips { list-style: none; margin: 0; padding: 0; }
+  .oe-providers, .oe-uses, .oe-ifaces { list-style: none; margin: 0; padding: 0; }
   .oe-providers { display: flex; flex-direction: column; gap: var(--sp-3); }
   .oe-provider { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
   .oe-head, .oe-row, .oe-uses li, .oe-ifaces li { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .oe-col { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
-  .oe-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); min-width: 0; }
   .oe-ifaces, .oe-uses { display: flex; flex-direction: column; gap: var(--sp-1); }
   .oe-summary { margin: 0; color: var(--c-text-2); overflow-wrap: anywhere; }
   .oe-name { font-weight: 600; overflow-wrap: anywhere; }

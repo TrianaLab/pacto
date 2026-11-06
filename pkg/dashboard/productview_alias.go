@@ -17,4 +17,5 @@ type (
 	ProductRevisionDocument = productview.ProductRevisionDocument
 	ProductNeighborhood     = productview.ProductNeighborhood
 	ProductAttentionList    = productview.ProductAttentionList
+	ProductOfferingVersions = productview.ProductOfferingVersions
 )

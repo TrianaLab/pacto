@@ -102,3 +102,80 @@ func TestProductServiceDetail_ConsumedAndInferredOfferings(t *testing.T) {
 		t.Errorf("inferred offerings = %+v", i)
 	}
 }
+
+func TestFleetVersionsRoute(t *testing.T) {
+	q := offeringDashboardQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	var res ProductOfferingVersions
+	getJSON(t, base+"/api/fleet/versions?offering=shared-config&range=%5E1.1.0", http.StatusOK, &res)
+	if res.Offering.Href != "/fleet/offerings/shared-config" || res.Total != 2 || len(res.Providers) != 2 {
+		t.Fatalf("versions = %+v", res)
+	}
+	app, worker := res.Providers[0], res.Providers[1]
+	if app.Provider.Href == "" || app.Versions.Items[0].RangeStatus != fleet.RangeUnsatisfied || app.Versions.LatestCompatible != nil {
+		t.Errorf("platform-app-config = %+v", app)
+	}
+	if v := worker.Versions; v.Items[0].Revision.Href == "" || v.Items[0].RangeStatus != fleet.RangeSatisfied || v.LatestCompatible == nil || v.LatestCompatible.Href == "" || v.Range != "^1.1.0" {
+		t.Errorf("platform-worker-config = %+v", worker)
+	}
+	var one ProductOfferingVersions
+	getJSON(t, base+"/api/fleet/versions?offering=shared-config&provider=platform-worker-config", http.StatusOK, &one)
+	if len(one.Providers) != 1 || one.Providers[0].Versions.Items[0].RangeStatus != "" {
+		t.Errorf("one provider, no range = %+v", one.Providers)
+	}
+	expectStatus(t, base+"/api/fleet/versions?offering=nope", http.StatusNotFound)
+	expectStatus(t, base+"/api/fleet/versions?offering=redis&provider=platform-worker-config", http.StatusNotFound)
+}
+
+func TestFleetVersionsRoute_BadRange(t *testing.T) {
+	q := offeringDashboardQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	resp, err := http.Get(base + "/api/fleet/versions?offering=shared-config&range=not-a-range")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "not a semver range") {
+		t.Errorf("bad range = %d %s", resp.StatusCode, body)
+	}
+}
+
+// TestFleetVersionsRoute_RestrictedView: the route answers from the viewer's
+// view, so a provider whose targets the viewer cannot see omits InUse.
+func TestFleetVersionsRoute_RestrictedView(t *testing.T) {
+	q := offeringDashboardQuery(t)
+	base := serveOptions(t, Options{
+		Fleet: func(context.Context) (*fleet.Query, error) { return q, nil },
+		View: func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
+			return q.Restrict(func(string) bool { return false }), nil
+		},
+		Auth: &Auth{Login: true, Routes: http.NotFoundHandler(), Middleware: func(h http.Handler) http.Handler { return h }, State: func(*http.Request) AuthState { return AuthState{SignedIn: true} }},
+	})
+	var res ProductOfferingVersions
+	getJSON(t, base+"/api/fleet/versions?offering=redis", http.StatusOK, &res)
+	if len(res.Providers) != 1 || res.Providers[0].Versions.Items[0].InUse != nil {
+		t.Errorf("restricted versions = %+v", res.Providers)
+	}
+}
+
+func TestFleetEntitiesConsumesParam(t *testing.T) {
+	q := offeringDashboardQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	var list ProductEntityList
+	getJSON(t, base+"/api/fleet/entities?kinds=service&consumes=shared-config", http.StatusOK, &list)
+	if list.Total != 1 || !strings.HasSuffix(list.Entities[0].Href, "payments-service") {
+		t.Errorf("consumers of shared-config = %+v", list.Entities)
+	}
+	getJSON(t, base+"/api/fleet/entities?kinds=service&consumes=redis", http.StatusOK, &list)
+	if list.Total != 0 {
+		t.Errorf("consumers of redis = %+v", list.Entities)
+	}
+	expectStatus(t, base+"/api/fleet/entities?kinds=revision&consumes=redis", http.StatusUnprocessableEntity)
+}

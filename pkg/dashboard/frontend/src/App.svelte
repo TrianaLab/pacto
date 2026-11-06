@@ -421,6 +421,7 @@
       businessDomain={route.params.businessDomain || ''}
       capability={route.params.capability || ''}
       offering={route.params.offering || ''}
+      consumes={route.params.consumes || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}

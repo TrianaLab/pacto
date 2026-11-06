@@ -572,6 +572,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Offering provider versions
+         * @description Lists the versions of every provider of a platform offering, or of one provider, newest first, with each version's lifecycle and, when a range is given, whether it satisfies the range and the latest compatible version. The list comes from the contract revisions the fleet holds; the registry may publish others.
+         */
+        get: operations["fleet-versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/graph": {
         parameters: {
             query?: never;
@@ -3323,6 +3343,10 @@ export interface components {
             summary?: string;
             versions: components["schemas"]["ProductProviderVersions"];
         };
+        ProductOfferingProviderVersions: {
+            provider: components["schemas"]["ProductRef"];
+            versions: components["schemas"]["ProductProviderVersions"];
+        };
         ProductOfferingProvidersPreview: {
             /** Format: int64 */
             count: number;
@@ -3347,6 +3371,14 @@ export interface components {
             /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductOfferingUse"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        ProductOfferingVersions: {
+            meta: components["schemas"]["Fleet.ProductMeta"];
+            offering: components["schemas"]["ProductRef"];
+            providers: components["schemas"]["ProductOfferingProviderVersions"][] | null;
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -3471,6 +3503,7 @@ export interface components {
         ProductRefResolution: {
             reason?: string;
             resolved: boolean;
+            revision?: components["schemas"]["ProductRef"];
             service?: components["schemas"]["ProductRef"];
         };
         ProductRelationshipsPreview: {
@@ -5349,6 +5382,8 @@ export interface operations {
                 capability?: string;
                 /** @description Exact platform offering (service.offering) a service provides (service and offering entities) */
                 offering?: string;
+                /** @description Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities) */
+                consumes?: string;
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
@@ -5790,6 +5825,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Fleet.TargetView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-versions": {
+        parameters: {
+            query: {
+                /** @description Platform offering (service.offering) slug */
+                offering: string;
+                /** @description One provider of the offering, by canonical service key or unique name; absent lists every provider */
+                provider?: string;
+                /** @description Semver range such as ^16.0.0; each version reports whether it satisfies it */
+                range?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductOfferingVersions"];
                 };
             };
             /** @description Error */

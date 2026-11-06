@@ -427,6 +427,22 @@ describe('service page: policies and configuration', () => {
     expect(text(sec)).toContain('From');
     done();
   });
+
+  it('says which provider revision and configuration a ref configuration resolves to', async () => {
+    const pgRev = ref('revision', 'ghcr.io/acme/postgresql@sha256:16', 'postgresql 16.1.0', { version: '16.1.0' });
+    const pgSvc = ref('service', 'ghcr.io/acme/postgresql', 'postgresql');
+    const { target, done } = await render(detail({
+      currentRevision: rev('3'),
+      configurations: preview([
+        { name: 'db', required: true, ref: 'oci://ghcr.io/acme/postgresql@sha256:16', configuration: 'database', values: preview([]), content, resolution: { resolved: true, service: pgSvc, revision: pgRev } },
+        { name: 'cache', required: false, ref: 'oci://ghcr.io/acme/cache@sha256:1', values: preview([]), resolution: { resolved: true, service: pgSvc, revision: ref('revision', 'k', 'cache sha256:1') } },
+        { name: 'unresolved', required: false, ref: 'oci://ghcr.io/acme/x:1', configuration: 'main', values: preview([]), resolution: { resolved: false } },
+      ]),
+    }));
+    const notes = Array.from(fact(target, 'service-configuration')!.querySelectorAll('.cl-note')).map(text);
+    expect(notes).toEqual(['From postgresql@16.1.0, configuration database', 'From cache sha256:1', 'Defined by the referenced contract, configuration main']);
+    done();
+  });
 });
 
 describe('service page: platform offerings', () => {
@@ -445,6 +461,26 @@ describe('service page: platform offerings', () => {
     expect(hrefs(f)).toEqual(['#/fleet/offerings/postgresql', '#/fleet/offerings/shared-config']);
     expect(text(f)).toContain('from postgresql');
     expect(f?.querySelector('.tone-ok')?.textContent).toBe('satisfied');
+    expect(f?.querySelector('[data-testid="provisioning-badge"]')).toBeNull();
+    done();
+  });
+
+  it('shows what providers report and the provider lifecycle on each offering used', async () => {
+    const used = preview([
+      { offering: 'postgresql', consumer: ref('service', KEY, 'payments'), provider: pg, via: 'configuration_reference',
+        providerLifecycle: { deprecated: '2026-01-01', sunset: '2999-01-01' },
+        provisioning: [
+          { environment: 'production', phase: 'Failed', provenance: 'observed', verified: true, producer: 'adapter', source: 'evidence', asOf: '2026-11-04T09:00:00Z' },
+          { environment: 'staging', phase: 'Unknown', provenance: 'observed', verified: false, stale: true, reportedPhase: 'Ready' },
+        ] },
+    ]);
+    const { target, done } = await render(detail({ consumedOfferings: used, inferredOfferings: [] }));
+    const f = fact(target, 'service-offerings-used')!;
+    const tags = Array.from(f.querySelectorAll('[data-testid="provisioning-badge"] .tag'));
+    expect(tags.map((t) => t.textContent)).toEqual(['production: Failed', 'staging: Unknown']);
+    expect(tags[0].classList.contains('tone-err')).toBe(true);
+    expect(tags[1].getAttribute('title')).toBe('Unknown: last reported Ready, stale');
+    expect(text(f)).toContain('Deprecated');
     done();
   });
 

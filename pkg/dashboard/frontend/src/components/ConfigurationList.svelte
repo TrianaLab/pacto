@@ -6,7 +6,8 @@
   import SchemaContent from './SchemaContent.svelte';
 
   // A revision's configuration scopes: whether each is required, its schema path or
-  // the contract it references, the content of a local schema and the bounded values.
+  // the contract it references (and the revision and configuration a ref resolves
+  // to), the content of its schema and the bounded values.
   let { items = [] } = $props();
 </script>
 
@@ -20,7 +21,7 @@
       {#if c.schema}<div class="cl-ref"><span class="cl-k">Schema</span><CopyableIdentifier value={c.schema} /></div>{/if}
       {#if c.ref}
         <div class="cl-ref"><span class="cl-k">Reference</span><ContractReference value={c.ref} resolution={c.resolution} /></div>
-        <p class="cl-note">Defined by the referenced contract</p>
+        <p class="cl-note">{#if c.resolution?.revision}From {c.resolution.revision.version ? `${c.resolution.service?.label}@${c.resolution.revision.version}` : c.resolution.revision.label}{c.configuration ? `, configuration ${c.configuration}` : ''}{:else}Defined by the referenced contract{c.configuration ? `, configuration ${c.configuration}` : ''}{/if}</p>
       {/if}
       <SchemaContent content={c.content} />
       {#if (c.values?.count ?? 0) > 0}

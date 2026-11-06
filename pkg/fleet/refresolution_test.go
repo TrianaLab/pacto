@@ -151,6 +151,9 @@ func TestRefResolution_ResolvesWithinTheReferringDomain(t *testing.T) {
 		if cfg.Resolution.Service.Key != string(want) {
 			t.Errorf("%s: configuration resolved to %q, want %q", domain, cfg.Resolution.Service.Key, want)
 		}
+		if r := cfg.Resolution.Revision; r == nil || r.Kind != KindRevision || r.ParentService != string(want) {
+			t.Errorf("%s: configuration should name the revision it resolves to, got %+v", domain, r)
+		}
 		if cfg.Resolution.Service.Kind != KindService {
 			t.Errorf("%s: destination must be a canonical service ref, got kind %q", domain, cfg.Resolution.Service.Kind)
 		}

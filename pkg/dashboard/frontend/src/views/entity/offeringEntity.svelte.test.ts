@@ -5,10 +5,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { detailFn } = vi.hoisted(() => ({ detailFn: vi.fn() }));
+const { detailFn, versionsFn } = vi.hoisted(() => ({ detailFn: vi.fn(), versionsFn: vi.fn() }));
 vi.mock('../../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api.ts')>();
-  return { ...actual, api: { fleetEntityDetail: (...a: unknown[]) => detailFn(...a) } };
+  return { ...actual, api: { fleetEntityDetail: (...a: unknown[]) => detailFn(...a), fleetVersions: (...a: unknown[]) => versionsFn(...a) } };
 });
 
 // @ts-expect-error — Svelte component has no declaration file
@@ -59,7 +59,7 @@ async function render(d: unknown) {
 }
 const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 
-beforeEach(() => detailFn.mockReset());
+beforeEach(() => { detailFn.mockReset(); versionsFn.mockReset(); });
 
 describe('offering page', () => {
   it('renders a card per provider with its owner, summary, versions and interfaces', async () => {
@@ -71,7 +71,8 @@ describe('offering page', () => {
     expect(text(c)).toContain('Shared settings from platform-app-config.');
     expect(text(c)).toContain('in use');
     expect(text(c)).toContain('api');
-    expect(c.querySelectorAll('.oe-chips li').length).toBe(2);
+    expect(c.querySelectorAll('.ov-chips li').length).toBe(2);
+    expect(text(c)).not.toContain('in use: not shown');
     expect(target.querySelector('h1')?.textContent).toContain('shared-config');
     done();
   });
@@ -83,9 +84,9 @@ describe('offering page', () => {
       v('16.1.0'), v('16.0.0', { lifecycle: { deprecated: '2026-01-01', sunset: '2999-01-01' } }), v('15.0.0', { lifecycle: { deprecated: '2025-01-01', sunset: '2025-06-01' }, sunsetReached: true }),
     ], { total: 5, count: 3, truncated: true }), completeness: 'fleet', note: '' };
     const { target, done } = await render(detail({ providers: preview([provider('postgresql', { service: svc, versions })]) }));
-    const chips = Array.from(target.querySelectorAll('.oe-chips li')) as HTMLElement[];
+    const chips = Array.from(target.querySelectorAll('.ov-chips li')) as HTMLElement[];
     expect(chips.map(text)).toEqual(['16.1.0', '16.0.0 Deprecated', '15.0.0 Past sunset', '+2 more']);
-    expect(text(target.querySelector('[data-testid="offering-provider"]'))).not.toContain('in use');
+    expect(text(target.querySelector('[data-testid="offering-provider"]'))).toContain('in use: not shown');
     done();
   });
 
@@ -134,10 +135,148 @@ describe('offering page', () => {
     done();
   });
 
-  it('says the page is read from contracts', async () => {
+  it('says what Pacto validates and shows, and links the guide', async () => {
     const { target, done } = await render(detail({}));
-    expect(text(target)).toContain("Pacto lists what contracts declare. Provisioning stays in your platform's tools.");
+    expect(text(target)).toContain("Pacto validates what consumers request and shows what providers report. Provisioning runs in your platform's tools.");
+    expect(target.querySelector('.oe-foot a')?.getAttribute('href')).toBe('https://pacto.run/latest/provision-infrastructure/');
+    expect(target.querySelector('[data-testid="hidden-consumers"]')).toBeNull();
     expect(text(target)).toContain('No service has a resolved declaration that consumes this offering. References that are not digest-pinned or locked cannot be resolved and are not counted.');
+    done();
+  });
+
+  it('marks an observed membership and the provider lifecycle', async () => {
+    const { target, done } = await render(detail({ providers: preview([
+      provider('a', { offeringProvenance: 'observed', lifecycle: { deprecated: '2026-01-01', sunset: '2999-01-01' } }),
+      provider('b', { offeringProvenance: 'declared' }),
+    ]) }));
+    const [a, b] = Array.from(target.querySelectorAll('[data-testid="offering-provider"] .oe-head')) as HTMLElement[];
+    expect(text(a)).toContain('observed');
+    expect(text(a)).toContain('Its targets report this offering. Its contract declares none.');
+    expect(text(a)).toContain('Deprecated');
+    expect(text(b)).not.toContain('observed');
+    done();
+  });
+
+  it('checks a range against the server and shows the latest compatible version', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const p = provider('postgresql');
+      const [r2, r1] = (p.versions.items as Array<{ revision: unknown }>).map((v) => v.revision);
+      versionsFn.mockResolvedValue({ providers: [{ provider: p.service, versions: { ...preview([
+        { revision: r2, version: '1.0.1', inUse: true, rangeStatus: 'unsatisfied' }, { revision: r1, version: '1.0.0', inUse: false, rangeStatus: 'satisfied' },
+      ]), latestCompatible: r1, range: '~1.0.0', completeness: 'fleet', note: 'Versions come from the contract revisions this snapshot holds.' } }] });
+      const { target, done } = await render(detail({ providers: preview([p]) }));
+      const input = target.querySelector('input[type="text"]') as HTMLInputElement;
+      expect(input.closest('label')?.textContent).toContain('Versions satisfying');
+      input.value = '~1.0.0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.value = ' ~1.0.0 ';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(versionsFn).toHaveBeenCalledTimes(1);
+      expect(versionsFn).toHaveBeenCalledWith({ offering: 'shared-config', provider: p.service.key, range: '~1.0.0' });
+      flushSync();
+      const chips = Array.from(target.querySelectorAll('.ov-chips li')) as HTMLElement[];
+      expect(chips.map(text)).toEqual(['1.0.1 in use unsatisfied', '1.0.0 satisfied']);
+      expect(text(target.querySelector('.ov'))).toContain('Latest compatible 1.0.0');
+      expect(text(target.querySelector('.ov'))).toContain('Versions come from the contract revisions this snapshot holds.');
+
+      versionsFn.mockResolvedValue({ providers: [{ provider: p.service, versions: { ...preview([]), completeness: 'fleet', note: '' } }] });
+      input.value = '^9.0.0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      flushSync();
+      expect(text(target.querySelector('.ov'))).toContain('No version satisfies ^9.0.0');
+
+      versionsFn.mockRejectedValue(new Error('invalid query: range "nope": not a semver range'));
+      input.value = 'nope';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      flushSync();
+      expect(target.querySelector('[role="alert"]')?.textContent).toBe('invalid query: range "nope": not a semver range');
+
+      versionsFn.mockRejectedValue({});
+      input.value = 'x';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      flushSync();
+      expect(target.querySelector('[role="alert"]')?.textContent).toBe('The range could not be checked.');
+
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      expect(target.querySelector('[role="alert"]')).toBeNull();
+      expect(target.querySelectorAll('.ov-chips li').length).toBe(2);
+      expect(text(target.querySelector('.ov'))).not.toContain('Latest compatible');
+      done();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops an answer a newer range replaced', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let resolveFirst: (v: unknown) => void = () => {};
+      versionsFn.mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; }));
+      const { target, done } = await render(detail({ providers: preview([provider('a')]) }));
+      const input = target.querySelector('input[type="text"]') as HTMLInputElement;
+      input.value = '^1.0.0';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(300);
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      resolveFirst({ providers: [] });
+      await vi.advanceTimersByTimeAsync(0);
+      flushSync();
+      expect(text(target.querySelector('.ov'))).not.toContain('Latest compatible');
+      done();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows a provisioning badge per environment with the detail in its title, and the provider lifecycle', async () => {
+    const pa = provider('postgresql').service;
+    const rev = ref('revision', 'ghcr.io/acme/catalog@sha256:3', 'catalog 1.3.0');
+    const use = (consumer: string, provisioning: unknown[], extra: Record<string, unknown> = {}) => ({ offering: 'shared-config', consumer: ref('service', consumer), provider: pa, via: 'configuration_reference', provisioning, ...extra });
+    const { target, done } = await render(detail({ consumers: preview([
+      use('catalog', [
+        { environment: 'production', phase: 'Ready', reportedPhase: 'Ready', provenance: 'observed', verified: true, producer: 'platform-adapter', source: 'evidence', sourceKind: 'evidence-http', provider: 'postgresql', externalRef: 'db-catalog-production-' + 'x'.repeat(200), asOf: '2026-11-04T09:00:00Z', revision: rev },
+        { environment: 'staging', phase: 'Unknown', provenance: 'observed', verified: false, conflict: ['Failed', 'Ready'] },
+      ], { providerLifecycle: { deprecated: '2026-01-01', sunset: '2999-01-01' } }),
+      use('orders', [{ phase: 'Unknown', provenance: 'observed', verified: false, reason: 'no provider has reported provisioning for this use' }]),
+    ]) }));
+    const [catalog, orders] = Array.from(target.querySelectorAll('[data-testid="offering-consumer"]')) as HTMLElement[];
+    const badges = Array.from(catalog.querySelectorAll('[data-testid="provisioning-badge"] .tag')) as HTMLElement[];
+    expect(badges.map((b) => b.textContent)).toEqual(['production: Ready', 'staging: Unknown']);
+    expect(badges[0].classList.contains('tone-ok')).toBe(true);
+    expect(badges[1].classList.contains('tone-neutral')).toBe(true);
+    const title = badges[0].getAttribute('title') ?? '';
+    expect(title).toMatch(/^Ready \(reported by platform-adapter through evidence, /);
+    expect(title).toContain('External reference: db-catalog-production-');
+    expect(title).toContain('Source: evidence-http');
+    expect(title).toContain('Consumer revision: catalog 1.3.0');
+    expect(badges[1].getAttribute('title')).toBe('Unknown: reporters disagree (Failed, Ready)');
+    expect(text(catalog)).toContain('Deprecated');
+    expect(text(orders.querySelector('[data-testid="provisioning-badge"] .tag'))).toBe('Unknown');
+    expect(orders.querySelector('[data-testid="provisioning-badge"] .tag')?.getAttribute('title')).toBe('Unknown: no provider has reported provisioning for this use');
+    done();
+  });
+
+  it('counts the consumers it hides and links every consumer', async () => {
+    const pa = provider('a').service;
+    const many = Array.from({ length: 3 }, (_, i) => ({ offering: 'shared-config', consumer: ref('service', `c${i}`), provider: pa, via: 'dependency' }));
+    const { target, done } = await render(detail({ consumers: preview(many, { total: 1000, truncated: true }), hiddenConsumers: 7 }));
+    expect(text(target.querySelector('[data-testid="hidden-consumers"]'))).toBe('7 consumers you may not see');
+    const all = target.querySelector('a[href="#/fleet/services?consumes=shared-config"]');
+    expect(all?.textContent).toBe('View all consumers');
+    done();
+  });
+
+  it('counts a single hidden consumer even when none is visible', async () => {
+    const { target, done } = await render(detail({ hiddenConsumers: 1 }));
+    expect(text(target.querySelector('[data-testid="hidden-consumers"]'))).toBe('1 consumer you may not see');
     done();
   });
 });

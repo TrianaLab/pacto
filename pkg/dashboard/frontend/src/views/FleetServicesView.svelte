@@ -37,14 +37,14 @@
   // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
   // The text box writes the first; picking a suggestion, or arriving from an owner
   // page or a per-owner ranking row, writes the second.
-  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', businessDomain = '', capability = '', offering = '', consumes = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Natural name order by default, so service-2 comes before service-10.
   const order = $derived(sort || 'name');
-  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability || offering));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain || businessDomain || capability || offering || consumes));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -70,6 +70,7 @@
     businessDomain: businessDomain || undefined,
     capability: capability || undefined,
     offering: offering || undefined,
+    consumes: consumes || undefined,
     offset: pageOffset || undefined,
     limit: pageLimit,
     sort: order,
@@ -80,9 +81,9 @@
   // retaining them across a filter change would be showing one query's answer under
   // another query's heading, so `list` is gated on the tag matching. A page turn is the
   // exception: the old page stays, under a "Loading another page" line, until the next lands.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${order}`);
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${businessDomain}@@${capability}@@${offering}@@${consumes}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -111,6 +112,7 @@
       businessDomain: patch.businessDomain ?? businessDomain,
       capability: patch.capability ?? capability,
       offering: patch.offering ?? offering,
+      consumes: patch.consumes ?? consumes,
       offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE),
       sort: (patch.sort ?? sort) || undefined,
@@ -165,6 +167,7 @@
     businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain) } : null,
     capability ? { key: 'capability', label: 'Declared capability', value: capability } : null,
     offering ? { key: 'offering', label: 'Offering', value: offering } : null,
+    consumes ? { key: 'consumes', label: 'Consumes', value: consumes } : null,
     domain ? { key: 'domain', label: 'Registry', value: domain } : null,
   ].filter(Boolean));
 

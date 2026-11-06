@@ -1399,6 +1399,10 @@ func (q *Query) revisionRefResolutions(revKey RevisionKey) (cfg, pol map[string]
 			if s := q.snap.Services[rel.ToService]; s != nil {
 				ref := serviceEntityRef(s)
 				res.Service = &ref
+				if to := q.snap.Revisions[rel.ResolvedRevision]; to != nil {
+					rr := revisionEntityRef(to)
+					res.Revision = &rr
+				}
 			} else {
 				res.Resolved = false
 				if !rel.Hidden { // a hidden one keeps the reason that says so

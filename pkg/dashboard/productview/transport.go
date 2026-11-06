@@ -391,14 +391,15 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 // replaced by the resolution.
 type ProductRefResolution struct {
 	fleet.RefResolution
-	Service *ProductRef `json:"service,omitempty"`
+	Service  *ProductRef `json:"service,omitempty"`
+	Revision *ProductRef `json:"revision,omitempty"`
 }
 
 func productRefResolution(r *fleet.RefResolution) *ProductRefResolution {
 	if r == nil {
 		return nil
 	}
-	return &ProductRefResolution{RefResolution: *r, Service: RefPtr(r.Service)}
+	return &ProductRefResolution{RefResolution: *r, Service: RefPtr(r.Service), Revision: RefPtr(r.Revision)}
 }
 
 // ProductConfigurationSummary is a declared configuration scope whose ref, when
@@ -607,6 +608,31 @@ func productProviderVersions(p fleet.ProviderVersionsPreview) ProductProviderVer
 		items[i] = ProductProviderVersion{ProviderVersion: v, Revision: Ref(v.Revision)}
 	}
 	return ProductProviderVersions{ProviderVersionsPreview: p, Items: items, LatestCompatible: RefPtr(p.LatestCompatible)}
+}
+
+// ProductOfferingProviderVersions is one navigable provider's versions.
+type ProductOfferingProviderVersions struct {
+	fleet.OfferingProviderVersions
+	Provider ProductRef              `json:"provider"`
+	Versions ProductProviderVersions `json:"versions"`
+}
+
+// ProductOfferingVersions is the navigable answer to which versions each
+// provider of an offering has and which satisfy a range.
+type ProductOfferingVersions struct {
+	fleet.OfferingVersionsResult
+	Offering  ProductRef                        `json:"offering"`
+	Providers []ProductOfferingProviderVersions `json:"providers"`
+}
+
+// ToOfferingVersions adds an href to the offering, every provider and every
+// version.
+func ToOfferingVersions(r *fleet.OfferingVersionsResult) *ProductOfferingVersions {
+	out := &ProductOfferingVersions{OfferingVersionsResult: *r, Offering: Ref(r.Offering), Providers: make([]ProductOfferingProviderVersions, len(r.Providers))}
+	for i, p := range r.Providers {
+		out.Providers[i] = ProductOfferingProviderVersions{OfferingProviderVersions: p, Provider: Ref(p.Provider), Versions: productProviderVersions(p.Versions)}
+	}
+	return out
 }
 
 // ProductOfferingProvidersPreview is a bounded preview of offering providers.

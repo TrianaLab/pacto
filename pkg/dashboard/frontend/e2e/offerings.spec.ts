@@ -48,7 +48,25 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(snippet).toContainText('dependencies:');
     await expect(snippet).toContainText('ref: oci://demo.pacto.local/postgresql');
     await expect(snippet).toContainText('compatibility: "^16.0.0"');
-    await expect(page.getByTestId('offering-consumer').filter({ hasText: 'payments-service' }).first()).toBeVisible();
+    const consumer = page.getByTestId('offering-consumer').filter({ hasText: 'payments-service' }).first();
+    await expect(consumer).toBeVisible();
+    // No provider reports provisioning in this demo, so the badge says Unknown.
+    await expect(consumer.getByTestId('provisioning-badge').first()).toHaveText('Unknown');
+    await expect(provider.locator('.ov-chips li').first()).toBeVisible();
+    expect(await noSideScroll(page)).toBe(true);
+  });
+
+  test('a range on the postgresql page asks the server which versions satisfy it', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings/postgresql');
+    await page.addStyleTag({ content: WIDE_FONT });
+    const provider = page.getByTestId('offering-provider');
+    await expect(provider).toHaveCount(1, { timeout: T });
+    await provider.getByLabel('Versions satisfying').fill('^16.0.0');
+    await expect(provider.locator('.ov')).toContainText('Latest compatible', { timeout: T });
+    await expect(provider.locator('.ov-chips li').first()).toContainText('satisfied');
+    await provider.getByLabel('Versions satisfying').fill('not a range');
+    await expect(provider.getByRole('alert')).toContainText('not a semver range', { timeout: T });
     expect(await noSideScroll(page)).toBe(true);
   });
 

@@ -50,6 +50,7 @@ export type ProductNeighborhood = JSON200<'fleet-neighborhood'>;
 export type ProductAttentionList = JSON200<'fleet-attention'>;
 export type ProductImpact = JSON200<'fleet-impact-post'>;
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
+export type ProductOfferingVersions = JSON200<'fleet-versions'>;
 export type ProductMeta = ProductOverview['meta'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
@@ -112,6 +113,7 @@ export type FindingSeverity = NonNullable<ProductAttentionList['items']>[number]
 type FleetEntitiesQuery = NonNullable<operations['fleet-entities']['parameters']['query']>;
 type FleetNeighborhoodQuery = NonNullable<operations['fleet-neighborhood']['parameters']['query']>;
 type FleetAttentionQuery = NonNullable<operations['fleet-attention']['parameters']['query']>;
+type FleetVersionsQuery = operations['fleet-versions']['parameters']['query'];
 type FleetImpactBody = NonNullable<operations['fleet-impact-post']['requestBody']>['content']['application/json'];
 
 export type FleetEntitiesInput = FleetEntitiesQuery;
@@ -440,6 +442,9 @@ export const api = {
     productGet(client.GET('/api/fleet/attention', {
       params: { query: { ...params, staleOnly: params.staleOnly || undefined } },
     })),
+  /** The versions of an offering's providers, each checked against range when it is set. */
+  fleetVersions: (params: FleetVersionsQuery): Promise<ProductOfferingVersions> =>
+    productGet(client.GET('/api/fleet/versions', { params: { query: params } })),
   fleetImpactByIdentity: (body: FleetImpactInput): Promise<ProductImpact> =>
     productGet(client.POST('/api/fleet/impact', { body })),
   /** Lazily reads ONE document body belonging to exactly this revision. Kept off

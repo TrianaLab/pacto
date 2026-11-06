@@ -37,6 +37,12 @@ func (s *Server) registerProductOperations(api huma.API) {
 	}, s.fleetEntities)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "fleet-versions", Method: http.MethodGet, Path: "/api/fleet/versions",
+		Summary: "Offering provider versions", Tags: []string{"Fleet"},
+		Description: "Lists the versions of every provider of a platform offering, or of one provider, newest first, with each version's lifecycle and, when a range is given, whether it satisfies the range and the latest compatible version. The list comes from the contract revisions the fleet holds; the registry may publish others.",
+	}, s.fleetVersions)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "fleet-entity-detail", Method: http.MethodGet, Path: "/api/fleet/entities/{kind}",
 		Summary: "Entity detail", Tags: []string{"Fleet"},
 		Description: "Returns one entity's strongly typed, discriminated detail (service, revision, target, owner or source), keyed by the query-param key so a key containing a slash is transported safely.",
@@ -89,6 +95,7 @@ type fleetEntitiesInput struct {
 	Environment    string   `query:"environment" doc:"Exact environment a target runs in, from the delivery.pacto.trianalab.io/environment label (target entities)"`
 	Capability     string   `query:"capability" doc:"Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost"`
 	Offering       string   `query:"offering" doc:"Exact platform offering (service.offering) a service provides (service and offering entities)"`
+	Consumes       string   `query:"consumes" doc:"Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities)"`
 	Scope          string   `query:"scope"`
 	Status         string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
 	Ownership      string   `query:"ownership" enum:"consistent,conflicting,unowned" doc:"Declared-ownership filter for service entities"`
@@ -110,7 +117,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(in.Kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
-		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering,
+		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
 		Ownership: in.Ownership, Readiness: in.Readiness,
 		Service: in.Service, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
@@ -119,6 +126,30 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 		return nil, productQueryError(err)
 	}
 	return &fleetEntitiesOutput{Body: productview.ToEntityList(res)}, nil
+}
+
+type fleetVersionsInput struct {
+	Offering string `query:"offering" required:"true" doc:"Platform offering (service.offering) slug"`
+	Provider string `query:"provider" doc:"One provider of the offering, by canonical service key or unique name; absent lists every provider"`
+	Range    string `query:"range" doc:"Semver range such as ^16.0.0; each version reports whether it satisfies it"`
+}
+
+type fleetVersionsOutput struct{ Body *ProductOfferingVersions }
+
+func (s *Server) fleetVersions(ctx context.Context, in *fleetVersionsInput) (*fleetVersionsOutput, error) {
+	q, err := s.fleetQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res, err := q.OfferingVersions(in.Offering, in.Provider, in.Range)
+	var bad *fleet.InvalidQueryError
+	if errors.As(err, &bad) {
+		return nil, huma.Error400BadRequest(bad.Error(), err)
+	}
+	if err != nil {
+		return nil, productQueryError(err)
+	}
+	return &fleetVersionsOutput{Body: productview.ToOfferingVersions(res)}, nil
 }
 
 type fleetEntityDetailInput struct {
