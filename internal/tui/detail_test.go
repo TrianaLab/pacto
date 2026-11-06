@@ -577,7 +577,11 @@ func TestRenderDetailForAnOffering(t *testing.T) {
 			Providers: fleet.OfferingProvidersPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.OfferingProvider{{
 				Service:   fleet.EntityRef{Label: "pg-operator"},
 				Ownership: &fleet.OwnershipInfo{Owner: "team-data"},
-				Revisions: fleet.RefPreview{Total: 2, Count: 2, Items: []fleet.EntityRef{{Label: "1.0.0"}, {Label: "1.1.0"}}},
+				Versions: fleet.ProviderVersionsPreview{Total: 4, Count: 3, Truncated: true, Items: []fleet.ProviderVersion{
+					{Revision: fleet.EntityRef{Label: "1.2.0"}},
+					{Revision: fleet.EntityRef{Label: "1.1.0"}, Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-01"}},
+					{Revision: fleet.EntityRef{Label: "1.0.0"}, Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2025-01-01"}, SunsetReached: true},
+				}},
 				Consume:   &fleet.ConsumeSnippet{Ref: "oci://ghcr.io/acme/pg-operator"},
 				Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2027-06-30"},
 			}, {Service: fleet.EntityRef{Label: "bare"}}}},
@@ -586,7 +590,7 @@ func TestRenderDetailForAnOffering(t *testing.T) {
 			}}},
 		},
 	})
-	for _, want := range []string{"Providers (2)", "pg-operator", "team-data", "1.0.0, 1.1.0", "deprecated 2026-01-01, sunset 2027-06-30", "oci://ghcr.io/acme/pg-operator", "bare", "Consumers (2)", "orders -> pg-operator", "and 1 more"} {
+	for _, want := range []string{"Providers (2)", "pg-operator", "team-data", "1.2.0, 1.1.0 (deprecated), 1.0.0 (sunset), +1 more", "deprecated 2026-01-01, sunset 2027-06-30", "oci://ghcr.io/acme/pg-operator", "bare", "Consumers (2)", "orders -> pg-operator", "and 1 more"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("offering detail never says %q:\n%s", want, out)
 		}

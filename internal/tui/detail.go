@@ -321,9 +321,19 @@ func renderOfferingDetail(b *strings.Builder, o *fleet.OfferingDetailData) {
 		if p.Ownership != nil {
 			field(b, "  owner", p.Ownership.Owner)
 		}
-		versions := make([]string, 0, len(p.Revisions.Items))
-		for _, r := range p.Revisions.Items {
-			versions = append(versions, r.Label)
+		versions := make([]string, 0, len(p.Versions.Items))
+		for _, v := range p.Versions.Items {
+			label := v.Revision.Label
+			switch {
+			case v.SunsetReached:
+				label += " (sunset)"
+			case v.Lifecycle != nil:
+				label += " (deprecated)"
+			}
+			versions = append(versions, label)
+		}
+		if p.Versions.Truncated {
+			versions = append(versions, fmt.Sprintf("+%d more", p.Versions.Total-len(p.Versions.Items)))
 		}
 		field(b, "  versions", strings.Join(versions, ", "))
 		field(b, "  lifecycle", strings.TrimPrefix(lifecycleText(p.Lifecycle), ", "))

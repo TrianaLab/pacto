@@ -77,7 +77,7 @@ func TestProductOfferingDetail_OverTheWire(t *testing.T) {
 		t.Fatalf("offering detail = %+v", det)
 	}
 	for _, p := range o.Providers.Items {
-		if p.Service.Href == "" || p.CurrentRevision == nil || p.CurrentRevision.Href == "" || p.Revisions.Items[0].Href == "" || p.Consume == nil || p.Consume.YAML == "" {
+		if p.Service.Href == "" || p.CurrentRevision == nil || p.CurrentRevision.Href == "" || p.Versions.Items[0].Revision.Href == "" || p.Consume == nil || p.Consume.YAML == "" {
 			t.Errorf("provider = %+v", p)
 		}
 	}

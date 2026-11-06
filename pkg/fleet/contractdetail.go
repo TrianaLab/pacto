@@ -217,6 +217,15 @@ func withSchemaContent(snap *FleetSnapshot, rev *ContractRevision, cfgs Configur
 // selects it, following a selected configuration that is itself a ref. Nil when
 // a hop does not resolve, the selection fails or the chain cycles.
 func refSchema(snap *FleetSnapshot, rev *ContractRevision, name string) *SchemaContent {
+	if to, path := refSchemaFile(snap, rev, name); to != nil {
+		return revisionSchema(to, path)
+	}
+	return nil
+}
+
+// refSchemaFile is the revision and path of the schema refSchema reads; a nil
+// revision when there is none.
+func refSchemaFile(snap *FleetSnapshot, rev *ContractRevision, name string) (*ContractRevision, string) {
 	entry := rev.Contract.Configurations[slices.IndexFunc(rev.Contract.Configurations, func(c contract.Configuration) bool { return c.Name == name })]
 	type hop struct {
 		rev  RevisionKey
@@ -227,18 +236,18 @@ func refSchema(snap *FleetSnapshot, rev *ContractRevision, name string) *SchemaC
 		seen[hop{rev.Key, entry.Name}] = true
 		to := snap.Revisions[configRefTarget(snap, rev.Key, entry.Name)]
 		if to == nil {
-			return nil
+			return nil, ""
 		}
 		sel, code, _ := validation.SelectConfiguration(entry, to.Contract)
 		switch {
 		case code != "" || sel.Ref == "" && sel.Schema == "":
-			return nil
+			return nil, ""
 		case sel.Ref == "":
-			return revisionSchema(to, sel.Schema)
+			return to, sel.Schema
 		}
 		rev, entry = to, sel
 	}
-	return nil
+	return nil, ""
 }
 
 // configRefTarget is the revision the configuration ref name declared by from

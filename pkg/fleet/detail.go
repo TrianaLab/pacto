@@ -608,13 +608,14 @@ type OfferingProvider struct {
 	Summary         string         `json:"summary,omitempty"`
 	CurrentRevision *EntityRef     `json:"currentRevision,omitempty"`
 	// Lifecycle is the service lifecycle CurrentRevision declares.
-	Lifecycle       *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
-	Revisions       RefPreview                   `json:"revisions"`
-	ActiveRevisions RefPreview                   `json:"activeRevisions"`
-	Interfaces      InterfacesPreview            `json:"interfaces"`
-	Configurations  ConfigurationsPreview        `json:"configurations"`
-	Policies        PoliciesPreview              `json:"policies"`
-	Consume         *ConsumeSnippet              `json:"consume,omitempty"`
+	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	// Versions lists the provider's versions, newest first, with the lifecycle
+	// each declares and whether a target runs it.
+	Versions       ProviderVersionsPreview `json:"versions"`
+	Interfaces     InterfacesPreview       `json:"interfaces"`
+	Configurations ConfigurationsPreview   `json:"configurations"`
+	Policies       PoliciesPreview         `json:"policies"`
+	Consume        *ConsumeSnippet         `json:"consume,omitempty"`
 	// OfferingProvenance says where this provider's membership in the offering
 	// comes from: declared by its contract or observed from its targets.
 	OfferingProvenance string `json:"offeringProvenance" enum:"declared,observed"`
@@ -765,7 +766,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	ownership.Unknown = !ownership.Declared && q.ownershipUnknown(s)
 	nb, nbErr := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()})
 	rels, nbLims := serviceRelationships(nb, nbErr, self)
-	current, cfgs, pols := q.currentRevisionContent(active, view.Revisions)
+	current, cfgs, pols := q.currentRevisionContent(newestInUse(active, view.Revisions))
 	unresolved := unresolvedDependencyItems(self, view.Dependencies)
 	consumed, conflicts := q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)
 	data := &ServiceDetailData{
@@ -1046,26 +1047,20 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 	}, nil
 }
 
-// offeringProvider projects one provider of an offering from the snapshot.
+// offeringProvider projects one provider of an offering from the snapshot. Its
+// current revision is the newest readable one, the revision the snippet pins.
 func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
-	inUse := map[RevisionKey]bool{}
-	for _, tk := range s.Targets {
-		inUse[q.snap.Targets[tk].ContractRevision] = true
-	}
-	var all, active []*ContractRevision
+	var all []*ContractRevision
 	for _, rk := range s.Revisions {
-		r := q.snap.Revisions[rk]
-		all = append(all, r)
-		if inUse[rk] {
-			active = append(active, r)
-		}
+		all = append(all, q.snap.Revisions[rk])
 	}
-	current, cfgs, pols := q.currentRevisionContent(active, all)
+	newest := newestReadable(all)
+	current, cfgs, pols := q.currentRevisionContent(newest)
 	p := OfferingProvider{
 		Service: serviceEntityRef(s), OfferingProvenance: s.OfferingProvenance, Ownership: serviceOwnership(s, all), Summary: s.Summary, CurrentRevision: current,
-		Revisions: refPreview(chronologicalRevisionRefs(all)), ActiveRevisions: refPreview(chronologicalRevisionRefs(active)),
+		Versions:       q.offeringProviderVersions(s, ""),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
-		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(s, newestReadable(all)),
+		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(q.snap, s, newest),
 	}
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {
@@ -1594,11 +1589,9 @@ func (q *Query) ownershipUnknown(s *ServiceRecord) bool {
 	return true
 }
 
-// currentRevisionContent picks the service's current revision (the newest in
-// use, else the newest known) and projects its policies and configurations.
-// It reads the SNAPSHOT record: active and all are clones without bundle files.
-func (q *Query) currentRevisionContent(active, all []*ContractRevision) (*EntityRef, ConfigurationsPreview, PoliciesPreview) {
-	cfgs, pols := ConfigurationsPreview{Items: []ConfigurationSummary{}}, PoliciesPreview{Items: []PolicySummary{}}
+// newestInUse is a service's current revision: the newest in use, else the
+// newest known, nil when there is none.
+func newestInUse(active, all []*ContractRevision) *ContractRevision {
 	pick := active
 	if len(pick) == 0 {
 		pick = all
@@ -1609,6 +1602,14 @@ func (q *Query) currentRevisionContent(active, all []*ContractRevision) (*Entity
 			cur = r
 		}
 	}
+	return cur
+}
+
+// currentRevisionContent projects the policies and configurations of cur, the
+// revision a caller chose as current. It reads the SNAPSHOT record: cur may be a
+// clone without bundle files.
+func (q *Query) currentRevisionContent(cur *ContractRevision) (*EntityRef, ConfigurationsPreview, PoliciesPreview) {
+	cfgs, pols := ConfigurationsPreview{Items: []ConfigurationSummary{}}, PoliciesPreview{Items: []PolicySummary{}}
 	if cur == nil {
 		return nil, cfgs, pols
 	}

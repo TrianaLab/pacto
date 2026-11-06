@@ -3310,7 +3310,6 @@ export interface components {
             providers: components["schemas"]["ProductOfferingProvidersPreview"];
         };
         ProductOfferingProvider: {
-            activeRevisions: components["schemas"]["ProductRefPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consume?: components["schemas"]["Fleet.ConsumeSnippet"];
             currentRevision?: components["schemas"]["ProductRef"];
@@ -3320,9 +3319,9 @@ export interface components {
             offeringProvenance: "declared" | "observed";
             ownership?: components["schemas"]["ProductOwnership"];
             policies: components["schemas"]["ProductPoliciesPreview"];
-            revisions: components["schemas"]["ProductRefPreview"];
             service: components["schemas"]["ProductRef"];
             summary?: string;
+            versions: components["schemas"]["ProductProviderVersions"];
         };
         ProductOfferingProvidersPreview: {
             /** Format: int64 */
@@ -3389,6 +3388,28 @@ export interface components {
             resolution?: components["schemas"]["ProductRefResolution"];
             schema?: string;
             target?: string;
+        };
+        ProductProviderVersion: {
+            inUse?: boolean;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /** @enum {string} */
+            rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
+            revision: components["schemas"]["ProductRef"];
+            sunsetReached?: boolean;
+            version?: string;
+        };
+        ProductProviderVersions: {
+            /** @enum {string} */
+            completeness: "fleet";
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductProviderVersion"][] | null;
+            latestCompatible?: components["schemas"]["ProductRef"];
+            note: string;
+            range?: string;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
         };
         ProductProvisioningStatus: {
             /** Format: date-time */

@@ -29,8 +29,7 @@ function provider(name: string, extra: Record<string, any> = {}) {
     ownership: { declared: true, owner: 'team:platform', ref: ref('owner', 'team:platform') },
     summary: `Shared settings from ${name}.`,
     currentRevision: r2,
-    revisions: preview([r2, r1]),
-    activeRevisions: preview([r2]),
+    versions: { ...preview([{ revision: r2, version: '1.0.1', inUse: true }, { revision: r1, version: '1.0.0', inUse: false }]), completeness: 'fleet', note: 'Versions come from the fleet.' },
     interfaces: { ...preview([{ name: 'api', type: 'http' }]), deprecated: 0, pastSunset: 0 },
     configurations: preview([]),
     policies: preview([]),
@@ -74,6 +73,19 @@ describe('offering page', () => {
     expect(text(c)).toContain('api');
     expect(c.querySelectorAll('.oe-chips li').length).toBe(2);
     expect(target.querySelector('h1')?.textContent).toContain('shared-config');
+    done();
+  });
+
+  it('marks deprecated and past-sunset versions, says nothing of use it cannot see and counts the rest', async () => {
+    const svc = ref('service', 'ghcr.io/acme/postgresql', 'postgresql');
+    const v = (version: string, extra: Record<string, unknown> = {}) => ({ revision: ref('revision', `${svc.key}@sha256:${version}`, `postgresql ${version}`), version, ...extra });
+    const versions = { ...preview([
+      v('16.1.0'), v('16.0.0', { lifecycle: { deprecated: '2026-01-01', sunset: '2999-01-01' } }), v('15.0.0', { lifecycle: { deprecated: '2025-01-01', sunset: '2025-06-01' }, sunsetReached: true }),
+    ], { total: 5, count: 3, truncated: true }), completeness: 'fleet', note: '' };
+    const { target, done } = await render(detail({ providers: preview([provider('postgresql', { service: svc, versions })]) }));
+    const chips = Array.from(target.querySelectorAll('.oe-chips li')) as HTMLElement[];
+    expect(chips.map(text)).toEqual(['16.1.0', '16.0.0 Deprecated', '15.0.0 Past sunset', '+2 more']);
+    expect(text(target.querySelector('[data-testid="offering-provider"]'))).not.toContain('in use');
     done();
   });
 

@@ -289,7 +289,7 @@ func wantAppProvider(t *testing.T, app OfferingProvider) {
 	if app.Ownership == nil || app.Ownership.Owner != "platform" {
 		t.Errorf("app ownership = %+v", app.Ownership)
 	}
-	if app.Service.Label != "platform-app-config" || app.Summary != "Shared application configuration" || app.Revisions.Total != 2 || app.ActiveRevisions.Total != 1 || app.CurrentRevision == nil || app.CurrentRevision.Version != "1.0.1" {
+	if app.Service.Label != "platform-app-config" || app.Summary != "Shared application configuration" || app.Versions.Total != 2 || *app.Versions.Items[0].InUse != true || *app.Versions.Items[1].InUse || app.CurrentRevision == nil || app.CurrentRevision.Version != "1.0.1" {
 		t.Errorf("app provider = %+v", app)
 	}
 	if c := app.Configurations.Items; len(c) != 1 || c[0].Content == nil || c[0].Content.Title != "App" || app.Policies.Total != 1 {
@@ -395,7 +395,8 @@ func TestConsumeSnippet_ConfigurationNamedAfterProvider(t *testing.T) {
 	c := svc25("platform-app-config", "1.0.0", "shared-config")
 	c.Configurations = []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}}
 	sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
-	want := "configurations:\n  - name: platform-app-config\n    ref: oci://ghcr.io/acme/platform-app-config\n    required: true\n"
+	want := "# values and configuration need pactoVersion \"2.6\"; run pacto lock to pin the reference\n" +
+		"configurations:\n  - name: platform-app-config\n    ref: oci://ghcr.io/acme/platform-app-config:1.0.0\n    required: true\n"
 	if sn == nil || sn.YAML != want {
 		t.Errorf("snippet = %+v, want %q", sn, want)
 	}
@@ -518,7 +519,7 @@ func TestOfferingDetail_TargetOnlyProvider(t *testing.T) {
 		{Scope: "a", Kind: "k8s", Name: "pg", Service: "pg", Offering: "postgresql"},
 	}})
 	p := offeringData(t, q, "postgresql").Providers.Items[0]
-	if p.Consume != nil || p.CurrentRevision != nil || p.Interfaces.Total != 0 || p.Revisions.Total != 0 || p.OfferingProvenance != ProvenanceObserved {
+	if p.Consume != nil || p.CurrentRevision != nil || p.Interfaces.Total != 0 || p.Versions.Total != 0 || p.OfferingProvenance != ProvenanceObserved {
 		t.Errorf("provider = %+v", p)
 	}
 	if d, _ := q.EntityDetail(KindOffering, "postgresql"); d.Entity.OfferingProvenance != ProvenanceObserved {
@@ -676,5 +677,171 @@ func TestOfferingDetail_ConsumerRevisionsDisagreeOnRange(t *testing.T) {
 	o := offeringData(t, q, "postgresql")
 	if len(o.Consumers.Items) != 1 || o.Consumers.Items[0].Compatibility != "" || o.Consumers.Items[0].RangeStatus != RangeUnknown {
 		t.Errorf("consumers = %+v", o.Consumers.Items)
+	}
+}
+
+// pgSchema is the provisioning schema of the demo-shaped postgresql provider.
+const pgSchema = `{
+  "type": "object",
+  "required": ["size", "storageGiB", "highAvailability", "extensions", "database", "labels"],
+  "properties": {
+    "size": {"type": "string", "enum": ["small", "medium", "large"], "default": "medium"},
+    "storageGiB": {"type": "integer", "minimum": 10},
+    "highAvailability": {"type": "boolean"},
+    "extensions": {"type": "array", "items": {"type": "string"}},
+    "database": {"type": "string"},
+    "labels": {"type": "object"},
+    "backupRetentionDays": {"type": "integer"}
+  }
+}`
+
+// pgOffering is a demo-shaped postgresql 16.1.0: a workload with an
+// interface and one required provisioning configuration.
+func pgOffering() *contract.Contract {
+	c := svc25("postgresql", "16.1.0", "postgresql")
+	c.PactoVersion, c.Workload = "2.6", contract.WorkloadService
+	c.Interfaces = []contract.Interface{{Name: "sql", Type: "tcp"}}
+	c.Configurations = []contract.Configuration{{Name: "provisioning", Schema: "configuration/schema.json", Required: true}}
+	return c
+}
+
+// A provider with a workload and a required configuration gets both
+// consumption forms; the configuration entry is pinned to the current version
+// and carries the schema's required properties as a values skeleton.
+func TestConsumeSnippet_BothFormsWithValues(t *testing.T) {
+	files := fstest.MapFS{"configuration/schema.json": {Data: []byte(pgSchema)}}
+	sn := snippetFor(t, ociRev("ghcr.io/trianalab/pacto", pgOffering(), files))
+	want := `dependencies:
+  - name: postgresql
+    ref: oci://ghcr.io/trianalab/pacto/postgresql
+    required: true
+    compatibility: "^16.0.0"
+# values and configuration need pactoVersion "2.6"; run pacto lock to pin the reference
+configurations:
+  - name: postgresql
+    ref: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+    required: true
+    values:
+      size: "medium" # required string, one of small|medium|large, default medium
+      storageGiB: 0 # required integer
+      highAvailability: false # required boolean
+      extensions: [] # required array
+      database: "" # required string
+      labels: {} # required object
+`
+	if sn == nil || sn.YAML != want || !sn.Dependency || !sn.Configuration {
+		t.Fatalf("snippet = %+v\n got:\n%s\nwant:\n%s", sn, sn.YAML, want)
+	}
+	consumer := mustParse(t, "pactoVersion: \"2.6\"\nservice:\n  name: app\n  version: 1.0.0\n"+sn.YAML)
+	if cfg := consumer.Configurations[0]; len(cfg.Values) != 6 || cfg.Values["size"] != "medium" {
+		t.Errorf("parsed values = %+v", cfg.Values)
+	}
+	if r := validation.ValidateCrossField(consumer, fstest.MapFS{}); !r.IsValid() {
+		t.Errorf("snippet is invalid: %+v", r.Errors)
+	}
+}
+
+// A provider with several configurations gets a selector on each entry; several
+// required configurations get one entry each, named apart.
+func TestConsumeSnippet_SelectorOnlyForSeveralConfigurations(t *testing.T) {
+	c := svc25("platform-app-config", "1.0.0", "shared-config")
+	c.Configurations = []contract.Configuration{{Name: "app", Schema: "a.json", Required: true}, {Name: "extra", Schema: "a.json"}}
+	sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
+	if sn == nil || !strings.Contains(sn.YAML, "  - name: platform-app-config\n    ref: oci://ghcr.io/acme/platform-app-config:1.0.0\n    configuration: app\n    required: true\n") || strings.Contains(sn.YAML, "extra") {
+		t.Errorf("one required of two: %+v", sn)
+	}
+	c.Configurations[1].Required = true
+	sn = snippetFor(t, ociRev("ghcr.io/acme", c, nil))
+	if sn == nil || !strings.Contains(sn.YAML, "  - name: platform-app-config-app\n") || !strings.Contains(sn.YAML, "  - name: platform-app-config-extra\n    ref: oci://ghcr.io/acme/platform-app-config:1.0.0\n    configuration: extra\n") {
+		t.Errorf("two required: %+v", sn)
+	}
+}
+
+// A provider configuration that is itself a reference takes its skeleton from
+// the schema the reference resolves to.
+func TestConsumeSnippet_SkeletonThroughReference(t *testing.T) {
+	base := svc25("base-config", "1.0.0", "")
+	base.Configurations = []contract.Configuration{{Name: "base", Schema: "s.json", Required: true}}
+	files := fstest.MapFS{"s.json": {Data: []byte(`{"required":["region"],"properties":{"region":{"type":"string","enum":["eu","us"]}}}`)}}
+	c := svc25("platform-app-config", "1.0.0", "shared-config")
+	c.Configurations = []contract.Configuration{{Name: "app", Ref: "oci://ghcr.io/acme/base-config@" + testDigest("ghcr.io/acme", "base-config", "1.0.0"), Required: true}}
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{ociRev("ghcr.io/acme", base, files), ociRev("ghcr.io/acme", c, nil)}})
+	sn := offeringData(t, q, "shared-config").Providers.Items[0].Consume
+	if sn == nil || !strings.HasSuffix(sn.YAML, "    values:\n      region: \"eu\" # required string, one of eu|us\n") {
+		t.Errorf("snippet = %+v", sn)
+	}
+	// An unresolved reference gives no skeleton.
+	c.Configurations[0].Ref = "oci://ghcr.io/acme/base-config:1.0.0"
+	if sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil)); sn == nil || strings.Contains(sn.YAML, "values:") {
+		t.Errorf("unresolved: %+v", sn)
+	}
+}
+
+func TestValuesSkeleton(t *testing.T) {
+	for _, tc := range []struct{ name, schema, want string }{
+		{"unparsable", `{`, ""},
+		{"nothing required", `{"properties":{"a":{"type":"string"}}}`, ""},
+		{"type list and no property", `{"required":["a","b"],"properties":{"a":{"type":["number","null"]}}}`, "    values:\n      a: 0 # required number\n      b: \"\" # required\n"},
+		{"quoted key and object default", `{"required":["true"],"properties":{"true":{"type":"object","default":{"x":1}}}}`, "    values:\n      \"true\": {\"x\":1} # required object, default {\"x\":1}\n"},
+		{"enum without default", `{"required":["count"],"properties":{"count":{"type":"integer","enum":[3,5]}}}`, "    values:\n      count: 3 # required integer, one of 3|5\n"},
+	} {
+		if got := valuesSkeleton([]byte(tc.schema), "s.json"); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if got := valuesSkeleton([]byte("required: [a]\nproperties: {a: {type: boolean}}\n"), "s.yaml"); got != "    values:\n      a: false # required boolean\n" {
+		t.Errorf("yaml schema: %q", got)
+	}
+}
+
+// A deprecated current revision says so, with its successor when it names one.
+func TestConsumeSnippet_DeprecatedComment(t *testing.T) {
+	c := pgOffering()
+	c.Configurations = nil
+	c.Service.Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-10-01"}
+	if sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil)); sn == nil || !strings.HasPrefix(sn.YAML, "# postgresql 16.1.0 is deprecated since 2026-10-01\ndependencies:\n") {
+		t.Errorf("snippet = %+v", sn)
+	}
+	c.Service.Lifecycle.Successor = "oci://ghcr.io/acme/postgresql-17"
+	if sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil)); sn == nil || !strings.HasPrefix(sn.YAML, "# postgresql 16.1.0 is deprecated since 2026-10-01; successor oci://ghcr.io/acme/postgresql-17\n") {
+		t.Errorf("snippet = %+v", sn)
+	}
+}
+
+// The offering page's current revision is the revision the snippet pins, even
+// when a target runs an older one that declares no offering; service detail
+// keeps the newest in use.
+func TestConsumeSnippetMatchesCurrent(t *testing.T) {
+	old := svc25("postgresql", "16.0.0", "")
+	old.Workload = contract.WorkloadService
+	q := buildDomainSnap(t, "oci", &Collection{
+		Revisions: []RawRevision{ociRev("ghcr.io/acme", old, nil), ociRev("ghcr.io/acme", pgOffering(), fstest.MapFS{"configuration/schema.json": {Data: []byte(pgSchema)}})},
+		Targets:   []RawTarget{{Scope: "prod", Kind: "k8s", Name: "pg", Service: "postgresql", Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", "postgresql", "16.0.0")}},
+	})
+	p := offeringData(t, q, "postgresql").Providers.Items[0]
+	if p.CurrentRevision == nil || p.CurrentRevision.Version != "16.1.0" || p.Consume == nil || !strings.Contains(p.Consume.YAML, "postgresql:16.1.0") || p.Configurations.Total != 1 || p.Interfaces.Total != 1 {
+		t.Errorf("provider = %+v", p)
+	}
+	d, err := q.EntityDetail(KindService, string(NewServiceKeyDomain("ghcr.io/acme", "postgresql")))
+	if err != nil || d.Service.CurrentRevision == nil || d.Service.CurrentRevision.Version != "16.0.0" {
+		t.Errorf("service detail current = %+v, %v", d.Service.CurrentRevision, err)
+	}
+}
+
+// Service detail picks the newest revision in use, else the newest known.
+func TestServiceDetailCurrentRevisionUnchanged(t *testing.T) {
+	a, b := offerRev("kv", "1.0.0", "", ""), offerRev("kv", "1.1.0", "", "")
+	for _, tc := range []struct {
+		targets []RawTarget
+		want    string
+	}{
+		{[]RawTarget{{Scope: "a", Kind: "k8s", Name: "kv", Service: "kv", Domain: "ghcr.io/acme", Digest: "sha256:kv1.0.0"}}, "1.0.0"},
+		{nil, "1.1.0"},
+	} {
+		q := buildDomainSnap(t, "local", &Collection{Revisions: []RawRevision{a, b}, Targets: tc.targets})
+		d, err := q.EntityDetail(KindService, string(NewServiceKeyDomain("ghcr.io/acme", "kv")))
+		if err != nil || d.Service.CurrentRevision == nil || d.Service.CurrentRevision.Version != tc.want {
+			t.Errorf("current = %+v, want %s (%v)", d.Service.CurrentRevision, tc.want, err)
+		}
 	}
 }

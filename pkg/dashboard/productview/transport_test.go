@@ -368,13 +368,18 @@ func TestProductLists_DomainOfferingAndDocumentHrefs(t *testing.T) {
 	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "pay@sha256:a"}
 	use := fleet.OfferingUse{Consumer: svc, Provider: svc, Provisioning: []fleet.ProvisioningStatus{{Phase: fleet.StatusUnknown}, {Phase: "Ready", Revision: &rev}}}
 	od := ToEntityDetail(&fleet.EntityDetail{Entity: off, Offering: &fleet.OfferingDetailData{
-		Providers: fleet.OfferingProvidersPreview{Total: 1, Count: 1, Items: []fleet.OfferingProvider{{Service: svc, Revisions: one}}},
+		Providers: fleet.OfferingProvidersPreview{Total: 1, Count: 1, Items: []fleet.OfferingProvider{{Service: svc, Versions: fleet.ProviderVersionsPreview{
+			Total: 1, Count: 1, Items: []fleet.ProviderVersion{{Revision: rev}}, LatestCompatible: &rev,
+		}}}},
 		Consumers: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{use}},
 	}})
 	if od.Offering == nil || od.Entity.Href != "/fleet/offerings/postgres" {
 		t.Fatalf("offering detail = %+v", od)
 	}
 	assertNoEmptyHrefs(t, "offering", od)
+	if v := od.Offering.Providers.Items[0].Versions; v.Items[0].Revision.Href == "" || v.LatestCompatible == nil || v.LatestCompatible.Href == "" {
+		t.Errorf("provider versions = %+v", v)
+	}
 	if p := od.Offering.Consumers.Items[0].Provisioning; len(p) != 2 || p[0].Revision != nil || p[1].Revision.Href == "" {
 		t.Errorf("provisioning = %+v", p)
 	}

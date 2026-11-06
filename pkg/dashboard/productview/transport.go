@@ -582,10 +582,31 @@ type ProductOfferingProvider struct {
 	Service         ProductRef                   `json:"service"`
 	Ownership       *ProductOwnership            `json:"ownership,omitempty"`
 	CurrentRevision *ProductRef                  `json:"currentRevision,omitempty"`
-	Revisions       ProductRefPreview            `json:"revisions"`
-	ActiveRevisions ProductRefPreview            `json:"activeRevisions"`
+	Versions        ProductProviderVersions      `json:"versions"`
 	Policies        ProductPoliciesPreview       `json:"policies"`
 	Configurations  ProductConfigurationsPreview `json:"configurations"`
+}
+
+// ProductProviderVersion is one navigable version of an offering provider.
+type ProductProviderVersion struct {
+	fleet.ProviderVersion
+	Revision ProductRef `json:"revision"`
+}
+
+// ProductProviderVersions is a navigable preview of an offering provider's
+// versions.
+type ProductProviderVersions struct {
+	fleet.ProviderVersionsPreview
+	Items            []ProductProviderVersion `json:"items"`
+	LatestCompatible *ProductRef              `json:"latestCompatible,omitempty"`
+}
+
+func productProviderVersions(p fleet.ProviderVersionsPreview) ProductProviderVersions {
+	items := make([]ProductProviderVersion, len(p.Items))
+	for i, v := range p.Items {
+		items[i] = ProductProviderVersion{ProviderVersion: v, Revision: Ref(v.Revision)}
+	}
+	return ProductProviderVersions{ProviderVersionsPreview: p, Items: items, LatestCompatible: RefPtr(p.LatestCompatible)}
 }
 
 // ProductOfferingProvidersPreview is a bounded preview of offering providers.
@@ -609,8 +630,7 @@ func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail
 			Service:          Ref(p.Service),
 			Ownership:        productOwnership(p.Ownership),
 			CurrentRevision:  RefPtr(p.CurrentRevision),
-			Revisions:        RefPreview(p.Revisions),
-			ActiveRevisions:  RefPreview(p.ActiveRevisions),
+			Versions:         productProviderVersions(p.Versions),
 			Policies:         productPoliciesPreview(p.Policies),
 			Configurations:   productConfigurationsPreview(p.Configurations),
 		}

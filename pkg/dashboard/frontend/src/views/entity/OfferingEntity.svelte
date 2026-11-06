@@ -24,7 +24,6 @@
   const VIA = { dependency: 'dependency', configuration_reference: 'configuration', policy_reference: 'policy' };
   const RANGE_TONE = { satisfied: 'ok', unsatisfied: 'warn', unknown: 'neutral' };
   const DOCS = 'https://pacto.run/latest/patterns/#discover-and-consume-platform-offerings';
-  const activeKeys = (p) => new Set((p.activeRevisions?.items ?? []).map((r) => r.key));
 </script>
 
 <div class="offering-entity">
@@ -34,7 +33,6 @@
     <ul class="oe-providers">
       {#each providers.items ?? [] as p (p.service?.key)}
         {@const self = p.service?.label ?? ''}
-        {@const active = activeKeys(p)}
         <li class="inset-card oe-provider" data-testid="offering-provider">
           <div class="oe-head">
             <EntityLink ref={p.service} showStatus={false} showKind={false} />
@@ -44,14 +42,18 @@
           {#if p.currentRevision}
             <div class="oe-row"><span class="oe-k">Current</span><EntityLink ref={inService(p.currentRevision, self)} showStatus={false} showKind={false} /></div>
           {/if}
-          {#if (p.revisions?.items ?? []).length}
+          {#if (p.versions?.items ?? []).length}
             <div class="oe-row">
               <span class="oe-k">Versions</span>
               <ul class="oe-chips">
-                {#each p.revisions.items as r (r.key)}
-                  <li><EntityLink ref={inService(r, self)} showStatus={false} showKind={false} />{#if active.has(r.key)}{' '}<IdentityBadge label="in use" tone="ok" />{/if}</li>
+                {#each p.versions.items as v (v.revision.key)}
+                  <li>
+                    <EntityLink ref={inService(v.revision, self)} showStatus={false} showKind={false} />
+                    {#if v.inUse}<IdentityBadge label="in use" tone="ok" />{/if}
+                    <LifecycleBadge lifecycle={v.lifecycle} detail={false} />
+                  </li>
                 {/each}
-                {#if p.revisions.truncated}<li class="oe-note">+{formatCount(p.revisions.total - p.revisions.count)} more</li>{/if}
+                {#if p.versions.truncated}<li class="oe-note">+{formatCount(p.versions.total - p.versions.count)} more</li>{/if}
               </ul>
             </div>
           {/if}
