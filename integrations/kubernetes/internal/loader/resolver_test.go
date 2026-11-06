@@ -9,6 +9,7 @@ package loader
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -311,5 +312,70 @@ func TestBoundPullError(t *testing.T) {
 	}
 	if got := boundPullError("short"); got != "short" {
 		t.Errorf("short = %q", got)
+	}
+}
+
+// A name that resolves to an internal address passes the host check, so the dialer refuses it
+// after resolution; a host PACTO_INSECURE_REGISTRIES lists is dialed as it is.
+func TestPublicOnlyTransport_RefusesAResolvedInternalAddress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	t.Cleanup(srv.Close)
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
+	named := "localhost:" + port // a name, resolved by the dialer to a loopback address
+
+	get := func(rt http.RoundTripper) error {
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+named+"/v2/", nil)
+		resp, err := rt.RoundTrip(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		return err
+	}
+	if err := get(publicOnlyTransport(nil)); err == nil || !strings.Contains(err.Error(), errInternalConfigRef.Error()) {
+		t.Errorf("dial of a name resolving to loopback: error = %v, want %v", err, errInternalConfigRef)
+	}
+	if err := get(publicOnlyTransport([]string{named})); err != nil {
+		t.Errorf("dial of a listed host: %v", err)
+	}
+}
+
+// A registry's token realm whose name resolves to an internal address is never fetched: the realm
+// request goes through the same dialer as the registry's own. (go-containerregistry already refuses
+// a realm that is a literal internal IP.)
+func TestResolver_RefusesAnInternalTokenRealm(t *testing.T) {
+	resetProviderCache(t)
+	var realmHits int
+	var mu sync.Mutex
+	realm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		realmHits++
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"token":"t"}`))
+	}))
+	t.Cleanup(realm.Close)
+	reg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="`+strings.Replace(realm.URL, "127.0.0.1", "localhost", 1)+`/token",service="reg"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(reg.Close)
+	host := strings.TrimPrefix(reg.URL, "http://")
+	t.Setenv(InsecureRegistriesEnvVar, host) // the registry is listed; its realm is not
+
+	r := testLoader().ConfigRefResolver("oci://ghcr.io/acme/app:1.0.0", nil, "")
+	if _, err := r.ResolveBundle(t.Context(), "oci://"+host+"/acme/pg:16.1.0"); err == nil {
+		t.Fatal("pull through an unreachable token realm succeeded")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if realmHits != 0 {
+		t.Errorf("the internal token realm saw %d requests", realmHits)
+	}
+}
+
+func TestRefuseInternalIP(t *testing.T) {
+	for addr, refused := range map[string]bool{"127.0.0.1:443": true, "[::1]:443": true, "169.254.169.254:80": true, "8.8.8.8:443": false, "garbage": true} {
+		if err := refuseInternalIP("tcp", addr, nil); (err != nil) != refused {
+			t.Errorf("refuseInternalIP(%q) = %v, want refused %v", addr, err, refused)
+		}
 	}
 }

@@ -12,9 +12,12 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -29,9 +32,10 @@ import (
 var errLocalConfigRef = errors.New("configuration references resolve only from a registry")
 
 // errInternalConfigRef refuses a configuration ref on an internal address (loopback, private,
-// link-local, a cluster or single-label name) other than the contract's own registry: a provider
-// bundle's author must not make the operator send requests into the cluster network. List the host
-// in PACTO_INSECURE_REGISTRIES to allow it.
+// link-local, a cluster or single-label name) other than the contract's own registry, and any dial
+// such a pull makes to an address that resolves internal: a provider bundle's author must not make
+// the operator send requests into the cluster network. List the host in PACTO_INSECURE_REGISTRIES
+// to allow it.
 var errInternalConfigRef = errors.New("configuration references to an internal registry host resolve only when it is listed in " + InsecureRegistriesEnvVar)
 
 // maxPullErrorBytes bounds the registry error text a resolve reports, so a registry's response
@@ -79,8 +83,13 @@ func (r *RefResolver) ResolveBundle(ctx context.Context, ref string) (*contract.
 	}
 	ociRef := normalizeOCIRef(ref)
 	host := registryHost(ociRef)
-	if host != r.ContractHost && internalHost(host) && !slices.Contains(oci.EnvInsecureRegistries(), host) {
-		return nil, errInternalConfigRef
+	var opts []oci.ClientOption
+	if host != r.ContractHost {
+		allowed := oci.EnvInsecureRegistries()
+		if internalHost(host) && !slices.Contains(allowed, host) {
+			return nil, errInternalConfigRef
+		}
+		opts = []oci.ClientOption{oci.WithTransport(publicOnlyTransport(allowed))}
 	}
 	kc, credID := r.keychain(host)
 	key, pinned := refCacheKey(ociRef, credID)
@@ -88,7 +97,7 @@ func (r *RefResolver) ResolveBundle(ctx context.Context, ref string) (*contract.
 		return b, err
 	}
 	var b *contract.Bundle
-	res, err := r.L.oci.pullWith(ctx, ociRef, kc)
+	res, err := r.L.oci.pullWith(ctx, ociRef, kc, opts...)
 	if err == nil {
 		b = &contract.Bundle{Contract: res.Contract, RawYAML: res.RawYAML, FS: res.BundleFS}
 	} else {
@@ -122,7 +131,7 @@ func internalHost(host string) bool {
 	}
 	h = strings.ToLower(strings.TrimSuffix(strings.Trim(h, "[]"), "."))
 	if ip := net.ParseIP(h); ip != nil {
-		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+		return internalIP(ip)
 	}
 	if !strings.Contains(h, ".") {
 		return true // localhost, or a short in-cluster service name
@@ -133,6 +142,51 @@ func internalHost(host string) bool {
 		}
 	}
 	return false
+}
+
+// internalIP reports whether ip is a loopback, private, link-local or unspecified address.
+func internalIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// publicOnlyTransport dials public addresses only, so a name that resolves to an internal address,
+// a registry's token realm and a redirect all stay out of the cluster network. It dials the hosts
+// allowed lists (PACTO_INSECURE_REGISTRIES) and the proxy the environment names as they are.
+func publicOnlyTransport(allowed []string) http.RoundTripper {
+	open := append(slices.Clone(allowed), proxyHosts()...)
+	guarded := &net.Dialer{Timeout: 30 * time.Second, Control: refuseInternalIP}
+	plain := &net.Dialer{Timeout: 30 * time.Second}
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DisableKeepAlives = true // ponytail: one transport per pull, so no idle connection outlives it
+	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if host, _, err := net.SplitHostPort(addr); err == nil && (slices.Contains(open, addr) || slices.Contains(open, host)) {
+			return plain.DialContext(ctx, network, addr)
+		}
+		return guarded.DialContext(ctx, network, addr)
+	}
+	return t
+}
+
+// refuseInternalIP is a [net.Dialer] Control func: it runs after name resolution, on the address
+// about to be dialed, and refuses an internal one.
+func refuseInternalIP(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if ip := net.ParseIP(host); err != nil || ip == nil || internalIP(ip) {
+		return errInternalConfigRef
+	}
+	return nil
+}
+
+// proxyHosts are the proxy hosts the environment configures for registry requests.
+func proxyHosts() []string {
+	var hosts []string
+	for _, scheme := range []string{"http", "https"} {
+		u, err := http.ProxyFromEnvironment(&http.Request{URL: &url.URL{Scheme: scheme, Host: "registry.invalid"}})
+		if err == nil && u != nil {
+			hosts = append(hosts, u.Hostname())
+		}
+	}
+	return hosts
 }
 
 // boundPullError is a registry error's first line, at most maxPullErrorBytes long.

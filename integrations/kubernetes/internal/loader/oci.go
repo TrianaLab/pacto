@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -49,8 +50,9 @@ func (p *OCIPuller) Pull(ctx context.Context, ref string, authOverride *authn.Au
 }
 
 // pullWith is [OCIPuller.Pull] with exactly the keychain kc: no default keychain is added behind it.
-func (p *OCIPuller) pullWith(ctx context.Context, ref string, kc authn.Keychain) (*LoadResult, error) {
-	client := oci.NewClient(kc, p.clientOpts...)
+// opts add to the puller's own client options.
+func (p *OCIPuller) pullWith(ctx context.Context, ref string, kc authn.Keychain, opts ...oci.ClientOption) (*LoadResult, error) {
+	client := oci.NewClient(kc, slices.Concat(p.clientOpts, opts)...)
 
 	// Resolve tag if not explicitly specified
 	resolvedRef, err := oci.ResolveRef(ctx, client, ref, "")
