@@ -107,8 +107,11 @@ values verdict speaks for it.
 - Values that pass give `compatible`.
 - Values that fail give `incompatible`, and the note lists each violation as
   `configuration <name>: <violation> against <provider>@<version>`.
+- A selection that fails in a 2.6 consumer, such as a reference with no
+  `configuration` to a provider that now declares several, gives
+  `incompatible`.
 - `unknown` remains when the consumer's values or the new schema cannot be
-  read, or the selection fails, and the note says why.
+  read, or an older consumer's selection fails, and the note says why.
 
 These consumers carry `declared` confidence and feed the
 [release gate](#release-gate-and-exit-status): a `BREAKING` change with one of

@@ -939,6 +939,36 @@ func TestDiffRefSources_Selector(t *testing.T) {
 	}
 }
 
+// One configuration becoming several loses the default a selector-less
+// reference relied on; one more beside several does not.
+func TestDiffConfiguration_DefaultLost(t *testing.T) {
+	cfgs := func(names ...string) []contract.Configuration {
+		out := make([]contract.Configuration, len(names))
+		for i, n := range names {
+			out[i] = contract.Configuration{Name: n, Schema: n + ".json"}
+		}
+		return out
+	}
+	old, new := minimalContract(), minimalContract()
+	old.Configurations, new.Configurations = cfgs("provisioning"), cfgs("provisioning", "replica")
+	changes := diffConfiguration(old, new, nil, nil)
+	var found bool
+	for _, c := range changes {
+		if c.Path == "configurations.default" {
+			found = c.Type == Removed && c.Classification == Breaking && strings.Contains(c.Reason, "becomes ambiguous")
+		}
+	}
+	if !found {
+		t.Errorf("changes = %+v, want a BREAKING configurations.default removal", changes)
+	}
+	old.Configurations, new.Configurations = cfgs("a", "b"), cfgs("a", "b", "c")
+	for _, c := range diffConfiguration(old, new, nil, nil) {
+		if c.Path == "configurations.default" {
+			t.Errorf("several to more reported %+v", c)
+		}
+	}
+}
+
 func TestDiffConfigValues_RefReason(t *testing.T) {
 	cases := map[string]struct {
 		cfg    contract.Configuration

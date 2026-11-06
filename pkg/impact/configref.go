@@ -37,8 +37,9 @@ func configRefVerdict(snap *fleet.FleetSnapshot, refs []fleet.Relationship, prov
 }
 
 // revisionConfigRefVerdict checks the values rev gives the named configuration
-// references against provider. It is unknown when the values or the schema
-// cannot be read or the selection fails, and says why.
+// references against provider. A selection rev's version makes an error is
+// incompatible. It is unknown when the values or the schema cannot be read or
+// an older consumer's selection fails, and says why.
 func revisionConfigRefVerdict(rev *fleet.ContractRevision, names []string, provider *contract.Bundle) (string, string) {
 	who := provider.Contract.Service.Name + "@" + provider.Contract.Service.Version
 	if rev == nil || rev.Contract == nil {
@@ -59,7 +60,16 @@ func revisionConfigRefVerdict(rev *fleet.ContractRevision, names []string, provi
 			byRef[cfg.Ref] = provider
 		}
 	}
-	refs, _ := validation.ResolveConfigRefs(context.Background(), &c, fsys, validation.ConfigRefOptions{Resolver: byRef})
+	refs, res := validation.ResolveConfigRefs(context.Background(), &c, fsys, validation.ConfigRefOptions{Resolver: byRef})
+	// A selection the consumer's own version makes an error, such as an
+	// ambiguous ref in 2.6, is a confirmed break, not uncertainty.
+	if len(res.Errors) > 0 {
+		var why []string
+		for _, e := range res.Errors {
+			why = append(why, e.Message)
+		}
+		return CompatibilityIncompatible, strings.Join(why, "; ")
+	}
 	for _, cfg := range c.Configurations {
 		if err := refs[cfg.Name].Err; err != nil {
 			return CompatibilityUnknown, err.Error() + " in " + who

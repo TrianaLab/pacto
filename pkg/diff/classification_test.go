@@ -198,6 +198,7 @@ func TestClassify_NameIndexedPaths(t *testing.T) {
 		{"configurations.configuration", Added, NonBreaking},
 		{"configurations.configuration", Modified, PotentialBreaking},
 		{"configurations.configuration", Removed, PotentialBreaking},
+		{"configurations.default", Removed, Breaking},
 
 		// Policies (name-indexed)
 		{"policies", Added, NonBreaking},

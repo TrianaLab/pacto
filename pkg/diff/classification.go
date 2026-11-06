@@ -133,6 +133,10 @@ var rules = map[classificationKey]Classification{
 	{"configurations.configuration", Added}:    NonBreaking,
 	{"configurations.configuration", Modified}: PotentialBreaking,
 	{"configurations.configuration", Removed}:  PotentialBreaking,
+	// The provider side of the same ambiguity: a contract with one
+	// configuration that gains another leaves a reference without a selector
+	// ambiguous, a hard error for a 2.6 consumer.
+	{"configurations.default", Removed}: Breaking,
 
 	// Environments (name-indexed): a new one only adds values to check; the
 	// environment a removed one names may still run the service. Value changes

@@ -869,6 +869,8 @@ func TestImpactConfigRefConsumer(t *testing.T) {
 	withEnv.Bundle.Contract.Environments = []contract.Environment{{Name: "prod", File: "prod.yaml"}}
 	withEnv.Bundle.FS = fstest.MapFS{"prod.yaml": {Data: []byte("db:\n  size: medium\nlocal:\n  x: 1\n")}}
 	old := pgContract("16.1.0", "provisioning", true)
+	twoConfigs := pgContract("16.2.0", "provisioning", true)
+	twoConfigs.Configurations = append(twoConfigs.Configurations, contract.Configuration{Name: "replica", Schema: "schema.json"})
 	tests := []struct {
 		name       string
 		snap       *fleet.FleetSnapshot
@@ -893,7 +895,13 @@ func TestImpactConfigRefConsumer(t *testing.T) {
 			CompatibilityIncompatible, "against postgresql@16.2.0", GateBlocked, false},
 		{"selected configuration gone", configRefSnap(t, false, refConsumer("orders", "provisioning", medium, true)),
 			pgContract("16.2.0", "other", false), pgSchema("small", "medium", "large"),
-			CompatibilityUnknown, `declares no configuration "provisioning"`, GateUnverified, false},
+			CompatibilityIncompatible, `declares no configuration "provisioning"`, GateUnverified, false},
+		{"a second configuration leaves a selector-less reference ambiguous", configRefSnap(t, true, refConsumer("orders", "", medium, true)),
+			twoConfigs, pgSchema("small", "medium", "large"),
+			CompatibilityIncompatible, "set configuration: <name> to pick one", GateBlocked, false},
+		{"a selector keeps the reference unambiguous", configRefSnap(t, false, refConsumer("orders", "provisioning", medium, true)),
+			twoConfigs, pgSchema("small", "medium", "large"),
+			CompatibilityCompatible, "satisfy the schema of postgresql@16.2.0", GateUnverified, false},
 		{"rejected values beat a matching dependency range", configRefSnap(t, false, refConsumer("orders", "", map[string]any{"size": "huge"}, true,
 			contract.Dependency{Name: "postgresql", Ref: "oci://x/postgresql", Compatibility: "^16.0.0"})),
 			pgContract("16.2.0", "provisioning", false), pgSchema("small", "medium", "large"),

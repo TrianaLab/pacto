@@ -136,9 +136,17 @@ func diffEpoch(name string, o, n int) []Change {
 }
 
 // diffConfiguration compares configuration slices by name and delegates to JSON Schema diff.
+// A contract that goes from one configuration to several also loses its default: a consumer's
+// reference that names no configuration selected the only one and now reads as ambiguous.
 func diffConfiguration(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
-	return diffRefSources("configurations",
+	changes := diffRefSources("configurations",
 		configRefSources(old.Configurations), configRefSources(new.Configurations), oldFS, newFS)
+	if len(old.Configurations) == 1 && len(new.Configurations) > 1 {
+		c := newChange("configurations.default", Removed, old.Configurations[0].Name, nil)
+		c.Reason = fmt.Sprintf("configuration %s is no longer the only one: a consumer's reference that names no configuration becomes ambiguous", old.Configurations[0].Name)
+		changes = append(changes, c)
+	}
+	return changes
 }
 
 // refSource is the common shape of a configuration or policy source (a name with
