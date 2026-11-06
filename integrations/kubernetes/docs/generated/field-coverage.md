@@ -18,7 +18,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 15 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 100 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 105 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 14 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -34,6 +34,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `service.domain` | `static-only` | - | - | - | NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug |
 | `service.offering` | `static-only` | - | - | - | NEEDS_PACTO_2_5 in an older contract; SCHEMA_VIOLATION for a value that is not a slug |
 | `service.summary` | `static-only` | - | - | - | NEEDS_PACTO_2_5 in an older contract; SCHEMA_VIOLATION for an empty, long or multi-line value |
+| `service.lifecycle` | `static-only` | - | - | - | SCHEMA_VIOLATION; NEEDS_PACTO_2_6 under 2.0 to 2.5; INVALID_SERVICE_LIFECYCLE; SERVICE_SUCCESSOR_INVALID; DEPENDENCY_SERVICE_DEPRECATED or DEPENDENCY_SERVICE_SUNSET (warnings) for a consumer |
+| `service.lifecycle.deprecated` | `static-only` | - | - | - | SCHEMA_VIOLATION, INVALID_SERVICE_LIFECYCLE |
+| `service.lifecycle.sunset` | `static-only` | - | - | - | INVALID_SERVICE_LIFECYCLE; DEPENDENCY_SERVICE_SUNSET (warning) for a consumer from that date on |
+| `service.lifecycle.successor` | `static-only` | - | - | - | SERVICE_SUCCESSOR_INVALID |
 | `service.owner` | `static-only` | - | - | - | SCHEMA_VIOLATION when empty |
 | `service.owner.team` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `service.owner.dri` | `static-only` | - | - | - | SCHEMA_VIOLATION |
@@ -66,6 +70,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `configurations[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CONFIGURATION_NAME |
 | `configurations[].schema` | `verified` | `verified` | `unverified` | `unverified` | Compliant or CONFIGURATION_MISMATCH; FILE_NOT_FOUND, INVALID_CONFIG_JSON, INVALID_CONFIG_SCHEMA statically |
 | `configurations[].ref` | `static-only` | - | - | - | INVALID_CONFIG_REF; at runtime a ref-only configuration stays Insufficient |
+| `configurations[].configuration` | `static-only` | - | - | - | NEEDS_PACTO_2_6; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_AMBIGUOUS |
 | `configurations[].values` | `static-only` | - | - | - | CONFIG_VALUES_VALIDATION_FAILED |
 | `configurations[].required` | `partial` | `partial` | `unverified` | `unverified` | EVIDENCE_MISSING and friends only when required; CONFIGURATION_* as warning when optional; SCHEMA_VIOLATION when omitted |
 | `environments` | `static-only` | - | - | - | NEEDS_PACTO_2_3 in a 2.0, 2.1 or 2.2 contract; the environments stage skips with no environments declared |
@@ -170,14 +175,14 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Contract format version; selects the JSON Schema the contract is validated against. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4" and "2.5" before any other layer runs; the version selects the schema |
+| Rule | parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4", "2.5" and "2.6" before any other layer runs; the version selects the schema |
 | Outcomes | PARSE_ERROR when unsupported |
-| Limitations | 2.0, 2.1, 2.2, 2.3 and 2.4 have their own schemas without the fields later versions add; this inventory walks 2.5, the superset |
+| Limitations | 2.0, 2.1, 2.2, 2.3, 2.4 and 2.5 have their own schemas without the fields later versions add; this inventory walks 2.6, the superset |
 | Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid` |
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| `2.5` | `static-only` | the newest Operational Contract format; 2.0, 2.1, 2.2, 2.3 and 2.4 contracts keep working unchanged | - | - | - | integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.5`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
+| `2.6` | `static-only` | the newest Operational Contract format; 2.0, 2.1, 2.2, 2.3, 2.4 and 2.5 contracts keep working unchanged | - | - | - | unit: `pkg/validation/structural_test.go:TestPactoVersion26`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.6`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.5`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
 
 ### `service`
 
@@ -250,6 +255,54 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Outcomes | NEEDS_PACTO_2_5 in an older contract; SCHEMA_VIOLATION for an empty, long or multi-line value |
 | Limitations | display text; never an identity |
 | Tests | unit: `pkg/validation/structural_test.go:TestNeeds25`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.summary/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.summary/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.summary/needs-2.5` |
+
+### `service.lifecycle`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Marks the whole service deprecated and schedules its retirement; pactoVersion 2.6 only. |
+| Runtime | `static-only` |
+| Evidence | none: a declared schedule |
+| Rule | schema: object with deprecated; cross-field: the interface lifecycle rules with an absolute URL successor |
+| Outcomes | SCHEMA_VIOLATION; NEEDS_PACTO_2_6 under 2.0 to 2.5; INVALID_SERVICE_LIFECYCLE; SERVICE_SUCCESSOR_INVALID; DEPENDENCY_SERVICE_DEPRECATED or DEPENDENCY_SERVICE_SUNSET (warnings) for a consumer |
+| Limitations | a declared schedule; Pacto retires nothing |
+| Tests | unit: `pkg/validation/structural_test.go:TestNeeds26`, `pkg/validation/lifecycle_test.go:TestValidateServiceLifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle/needs-2.6` |
+
+### `service.lifecycle.deprecated`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Date the service was deprecated (YYYY-MM-DD). |
+| Runtime | `static-only` |
+| Evidence | none: a date the provider declares |
+| Rule | schema: required; cross-field: a canonical YYYY-MM-DD date |
+| Outcomes | SCHEMA_VIOLATION, INVALID_SERVICE_LIFECYCLE |
+| Limitations | no check that the date is in the past |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestValidateServiceLifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle.deprecated/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle.deprecated/invalid` |
+
+### `service.lifecycle.sunset`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Date from which the service may be retired (YYYY-MM-DD). |
+| Runtime | `static-only` |
+| Evidence | none: a date the provider declares |
+| Rule | cross-field: a canonical date not before deprecated |
+| Outcomes | INVALID_SERVICE_LIFECYCLE; DEPENDENCY_SERVICE_SUNSET (warning) for a consumer from that date on |
+| Limitations | read in UTC |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestValidateServiceLifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle.sunset/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle.sunset/invalid` |
+
+### `service.lifecycle.successor`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The service that replaces this one, as an absolute URL. |
+| Runtime | `static-only` |
+| Evidence | none: a pointer for consumers |
+| Rule | cross-field: an absolute URL with a host, such as an oci:// reference |
+| Outcomes | SERVICE_SUCCESSOR_INVALID |
+| Limitations | a successor is not fetched |
+| Tests | unit: `pkg/validation/lifecycle_test.go:TestValidateServiceLifecycle`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle.successor/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle.successor/invalid` |
 
 ### `service.owner`
 
@@ -707,6 +760,18 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Outcomes | INVALID_CONFIG_REF; at runtime a ref-only configuration stays Insufficient |
 | Limitations | documented in the design as not doing |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateConfigRef_InvalidOCI`, `pkg/validation/crossfield_test.go:TestValidateConfigRef_ValidOCI`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/invalid` |
+
+### `configurations[].configuration`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Which configuration of the referenced contract a ref configuration takes values for (pactoVersion 2.6). |
+| Runtime | `static-only` |
+| Evidence | none: it selects the provider configuration schema validation reads |
+| Rule | selects the referenced contract's configuration; only beside a ref; an older pactoVersion refuses it |
+| Outcomes | NEEDS_PACTO_2_6; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_AMBIGUOUS |
+| Limitations | required only when the referenced contract declares more than one configuration |
+| Tests | unit: `pkg/validation/structural_test.go:TestPactoVersion26`, `pkg/validation/structural_test.go:TestNeeds26`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].configuration/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].configuration/needs-2.6` |
 
 ### `configurations[].values`
 

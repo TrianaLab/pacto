@@ -18,23 +18,38 @@ func validateInterfaceLifecycle(c *contract.Contract, result *ValidationResult) 
 		names[iface.Name] = true
 	}
 	for i, iface := range c.Interfaces {
-		l := iface.Lifecycle
-		if l == nil {
-			continue
-		}
-		path := fmt.Sprintf("interfaces[%d].lifecycle", i)
-		switch {
-		case !isCanonicalDate(l.Deprecated):
-			result.AddError(path+".deprecated", "INVALID_INTERFACE_LIFECYCLE", fmt.Sprintf("deprecated %q must be a valid YYYY-MM-DD date", l.Deprecated))
-		case l.Sunset != "" && !isCanonicalDate(l.Sunset):
-			result.AddError(path+".sunset", "INVALID_INTERFACE_LIFECYCLE", fmt.Sprintf("sunset %q must be a valid YYYY-MM-DD date", l.Sunset))
-		case l.Sunset != "" && l.Sunset < l.Deprecated: // canonical dates compare as strings
-			result.AddError(path+".sunset", "INVALID_INTERFACE_LIFECYCLE", fmt.Sprintf("sunset %s is before deprecated %s", l.Sunset, l.Deprecated))
-		}
-		if s := l.Successor; s != "" && !validSuccessor(s, iface.Name, names) {
-			result.AddError(path+".successor", "INTERFACE_SUCCESSOR_UNKNOWN",
-				fmt.Sprintf("successor %q names no other interface of this service; name one, or give an absolute URL such as an oci:// reference", s))
-		}
+		checkLifecycle(result, fmt.Sprintf("interfaces[%d].lifecycle", i), iface.Lifecycle, "INVALID_INTERFACE_LIFECYCLE",
+			func(s string) bool { return validSuccessor(s, iface.Name, names) },
+			"INTERFACE_SUCCESSOR_UNKNOWN", "successor %q names no other interface of this service; name one, or give an absolute URL such as an oci:// reference")
+	}
+}
+
+// validateServiceLifecycle checks service.lifecycle (pactoVersion 2.6) like an
+// interface lifecycle, except that its successor must be an absolute URL.
+func validateServiceLifecycle(c *contract.Contract, result *ValidationResult) {
+	checkLifecycle(result, "service.lifecycle", c.Service.Lifecycle, "INVALID_SERVICE_LIFECYCLE",
+		func(s string) bool { return validSuccessor(s, "", nil) },
+		"SERVICE_SUCCESSOR_INVALID", "successor %q must be an absolute URL such as an oci:// reference to the service that replaces this one")
+}
+
+// checkLifecycle checks the lifecycle l at path: both dates are canonical
+// YYYY-MM-DD and the sunset is not before the deprecation (invalidCode), and a
+// successor passes successorOK (successorCode with successorMsg, a format
+// taking the successor). A nil lifecycle passes.
+func checkLifecycle(result *ValidationResult, path string, l *contract.InterfaceLifecycle, invalidCode string, successorOK func(string) bool, successorCode, successorMsg string) {
+	if l == nil {
+		return
+	}
+	switch {
+	case !isCanonicalDate(l.Deprecated):
+		result.AddError(path+".deprecated", invalidCode, fmt.Sprintf("deprecated %q must be a valid YYYY-MM-DD date", l.Deprecated))
+	case l.Sunset != "" && !isCanonicalDate(l.Sunset):
+		result.AddError(path+".sunset", invalidCode, fmt.Sprintf("sunset %q must be a valid YYYY-MM-DD date", l.Sunset))
+	case l.Sunset != "" && l.Sunset < l.Deprecated: // canonical dates compare as strings
+		result.AddError(path+".sunset", invalidCode, fmt.Sprintf("sunset %s is before deprecated %s", l.Sunset, l.Deprecated))
+	}
+	if s := l.Successor; s != "" && !successorOK(s) {
+		result.AddError(path+".successor", successorCode, fmt.Sprintf(successorMsg, s))
 	}
 }
 

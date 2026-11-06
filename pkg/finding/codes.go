@@ -13,6 +13,7 @@ const (
 	CodeNeedsPacto23                 Code = "NEEDS_PACTO_2_3" // an older contract declares environments
 	CodeNeedsPacto24                 Code = "NEEDS_PACTO_2_4" // an older contract declares service.domain
 	CodeNeedsPacto25                 Code = "NEEDS_PACTO_2_5" // an older contract declares service.offering or service.summary
+	CodeNeedsPacto26                 Code = "NEEDS_PACTO_2_6" // an older contract declares service.lifecycle, values beside a ref or a configuration selector
 	CodeSchemaError                  Code = "SCHEMA_ERROR"
 	CodeSchemaViolation              Code = "SCHEMA_VIOLATION"
 	CodeYamlParseError               Code = "YAML_PARSE_ERROR"
@@ -45,6 +46,13 @@ const (
 	CodePolicyRefNotEnforced         Code = "POLICY_REF_NOT_ENFORCED"
 	CodePolicyRefUnresolved          Code = "POLICY_REF_UNRESOLVED"
 	CodePolicyRefCycle               Code = "POLICY_REF_CYCLE"
+	CodeConfigRefUnresolved          Code = "CONFIG_REF_UNRESOLVED"            // a configuration ref something depends on cannot be resolved (strict callers)
+	CodeConfigRefUnverified          Code = "CONFIG_REF_UNVERIFIED"            // a configuration ref could not be resolved, so its values stay unchecked
+	CodeConfigRefNotEnforced         Code = "CONFIG_REF_NOT_ENFORCED"          // no resolver: values for a configuration ref are not checked
+	CodeConfigRefAmbiguous           Code = "CONFIG_REF_AMBIGUOUS"             // the referenced contract declares several configurations and no selector names one
+	CodeConfigRefUnknownConfig       Code = "CONFIG_REF_UNKNOWN_CONFIGURATION" // the selector names no configuration of the referenced contract, or it declares none
+	CodeConfigRefCycle               Code = "CONFIG_REF_CYCLE"
+	CodeConfigRefVersionOutsideRange Code = "CONFIG_REF_VERSION_OUTSIDE_RANGE" // the referenced revision is outside the compatibility of a dependency on the same repository
 	CodeCapabilityRefInvalid         Code = "CAPABILITY_REF_INVALID"
 	CodeDuplicateCapability          Code = "DUPLICATE_CAPABILITY"
 	CodeDuplicateEnvironmentName     Code = "DUPLICATE_ENVIRONMENT_NAME"
@@ -101,6 +109,7 @@ var registry = map[Code]codeMeta{
 	CodeNeedsPacto23:                 {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto24:                 {CategoryInvalidVersion, SeverityError},
 	CodeNeedsPacto25:                 {CategoryInvalidVersion, SeverityError},
+	CodeNeedsPacto26:                 {CategoryInvalidVersion, SeverityError},
 	CodeSchemaError:                  {CategorySchemaViolation, SeverityError},
 	CodeSchemaViolation:              {CategorySchemaViolation, SeverityError},
 	CodeYamlParseError:               {CategorySchemaViolation, SeverityError},
@@ -134,6 +143,13 @@ var registry = map[Code]codeMeta{
 	CodePolicyRefNotEnforced:         {CategoryUnresolvedReference, SeverityWarning},
 	CodePolicyRefUnresolved:          {CategoryUnresolvedReference, SeverityError},
 	CodePolicyRefCycle:               {CategoryReferenceCycle, SeverityError},
+	CodeConfigRefUnresolved:          {CategoryUnresolvedReference, SeverityError},
+	CodeConfigRefUnverified:          {CategoryUnresolvedReference, SeverityWarning},
+	CodeConfigRefNotEnforced:         {CategoryUnresolvedReference, SeverityWarning},
+	CodeConfigRefAmbiguous:           {CategoryInvalidReference, SeverityError},
+	CodeConfigRefUnknownConfig:       {CategoryInvalidReference, SeverityError},
+	CodeConfigRefCycle:               {CategoryReferenceCycle, SeverityError},
+	CodeConfigRefVersionOutsideRange: {CategoryInvalidReference, SeverityError},
 	CodeCapabilityRefInvalid:         {CategoryInvalidCapability, SeverityError},
 	CodeDuplicateCapability:          {CategoryDuplicateName, SeverityError},
 	CodeDuplicateEnvironmentName:     {CategoryDuplicateName, SeverityError},

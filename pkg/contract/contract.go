@@ -201,6 +201,9 @@ type Service struct {
 	Offering string `yaml:"offering,omitempty" json:"offering,omitempty"`
 	// Summary is a one-line purpose of the service (pactoVersion 2.5).
 	Summary string `yaml:"summary,omitempty" json:"summary,omitempty"`
+	// Lifecycle (pactoVersion 2.6): the retirement schedule of the whole
+	// service; Successor is an absolute URL.
+	Lifecycle *InterfaceLifecycle `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
 }
 
 // Interface describes a service interface declaration.
@@ -224,6 +227,7 @@ type Interface struct {
 // Deprecated and Sunset are YYYY-MM-DD dates. Successor names the interface of
 // the same service that replaces this one, or holds an absolute URL (such as
 // another service's oci:// reference) when the replacement lives elsewhere.
+// The service lifecycle (Service.Lifecycle) reuses it with a URL successor.
 type InterfaceLifecycle struct {
 	Deprecated string `yaml:"deprecated" json:"deprecated"`
 	Sunset     string `yaml:"sunset,omitempty" json:"sunset,omitempty"`
@@ -269,13 +273,18 @@ const (
 // Configuration declares a named configuration scope.
 // Each entry is an independent scope with no implicit merge semantics.
 // Name is required and must be unique within the configurations array.
-// Exactly one of Schema or Ref must be set. Values is only allowed with Schema.
+// Exactly one of Schema or Ref must be set. Values validate against the local
+// schema or, for a Ref, against the referenced contract's selected
+// configuration (values beside a ref need pactoVersion 2.6).
 type Configuration struct {
-	Name     string         `yaml:"name" json:"name"`
-	Schema   string         `yaml:"schema,omitempty" json:"schema,omitempty"`
-	Ref      string         `yaml:"ref,omitempty" json:"ref,omitempty"`
-	Values   map[string]any `yaml:"values,omitempty" json:"values,omitempty"`
-	Required bool           `yaml:"required" json:"required"` // MANDATORY in schema; true = confirmed absence is a violation
+	Name   string `yaml:"name" json:"name"`
+	Schema string `yaml:"schema,omitempty" json:"schema,omitempty"`
+	Ref    string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	// ProviderConfiguration (pactoVersion 2.6) names the configuration of the
+	// referenced contract this entry takes values for.
+	ProviderConfiguration string         `yaml:"configuration,omitempty" json:"configuration,omitempty"`
+	Values                map[string]any `yaml:"values,omitempty" json:"values,omitempty"`
+	Required              bool           `yaml:"required" json:"required"` // MANDATORY in schema; true = confirmed absence is a violation
 }
 
 // Policy declares a named policy constraint source.

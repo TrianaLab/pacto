@@ -996,6 +996,7 @@ export interface components {
             name: string;
         };
         "Contract.Configuration": {
+            configuration?: string;
             name: string;
             ref?: string;
             required: boolean;
@@ -1157,6 +1158,7 @@ export interface components {
         };
         "Contract.Service": {
             domain?: string;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             offering?: string;
             owner?: components["schemas"]["Contract.Owner"];

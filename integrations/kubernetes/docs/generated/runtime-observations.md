@@ -100,6 +100,11 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `CAPABILITY_REF_INVALID` | `InvalidCapability` |
 | `CONFIGURATION_ABSENT` | `RuntimeDrift` |
 | `CONFIGURATION_MISMATCH` | `RuntimeDrift` |
+| `CONFIG_REF_AMBIGUOUS` | `InvalidReference` |
+| `CONFIG_REF_CYCLE` | `ReferenceCycle` |
+| `CONFIG_REF_UNKNOWN_CONFIGURATION` | `InvalidReference` |
+| `CONFIG_REF_UNRESOLVED` | `UnresolvedReference` |
+| `CONFIG_REF_VERSION_OUTSIDE_RANGE` | `InvalidReference` |
 | `CONFIG_VALUES_VALIDATION_FAILED` | `ConfigurationViolation` |
 | `DEPENDENCY_UNREACHABLE` | `RuntimeDrift` |
 | `DEPENDENCY_VERSION_MISMATCH` | `RuntimeDrift` |
@@ -137,6 +142,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `NEEDS_PACTO_2_3` | `InvalidVersion` |
 | `NEEDS_PACTO_2_4` | `InvalidVersion` |
 | `NEEDS_PACTO_2_5` | `InvalidVersion` |
+| `NEEDS_PACTO_2_6` | `InvalidVersion` |
 | `PERSISTENCE_MISMATCH` | `RuntimeDrift` |
 | `POLICY_ENFORCEMENT_ERROR` | `PolicyViolation` |
 | `POLICY_REF_CYCLE` | `ReferenceCycle` |
@@ -156,6 +162,8 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | --- | --- |
 | `CONFIGURATION_ABSENT` | `RuntimeDrift` |
 | `CONFIGURATION_MISMATCH` | `RuntimeDrift` |
+| `CONFIG_REF_NOT_ENFORCED` | `UnresolvedReference` |
+| `CONFIG_REF_UNVERIFIED` | `UnresolvedReference` |
 | `DEPENDENCY_UNDECLARED` | `RuntimeDrift` |
 | `DEPENDENCY_UNREACHABLE` | `RuntimeDrift` |
 | `DEPENDENCY_VERSION_MISMATCH` | `RuntimeDrift` |
