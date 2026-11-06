@@ -788,7 +788,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	exact, inferred := q.targetsForRevision(rev.Key)
 	prev, next := q.siblingRevisions(rev)
 	cfgRefs, polRefs := q.revisionRefResolutions(rev.Key)
-	cfgs, pols := withSchemaContent(rev, withConfigResolutions(rev.configurations, cfgRefs), policiesPreview(rev.Contract.Policies, polRefs))
+	cfgs, pols := withSchemaContent(q.snap, rev, withConfigResolutions(rev.configurations, cfgRefs), policiesPreview(rev.Contract.Policies, polRefs))
 	data := &RevisionDetailData{
 		Configurations:  cfgs,
 		Policies:        pols,
@@ -1542,7 +1542,7 @@ func (q *Query) currentRevisionContent(active, all []*ContractRevision) (*Entity
 		return &ref, cfgs, pols
 	}
 	cfgRefs, polRefs := q.revisionRefResolutions(rec.Key)
-	cfgs, pols = withSchemaContent(rec, withConfigResolutions(rec.configurations, cfgRefs), policiesPreview(rec.Contract.Policies, polRefs))
+	cfgs, pols = withSchemaContent(q.snap, rec, withConfigResolutions(rec.configurations, cfgRefs), policiesPreview(rec.Contract.Policies, polRefs))
 	return &ref, cfgs, pols
 }
 

@@ -66,7 +66,7 @@ func TestSelectConfiguration(t *testing.T) {
 		{"selected entry is a ref", "", "shared", "", "", []contract.Configuration{chained}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, code, msg := selectConfiguration(contract.Configuration{Name: "db", Ref: "x", ProviderConfiguration: tc.selector}, pgBundle("16.1.0", tc.cfgs...).Contract)
+			got, code, msg := SelectConfiguration(contract.Configuration{Name: "db", Ref: "x", ProviderConfiguration: tc.selector}, pgBundle("16.1.0", tc.cfgs...).Contract)
 			if got.Name != tc.want || code != tc.code || !strings.Contains(msg, tc.msg) {
 				t.Fatalf("got %q %q %q", got.Name, code, msg)
 			}
@@ -369,6 +369,11 @@ environments:
 	stages = ValidateDocumentStages(c, contract.DecodeDocument(raw), fsys)
 	if names(stages) != "structural=pass,cross-field=pass,policy=pass,configuration-refs=skip,environments=skip" || codes(stages[3]) != "CONFIG_REF_NOT_ENFORCED" {
 		t.Fatalf("local: %+v", stages)
+	}
+	// Through options, lenient: a ref that does not resolve is unverified.
+	stages = ValidateDocumentStagesWith(t.Context(), c, contract.DecodeDocument(raw), fsys, ConfigRefOptions{Resolver: pgResolver(nil)})
+	if names(stages) != "structural=pass,cross-field=pass,policy=pass,configuration-refs=skip,environments=skip" || codes(stages[3]) != "CONFIG_REF_UNVERIFIED" {
+		t.Fatalf("lenient: %+v", stages)
 	}
 	// A failing policy stage skips both.
 	c.Policies = []contract.Policy{{Ref: "oci://r/policy:1.0.0"}}

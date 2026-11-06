@@ -135,6 +135,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 
 	boundTargetLabels(snap)
 	linkTargets(snap)
+	revalidateConfigRefs(snap)
 	aggregateServices(snap)
 	buildRelationships(snap)
 	foldObservedRelationships(snap, observed)
@@ -791,12 +792,8 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		if doc == nil {
 			doc = contract.DecodeDocument(yml)
 		}
-		stages := validation.ValidateDocumentStages(c, doc, b.FS)
-		res := validation.Merged(stages)
-		rev.Valid = res.IsValid()
-		rev.Validation = res.Findings()
-		rev.Stages = StageSummaries(stages)
-		rev.Environments = EnvironmentResults(c.Environments, stages)
+		rev.localStages = validation.ValidateDocumentStages(c, doc, b.FS)
+		setStages(rev, rev.localStages)
 		rev.validated = true
 	} else {
 		rev.Environments = EnvironmentResults(c.Environments, nil)

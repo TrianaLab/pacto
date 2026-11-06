@@ -118,7 +118,7 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 		if hop == 0 {
 			r.Provider, r.ProviderName, r.ProviderVersion = p, p.Service.Name, p.Service.Version
 		}
-		sel, code, why := selectConfiguration(entry, p)
+		sel, code, why := SelectConfiguration(entry, p)
 		if code != "" {
 			field := "ref"
 			if hop == 0 && entry.ProviderConfiguration != "" {
@@ -155,10 +155,10 @@ func readConfigSchema(fsys fs.FS, path string) (*jsonschema.Schema, error) {
 	return schema, nil
 }
 
-// selectConfiguration picks the configuration of provider that entry takes
+// SelectConfiguration picks the configuration of provider that entry takes
 // values for: the one its selector names, else the only one. It reports a
 // finding code and message when there is none to pick.
-func selectConfiguration(entry contract.Configuration, provider *contract.Contract) (contract.Configuration, string, string) {
+func SelectConfiguration(entry contract.Configuration, provider *contract.Contract) (contract.Configuration, string, string) {
 	who := provider.Service.Name + "@" + provider.Service.Version
 	want := entry.ProviderConfiguration
 	names := make([]string, len(provider.Configurations))

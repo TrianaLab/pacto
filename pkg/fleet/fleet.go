@@ -41,6 +41,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // ServiceKey is the stable identity of a logical service (its name).
@@ -507,6 +508,10 @@ type ContractRevision struct {
 	// was run through the validator at build time. Stored so status queries never
 	// dereference the build-only bundle after Build.
 	validated bool
+	// localStages is the validation run with no configuration ref resolved,
+	// kept when revalidateConfigRefs replaces it so a restricted view can
+	// derive the verdict again without a provider it hides.
+	localStages []validation.Stage
 	// lockConflict, when non-empty, is why this revision has no lock: two sources
 	// contributed it with disagreeing pacto.lock resolutions, so Lock was dropped
 	// (see mergeRevisionLock). Like docConflict it carries a reason rather than a

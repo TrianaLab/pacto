@@ -41,6 +41,17 @@ func ValidateDocumentStages(c *contract.Contract, doc *contract.Document, bundle
 	}, time.Now())
 }
 
+// ValidateDocumentStagesWith is [ValidateDocumentStages] with configuration
+// refs resolved through opts: policies stay local-only, and a configuration ref
+// resolves through opts.Resolver in the mode opts says.
+func ValidateDocumentStagesWith(ctx context.Context, c *contract.Contract, doc *contract.Document, bundleFS fs.FS, opts ConfigRefOptions) []Stage {
+	return runLayers(c, doc, bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
+		return ResolvePoliciesFromBundle(c, bundleFS)
+	}, func() (ConfigRefs, ValidationResult) {
+		return ResolveConfigRefs(ctx, c, bundleFS, opts)
+	}, opts.Now)
+}
+
 // ValidateWithResolver runs all three validation layers, the
 // configuration-refs stage and the environments stage, using the provided
 // BundleResolver for recursive ref-based policy resolution and to resolve

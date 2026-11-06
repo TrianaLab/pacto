@@ -32,6 +32,10 @@ import (
 //
 // Errors in a values file carry that file in File, and the line and column of
 // the failing value when it is in the file.
+//
+// Deprecated: it resolves no configuration ref, so every value for one is
+// unverified; use [EnvironmentStageWith] with the refs [ResolveConfigRefs]
+// resolved.
 func EnvironmentStage(c *contract.Contract, bundleFS fs.FS) Stage {
 	return EnvironmentStageWith(c, bundleFS, nil)
 }

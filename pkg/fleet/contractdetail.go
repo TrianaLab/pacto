@@ -8,6 +8,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Bounded projections of what a contract revision DECLARES.
@@ -77,16 +78,20 @@ type RefResolution struct {
 // observed runtime facts), so an arbitrarily wide or deep values block can never
 // make a detail response unbounded.
 type ConfigurationSummary struct {
-	Name     string         `json:"name"`
-	Schema   string         `json:"schema,omitempty"`
-	Ref      string         `json:"ref,omitempty"`
-	Required bool           `json:"required"`
-	Values   RuntimePreview `json:"values"`
+	Name   string `json:"name"`
+	Schema string `json:"schema,omitempty"`
+	Ref    string `json:"ref,omitempty"`
+	// Configuration is the configuration of the referenced contract a Ref
+	// selects, when the scope names one.
+	Configuration string         `json:"configuration,omitempty"`
+	Required      bool           `json:"required"`
+	Values        RuntimePreview `json:"values"`
 	// Resolution is present only when this scope declares a Ref, and reports where
 	// that ref resolves to (or why it does not).
 	Resolution *RefResolution `json:"resolution,omitempty"`
-	// Content is the bounded summary of the local Schema file, nil when the
-	// scope declares none.
+	// Content is the bounded summary of the local Schema file or, for a Ref
+	// that resolves, of the schema of the configuration it selects in the
+	// referenced revision. Nil when there is neither.
 	Content *SchemaContent `json:"content,omitempty"`
 }
 
@@ -184,14 +189,18 @@ func readBundleFile(rev *ContractRevision, path string, max int) ([]byte, string
 	return data, ""
 }
 
-// withSchemaContent returns copies of the previews with each local schema's
-// content attached. The item slices are copied for the same reason as in
+// withSchemaContent returns copies of the previews with each schema's content
+// attached: a local schema's, and a resolved configuration ref's (see
+// refSchema). The item slices are copied for the same reason as in
 // withConfigResolutions.
-func withSchemaContent(rev *ContractRevision, cfgs ConfigurationsPreview, pols PoliciesPreview) (ConfigurationsPreview, PoliciesPreview) {
+func withSchemaContent(snap *FleetSnapshot, rev *ContractRevision, cfgs ConfigurationsPreview, pols PoliciesPreview) (ConfigurationsPreview, PoliciesPreview) {
 	cfgs.Items = slices.Clone(cfgs.Items)
 	for i := range cfgs.Items {
-		if cfgs.Items[i].Schema != "" {
-			cfgs.Items[i].Content = revisionSchema(rev, cfgs.Items[i].Schema)
+		switch it := &cfgs.Items[i]; {
+		case it.Schema != "":
+			it.Content = revisionSchema(rev, it.Schema)
+		case it.Ref != "" && it.Resolution != nil && it.Resolution.Resolved:
+			it.Content = refSchema(snap, rev, it.Name)
 		}
 	}
 	pols.Items = slices.Clone(pols.Items)
@@ -201,6 +210,46 @@ func withSchemaContent(rev *ContractRevision, cfgs ConfigurationsPreview, pols P
 		}
 	}
 	return cfgs, pols
+}
+
+// refSchema reads the schema of the configuration that rev's configuration ref
+// name selects in the revision its edge resolves to, by the rule validation
+// selects it, following a selected configuration that is itself a ref. Nil when
+// a hop does not resolve, the selection fails or the chain cycles.
+func refSchema(snap *FleetSnapshot, rev *ContractRevision, name string) *SchemaContent {
+	entry := rev.Contract.Configurations[slices.IndexFunc(rev.Contract.Configurations, func(c contract.Configuration) bool { return c.Name == name })]
+	type hop struct {
+		rev  RevisionKey
+		name string
+	}
+	seen := map[hop]bool{}
+	for !seen[hop{rev.Key, entry.Name}] {
+		seen[hop{rev.Key, entry.Name}] = true
+		to := snap.Revisions[configRefTarget(snap, rev.Key, entry.Name)]
+		if to == nil {
+			return nil
+		}
+		sel, code, _ := validation.SelectConfiguration(entry, to.Contract)
+		switch {
+		case code != "" || sel.Ref == "" && sel.Schema == "":
+			return nil
+		case sel.Ref == "":
+			return revisionSchema(to, sel.Schema)
+		}
+		rev, entry = to, sel
+	}
+	return nil
+}
+
+// configRefTarget is the revision the configuration ref name declared by from
+// resolves to, "" when its edge does not resolve.
+func configRefTarget(snap *FleetSnapshot, from RevisionKey, name string) RevisionKey {
+	for _, rel := range snap.Relationships {
+		if rel.FromRevision == from && rel.Type == RelationshipConfigRef && rel.To == name && rel.Resolved {
+			return rel.ResolvedRevision
+		}
+	}
+	return ""
 }
 
 // PoliciesPreview is a bounded preview of declared policies.
@@ -298,7 +347,7 @@ func configurationsPreview(cfgs []contract.Configuration) ConfigurationsPreview 
 	items := make([]ConfigurationSummary, 0, len(src))
 	for _, c := range src {
 		items = append(items, ConfigurationSummary{
-			Name: c.Name, Schema: c.Schema, Ref: c.Ref, Required: c.Required,
+			Name: c.Name, Schema: c.Schema, Ref: c.Ref, Configuration: c.ProviderConfiguration, Required: c.Required,
 			Values: runtimePreview(c.Values),
 		})
 	}

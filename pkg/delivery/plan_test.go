@@ -956,6 +956,36 @@ func TestPlanEnvironmentGate(t *testing.T) {
 	}
 }
 
+// TestEnvironmentGateConfigRef: values for a configuration that names its
+// schema by ref are checked against the schema the ref resolved to; a ref
+// that did not resolve leaves them for a person to accept as unknown.
+func TestEnvironmentGateConfigRef(t *testing.T) {
+	platform := "reg.example/pactos/platform@" + c3
+	for _, c := range []struct {
+		name, values string
+		reg          mapRegistry
+		result       Result
+		decision     Decision
+		message      string
+	}{
+		{"resolved, valid", "app:\n  replicas: 3\n", mapRegistry{platform: platformBundle()}, Pass, "", "the values of environment prod satisfy the configuration schemas"},
+		{"resolved, invalid", "app:\n  replicas: many\n", mapRegistry{platform: platformBundle()}, Pass, Approve,
+			"prod.yaml:2: ENVIRONMENT_VALUES_INVALID: environment prod: configuration app at /app/replicas: got string, want integer"},
+		{"unresolved", "app:\n  replicas: 3\n", mapRegistry{}, Unknown, AcceptUnknown,
+			"ENVIRONMENT_VALUES_UNVERIFIED: environment prod: cannot check the values for configuration app: its schema comes from the contract oci://" + platform + ", which could not be resolved"},
+	} {
+		b := envBundle(map[string]string{"prod": "prod.yaml"}, map[string]string{"prod.yaml": c.values}, false)
+		c.reg["r/consumer@"+c1] = b
+		to := ResolveRevision(t.Context(), c.reg, "r/a", dB)
+		to.ContractRef = rev(dB, c2, b).ContractRef // the gates before this one read it
+		p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, rev(dA, c1, bundle("payments", "1.0.0")), to)
+		v := verdict(t, p, GateEnvironment)
+		if v.Result != c.result || !strings.HasPrefix(v.Message, c.message) || p.Floor.Decision != c.decision {
+			t.Errorf("%s: verdict %+v, floor %+v", c.name, v, p.Floor)
+		}
+	}
+}
+
 // TestPlanEnvironmentGateRaisesAnUnknownToApprove: a confirmed environment gap
 // on a change already held for an unknown asks for an approval, which covers
 // both; it never lowers an approval to accepting an unknown.

@@ -3068,6 +3068,7 @@ export interface components {
             truncated: boolean;
         };
         ProductConfigurationSummary: {
+            configuration?: string;
             content?: components["schemas"]["Fleet.SchemaContent"];
             name: string;
             ref?: string;

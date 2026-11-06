@@ -662,3 +662,21 @@ func TestRaiseIsDecidedByTheServiceTeam(t *testing.T) {
 		t.Errorf("a person of team risk could not decide: %s", why)
 	}
 }
+
+// TestRevisionConfigRefs: a configuration ref to a story contract resolves to
+// its schema, so the environment gate checks the values given for it; a ref
+// to anything else stays unresolved.
+func TestRevisionConfigRefs(t *testing.T) {
+	b := &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "orders", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "pay", Ref: "oci://" + Domain + "/payments:2.4.1"}, {Name: "other", Ref: "oci://elsewhere/x:1"}}}}
+	refs := configRefs(b)
+	if refs["pay"].Schema == nil || refs["pay"].ProviderVersion != "2.4.1" {
+		t.Errorf("pay = %+v", refs["pay"])
+	}
+	if refs["other"].Schema != nil || refs["other"].Err == nil {
+		t.Errorf("other = %+v", refs["other"])
+	}
+	if r, err := Revision("payments", "2.4.1"); err != nil || r.ConfigRefs == nil {
+		t.Errorf("revision = %+v, %v", r.ConfigRefs, err)
+	}
+}
