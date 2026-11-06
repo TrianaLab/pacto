@@ -97,7 +97,7 @@ targets:
 
 provisioning:
   - service: catalog-service
-    digest: sha256:c5d2a1618e7db4045843161bda7ffb06a1990c61751da14f20cc3acc51352355
+    digest: sha256:6f9cf17b75d1407289141c3949d179bada41775a431a1e75cacbb8c4af93234e
     kind: configuration
     name: database
     environment: production

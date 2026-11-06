@@ -34,6 +34,13 @@ func TestDemoLockPinsTheLocalProvider(t *testing.T) {
 			if r.ContentHash != want {
 				t.Errorf("contentHash %s, want %s (lock.HashFS of postgresql 16.1.0): update the lock", r.ContentHash, want)
 			}
+			// The lock holds the full closure, as `pacto lock` writes it: the
+			// postgresql dependency resolves to the same published revision, so a
+			// live `pacto validate` reads the lock as current, not stale.
+			dep, ok := l.Dependency("postgresql")
+			if !ok || dep.Digest != r.Digest || dep.Version != r.Version {
+				t.Errorf("dependency entry %+v (found %v) must pin the reference's revision %s %s", dep, ok, r.Version, r.Digest)
+			}
 			return
 		}
 	}
@@ -78,6 +85,27 @@ func TestDemoConfigRefEdgeResolves(t *testing.T) {
 		}
 	}
 	t.Error("impact does not list catalog-service")
+}
+
+// TestDemoTargetStateProvisioningMatches holds fleet-targets.yaml's provisioning
+// reports to the revisions they name: each digest is the local content identity
+// of its consumer bundle, so an edit to a bundle (its pacto.lock included) that
+// skips the file would drop the report as unmatched and the CLI demo would show
+// no provisioning status at all.
+func TestDemoTargetStateProvisioningMatches(t *testing.T) {
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleetsrc.NewLocalSource("local", "bundles"), fleetsrc.NewTargetStateFileSource("target-state", "fleet-targets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range snap.Limitations {
+		if l.Code == fleet.LimitationProvisioningUnmatched || l.Code == fleet.LimitationSourceRecordInvalid {
+			t.Errorf("%s: %s", l.Code, l.Message)
+		}
+	}
+	if len(snap.Provisioning) != 2 {
+		t.Errorf("provisioning records = %d, want both reports kept", len(snap.Provisioning))
+	}
 }
 
 // hashBundle is the content identity the local fleet source gives a bundle dir.
