@@ -65,10 +65,6 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
 	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
 
-	"pkg/fleet.OfferingVersions": "the fleet query behind pacto fleet versions, pacto_fleet_versions and the " +
-		"dashboard's offering versions, which are wired after the query on the same branch; the stale-entry " +
-		"check fails this line once they call it",
-
 	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
 		"through that interface, never by name",
 
