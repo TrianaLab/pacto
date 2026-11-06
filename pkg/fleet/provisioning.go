@@ -143,6 +143,10 @@ func matchProvisioning(snap *FleetSnapshot) {
 		slices.SortStableFunc(snap.Provisioning, func(a, b ProvisioningRecord) int { return b.at().Compare(a.at()) })
 		snap.Limitations = append(snap.Limitations, Limitation{Code: LimitationProvisioningTruncated,
 			Message: fmt.Sprintf("%d provisioning reports exceed the limit of %d; the oldest were dropped", len(snap.Provisioning), MaxProvisioningRecords)})
+		snap.provisioningDropped = map[ServiceKey]int{}
+		for _, rec := range snap.Provisioning[MaxProvisioningRecords:] {
+			snap.provisioningDropped[rec.ServiceKey]++
+		}
 		snap.Provisioning = snap.Provisioning[:MaxProvisioningRecords]
 	}
 }

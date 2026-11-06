@@ -264,3 +264,50 @@ func TestRestrict_OrphanedProvisioningDropped(t *testing.T) {
 		t.Errorf("provisioning = %+v", got)
 	}
 }
+
+// A restricted view reports only the truncated reports about the consumers it
+// shows, never the fleet-wide count.
+func TestProvisioningTruncatedRestricted(t *testing.T) {
+	base := ordersFleet()
+	base.Revisions = append(base.Revisions, consumer("billing", "1.0.0", "postgresql"))
+	base.Targets = []RawTarget{
+		{Scope: "open", Kind: SourceKindKubernetes, Name: "orders", Service: "orders", Domain: acme, Digest: testDigest(acme, "orders", "1.3.0")},
+		{Scope: "secret", Kind: SourceKindKubernetes, Name: "billing", Service: "billing", Domain: acme, Digest: testDigest(acme, "billing", "1.0.0")},
+	}
+	build := func(ordersAge time.Duration) *Query {
+		recs := make([]RawProvisioning, 0, MaxProvisioningRecords+2)
+		for i := range MaxProvisioningRecords {
+			at := fixedNow().Add(-time.Duration(i+1) * time.Millisecond)
+			recs = append(recs, report(func(r *RawProvisioning) {
+				r.Service, r.Digest, r.ObservedAt, r.AcceptedAt = "billing", testDigest(acme, "billing", "1.0.0"), at, &at
+			}))
+		}
+		for i := range 2 {
+			at := fixedNow().Add(-ordersAge - time.Duration(i)*time.Millisecond)
+			recs = append(recs, report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = at, &at }))
+		}
+		return NewQuery(provisioningSnap(t, 0, base, recs))
+	}
+	truncated := func(q *Query) []string {
+		var msgs []string
+		for _, l := range q.snap.Limitations {
+			if l.Code == LimitationProvisioningTruncated {
+				msgs = append(msgs, l.Message)
+			}
+		}
+		return msgs
+	}
+	open := func(ns string) bool { return ns != "secret" }
+
+	q := build(time.Hour) // orders' reports are the oldest: both dropped
+	if got := truncated(q); len(got) != 1 || !strings.HasPrefix(got[0], "10002 provisioning reports exceed") {
+		t.Errorf("unrestricted = %q", got)
+	}
+	if got := truncated(q.Restrict(open)); len(got) != 1 || !strings.HasPrefix(got[0], "2 provisioning reports about the services you can see") {
+		t.Errorf("restricted = %q", got)
+	}
+	q = build(0) // orders' reports are the newest: only billing's dropped
+	if got := truncated(q.Restrict(open)); len(got) != 0 {
+		t.Errorf("restricted view with none of its reports dropped = %q", got)
+	}
+}

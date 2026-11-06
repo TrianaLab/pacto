@@ -805,6 +805,9 @@ type FleetSnapshot struct {
 	// provisioningWindow is BuildOptions.FreshnessWindow: a provisioning report
 	// older than it (RecentEvidenceWindow when zero) is stale.
 	provisioningWindow time.Duration
+	// provisioningDropped counts, per consumer service, the reports dropped past
+	// MaxProvisioningRecords, so a restricted view reports only its own losses.
+	provisioningDropped map[ServiceKey]int
 
 	// targetsHidden holds, in a restricted snapshot, the visible services that
 	// lost a target to the view: those visible only because they declare a

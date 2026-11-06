@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -213,6 +214,10 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		if l.Code == LimitationDomainConflict || l.Code == LimitationOfferingConflict || l.Code == LimitationOwnerConflict {
 			return true
 		}
+		// A fleet-wide count of reports; rebuilt below from the visible ones.
+		if l.Code == LimitationProvisioningTruncated {
+			return true
+		}
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
 	for _, svc := range out.Services {
@@ -220,12 +225,28 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		_, _, oc := offeringOf(out, svc)
 		out.Limitations = append(append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...), ownerConflict(out, svc)...)
 	}
+	out.Limitations = append(out.Limitations, provisioningTruncated(out)...)
 	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
 		out.Limitations = append(out.Limitations, Limitation{
 			Code: LimitationObservedIdentityUnresolved, Source: src,
 			Message: strconv.Itoa(unresolved[src]) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against",
 		})
 	}
+}
+
+// provisioningTruncated is the PROVISIONING_TRUNCATED limitation of a
+// restricted view: how many reports about its visible consumers the fleet-wide
+// bound dropped, none when it dropped none of theirs.
+func provisioningTruncated(out *FleetSnapshot) []Limitation {
+	dropped := 0
+	for k := range out.Services {
+		dropped += out.provisioningDropped[k]
+	}
+	if dropped == 0 {
+		return nil
+	}
+	return []Limitation{{Code: LimitationProvisioningTruncated, Message: fmt.Sprintf(
+		"%d provisioning reports about the services you can see were dropped: the fleet holds more than the limit of %d", dropped, MaxProvisioningRecords)}}
 }
 
 // kubeTarget reports whether t is a Kubernetes target with a namespace, the
