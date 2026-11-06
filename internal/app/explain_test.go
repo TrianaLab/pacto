@@ -278,3 +278,17 @@ func TestExplain_OfferingAndSummary(t *testing.T) {
 		t.Errorf("Offering = %q, Summary = %q", result.Offering, result.Summary)
 	}
 }
+
+func TestExplain_Lifecycle(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.6\"\nservice:\n  name: svc\n  version: 1.0.0\n  lifecycle:\n    deprecated: \"2026-01-01\"\n    sunset: \"2027-06-30\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if l := result.Lifecycle; l == nil || l.String() != "deprecated 2026-01-01, sunset 2027-06-30" {
+		t.Errorf("Lifecycle = %+v", l)
+	}
+}

@@ -714,6 +714,10 @@ type Relationship struct {
 	// DeprecatedInterfaces lists the deprecated interfaces of the provider
 	// revision a resolved dependency reaches (see [providerDeprecations]).
 	DeprecatedInterfaces []InterfaceDeprecation `json:"deprecatedInterfaces,omitempty"`
+	// ProviderLifecycle is the service lifecycle (pactoVersion 2.6) of the
+	// provider revision a resolved dependency or configuration reference reaches
+	// (see [providerServiceLifecycle]): the provider's own declaration.
+	ProviderLifecycle *contract.InterfaceLifecycle `json:"providerLifecycle,omitempty"`
 	// Hidden marks a declared dependency that resolves to a service the
 	// caller's Kubernetes permissions hide: ToService and ResolvedRevision are
 	// blank, and To is only what the declaring contract itself says.

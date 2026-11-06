@@ -970,6 +970,7 @@ export interface components {
             status: string;
         };
         ConfigurationInfo: {
+            configuration?: string;
             hasSchema: boolean;
             lockedDigest?: string;
             lockedVersion?: string;
@@ -2301,6 +2302,7 @@ export interface components {
             observedCount?: number;
             observedSources?: components["schemas"]["Fleet.ObservedSourceStat"][] | null;
             provenance: string;
+            providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reason?: string;
@@ -3116,6 +3118,7 @@ export interface components {
             observed: boolean;
             /** @enum {string} */
             provenance: "declared" | "observed" | "declared+observed";
+            providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             relation: "dependency" | "runs" | "configuration_reference";
             /** @enum {string} */
@@ -3284,6 +3287,7 @@ export interface components {
             consume?: components["schemas"]["Fleet.ConsumeSnippet"];
             currentRevision?: components["schemas"]["ProductRef"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             ownership?: components["schemas"]["ProductOwnership"];
             policies: components["schemas"]["ProductPoliciesPreview"];
             revisions: components["schemas"]["ProductRefPreview"];
@@ -3303,6 +3307,7 @@ export interface components {
             consumer: components["schemas"]["ProductRef"];
             offering: string;
             provider: components["schemas"]["ProductRef"];
+            providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             /** @enum {string} */
@@ -3411,6 +3416,7 @@ export interface components {
             identity: components["schemas"]["Fleet.RevisionIdentity"];
             inferredTargets: components["schemas"]["ProductRefPreview"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             metadata: components["schemas"]["Fleet.RuntimePreview"];
             next?: components["schemas"]["ProductRef"];
@@ -3472,6 +3478,7 @@ export interface components {
             /** Format: int64 */
             hiddenDependents?: number;
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
@@ -3769,6 +3776,7 @@ export interface components {
             lastReconciledAt?: string;
             /** Format: date-time */
             lastUpdated?: string;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             lock?: components["schemas"]["LockInfo"];
             metadata?: {
                 [key: string]: string;
@@ -3815,6 +3823,7 @@ export interface components {
             dependencyCount?: number;
             domain?: string;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             namespace?: string;
             offering?: string;

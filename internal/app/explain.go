@@ -17,18 +17,20 @@ type ExplainOptions struct {
 
 // ExplainResult holds the result of the explain command.
 type ExplainResult struct {
-	Name         string              `json:"name"`
-	Version      string              `json:"version"`
-	Owner        contract.Owner      `json:"owner,omitempty"`
-	Domain       string              `json:"domain,omitempty"`
-	Offering     string              `json:"offering,omitempty"`
-	Summary      string              `json:"summary,omitempty"`
-	PactoVersion string              `json:"pactoVersion"`
-	Workload     string              `json:"workload,omitempty"`
-	State        *ExplainState       `json:"state,omitempty"`
-	Capabilities []ExplainCapability `json:"capabilities,omitempty"`
-	Interfaces   []ExplainInterface  `json:"interfaces,omitempty"`
-	Dependencies []ExplainDependency `json:"dependencies,omitempty"`
+	Name     string         `json:"name"`
+	Version  string         `json:"version"`
+	Owner    contract.Owner `json:"owner,omitempty"`
+	Domain   string         `json:"domain,omitempty"`
+	Offering string         `json:"offering,omitempty"`
+	Summary  string         `json:"summary,omitempty"`
+	// Lifecycle is the service lifecycle (pactoVersion 2.6).
+	Lifecycle    *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	PactoVersion string                       `json:"pactoVersion"`
+	Workload     string                       `json:"workload,omitempty"`
+	State        *ExplainState                `json:"state,omitempty"`
+	Capabilities []ExplainCapability          `json:"capabilities,omitempty"`
+	Interfaces   []ExplainInterface           `json:"interfaces,omitempty"`
+	Dependencies []ExplainDependency          `json:"dependencies,omitempty"`
 	// Environments lists each environment and the file holding its values.
 	Environments []contract.Environment `json:"environments,omitempty"`
 	Readiness    *ExplainReadiness      `json:"readiness,omitempty"`
@@ -136,6 +138,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		Domain:       c.Service.Domain,
 		Offering:     c.Service.Offering,
 		Summary:      c.Service.Summary,
+		Lifecycle:    c.Service.Lifecycle,
 		PactoVersion: c.PactoVersion,
 		Workload:     c.Workload,
 		Environments: c.Environments,

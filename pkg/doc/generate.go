@@ -166,6 +166,9 @@ func writeSnapshotSummary(b *strings.Builder, d *contractview.ServiceDetails) {
 	if d.Summary != "" {
 		rows = append(rows, [2]string{"Summary", d.Summary})
 	}
+	if d.Lifecycle != nil {
+		rows = append(rows, [2]string{"Lifecycle", d.Lifecycle.String()})
+	}
 	if len(rows) > 0 {
 		fmt.Fprintln(b, "| Field | Value |")
 		fmt.Fprintln(b, "|-------|-------|")
@@ -551,7 +554,11 @@ func writeConfigList(b *strings.Builder, configs []contractview.ConfigurationInf
 			fmt.Fprintf(b, "_%s_\n\n", name)
 		}
 		if cfg.Ref != "" {
-			fmt.Fprintf(b, "References: `%s`\n\n", EscapeMarkdownCell(cfg.Ref))
+			fmt.Fprintf(b, "References: `%s`", EscapeMarkdownCell(cfg.Ref))
+			if cfg.Configuration != "" {
+				fmt.Fprintf(b, ", configuration `%s`", EscapeMarkdownCell(cfg.Configuration))
+			}
+			fmt.Fprint(b, "\n\n")
 			continue
 		}
 		if len(cfg.Values) == 0 {

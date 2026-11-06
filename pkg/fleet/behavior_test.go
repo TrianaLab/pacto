@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 // behaviorFleet: events 1.0.0 delivers at-least-once on its "orders" interface,
@@ -239,5 +240,107 @@ func TestInterfaceSummaryBehavior(t *testing.T) {
 func TestDeclaredClaimCarriesRangeStatus(t *testing.T) {
 	if got := declaredClaim(Relationship{RangeStatus: RangeUnsatisfied}).RangeStatus; got != "unsatisfied" {
 		t.Errorf("RangeStatus = %q, want unsatisfied", got)
+	}
+}
+
+// lifecycleFleet: pg 1.0.0 and 2.0.0 provide postgresql, each with its own
+// service lifecycle; app 1.0.0 pins pg 1.0.0 in its lock and app 2.0.0 does
+// not; cache depends on redis, which declares no lifecycle. pg runs in the
+// secret namespace.
+func lifecycleFleet(t *testing.T) *Query {
+	t.Helper()
+	svc := func(name, version string, l *contract.InterfaceLifecycle, deps ...contract.Dependency) RawRevision {
+		c := &contract.Contract{PactoVersion: "2.6", Service: contract.Service{Name: name, Version: version, Owner: contract.Owner{Team: "t"}, Lifecycle: l}, Dependencies: deps}
+		if name == "pg" {
+			c.Service.Offering = "postgresql"
+		}
+		return RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Digest: "sha256:" + name + version}
+	}
+	pinned := svc("app", "1.0.0", nil, contract.Dependency{Name: "pg", Required: true})
+	pinned.Lock = &lock.Lock{Dependencies: []lock.Entry{{Name: "pg", Digest: "sha256:pg1.0.0", Version: "1.0.0"}}}
+	src := NewMemorySource("local", "local", &Collection{
+		Revisions: []RawRevision{
+			svc("pg", "1.0.0", oldLifecycle()),
+			svc("pg", "2.0.0", newLifecycle()),
+			svc("redis", "1.0.0", nil),
+			pinned,
+			svc("app", "2.0.0", nil, contract.Dependency{Name: "pg", Required: true}),
+			svc("cache", "1.0.0", nil, contract.Dependency{Name: "redis", Required: true}),
+		},
+		Targets: []RawTarget{{Scope: "secret", Kind: SourceKindKubernetes, Name: "pg", Service: "pg", Compliance: StatusCompliant}},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewQuery(snap)
+}
+
+func oldLifecycle() *contract.InterfaceLifecycle {
+	return &contract.InterfaceLifecycle{Deprecated: "2026-01-01"}
+}
+
+func newLifecycle() *contract.InterfaceLifecycle {
+	return &contract.InterfaceLifecycle{Deprecated: "2026-03-01", Sunset: "2027-06-30", Successor: "https://example.com/pg-17"}
+}
+
+// lifecycleRel is the dependency edge the revision from@version declares.
+func lifecycleRel(t *testing.T, q *Query, from, version string) Relationship {
+	t.Helper()
+	for _, r := range q.snap.Relationships {
+		if r.Type == RelationshipDependency && string(r.FromService) == from && q.snap.Revisions[r.FromRevision].Version == version {
+			return r
+		}
+	}
+	t.Fatalf("no dependency from %s@%s", from, version)
+	return Relationship{}
+}
+
+func TestProviderServiceLifecycle(t *testing.T) {
+	q := lifecycleFleet(t)
+	if got := lifecycleRel(t, q, "app", "1.0.0").ProviderLifecycle; got == nil || *got != *oldLifecycle() {
+		t.Errorf("a locked dependency reads its pin's lifecycle, got %+v", got)
+	}
+	if got := lifecycleRel(t, q, "app", "2.0.0").ProviderLifecycle; got == nil || *got != *newLifecycle() {
+		t.Errorf("an unlocked dependency reads the newest provider revision, got %+v", got)
+	}
+	if got := lifecycleRel(t, q, "cache", "1.0.0").ProviderLifecycle; got != nil {
+		t.Errorf("a provider with no lifecycle gives none, got %+v", got)
+	}
+	// A copy: changing the edge's lifecycle leaves the provider's contract alone.
+	lifecycleRel(t, q, "app", "2.0.0").ProviderLifecycle.Sunset = "changed"
+	for _, r := range q.snap.Revisions {
+		if l := r.Contract.Service.Lifecycle; l != nil && l.Sunset == "changed" {
+			t.Error("the edge lifecycle aliases the provider contract")
+		}
+	}
+	// The newest readable revision speaks: an invalid one is skipped.
+	invalid := &ContractRevision{Key: "b", Version: "2.0.0", Contract: &contract.Contract{}, validated: true}
+	valid := &ContractRevision{Key: "a", Version: "1.0.0", Contract: &contract.Contract{}}
+	if got := newestReadable([]*ContractRevision{valid, invalid}); got != valid {
+		t.Errorf("newestReadable = %+v", got)
+	}
+}
+
+func TestEdgeProviderLifecycle(t *testing.T) {
+	q := lifecycleFleet(t)
+	d, err := q.EntityDetail(KindService, "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := d.Service.Relationships.Items[0]
+	if e.ProviderLifecycle == nil {
+		t.Fatalf("the app -> pg edge carries no provider lifecycle: %+v", e)
+	}
+	projectEdgeForViews(&e, []KnowledgeView{ViewObserved})
+	if e.ProviderLifecycle != nil {
+		t.Error("an observed-only edge kept the provider lifecycle")
+	}
+}
+
+func TestRestrictHidesProviderLifecycle(t *testing.T) {
+	r := lifecycleFleet(t).Restrict(func(ns string) bool { return ns != "secret" })
+	if rel := lifecycleRel(t, r, "app", "2.0.0"); !rel.Hidden || rel.ProviderLifecycle != nil {
+		t.Errorf("the hidden provider's lifecycle reaches its consumer: %+v", rel)
 	}
 }

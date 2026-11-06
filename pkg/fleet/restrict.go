@@ -257,7 +257,7 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 			rel.hiddenTo = rel.ToService // keeps tallyServiceEdges collapsing it like a visible provider
 			rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus = "", "", true, hiddenMessage, ""
 			// What the hidden provider offers and deprecates is its own contract.
-			rel.Unmet, rel.DeprecatedInterfaces = nil, nil
+			rel.Unmet, rel.DeprecatedInterfaces, rel.ProviderLifecycle = nil, nil, nil
 			if rel.GuaranteeStatus != "" {
 				rel.GuaranteeStatus, rel.GuaranteeReason = GuaranteeUnknown, hiddenMessage
 			}

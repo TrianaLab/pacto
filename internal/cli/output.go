@@ -354,6 +354,9 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		if result.Summary != "" {
 			_, _ = fmt.Fprintf(w, "Summary: %s\n", result.Summary)
 		}
+		if result.Lifecycle != nil {
+			_, _ = fmt.Fprintf(w, "Lifecycle: %s\n", result.Lifecycle)
+		}
 		_, _ = fmt.Fprintf(w, "Pacto Version: %s\n", result.PactoVersion)
 
 		if result.Workload != "" {

@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -552,9 +553,9 @@ func TestRenderDetailForADomain(t *testing.T) {
 			t.Errorf("domain detail never says %q:\n%s", want, out)
 		}
 	}
-	svc := renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{BusinessDomain: "payments", Offering: "postgres"}, Service: &fleet.ServiceDetailData{Domain: "ghcr.io/acme"}})
+	svc := renderDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{BusinessDomain: "payments", Offering: "postgres"}, Service: &fleet.ServiceDetailData{Domain: "ghcr.io/acme", Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-01"}}})
 	if !strings.Contains(svc, "domain") || !strings.Contains(svc, "payments") || !strings.Contains(svc, "registry") ||
-		!strings.Contains(svc, "offering") || !strings.Contains(svc, "postgres") {
+		!strings.Contains(svc, "offering") || !strings.Contains(svc, "postgres") || !strings.Contains(svc, "deprecated 2026-01-01") {
 		t.Errorf("service detail = %s", svc)
 	}
 }
@@ -578,13 +579,14 @@ func TestRenderDetailForAnOffering(t *testing.T) {
 				Ownership: &fleet.OwnershipInfo{Owner: "team-data"},
 				Revisions: fleet.RefPreview{Total: 2, Count: 2, Items: []fleet.EntityRef{{Label: "1.0.0"}, {Label: "1.1.0"}}},
 				Consume:   &fleet.ConsumeSnippet{Ref: "oci://ghcr.io/acme/pg-operator"},
+				Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2027-06-30"},
 			}, {Service: fleet.EntityRef{Label: "bare"}}}},
 			Consumers: fleet.OfferingUsesPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.OfferingUse{{
 				Consumer: fleet.EntityRef{Label: "orders"}, Provider: fleet.EntityRef{Label: "pg-operator"},
 			}}},
 		},
 	})
-	for _, want := range []string{"Providers (2)", "pg-operator", "team-data", "1.0.0, 1.1.0", "oci://ghcr.io/acme/pg-operator", "bare", "Consumers (2)", "orders -> pg-operator", "and 1 more"} {
+	for _, want := range []string{"Providers (2)", "pg-operator", "team-data", "1.0.0, 1.1.0", "deprecated 2026-01-01, sunset 2027-06-30", "oci://ghcr.io/acme/pg-operator", "bare", "Consumers (2)", "orders -> pg-operator", "and 1 more"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("offering detail never says %q:\n%s", want, out)
 		}

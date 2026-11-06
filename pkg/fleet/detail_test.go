@@ -615,3 +615,46 @@ func TestRevisionEdgesConfigRef(t *testing.T) {
 		t.Error("BundleFS must return the bundle's files, and nil without a bundle")
 	}
 }
+
+func TestOfferingProviderLifecycle(t *testing.T) {
+	q := lifecycleFleet(t)
+	d, err := q.EntityDetail(KindOffering, "postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.Offering.Providers.Items[0]
+	cur := q.snap.Revisions[RevisionKey(p.CurrentRevision.Key)]
+	if p.Lifecycle == nil || *p.Lifecycle != *cur.Contract.Service.Lifecycle {
+		t.Errorf("provider lifecycle = %+v, current %s", p.Lifecycle, cur.Version)
+	}
+	// app has two revisions: the row keeps what the newest one reaches.
+	u := d.Offering.Consumers.Items[0]
+	if u.Consumer.Label != "app" || u.ProviderLifecycle == nil || *u.ProviderLifecycle != *newLifecycle() {
+		t.Errorf("consumer row = %+v", u)
+	}
+}
+
+func TestServiceDetailLifecycle(t *testing.T) {
+	q := lifecycleFleet(t)
+	d, err := q.EntityDetail(KindService, "pg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := d.Service.Lifecycle; l == nil || *l != *newLifecycle() {
+		t.Errorf("service lifecycle = %+v", l)
+	}
+	if d, _ := q.EntityDetail(KindService, "redis"); d.Service.Lifecycle != nil {
+		t.Errorf("redis declares no lifecycle, got %+v", d.Service.Lifecycle)
+	}
+	for k, r := range q.snap.Revisions {
+		if r.Service == "pg" && r.Version == "1.0.0" {
+			rd, err := q.EntityDetail(KindRevision, string(k))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if l := rd.Revision.Lifecycle; l == nil || *l != *oldLifecycle() {
+				t.Errorf("revision lifecycle = %+v", l)
+			}
+		}
+	}
+}

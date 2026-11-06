@@ -100,6 +100,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 	case d.Service != nil:
 		field(&b, "domain", businessDomainText(d.Entity))
 		field(&b, "offering", d.Entity.Offering)
+		field(&b, "lifecycle", strings.TrimPrefix(lifecycleText(d.Service.Lifecycle), ", "))
 		renderServiceDetail(&b, d.Service)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
@@ -180,6 +181,7 @@ func renderRevisionDetail(b *strings.Builder, r *fleet.RevisionDetailData) {
 	field(b, "service", r.Service.Label)
 	field(b, "version", r.Version)
 	field(b, "pacto version", r.PactoVersion)
+	field(b, "lifecycle", strings.TrimPrefix(lifecycleText(r.Lifecycle), ", "))
 	field(b, "valid", fmt.Sprintf("%t", r.Valid))
 	field(b, "workload", r.Workload)
 	if r.Ownership != nil {
@@ -324,6 +326,7 @@ func renderOfferingDetail(b *strings.Builder, o *fleet.OfferingDetailData) {
 			versions = append(versions, r.Label)
 		}
 		field(b, "  versions", strings.Join(versions, ", "))
+		field(b, "  lifecycle", strings.TrimPrefix(lifecycleText(p.Lifecycle), ", "))
 		if p.Consume != nil {
 			field(b, "  consume", p.Consume.Ref)
 		}

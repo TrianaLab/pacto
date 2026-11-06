@@ -2033,6 +2033,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
 			rel.RangeStatus = dependencyRangeStatus(snap, rel)
 			rel.DeprecatedInterfaces = providerDeprecations(snap, rel)
+			rel.ProviderLifecycle = providerServiceLifecycle(snap, rel)
 			// A contested lock reaches this edge exactly as a missing one does — nil —
 			// so the pin is absent either way and only the reason distinguishes them.
 			// mergeRevisionLock deterministically discards BOTH sides of a lock
@@ -2074,6 +2075,7 @@ func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRe
 			rel.Reason = reason
 		} else {
 			rel.Resolved, rel.ToService, rel.ResolvedRevision = true, target.ServiceKey, target.Key
+			rel.ProviderLifecycle = providerServiceLifecycle(snap, rel)
 			// A configuration reference consumes its provider like a dependency
 			// does, so traversal, dependents and impact see it; a policy only
 			// constrains this contract and has no runtime consumer to break.

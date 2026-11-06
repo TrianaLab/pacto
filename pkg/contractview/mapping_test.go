@@ -2,6 +2,7 @@ package contractview
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -789,7 +790,7 @@ func TestServiceDetailsFromBundle_Readiness(t *testing.T) {
 			},
 		},
 	}
-	details := serviceDetailsAt(&contract.Bundle{Contract: c}, "local", time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
+	details := serviceDetailsAt(context.Background(), &contract.Bundle{Contract: c}, "local", time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), nil)
 	if details.Readiness == nil {
 		t.Fatal("expected readiness info to be present")
 	}
@@ -928,7 +929,7 @@ func TestServiceDetailsFromBundle_ReadinessDocPath(t *testing.T) {
 		},
 	}
 	fsys := fstest.MapFS{"docs/runbooks/deploy.md": &fstest.MapFile{Data: []byte("# Deploy")}}
-	details := serviceDetailsAt(&contract.Bundle{Contract: c, FS: fsys}, "local", time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
+	details := serviceDetailsAt(context.Background(), &contract.Bundle{Contract: c, FS: fsys}, "local", time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), nil)
 	if len(details.Docs) != 1 || details.Docs[0].Path != "docs/runbooks/deploy.md" {
 		t.Fatalf("expected 1 doc, got %+v", details.Docs)
 	}
@@ -981,3 +982,79 @@ func TestServiceDetailsFromBundle_NoSBOM(t *testing.T) {
 }
 
 var prodDocLimits = docLimits{docBytes: maxDocBytes, totalBytes: maxTotalDocBytes, count: maxDocCount}
+
+func TestServiceDetailsFromBundle_LifecycleAndSelector(t *testing.T) {
+	l := &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2027-06-30"}
+	c := &contract.Contract{
+		PactoVersion:   "2.6",
+		Service:        contract.Service{Name: "pg", Version: "16.1.0", Lifecycle: l},
+		Configurations: []contract.Configuration{{Name: "db", Ref: "oci://r/pg:16.1.0", ProviderConfiguration: "provisioning"}},
+	}
+	d := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
+	if d.Lifecycle != l || d.Configurations[0].Configuration != "provisioning" {
+		t.Errorf("lifecycle %+v, configuration %q", d.Lifecycle, d.Configurations[0].Configuration)
+	}
+}
+
+type pgRefResolver struct{ b *contract.Bundle }
+
+func (r pgRefResolver) ResolveBundle(context.Context, string) (*contract.Bundle, error) {
+	if r.b == nil {
+		return nil, fmt.Errorf("unreachable")
+	}
+	return r.b, nil
+}
+
+// A contract view built with configuration-ref options runs the
+// configuration-refs stage through the resolver; one built without warns that
+// it did not enforce the ref.
+func TestServiceDetailsFromBundleWith_ConfigRefStage(t *testing.T) {
+	raw := []byte(`pactoVersion: "2.6"
+service:
+  name: orders
+  version: 1.0.0
+configurations:
+  - name: db
+    ref: oci://r/pg:16.1.0
+    required: true
+    values:
+      size: huge
+`)
+	c, err := contract.Parse(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pg := &contract.Bundle{
+		Contract: &contract.Contract{PactoVersion: "2.6", Service: contract.Service{Name: "pg", Version: "16.1.0"}, Configurations: []contract.Configuration{{Name: "provisioning", Schema: "s.json"}}},
+		FS:       fstest.MapFS{"s.json": {Data: []byte(`{"type":"object","properties":{"size":{"enum":["small"]}}}`)}},
+	}
+	stage := func(d *ServiceDetails) string {
+		for _, s := range d.Stages {
+			if s.Name == "configuration-refs" {
+				return s.Status
+			}
+		}
+		return ""
+	}
+	codes := func(d *ServiceDetails) string {
+		var out []string
+		for _, i := range append(d.Validation.Errors, d.Validation.Warnings...) {
+			out = append(out, i.Code)
+		}
+		return strings.Join(out, ",")
+	}
+	bundle := &contract.Bundle{Contract: c, RawYAML: raw, FS: fstest.MapFS{}}
+	for _, tc := range []struct {
+		name        string
+		d           *ServiceDetails
+		status, has string
+	}{
+		{"resolved", ServiceDetailsFromBundleWith(t.Context(), bundle, "local", validation.ConfigRefOptions{Resolver: pgRefResolver{pg}}), "fail", "CONFIG_VALUES_VALIDATION_FAILED"},
+		{"unreachable", ServiceDetailsFromBundleWith(t.Context(), bundle, "local", validation.ConfigRefOptions{Resolver: pgRefResolver{}}), "skip", "CONFIG_REF_UNVERIFIED"},
+		{"local only", ServiceDetailsFromBundle(bundle, "local"), "skip", "CONFIG_REF_NOT_ENFORCED"},
+	} {
+		if got := stage(tc.d); got != tc.status || !strings.Contains(codes(tc.d), tc.has) {
+			t.Errorf("%s: stage %q, codes %s", tc.name, got, codes(tc.d))
+		}
+	}
+}

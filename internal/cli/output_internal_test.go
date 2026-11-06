@@ -450,6 +450,7 @@ func TestPrintExplainResult_Full(t *testing.T) {
 		Domain:       "platform",
 		Offering:     "postgres",
 		Summary:      "Managed Postgres",
+		Lifecycle:    &contract.InterfaceLifecycle{Deprecated: "2026-01-01"},
 		PactoVersion: "2.0",
 		Workload:     "service",
 		State: &app.ExplainState{
@@ -483,7 +484,7 @@ func TestPrintExplainResult_Full(t *testing.T) {
 	if !strings.Contains(out, "Service: svc@1.0.0") {
 		t.Errorf("expected service header, got %q", out)
 	}
-	if !strings.Contains(out, "Owner: team/platform\nDomain: platform\nOffering: postgres\nSummary: Managed Postgres\n") {
+	if !strings.Contains(out, "Owner: team/platform\nDomain: platform\nOffering: postgres\nSummary: Managed Postgres\nLifecycle: deprecated 2026-01-01\n") {
 		t.Errorf("expected owner, domain, offering and summary, got %q", out)
 	}
 	if !strings.Contains(out, "openapi.yaml") {

@@ -11,6 +11,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // DocOptions holds options for the doc command.
@@ -52,7 +53,12 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 	gr := graph.Resolve(ctx, bundle.Contract, fetcher)
 
 	logging.LoggerFromContext(ctx).Debug("generating markdown documentation")
-	details := contractview.ServiceDetailsFromBundle(bundle, "local")
+	// Lenient, like the fleet: a ref Pacto cannot fetch is CONFIG_REF_UNVERIFIED.
+	var resolver validation.BundleResolver
+	if s.BundleStore != nil {
+		resolver = s.PolicyResolver(ref)
+	}
+	details := contractview.ServiceDetailsFromBundleWith(ctx, bundle, "local", validation.ConfigRefOptions{Resolver: resolver, Now: s.env().now()})
 	contractview.ApplyDependencyGraph(details, gr)
 	details.GenerateInsights()
 	markdown, err := s.env().generateDoc(details, gr)

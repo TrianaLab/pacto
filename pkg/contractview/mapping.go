@@ -1,6 +1,7 @@
 package contractview
 
 import (
+	"context"
 	"io/fs"
 	"path"
 	"sort"
@@ -29,19 +30,29 @@ func ServiceFromContract(c *contract.Contract, source string) Service {
 		Domain:         c.Service.Domain,
 		Offering:       c.Service.Offering,
 		Summary:        c.Service.Summary,
+		Lifecycle:      c.Service.Lifecycle,
 		ContractStatus: StatusUnknown,
 		Source:         source,
 	}
 }
 
 // ServiceDetailsFromBundle builds full ServiceDetails from a contract bundle,
-// deriving readiness freshness as of now.
+// deriving readiness freshness as of now. It resolves no configuration ref:
+// the configuration-refs stage warns CONFIG_REF_NOT_ENFORCED for each one
+// with values to check.
 func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDetails {
-	return serviceDetailsAt(bundle, source, time.Now())
+	return serviceDetailsAt(context.Background(), bundle, source, time.Now(), nil)
 }
 
-// serviceDetailsAt is ServiceDetailsFromBundle with readiness evaluated at now.
-func serviceDetailsAt(bundle *contract.Bundle, source string, now time.Time) *ServiceDetails {
+// ServiceDetailsFromBundleWith is [ServiceDetailsFromBundle] with configuration
+// refs resolved through refs, so its stages match what the fleet reports.
+func ServiceDetailsFromBundleWith(ctx context.Context, bundle *contract.Bundle, source string, refs validation.ConfigRefOptions) *ServiceDetails {
+	return serviceDetailsAt(ctx, bundle, source, time.Now(), &refs)
+}
+
+// serviceDetailsAt is ServiceDetailsFromBundle with readiness evaluated at now
+// and configuration refs resolved through refs when it is set.
+func serviceDetailsAt(ctx context.Context, bundle *contract.Bundle, source string, now time.Time, refs *validation.ConfigRefOptions) *ServiceDetails {
 	c := bundle.Contract
 
 	svc := &ServiceDetails{
@@ -68,7 +79,13 @@ func serviceDetailsAt(bundle *contract.Bundle, source string, now time.Time) *Se
 	// service keeps StatusUnknown from ServiceFromContract and the export still
 	// renders, rather than the whole page failing over one bad bundle.
 	if raw, rawErr := bundle.Raw(); rawErr == nil {
-		stages := validation.ValidateDocumentStages(c, contract.DecodeDocument(raw), bundle.FS)
+		doc := contract.DecodeDocument(raw)
+		var stages []validation.Stage
+		if refs != nil {
+			stages = validation.ValidateDocumentStagesWith(ctx, c, doc, bundle.FS, *refs)
+		} else {
+			stages = validation.ValidateDocumentStages(c, doc, bundle.FS)
+		}
 		result := validation.Merged(stages)
 		svc.Validation = validationInfoFromResult(result)
 		svc.Stages = fleet.StageSummaries(stages)
@@ -350,6 +367,8 @@ func configsFromContract(c *contract.Contract, fsys fs.FS) []ConfigurationInfo {
 			HasSchema: cfg.Schema != "",
 			Schema:    cfg.Schema,
 			Ref:       cfg.Ref,
+
+			Configuration: cfg.ProviderConfiguration,
 		}
 		if len(cfg.Values) > 0 {
 			ci.Values = schemax.Values(cfg.Values)

@@ -332,6 +332,9 @@ type ServiceDetailData struct {
 	// service owner is taken from and where its contacts are shown. Nil when no
 	// revision declares one (the owner, if any, comes from a target).
 	OwnerRevision *EntityRef `json:"ownerRevision,omitempty"`
+	// Lifecycle is the service lifecycle (pactoVersion 2.6) the newest readable
+	// revision declares; nil when it declares none.
+	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	// Capabilities are the distinct capability types the service's readable
 	// revisions declare.
 	Capabilities StringsPreview `json:"capabilities"`
@@ -393,14 +396,16 @@ type ServiceDetailData struct {
 // (bounded, not merely counted), bounded tools/skills/docs, exact/inferred
 // targets, and the previous/next known revisions of the same logical service.
 type RevisionDetailData struct {
-	Service      EntityRef          `json:"service"`
-	Version      string             `json:"version,omitempty"`
-	PactoVersion string             `json:"pactoVersion,omitempty"`
-	Identity     RevisionIdentity   `json:"identity"`
-	Provenance   RevisionProvenance `json:"provenance"`
-	Valid        bool               `json:"valid"`
-	Readiness    *ProductReadiness  `json:"readiness,omitempty"`
-	Validation   FindingsPreview    `json:"validation"`
+	Service      EntityRef `json:"service"`
+	Version      string    `json:"version,omitempty"`
+	PactoVersion string    `json:"pactoVersion,omitempty"`
+	// Lifecycle is the service lifecycle (pactoVersion 2.6) the revision declares.
+	Lifecycle  *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	Identity   RevisionIdentity             `json:"identity"`
+	Provenance RevisionProvenance           `json:"provenance"`
+	Valid      bool                         `json:"valid"`
+	Readiness  *ProductReadiness            `json:"readiness,omitempty"`
+	Validation FindingsPreview              `json:"validation"`
 	// Stages is how each stage of the validation run ended, in run order. Empty
 	// when the contract document was never validated.
 	Stages []ValidationStage `json:"stages"`
@@ -548,6 +553,9 @@ type OfferingUse struct {
 	Via           string    `json:"via" enum:"dependency,configuration_reference,policy_reference"`
 	Compatibility string    `json:"compatibility,omitempty"`
 	RangeStatus   string    `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
+	// ProviderLifecycle is the provider's service lifecycle as the newest
+	// consumer revision's relationship reaches it.
+	ProviderLifecycle *contract.InterfaceLifecycle `json:"providerLifecycle,omitempty"`
 }
 
 // OfferingUsesPreview is a bounded preview of offering uses.
@@ -590,16 +598,18 @@ type InferredOffering struct {
 // its versions, what its current revision declares and how to consume it.
 // Consume is nil when the provider has no OCI reference to consume.
 type OfferingProvider struct {
-	Service         EntityRef             `json:"service"`
-	Ownership       *OwnershipInfo        `json:"ownership,omitempty"`
-	Summary         string                `json:"summary,omitempty"`
-	CurrentRevision *EntityRef            `json:"currentRevision,omitempty"`
-	Revisions       RefPreview            `json:"revisions"`
-	ActiveRevisions RefPreview            `json:"activeRevisions"`
-	Interfaces      InterfacesPreview     `json:"interfaces"`
-	Configurations  ConfigurationsPreview `json:"configurations"`
-	Policies        PoliciesPreview       `json:"policies"`
-	Consume         *ConsumeSnippet       `json:"consume,omitempty"`
+	Service         EntityRef      `json:"service"`
+	Ownership       *OwnershipInfo `json:"ownership,omitempty"`
+	Summary         string         `json:"summary,omitempty"`
+	CurrentRevision *EntityRef     `json:"currentRevision,omitempty"`
+	// Lifecycle is the service lifecycle CurrentRevision declares.
+	Lifecycle       *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	Revisions       RefPreview                   `json:"revisions"`
+	ActiveRevisions RefPreview                   `json:"activeRevisions"`
+	Interfaces      InterfacesPreview            `json:"interfaces"`
+	Configurations  ConfigurationsPreview        `json:"configurations"`
+	Policies        PoliciesPreview              `json:"policies"`
+	Consume         *ConsumeSnippet              `json:"consume,omitempty"`
 }
 
 // OfferingProvidersPreview is a bounded preview of offering providers.
@@ -749,6 +759,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Domain:                 s.Domain,
 		Ownership:              ownership,
 		OwnerRevision:          q.ownerRevision(s),
+		Lifecycle:              serviceLifecycle(newestReadable(view.Revisions)),
 		Capabilities:           stringsPreview(slices.DeleteFunc(q.serviceCapabilities(s), func(c string) bool { return c == "" })),
 		Sources:                refPreview(q.serviceSources(view)),
 		UnresolvedDependencies: unresolved,
@@ -795,6 +806,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Service:         q.serviceRef(rev.ServiceKey),
 		Version:         rev.Version,
 		PactoVersion:    rev.PactoVersion,
+		Lifecycle:       rev.Contract.Service.Lifecycle,
 		Identity:        revisionIdentity(rev.Digest, rev.RequestedRef, rev.ResolvedRef),
 		Provenance:      revisionProvenance(rev),
 		Valid:           rev.Valid,
@@ -1024,15 +1036,11 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 		inUse[q.snap.Targets[tk].ContractRevision] = true
 	}
 	var all, active []*ContractRevision
-	var newest *ContractRevision
 	for _, rk := range s.Revisions {
 		r := q.snap.Revisions[rk]
 		all = append(all, r)
 		if inUse[rk] {
 			active = append(active, r)
-		}
-		if readableRevision(r) && (newest == nil || lessRevisionChrono(newest, r)) {
-			newest = r
 		}
 	}
 	current, cfgs, pols := q.currentRevisionContent(active, all)
@@ -1040,11 +1048,12 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 		Service: serviceEntityRef(s), Ownership: serviceOwnership(s, all), Summary: s.Summary, CurrentRevision: current,
 		Revisions: refPreview(chronologicalRevisionRefs(all)), ActiveRevisions: refPreview(chronologicalRevisionRefs(active)),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
-		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(s, newest),
+		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(s, newestReadable(all)),
 	}
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {
 			p.Interfaces = interfacesPreview(rec.Contract.Interfaces, rec.Tools, rec.SpecsRead, q.snap.GeneratedAt)
+			p.Lifecycle = rec.Contract.Service.Lifecycle
 		}
 	}
 	return p
@@ -1060,6 +1069,7 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 		via                string
 	}
 	seen := map[useKey]int{}
+	keptRev := map[useKey]*ContractRevision{} // the consumer revision whose provider lifecycle a row keeps
 	var uses []OfferingUse
 	for i := range q.snap.Relationships {
 		rel := &q.snap.Relationships[i]
@@ -1081,12 +1091,17 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 			if rel.Compatibility != u.Compatibility {
 				u.Compatibility = ""
 			}
+			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (keptRev[k] == nil || lessRevisionChrono(keptRev[k], r)) {
+				keptRev[k], u.ProviderLifecycle = r, rel.ProviderLifecycle
+			}
 			continue
 		}
 		seen[k] = len(uses)
+		keptRev[k] = q.snap.Revisions[rel.FromRevision]
 		uses = append(uses, OfferingUse{
 			Offering: p.Offering, Consumer: q.serviceRef(rel.FromService), Provider: serviceEntityRef(p),
 			Via: rel.Type, Compatibility: rel.Compatibility, RangeStatus: rel.RangeStatus,
+			ProviderLifecycle: rel.ProviderLifecycle,
 		})
 	}
 	slices.SortStableFunc(uses, func(a, b OfferingUse) int {
@@ -1258,6 +1273,26 @@ func (q *Query) siblingRevisions(rev *ContractRevision) (prev, next *EntityRef) 
 		break
 	}
 	return prev, next
+}
+
+// newestReadable is the newest readable revision of revs in revision
+// chronology, nil when none is readable.
+func newestReadable(revs []*ContractRevision) *ContractRevision {
+	var newest *ContractRevision
+	for _, r := range revs {
+		if readableRevision(r) && (newest == nil || lessRevisionChrono(newest, r)) {
+			newest = r
+		}
+	}
+	return newest
+}
+
+// serviceLifecycle is the service lifecycle rev declares, nil for no revision.
+func serviceLifecycle(rev *ContractRevision) *contract.InterfaceLifecycle {
+	if rev == nil {
+		return nil
+	}
+	return rev.Contract.Service.Lifecycle
 }
 
 // lessRevisionChrono is the canonical ascending revision order used by

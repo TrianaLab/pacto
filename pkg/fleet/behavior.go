@@ -131,15 +131,38 @@ func providerDeprecations(snap *FleetSnapshot, rel Relationship) []InterfaceDepr
 	return out
 }
 
+// providerServiceLifecycle is the service lifecycle of the provider revision a
+// resolved relationship reaches: the revision its lock pins, else the newest
+// readable revision of the provider. Nil when that revision declares none.
+func providerServiceLifecycle(snap *FleetSnapshot, rel Relationship) *contract.InterfaceLifecycle {
+	rev := snap.Revisions[rel.ResolvedRevision]
+	if rev == nil {
+		var all []*ContractRevision
+		for _, rk := range snap.Services[rel.ToService].Revisions {
+			all = append(all, snap.Revisions[rk])
+		}
+		rev = newestReadable(all)
+	}
+	if rev == nil || rev.Contract == nil || rev.Contract.Service.Lifecycle == nil {
+		return nil
+	}
+	l := *rev.Contract.Service.Lifecycle
+	return &l
+}
+
 // guaranteeRank orders guarantee statuses by how much they matter to a reader.
 var guaranteeRank = map[string]int{GuaranteeMet: 1, GuaranteeUnknown: 2, GuaranteeUnmet: 3}
 
 // foldBehavior merges one declared relationship's behavior facts into an
-// edge: the worst guarantee status of its claims and the union of the
-// provider interfaces they found deprecated, by interface name.
+// edge: the worst guarantee status of its claims, the union of the provider
+// interfaces they found deprecated, by interface name, and the first provider
+// service lifecycle a claim carries.
 func foldBehavior(e *NeighborhoodEdge, rel Relationship) {
 	if guaranteeRank[rel.GuaranteeStatus] > guaranteeRank[e.GuaranteeStatus] {
 		e.GuaranteeStatus = rel.GuaranteeStatus
+	}
+	if e.ProviderLifecycle == nil {
+		e.ProviderLifecycle = rel.ProviderLifecycle
 	}
 	for _, d := range rel.DeprecatedInterfaces {
 		if !slices.ContainsFunc(e.DeprecatedInterfaces, func(x InterfaceDeprecation) bool { return x.Interface == d.Interface }) {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Neighborhood bounds. A neighborhood is always bounded so the graph never opens
@@ -248,14 +250,16 @@ type NeighborhoodEdge struct {
 	// GuaranteeStatus is the worst guarantee status over every declared claim
 	// (unmet, then unknown, then met; see [DependencyBehavior]), empty when no
 	// claim requires anything. DeprecatedInterfaces is every deprecated
-	// interface of the provider the claims reach. Both are declared knowledge.
-	GuaranteeStatus      string                    `json:"guaranteeStatus,omitempty" enum:"met,unmet,unknown"`
-	DeprecatedInterfaces []InterfaceDeprecation    `json:"deprecatedInterfaces,omitempty"`
-	ObservationSources   ObservationSourcesPreview `json:"observationSources"`
-	Count                int                       `json:"count,omitempty"`
-	FirstSeen            *time.Time                `json:"firstSeen,omitempty"`
-	LastSeen             *time.Time                `json:"lastSeen,omitempty"`
-	Stale                bool                      `json:"stale,omitempty"`
+	// interface of the provider the claims reach and ProviderLifecycle the
+	// provider's service lifecycle. All are declared knowledge.
+	GuaranteeStatus      string                       `json:"guaranteeStatus,omitempty" enum:"met,unmet,unknown"`
+	DeprecatedInterfaces []InterfaceDeprecation       `json:"deprecatedInterfaces,omitempty"`
+	ProviderLifecycle    *contract.InterfaceLifecycle `json:"providerLifecycle,omitempty"`
+	ObservationSources   ObservationSourcesPreview    `json:"observationSources"`
+	Count                int                          `json:"count,omitempty"`
+	FirstSeen            *time.Time                   `json:"firstSeen,omitempty"`
+	LastSeen             *time.Time                   `json:"lastSeen,omitempty"`
+	Stale                bool                         `json:"stale,omitempty"`
 }
 
 // DeclaredClaimsPreview is a bounded preview of an edge's per-revision declared
@@ -429,7 +433,7 @@ func projectEdgeForViews(e *NeighborhoodEdge, views []KnowledgeView) {
 	if !wantDeclared {
 		e.Expected = false
 		e.DeclaredClaims = DeclaredClaimsPreview{}
-		e.GuaranteeStatus, e.DeprecatedInterfaces = "", nil
+		e.GuaranteeStatus, e.DeprecatedInterfaces, e.ProviderLifecycle = "", nil, nil
 	}
 	if !wantObserved {
 		e.Observed = false
