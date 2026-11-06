@@ -382,6 +382,20 @@ func TestEditRejectsValuesTheProviderSchemaRejects(t *testing.T) {
 			t.Errorf("environment file changed: %q", raw)
 		}
 	})
+	t.Run("an added environment whose file already holds rejected values", func(t *testing.T) {
+		dir := refRoot(t, orders26, map[string]string{"environments/prod.yaml": "db: {size: huge}\n"})
+		_, err := Edit(context.Background(), realValidator, EditInput{Path: dir, AddEnvironments: []EnvironmentInput{{Name: "prod"}}})
+		if err == nil || !strings.Contains(err.Error(), "ENVIRONMENT_VALUES_INVALID") {
+			t.Fatalf("err %v", err)
+		}
+		if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != orders26 {
+			t.Errorf("pacto.yaml changed:\n%s", raw)
+		}
+	})
+
+}
+
+func TestEditFailsClosedOnUnresolvableRefs(t *testing.T) {
 	t.Run("an unresolvable ref fails closed", func(t *testing.T) {
 		unreachable := app.NewService(&testutil.MockBundleStore{PullFn: func(context.Context, string) (*contract.Bundle, error) {
 			return nil, errors.New("not found")
@@ -393,16 +407,6 @@ func TestEditRejectsValuesTheProviderSchemaRejects(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "CONFIG_REF_UNRESOLVED") {
 				t.Errorf("%s: err %v", name, err)
 			}
-		}
-	})
-	t.Run("an added environment whose file already holds rejected values", func(t *testing.T) {
-		dir := refRoot(t, orders26, map[string]string{"environments/prod.yaml": "db: {size: huge}\n"})
-		_, err := Edit(context.Background(), realValidator, EditInput{Path: dir, AddEnvironments: []EnvironmentInput{{Name: "prod"}}})
-		if err == nil || !strings.Contains(err.Error(), "ENVIRONMENT_VALUES_INVALID") {
-			t.Fatalf("err %v", err)
-		}
-		if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != orders26 {
-			t.Errorf("pacto.yaml changed:\n%s", raw)
 		}
 	})
 	t.Run("a 2.6 ref added without values fails closed", func(t *testing.T) {
