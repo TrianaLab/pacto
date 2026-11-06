@@ -98,18 +98,14 @@ uncertainty and an `inferred` consumer is a lead to verify.
 ### Configuration-reference consumers
 
 A service that takes a configuration schema from the changed service by `ref`
-is a consumer too. Pacto judges it directly: it selects the consumer's
-configuration in the new revision and checks the consumer's inline and
-environment values against that schema. When the consumer also declares a
-dependency on the changed service, the stricter of the range verdict and the
-values verdict speaks for it.
+is a consumer too. Pacto selects its configuration in the new revision and
+checks its inline and environment values against that schema. With a
+dependency too, the stricter of the range and values verdicts speaks.
 
 - Values that pass give `compatible`.
 - Values that fail give `incompatible`, and the note lists each violation as
   `configuration <name>: <violation> against <provider>@<version>`.
-- A selection that fails in a 2.6 consumer, such as a reference with no
-  `configuration` to a provider that now declares several, gives
-  `incompatible`.
+- A selection that fails in a 2.6 consumer gives `incompatible`.
 - `unknown` remains when the consumer's values or the new schema cannot be
   read, or an older consumer's selection fails, and the note says why.
 
@@ -118,8 +114,8 @@ These consumers carry `declared` confidence and feed the
 them never ends `clear`.
 
 A configuration reference that is neither digest-pinned nor locked cannot be
-placed on a revision. When such references name the changed service, by a
-repository it is published to or by a last path segment that is its name, the
+placed on a revision. When such references name the changed service, by
+repository or by name, the
 answer adds a `CONFIG_REF_CONSUMERS_UNRESOLVED` limitation and its
 completeness is `partial`, so the gate stays `unverified`.
 

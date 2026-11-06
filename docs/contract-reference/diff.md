@@ -81,7 +81,7 @@ A [`compatibilityEpoch`](sections.md#compatibility-epoch) change marks a behavio
 |-------|--------|----------------|
 | `configurations[]` | Added | NON_BREAKING |
 | `configurations[]` | Removed | **BREAKING** |
-| `configurations[]` | One becomes several | **BREAKING** |
+| `configurations[]` | One becomes several, so a selector-less `ref` turns ambiguous | **BREAKING** |
 | `configurations[].schema` | Added | POTENTIAL_BREAKING |
 | `configurations[].schema` | Modified | POTENTIAL_BREAKING |
 | `configurations[].schema` | Removed | **BREAKING** |
@@ -93,9 +93,7 @@ A [`compatibilityEpoch`](sections.md#compatibility-epoch) change marks a behavio
 | `configurations[].values.*` | Added / Modified / Removed | NON_BREAKING |
 
 Dropping a `schema` is `BREAKING`: the configuration a consumer supplies stops
-being validated. A contract with one configuration that gains a second is
-`BREAKING` too: a consumer's reference that sets no `configuration` selected
-the only one and now reads as `CONFIG_REF_AMBIGUOUS`. Introducing a schema where there was none is
+being validated. Introducing a schema where there was none is
 `POTENTIAL_BREAKING`, because a configuration that was unchecked before can now
 fail validation.
 

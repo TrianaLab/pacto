@@ -74,9 +74,8 @@ The referenced contract may declare several configurations. Pacto picks one:
 | Omits `configuration` | Declares more than one | `CONFIG_REF_AMBIGUOUS` |
 
 Both codes are errors in 2.6 and warnings in older contracts, which can carry
-no selector. A selected configuration that is itself a `ref` is followed, and
-a cycle reports `CONFIG_REF_CYCLE`. A chain stops after eight refs and reads as
-a ref that cannot be resolved.
+no selector. A selected configuration that is itself a `ref` is followed up to
+eight refs deep, and a cycle reports `CONFIG_REF_CYCLE`.
 
 #### Resolution and versions
 

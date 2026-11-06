@@ -105,10 +105,7 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 	}
 	entry := cfg
 	var path []declaredRef
-	for hop := 0; ; hop++ {
-		if hop == MaxConfigRefHops {
-			return fail("", "ref", false, "ref %q chains through more than %d configuration refs", cfg.Ref, MaxConfigRefHops)
-		}
+	for hop := 0; hop < MaxConfigRefHops; hop++ {
 		link := declaredRef{Base: base, Ref: entry.Ref}
 		if slices.Contains(path, link) {
 			return fail("CONFIG_REF_CYCLE", "ref", true, "cycle detected resolving ref %q (chain: %v)", entry.Ref, refChain(path, entry.Ref))
@@ -147,6 +144,7 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 		r.Schema, r.SchemaPath, r.ProviderFS = schema, sel.Schema, bundle.FS
 		return r, nil
 	}
+	return fail("", "ref", false, "ref %q chains through more than %d configuration refs", cfg.Ref, MaxConfigRefHops)
 }
 
 // readConfigSchema reads and compiles the configuration schema at path.

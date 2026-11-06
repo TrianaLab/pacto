@@ -117,13 +117,12 @@ any key beyond these four:
 | Key | Meaning |
 |-----|---------|
 | `provider` | A lowercase slug of at most 63 bytes naming the provider. Pacto keeps no list of providers. |
-| `externalRef` | Optional. An opaque handle of the resource at the provider, at most 253 printable bytes. Everyone who can read the consumer sees it, so keep secrets out of it. A URL that carries credentials is rejected. |
+| `externalRef` | Optional. An opaque handle of the resource at the provider, at most 253 printable bytes. Viewers of the consumer see it; a URL with credentials is rejected. |
 | `phase` | `Requested`, `Provisioning`, `Ready`, `Failed` or `Deleting`. |
 | `environment` | Optional. The consumer environment the resource serves, a lowercase slug. |
 
-An outcome other than `Observed` carries no payload. Its observation subject
-carries the environment instead, as `subject.environment`, so the report keeps
-that environment's status. `pacto evidence
+Any other outcome carries no payload; the observation's
+`subject.environment` names its environment. `pacto evidence
 provisioned` writes the EvidenceSet; sign and send it like any other:
 
 ```bash
@@ -134,9 +133,8 @@ pacto evidence provisioned \
   --external-ref databases/orders-production > report.json
 ```
 
-The subject defaults to `<repository>/<environment or default>/<kind>/<name>`. Keep
-one subject per resource: the server keeps the latest report per producer and
-subject.
+The subject defaults to `<repository>/<environment or default>/<kind>/<name>`,
+one per resource: the server keeps the latest report per producer and subject.
 
 The server accepts a provisioning report only when:
 
@@ -268,8 +266,7 @@ keys:
 An empty `allowedObservationKinds` withholds `ResourceProvisioned`, so a
 team's runtime key cannot mark its own resources Ready. Give a provider adapter
 its own key that lists it. A key that lists only `ResourceProvisioned` cannot
-send an EvidenceSet with no observations, since an empty set is a runtime
-report.
+send an empty EvidenceSet.
 
 Loading validates the schema version, identifier grammar, duplicate key ids, contradictory producer bindings, missing or traversing key files and malformed patterns.
 
