@@ -615,6 +615,9 @@ type OfferingProvider struct {
 	Configurations  ConfigurationsPreview        `json:"configurations"`
 	Policies        PoliciesPreview              `json:"policies"`
 	Consume         *ConsumeSnippet              `json:"consume,omitempty"`
+	// OfferingProvenance says where this provider's membership in the offering
+	// comes from: declared by its contract or observed from its targets.
+	OfferingProvenance string `json:"offeringProvenance" enum:"declared,observed"`
 }
 
 // OfferingProvidersPreview is a bounded preview of offering providers.
@@ -634,6 +637,10 @@ const MaxOfferingProviders = 25
 type OfferingDetailData struct {
 	Providers OfferingProvidersPreview `json:"providers"`
 	Consumers OfferingUsesPreview      `json:"consumers"`
+	// HiddenConsumers counts the distinct services the caller's permissions hide
+	// that depend on or reference a provider of the offering. They are never
+	// named. Zero outside a restricted answer.
+	HiddenConsumers int `json:"hiddenConsumers"`
 }
 
 // SourceContribution counts the DISTINCT product entities attributable to one
@@ -1026,11 +1033,15 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 		items = append(items, q.offeringProvider(q.snap.Services[ServiceKey(ref.Key)]))
 	}
 	uses, conflicts := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == key }, "")
+	hidden := map[ServiceKey]bool{}
+	for _, ref := range providers {
+		maps.Copy(hidden, q.snap.hiddenConsumers[ServiceKey(ref.Key)])
+	}
 	return &EntityDetail{
-		Meta: q.productMetaWith(conflicts), Entity: offeringEntityRef(key),
+		Meta: q.productMetaWith(conflicts), Entity: offeringEntityRef(key, offeringProvenance(q.snap, key)),
 		Offering: &OfferingDetailData{
 			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
-			Consumers: offeringUsesPreview(uses),
+			Consumers: offeringUsesPreview(uses), HiddenConsumers: len(hidden),
 		},
 	}, nil
 }
@@ -1051,7 +1062,7 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 	}
 	current, cfgs, pols := q.currentRevisionContent(active, all)
 	p := OfferingProvider{
-		Service: serviceEntityRef(s), Ownership: serviceOwnership(s, all), Summary: s.Summary, CurrentRevision: current,
+		Service: serviceEntityRef(s), OfferingProvenance: s.OfferingProvenance, Ownership: serviceOwnership(s, all), Summary: s.Summary, CurrentRevision: current,
 		Revisions: refPreview(chronologicalRevisionRefs(all)), ActiveRevisions: refPreview(chronologicalRevisionRefs(active)),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
 		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(s, newestReadable(all)),
@@ -1157,9 +1168,9 @@ func (q *Query) inferredOfferings(unresolved []UnresolvedDependency) []InferredO
 		name := strings.ToLower(path.Base(repo))
 		switch p := providers[name]; {
 		case offerings[name]:
-			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(name), Reason: "offering-name"})
+			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(name, offeringProvenance(q.snap, name)), Reason: "offering-name"})
 		case p != nil:
-			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(p.Offering), Provider: new(serviceEntityRef(p)), Reason: "provider-name"})
+			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(p.Offering, offeringProvenance(q.snap, p.Offering)), Provider: new(serviceEntityRef(p)), Reason: "provider-name"})
 		}
 	}
 	return out

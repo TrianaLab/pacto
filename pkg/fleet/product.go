@@ -102,6 +102,11 @@ type EntityRef struct {
 	// purpose.
 	Offering string `json:"offering,omitempty"`
 	Summary  string `json:"summary,omitempty"`
+	// OfferingProvenance says where an offering reference's membership comes
+	// from: declared when a contract revision of any provider declares it,
+	// observed when only the sources observing targets report it. A service
+	// reference that carries Offering carries its own.
+	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
 	// Environment is the environment a TARGET reference runs in (see
 	// TargetRecord.Environment), empty when unknown.
 	Environment   string `json:"environment,omitempty"`
@@ -217,7 +222,7 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 	return EntityRef{
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
 		Status: s.Status, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
-		Offering: s.Offering, Summary: s.Summary,
+		Offering: s.Offering, Summary: s.Summary, OfferingProvenance: s.OfferingProvenance,
 	}
 }
 
@@ -276,9 +281,21 @@ func domainEntityRef(name string) EntityRef {
 	return EntityRef{Kind: KindDomain, Key: name, Label: name, BusinessDomain: name}
 }
 
-// offeringEntityRef builds a route-neutral reference to a platform offering.
-func offeringEntityRef(name string) EntityRef {
-	return EntityRef{Kind: KindOffering, Key: name, Label: name, Offering: name}
+// offeringEntityRef builds a route-neutral reference to a platform offering
+// whose membership has the given provenance.
+func offeringEntityRef(name, provenance string) EntityRef {
+	return EntityRef{Kind: KindOffering, Key: name, Label: name, Offering: name, OfferingProvenance: provenance}
+}
+
+// offeringProvenance is ProvenanceDeclared when any provider of the offering
+// name declares it and ProvenanceObserved otherwise.
+func offeringProvenance(snap *FleetSnapshot, name string) string {
+	for _, s := range snap.Services {
+		if s.Offering == name && s.OfferingProvenance == ProvenanceDeclared {
+			return ProvenanceDeclared
+		}
+	}
+	return ProvenanceObserved
 }
 
 // sourceEntityRef builds a route-neutral reference to a source.

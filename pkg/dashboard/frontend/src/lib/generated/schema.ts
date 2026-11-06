@@ -2447,6 +2447,8 @@ export interface components {
             };
             name: string;
             offering?: string;
+            /** @enum {string} */
+            offeringProvenance?: "declared" | "observed";
             owner?: components["schemas"]["Contract.Owner"];
             revisions?: string[] | null;
             sources?: string[] | null;
@@ -3303,6 +3305,8 @@ export interface components {
         };
         ProductOfferingDetail: {
             consumers: components["schemas"]["ProductOfferingUsesPreview"];
+            /** Format: int64 */
+            hiddenConsumers: number;
             providers: components["schemas"]["ProductOfferingProvidersPreview"];
         };
         ProductOfferingProvider: {
@@ -3312,6 +3316,8 @@ export interface components {
             currentRevision?: components["schemas"]["ProductRef"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /** @enum {string} */
+            offeringProvenance: "declared" | "observed";
             ownership?: components["schemas"]["ProductOwnership"];
             policies: components["schemas"]["ProductPoliciesPreview"];
             revisions: components["schemas"]["ProductRefPreview"];
@@ -3419,6 +3425,8 @@ export interface components {
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
             offering?: string;
+            /** @enum {string} */
+            offeringProvenance?: "declared" | "observed";
             owner?: string;
             parentService?: string;
             scope?: string;

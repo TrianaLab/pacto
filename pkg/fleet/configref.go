@@ -70,17 +70,22 @@ func (r *ContractRevision) BundleFS() fs.FS {
 // cannot place stays unverified: the stage is skipped and never passes.
 func revalidateConfigRefs(snap *FleetSnapshot) {
 	for _, rev := range snap.Revisions {
-		if !declaresConfigRef(rev.Contract) {
-			continue
+		if declaresConfigRef(rev.Contract) {
+			revalidateRevision(snap, rev)
 		}
-		yml, err := rev.bundle.Raw()
-		if err != nil {
-			continue
-		}
-		stages := validation.ValidateDocumentStagesWith(context.Background(), rev.Contract, contract.DecodeDocument(yml), rev.bundle.FS,
-			validation.ConfigRefOptions{Resolver: snapshotResolver{snap: snap, root: rev.Key}, Now: snap.GeneratedAt})
-		setStages(rev, stages)
 	}
+}
+
+// revalidateRevision validates rev again with its configuration refs resolved
+// from snap in lenient mode.
+func revalidateRevision(snap *FleetSnapshot, rev *ContractRevision) {
+	yml, err := rev.bundle.Raw()
+	if err != nil {
+		return
+	}
+	stages := validation.ValidateDocumentStagesWith(context.Background(), rev.Contract, contract.DecodeDocument(yml), rev.bundle.FS,
+		validation.ConfigRefOptions{Resolver: snapshotResolver{snap: snap, root: rev.Key}, Now: snap.GeneratedAt})
+	setStages(rev, stages)
 }
 
 // declaresConfigRef reports whether c names a configuration schema by ref.

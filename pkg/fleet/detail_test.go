@@ -658,3 +658,37 @@ func TestServiceDetailLifecycle(t *testing.T) {
 		}
 	}
 }
+
+// A hidden service consuming two providers of an offering counts once; an
+// observed caller and a hidden service that only references a provider's
+// policy never count.
+func TestOfferingHiddenConsumers(t *testing.T) {
+	both := svc25("both", "1.0.0", "")
+	both.Dependencies = []contract.Dependency{{Name: "pa", Required: true}, {Name: "pb", Required: true}}
+	pol := svc25("pol", "1.0.0", "")
+	pol.Policies = []contract.Policy{{Name: "guard", Ref: "oci://ghcr.io/acme/pa@" + testDigest("ghcr.io/acme", "pa", "1.0.0")}}
+	tgt := func(ns, name string) RawTarget {
+		return RawTarget{Scope: ns, Kind: SourceKindKubernetes, Name: name, Service: name, Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", name, "1.0.0")}
+	}
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{
+		Revisions: []RawRevision{
+			ociRev("ghcr.io/acme", svc25("pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", svc25("pb", "1.0.0", "db"), nil),
+			ociRev("ghcr.io/acme", both, nil), ociRev("ghcr.io/acme", pol, nil),
+		},
+		Targets:  []RawTarget{tgt("shop", "pa"), tgt("shop", "pb"), tgt("hush", "both"), tgt("hush", "pol")},
+		Observed: []ObservedEdge{{From: "k8s:hush/Deployment/x", To: "pa", Count: 1}, {From: "somecaller", To: "pa", Count: 1}},
+	})
+	if !slices.ContainsFunc(q.snap.Relationships, func(r Relationship) bool { return r.Type == RelationshipPolicyRef && r.Resolved }) {
+		t.Fatal("pol's policy reference does not resolve")
+	}
+	if n := offeringData(t, q, "db").HiddenConsumers; n != 0 {
+		t.Errorf("unrestricted hidden consumers = %d", n)
+	}
+	r := q.Restrict(func(ns string) bool { return ns == "shop" })
+	if n := offeringData(t, r, "db").HiddenConsumers; n != 1 {
+		t.Errorf("hidden consumers = %d, want 1", n)
+	}
+	if pa := r.snap.Services[NewServiceKeyDomain("ghcr.io/acme", "pa")]; pa.HiddenDependents < 3 {
+		t.Errorf("pa hidden dependents = %d, want the callers counted there", pa.HiddenDependents)
+	}
+}

@@ -439,6 +439,9 @@ type ServiceRecord struct {
 	Labels    map[string]string `json:"labels,omitempty"`
 	Status    string            `json:"status,omitempty"`
 	Sources   []string          `json:"sources,omitempty"`
+	// OfferingProvenance says where Offering comes from: declared by a contract
+	// revision, or observed, reported only by the sources observing its targets.
+	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
 	// HiddenDependencies and HiddenDependents count the services this one
 	// depends on or calls, and the services, or callers with no contract, that
 	// depend on or call it, which the caller's permissions hide. They are never
@@ -802,6 +805,14 @@ type FleetSnapshot struct {
 	// provisioningWindow is BuildOptions.FreshnessWindow: a provisioning report
 	// older than it (RecentEvidenceWindow when zero) is stale.
 	provisioningWindow time.Duration
+
+	// offeringOnly holds, in a restricted snapshot, the services visible only
+	// because they declare a platform offering and have no Kubernetes placement
+	// (see [Query.Restrict]); their targets are gone from the view.
+	offeringOnly map[ServiceKey]bool
+	// hiddenConsumers maps, in a restricted snapshot, a provider to the hidden
+	// services with a declared, resolved [ConsumesEdge] to it. Only counted.
+	hiddenConsumers map[ServiceKey]map[ServiceKey]bool
 
 	// reverseDeps maps a service KEY to the keys of services that declare a
 	// dependency or a resolved configuration reference on it (see

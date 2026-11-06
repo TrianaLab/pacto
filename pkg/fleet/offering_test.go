@@ -518,8 +518,44 @@ func TestOfferingDetail_TargetOnlyProvider(t *testing.T) {
 		{Scope: "a", Kind: "k8s", Name: "pg", Service: "pg", Offering: "postgresql"},
 	}})
 	p := offeringData(t, q, "postgresql").Providers.Items[0]
-	if p.Consume != nil || p.CurrentRevision != nil || p.Interfaces.Total != 0 || p.Revisions.Total != 0 {
+	if p.Consume != nil || p.CurrentRevision != nil || p.Interfaces.Total != 0 || p.Revisions.Total != 0 || p.OfferingProvenance != ProvenanceObserved {
 		t.Errorf("provider = %+v", p)
+	}
+	if d, _ := q.EntityDetail(KindOffering, "postgresql"); d.Entity.OfferingProvenance != ProvenanceObserved {
+		t.Errorf("offering ref = %+v", d.Entity)
+	}
+}
+
+// Membership is declared when a contract revision declares the offering and
+// observed when only targets report it; an offering any provider declares is
+// declared.
+func TestOfferingProvenance(t *testing.T) {
+	q := buildDomainSnap(t, "local", &Collection{
+		Revisions: []RawRevision{offerRev("postgresql", "16.0.1", "postgresql", ""), offerRev("bare", "1.0.0", "", "")},
+		Targets: []RawTarget{
+			{Scope: "a", Kind: "k8s", Name: "pg2", Service: "pg2", Offering: "postgresql"},
+			{Scope: "a", Kind: "k8s", Name: "kv", Service: "kv", Offering: "redis"},
+		},
+	})
+	for name, want := range map[string]string{"postgresql": ProvenanceDeclared, "pg2": ProvenanceObserved, "bare": ""} {
+		key := NewServiceKeyDomain("ghcr.io/acme", name)
+		if name == "pg2" {
+			key = NewServiceKey(name)
+		}
+		if got := q.snap.Services[key].OfferingProvenance; got != want {
+			t.Errorf("%s provenance = %q, want %q", name, got, want)
+		}
+	}
+	refs := map[string]EntityRef{}
+	for _, r := range mustEntities(t, q, EntityFilter{Kinds: []EntityKind{KindOffering, KindService}}) {
+		refs[r.Key] = r
+	}
+	if refs["postgresql"].OfferingProvenance != ProvenanceDeclared || refs["redis"].OfferingProvenance != ProvenanceObserved ||
+		refs[string(NewServiceKey("pg2"))].OfferingProvenance != ProvenanceObserved {
+		t.Errorf("refs = %+v", refs)
+	}
+	if d, _ := q.EntityDetail(KindOffering, "postgresql"); d.Entity.OfferingProvenance != ProvenanceDeclared || d.Offering.Providers.Items[0].OfferingProvenance == "" {
+		t.Errorf("offering detail = %+v", d.Entity)
 	}
 }
 

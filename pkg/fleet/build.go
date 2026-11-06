@@ -1422,16 +1422,18 @@ func domainConflict(name string, conflict []string) []Limitation {
 // none, and unknown when nothing says either way. A value that is not a domain
 // slug is never a domain.
 func businessDomainOf(snap *FleetSnapshot, s *ServiceRecord) (domain string, unknown bool, conflict []string) {
-	return declaredServiceValue(snap, s, func(c contract.Service) string { return c.Domain }, validBusinessDomain,
+	domain, unknown, conflict, _ = declaredServiceValue(snap, s, func(c contract.Service) string { return c.Domain }, validBusinessDomain,
 		func(t *TargetRecord) []string { return t.reportedDomains }, func(t *TargetRecord) bool { return t.domainKnown })
+	return domain, unknown, conflict
 }
 
 // declaredServiceValue is the rule businessDomainOf documents, for any service
 // field: declared reads it from a contract, valid says a non-empty value can be
 // one, and reported and known read what the sources observing a target say. A
-// nil known means no source says a contract declares none.
+// nil known means no source says a contract declares none. fromContract says a
+// revision declares the value.
 func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(contract.Service) string, valid func(string) bool,
-	reported func(*TargetRecord) []string, known func(*TargetRecord) bool) (value string, unknown bool, conflict []string) {
+	reported func(*TargetRecord) []string, known func(*TargetRecord) bool) (value string, unknown bool, conflict []string, fromContract bool) {
 	var newest *ContractRevision
 	isDeclared := false
 	for _, rk := range s.Revisions {
@@ -1445,7 +1447,7 @@ func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(c
 		}
 	}
 	if isDeclared {
-		return declared(newest.Contract.Service), false, nil
+		return declared(newest.Contract.Service), false, nil, true
 	}
 	isKnown := newest != nil
 	var values []string
@@ -1459,11 +1461,11 @@ func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(c
 	slices.Sort(values)
 	switch len(values) {
 	case 0:
-		return "", !isKnown, nil
+		return "", !isKnown, nil, false
 	case 1:
-		return values[0], false, nil
+		return values[0], false, nil, false
 	default:
-		return "", true, values
+		return "", true, values, false
 	}
 }
 
@@ -1490,7 +1492,7 @@ func readableRevision(r *ContractRevision) bool {
 // with none and no limitation.
 func deriveOffering(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	var conflict []string
-	s.Offering, conflict = offeringOf(snap, s)
+	s.Offering, s.OfferingProvenance, conflict = offeringOf(snap, s)
 	s.Summary = summaryOf(snap, s)
 	return offeringConflict(s.Name, conflict)
 }
@@ -1508,17 +1510,26 @@ func offeringConflict(name string, conflict []string) []Limitation {
 	}}
 }
 
-// offeringOf is a service's platform offering and the offerings its sources
+// offeringOf is a service's platform offering, where its membership comes from
+// (ProvenanceDeclared when a revision declares it, ProvenanceObserved when only
+// its targets report it, empty with no offering) and the offerings its sources
 // disagree on; the offering rule is the business-domain slug rule.
-func offeringOf(snap *FleetSnapshot, s *ServiceRecord) (string, []string) {
-	v, _, conflict := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Offering }, validBusinessDomain,
+func offeringOf(snap *FleetSnapshot, s *ServiceRecord) (offering, provenance string, conflict []string) {
+	v, _, conflict, declared := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Offering }, validBusinessDomain,
 		func(t *TargetRecord) []string { return t.reportedOfferings }, nil)
-	return v, conflict
+	switch {
+	case v == "":
+	case declared:
+		provenance = ProvenanceDeclared
+	default:
+		provenance = ProvenanceObserved
+	}
+	return v, provenance, conflict
 }
 
 // summaryOf is a service's one-line summary, empty when its sources disagree.
 func summaryOf(snap *FleetSnapshot, s *ServiceRecord) string {
-	v, _, _ := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Summary }, validSummary,
+	v, _, _, _ := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Summary }, validSummary,
 		func(t *TargetRecord) []string { return t.reportedSummaries }, nil)
 	return v
 }
