@@ -2146,6 +2146,7 @@ func TestIngestProvisioning_InvalidDropped(t *testing.T) {
 		report(func(r *RawProvisioning) { r.Kind = "interface" }),
 		report(func(r *RawProvisioning) { r.Outcome = "Maybe" }),
 		report(func(r *RawProvisioning) { r.Service = "" }),
+		report(func(r *RawProvisioning) { r.Digest = "sha256:…" }), // a placeholder never names a revision
 		report(func(r *RawProvisioning) { r.ObservedAt = time.Time{} }),
 		report(func(r *RawProvisioning) { r.Outcome = "Failed" }), // a non-Observed outcome carries no payload
 		report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = future, nil }),
@@ -2161,7 +2162,7 @@ func TestIngestProvisioning_InvalidDropped(t *testing.T) {
 			invalid = append(invalid, l)
 		}
 	}
-	if len(invalid) != 1 || invalid[0].Message != "8 provisioning records were invalid and dropped" || invalid[0].Source != "evidence-0" {
+	if len(invalid) != 1 || invalid[0].Message != "9 provisioning records were invalid and dropped" || invalid[0].Source != "evidence-0" {
 		t.Errorf("limitations = %+v", invalid)
 	}
 }
@@ -2171,7 +2172,7 @@ func TestIngestProvisioning_InvalidDropped(t *testing.T) {
 func TestIngestProvisioning_Unmatched(t *testing.T) {
 	snap := provisioningSnap(t, 0, ordersFleet(), []RawProvisioning{
 		report(func(r *RawProvisioning) { r.Service = "secret-svc" }),
-		report(func(r *RawProvisioning) { r.Digest = "sha256:gone" }),
+		report(func(r *RawProvisioning) { r.Digest = testDigest(acme, "orders", "0.0.1") }), // a revision the snapshot lacks
 		report(func(r *RawProvisioning) { r.Name = "cache" }),
 		report(),
 	})

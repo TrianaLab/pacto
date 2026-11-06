@@ -626,7 +626,9 @@ PINNED_IMAGE_RE = re.compile(
 # (m) fenced target-state fixtures  <-  the real fleet source
 # ---------------------------------------------------------------------------
 
-TARGET_STATE_SCHEMA = "pacto.dev/fleet-targets/v1"
+# v1 carries targets; v2 adds unsigned provisioning reports. Both are loaded,
+# so neither shape can drift on the page unnoticed.
+TARGET_STATE_SCHEMAS = ("pacto.dev/fleet-targets/v1", "pacto.dev/fleet-targets/v2")
 
 
 def check_target_state(pacto_bin: str, md_files: list[str]) -> None:
@@ -639,12 +641,14 @@ def check_target_state(pacto_bin: str, md_files: list[str]) -> None:
     """
     total = ok = 0
     failures = []
+    seen = set()
     empty = tempfile.mkdtemp(prefix="pacto-empty-fleet-")
     for path in md_files:
         for block in fenced_yaml_blocks(path):
             for doc in yaml_docs(block):
-                if doc.get("schemaVersion") != TARGET_STATE_SCHEMA:
+                if doc.get("schemaVersion") not in TARGET_STATE_SCHEMAS:
                     continue
+                seen.add(doc["schemaVersion"])
                 total += 1
                 tmp = tempfile.mkdtemp(prefix="pacto-targets-")
                 try:
@@ -670,11 +674,12 @@ def check_target_state(pacto_bin: str, md_files: list[str]) -> None:
                     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(empty, ignore_errors=True)
     detail = f"{ok}/{total} fenced target-state fixtures load"
-    if not total:
-        detail = f"no fenced `{TARGET_STATE_SCHEMA}` block found -- the format is undocumented again"
+    missing = [v for v in TARGET_STATE_SCHEMAS if v not in seen]
+    if missing:
+        detail = f"no fenced `{'`, `'.join(missing)}` block found -- the format is undocumented again"
     elif failures:
         detail += " | " + " ; ".join(failures[:3])
-    record(bool(total) and ok == total, "(m) fenced target-state fixtures load", detail)
+    record(not missing and ok == total, "(m) fenced target-state fixtures load", detail)
 
 
 # ---------------------------------------------------------------------------

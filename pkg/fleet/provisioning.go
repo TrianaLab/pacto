@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
@@ -71,11 +72,11 @@ func ingestProvisioning(snap *FleetSnapshot, src Source, raws []RawProvisioning,
 }
 
 // validProvisioning applies the ResourceProvisioned rules to a raw record: a
-// named consumer revision and entry, a known outcome, the payload only for an
+// named consumer revision with a complete digest and entry, a known outcome, the payload only for an
 // Observed outcome, and an observedAt no more than MaxProvisioningClockSkew
 // after the time it was accepted (now for a record with no accept time).
 func validProvisioning(raw RawProvisioning, now time.Time) bool {
-	if raw.Service == "" || raw.Digest == "" || raw.Name == "" || raw.ObservedAt.IsZero() ||
+	if raw.Service == "" || !contract.ValidOCIDigest(raw.Digest) || raw.Name == "" || raw.ObservedAt.IsZero() ||
 		(raw.Kind != provisioningConfiguration && raw.Kind != provisioningDependency) || !evidence.Outcome(raw.Outcome).Valid() {
 		return false
 	}

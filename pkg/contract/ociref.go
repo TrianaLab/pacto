@@ -13,6 +13,9 @@ var (
 	ociDigestRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$|^sha512:[0-9a-f]{128}$`)
 )
 
+// ValidOCIDigest reports whether d is a complete sha256 or sha512 digest.
+func ValidOCIDigest(d string) bool { return ociDigestRe.MatchString(d) }
+
 // OCIReference represents a parsed OCI artifact reference.
 type OCIReference struct {
 	Registry   string
@@ -69,7 +72,7 @@ func ParseOCIReference(s string) (OCIReference, error) {
 	if ref.Tag != "" && !ociTagRe.MatchString(ref.Tag) {
 		return OCIReference{}, fmt.Errorf("invalid OCI reference: malformed tag %q", ref.Tag)
 	}
-	if ref.Digest != "" && !ociDigestRe.MatchString(ref.Digest) {
+	if ref.Digest != "" && !ValidOCIDigest(ref.Digest) {
 		return OCIReference{}, fmt.Errorf("invalid OCI reference: malformed digest %q (want sha256:<64 hex> or sha512:<128 hex>)", ref.Digest)
 	}
 	return ref, nil

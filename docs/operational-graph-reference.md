@@ -126,7 +126,7 @@ consumer revision asked for:
 schemaVersion: pacto.dev/fleet-targets/v2
 provisioning:
   - service: catalog-service       # required: the consumer
-    digest: sha256:…               # required: the consumer revision
+    digest: sha256:c5d2a1618e7db4045843161bda7ffb06a1990c61751da14f20cc3acc51352355  # required
     kind: configuration            # required: configuration or dependency
     name: database                 # required: the consumer's entry
     environment: production
