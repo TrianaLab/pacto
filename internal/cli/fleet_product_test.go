@@ -1,10 +1,14 @@
 package cli_test
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 func TestFleetEntities(t *testing.T) {
@@ -179,5 +183,115 @@ func TestFleetStatusUnownedAndUndeclared(t *testing.T) {
 	out, _, err = execFleet(t, "fleet", "status", "--undeclared", "--local", root, "--target-state", ev)
 	if err != nil || !strings.HasPrefix(out, "0 of 0 attention item(s):") {
 		t.Errorf("status --undeclared = %v:\n%s", err, out)
+	}
+}
+
+// writeOfferingFixture lays out postgresql 16.0.0 (deprecated) and 16.1.0,
+// which provide the postgresql offering, plus app and batch, which depend on
+// it. The target-state file reports app's database Ready in production an hour
+// ago and batch's Ready 25 hours ago, past the default provisioning window.
+func writeOfferingFixture(t *testing.T) (root, targets string) {
+	t.Helper()
+	root = t.TempDir()
+	state := "state:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"
+	pg := func(version, lifecycle string) {
+		mustWrite(t, filepath.Join(root, "pg-"+version, "pacto.yaml"), "pactoVersion: \"2.6\"\nservice:\n  name: postgresql\n  version: \""+version+
+			"\"\n  offering: postgresql\n  owner:\n    team: infra-data\n"+lifecycle+"workload: service\n"+state)
+	}
+	pg("16.0.0", "  lifecycle:\n    deprecated: \"2026-01-01\"\n")
+	pg("16.1.0", "")
+	digests := map[string]string{}
+	for _, name := range []string{"app", "batch"} {
+		dir := filepath.Join(root, name)
+		mustWrite(t, filepath.Join(dir, "pacto.yaml"), "pactoVersion: \"2.6\"\nservice:\n  name: "+name+"\n  version: \"1.0.0\"\n"+
+			"dependencies:\n  - name: postgresql\n    ref: oci://ghcr.io/acme/postgresql\n    required: true\n    compatibility: ^16.0.0\nworkload: service\n"+state)
+		h, err := lock.HashFS(os.DirFS(dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		digests[name] = h
+	}
+	at := func(d time.Duration) string { return time.Now().Add(-d).UTC().Format(time.RFC3339) }
+	targets = filepath.Join(t.TempDir(), "targets.yaml")
+	mustWrite(t, targets, "schemaVersion: pacto.dev/fleet-targets/v2\ntargets: []\nprovisioning:\n"+
+		"  - {service: app, digest: \""+digests["app"]+"\", kind: dependency, name: postgresql, environment: production, provider: rds, externalRef: db-1, phase: Ready, observedAt: \""+at(time.Hour)+"\"}\n"+
+		"  - {service: batch, digest: \""+digests["batch"]+"\", kind: dependency, name: postgresql, provider: rds, externalRef: db-2, phase: Ready, observedAt: \""+at(25*time.Hour)+"\"}\n")
+	return root, targets
+}
+
+func TestFleetVersionsCommand(t *testing.T) {
+	root, _ := writeOfferingFixture(t)
+	out, _, err := execFleet(t, "fleet", "versions", "postgresql", "--local", root, "--range", "^16.1.0")
+	if err != nil {
+		t.Fatalf("versions: %v", err)
+	}
+	for _, want := range []string{
+		"postgresql: latest compatible 16.1.0\n",
+		"  16.1.0 [satisfied]\n",
+		"  16.0.0 [deprecated since 2026-01-01, unsatisfied]\n",
+		"Versions come from the contract revisions this snapshot holds",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("versions text lacks %q:\n%s", want, out)
+		}
+	}
+	out, _, err = execFleet(t, "fleet", "versions", "postgresql", "--local", root, "--provider", "postgresql")
+	if err != nil || strings.Contains(out, "latest compatible") || !strings.Contains(out, "postgresql\n  16.1.0\n") {
+		t.Errorf("versions without a range = %v:\n%s", err, out)
+	}
+	jout, _, err := execFleet(t, "fleet", "versions", "postgresql", "--local", root, "--output-format", "json")
+	if err != nil || !strings.Contains(jout, `"completeness": "fleet"`) {
+		t.Errorf("versions json = %v:\n%s", err, jout)
+	}
+	for _, args := range [][]string{{"postgresql", "--range", "bogus"}, {"ghost"}, {"postgresql", "--provider", "ghost"}} {
+		if _, _, err := execFleet(t, append([]string{"fleet", "versions", "--local", root}, args...)...); err == nil {
+			t.Errorf("versions %v is an error", args)
+		}
+	}
+}
+
+// TestFleetEntityOfferingText: the offering text lists providers with their
+// owner, current revision, lifecycle and versions, then consumers with their
+// provisioning status: a fresh file-sourced Ready is unsigned, and a Ready 25
+// hours old reads Unknown with no --freshness.
+func TestFleetEntityOfferingText(t *testing.T) {
+	root, targets := writeOfferingFixture(t)
+	out, _, err := execFleet(t, "fleet", "entity", "offering", "postgresql", "--local", root, "--target-state", targets)
+	if err != nil {
+		t.Fatalf("entity offering: %v", err)
+	}
+	for _, want := range []string{
+		"Providers:\n  postgresql (declared)\n    owner: infra-data\n    current: postgresql 16.1.0\n",
+		"    versions: 16.1.0; 16.0.0 [deprecated since 2026-01-01]\n",
+		"Consumers:\n  app -> postgresql (postgresql) via dependency, range satisfied\n",
+		"    provisioning production: Ready (unsigned)\n",
+		"  batch -> postgresql (postgresql) via dependency, range satisfied\n    provisioning: Unknown (unsigned): the last report is older than the provisioning window\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("offering text lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestFleetEntityServiceText(t *testing.T) {
+	root, targets := writeOfferingFixture(t)
+	out, _, err := execFleet(t, "fleet", "entity", "service", "app", "--local", root, "--target-state", targets)
+	if err != nil {
+		t.Fatalf("entity service: %v", err)
+	}
+	if !strings.Contains(out, "Offerings used:\n  app -> postgresql (postgresql) via dependency, range satisfied\n    provisioning production: Ready (unsigned)\n") ||
+		!strings.Contains(out, "Run with --output-format json for the full detail") {
+		t.Errorf("service text:\n%s", out)
+	}
+}
+
+func TestFleetEntitiesConsumesFlag(t *testing.T) {
+	root, _ := writeOfferingFixture(t)
+	out, _, err := execFleet(t, "fleet", "entities", "--local", root, "--consumes", "postgresql")
+	if err != nil || !strings.Contains(out, "2 of 2 entit(ies):") || !strings.Contains(out, " app ") || !strings.Contains(out, " batch ") {
+		t.Errorf("entities --consumes = %v:\n%s", err, out)
+	}
+	if _, _, err := execFleet(t, "fleet", "entities", "--local", root, "--consumes", "Not A Slug"); err == nil {
+		t.Error("a bad --consumes slug is an error")
 	}
 }

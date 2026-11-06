@@ -33,6 +33,9 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"(service.offering) and 'summary' says what it is for; search with 'offering' to find " +
 	"every provider of one. Offerings are read from contracts and are unrelated to a " +
 	"contract's capabilities, which are assertions a service makes about itself. " +
+	"pacto_fleet_versions lists an offering's provider versions and which satisfy a range. " +
+	"An offering use's provisioning status is observed evidence from a provider adapter; Unknown " +
+	"means no current report, never a failure or success. " +
 	"Every fleet answer carries 'meta' (pacto_impact carries the same fields at the top level): " +
 	"cite asOf, snapshotId and sources, and list limitations when you answer. Each edge carries " +
 	"'provenance' (declared, observed or declared+observed) and a declared edge carries " +
@@ -144,6 +147,7 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 	addFleetTool(server, fleetNeighborhoodTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetNeighborhoodArgs, any] {
 		return fleetNeighborhoodHandler(q, link)
 	})
+	addFleetTool(server, fleetVersionsTool(), src, opts, fleetVersionsHandler)
 	if opts.Impact != nil {
 		// Impact analyses over the snapshot the other tools answer from (the
 		// caller's view of it when there is one), so one session's answers agree.
@@ -411,6 +415,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"owner_key":       {Type: "string", Description: "Exact owner key, such as team:platform or dri:alice"},
 			"business_domain": {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
 			"offering":        {Type: "string", Description: "Services that provide this platform offering, and the offering itself"},
+			"consumes":        {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"ownership":       {Type: "string", Description: "How a service's revisions declare ownership", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned}},
 			"status":          {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"sort":            {Type: "string", Description: "Order: by name, least healthy first or owners with the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices}},
@@ -427,6 +432,7 @@ type fleetEntitiesArgs struct {
 	OwnerKey       string `json:"owner_key"`
 	BusinessDomain string `json:"business_domain"`
 	Offering       string `json:"offering"`
+	Consumes       string `json:"consumes"`
 	Ownership      string `json:"ownership"`
 	Status         string `json:"status"`
 	Sort           string `json:"sort"`
@@ -446,7 +452,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		}
 		return productResult(link, productview.ToEntityList)(q.Entities(fleet.EntityFilter{
 			Text: a.Text, Kinds: ks, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
-			Offering: a.Offering, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
+			Offering: a.Offering, Consumes: a.Consumes, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 		}))
 	}
 }
@@ -456,7 +462,9 @@ func fleetEntityTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_entity",
 		Description: "Inspect one entity's full detail: a service, revision, target, owner, source, business domain " +
 			"or platform offering. A domain or owner answer summarizes its services; an offering answer lists " +
-			"providers and consumers. Read-only.",
+			"providers and consumers. Each offering use carries 'provisioning': observed evidence a provider " +
+			"adapter reports per environment, Unknown until a provider reports. A status with 'verified' false " +
+			"comes from an unsigned target-state file. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},
@@ -472,6 +480,38 @@ type fleetEntityArgs struct {
 func fleetEntityHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetEntityArgs) (*mcpsdk.CallToolResult, any, error) {
 		return productResult(link, productview.ToEntityDetail)(q.EntityDetail(fleet.EntityKind(a.Kind), a.Key))
+	}
+}
+
+func fleetVersionsTool() *mcpsdk.Tool {
+	return &mcpsdk.Tool{
+		Name: "pacto_fleet_versions",
+		Description: "List the versions of each provider of a platform offering, newest first, with whether a " +
+			"target runs each one and the service lifecycle it declares. With 'range', each version carries " +
+			"'rangeStatus' and each provider its 'latestCompatible' version. The list comes from the contract " +
+			"revisions the snapshot holds; the registry may publish others. Read-only.",
+		InputSchema: inputSchema(map[string]property{
+			"offering": {Type: "string", Description: "Platform offering slug, such as postgresql"},
+			"provider": {Type: "string", Description: "Only this provider: its key, or a name only one domain uses"},
+			"range":    {Type: "string", Description: "Semver range to check each version against, such as ^16.0.0"},
+		}, []string{"offering"}),
+	}
+}
+
+type fleetVersionsArgs struct {
+	Offering string `json:"offering"`
+	Provider string `json:"provider"`
+	Range    string `json:"range"`
+}
+
+func fleetVersionsHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetVersionsArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetVersionsArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := q.OfferingVersions(a.Offering, a.Provider, a.Range)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
 	}
 }
 

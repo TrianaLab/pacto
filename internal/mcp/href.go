@@ -38,8 +38,9 @@ func linkHrefs[A any](tool, prefix string, h mcpsdk.ToolHandlerFor[A, any]) mcps
 
 // addLegacyHrefs adds dashboard paths to the answers that have no product
 // transport type: each search service and graph node (by service key), the
-// graph root (as rootHref), each status item (by kind and name) and each
-// contracted impact consumer (by domain and service).
+// graph root (as rootHref), each status item (by kind and name), each
+// contracted impact consumer (by domain and service) and each provider and
+// version an offering versions answer names.
 func addLegacyHrefs(tool string, v any) any {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -60,6 +61,14 @@ func addLegacyHrefs(tool string, v any) any {
 		each(m["items"], func(o map[string]any) {
 			o["href"] = productview.Entity(fleet.EntityKind(str(o["kind"])), str(o["name"]))
 		})
+	case "pacto_fleet_versions":
+		// No product transport type carries these refs, so link them here.
+		each(m["providers"], func(o map[string]any) {
+			entityHref(o["provider"])
+			v, _ := o["versions"].(map[string]any)
+			entityHref(v["latestCompatible"])
+			each(v["items"], func(it map[string]any) { entityHref(it["revision"]) })
+		})
 	case "pacto_impact":
 		// A caller with no contract has no entity page to link to.
 		each(m["consumers"], func(o map[string]any) {
@@ -69,6 +78,13 @@ func addLegacyHrefs(tool string, v any) any {
 		})
 	}
 	return m
+}
+
+// entityHref links an EntityRef object to its entity page.
+func entityHref(v any) {
+	if o, ok := v.(map[string]any); ok {
+		o["href"] = productview.Entity(fleet.EntityKind(str(o["kind"])), str(o["key"]))
+	}
 }
 
 // prefixHrefs prepends prefix to every href and rootHref string in v.
