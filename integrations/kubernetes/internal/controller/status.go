@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -27,8 +28,9 @@ import (
 // populateContractStatus extracts structured data from the parsed contract into status fields.
 // Policy sources are surfaced as metadata only — the operator does not resolve or enforce
 // ref-based policies. Local policy schemas bundled in the contract are enforced by
-// validation.Validate() during contract loading.
-func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr *loader.LoadResult) {
+// validation.Validate() during contract loading. refs holds what each configuration that names its
+// schema by ref resolved to.
+func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr *loader.LoadResult, refs validation.ConfigRefs) {
 	c := lr.Contract
 
 	// Initialize slices so JSON output is [] instead of null when empty.
@@ -97,11 +99,13 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		sort.Strings(ci.SecretKeys)
 		// Surface configuration content (declared keys + types) so consumers can
 		// render it without re-reading the bundle. Literal values win; otherwise
-		// extract from the bundled schema.
+		// extract from the bundled schema, or from the provider's for a ref.
 		if len(cfg.Values) > 0 {
 			ci.Properties = toSchemaProps(schemax.Values(cfg.Values))
 		} else if cfg.Schema != "" {
 			ci.Properties = schemaPropsFromBundle(lr.BundleFS, cfg.Schema)
+		} else if rr := refs[cfg.Name]; rr.Schema != nil {
+			ci.Properties = schemaPropsFromBundle(rr.ProviderFS, rr.SchemaPath)
 		}
 		pacto.Status.Configurations = append(pacto.Status.Configurations, ci)
 	}
@@ -144,9 +148,22 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 	if len(c.Metadata) > 0 {
 		pacto.Status.Metadata = make(map[string]string, len(c.Metadata))
 		for k, v := range c.Metadata {
-			pacto.Status.Metadata[k] = fmt.Sprintf("%v", v)
+			pacto.Status.Metadata[k] = metadataString(v)
 		}
 	}
+}
+
+// metadataString renders a metadata value for status.metadata: a string as is, anything else as
+// JSON, so a map or a list reads as data instead of Go's %v notation.
+func metadataString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
 }
 
 // schemaPropsFromBundle reads a JSON Schema file from the bundle FS and returns

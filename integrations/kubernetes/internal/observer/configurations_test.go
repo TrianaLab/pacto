@@ -11,10 +11,12 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -25,6 +27,7 @@ import (
 	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 var ErrForbidden = errors.New("access forbidden")
@@ -905,5 +908,72 @@ func assertConfigInsufficient(t *testing.T, bundleFS fs.FS) {
 	}
 	if observations[0].Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient (schema unreadable), got %v", observations[0].Outcome)
+	}
+}
+
+// A ConfigMap bound to a configuration that names its schema by ref is validated against the schema the
+// ref resolved to; a ref that did not resolve stays Insufficient, never Conformant.
+func TestConfigMapAgainstResolvedRefSchema(t *testing.T) {
+	compile := func(schema string) *jsonschema.Schema {
+		doc, err := jsonschema.UnmarshalJSON(strings.NewReader(schema))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := jsonschema.NewCompiler()
+		if err := c.AddResource("mem:///ref.json", doc); err != nil {
+			t.Fatal(err)
+		}
+		return c.MustCompile("mem:///ref.json")
+	}
+	resolved := validation.ConfigRefs{"db": {Name: "db", Schema: compile(`{"type":"object","required":["size"],"properties":{"size":{"enum":["small","large"]}}}`)}}
+	tests := []struct {
+		name        string
+		content     string
+		refs        validation.ConfigRefs
+		wantOutcome evidence.Outcome
+		wantConform bool
+	}{
+		{name: "conformant", content: "size: small\n", refs: resolved, wantOutcome: evidence.Observed, wantConform: true},
+		{name: "mismatch", content: "size: huge\n", refs: resolved, wantOutcome: evidence.Observed},
+		{name: "unresolved", content: "size: small\n", refs: validation.ConfigRefs{"db": {Name: "db"}}, wantOutcome: evidence.Insufficient},
+		{name: "no resolution at all", content: "size: small\n", wantOutcome: evidence.Insufficient},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			_ = corev1.AddToScheme(scheme)
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "db-config"},
+				Data:       map[string]string{"db.yaml": tc.content},
+			}
+			obs := New(fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build())
+			cfg := contract.Configuration{Name: "db", Required: true, Ref: "oci://ghcr.io/acme/pg:16.1.0"}
+			input := CollectInput{
+				Namespace:      "default",
+				Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
+				BundleFS:       fstest.MapFS{},
+				ConfigRefs:     tc.refs,
+				ConfigBindings: []unversioned.ConfigBinding{{Configuration: "db", Kind: "ConfigMap", Name: "db-config", Key: "db.yaml", Format: "yaml"}},
+				Now:            time.Now(),
+			}
+			observations, _ := obs.observeConfigurationsDim(context.Background(), input, evidence.Provenance{Collector: "test"}, input.Now)
+			if len(observations) != 1 {
+				t.Fatalf("observations = %d, want 1", len(observations))
+			}
+			o := observations[0]
+			if o.Outcome != tc.wantOutcome {
+				t.Fatalf("outcome = %v, want %v", o.Outcome, tc.wantOutcome)
+			}
+			if o.Outcome != evidence.Observed {
+				return
+			}
+			val, err := o.GetConfigurationObservation()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !val.Present || val.Conformant != tc.wantConform {
+				t.Errorf("present=%v conformant=%v, want present and conformant=%v", val.Present, val.Conformant, tc.wantConform)
+			}
+		})
 	}
 }

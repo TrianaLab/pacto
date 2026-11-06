@@ -219,6 +219,34 @@ is nothing transient to wait out; the evidence is already conclusive.
 This split matters if you gate deployments on the verdict. See
 [GitOps promotion gates](gitops.md#timing).
 
+## Configurations that take their schema by ref
+
+A configuration can take its schema from another contract with `ref:
+oci://...`. The operator pulls that contract and checks three things against
+the schema of the configuration it selects: the configuration's values, the
+values `spec.overrides` merges in and the content of a bound ConfigMap. A bound
+Secret stays metadata-only.
+
+The operator scopes credentials by registry host:
+
+- A ref on the host of `spec.contractRef.oci` is pulled with the same
+  credentials: the Secret named in `spec.contractRef.pullSecretRef`, or the
+  operator's own when there is none.
+- A ref on any other host is pulled anonymously, so a contract never sends your
+  pull Secret to a registry of its choosing.
+
+When the pull fails, `status.validation` carries a `CONFIG_REF_UNVERIFIED`
+warning, the contract stays valid and the bound ConfigMap reads `Insufficient`.
+Values the provider's schema rejects make the contract `Invalid` with
+`CONFIG_VALUES_VALIDATION_FAILED`.
+
+The referenced contract's lifecycle (`DEPENDENCY_SERVICE_DEPRECATED` and
+`DEPENDENCY_SERVICE_SUNSET`) and selection problems (`CONFIG_REF_AMBIGUOUS` and
+`CONFIG_REF_UNKNOWN_CONFIGURATION`) appear as entries in `status.validation`,
+with no status field of their own. To read a service's own `service.lifecycle`,
+run [`pacto explain`](../../cli-reference.md#pacto-explain) or open the
+dashboard.
+
 ## Delivery and private registries
 
 Images can stay private with only a pull Secret. A private contract or deploy

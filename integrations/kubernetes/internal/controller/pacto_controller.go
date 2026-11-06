@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,6 +48,13 @@ import (
 type ContractLoader interface {
 	Load(ctx context.Context, ociRef, inline string, authOverride *authn.AuthConfig) (*loader.LoadResult, error)
 	ListTags(ctx context.Context, ociRef string, authOverride *authn.AuthConfig) ([]string, error)
+}
+
+// ConfigRefLoader is a [ContractLoader] that also resolves the configuration refs of a contract it
+// loaded from contractRef with auth, whose credentials credID names. A loader without it leaves
+// every configuration ref unverified.
+type ConfigRefLoader interface {
+	ConfigRefResolver(contractRef string, auth *authn.AuthConfig, credID string) validation.BundleResolver
 }
 
 // PactoReconciler reconciles a Pacto object.
@@ -136,7 +144,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 6. Populate contract-derived status fields (from effective contract)
 	pacto.Status.ContractVersion = effectiveContract.Service.Version
-	r.populateContractStatus(pacto, &ec.effective)
+	r.populateContractStatus(pacto, &ec.effective, ec.configRefs)
 
 	// Mark overridden keys in configuration status
 	for i := range pacto.Status.Configurations {
@@ -181,6 +189,9 @@ type effectiveContract struct {
 	effective      loader.LoadResult
 	overriddenKeys map[string][]string
 	validation     validation.ValidationResult
+	// configRefs is what each configuration that names its schema by ref resolved to; nil when the
+	// contract names none.
+	configRefs validation.ConfigRefs
 }
 
 // loadFailure is why no effective contract could be produced, phrased for failReconciliation.
@@ -195,8 +206,9 @@ type loadFailure struct {
 func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pactov1alpha1.Pacto) (*effectiveContract, *loadFailure) {
 	// 3. Resolve pull secret credentials (if specified)
 	var ociAuth *authn.AuthConfig
+	var credID string
 	if secretName := pacto.Spec.ContractRef.PullSecretRef; secretName != "" {
-		auth, secretErr := r.resolveOCIAuth(ctx, pacto.Namespace, secretName, pacto.Spec.ContractRef.OCI)
+		auth, id, secretErr := r.resolveOCIAuthID(ctx, pacto.Namespace, secretName, pacto.Spec.ContractRef.OCI)
 		if secretErr != nil {
 			return nil, &loadFailure{
 				msg:        fmt.Sprintf("failed to read pull secret %q: %v", secretName, secretErr),
@@ -204,7 +216,7 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 				status:     pactov1alpha1.ContractStatusUnknown,
 			}
 		}
-		ociAuth = auth
+		ociAuth, credID = auth, id
 	}
 
 	// 4. Determine resolution policy and load the contract
@@ -228,8 +240,9 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 		}
 	}
 
-	// 5. Structural + cross-field + policy validation (on effective contract)
-	contractResult := validation.Validate(effectiveLR.Contract, effectiveLR.RawYAML, effectiveLR.BundleFS)
+	// 5. Structural + cross-field + policy validation (on effective contract), and the
+	//    configuration-refs stage against the resolved provider schemas.
+	contractResult, configRefs := r.validateEffective(ctx, effectiveLR, ociRef, ociAuth, credID)
 	pacto.Status.Validation = mapValidationResult(contractResult)
 	if len(contractResult.Errors) > 0 {
 		return nil, &loadFailure{
@@ -239,7 +252,28 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 		}
 	}
 
-	return &effectiveContract{loaded: loadResult, effective: effectiveLR, overriddenKeys: overriddenKeys, validation: contractResult}, nil
+	return &effectiveContract{loaded: loadResult, effective: effectiveLR, overriddenKeys: overriddenKeys, validation: contractResult, configRefs: configRefs}, nil
+}
+
+// validateEffective validates the effective contract. A contract that names a configuration by ref
+// has it resolved, leniently, through the loader: values the resolved schema rejects are errors,
+// and a ref that cannot be pulled is a CONFIG_REF_UNVERIFIED warning. A contract without one keeps
+// the local-only validation.
+func (r *PactoReconciler) validateEffective(ctx context.Context, lr loader.LoadResult, ociRef string, auth *authn.AuthConfig, credID string) (validation.ValidationResult, validation.ConfigRefs) {
+	if !slices.ContainsFunc(lr.Contract.Configurations, func(c contract.Configuration) bool { return c.Ref != "" }) {
+		return validation.Validate(lr.Contract, lr.RawYAML, lr.BundleFS), nil
+	}
+	opts := validation.ConfigRefOptions{Now: time.Now()}
+	if rl, ok := r.Loader.(ConfigRefLoader); ok {
+		opts.Resolver = rl.ConfigRefResolver(ociRef, auth, credID)
+	}
+	res := validation.Merged(validation.ValidateDocumentStagesWith(ctx, lr.Contract, contract.DecodeDocument(lr.RawYAML), lr.BundleFS, opts))
+	if !res.IsValid() {
+		return res, nil
+	}
+	// ponytail: resolved a second time for the observer and status; the resolver's pull cache answers it.
+	refs, _ := validation.ResolveConfigRefs(ctx, lr.Contract, lr.BundleFS, opts)
+	return res, refs
 }
 
 // invalidAt is the one-issue validation result of a contract that could not be obtained or overridden.
@@ -323,6 +357,7 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		Contract:                          ec.effective.Contract,
 		BundleFS:                          ec.loaded.BundleFS,
 		BundleDigest:                      ec.loaded.ResolvedDigest,
+		ConfigRefs:                        ec.configRefs,
 		InterfaceBindings:                 interfaceBindings,
 		ConfigBindings:                    pacto.Spec.Target.ConfigBindings,
 		StabilizationWindow:               r.StabilizationWindow,
@@ -690,13 +725,22 @@ func resolutionPolicy(ociRef string) string {
 // the manager's client would lazily start the very Secret informer the metadata-only watch
 // exists to avoid.
 func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretName, ociRef string) (*authn.AuthConfig, error) {
+	auth, _, err := r.resolveOCIAuthID(ctx, namespace, secretName, ociRef)
+	return auth, err
+}
+
+// resolveOCIAuthID is [PactoReconciler.resolveOCIAuth] that also names the credentials it read,
+// `<namespace>/<secret>@<resourceVersion>`, so a cache keyed by it never serves one Secret's pull to
+// another, nor to the same Secret after it changed.
+func (r *PactoReconciler) resolveOCIAuthID(ctx context.Context, namespace, secretName, ociRef string) (*authn.AuthConfig, string, error) {
 	secret := &corev1.Secret{}
 	if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret); err != nil {
-		return nil, fmt.Errorf("secret %q not found: %w", secretName, err)
+		return nil, "", fmt.Errorf("secret %q not found: %w", secretName, err)
 	}
 
 	registry := credentials.RegistryFromRef(ociRef)
-	return credentials.FromSecret(secret, registry)
+	auth, err := credentials.FromSecret(secret, registry)
+	return auth, fmt.Sprintf("%s/%s@%s", namespace, secretName, secret.ResourceVersion), err
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -17,8 +17,8 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | Class | Meaning | Fields |
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
-| `partial` | A runtime fact exists, but some values or environments stay unverified. | 15 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 105 |
+| `partial` | A runtime fact exists, but some values or environments stay unverified. | 16 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 104 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 14 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -69,7 +69,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `configurations[]` | `partial` | `partial` | `unverified` | `unverified` | Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically |
 | `configurations[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CONFIGURATION_NAME |
 | `configurations[].schema` | `verified` | `verified` | `unverified` | `unverified` | Compliant or CONFIGURATION_MISMATCH; FILE_NOT_FOUND, INVALID_CONFIG_JSON, INVALID_CONFIG_SCHEMA statically |
-| `configurations[].ref` | `static-only` | - | - | - | INVALID_CONFIG_REF; CONFIG_REF_UNRESOLVED (validate) or CONFIG_REF_UNVERIFIED (fleet, delivery, operator); CONFIG_REF_AMBIGUOUS; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_CYCLE; CONFIG_REF_VERSION_OUTSIDE_RANGE; at runtime a ref-only configuration stays Insufficient |
+| `configurations[].ref` | `partial` | `partial` | `unverified` | `unverified` | INVALID_CONFIG_REF; CONFIG_REF_UNRESOLVED (validate) or CONFIG_REF_UNVERIFIED (fleet, delivery, operator); CONFIG_REF_AMBIGUOUS; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_CYCLE; CONFIG_REF_VERSION_OUTSIDE_RANGE; at runtime Compliant or CONFIGURATION_MISMATCH for a bound ConfigMap, Insufficient when the ref could not be resolved |
 | `configurations[].configuration` | `static-only` | - | - | - | NEEDS_PACTO_2_6; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_AMBIGUOUS |
 | `configurations[].values` | `static-only` | - | - | - | CONFIG_VALUES_VALIDATION_FAILED; values beside a ref under 2.0 to 2.5 are NEEDS_PACTO_2_6; ENVIRONMENT_VALUES_MISSING for a required ref configuration only in 2.6 |
 | `configurations[].required` | `partial` | `partial` | `unverified` | `unverified` | EVIDENCE_MISSING and friends only when required; CONFIGURATION_* as warning when optional; SCHEMA_VIOLATION when omitted |
@@ -754,12 +754,18 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Key | Value |
 | --- | --- |
 | Meaning | OCI reference to a configuration defined by another bundle. |
-| Runtime | `static-only` |
-| Evidence | none: the referenced bundle defines no schema path to validate live content against |
+| Runtime | `partial` |
+| Evidence | ConfigurationObservation.Conformant: the operator pulls the referenced bundle and validates the bound ConfigMap content against the selected configuration's schema; a Secret stays metadata-only |
 | Rule | cross-field: valid OCI reference; configuration-refs: resolves to the referenced contract and selects one configuration |
-| Outcomes | INVALID_CONFIG_REF; CONFIG_REF_UNRESOLVED (validate) or CONFIG_REF_UNVERIFIED (fleet, delivery, operator); CONFIG_REF_AMBIGUOUS; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_CYCLE; CONFIG_REF_VERSION_OUTSIDE_RANGE; at runtime a ref-only configuration stays Insufficient |
-| Limitations | before 2.6 a ref that no value or ranged dependency depends on is CONFIG_REF_UNVERIFIED (a warning) when it cannot be resolved, and an ambiguous or unknown selection is a warning; local-only validation resolves nothing and warns CONFIG_REF_NOT_ENFORCED; the runtime check does not follow the ref |
-| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateConfigRef_InvalidOCI`, `pkg/validation/crossfield_test.go:TestValidateConfigRef_ValidOCI`, `pkg/validation/configref_test.go:TestResolveConfigRefs`, `pkg/validation/configref_test.go:TestSelectConfiguration`, `pkg/validation/configref_test.go:TestResolveConfigRefs_FollowsAChainAndCatchesACycle`, `pkg/validation/configref_test.go:TestConfigRefStage`, `internal/app/validate_test.go:TestValidate_ConfigRefUnresolvable`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/unresolved` |
+| Outcomes | INVALID_CONFIG_REF; CONFIG_REF_UNRESOLVED (validate) or CONFIG_REF_UNVERIFIED (fleet, delivery, operator); CONFIG_REF_AMBIGUOUS; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_CYCLE; CONFIG_REF_VERSION_OUTSIDE_RANGE; at runtime Compliant or CONFIGURATION_MISMATCH for a bound ConfigMap, Insufficient when the ref could not be resolved |
+| Limitations | before 2.6 a ref that no value or ranged dependency depends on is CONFIG_REF_UNVERIFIED (a warning) when it cannot be resolved, and an ambiguous or unknown selection is a warning; local-only validation resolves nothing and warns CONFIG_REF_NOT_ENFORCED; the operator pulls a ref on the host of spec.contractRef with that ref's credentials and any other host anonymously, and a failed pull leaves the runtime check Insufficient |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateConfigRef_InvalidOCI`, `pkg/validation/crossfield_test.go:TestValidateConfigRef_ValidOCI`, `pkg/validation/configref_test.go:TestResolveConfigRefs`, `pkg/validation/configref_test.go:TestSelectConfiguration`, `pkg/validation/configref_test.go:TestResolveConfigRefs_FollowsAChainAndCatchesACycle`, `pkg/validation/configref_test.go:TestConfigRefStage`, `internal/app/validate_test.go:TestValidate_ConfigRefUnresolvable`, `integrations/kubernetes/internal/loader/resolver_test.go:TestResolver_OtherHostIsAnonymous`, `integrations/kubernetes/internal/controller/reconcile_configref_test.go:TestReconcileConfigRefValues`, `integrations/kubernetes/internal/observer/configurations_test.go:TestConfigMapAgainstResolvedRefSchema`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/unresolved`; e2e: `integrations/kubernetes/test/e2e/e2e_test.go:TestConfigurations/ref_configmap_conforms_resolved_schema_compliant`, `integrations/kubernetes/test/e2e/e2e_test.go:TestConfigurations/ref_configmap_violates_resolved_schema_noncompliant_CONFIGURATION_MISMATCH` |
+
+| Platform | Evidence | Why | Tests |
+| --- | --- | --- | --- |
+| Kubernetes (the operator with its node agent) | `partial` | a bound ConfigMap validated against the resolved provider schema; a Secret stays metadata-only | the e2e scenarios above |
+| `pacto agent` (a Docker host or a server) | `unverified` | no configuration content is read off Kubernetes | - |
+| `pacto run` (one wrapped command) | `unverified` | no configuration content is read off Kubernetes | - |
 
 ### `configurations[].configuration`
 
@@ -782,8 +788,8 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Evidence | none: the runtime check reads live content, not these declared values |
 | Rule | cross-field: values satisfy the schema; configuration-refs: or the referenced contract's selected configuration schema (2.6) |
 | Outcomes | CONFIG_VALUES_VALIDATION_FAILED; values beside a ref under 2.0 to 2.5 are NEEDS_PACTO_2_6; ENVIRONMENT_VALUES_MISSING for a required ref configuration only in 2.6 |
-| Limitations | the operator may merge spec.overrides into them before validation; values for a ref that cannot be resolved stay unchecked (CONFIG_REF_UNVERIFIED in lenient callers) |
-| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateConfigValues_WithSchema_Invalid`, `pkg/validation/configref_test.go:TestConfigRefStage`, `pkg/validation/configref_test.go:TestEnvironmentStageConfigRef`, `internal/app/validate_test.go:TestValidate_ConfigRefValues`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].values/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].values/invalid` |
+| Limitations | the operator may merge spec.overrides into them before validation, and validates the merged values against the resolved schema of a ref; values for a ref that cannot be resolved stay unchecked (CONFIG_REF_UNVERIFIED in lenient callers) |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateConfigValues_WithSchema_Invalid`, `pkg/validation/configref_test.go:TestConfigRefStage`, `pkg/validation/configref_test.go:TestEnvironmentStageConfigRef`, `internal/app/validate_test.go:TestValidate_ConfigRefValues`, `integrations/kubernetes/internal/controller/reconcile_configref_test.go:TestReconcileConfigRefValues`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].values/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].values/invalid` |
 
 ### `configurations[].required`
 

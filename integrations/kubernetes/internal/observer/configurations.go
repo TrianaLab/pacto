@@ -158,8 +158,8 @@ func (o *Observer) observeConfigMapConfiguration(
 		return obs, resetWindow(kindConfiguration, cfg.Name)
 	}
 
-	// Validate parsed doc against the configuration's LOCAL schema.
-	conforms, err := validateConfigAgainstSchema(parsed, cfg, input.BundleFS, input.BundleDigest)
+	// Validate parsed doc against the configuration's local schema, or the resolved schema of its ref.
+	conforms, err := validateConfigAgainstSchema(parsed, cfg, input)
 	if err != nil {
 		// Schema remote/unresolvable -> Insufficient (collector cannot validate).
 		obs, _ := evidence.NewUnobserved(evidence.ConfigurationPresent, subj, evidence.Insufficient, prov)
@@ -189,14 +189,20 @@ func parseConfigContent(content, format string) (any, error) {
 	return parsed, err
 }
 
-// validateConfigAgainstSchema validates a parsed config document against the configuration's local schema.
-// Returns (conforms, error). error != nil means schema unresolvable (remote ref / not in bundle).
+// validateConfigAgainstSchema validates a parsed config document against the configuration's local schema,
+// or against the provider schema its ref resolved to (input.ConfigRefs).
+// Returns (conforms, error). error != nil means schema unresolvable (unresolved ref / not in bundle).
 // cfg.Schema is a BUNDLE-RELATIVE PATH, not inline JSON — same reading as pkg/validation/crossfield.go.
 // ponytail: reuse pkg/validation compileConfigSchema pattern (santhosh-tekuri/jsonschema/v6), no new dep.
-func validateConfigAgainstSchema(parsed any, cfg contract.Configuration, bundleFS fs.FS, bundleDigest string) (bool, error) {
-	// Remote ref schema -> cannot resolve -> error (Insufficient).
+func validateConfigAgainstSchema(parsed any, cfg contract.Configuration, input CollectInput) (bool, error) {
+	bundleFS := input.BundleFS
+	// Ref schema: the resolved provider schema, or unresolved -> error (Insufficient).
 	if cfg.Ref != "" {
-		return false, fmt.Errorf("remote ref schema not resolvable locally")
+		resolved := input.ConfigRefs[cfg.Name].Schema
+		if resolved == nil {
+			return false, fmt.Errorf("remote ref schema could not be resolved")
+		}
+		return resolved.Validate(parsed) == nil, nil
 	}
 	if cfg.Schema == "" {
 		// No schema -> cannot validate -> error.
@@ -207,7 +213,7 @@ func validateConfigAgainstSchema(parsed any, cfg contract.Configuration, bundleF
 		return false, fmt.Errorf("no bundle filesystem to read schema %q from", cfg.Schema)
 	}
 
-	compiledSchema, err := compiledConfigSchema(bundleFS, bundleDigest, cfg.Schema)
+	compiledSchema, err := compiledConfigSchema(bundleFS, input.BundleDigest, cfg.Schema)
 	if err != nil {
 		return false, err
 	}
