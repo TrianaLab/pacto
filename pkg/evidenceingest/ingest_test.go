@@ -869,8 +869,8 @@ func TestHandleTargetsProvisioning(t *testing.T) {
 	}
 	var raw map[string]json.RawMessage
 	getJSON(t, srv.URL+TargetsPath, &raw)
-	if p := string(raw["provisioning"]); p == "" || strings.Contains(p, "producerKeyId") {
-		t.Errorf("provisioning DTO must be listed without producerKeyId: %s", p)
+	if p := string(raw["provisioning"]); p == "" || !strings.Contains(p, `"producerKeyId":"env-a-2026"`) {
+		t.Errorf("provisioning DTO must name the key that signed it: %s", p)
 	}
 	getJSON(t, srv.URL+TargetsPath, &body)
 	if body.SchemaVersion != TargetsSchemaVersionProvisioning {
@@ -880,7 +880,7 @@ func TestHandleTargetsProvisioning(t *testing.T) {
 		t.Errorf("a provisioning report is never a target: %+v", body.Targets)
 	}
 	want := ProvisioningDTO{Subject: "ghcr.io/a/orders/production/db", Service: "orders", Domain: "ghcr.io/a", Digest: "sha256:" + strings.Repeat("b", 64),
-		ContractRef: ordersRef, Producer: "env-a", Kind: "configuration", Name: "db", Environment: "production",
+		ContractRef: ordersRef, Producer: "env-a", ProducerKeyID: "env-a-2026", Kind: "configuration", Name: "db", Environment: "production",
 		Provider: "acme-db", ExternalRef: "orders-db", Phase: "Ready", Outcome: "Observed", EvidenceAt: before, AcceptedAt: fixedNow()}
 	if len(body.Provisioning) != 1 || body.Provisioning[0] != want {
 		t.Errorf("provisioning = %+v, want %+v", body.Provisioning, want)

@@ -544,21 +544,24 @@ type TargetDTO struct {
 // Name) asked for. Service/Domain/Digest/ContractRef name the CONSUMER revision.
 // It is never a target: a provisioning report adds no environment to the fleet.
 type ProvisioningDTO struct {
-	Subject     string    `json:"subject"`
-	Service     string    `json:"service"`
-	Domain      string    `json:"domain,omitempty"`
-	Digest      string    `json:"digest,omitempty"`
-	ContractRef string    `json:"contractRef"`
-	Producer    string    `json:"producer"`
-	Kind        string    `json:"kind"`
-	Name        string    `json:"name"`
-	Environment string    `json:"environment,omitempty"`
-	Provider    string    `json:"provider,omitempty"`
-	ExternalRef string    `json:"externalRef,omitempty"`
-	Phase       string    `json:"phase,omitempty"`
-	Outcome     string    `json:"outcome"`
-	EvidenceAt  time.Time `json:"evidenceAt"`
-	AcceptedAt  time.Time `json:"acceptedAt"`
+	Subject     string `json:"subject"`
+	Service     string `json:"service"`
+	Domain      string `json:"domain,omitempty"`
+	Digest      string `json:"digest,omitempty"`
+	ContractRef string `json:"contractRef"`
+	Producer    string `json:"producer"`
+	// ProducerKeyID is the trusted key that signed the report, so a reader can
+	// tell which key certified a phase when several share one producer.
+	ProducerKeyID string    `json:"producerKeyId,omitempty"`
+	Kind          string    `json:"kind"`
+	Name          string    `json:"name"`
+	Environment   string    `json:"environment,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
+	ExternalRef   string    `json:"externalRef,omitempty"`
+	Phase         string    `json:"phase,omitempty"`
+	Outcome       string    `json:"outcome"`
+	EvidenceAt    time.Time `json:"evidenceAt"`
+	AcceptedAt    time.Time `json:"acceptedAt"`
 }
 
 // TargetsResponse is the versioned read-only evidence-source contribution.
@@ -647,7 +650,7 @@ func (h *Handler) appendProvisioning(out *TargetsResponse, rec Record, budget in
 		p, _ := o.GetProvisionedObservation()
 		out.Provisioning = append(out.Provisioning, ProvisioningDTO{
 			Subject: es.Subject.Name, Service: rec.Service, Domain: rec.Domain, Digest: rec.Digest,
-			ContractRef: es.ContractRef, Producer: rec.Envelope.Producer.ID,
+			ContractRef: es.ContractRef, Producer: rec.Envelope.Producer.ID, ProducerKeyID: rec.Envelope.Producer.KeyID,
 			Kind: o.Subject.Kind, Name: o.Subject.Name, Environment: p.Environment,
 			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: string(p.Phase), Outcome: string(o.Outcome),
 			EvidenceAt: es.ObservedAt, AcceptedAt: rec.AcceptedAt,

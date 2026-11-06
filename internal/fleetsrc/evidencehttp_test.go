@@ -307,7 +307,7 @@ func TestEvidenceHTTPSource_Collect_ProvisioningMapped(t *testing.T) {
 		Targets:       []evidenceingest.TargetDTO{},
 		Provisioning: []evidenceingest.ProvisioningDTO{{
 			Subject: "ghcr.io/a/orders/production/db", Service: "orders", Domain: "ghcr.io/a", ContractRef: "oci://ghcr.io/a/orders@sha256:abc",
-			Producer: "platform-adapter", Kind: "configuration", Name: "db", Environment: "production", Provider: "aws",
+			Producer: "platform-adapter", ProducerKeyID: "adapter-key", Kind: "configuration", Name: "db", Environment: "production", Provider: "aws",
 			ExternalRef: "orders-db", Phase: "Ready", Outcome: "Observed", EvidenceAt: at, AcceptedAt: accepted,
 		}},
 	})
@@ -322,7 +322,7 @@ func TestEvidenceHTTPSource_Collect_ProvisioningMapped(t *testing.T) {
 	}
 	want := fleet.RawProvisioning{Service: "orders", Domain: "ghcr.io/a", Digest: "sha256:abc", Kind: "configuration", Name: "db",
 		Environment: "production", Provider: "aws", ExternalRef: "orders-db", Phase: "Ready", Outcome: "Observed",
-		Producer: "platform-adapter", ObservedAt: at, AcceptedAt: &accepted, Verified: true}
+		Producer: "platform-adapter", ProducerKeyID: "adapter-key", ObservedAt: at, AcceptedAt: &accepted, Verified: true}
 	if got := col.Provisioning; len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("provisioning = %+v, want %+v", got, want)
 	}
