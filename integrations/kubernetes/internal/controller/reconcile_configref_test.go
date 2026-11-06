@@ -198,3 +198,25 @@ func TestReconcileConfigRef_ResolverInputsAndStatus(t *testing.T) {
 		t.Errorf("properties = %+v, want the provider schema's size and version", props)
 	}
 }
+
+// deadlineResolver records whether each resolve ran under a deadline.
+type deadlineResolver struct {
+	refResolver
+	unbounded *bool
+}
+
+func (r deadlineResolver) ResolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		*r.unbounded = true
+	}
+	return r.refResolver.ResolveBundle(ctx, ref)
+}
+
+// Configuration-ref resolution runs under a deadline, so one Pacto cannot hold a reconcile worker.
+func TestReconcileConfigRef_ResolutionIsBounded(t *testing.T) {
+	unbounded := false
+	reconcileConsumer(t, consumerYAML("2.6", "{size: small}"), nil, deadlineResolver{refResolver{bundle: providerBundle(t)}, &unbounded})
+	if unbounded {
+		t.Error("a configuration ref was resolved with no deadline")
+	}
+}

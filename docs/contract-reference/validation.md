@@ -168,7 +168,7 @@ describes how the stage picks a configuration from the referenced contract.
 
 | Condition | Code |
 |---|---|
-| The ref cannot be fetched, read or compiled and something depends on it (see below) | `CONFIG_REF_UNRESOLVED` |
+| The ref cannot be fetched, read or compiled, or its chain runs past eight refs, and something depends on it (see below) | `CONFIG_REF_UNRESOLVED` |
 | The ref cannot be resolved and nothing depends on it, or the caller is a gate | `CONFIG_REF_UNVERIFIED` (warning) |
 | Values for the ref were not checked because the caller has no resolver | `CONFIG_REF_NOT_ENFORCED` (warning) |
 | The referenced contract declares several configurations and no `configuration` names one | `CONFIG_REF_AMBIGUOUS` |

@@ -255,6 +255,10 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 	return &effectiveContract{loaded: loadResult, effective: effectiveLR, overriddenKeys: overriddenKeys, validation: contractResult, configRefs: configRefs}, nil
 }
 
+// configRefTimeout bounds the configuration-ref resolution of one reconcile, so a registry
+// that answers slowly, or hop after hop, cannot hold a reconcile worker.
+const configRefTimeout = 2 * time.Minute
+
 // validateEffective validates the effective contract. A contract that names a configuration by ref
 // has it resolved, leniently, through the loader: values the resolved schema rejects are errors,
 // and a ref that cannot be pulled is a CONFIG_REF_UNVERIFIED warning. A contract without one keeps
@@ -263,6 +267,8 @@ func (r *PactoReconciler) validateEffective(ctx context.Context, lr loader.LoadR
 	if !slices.ContainsFunc(lr.Contract.Configurations, func(c contract.Configuration) bool { return c.Ref != "" }) {
 		return validation.Validate(lr.Contract, lr.RawYAML, lr.BundleFS), nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, configRefTimeout)
+	defer cancel()
 	opts := validation.ConfigRefOptions{Now: time.Now()}
 	if rl, ok := r.Loader.(ConfigRefLoader); ok {
 		opts.Resolver = rl.ConfigRefResolver(ociRef, auth, credID)

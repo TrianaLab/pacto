@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -180,6 +181,30 @@ func TestResolveConfigRefs_FollowsAChainAndCatchesACycle(t *testing.T) {
 	refs, res = ResolveConfigRefs(t.Context(), c, nil, ConfigRefOptions{Resolver: pgResolver(map[string]*contract.Bundle{"oci://r/pg:16.1.0": pgBundle("16.1.0", provisioning)})})
 	if findingCodes(res) != "" || refs["db"].Schema == nil || refs["replica"].Schema == nil {
 		t.Fatalf("diamond: %+v", res)
+	}
+}
+
+// endlessResolver answers every ref with a provider whose only configuration
+// refs a new one.
+type endlessResolver struct{ calls int }
+
+func (r *endlessResolver) ResolveBundle(_ context.Context, ref string) (*contract.Bundle, error) {
+	r.calls++
+	return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "p", Version: "1.0.0"},
+		Configurations: []contract.Configuration{{Name: "x", Ref: ref + "x"}}}, FS: fstest.MapFS{}}, nil
+}
+
+// A chain that never ends stops at MaxConfigRefHops: unresolved for a strict
+// caller, unverified for the others.
+func TestResolveConfigRefs_HopLimit(t *testing.T) {
+	r := &endlessResolver{}
+	_, res := ResolveConfigRefs(t.Context(), refConsumer("2.6", "oci://evil.example/p:1", nil), nil, ConfigRefOptions{Resolver: r, Strict: true})
+	if findingCodes(res) != "E:CONFIG_REF_UNRESOLVED@configurations[0].ref" || !strings.Contains(res.Errors[0].Message, "more than 8 configuration refs") || r.calls != MaxConfigRefHops {
+		t.Fatalf("strict: %+v after %d resolves", res, r.calls)
+	}
+	_, res = ResolveConfigRefs(t.Context(), refConsumer("2.6", "oci://evil.example/p:1", nil), nil, ConfigRefOptions{Resolver: &endlessResolver{}})
+	if findingCodes(res) != "W:CONFIG_REF_UNVERIFIED@configurations[0].ref" {
+		t.Fatalf("lenient: %+v", res)
 	}
 }
 

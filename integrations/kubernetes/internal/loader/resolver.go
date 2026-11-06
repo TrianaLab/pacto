@@ -11,6 +11,8 @@ import (
 	"container/list"
 	"context"
 	"errors"
+	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,12 +20,23 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // errLocalConfigRef refuses a configuration ref that is not an OCI reference: a contract the
 // operator loaded cannot name a path on the operator's filesystem.
 var errLocalConfigRef = errors.New("configuration references resolve only from a registry")
+
+// errInternalConfigRef refuses a configuration ref on an internal address (loopback, private,
+// link-local, a cluster or single-label name) other than the contract's own registry: a provider
+// bundle's author must not make the operator send requests into the cluster network. List the host
+// in PACTO_INSECURE_REGISTRIES to allow it.
+var errInternalConfigRef = errors.New("configuration references to an internal registry host resolve only when it is listed in " + InsecureRegistriesEnvVar)
+
+// maxPullErrorBytes bounds the registry error text a resolve reports, so a registry's response
+// body never reaches status.
+const maxPullErrorBytes = 200
 
 // CredIDDefault and CredIDAnonymous name the credentials a provider bundle was pulled with when
 // no pull secret applies: the operator's default keychain, or none at all.
@@ -65,7 +78,11 @@ func (r *RefResolver) ResolveBundle(ctx context.Context, ref string) (*contract.
 		return nil, errLocalConfigRef
 	}
 	ociRef := normalizeOCIRef(ref)
-	kc, credID := r.keychain(registryHost(ociRef))
+	host := registryHost(ociRef)
+	if host != r.ContractHost && internalHost(host) && !slices.Contains(oci.EnvInsecureRegistries(), host) {
+		return nil, errInternalConfigRef
+	}
+	kc, credID := r.keychain(host)
 	key, pinned := refCacheKey(ociRef, credID)
 	if b, err, ok := providerCache.get(key); ok {
 		return b, err
@@ -74,6 +91,8 @@ func (r *RefResolver) ResolveBundle(ctx context.Context, ref string) (*contract.
 	res, err := r.L.oci.pullWith(ctx, ociRef, kc)
 	if err == nil {
 		b = &contract.Bundle{Contract: res.Contract, RawYAML: res.RawYAML, FS: res.BundleFS}
+	} else {
+		err = errors.New(boundPullError(err.Error()))
 	}
 	expires := time.Now().Add(r.L.cacheTTL)
 	if pinned && err == nil {
@@ -92,6 +111,37 @@ func (r *RefResolver) keychain(host string) (authn.Keychain, string) {
 		return r.L.oci.keychain, CredIDDefault
 	}
 	return r.L.oci.effectiveKeychain(r.Auth), r.CredID
+}
+
+// internalHost reports whether a registry host names an internal address: a loopback, private,
+// link-local or unspecified IP, localhost, a single-label name or a cluster-local suffix.
+func internalHost(host string) bool {
+	h := host
+	if hp, _, err := net.SplitHostPort(host); err == nil {
+		h = hp
+	}
+	h = strings.ToLower(strings.TrimSuffix(strings.Trim(h, "[]"), "."))
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+	}
+	if !strings.Contains(h, ".") {
+		return true // localhost, or a short in-cluster service name
+	}
+	for _, suffix := range []string{".localhost", ".local", ".internal", ".svc", ".cluster.local"} {
+		if strings.HasSuffix(h, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// boundPullError is a registry error's first line, at most maxPullErrorBytes long.
+func boundPullError(msg string) string {
+	msg, _, _ = strings.Cut(msg, "\n")
+	if len(msg) > maxPullErrorBytes {
+		msg = strings.ToValidUTF8(msg[:maxPullErrorBytes], "") + "..."
+	}
+	return msg
 }
 
 // registryHost is the registry host of an OCI reference, or "" when it does not parse.

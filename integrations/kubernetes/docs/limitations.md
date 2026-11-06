@@ -234,6 +234,15 @@ The operator scopes credentials by registry host:
   operator's own when there is none.
 - A ref on any other host is pulled anonymously, so a contract never sends your
   pull Secret to a registry of its choosing.
+- A ref on any other host that names an internal address, such as a loopback,
+  private or link-local IP, `localhost`, a single-label name or a `.svc`,
+  `.local` or `.internal` name, is refused unless `PACTO_INSECURE_REGISTRIES`
+  lists it. A provider's own refs therefore cannot send the operator into the
+  cluster network.
+
+The operator follows at most eight refs in a chain and spends at most two
+minutes resolving the refs of one reconcile. A registry error appears in
+`status.validation` as its first line, cut to 200 bytes.
 
 When the pull fails, `status.validation` carries a `CONFIG_REF_UNVERIFIED`
 warning, the contract stays valid and the bound ConfigMap reads `Insufficient`.

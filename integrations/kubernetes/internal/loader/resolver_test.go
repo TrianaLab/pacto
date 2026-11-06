@@ -115,6 +115,7 @@ func TestResolver_PullsAnOCIRef(t *testing.T) {
 	resetProviderCache(t)
 	reg := newRecordingRegistry(t, false)
 	reg.push(t, "acme/pg:16.1.0")
+	t.Setenv(InsecureRegistriesEnvVar, reg.host) // an inline contract has no host of its own
 	r := testLoader().ConfigRefResolver("", nil, "")
 
 	b, err := r.ResolveBundle(t.Context(), "oci://"+reg.host+"/acme/pg:16.1.0")
@@ -142,6 +143,7 @@ func TestResolver_OtherHostIsAnonymous(t *testing.T) {
 	contractReg := newRecordingRegistry(t, false)
 	other := newRecordingRegistry(t, true)
 	other.push(t, "acme/pg:16.1.0")
+	t.Setenv(InsecureRegistriesEnvVar, "elsewhere:5000, "+other.host)
 	override := &authn.AuthConfig{Username: "secret-user", Password: "secret-pass"}
 
 	for _, auth := range []*authn.AuthConfig{override, nil} {
@@ -275,5 +277,39 @@ func TestRegistryHost(t *testing.T) {
 	}
 	if got := registryHost("UPPER/bad ref"); got != "" {
 		t.Errorf("registryHost of an unparsable ref = %q, want empty", got)
+	}
+}
+
+// A provider's ref to an internal address other than the contract's registry is refused before
+// any request, unless PACTO_INSECURE_REGISTRIES lists it.
+func TestResolver_RefusesAnInternalHost(t *testing.T) {
+	resetProviderCache(t)
+	reg := newRecordingRegistry(t, false)
+	reg.push(t, "acme/pg:16.1.0")
+	r := testLoader().ConfigRefResolver("oci://ghcr.io/acme/app:1.0.0", nil, "")
+	for _, ref := range []string{
+		"oci://" + reg.host + "/acme/pg:16.1.0", "oci://10.0.0.12:2379/x:1", "oci://kubernetes.default.svc/x:1",
+		"oci://registry:5000/x:1", "oci://[fe80::1]:5000/x:1", "oci://db.cluster.local/x:1", "oci://169.254.169.254/x:1",
+	} {
+		if _, err := r.ResolveBundle(t.Context(), ref); !errors.Is(err, errInternalConfigRef) {
+			t.Errorf("ResolveBundle(%q) error = %v, want %v", ref, err, errInternalConfigRef)
+		}
+	}
+	if auths, _ := reg.seen(); len(auths) != 0 {
+		t.Errorf("the internal registry saw %d requests", len(auths))
+	}
+	if internalHost("ghcr.io") || internalHost("registry.example.com:443") || internalHost("8.8.8.8") {
+		t.Error("a public host reads as internal")
+	}
+}
+
+// A registry's error body reaches the caller as one bounded line.
+func TestBoundPullError(t *testing.T) {
+	long := strings.Repeat("x", 500)
+	if got := boundPullError("unexpected status 500: " + long + "\nsecret"); len(got) != maxPullErrorBytes+3 || strings.Contains(got, "secret") {
+		t.Errorf("bounded = %q", got)
+	}
+	if got := boundPullError("short"); got != "short" {
+		t.Errorf("short = %q", got)
 	}
 }

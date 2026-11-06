@@ -86,6 +86,10 @@ func ResolveConfigRefs(ctx context.Context, c *contract.Contract, bundleFS fs.FS
 	return refs, res
 }
 
+// MaxConfigRefHops bounds how many refs a configuration ref chain follows, so a
+// registry that answers every hop with a new ref cannot hold a caller forever.
+const MaxConfigRefHops = 8
+
 // resolveConfigRef follows cfg's ref, declared by a contract of version
 // version, hop by hop until a selected configuration has a schema. path is the
 // chain of links from the root, so a link that reappears in it is a cycle.
@@ -102,6 +106,9 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 	entry := cfg
 	var path []declaredRef
 	for hop := 0; ; hop++ {
+		if hop == MaxConfigRefHops {
+			return fail("", "ref", false, "ref %q chains through more than %d configuration refs", cfg.Ref, MaxConfigRefHops)
+		}
 		link := declaredRef{Base: base, Ref: entry.Ref}
 		if slices.Contains(path, link) {
 			return fail("CONFIG_REF_CYCLE", "ref", true, "cycle detected resolving ref %q (chain: %v)", entry.Ref, refChain(path, entry.Ref))
