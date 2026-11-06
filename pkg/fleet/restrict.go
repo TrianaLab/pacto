@@ -98,6 +98,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 		}
 	}
 	out.offeringOnly = offeringOnly
+	restrictRevalidation(&out, s.Relationships, hiddenSvc)
 	hiddenDeps, hiddenDependents, hiddenConsumers := restrictRelationships(&out, s.Relationships, hiddenSvc)
 	out.hiddenConsumers = hiddenConsumers
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
@@ -114,7 +115,6 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.forwardDepsByRevision = restrictIndex(s.forwardDepsByRevision, func(k RevisionKey) bool { return out.Revisions[k] != nil }, keep)
 
 	recountSources(&out)
-	restrictRevalidation(&out, s.Relationships, hiddenSvc)
 
 	restrictLimitations(&out, s.Limitations, append(hiddenNames, slices.Collect(maps.Keys(hiddenNS))...), restricted)
 	out.Limitations = append(out.Limitations, Limitation{Code: LimitationHiddenByPermissions, Message: hiddenMessage})
@@ -313,14 +313,21 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 }
 
 // restrictRevalidation validates again, against out, each visible revision
-// with a configuration reference that resolves to a hidden service, so no
-// finding carries what the hidden provider declares: the reference becomes
-// unverified. A revision is copied, never changed in place.
+// whose configuration references resolve to a hidden service, directly or
+// through a provider's own configuration ref, so no finding carries what the
+// hidden provider declares: the reference becomes unverified. A revision is
+// copied, never changed in place. out.Services must not be restricted yet: its
+// statuses read the revalidated revisions.
 func restrictRevalidation(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool) {
 	stale := map[RevisionKey]bool{}
-	for _, rel := range rels {
-		if rel.Type == RelationshipConfigRef && hiddenSvc[rel.ToService] && out.Revisions[rel.FromRevision] != nil {
-			stale[rel.FromRevision] = true
+	// ponytail: a fixpoint costing config refs x chain depth passes.
+	for changed := true; changed; {
+		changed = false
+		for _, rel := range rels {
+			if rel.Type == RelationshipConfigRef && !stale[rel.FromRevision] && out.Revisions[rel.FromRevision] != nil &&
+				(hiddenSvc[rel.ToService] || stale[rel.ResolvedRevision]) {
+				stale[rel.FromRevision], changed = true, true
+			}
 		}
 	}
 	if len(stale) == 0 {
@@ -342,7 +349,7 @@ func restrictRevalidation(out *FleetSnapshot, rels []Relationship, hiddenSvc map
 
 // restrictServices sets out.Services to the visible services, copying any
 // that lost a target or gained a hidden count, and returns the names and keys
-// of the hidden ones. out.Targets must already be restricted.
+// of the hidden ones. out.Targets and out.Revisions must already be restricted.
 func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, deps, dependents map[ServiceKey]map[ServiceKey]bool) []string {
 	var hiddenNames []string
 	out.Services = make(map[ServiceKey]*ServiceRecord, len(services))
@@ -352,7 +359,8 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 			continue
 		}
 		targets := slices.DeleteFunc(slices.Clone(svc.Targets), func(tk TargetKey) bool { return out.Targets[tk] == nil })
-		if len(targets) == len(svc.Targets) && deps[k] == nil && dependents[k] == nil {
+		// A revision revalidated against the view may change the status.
+		if len(targets) == len(svc.Targets) && deps[k] == nil && dependents[k] == nil && serviceStatus(out, svc) == svc.Status {
 			out.Services[k] = svc
 			continue
 		}

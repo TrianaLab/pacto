@@ -629,7 +629,44 @@ func TestRestrictOfferingProvider(t *testing.T) {
 	if !strings.Contains(findingMessages(revisionOf(t, q.snap, "orders")), "zebrasize") {
 		t.Error("restricting changed the unrestricted revision")
 	}
+	if st := r.snap.Services[NewServiceKey("orders")].Status; st == StatusInvalid || q.snap.Services[NewServiceKey("orders")].Status != StatusInvalid {
+		t.Errorf("restricted orders status = %s, unrestricted = %s", st, q.snap.Services[NewServiceKey("orders")].Status)
+	}
 	assertNoLeak(t, r, orders.Key, "hush", "hiddenapp", "adapter-pg-prod-xyz", "vaultdb", "9.9.9", "zebrasize", "pgsuccessor")
+}
+
+// A configuration ref that reaches a hidden provider through a visible
+// provider's own ref is revalidated too, and its service status follows.
+func TestRestrictChainedConfigRef(t *testing.T) {
+	k := SourceKindKubernetes
+	raw := func(y string) RawRevision {
+		c := mustParse(t, y)
+		return RawRevision{Bundle: &contract.Bundle{Contract: c, RawYAML: []byte(y), FS: fstest.MapFS{"db.json": {Data: []byte(`{"type":"object","properties":{"size":{"enum":["zebrasize","large"]}}}`)}}}, Digest: refDigest(c.Service.Name)}
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", k, &Collection{
+		Revisions: []RawRevision{
+			raw("pactoVersion: \"2.6\"\nservice: {name: hprov, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, schema: db.json}\n"),
+			raw("pactoVersion: \"2.6\"\nservice: {name: pmid, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/h@" + refDigest("hprov") + "\"}\n"),
+			raw("pactoVersion: \"2.6\"\nservice: {name: cons, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/m@" + refDigest("pmid") + "\", values: {size: huge}}\n"),
+		},
+		Targets: []RawTarget{
+			{Scope: "hush", Kind: k, Name: "hprov", Service: "hprov"},
+			{Scope: "shop", Kind: k, Name: "pmid", Service: "pmid"},
+			{Scope: "shop", Kind: k, Name: "cons", Service: "cons"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	if !strings.Contains(findingMessages(revisionOf(t, q.snap, "cons")), "zebrasize") {
+		t.Fatalf("the unrestricted cons findings name no provider enum:\n%s", findingMessages(revisionOf(t, q.snap, "cons")))
+	}
+	r := q.Restrict(shopOnly)
+	cons := revisionOf(t, r.snap, "cons")
+	if strings.Contains(findingMessages(cons), "zebrasize") || !cons.Valid || r.snap.Services[NewServiceKey("cons")].Status == StatusInvalid {
+		t.Errorf("cons valid = %v status = %s findings:\n%s", cons.Valid, r.snap.Services[NewServiceKey("cons")].Status, findingMessages(cons))
+	}
 }
 
 // checkOfferingOnlyProvider: in r, pgprov shows with its revision, owner and
