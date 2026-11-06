@@ -40,6 +40,17 @@ var rules = map[classificationKey]Classification{
 	{"service.summary", Modified}:        NonBreaking,
 	{"service.summary", Removed}:         NonBreaking,
 
+	// Service lifecycle (2.6): the same grades as an interface lifecycle.
+	{"service.lifecycle", Added}:               NonBreaking,
+	{"service.lifecycle", Removed}:             NonBreaking,
+	{"service.lifecycle.deprecated", Modified}: NonBreaking,
+	{"service.lifecycle.sunset", Added}:        NonBreaking,
+	{"service.lifecycle.sunset", Removed}:      NonBreaking,
+	{"service.lifecycle.sunset", Modified}:     PotentialBreaking,
+	{"service.lifecycle.successor", Added}:     NonBreaking,
+	{"service.lifecycle.successor", Modified}:  NonBreaking,
+	{"service.lifecycle.successor", Removed}:   NonBreaking,
+
 	// Workload (top-level in v2)
 	{"workload", Modified}: Breaking,
 	{"workload", Added}:    NonBreaking,
@@ -85,7 +96,7 @@ var rules = map[classificationKey]Classification{
 	{"interfaces.compatibilityEpoch", Modified}: Breaking,
 
 	// Interface lifecycle (2.2): notices, except a sunset moved earlier, which
-	// diffLifecycle downgrades to NonBreaking when it moves later instead.
+	// diffLifecycleAt downgrades to NonBreaking when it moves later instead.
 	{"interfaces.lifecycle", Added}:               NonBreaking,
 	{"interfaces.lifecycle", Removed}:             NonBreaking,
 	{"interfaces.lifecycle.deprecated", Modified}: NonBreaking,
@@ -116,6 +127,12 @@ var rules = map[classificationKey]Classification{
 	{"configurations.ref", Modified}:    PotentialBreaking,
 	{"configurations.ref", Added}:       NonBreaking,
 	{"configurations.ref", Removed}:     Breaking,
+	// A selector (2.6) names which provider configuration a ref takes values
+	// for. Changing it points the values at another schema; removing it may
+	// leave the ref ambiguous when the provider declares more than one.
+	{"configurations.configuration", Added}:    NonBreaking,
+	{"configurations.configuration", Modified}: PotentialBreaking,
+	{"configurations.configuration", Removed}:  PotentialBreaking,
 
 	// Environments (name-indexed): a new one only adds values to check; the
 	// environment a removed one names may still run the service. Value changes

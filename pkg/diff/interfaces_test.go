@@ -910,3 +910,59 @@ func TestDiffInterfaces_EmptyRefNotContentDiffed(t *testing.T) {
 		})
 	}
 }
+
+func TestDiffRefSources_Selector(t *testing.T) {
+	cfg := func(sel string) []contract.Configuration {
+		return []contract.Configuration{{Name: "db", Ref: "oci://r/pg:1.0.0", ProviderConfiguration: sel}}
+	}
+	cases := map[string]struct {
+		old, new string
+		ct       ChangeType
+		cls      Classification
+	}{
+		"added":    {"", "provisioning", Added, NonBreaking},
+		"modified": {"provisioning", "runtime", Modified, PotentialBreaking},
+		"removed":  {"provisioning", "", Removed, PotentialBreaking},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			old, new := minimalContract(), minimalContract()
+			old.Configurations, new.Configurations = cfg(tc.old), cfg(tc.new)
+			changes := diffConfiguration(old, new, nil, nil)
+			if len(changes) != 1 {
+				t.Fatalf("want 1 change, got %+v", changes)
+			}
+			if c := changes[0]; c.Path != "configurations.configuration" || c.Type != tc.ct || c.Classification != tc.cls {
+				t.Fatalf("got %s %s %s", c.Path, c.Type, c.Classification)
+			}
+		})
+	}
+}
+
+func TestDiffConfigValues_RefReason(t *testing.T) {
+	cases := map[string]struct {
+		cfg    contract.Configuration
+		reason string
+	}{
+		"ref":          {contract.Configuration{Name: "db", Ref: "oci://r/pg:1.0.0"}, "request values for oci://r/pg:1.0.0: the provider's schema validates them; this service's consumers are unaffected"},
+		"local schema": {contract.Configuration{Name: "db", Schema: "config/db.json"}, "configurations[db].values.size changed"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			old, new := minimalContract(), minimalContract()
+			o, n := tc.cfg, tc.cfg
+			o.Values, n.Values = map[string]any{"size": "small"}, map[string]any{"size": "large"}
+			old.Configurations, new.Configurations = []contract.Configuration{o}, []contract.Configuration{n}
+			changes := diffConfiguration(old, new, nil, nil)
+			if len(changes) != 1 || changes[0].Classification != NonBreaking {
+				t.Fatalf("want one NonBreaking change, got %+v", changes)
+			}
+			if !strings.Contains(changes[0].Reason, tc.reason) {
+				t.Fatalf("reason %q lacks %q", changes[0].Reason, tc.reason)
+			}
+			if tc.cfg.Ref == "" && strings.Contains(changes[0].Reason, "request values") {
+				t.Fatalf("local schema reason %q names a request", changes[0].Reason)
+			}
+		})
+	}
+}

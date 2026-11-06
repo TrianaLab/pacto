@@ -26,7 +26,10 @@
 // required flag, and raises a modified parameter to the worst grade its schema
 // diff reaches in request position. diffConfigValues (interfaces.go) overwrites every walk result
 // with NonBreaking, because inline values and environment values are the
-// provider's own inputs rather than consumer-facing surface. Tuning either of those two table rows without
+// provider's own inputs rather than consumer-facing surface. Values beside a
+// configuration ref are the consumer's request to its provider: the provider's
+// schema validates them and they stay NON_BREAKING for this service's own
+// consumers. Tuning either of those two table rows without
 // reading its call site will look like it did nothing.
 package diff
 
