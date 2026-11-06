@@ -19,15 +19,18 @@ const (
 )
 
 // ProvisioningStatus is the provisioning state of one offering use in one
-// environment, joined from provider reports at query time. Phase is the
-// effective phase: Unknown when no provider reported, when the newest report is
-// older than the provisioning window (Stale), when its outcome is not Observed,
-// when it is about a consumer revision other than the current one, or when
-// reporters disagree (Conflict lists their phases). ReportedPhase keeps what
-// the newest report said. Verified is true only for reports accepted through
-// signed envelopes.
+// environment, joined from provider reports at query time. Entry names the
+// consumer's configuration or dependency entry when the use has more than one,
+// each with its own status. Phase is the effective phase: Unknown when no
+// provider reported, when the newest report is older than the provisioning
+// window (Stale), when its outcome is not Observed, when it is about a consumer
+// revision other than the current one, or when current reporters (fresh and
+// about the current revision) disagree (Conflict lists their phases).
+// ReportedPhase keeps what the newest report said. Verified is true only for
+// reports accepted through signed envelopes.
 type ProvisioningStatus struct {
 	Environment   string     `json:"environment,omitempty"`
+	Entry         string     `json:"entry,omitempty"`
 	Phase         string     `json:"phase" enum:"Requested,Provisioning,Ready,Failed,Deleting,Unknown"`
 	ReportedPhase string     `json:"reportedPhase,omitempty"`
 	Revision      *EntityRef `json:"revision,omitempty"`
@@ -72,8 +75,8 @@ func ingestProvisioning(snap *FleetSnapshot, src Source, raws []RawProvisioning,
 }
 
 // validProvisioning applies the ResourceProvisioned rules to a raw record: a
-// named consumer revision with a complete digest and entry, a known outcome, the payload only for an
-// Observed outcome, and an observedAt no more than MaxProvisioningClockSkew
+// named consumer revision with a complete digest and entry, a known outcome, the payload (all but the
+// environment) only for an Observed outcome, and an observedAt no more than MaxProvisioningClockSkew
 // after the time it was accepted (now for a record with no accept time).
 func validProvisioning(raw RawProvisioning, now time.Time) bool {
 	if raw.Service == "" || !contract.ValidOCIDigest(raw.Digest) || raw.Name == "" || raw.ObservedAt.IsZero() ||
@@ -89,7 +92,8 @@ func validProvisioning(raw RawProvisioning, now time.Time) bool {
 	}
 	p := evidence.ProvisionedObservation{Provider: raw.Provider, ExternalRef: raw.ExternalRef, Phase: evidence.ProvisionPhase(raw.Phase), Environment: raw.Environment}
 	if raw.Outcome != string(evidence.Observed) {
-		return p == evidence.ProvisionedObservation{}
+		// No payload, but the environment it is about still names its row.
+		return p == evidence.ProvisionedObservation{Environment: raw.Environment} && (raw.Environment == "" || evidence.ValidEnvironment(raw.Environment))
 	}
 	return evidence.ValidateProvisioned(p) == nil
 }
@@ -169,45 +173,122 @@ func sortProvisioning(recs []ProvisioningRecord) {
 	})
 }
 
-// provisioningFor joins the reports about a use's relationships (each matched
-// by the declaring revision's digest, so a report attaches to the provider that
-// revision asked for) into one status per environment. current is the consumer
-// revision the use speaks for. No report is one Unknown status.
-func (q *Query) provisioningFor(use OfferingUse, rels []*Relationship, current *ContractRevision) ([]ProvisioningStatus, []Limitation) {
-	want := map[provisioningKey]bool{}
-	revs := map[string]*ContractRevision{}
-	for _, rel := range rels {
-		if r := q.snap.Revisions[rel.FromRevision]; r != nil {
-			want[provisioningKey{rel.FromService, r.Digest, provisioningKind(rel.Type), rel.To}] = true
-			revs[r.Digest] = r
-		}
-	}
-	byEnv := map[string][]*ProvisioningRecord{}
+// provisioningIndex groups the snapshot's reports by the consumer entry they
+// are about, so each use looks up its own instead of scanning every report.
+func (q *Query) provisioningIndex() map[provisioningKey][]*ProvisioningRecord {
+	idx := map[provisioningKey][]*ProvisioningRecord{}
 	for i := range q.snap.Provisioning {
 		rec := &q.snap.Provisioning[i]
-		if want[provisioningKey{rec.ServiceKey, rec.Digest, rec.Kind, rec.Name}] {
-			byEnv[rec.Environment] = append(byEnv[rec.Environment], rec)
+		k := provisioningKey{rec.ServiceKey, rec.Digest, rec.Kind, rec.Name}
+		idx[k] = append(idx[k], rec)
+	}
+	return idx
+}
+
+// provisioningSlot is one status of a use: an environment and the consumer
+// entry (a configuration or dependency name) the reports are about.
+type provisioningSlot struct{ env, entry string }
+
+// provisioningFor joins the reports about a use's relationships (each matched
+// by the declaring revision's digest, so a report attaches to the provider that
+// revision asked for) into one status per environment and consumer entry.
+// current is the consumer revision the use speaks for: each of its entries gets
+// a status in every environment it declares (the default one when it declares
+// none), Unknown when nothing reported there. Entry is set only when the use
+// has more than one entry, so one entry's Ready never speaks for another.
+func (q *Query) provisioningFor(use OfferingUse, rels []*Relationship, current *ContractRevision, idx map[provisioningKey][]*ProvisioningRecord) ([]ProvisioningStatus, []Limitation) {
+	revs := map[string]*ContractRevision{}
+	slots := map[provisioningSlot][]*ProvisioningRecord{}
+	seen := map[provisioningKey]bool{}
+	var currentEntries []string
+	for _, rel := range rels {
+		r := q.snap.Revisions[rel.FromRevision]
+		if r == nil {
+			continue
+		}
+		revs[r.Digest] = r
+		k := provisioningKey{rel.FromService, r.Digest, provisioningKind(rel.Type), rel.To}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		for _, rec := range idx[k] {
+			sl := provisioningSlot{rec.Environment, rel.To}
+			slots[sl] = append(slots[sl], rec)
+		}
+		if current != nil && r.Key == current.Key {
+			currentEntries = append(currentEntries, rel.To)
 		}
 	}
-	if len(byEnv) == 0 {
-		return []ProvisioningStatus{{Phase: StatusUnknown, Provenance: ProvenanceObserved, Reason: "no provider has reported provisioning for this use"}}, nil
+	seedProvisioningSlots(slots, currentEntries, current)
+	if len(slots) == 0 {
+		return []ProvisioningStatus{{Phase: StatusUnknown, Provenance: ProvenanceObserved, Reason: noProvisioningReport}}, nil
 	}
+	return q.provisioningStatuses(use, slots, revs, current)
+}
+
+// noProvisioningReport is the reason of a status nothing reported.
+const noProvisioningReport = "no provider has reported provisioning for this use"
+
+// seedProvisioningSlots gives each entry of the current revision a slot in
+// every environment it declares, so an environment nothing reported on reads
+// Unknown. A revision that declares none gets the default environment, unless
+// a report already speaks for the entry.
+func seedProvisioningSlots(slots map[provisioningSlot][]*ProvisioningRecord, entries []string, current *ContractRevision) {
+	var envs []string
+	if current != nil && current.Contract != nil {
+		for _, e := range current.Contract.Environments {
+			envs = append(envs, e.Name)
+		}
+	}
+	for _, entry := range entries {
+		seed := envs
+		if len(seed) == 0 {
+			if slices.ContainsFunc(slices.Collect(maps.Keys(slots)), func(sl provisioningSlot) bool { return sl.entry == entry }) {
+				continue
+			}
+			seed = []string{""}
+		}
+		for _, env := range seed {
+			if _, ok := slots[provisioningSlot{env, entry}]; !ok {
+				slots[provisioningSlot{env, entry}] = nil
+			}
+		}
+	}
+}
+
+// provisioningStatuses is one status per slot, sorted by environment and
+// entry, and the conflicts they raise.
+func (q *Query) provisioningStatuses(use OfferingUse, slots map[provisioningSlot][]*ProvisioningRecord, revs map[string]*ContractRevision, current *ContractRevision) ([]ProvisioningStatus, []Limitation) {
+	entries := map[string]bool{}
+	for sl := range slots {
+		entries[sl.entry] = true
+	}
+	keys := slices.SortedFunc(maps.Keys(slots), func(a, b provisioningSlot) int {
+		return cmp.Or(cmp.Compare(a.env, b.env), cmp.Compare(a.entry, b.entry))
+	})
 	var out []ProvisioningStatus
 	var lims []Limitation
-	for _, env := range slices.Sorted(maps.Keys(byEnv)) {
-		st := q.provisioningStatus(env, byEnv[env], revs, current)
+	for _, sl := range keys {
+		st := ProvisioningStatus{Environment: sl.env, Phase: StatusUnknown, Provenance: ProvenanceObserved, Reason: noProvisioningReport}
+		if len(slots[sl]) > 0 {
+			st = q.provisioningStatus(sl.env, slots[sl], revs, current)
+		}
+		where := cmp.Or(sl.env, "default")
+		if len(entries) > 1 {
+			st.Entry, where = sl.entry, where+" for "+sl.entry
+		}
 		if st.Conflict != nil {
 			lims = append(lims, Limitation{Code: LimitationProvisioningConflict, Message: fmt.Sprintf(
-				"provisioning reports for %s on %s disagree in environment %s", use.Consumer.Label, use.Provider.Label, cmp.Or(env, "default"))})
+				"provisioning reports for %s on %s disagree in environment %s", use.Consumer.Label, use.Provider.Label, where)})
 		}
 		out = append(out, st)
 	}
 	return out, lims
 }
 
-// latestReports is the newest report per (source, producer), in a stable
-// order, and the distinct phases the Observed ones report.
-func latestReports(recs []*ProvisioningRecord) ([]*ProvisioningRecord, []string) {
+// latestReports is the newest report per (source, producer), in a stable order.
+func latestReports(recs []*ProvisioningRecord) []*ProvisioningRecord {
 	latest := map[string]*ProvisioningRecord{}
 	for _, r := range recs {
 		k := r.Source + "\x00" + r.Producer
@@ -215,31 +296,52 @@ func latestReports(recs []*ProvisioningRecord) ([]*ProvisioningRecord, []string)
 			latest[k] = r
 		}
 	}
-	var out []*ProvisioningRecord
-	phases := map[string]bool{}
+	out := make([]*ProvisioningRecord, 0, len(latest))
 	for _, k := range slices.Sorted(maps.Keys(latest)) {
 		out = append(out, latest[k])
-		if latest[k].Outcome == string(evidence.Observed) {
-			phases[latest[k].Phase] = true
-		}
 	}
-	return out, slices.Sorted(maps.Keys(phases))
+	return out
 }
 
-// provisioningStatus is one environment's status from its reports: the newest
-// report per (source, producer), then the Unknown rules of ProvisioningStatus.
-func (q *Query) provisioningStatus(env string, recs []*ProvisioningRecord, revs map[string]*ContractRevision, current *ContractRevision) ProvisioningStatus {
-	st := ProvisioningStatus{Environment: env, Phase: StatusUnknown, Provenance: ProvenanceObserved}
-	latest, phases := latestReports(recs)
-	if len(phases) > 1 {
-		st.Conflict, st.Reason = phases, "the providers that report on this use disagree"
-		return st
-	}
-	newest := latest[0]
-	for _, r := range latest[1:] {
+// newestReport is the most recently accepted of recs, which is not empty.
+func newestReport(recs []*ProvisioningRecord) *ProvisioningRecord {
+	newest := recs[0]
+	for _, r := range recs[1:] {
 		if newest.at().Before(r.at()) {
 			newest = r
 		}
+	}
+	return newest
+}
+
+// staleReport reports whether r is older than the provisioning window.
+func (q *Query) staleReport(r *ProvisioningRecord) bool {
+	return q.snap.GeneratedAt.Sub(r.ObservedAt) > cmp.Or(q.snap.provisioningWindow, RecentEvidenceWindow)
+}
+
+// provisioningStatus is one slot's status from its reports: the newest report
+// per (source, producer), then the Unknown rules of ProvisioningStatus. Only
+// current reports (fresh, about the current consumer revision) can disagree or
+// speak for the slot; with none, the newest report explains the Unknown.
+func (q *Query) provisioningStatus(env string, recs []*ProvisioningRecord, revs map[string]*ContractRevision, current *ContractRevision) ProvisioningStatus {
+	st := ProvisioningStatus{Environment: env, Phase: StatusUnknown, Provenance: ProvenanceObserved}
+	latest := latestReports(recs)
+	currentReports := slices.DeleteFunc(slices.Clone(latest), func(r *ProvisioningRecord) bool {
+		return q.staleReport(r) || (current != nil && revs[r.Digest].Key != current.Key)
+	})
+	phases := map[string]bool{}
+	for _, r := range currentReports {
+		if r.Outcome == string(evidence.Observed) {
+			phases[r.Phase] = true
+		}
+	}
+	if len(phases) > 1 {
+		st.Conflict, st.Reason = slices.Sorted(maps.Keys(phases)), "the providers that report on this use disagree"
+		return st
+	}
+	newest := newestReport(latest)
+	if len(currentReports) > 0 {
+		newest = newestReport(currentReports)
 	}
 	asOf := newest.ObservedAt
 	st.ReportedPhase, st.Provider, st.ExternalRef, st.AsOf = newest.Phase, newest.Provider, newest.ExternalRef, &asOf
@@ -253,7 +355,7 @@ func (q *Query) provisioningStatus(env string, recs []*ProvisioningRecord, revs 
 	switch {
 	case newest.Outcome != string(evidence.Observed):
 		st.Reason = "the provider reported " + strings.ToLower(newest.Outcome)
-	case q.snap.GeneratedAt.Sub(newest.ObservedAt) > cmp.Or(q.snap.provisioningWindow, RecentEvidenceWindow):
+	case q.staleReport(newest):
 		st.Stale, st.Reason = true, "the last report is older than the provisioning window"
 	case current != nil && rev.Key != current.Key:
 		st.Reason = fmt.Sprintf("last report is for %s; %s has no report yet", cmp.Or(rev.Version, rev.Digest), cmp.Or(current.Version, current.Digest))

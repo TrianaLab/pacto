@@ -20,10 +20,12 @@ import (
 // SubjectRef identifies the specific entity an observation is about. For per-assertion kinds it names the
 // assertion (capability type, interface name, dependency name, configuration name); for service-scoped
 // kinds (workload, persistence) it names the service (c.Service.Name). Identity lives here, not in the
-// payload, so a non-Observed observation is still attributable.
+// payload, so a non-Observed observation is still attributable. Environment is set only on a
+// non-Observed ResourceProvisioned observation, which has no payload to name the consumer environment in.
 type SubjectRef struct {
-	Kind string `json:"kind"`
-	Name string `json:"name"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Environment string `json:"environment,omitempty"`
 }
 
 // Provenance tracks how an observation was collected.
@@ -146,6 +148,18 @@ const (
 
 func validSlug(s string) bool { return len(s) <= maxSlugBytes && slugPattern.MatchString(s) }
 
+// ValidEnvironment reports whether s is a valid environment name in a provisioning report.
+func ValidEnvironment(s string) bool { return validSlug(s) }
+
+// ProvisionedEnvironment is the consumer environment a ResourceProvisioned observation is about: the
+// payload's for an Observed one, the subject's otherwise.
+func (o Observation) ProvisionedEnvironment() string {
+	if p, err := o.GetProvisionedObservation(); err == nil {
+		return p.Environment
+	}
+	return o.Subject.Environment
+}
+
 // ValidateProvisioned checks a ResourceProvisioned payload beyond its shape. The
 // fleet applies it again to every provisioning record it ingests.
 func ValidateProvisioned(p ProvisionedObservation) error {
@@ -229,6 +243,9 @@ func (o Observation) validate() error {
 	if !slices.Contains(want, o.Subject.Kind) {
 		return fmt.Errorf("kind %s requires Subject.Kind %q, got %q (INV-1c)", o.Kind, strings.Join(want, `" or "`), o.Subject.Kind)
 	}
+	if err := o.checkSubjectEnvironment(); err != nil {
+		return err
+	}
 	if o.Outcome == Observed {
 		if len(o.Value) == 0 {
 			return fmt.Errorf("outcome Observed requires a value payload for kind %s", o.Kind)
@@ -237,6 +254,22 @@ func (o Observation) validate() error {
 	}
 	if len(o.Value) != 0 {
 		return fmt.Errorf("outcome %s must not carry a value payload", o.Outcome)
+	}
+	return nil
+}
+
+// checkSubjectEnvironment allows Subject.Environment only where a payload cannot carry it: on a
+// non-Observed ResourceProvisioned observation, as a lowercase slug.
+func (o Observation) checkSubjectEnvironment() error {
+	switch env := o.Subject.Environment; {
+	case env == "":
+		return nil
+	case o.Kind != ResourceProvisioned:
+		return fmt.Errorf("kind %s takes no subject environment", o.Kind)
+	case o.Outcome == Observed:
+		return errors.New("an Observed ResourceProvisioned observation names its environment in the payload")
+	case !ValidEnvironment(env):
+		return fmt.Errorf("subject environment %q must be a lowercase slug of at most %d bytes", env, maxSlugBytes)
 	}
 	return nil
 }
@@ -480,6 +513,9 @@ func ValidateEvidenceSet(es EvidenceSet) []error {
 	}
 	if es.Subject.Name == "" {
 		errs = append(errs, errors.New("subject name is empty"))
+	}
+	if es.Subject.Environment != "" {
+		errs = append(errs, errors.New("the evidence set subject takes no environment"))
 	}
 	if es.ContractRef == "" {
 		errs = append(errs, errors.New("contract ref is empty"))

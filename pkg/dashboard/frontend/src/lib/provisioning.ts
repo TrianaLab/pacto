@@ -14,6 +14,12 @@ export function phaseTone(phase: string | undefined): 'ok' | 'err' | 'info' | 'n
   }
 }
 
+/** The short badge text: the environment and entry it is about, then the phase. */
+export function phaseBadgeLabel(st: ProvisioningStatus): string {
+  const where = [st.environment, st.entry].filter(Boolean).join(' ');
+  return where ? `${where}: ${st.phase}` : st.phase;
+}
+
 /** One line that says what a status means and who said it. */
 export function phaseLabel(st: ProvisioningStatus, now: number = Date.now()): string {
   if (st.phase === 'Unknown') {

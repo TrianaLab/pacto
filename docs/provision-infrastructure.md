@@ -177,15 +177,17 @@ applies.
 
 The dashboard's Offerings page, `pacto fleet entity offering postgresql` and
 `pacto_fleet_entity` show each consumer's provisioning status per environment,
-with its producer, source and report time. Unknown means Pacto cannot say;
+with its producer, source and report time. Every environment the consumer
+declares has a status, and a consumer that points two entries at one provider
+gets a status for each. Unknown means Pacto cannot say;
 it is neither failure nor success. The status is Unknown when:
 
 - no provider has reported for that use;
 - the newest report is older than the freshness window, 24 hours by default;
 - the provider reported an outcome other than Observed;
 - the newest report is for an older revision of the consumer;
-- two producers disagree, which also adds a `PROVISIONING_CONFLICT`
-  limitation.
+- two producers with current reports disagree, which also adds a
+  `PROVISIONING_CONFLICT` limitation.
 
 Reports from a target-state file show as unsigned. A viewer restricted to some
 namespaces sees a provider with no Kubernetes target, its owner and versions,

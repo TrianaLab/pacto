@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { phaseTone, phaseLabel, provisioningTitle, type ProvisioningStatus } from './provisioning.ts';
+import { phaseBadgeLabel, phaseTone, phaseLabel, provisioningTitle, type ProvisioningStatus } from './provisioning.ts';
 
 const NOW = Date.parse('2026-11-06T12:00:00Z');
 const st = (extra: Partial<ProvisioningStatus>): ProvisioningStatus => ({ phase: 'Unknown', provenance: 'observed', verified: false, ...extra });
@@ -8,6 +8,15 @@ describe('phaseTone', () => {
   it.each([
     ['Ready', 'ok'], ['Failed', 'err'], ['Requested', 'info'], ['Provisioning', 'info'], ['Deleting', 'info'], ['Unknown', 'neutral'], [undefined, 'neutral'],
   ])('%s is %s', (phase, tone) => expect(phaseTone(phase)).toBe(tone));
+});
+
+describe('phaseBadgeLabel', () => {
+  it('names the environment and the entry when there is one', () => {
+    expect(phaseBadgeLabel(st({ phase: 'Ready', environment: 'production' }))).toBe('production: Ready');
+    expect(phaseBadgeLabel(st({ phase: 'Failed', environment: 'production', entry: 'primary' }))).toBe('production primary: Failed');
+    expect(phaseBadgeLabel(st({ entry: 'replica' }))).toBe('replica: Unknown');
+    expect(phaseBadgeLabel(st({}))).toBe('Unknown');
+  });
 });
 
 describe('phaseLabel', () => {

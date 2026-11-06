@@ -89,8 +89,11 @@ EvidenceSet through an Evidence Server, or an unsigned report in a v2
 target-state file. Each report names the consumer revision by digest, the
 configuration reference or dependency that asked and the environment. Pacto
 joins reports onto the offering's uses at query time, one status per
-environment, with the provider, external reference, producer, source, report
-time and `verified`, true only for signed reports.
+environment, with the provider, external reference, producer, signing key,
+source, report time and `verified`, true only for signed reports. Every
+environment the consumer's current revision declares has a status. A use whose
+consumer points more than one configuration or dependency at the provider has
+one status per entry, named in `entry`.
 
 A status reads a phase only from a current report. It reads `Unknown`, with a
 reason and the phase the newest report gave in `reportedPhase`, when:
@@ -101,7 +104,8 @@ reason and the phase the newest report gave in `reportedPhase`, when:
 - the report's outcome is not `Observed`;
 - the newest report is about another revision of the consumer, so a provider
   switch never inherits the old provider's `Ready`;
-- two producers or sources disagree, which also raises a
+- two current reports, fresh and about the current consumer revision, from
+  different producers or sources disagree, which also raises a
   `PROVISIONING_CONFLICT` limitation and lists their phases in `conflict`.
 
 Reports are ordered by the time the Evidence Server accepted them, and reports
@@ -116,14 +120,17 @@ most 10000 reports (`PROVISIONING_TRUNCATED`).
 A viewer restricted to some namespaces sees a provider that has no Kubernetes
 target, with its owner, offering and versions, when its contract declares the
 offering and every Kubernetes source is available. All of that provider's
-targets are removed from the view and its versions omit `inUse`. With a
+targets are removed from the view and its versions omit `inUse`. Any provider
+with a target in a namespace the viewer cannot read omits `inUse` too. With a
 Kubernetes source unavailable or partial, the absence of a target proves
 nothing, so the provider stays hidden.
 
 Consumers follow their own visibility. A consumer the viewer cannot see is
 never named: the offering counts them in `hiddenConsumers`, and its
 provisioning statuses, external references and namespace stay hidden. A
-`PROVISIONING_CONFLICT` reflects only the reports the viewer can see. A visible
+`PROVISIONING_CONFLICT` reflects only the reports the viewer can see, and
+`PROVISIONING_TRUNCATED` counts only the dropped reports about visible
+consumers. A visible
 consumer whose configuration reference resolves to a hidden provider has the
 reference validated again without it, so the reference reads
 `CONFIG_REF_UNVERIFIED` and no finding carries what the hidden provider

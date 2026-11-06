@@ -1373,12 +1373,12 @@ func TestProvisionedEvidence_DependencyAndOverrides(t *testing.T) {
 		t.Errorf("set = %+v", set)
 	}
 	// Anything short of Observed carries no phase.
-	set, err = svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) { o.Outcome = "Insufficient" }))
+	set, err = svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) { o.Outcome, o.Environment = "Insufficient", "production" }))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o := set.Observations[0]; o.Outcome != evidence.Insufficient || len(o.Value) != 0 {
-		t.Errorf("observation = %+v", o)
+	if o := set.Observations[0]; o.Outcome != evidence.Insufficient || len(o.Value) != 0 || o.Subject.Environment != "production" {
+		t.Errorf("observation = %+v, want no payload and the environment on the subject", o)
 	}
 }
 

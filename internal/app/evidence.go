@@ -279,6 +279,8 @@ func (s *Service) ProvisionedEvidence(opts ProvisionedOptions) (evidence.Evidenc
 	if outcome := evidence.Outcome(cmp.Or(opts.Outcome, string(evidence.Observed))); outcome != evidence.Observed {
 		// Anything short of Observed carries no phase: Unknown is never reported as a state.
 		var err error
+		// The environment rides on the subject, so the report keeps its environment's row.
+		use.Environment = opts.Environment
 		if obs, err = evidence.NewUnobserved(evidence.ResourceProvisioned, use, outcome, prov); err != nil {
 			return evidence.EvidenceSet{}, err
 		}

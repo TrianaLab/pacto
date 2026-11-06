@@ -2149,6 +2149,9 @@ func TestIngestProvisioning_InvalidDropped(t *testing.T) {
 		report(func(r *RawProvisioning) { r.Digest = "sha256:…" }), // a placeholder never names a revision
 		report(func(r *RawProvisioning) { r.ObservedAt = time.Time{} }),
 		report(func(r *RawProvisioning) { r.Outcome = "Failed" }), // a non-Observed outcome carries no payload
+		report(func(r *RawProvisioning) { // only the environment
+			r.Outcome, r.Provider, r.ExternalRef, r.Phase, r.Environment = "Failed", "", "", "", "Not A Slug"
+		}),
 		report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = future, nil }),
 		skewed,
 	}
@@ -2162,7 +2165,7 @@ func TestIngestProvisioning_InvalidDropped(t *testing.T) {
 			invalid = append(invalid, l)
 		}
 	}
-	if len(invalid) != 1 || invalid[0].Message != "9 provisioning records were invalid and dropped" || invalid[0].Source != "evidence-0" {
+	if len(invalid) != 1 || invalid[0].Message != "10 provisioning records were invalid and dropped" || invalid[0].Source != "evidence-0" {
 		t.Errorf("limitations = %+v", invalid)
 	}
 }

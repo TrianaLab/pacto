@@ -806,6 +806,11 @@ func TestAcceptProvisioning(t *testing.T) {
 	before := fixedNow().Add(-time.Minute)
 	unobserved, _ := evidence.NewUnobserved(evidence.ResourceProvisioned, evidence.SubjectRef{Kind: "configuration", Name: "db"},
 		evidence.Insufficient, evidence.Provenance{Collector: "platform-adapter", DetectedAt: before})
+	unobservedIn := func(env string) evidence.Observation {
+		o, _ := evidence.NewUnobserved(evidence.ResourceProvisioned, evidence.SubjectRef{Kind: "configuration", Name: "db", Environment: env},
+			evidence.Failed, evidence.Provenance{Collector: "platform-adapter", DetectedAt: before})
+		return o
+	}
 	workload := evidence.NewWorkloadObserved(evidence.SubjectRef{Kind: "service", Name: "orders"}, "service",
 		evidence.Provenance{Collector: "platform-adapter", DetectedAt: before})
 	cases := []struct {
@@ -817,6 +822,8 @@ func TestAcceptProvisioning(t *testing.T) {
 		{"configuration ref", grant, provisionedSet("ghcr.io/a/orders/production/db", before, provisioned("configuration", "db", "production")), nil},
 		{"dependency", grant, provisionedSet("ghcr.io/a/orders/default/postgresql", before, provisioned("dependency", "postgresql", "")), nil},
 		{"non-Observed outcome", grant, provisionedSet("ghcr.io/a/orders/default/db", before, unobserved), nil},
+		{"non-Observed outcome in a declared environment", grant, provisionedSet("ghcr.io/a/orders/production/db", before, unobservedIn("production")), nil},
+		{"non-Observed outcome in an undeclared environment", grant, provisionedSet("ghcr.io/a/orders/staging/db", before, unobservedIn("staging")), ErrInvalidEvidence},
 		{"unknown configuration", grant, provisionedSet("ghcr.io/a/orders/production/cache", before, provisioned("configuration", "cache", "production")), ErrInvalidEvidence},
 		{"local-schema configuration", grant, provisionedSet("ghcr.io/a/orders/production/app", before, provisioned("configuration", "app", "production")), ErrInvalidEvidence},
 		{"unknown dependency", grant, provisionedSet("ghcr.io/a/orders/default/redis", before, provisioned("dependency", "redis", "")), ErrInvalidEvidence},

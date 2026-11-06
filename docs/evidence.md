@@ -121,7 +121,9 @@ any key beyond these four:
 | `phase` | `Requested`, `Provisioning`, `Ready`, `Failed` or `Deleting`. |
 | `environment` | Optional. The consumer environment the resource serves, a lowercase slug. |
 
-An outcome other than `Observed` carries no payload. `pacto evidence
+An outcome other than `Observed` carries no payload. Its observation subject
+carries the environment instead, as `subject.environment`, so the report keeps
+that environment's status. `pacto evidence
 provisioned` writes the EvidenceSet; sign and send it like any other:
 
 ```bash
@@ -265,7 +267,9 @@ keys:
 
 An empty `allowedObservationKinds` withholds `ResourceProvisioned`, so a
 team's runtime key cannot mark its own resources Ready. Give a provider adapter
-its own key that lists it.
+its own key that lists it. A key that lists only `ResourceProvisioned` cannot
+send an EvidenceSet with no observations, since an empty set is a runtime
+report.
 
 Loading validates the schema version, identifier grammar, duplicate key ids, contradictory producer bindings, missing or traversing key files and malformed patterns.
 

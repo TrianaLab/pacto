@@ -365,11 +365,11 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 		}
 		_, _ = fmt.Fprintln(w)
 		for _, st := range u.Provisioning {
-			env := ""
-			if st.Environment != "" {
-				env = " " + st.Environment
+			where := strings.TrimSpace(st.Environment + " " + st.Entry)
+			if where != "" {
+				where = " " + where
 			}
-			_, _ = fmt.Fprintf(w, "    provisioning%s: %s\n", env, provisioningText(st))
+			_, _ = fmt.Fprintf(w, "    provisioning%s: %s\n", where, provisioningText(st))
 		}
 	}
 	if uses.Truncated {

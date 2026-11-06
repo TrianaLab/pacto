@@ -446,6 +446,9 @@ func TestResourceProvisioned(t *testing.T) {
 		{"interface subject", obs("interface", "Observed", `{"provider":"acme-db","phase":"Ready"}`), false},
 		{"unsupported with payload", obs("configuration", "Unsupported", `{"provider":"acme-db","phase":"Ready"}`), false},
 		{"unsupported without payload", obs("configuration", "Unsupported", ""), true},
+		{"subject environment without payload", strings.Replace(obs("configuration", "Failed", ""), `"name":"db"`, `"name":"db","environment":"production"`, 1), true},
+		{"subject environment not a slug", strings.Replace(obs("configuration", "Failed", ""), `"name":"db"`, `"name":"db","environment":"Prod"`, 1), false},
+		{"subject environment on an Observed report", strings.Replace(obs("configuration", "Observed", `{"provider":"acme-db","phase":"Ready"}`), `"name":"db"`, `"name":"db","environment":"production"`, 1), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -458,5 +461,25 @@ func TestResourceProvisioned(t *testing.T) {
 	}
 	if !ResourceProvisioned.Known() || ObservationKind("Bogus").Known() {
 		t.Error("Known must report ResourceProvisioned and reject an unknown kind")
+	}
+}
+
+// Only a non-Observed ResourceProvisioned observation carries a subject
+// environment, and the evidence set subject never does.
+func TestSubjectEnvironmentScope(t *testing.T) {
+	if _, err := NewUnobserved(CapabilityObserved, SubjectRef{Kind: "capability", Name: "c", Environment: "production"}, Insufficient, prov()); err == nil {
+		t.Error("a runtime kind accepted a subject environment")
+	}
+	o, err := NewUnobserved(ResourceProvisioned, SubjectRef{Kind: "configuration", Name: "db", Environment: "production"}, Failed, prov())
+	if err != nil || o.ProvisionedEnvironment() != "production" {
+		t.Fatalf("observation = %+v, %v", o, err)
+	}
+	observed := NewResourceProvisioned(SubjectRef{Kind: "configuration", Name: "db"}, ProvisionedObservation{Provider: "acme-db", Phase: PhaseReady, Environment: "staging"}, prov())
+	if observed.ProvisionedEnvironment() != "staging" {
+		t.Errorf("Observed environment = %q, want the payload's", observed.ProvisionedEnvironment())
+	}
+	es := EvidenceSet{Subject: SubjectRef{Kind: "resource", Name: "r", Environment: "production"}, ContractRef: "oci://x/y@sha256:" + strings.Repeat("a", 64), Source: "s", ObservedAt: prov().DetectedAt, Observations: []Observation{o}}
+	if errs := ValidateEvidenceSet(es); len(errs) != 1 {
+		t.Errorf("errors = %v, want one for the set subject environment", errs)
 	}
 }

@@ -119,6 +119,10 @@ func TestOfferingUseProvisioning(t *testing.T) {
 		{name: "outcome Insufficient", reports: [][]RawProvisioning{{report(func(r *RawProvisioning) {
 			r.Outcome, r.Phase, r.Provider, r.ExternalRef, r.Environment = "Insufficient", "", "", "", ""
 		})}}, want: []string{" Unknown reported= stale=false conflict=[] verified=true source=evidence-0/evidence-http rev=1.3.0 reason=the provider reported insufficient"}},
+		{name: "a newer non-Observed report keeps its environment", reports: [][]RawProvisioning{{
+			report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = old, &old }),
+			report(func(r *RawProvisioning) { r.Outcome, r.Phase, r.Provider, r.ExternalRef = "Failed", "", "", "" }),
+		}}, want: []string{"production Unknown reported= stale=false conflict=[] verified=true source=evidence-0/evidence-http rev=1.3.0 reason=the provider reported failed"}},
 		{name: "two sources disagree", reports: [][]RawProvisioning{{report()}, {report(func(r *RawProvisioning) { r.Phase = "Failed" })}}, want: []string{clash}, conflicts: 1},
 		{name: "two producers in one source disagree", reports: [][]RawProvisioning{{report(), report(func(r *RawProvisioning) { r.Phase, r.Producer = "Failed", "other" })}},
 			want: []string{clash}, conflicts: 1},
@@ -309,5 +313,78 @@ func TestProvisioningTruncatedRestricted(t *testing.T) {
 	q = build(0) // orders' reports are the newest: only billing's dropped
 	if got := truncated(q.Restrict(open)); len(got) != 0 {
 		t.Errorf("restricted view with none of its reports dropped = %q", got)
+	}
+}
+
+// Two entries that reference one provider each keep their own status, so one
+// entry's Ready never hides another's Failed or missing report.
+func TestOfferingUseProvisioning_EntriesKeptApart(t *testing.T) {
+	c := svc25("orders", "1.3.0", "")
+	c.Configurations = []contract.Configuration{{Name: "primary", Ref: pgRef("postgresql")}, {Name: "replica", Ref: pgRef("postgresql")}}
+	base := &Collection{Revisions: []RawRevision{provider("postgresql"), ociRev(acme, c, nil)}}
+	old := fixedNow().Add(-2 * time.Hour)
+	primaryFailed := report(func(r *RawProvisioning) { r.Name, r.Phase, r.ObservedAt, r.AcceptedAt = "primary", "Failed", old, &old })
+	replicaReady := report(func(r *RawProvisioning) { r.Name = "replica" })
+	line := func(s ProvisioningStatus) string { return s.Environment + "/" + s.Entry + " " + s.Phase }
+	for _, tc := range []struct {
+		name    string
+		reports []RawProvisioning
+		want    []string
+	}{
+		{"one entry failed", []RawProvisioning{primaryFailed, replicaReady}, []string{"production/primary Failed", "production/replica Ready"}},
+		{"one entry unreported", []RawProvisioning{replicaReady}, []string{"/primary Unknown", "production/replica Ready"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u, lims := use(t, NewQuery(provisioningSnap(t, 0, base, tc.reports)), "orders", "postgresql", RelationshipConfigRef)
+			var got []string
+			for _, s := range u.Provisioning {
+				got = append(got, line(s))
+			}
+			if !slices.Equal(got, tc.want) || countLimitations(lims, LimitationProvisioningConflict) != 0 {
+				t.Errorf("statuses = %q, want %q (limitations %+v)", got, tc.want, lims)
+			}
+		})
+	}
+}
+
+// Every environment the current consumer revision declares has a status, so
+// one reported environment never reads as the use's whole state.
+func TestOfferingUseProvisioning_EveryDeclaredEnvironment(t *testing.T) {
+	base := ordersFleet()
+	cur := consumer("orders", "1.3.0", "postgresql")
+	cur.Bundle.Contract.Environments = []contract.Environment{{Name: "dev", File: "dev.yaml"}, {Name: "staging", File: "staging.yaml"}, {Name: "production", File: "production.yaml"}}
+	base.Revisions[2] = cur
+	u, _ := use(t, NewQuery(provisioningSnap(t, 0, base, []RawProvisioning{report()})), "orders", "postgresql", RelationshipConfigRef)
+	var got []string
+	for _, s := range u.Provisioning {
+		got = append(got, s.Environment+" "+s.Phase+" "+s.Reason)
+	}
+	want := []string{"dev Unknown " + noProvisioningReport, "production Ready ", "staging Unknown " + noProvisioningReport}
+	if !slices.Equal(got, want) {
+		t.Errorf("statuses = %q, want %q", got, want)
+	}
+}
+
+// Only current reports disagree: a stale report or one about an older consumer
+// revision never raises a conflict against a current one.
+func TestOfferingUseProvisioning_OnlyCurrentReportsConflict(t *testing.T) {
+	month := fixedNow().Add(-30 * 24 * time.Hour)
+	failed := report(func(r *RawProvisioning) { r.Phase = "Failed" })
+	for _, tc := range []struct {
+		name string
+		old  RawProvisioning
+	}{
+		{"stale producer", report(func(r *RawProvisioning) { r.Producer, r.ObservedAt, r.AcceptedAt = "retired", month, &month })},
+		{"older consumer revision", report(func(r *RawProvisioning) {
+			at := fixedNow().Add(-time.Minute) // newer than the current report
+			r.Producer, r.Digest, r.ObservedAt, r.AcceptedAt = "retired", testDigest(acme, "orders", "1.2.0"), at, &at
+		})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u, lims := use(t, NewQuery(provisioningSnap(t, 0, ordersFleet(), []RawProvisioning{tc.old, failed})), "orders", "postgresql", RelationshipConfigRef)
+			if len(u.Provisioning) != 1 || u.Provisioning[0].Phase != "Failed" || u.Provisioning[0].Conflict != nil || countLimitations(lims, LimitationProvisioningConflict) != 0 {
+				t.Errorf("statuses = %+v, limitations %+v", u.Provisioning, lims)
+			}
+		})
 	}
 }

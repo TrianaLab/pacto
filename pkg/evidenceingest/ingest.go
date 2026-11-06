@@ -324,12 +324,8 @@ func checkProvisionedObservation(c contract.Contract, o evidence.Observation) er
 	if !declaresUse(c, o.Subject) {
 		return fmt.Errorf("the contract declares no configuration reference or dependency %s %q", o.Subject.Kind, o.Subject.Name)
 	}
-	p, err := o.GetProvisionedObservation()
-	if err != nil {
-		return nil // a non-Observed outcome carries no payload, so no environment to check
-	}
-	if p.Environment != "" && !slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == p.Environment }) {
-		return fmt.Errorf("the contract declares no environment %q", p.Environment)
+	if env := o.ProvisionedEnvironment(); env != "" && !slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }) {
+		return fmt.Errorf("the contract declares no environment %q", env)
 	}
 	return nil
 }
@@ -651,7 +647,7 @@ func (h *Handler) appendProvisioning(out *TargetsResponse, rec Record, budget in
 		out.Provisioning = append(out.Provisioning, ProvisioningDTO{
 			Subject: es.Subject.Name, Service: rec.Service, Domain: rec.Domain, Digest: rec.Digest,
 			ContractRef: es.ContractRef, Producer: rec.Envelope.Producer.ID, ProducerKeyID: rec.Envelope.Producer.KeyID,
-			Kind: o.Subject.Kind, Name: o.Subject.Name, Environment: p.Environment,
+			Kind: o.Subject.Kind, Name: o.Subject.Name, Environment: o.ProvisionedEnvironment(),
 			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: string(p.Phase), Outcome: string(o.Outcome),
 			EvidenceAt: es.ObservedAt, AcceptedAt: rec.AcceptedAt,
 		})

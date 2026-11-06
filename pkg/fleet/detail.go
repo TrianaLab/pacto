@@ -1114,10 +1114,11 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 		})
 	}
 	var lims []Limitation
+	idx := q.provisioningIndex()
 	for j, k := range keys {
 		if k.via != RelationshipPolicyRef {
 			var conflicts []Limitation
-			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k])
+			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)
 			lims = append(lims, conflicts...)
 		}
 	}

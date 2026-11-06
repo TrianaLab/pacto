@@ -3447,6 +3447,7 @@ export interface components {
             /** Format: date-time */
             asOf?: string;
             conflict?: string[] | null;
+            entry?: string;
             environment?: string;
             externalRef?: string;
             /** @enum {string} */
