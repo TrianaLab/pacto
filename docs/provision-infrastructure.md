@@ -184,6 +184,26 @@ and none of its targets. Consumers the viewer may not read appear only as a
 count, with their provisioning status hidden, and a conflict reflects only the
 reports the viewer can see.
 
+## Use the resource
+
+Each status also shows the provider's external reference for that environment,
+such as `databases/orders-production`, and links the resource to the consuming
+service. The adapter delivers the connection details as a ConfigMap or Secret.
+On Kubernetes, the consumer's Pacto CR binds that object to the configuration
+with `spec.target.configBindings`:
+
+```yaml
+spec:
+  target:
+    configBindings:
+      - configuration: database
+        kind: Secret
+        name: orders-database
+```
+
+The operator then checks that the object exists. It never reads Secret values.
+See [Configuration and policy](contract-reference/configuration-and-policy.md#what-the-kubernetes-collector-validates).
+
 ## Update or retire
 
 To change a request, edit its values and publish the consumer contract again;
