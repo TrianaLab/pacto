@@ -198,7 +198,7 @@ func editTool() *mcpsdk.Tool {
 			"workload and state semantics, metadata and more. " +
 			"Validates the result before writing; when the edit adds configuration references or environments or sets environment values, " +
 			"the edited bundle must pass the same check as pacto_check, so values are checked against the referenced contract's configuration schema, " +
-			"and a reference that cannot be resolved fails the edit. Nothing is written unless the check passes; then every file is written together. Supports dry_run mode. " +
+			"and a reference the service depends on (values for it, a 2.6 contract or a ranged dependency on the same repository) that cannot be resolved fails the edit; any other unresolvable reference is a warning. Nothing is written unless the check passes; then every file is written together. Supports dry_run mode. " +
 			"The result lists the changes made and warnings, such as an owner that is not a bare team name.",
 		InputSchema: inputSchema(map[string]property{
 			"path":                         {Type: "string", Description: "Path to directory containing pacto.yaml (defaults to '.')"},
