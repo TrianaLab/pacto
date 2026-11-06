@@ -288,7 +288,8 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 // consumers asked for, the same two reports examples/demo/fleet-targets.yaml
 // carries: catalog-service 1.3.0's database is Ready in production, and the
 // adapter could not observe orders-service's postgresql, so that use reads
-// Unknown. Neither is signed, and the dashboard says so.
+// Unknown. Neither is signed, and the dashboard says so. They are dated off the
+// demo clock, so they stay current; the file's fixed date reads stale instead.
 func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 	at := demoNow().Add(-30 * time.Minute)
 	return []fleet.RawProvisioning{
