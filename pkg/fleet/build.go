@@ -1923,6 +1923,7 @@ func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	observed := map[edge]bool{}
 	haveObservation := false
 	for _, rel := range snap.Relationships {
+		// Runtime calls are observed dependencies; a reference never makes one.
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved {
 			observed[edge{rel.FromService, rel.ToService}] = true
 			haveObservation = haveObservation || slices.ContainsFunc(rel.ObservedSources, func(s ObservedSourceStat) bool { return !undeclaredOnly[s.Source] })
@@ -1930,6 +1931,7 @@ func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	}
 	for i := range snap.Relationships {
 		rel := &snap.Relationships[i]
+		// Dependencies only: reconciliation judges runtime calls, which a configuration reference never makes.
 		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {
 			continue
 		}
@@ -2072,6 +2074,14 @@ func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRe
 			rel.Reason = reason
 		} else {
 			rel.Resolved, rel.ToService, rel.ResolvedRevision = true, target.ServiceKey, target.Key
+			// A configuration reference consumes its provider like a dependency
+			// does, so traversal, dependents and impact see it; a policy only
+			// constrains this contract and has no runtime consumer to break.
+			if typ == RelationshipConfigRef {
+				snap.forwardDepsByRevision[rk] = appendUnique(snap.forwardDepsByRevision[rk], target.ServiceKey)
+				snap.forwardDeps[rev.ServiceKey] = appendUnique(snap.forwardDeps[rev.ServiceKey], target.ServiceKey)
+				snap.reverseDeps[target.ServiceKey] = appendUnique(snap.reverseDeps[target.ServiceKey], rev.ServiceKey)
+			}
 		}
 		out = append(out, rel)
 	}

@@ -50,10 +50,12 @@ export function cyEdgeId(fromKey: string, toKey: string, relation: string): stri
   return `${fromKey}→${toKey}:${edgeType(relation)}`;
 }
 
-/** edgeType maps a backend relation to the Cytoscape edge `etype`. "runs" keeps its own
- *  type so the stylesheet renders it dashed/distinct; everything else is a dependency. */
+/** edgeType maps a backend relation to the Cytoscape edge `etype`. "runs" and a
+ *  configuration reference keep their own types so the stylesheet renders them
+ *  dashed/distinct; everything else is a dependency. */
 function edgeType(relation: string): string {
-  return relation === 'runs' ? 'runs' : 'dependency';
+  if (relation === 'runs') return 'runs';
+  return relation === 'configuration_reference' ? 'reference' : 'dependency';
 }
 
 /** nodeKind narrows a backend entity kind to the three kinds the graph renders. */

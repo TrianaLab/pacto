@@ -33,8 +33,9 @@ const (
 // observed-not-expected) from the Expected/Observed booleans.
 // Edge relations (see NeighborhoodEdge.Relation).
 const (
-	RelationDependency = "dependency"
-	RelationRuns       = "runs"
+	RelationDependency             = "dependency"
+	RelationRuns                   = "runs"
+	RelationConfigurationReference = "configuration_reference"
 )
 
 const (
@@ -218,10 +219,12 @@ type NeighborhoodEdge struct {
 	From EntityRef `json:"from"`
 	To   EntityRef `json:"to"`
 	// Relation names what the edge MEANS, so a mixed-kind projection is unambiguous:
-	// "dependency" (the source depends on the target) or "runs" (a target runs the
-	// revision it points to). A dependency edge carries a difference verdict; a runs
-	// edge does not (it is an observed link, not a declared-vs-observed dependency).
-	Relation string `json:"relation" enum:"dependency,runs"`
+	// "dependency" (the source depends on the target), "configuration_reference"
+	// (the source takes a configuration schema from the target) or "runs" (a target
+	// runs the revision it points to). A dependency edge carries a difference
+	// verdict; a configuration_reference or runs edge does not (a reference never
+	// produces runtime calls, and runs is an observed link).
+	Relation string `json:"relation" enum:"dependency,runs,configuration_reference"`
 	Expected bool   `json:"expected"`
 	// Observed reports whether THIS edge, at its own scope, was observed. A
 	// fine-grained (revision/target) dependency edge is never Observed from
@@ -716,35 +719,43 @@ func (q *Query) expansions(key ServiceKey, wantDeclared, wantObserved bool) []Di
 // including only edges that match a requested view, bounded by maxEdges.
 func (q *Query) neighborhoodEdges(depthOf map[ServiceKey]int, views []KnowledgeView, maxEdges int) ([]NeighborhoodEdge, bool) {
 	inScope := func(k ServiceKey) bool { _, ok := depthOf[k]; return ok }
-	merged := map[[2]ServiceKey]*NeighborhoodEdge{}
-	var order [][2]ServiceKey
+	type edgeKey struct {
+		from, to ServiceKey
+		relation string
+	}
+	merged := map[edgeKey]*NeighborhoodEdge{}
+	var order []edgeKey
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.ToService == "" || !inScope(rel.FromService) || !inScope(rel.ToService) {
 			continue
 		}
-		if rel.Type != RelationshipDependency {
+		if rel.Type != RelationshipDependency && !ConsumesEdge(rel) {
 			continue
 		}
-		pair := [2]ServiceKey{rel.FromService, rel.ToService}
-		e := merged[pair]
+		k := edgeKey{rel.FromService, rel.ToService, edgeRelation(rel)}
+		e := merged[k]
 		if e == nil {
-			e = q.newEdge(rel.FromService, rel.ToService)
-			merged[pair] = e
-			order = append(order, pair)
+			e = q.newEdge(rel.FromService, rel.ToService, k.relation)
+			merged[k] = e
+			order = append(order, k)
 		}
 		q.foldRelationshipIntoEdge(e, rel)
 	}
 	sort.Slice(order, func(i, j int) bool {
-		if order[i][0] != order[j][0] {
-			return order[i][0] < order[j][0]
+		a, b := order[i], order[j]
+		if a.from != b.from {
+			return a.from < b.from
 		}
-		return order[i][1] < order[j][1]
+		if a.to != b.to {
+			return a.to < b.to
+		}
+		return a.relation < b.relation
 	})
 	out := make([]NeighborhoodEdge, 0, len(order))
 	truncated := false
-	for _, pair := range order {
-		e := merged[pair]
+	for _, k := range order {
+		e := merged[k]
 		if !edgeMatchesViews(*e, views) {
 			continue
 		}
@@ -788,6 +799,11 @@ func observationSourcesPreview(ss []ObservedSourceStat) ObservationSourcesPrevie
 // observed, insufficient (no observation data at all, every claim insufficient)
 // or expected-not-observed (observation data exists but did not witness it).
 func edgeDifference(e NeighborhoodEdge) string {
+	// A configuration reference never produces runtime calls, so observation has
+	// nothing to say about it: "expected, not observed" would be false drift.
+	if e.Relation == RelationConfigurationReference {
+		return ""
+	}
 	// Every merged edge has at least one of Expected/Observed, so !Expected implies
 	// observed-only.
 	if !e.Expected {
@@ -819,6 +835,8 @@ func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDecla
 	var out []UnresolvedDependency
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependencies only: an unresolved configuration reference is reported on
+		// the contract's own configurations.
 		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != "" || rel.Hidden {
 			continue
 		}
@@ -837,16 +855,34 @@ func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDecla
 	return UnresolvedDependenciesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
-// newEdge starts a merged edge between two in-scope services with both endpoint
-// references and a stable id. The edge is route-neutral; the transport adds an
-// href.
-func (q *Query) newEdge(from, to ServiceKey) *NeighborhoodEdge {
+// newEdge starts a merged edge of the given relation between two in-scope
+// services with both endpoint references and a stable id. The edge is
+// route-neutral; the transport adds an href.
+func (q *Query) newEdge(from, to ServiceKey, relation string) *NeighborhoodEdge {
 	return &NeighborhoodEdge{
-		ID:       string(from) + "|" + string(to),
-		Relation: RelationDependency,
+		ID:       edgeID(string(from), string(to), relation),
+		Relation: relation,
 		From:     q.serviceRef(from),
 		To:       q.serviceRef(to),
 	}
+}
+
+// edgeRelation is the neighborhood relation of a dependency or configuration
+// reference edge.
+func edgeRelation(rel Relationship) string {
+	if rel.Type == RelationshipConfigRef {
+		return RelationConfigurationReference
+	}
+	return RelationDependency
+}
+
+// edgeID is an edge's stable id: a configuration reference between the same two
+// entities as a dependency gets its own.
+func edgeID(from, to, relation string) string {
+	if relation == RelationConfigurationReference {
+		return from + "|" + to + "|" + relation
+	}
+	return from + "|" + to
 }
 
 // serviceRef returns the reference for a service that is known to be in the

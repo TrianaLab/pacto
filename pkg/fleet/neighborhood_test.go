@@ -22,8 +22,8 @@ func chainFleet(t *testing.T) *Query {
 		return &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: "t"}}, Dependencies: d}
 	}
 	// web also CONFIGURES itself from cache, authoritatively resolved through its
-	// lock. The neighborhood is a dependency graph, so this in-scope edge must be
-	// skipped rather than drawn as a dependency.
+	// lock. The neighborhood draws this in-scope edge as a configuration
+	// reference, never as a dependency.
 	webContract := mk("web", "api")
 	webContract.Configurations = []contract.Configuration{{Name: "tuning", Ref: "oci://x/cache"}}
 	webLock := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{{
@@ -164,12 +164,14 @@ func TestNeighborhood_DepthAndCycle(t *testing.T) {
 	if len(nb.Nodes) != 4 {
 		t.Errorf("nodes = %d, want 4 (cycle must not duplicate)", len(nb.Nodes))
 	}
-	// web->api, api->db, api->cache, db->web. web's resolved CONFIGURATION
-	// reference to cache is in scope and deliberately not among them: a
-	// dependency graph that silently absorbed reference edges would overstate
-	// what depends on what.
-	if len(nb.Edges) != 4 {
-		t.Errorf("edges = %d, want 4: %+v", len(nb.Edges), nb.Edges)
+	// web->api, api->db, api->cache, db->web, plus web's resolved configuration
+	// reference to cache as its own relation: a reference consumes its provider,
+	// so the graph shows it, but never as a dependency.
+	if len(nb.Edges) != 5 {
+		t.Fatalf("edges = %d, want 5: %+v", len(nb.Edges), nb.Edges)
+	}
+	if e := nb.Edges[4]; e.ID != "web|cache|configuration_reference" || e.Relation != RelationConfigurationReference {
+		t.Errorf("configuration reference edge = %+v", e)
 	}
 }
 
@@ -303,5 +305,99 @@ func TestObservedStaleAndWindows(t *testing.T) {
 	}
 	if !later(&a, &b).Equal(b) || !later(&b, &a).Equal(b) || !later(nil, &a).Equal(a) || !later(&a, nil).Equal(a) {
 		t.Error("later() wrong")
+	}
+}
+
+// configRefFleet: orders takes its db configuration from postgresql (locked),
+// a policy from policies (locked) and a cache configuration it cannot resolve
+// (no lock, no digest). billing depends on postgresql and also takes its
+// configuration from it; postgresql depends on policies. A runtime call
+// billing -> orders gives the snapshot observation data.
+func configRefFleet(t *testing.T) *Query {
+	t.Helper()
+	mk := func(name string) *contract.Contract {
+		return &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}
+	}
+	cfgLock := func(names ...string) *lock.Lock {
+		l := &lock.Lock{LockVersion: lock.CurrentLockVersion}
+		for _, n := range names {
+			kind, ref, dgst := contract.ReferenceKindConfig, "oci://x/postgresql", "sha256:pg"
+			if n == "rules" {
+				kind, ref, dgst = contract.ReferenceKindPolicy, "oci://x/policies", "sha256:pol"
+			}
+			l.References = append(l.References, lock.Reference{Kind: kind, Name: n, Source: "oci", Ref: ref, Digest: dgst})
+		}
+		return l
+	}
+	orders := mk("orders")
+	orders.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://x/postgresql"}, {Name: "cache", Ref: "oci://x/cache:1"}}
+	orders.Policies = []contract.Policy{{Name: "rules", Ref: "oci://x/policies"}}
+	billing := mk("billing")
+	billing.Dependencies = []contract.Dependency{{Name: "postgresql", Ref: "oci://x/postgresql", Required: true, Compatibility: "^1.0.0"}}
+	billing.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://x/postgresql"}}
+	pg := mk("postgresql")
+	pg.Dependencies = []contract.Dependency{{Name: "policies", Ref: "oci://x/policies"}}
+	src := NewMemorySource("local", "local", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: orders, FS: fstest.MapFS{}}, Digest: "sha256:orders", Lock: cfgLock("db", "rules")},
+			{Bundle: &contract.Bundle{Contract: billing, FS: fstest.MapFS{}}, Digest: "sha256:billing", Lock: cfgLock("db")},
+			{Bundle: &contract.Bundle{Contract: pg, FS: fstest.MapFS{}}, Digest: "sha256:pg"},
+			{Bundle: &contract.Bundle{Contract: mk("policies"), FS: fstest.MapFS{}}, Digest: "sha256:pol"},
+		},
+		Observed: []ObservedEdge{{From: "billing", To: "orders", Count: 1}},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewQuery(snap)
+}
+
+func TestNeighborhoodConfigRefEdge(t *testing.T) {
+	q := configRefFleet(t)
+	nb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "postgresql", Direction: DirectionDependents, Depth: 1, Views: []KnowledgeView{ViewDifferences}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Node expansion reaches orders through the dependents index alone.
+	if k := nodeKeys(nb); !k["orders"] || !k["billing"] || k["policies"] {
+		t.Fatalf("nodes = %v", k)
+	}
+	got := map[string]NeighborhoodEdge{}
+	for _, e := range nb.Edges {
+		if e.To.Key == "postgresql" {
+			got[e.ID] = e
+		}
+	}
+	if len(got) != 3 {
+		t.Fatalf("edges = %+v", nb.Edges)
+	}
+	// billing both depends on and references postgresql: two edges.
+	if e := got["billing|postgresql"]; e.Relation != RelationDependency {
+		t.Errorf("dependency edge = %+v", e)
+	}
+	for _, id := range []string{"billing|postgresql|configuration_reference", "orders|postgresql|configuration_reference"} {
+		e := got[id]
+		// Observation data exists, yet a reference makes no calls to observe.
+		if e.Relation != RelationConfigurationReference || !e.Expected || e.Difference != "" || e.ObservationScope != "" || e.ServiceCorroboration != "" {
+			t.Errorf("%s = %+v", id, e)
+		}
+	}
+}
+
+// A configuration reference expands like a dependency; a policy reference never
+// becomes an edge, even with both ends in scope.
+func TestNeighborhoodConfigRefEdgeExpansion(t *testing.T) {
+	q := configRefFleet(t)
+	both, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "postgresql", Depth: 1})
+	for _, e := range both.Edges {
+		if e.From.Key == "orders" && e.To.Key == "policies" {
+			t.Errorf("a policy reference became an edge: %+v", e)
+		}
+	}
+	// orders reaches postgresql when walking its dependencies too.
+	deps, _ := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "orders", Direction: DirectionDependencies, Depth: 1})
+	if k := nodeKeys(deps); !k["postgresql"] || k["policies"] {
+		t.Errorf("orders dependencies = %v", k)
 	}
 }

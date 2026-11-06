@@ -868,7 +868,9 @@ func unresolvedConsumers(snap *fleet.FleetSnapshot, service string) []string {
 }
 
 // unresolvedTo reports whether r is a declared dependency on service the
-// graph could not resolve.
+// graph could not resolve. Dependencies only: an unresolved configuration
+// reference to the service already makes the impact answer partial
+// (CONFIG_REF_CONSUMERS_UNRESOLVED).
 func unresolvedTo(r fleet.Relationship, service string) bool {
 	return r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceDeclared && !r.Resolved && !r.External && r.To == service
 }

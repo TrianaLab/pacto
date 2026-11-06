@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -50,6 +51,17 @@ func (r snapshotResolver) ResolveBundleFrom(_ context.Context, base, ref string)
 		return to.bundle, string(to.Key), nil
 	}
 	return nil, "", fmt.Errorf("%s@%s declares no configuration ref %q", from.Service, from.Version, ref)
+}
+
+// BundleFS is the files of the revision's bundle, nil when the snapshot holds
+// none (a revision rebuilt from status, or one read from a JSON snapshot).
+// Impact reads a consumer's environment values from it to check them against a
+// provider's new configuration schema.
+func (r *ContractRevision) BundleFS() fs.FS {
+	if r.bundle == nil {
+		return nil
+	}
+	return r.bundle.FS
 }
 
 // revalidateConfigRefs validates again each readable revision that declares a

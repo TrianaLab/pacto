@@ -242,6 +242,22 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('draws a configuration reference as its own relation, in the legend and the drawer, with no observation verdict', async () => {
+    const base = neighborhood();
+    neighborhoodFn.mockResolvedValue(neighborhood({ edges: [...base.edges,
+      { id: 'domain-a/web|domain-a/api|configuration_reference', relation: 'configuration_reference', from: ref('service', 'domain-a/web', 'web'), to: ref('service', 'domain-a/api', 'api'), expected: true, observed: false, provenance: 'declared', declaredClaims: { total: 1, count: 1, truncated: false, items: [{ sourceRevision: 'domain-a/web@sha256:1' }] }, observationSources: { total: 0, count: 0, truncated: false, items: [] } },
+    ] }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-edges"]')).toBeTruthy());
+    expect(qa(target, '[data-testid="graph-legend-toggle"]').some((b) => b.getAttribute('data-legend-key') === 'rel:reference' && /Configuration reference/.test(b.textContent || ''))).toBe(true);
+    const refBtn = qa(target, '[data-testid="graph-edge"]').find((b) => /Takes configuration from/.test(b.textContent || ''))!;
+    expect(refBtn.querySelector('[data-testid="edge-difference"]')).toBeNull();
+    refBtn.click();
+    flushSync();
+    expect(q(target, '[data-testid="edge-reference-note"]')?.textContent).toMatch(/makes no runtime calls/);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('keeps an unresolved declared dependency and backend truncation + partial knowledge visible', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="neighborhood-canvas"]')).toBeTruthy());

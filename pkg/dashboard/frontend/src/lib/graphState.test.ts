@@ -122,6 +122,7 @@ describe('relationLabel', () => {
   it('names runs vs dependency edges', () => {
     expect(relationLabel('runs')).toBe('Runs');
     expect(relationLabel('dependency')).toBe('Depends on');
+    expect(relationLabel('configuration_reference')).toBe('Takes configuration from');
   });
 });
 

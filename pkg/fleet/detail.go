@@ -1270,8 +1270,8 @@ func lessRevisionChrono(a, b *ContractRevision) bool {
 	return a.Key < b.Key
 }
 
-// revisionEdges builds the declared, resolved dependency edges a specific revision
-// declares. Observed edges carry no revision, so only this revision's declared
+// revisionEdges builds the declared, resolved dependency and configuration-reference
+// edges a specific revision declares. Observed edges carry no revision, so only this revision's declared
 // dependencies appear; every edge shares this revision's service as its source, so
 // ordering by destination is sufficient and deterministic.
 //
@@ -1286,12 +1286,19 @@ func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 	var out []NeighborhoodEdge
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type != RelationshipDependency || rel.FromRevision != revKey || rel.ToService == "" {
+		// A resolved reference whose service left the snapshot is reported by
+		// revisionRefResolutions; it has no node to draw an edge to.
+		if !ConsumesEdge(rel) || rel.FromRevision != revKey || q.snap.Services[rel.ToService] == nil {
 			continue
 		}
 		out = append(out, dependencyEdge(q.serviceRef(rel.FromService), q.serviceRef(rel.ToService), rel))
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].To.Key < out[j].To.Key })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].To.Key != out[j].To.Key {
+			return out[i].To.Key < out[j].To.Key
+		}
+		return out[i].Relation < out[j].Relation
+	})
 	return out
 }
 
@@ -1340,10 +1347,9 @@ func (q *Query) revisionRefResolutions(revKey RevisionKey) (cfg, pol map[string]
 }
 
 // referencingServices names the services whose revisions declare a configuration
-// or policy reference to the given service. Reference edges are not dependency
-// edges and so are absent from reverseDeps and from graph traversal; without
-// this, a shared configuration or policy service could be reached from its
-// consumers but never listed its consumers back.
+// or policy reference to the given service. Policy references are absent from
+// reverseDeps and from graph traversal, and configuration references reach them
+// only when resolved; this lists both kinds back from the service they name.
 func (q *Query) referencingServices(key ServiceKey) []EntityRef {
 	var keys []ServiceKey
 	for i := range q.snap.Relationships {

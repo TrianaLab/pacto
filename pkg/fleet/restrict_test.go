@@ -522,3 +522,46 @@ func TestRestrictCallersSnapshotID(t *testing.T) {
 		t.Errorf("restricted ids %s/%s, full %s", a.SnapshotID, b.SnapshotID, q.SnapshotForSerialization().SnapshotID)
 	}
 }
+
+// A hidden consumer that only references a visible service's configuration is
+// one of its hidden dependents, and a visible consumer of a hidden provider
+// counts it as a hidden dependency.
+func TestRestrictCountsHiddenConfigRefConsumer(t *testing.T) {
+	mk := func(name, ref, dgst string) (*contract.Contract, *lock.Lock) {
+		c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0"}}
+		if ref == "" {
+			return c, nil
+		}
+		c.Configurations = []contract.Configuration{{Name: "db", Ref: ref}}
+		return c, &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{{Kind: contract.ReferenceKindConfig, Name: "db", Source: "oci", Ref: ref, Digest: dgst}}}
+	}
+	hiddenC, hiddenL := mk("hidden-consumer", "oci://x/shared", "sha256:shared")
+	visibleC, visibleL := mk("visible-consumer", "oci://x/secret-db", "sha256:secret-db")
+	shared, _ := mk("shared", "", "")
+	secretDB, _ := mk("secret-db", "", "")
+	k := SourceKindKubernetes
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", "kubernetes", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: hiddenC, FS: fstest.MapFS{}}, Digest: "sha256:hc", Lock: hiddenL},
+			{Bundle: &contract.Bundle{Contract: visibleC, FS: fstest.MapFS{}}, Digest: "sha256:vc", Lock: visibleL},
+			{Bundle: &contract.Bundle{Contract: shared, FS: fstest.MapFS{}}, Digest: "sha256:shared"},
+			{Bundle: &contract.Bundle{Contract: secretDB, FS: fstest.MapFS{}}, Digest: "sha256:secret-db"},
+		},
+		Targets: []RawTarget{
+			{Scope: "secret", Kind: k, Name: "hc", Service: "hidden-consumer", Compliance: StatusCompliant},
+			{Scope: "secret", Kind: k, Name: "db", Service: "secret-db", Compliance: StatusCompliant},
+			{Scope: "shop", Kind: k, Name: "vc", Service: "visible-consumer", Compliance: StatusCompliant},
+			{Scope: "shop", Kind: k, Name: "shared", Service: "shared", Compliance: StatusCompliant},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" }).SnapshotForSerialization()
+	if got := s.Services[NewServiceKey("shared")].HiddenDependents; got != 1 {
+		t.Errorf("shared HiddenDependents = %d, want 1", got)
+	}
+	if got := s.Services[NewServiceKey("visible-consumer")].HiddenDependencies; got != 1 {
+		t.Errorf("visible-consumer HiddenDependencies = %d, want 1", got)
+	}
+}

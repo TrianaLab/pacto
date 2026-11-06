@@ -242,7 +242,8 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 		case from && to:
 			continue
 		case from:
-			if rel.Type == RelationshipDependency && rel.ToService != "" {
+			// Observed callers count too: they are dependents the viewer cannot see.
+			if rel.ToService != "" && (rel.Type == RelationshipDependency || ConsumesEdge(rel)) {
 				count(dependents, rel.ToService, rel.FromService)
 			}
 			continue
@@ -250,7 +251,7 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 			if rel.Provenance == ProvenanceObserved {
 				continue // runtime evidence about the hidden service, not the caller's declaration
 			}
-			if rel.Type == RelationshipDependency {
+			if ConsumesEdge(rel) {
 				count(deps, rel.FromService, rel.ToService)
 			}
 			rel.hiddenTo = rel.ToService // keeps tallyServiceEdges collapsing it like a visible provider

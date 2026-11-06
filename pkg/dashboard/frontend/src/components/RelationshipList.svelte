@@ -35,6 +35,7 @@
   const relationWord = (e) => {
     if (!selfKey) return '';
     if (e.relation === 'runs') return outbound(e) ? 'Runs' : 'Run by';
+    if (e.relation === 'configuration_reference') return outbound(e) ? 'Takes configuration from' : 'Referenced by';
     return outbound(e) ? 'Depends on' : 'Used by';
   };
 
@@ -95,7 +96,8 @@
       <div class="rel">
         {#if selfKey}<span class="rel-word">{relationWord(e)}</span>{/if}
         <EntityLink ref={counterpart(e)} showStatus={false} showKind={!selfKey} />
-        <IdentityBadge label={verdictLabel(e)} tone={verdictTone(e)} />
+        <!-- A configuration reference makes no calls, so it has no observation verdict. -->
+        {#if e.relation !== 'configuration_reference'}<IdentityBadge label={verdictLabel(e)} tone={verdictTone(e)} />{/if}
         {#if e.provenance && !provenanceIsImplied(e.difference, e.provenance)}<span class="rel-prov">{provenanceLabel(e.provenance)}</span>{/if}
         {#if e.stale}<span class="rel-stale">stale</span>{/if}
         <BehaviorBadges status={e.guaranteeStatus} reason={guaranteeReason(e)} deprecated={e.deprecatedInterfaces ?? []} />

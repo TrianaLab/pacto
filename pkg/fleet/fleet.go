@@ -660,6 +660,15 @@ const (
 	RelationshipPolicyRef  = "policy_reference"
 )
 
+// ConsumesEdge reports whether rel is a declared, resolved edge through which
+// its source consumes its destination: a dependency or a configuration
+// reference. These are the edges the dependency indexes hold, so graph
+// traversal, dependents, hidden counts and impact all count the same consumers.
+func ConsumesEdge(rel Relationship) bool {
+	return rel.Provenance == ProvenanceDeclared && rel.Resolved &&
+		(rel.Type == RelationshipDependency || rel.Type == RelationshipConfigRef)
+}
+
 // Relationship is a directed, revision-scoped graph edge. A declared edge
 // originates from a specific [ContractRevision] (FromRevision) of a logical
 // service (FromService) — never from "the service's latest revision". Declared
@@ -765,7 +774,8 @@ type FleetSnapshot struct {
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`
 
 	// reverseDeps maps a service KEY to the keys of services that declare a
-	// dependency on it, across all their revisions (the dependents index). Built
+	// dependency or a resolved configuration reference on it (see
+	// [ConsumesEdge]), across all their revisions (the dependents index). Built
 	// once at Build time; never mutated afterwards. Keyed by the domain-qualified
 	// ServiceKey (not the bare name) so same-named services in different domains
 	// never share a dependents set.

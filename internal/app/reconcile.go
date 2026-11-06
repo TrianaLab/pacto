@@ -49,6 +49,7 @@ func declaredFromSnapshot(snap *fleet.FleetSnapshot) []reconcile.Declared {
 		// (Provenance=observed) in Relationships; those are the reality side of
 		// reconciliation and must never enter the declared set, or a shadow
 		// (observed-only) dependency would be reported as a healthy match.
+		// A configuration reference never makes runtime calls, so it has no place on the declared side either.
 		if rel.Type != fleet.RelationshipDependency || rel.Provenance != fleet.ProvenanceDeclared {
 			continue
 		}

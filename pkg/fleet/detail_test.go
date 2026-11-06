@@ -594,3 +594,24 @@ func TestServiceRelationshipsNeighborhoodError(t *testing.T) {
 		t.Errorf("limitations preview = total %d count %d first %+v", got.Total, got.Count, got.Items[0])
 	}
 }
+
+func TestRevisionEdgesConfigRef(t *testing.T) {
+	q := configRefFleet(t)
+	d, err := q.EntityDetail(KindRevision, revKeyOf(t, q, "billing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := d.Revision.Dependencies.Items
+	if len(items) != 2 || items[0].Relation != RelationConfigurationReference || items[1].Relation != RelationDependency {
+		t.Fatalf("revision edges = %+v", items)
+	}
+	if e := items[0]; !strings.HasSuffix(e.ID, "|configuration_reference") || e.ObservationScope != "" || e.ServiceCorroboration != "" {
+		t.Errorf("configuration reference edge = %+v", e)
+	}
+	if e := items[1]; e.ObservationScope != ObservationScopeService {
+		t.Errorf("dependency edge lost its observation scope: %+v", e)
+	} // Impact reads a consumer's environment files through BundleFS.
+	if q.snap.Revisions[RevisionKey(revKeyOf(t, q, "billing"))].BundleFS() == nil || (&ContractRevision{}).BundleFS() != nil {
+		t.Error("BundleFS must return the bundle's files, and nil without a bundle")
+	}
+}

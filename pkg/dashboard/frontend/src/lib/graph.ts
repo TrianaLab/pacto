@@ -419,6 +419,7 @@ export const LEGEND_SELECTORS: Record<string, string> = {
   'kind:target': 'node[kind = "target"]',
   'rel:dependency': 'edge[etype = "dependency"]',
   'rel:runs': 'edge[etype = "runs"]',
+  'rel:reference': 'edge[etype = "reference"]',
   'state:matched': 'edge[state = "matched"]',
   'state:expected-not-observed': 'edge[state = "expected-not-observed"]',
   'state:drift': 'edge[state = "drift"]',

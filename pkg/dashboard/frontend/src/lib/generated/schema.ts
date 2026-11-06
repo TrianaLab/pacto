@@ -3117,7 +3117,7 @@ export interface components {
             /** @enum {string} */
             provenance: "declared" | "observed" | "declared+observed";
             /** @enum {string} */
-            relation: "dependency" | "runs";
+            relation: "dependency" | "runs" | "configuration_reference";
             /** @enum {string} */
             serviceCorroboration?: "matched" | "expected-not-observed" | "insufficient";
             stale?: boolean;

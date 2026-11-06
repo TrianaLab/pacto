@@ -589,6 +589,7 @@ func (q *Query) Overview() *Overview {
 func (q *Query) tallyRelationships(sum *OverviewSummary) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependencies only: the tallies count unresolved and out-of-range dependencies.
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared {
 			if rel.missing() {
 				sum.UnresolvedRelationships++
@@ -610,6 +611,7 @@ func (q *Query) observedOnly(from ServiceKey) []Relationship {
 	mine := func(rel Relationship) bool { return rel.ToService != "" && (from == "" || rel.FromService == from) }
 	declared := map[[2]ServiceKey]bool{}
 	for _, rel := range q.snap.Relationships {
+		// Dependencies only: an observed call pairs with a declared dependency, never a reference.
 		if rel.Type == RelationshipDependency && rel.Provenance != ProvenanceObserved && mine(rel) {
 			declared[[2]ServiceKey{rel.FromService, rel.ToService}] = true
 		}
@@ -666,6 +668,7 @@ func (q *Query) servicesNeedingAttention() int {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependencies only: unresolved and out-of-range attention judges dependencies.
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && (rel.missing() || rel.RangeStatus == RangeUnsatisfied) {
 			need[rel.FromService] = true
 		}
@@ -1045,6 +1048,7 @@ func (q *Query) unresolvedAttention() []AttentionItem {
 	var out []AttentionItem
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependencies only: the unresolved and out-of-range attention judges dependencies.
 		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {
 			continue
 		}
