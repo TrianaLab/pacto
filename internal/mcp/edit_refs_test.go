@@ -395,6 +395,31 @@ func TestEditRejectsValuesTheProviderSchemaRejects(t *testing.T) {
 			}
 		}
 	})
+	t.Run("an added environment whose file already holds rejected values", func(t *testing.T) {
+		dir := refRoot(t, orders26, map[string]string{"environments/prod.yaml": "db: {size: huge}\n"})
+		_, err := Edit(context.Background(), realValidator, EditInput{Path: dir, AddEnvironments: []EnvironmentInput{{Name: "prod"}}})
+		if err == nil || !strings.Contains(err.Error(), "ENVIRONMENT_VALUES_INVALID") {
+			t.Fatalf("err %v", err)
+		}
+		if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != orders26 {
+			t.Errorf("pacto.yaml changed:\n%s", raw)
+		}
+	})
+	t.Run("a 2.6 ref added without values fails closed", func(t *testing.T) {
+		unreachable := app.NewService(&testutil.MockBundleStore{PullFn: func(context.Context, string) (*contract.Bundle, error) {
+			return nil, errors.New("not found")
+		}}, nil).ValidationReport
+		pacto := "pactoVersion: \"2.6\"\nservice: {name: orders, version: 1.0.0}\nenvironments:\n  - {name: prod, file: environments/prod.yaml}\n"
+		dir := refRoot(t, pacto, map[string]string{"environments/prod.yaml": "{}\n"})
+		_, err := Edit(context.Background(), unreachable, EditInput{Path: dir,
+			AddConfigurationRefs: []ConfigurationRefInput{{Name: "db", Ref: "oci://ghcr.io/acme/pg:1.0.0"}}})
+		if err == nil || !strings.Contains(err.Error(), "CONFIG_REF_UNRESOLVED") {
+			t.Fatalf("err %v", err)
+		}
+		if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != pacto {
+			t.Errorf("pacto.yaml changed:\n%s", raw)
+		}
+	})
 }
 
 func TestEditAddEnvironmentValidatesNewFile(t *testing.T) {

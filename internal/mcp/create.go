@@ -546,17 +546,17 @@ func needs21(m map[string]any, deps []DependencyInput) bool {
 
 // validateEdited validates an edited contract over its bundle: the existing
 // files, the new YAML, the files the edit writes and stubs for new refs. When
-// resolve is set (the edit writes configuration values or a selector) the
-// edited bundle must also pass validate, the check pacto_check runs, so the
-// values are checked against the resolved provider schema. A nil validate
-// checks with no resolver, so a configuration ref those values depend on fails
-// closed with CONFIG_REF_UNRESOLVED.
+// resolve is set (see needsResolve) the edited bundle must also pass validate,
+// the check pacto_check runs, so the values are checked against the resolved
+// provider schema. A nil validate resolves configuration refs with no
+// resolver, so a ref the contract depends on fails closed with
+// CONFIG_REF_UNRESOLVED.
 func (o fileOps) validateEdited(ctx context.Context, validate Validator, dir string, yamlBytes []byte, c *contract.Contract, files map[string][]byte, resolve bool) error {
 	bundleFS := o.buildBundleFSForValidation(dir, yamlBytes, c, files)
 	result := validation.Validate(c, yamlBytes, bundleFS)
 	if result.IsValid() && resolve {
 		if validate == nil {
-			result = validation.ValidateWithResolver(ctx, c, yamlBytes, bundleFS, nil)
+			_, result = validation.ResolveConfigRefs(ctx, c, bundleFS, validation.ConfigRefOptions{Strict: true})
 		} else {
 			report, err := o.validateStaged(ctx, validate, dir, bundleFS)
 			if err != nil {
@@ -595,12 +595,12 @@ func (o fileOps) validateStaged(ctx context.Context, validate Validator, dir str
 	return validate(ctx, stage)
 }
 
-// writesValues reports whether input writes configuration values or a
-// provider configuration selector, which only a resolved schema can check.
-func writesValues(input EditInput) bool {
-	return len(input.SetEnvironmentValues) > 0 || slices.ContainsFunc(input.AddConfigurationRefs, func(in ConfigurationRefInput) bool {
-		return in.Configuration != "" || len(in.Values) > 0
-	})
+// needsResolve reports whether input adds or changes something configuration
+// resolution depends on: a configuration ref, an environment (its file may
+// already hold values) or environment values. Only a resolved schema can
+// check those, so removals and lifecycle edits keep the local check.
+func needsResolve(input EditInput) bool {
+	return len(input.AddConfigurationRefs) > 0 || len(input.AddEnvironments) > 0 || len(input.SetEnvironmentValues) > 0
 }
 
 // Edit modifies an existing pacto contract. validate is the check pacto_check
@@ -646,7 +646,7 @@ func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) 
 		return nil, fmt.Errorf("edited contract is invalid: %w", err)
 	}
 
-	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, writesValues(input)); err != nil {
+	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, needsResolve(input)); err != nil {
 		return nil, err
 	}
 
