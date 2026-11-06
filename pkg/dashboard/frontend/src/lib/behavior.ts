@@ -96,7 +96,7 @@ const STAGE: Record<string, { word: string; tone: Tone }> = {
   fail: { word: 'failed', tone: 'err' },
   skip: { word: 'not run', tone: 'neutral' },
 };
-const STAGE_NAME: Record<string, string> = { structural: 'Structure', 'cross-field': 'Cross-field', policy: 'Policy', environments: 'Environments' };
+const STAGE_NAME: Record<string, string> = { structural: 'Structure', 'cross-field': 'Cross-field', policy: 'Policy', 'configuration-refs': 'Configuration references', environments: 'Environments' };
 
 /** stageBadge names one validation stage and how it ended. A skip from a stage that ran
  *  but could not check everything (unverified) is "not verified", apart from "not run". */

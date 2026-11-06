@@ -496,8 +496,8 @@ func validateSingleConfigValues(cfg contract.Configuration, fieldPath string, bu
 		)
 		return
 	}
-	if cfg.Schema == "" {
-		// Schema is external (ref) — values validation deferred to runtime resolution.
+	if cfg.Ref != "" {
+		// A ref configuration's values are checked in the configuration-refs stage against the resolved schema.
 		return
 	}
 	if bundleFS == nil {

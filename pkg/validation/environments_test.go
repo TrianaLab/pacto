@@ -146,7 +146,7 @@ func TestEnvironmentStage_Unverified(t *testing.T) {
 	fsys := envFS(map[string]string{"staging.yaml": "chart:\n  ingress: {host: h}\nplatform: {region: eu}\n"})
 	st := EnvironmentStage(c, fsys)
 	if st.Status != StageSkip || st.Reason != "could not verify: staging/platform" || codes(st) != "ENVIRONMENT_VALUES_UNVERIFIED" ||
-		!strings.Contains(st.Warnings[0].Message, "configuration platform: its schema comes from the contract oci://ghcr.io/acme/platform:1.0.0, and Pacto checks values only against a schema file in this bundle") {
+		!strings.Contains(st.Warnings[0].Message, "configuration platform: its schema comes from the contract oci://ghcr.io/acme/platform:1.0.0, which this validation does not resolve") {
 		t.Fatalf("got %+v", st)
 	}
 	// An error still fails the stage.
@@ -183,7 +183,7 @@ environments:
 		t.Fatalf("Validate: %+v", r)
 	}
 	stages := ValidateStagesWithResolver(t.Context(), c, raw, fsys, nil)
-	if last := stages[len(stages)-1]; len(stages) != 4 || last.Name != "environments" || last.Status != StageFail {
+	if last := stages[len(stages)-1]; len(stages) != 5 || stages[3].Name != "configuration-refs" || last.Name != "environments" || last.Status != StageFail {
 		t.Fatalf("stages: %+v", stages)
 	}
 	// An earlier failure skips it.

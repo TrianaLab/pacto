@@ -218,7 +218,9 @@ var fieldCoverageCases = []fcCase{
 	invalid("configurations[].name/invalid", schemaViolation, del("configurations.0.name")),
 	valid("configurations[].schema/valid", del("configurations.0.values")),
 	invalid("configurations[].schema/invalid", "FILE_NOT_FOUND", set("configurations.0.schema", "configuration/missing.json")),
-	valid("configurations[].ref/valid", del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://ghcr.io/acme/shared-config-pacto:1.0.0")),
+	// Before 2.6 a ref nothing depends on stays valid when it cannot be resolved; from 2.6 it fails closed.
+	warns("configurations[].ref/valid", "CONFIG_REF_UNVERIFIED", set("pactoVersion", "2.5"), del("service.lifecycle"), del("environments"), del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://ghcr.io/acme/shared-config-pacto:1.0.0")),
+	invalid("configurations[].ref/unresolved", "CONFIG_REF_UNRESOLVED", del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://ghcr.io/acme/shared-config-pacto:1.0.0")),
 	invalid("configurations[].ref/invalid", "INVALID_CONFIG_REF", del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://")),
 	invalid("configurations[].configuration/invalid", schemaViolation, set("configurations.0.configuration", "provisioning")),
 	invalid("configurations[].configuration/needs-2.6", needs26, set("pactoVersion", "2.5"), del("service.lifecycle"), set("configurations.0.configuration", "provisioning")),

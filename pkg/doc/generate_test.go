@@ -895,7 +895,8 @@ func behaviorSnapshot() *contractview.ServiceDetails {
 		},
 		Stages: []fleet.ValidationStage{
 			{Name: "structural", Status: "pass"}, {Name: "cross-field", Status: "fail"},
-			{Name: "policy", Status: "skip", Reason: "no policies declared"}, {Name: "custom", Status: "odd"},
+			{Name: "policy", Status: "skip", Reason: "no policies declared"},
+			{Name: "configuration-refs", Status: "pass"}, {Name: "custom", Status: "odd"},
 		},
 		Validation: &contractview.ValidationInfo{
 			Errors:   []contractview.ValidationIssue{{Code: "BAD_REF", Path: "interfaces[0].ref", Message: "file | missing"}},
@@ -933,7 +934,8 @@ func TestGenerate_Behavior(t *testing.T) {
 		"- **`ledger`**: Not verified: the provider's contract was not fetched.\n  - Requires from `http`: Timeout at most `2s`\n",
 		"- **`legacy`**\n  - Interface `v1` · **Past sunset**: deprecated `2026-01-01` · sunset `2026-03-01`. It may be removed in any release.\n",
 		"## 5. Validation\n\n| Stage | Result | Reason |\n|-------|--------|--------|\n" +
-			"| Structure | passed | — |\n| Cross-field | failed | — |\n| Policy | not run | no policies declared |\n| custom | odd | — |\n",
+			"| Structure | passed | — |\n| Cross-field | failed | — |\n| Policy | not run | no policies declared |\n" +
+			"| Configuration references | passed | — |\n| custom | odd | — |\n",
 		"**Errors**\n\n| Code | Path | Message |\n|------|------|---------|\n| `BAD_REF` | `interfaces[0].ref` | file \\| missing |\n",
 		"**Warnings**\n\n| Code | Path | Message |\n|------|------|---------|\n| `OLD` | `service` | old |\n",
 		"## 3. Environments\n\n1 failed, 1 not verified and 1 not checked.\n\n" +

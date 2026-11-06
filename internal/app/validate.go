@@ -54,7 +54,7 @@ type ValidateResult struct {
 }
 
 // stageOrder is every stage of a validate run, in the order it runs them.
-var stageOrder = []string{"load", "lock", "structural", "cross-field", "policy", "environments", "guarantees", "readiness", "closure"}
+var stageOrder = []string{"load", "lock", "structural", "cross-field", "policy", "configuration-refs", "environments", "guarantees", "readiness", "closure"}
 
 // Validate loads a contract, runs validation, and returns the result.
 func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
@@ -93,7 +93,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	if s.BundleStore != nil {
 		resolver = s.PolicyResolver(ref)
 	}
-	stages = append(stages, validation.ValidateStagesWithResolver(ctx, bundle.Contract, rawYAML, bundle.FS, resolver)...)
+	stages = append(stages, validation.ValidateStagesWithResolverAt(ctx, bundle.Contract, rawYAML, bundle.FS, resolver, s.env().now())...)
 	stages = append(stages, s.guaranteeStage(ctx, ref, bundle.Contract))
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
@@ -388,7 +388,9 @@ func (s *Service) closureFindings(ctx context.Context, ref string, bundle *contr
 	var warns []contract.ValidationWarning
 	for i, e := range res.Root.Dependencies {
 		if e.Node != nil && contracts[nodeID(e.Node)] != nil {
-			warns = append(warns, validation.DeprecatedInterfaceWarnings(fmt.Sprintf("dependencies[%d]", i), contracts[nodeID(e.Node)], s.env().now())...)
+			path, provider := fmt.Sprintf("dependencies[%d]", i), contracts[nodeID(e.Node)]
+			warns = append(warns, validation.DependencyServiceWarnings(path, provider, s.env().now())...)
+			warns = append(warns, validation.DeprecatedInterfaceWarnings(path, provider, s.env().now())...)
 		}
 	}
 	return errs, warns

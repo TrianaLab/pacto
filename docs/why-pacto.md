@@ -63,14 +63,15 @@ run:
 $ pacto validate orders-2.4.0
 orders-2.4.0 is valid
 PASS load
-SKIP lock         no pacto.lock
+SKIP lock               no pacto.lock
 PASS structural
 PASS cross-field
 PASS policy
-SKIP environments no environments declared
-SKIP guarantees   no dependency declares requires
-SKIP readiness    not requested (--readiness)
-SKIP closure      not requested (--closure)
+SKIP configuration-refs no configuration references
+SKIP environments       no environments declared
+SKIP guarantees         no dependency declares requires
+SKIP readiness          not requested (--readiness)
+SKIP closure            not requested (--closure)
 Next: pacto impact PUBLISHED_REF orders-2.4.0
 ```
 
@@ -132,7 +133,7 @@ $ pacto validate --closure billing
 billing is valid
 …
 PASS guarantees
-SKIP readiness    not requested (--readiness)
+SKIP readiness          not requested (--readiness)
 PASS closure
   WARN  [DEPENDENCY_INTERFACE_DEPRECATED] dependencies[0]: orders@2.4.0 interface orders-v1 is deprecated since 2026-09-01, sunset 2026-12-01; successor orders-api
 Next: pacto impact PUBLISHED_REF billing

@@ -139,7 +139,7 @@ func TestBuildEnvironments(t *testing.T) {
 		t.Fatal(err)
 	}
 	rd := d.Revision
-	if len(rd.Stages) != 4 || rd.Stages[3].Name != "environments" || rd.Stages[3].Status != validation.StageFail {
+	if len(rd.Stages) != 5 || rd.Stages[4].Name != "environments" || rd.Stages[4].Status != validation.StageFail {
 		t.Fatalf("stages = %+v", rd.Stages)
 	}
 	staging, prod := rd.Environments.Items[0], rd.Environments.Items[1]

@@ -76,8 +76,12 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 			}
 		}
 
+		width := 0
 		for _, st := range result.Stages {
-			_, _ = fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%s %-12s %s", strings.ToUpper(st.Status), st.Name, st.Reason), " "))
+			width = max(width, len(st.Name))
+		}
+		for _, st := range result.Stages {
+			_, _ = fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%s %-*s %s", strings.ToUpper(st.Status), width, st.Name, st.Reason), " "))
 			for _, e := range st.Errors {
 				at := ""
 				if e.Line > 0 || e.File != "" {

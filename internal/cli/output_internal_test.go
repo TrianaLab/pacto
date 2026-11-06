@@ -155,6 +155,8 @@ func TestPrintValidateResult_Invalid(t *testing.T) {
 				{Code: "TEST_WARN", Path: "runtime", Message: "check this"},
 			}},
 			{Name: "policy", Status: validation.StageSkip, Reason: "structural failed"},
+			{Name: "configuration-refs", Status: validation.StageSkip, Reason: "structural failed"},
+			{Name: "environments", Status: validation.StageSkip, Reason: "structural failed"},
 		},
 		Next: "fix service.name at svc/pacto.yaml:3:3 [TEST_ERR], then run pacto validate svc",
 	}
@@ -168,7 +170,9 @@ FAIL structural
   ERROR [LOOSE_ERR] : nowhere
   svc/env.yaml: ERROR [FILE_ERR] environments[0].values: in values
   WARN  [TEST_WARN] runtime: check this
-SKIP policy       structural failed
+SKIP policy             structural failed
+SKIP configuration-refs structural failed
+SKIP environments       structural failed
 Next: fix service.name at svc/pacto.yaml:3:3 [TEST_ERR], then run pacto validate svc
 `
 	if got := buf.String(); got != want {

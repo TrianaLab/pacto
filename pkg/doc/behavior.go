@@ -252,7 +252,7 @@ func locationText(f fleet.LocatedFinding) string {
 
 // ── Validation ────────────────────────────────────────────────────────
 
-var stageName = map[string]string{"structural": "Structure", "cross-field": "Cross-field", "policy": "Policy", "environments": "Environments"}
+var stageName = map[string]string{"structural": "Structure", "cross-field": "Cross-field", "policy": "Policy", "configuration-refs": "Configuration references", "environments": "Environments"}
 var stageResult = map[string]string{"pass": "passed", "fail": "failed", "skip": "not run"}
 
 // writeValidation shows how each validation stage ended, so a stage that did

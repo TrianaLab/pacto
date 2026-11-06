@@ -22,21 +22,30 @@ import (
 // environment gives no values for must be satisfied by its defaults alone.
 //
 // Values for a configuration the contract does not declare are an error. A
-// configuration with no schema in the bundle (a ref) leaves its values
-// unchecked and reports ENVIRONMENT_VALUES_UNVERIFIED, a warning. The stage
-// passes only when every value set was checked and none failed, and is skipped
-// with a reason naming what it could not verify otherwise.
+// configuration that names its schema by ref is checked against the schema it
+// resolved to in refs; one whose ref did not resolve, or with no refs at all,
+// leaves its values unchecked and reports ENVIRONMENT_VALUES_UNVERIFIED, a
+// warning. Before pactoVersion 2.6 a ref configuration has no defaults, so only
+// the values an environment gives for it are checked. The stage passes only
+// when every value set was checked and none failed, and is skipped with a
+// reason naming what it could not verify otherwise.
 //
 // Errors in a values file carry that file in File, and the line and column of
 // the failing value when it is in the file.
 func EnvironmentStage(c *contract.Contract, bundleFS fs.FS) Stage {
+	return EnvironmentStageWith(c, bundleFS, nil)
+}
+
+// EnvironmentStageWith is [EnvironmentStage] with the configuration refs that
+// were resolved.
+func EnvironmentStageWith(c *contract.Contract, bundleFS fs.FS, refs ConfigRefs) Stage {
 	if len(c.Environments) == 0 {
 		return SkippedStages("no environments declared", "environments")[0]
 	}
 	var r ValidationResult
 	var unverified []string
 	for i, env := range c.Environments {
-		unverified = append(unverified, checkEnvironment(c, i, env, bundleFS, &r)...)
+		unverified = append(unverified, checkEnvironment(c, i, env, bundleFS, refs, &r)...)
 	}
 	st := RanStage("environments", r)
 	if st.Status == StagePass && len(unverified) > 0 {
@@ -47,7 +56,7 @@ func EnvironmentStage(c *contract.Contract, bundleFS fs.FS) Stage {
 
 // checkEnvironment checks one environment's values file into r and returns
 // each environment/configuration pair it could not verify.
-func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bundleFS fs.FS, r *ValidationResult) []string {
+func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bundleFS fs.FS, refs ConfigRefs, r *ValidationResult) []string {
 	path := fmt.Sprintf("environments[%d].file", i)
 	if bundleFS == nil {
 		r.AddWarning(path, "ENVIRONMENT_VALUES_UNVERIFIED", fmt.Sprintf("environment %s: no bundle files to read %s from", env.Name, env.File))
@@ -87,10 +96,10 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 	var unverified []string
 	for _, cfg := range c.Configurations {
 		given, ok := values[cfg.Name]
-		if !ok && !cfg.Required {
+		if !valuesChecked(c, cfg, ok) {
 			continue
 		}
-		schema, err := loadConfigSchema(cfg, bundleFS)
+		schema, err := loadConfigSchema(cfg, bundleFS, refs)
 		if err != nil {
 			r.AddWarning(path, "ENVIRONMENT_VALUES_UNVERIFIED", fmt.Sprintf("environment %s: cannot check the values for configuration %s: %v", env.Name, cfg.Name, err))
 			unverified = append(unverified, env.Name+"/"+cfg.Name)
@@ -112,11 +121,26 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 	return unverified
 }
 
-// loadConfigSchema compiles a configuration's schema from the bundle. A
-// configuration that names its schema by ref has none in the bundle.
-func loadConfigSchema(cfg contract.Configuration, bundleFS fs.FS) (*jsonschema.Schema, error) {
+// valuesChecked reports whether an environment that gives values for cfg, or
+// leaves them out, has them checked: given values always are, and a required
+// configuration's defaults must pass alone. Before pactoVersion 2.6 a ref
+// configuration has no defaults, so only given values are checked.
+func valuesChecked(c *contract.Contract, cfg contract.Configuration, given bool) bool {
+	return given || cfg.Required && (cfg.Ref == "" || !olderThan(c.PactoVersion, "2.6"))
+}
+
+// loadConfigSchema compiles a configuration's schema from the bundle, or
+// takes the schema a configuration that names it by ref resolved to in refs.
+func loadConfigSchema(cfg contract.Configuration, bundleFS fs.FS, refs ConfigRefs) (*jsonschema.Schema, error) {
 	if cfg.Schema == "" {
-		return nil, fmt.Errorf("its schema comes from the contract %s, and Pacto checks values only against a schema file in this bundle", cfg.Ref)
+		r, ok := refs[cfg.Name]
+		switch {
+		case r.Schema != nil:
+			return r.Schema, nil
+		case ok:
+			return nil, fmt.Errorf("its schema comes from the contract %s, which could not be resolved: %v", cfg.Ref, r.Err)
+		}
+		return nil, fmt.Errorf("its schema comes from the contract %s, which this validation does not resolve", cfg.Ref)
 	}
 	data, err := fs.ReadFile(bundleFS, cfg.Schema)
 	if err != nil {

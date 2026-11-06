@@ -84,7 +84,7 @@ checked.
 | The file names a configuration the contract does not declare | `ENVIRONMENT_UNKNOWN_CONFIGURATION` |
 | The merged values fail the configuration's schema, or the file does not parse, is not a mapping of configuration names or has a key that is not a string | `ENVIRONMENT_VALUES_INVALID` |
 | A required configuration has no values in the file and its defaults fail its schema | `ENVIRONMENT_VALUES_MISSING` |
-| The configuration names its schema by `ref`, so the bundle holds no schema to check against, or there are no bundle files to read | `ENVIRONMENT_VALUES_UNVERIFIED` (warning) |
+| The configuration names its schema by `ref` and the referenced contract cannot be resolved, or there are no bundle files to read. A resolved `ref` has its values checked against the referenced contract's configuration schema like a local one | `ENVIRONMENT_VALUES_UNVERIFIED` (warning) |
 
 Each error names the environment, the configuration and the JSON Pointer of
 the value, and points at its line in the environment's file. A key that holds a
@@ -160,15 +160,16 @@ Version 1.5.0 updates the chart, and its schema makes `ingress.host` required.
 $ pacto validate web-1.5.0
 web-1.5.0 is invalid
 PASS load
-SKIP lock         no pacto.lock
+SKIP lock               no pacto.lock
 PASS structural
 PASS cross-field
 PASS policy
+SKIP configuration-refs no configuration references
 FAIL environments
   web-1.5.0/environments/production.yaml:3:3: ERROR [ENVIRONMENT_VALUES_INVALID] environments[1].file: environment production: configuration chart at /chart/ingress: missing property 'host'
-SKIP guarantees   no dependency declares requires
-SKIP readiness    not requested (--readiness)
-SKIP closure      not requested (--closure)
+SKIP guarantees         no dependency declares requires
+SKIP readiness          not requested (--readiness)
+SKIP closure            not requested (--closure)
 Next: fix environments[1].file at web-1.5.0/environments/production.yaml:3:3 [ENVIRONMENT_VALUES_INVALID], then run pacto validate web-1.5.0
 validation failed with 1 error(s)
 ```

@@ -23,7 +23,7 @@ interfaces:
   visibility: public
 configurations:
 - name: platform
-  ref: oci://ghcr.io/trianalab/pacto/platform-app-config
+  ref: oci://ghcr.io/trianalab/pacto/platform-app-config:1.0.1
   required: false
 - name: app
   schema: configuration/schema.json

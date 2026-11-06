@@ -1,13 +1,15 @@
 // Package validation checks a contract across three layers — structural (JSON
-// Schema), cross-field consistency, and policy enforcement — then checks each
-// environment's values in the environments stage, and reports errors and
-// warnings. It supports local-only policy resolution as well as recursive,
+// Schema), cross-field consistency, and policy enforcement — then resolves the
+// configurations that name their schema by ref in the configuration-refs stage
+// and checks each environment's values in the environments stage, and reports
+// errors and warnings. It supports local-only policy resolution as well as recursive,
 // ref-based resolution through a pluggable BundleResolver.
 package validation
 
 import (
 	"context"
 	"io/fs"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -28,28 +30,42 @@ func ValidateDocument(c *contract.Contract, doc *contract.Document, bundleFS fs.
 }
 
 // ValidateDocumentStages is [ValidateDocument] reported layer by layer: one
-// [Stage] each for structural, cross-field, policy and environments.
+// [Stage] each for structural, cross-field, policy, configuration-refs and
+// environments. It resolves no configuration ref and warns
+// CONFIG_REF_NOT_ENFORCED for each one with values to check.
 func ValidateDocumentStages(c *contract.Contract, doc *contract.Document, bundleFS fs.FS) []Stage {
 	return runLayers(c, doc, bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
 		return ResolvePoliciesFromBundle(c, bundleFS)
-	})
+	}, func() (ConfigRefs, ValidationResult) {
+		return configRefsNotEnforced(c, bundleFS)
+	}, time.Now())
 }
 
-// ValidateWithResolver runs all three validation layers and the environments
-// stage, using the provided BundleResolver for recursive ref-based policy
-// resolution. If resolver is nil, any ref-based policies produce a hard
-// POLICY_REF_UNRESOLVED error (fail closed).
+// ValidateWithResolver runs all three validation layers, the
+// configuration-refs stage and the environments stage, using the provided
+// BundleResolver for recursive ref-based policy resolution and to resolve
+// configuration refs. If resolver is nil, any ref-based policies produce a hard
+// POLICY_REF_UNRESOLVED error and a configuration ref something depends on a
+// CONFIG_REF_UNRESOLVED error (fail closed).
 func ValidateWithResolver(ctx context.Context, c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolver BundleResolver) ValidationResult {
 	return Merged(ValidateStagesWithResolver(ctx, c, rawYAML, bundleFS, resolver))
 }
 
 // ValidateStagesWithResolver is [ValidateWithResolver] reported layer by
-// layer: one [Stage] each for structural, cross-field, policy and
-// environments.
+// layer: one [Stage] each for structural, cross-field, policy,
+// configuration-refs and environments.
 func ValidateStagesWithResolver(ctx context.Context, c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolver BundleResolver) []Stage {
+	return ValidateStagesWithResolverAt(ctx, c, rawYAML, bundleFS, resolver, time.Now())
+}
+
+// ValidateStagesWithResolverAt is [ValidateStagesWithResolver] with the time
+// that dates a referenced provider's lifecycle warnings.
+func ValidateStagesWithResolverAt(ctx context.Context, c *contract.Contract, rawYAML []byte, bundleFS fs.FS, resolver BundleResolver, now time.Time) []Stage {
 	return runLayers(c, contract.DecodeDocument(rawYAML), bundleFS, func() ([]ResolvedPolicy, ValidationResult) {
 		return ResolvePoliciesWithResolver(ctx, c, bundleFS, resolver)
-	})
+	}, func() (ConfigRefs, ValidationResult) {
+		return ResolveConfigRefs(ctx, c, bundleFS, ConfigRefOptions{Resolver: resolver, Strict: true, Now: now})
+	}, now)
 }
 
 // Stage statuses.
@@ -96,22 +112,24 @@ func Merged(stages []Stage) ValidationResult {
 	return r
 }
 
-// runLayers runs the three-layer validation pipeline and then the
-// environments stage, short-circuiting on structural and cross-field failures
-// and running environments only when every layer passed. Layer 3 policy resolution is delegated to
-// resolvePolicies, which is the only step that differs between the local-only
-// Validate and the resolver-based ValidateWithResolver.
-func runLayers(c *contract.Contract, doc *contract.Document, bundleFS fs.FS, resolvePolicies func() ([]ResolvedPolicy, ValidationResult)) []Stage {
+// runLayers runs the three-layer validation pipeline, then the
+// configuration-refs and environments stages, short-circuiting on structural,
+// cross-field and policy failures. A failed configuration-refs stage skips
+// nothing: environments checks what the refs that did resolve allow. Policy
+// resolution is delegated to resolvePolicies and configuration-ref resolution
+// to resolveRefs, the steps that differ between the local-only Validate and the
+// resolver-based ValidateWithResolver; now dates lifecycle warnings.
+func runLayers(c *contract.Contract, doc *contract.Document, bundleFS fs.FS, resolvePolicies func() ([]ResolvedPolicy, ValidationResult), resolveRefs func() (ConfigRefs, ValidationResult), now time.Time) []Stage {
 	// Layer 1: Structural validation via JSON Schema.
 	structural := RanStage("structural", validateStructuralDoc(doc))
 	if structural.Status == StageFail {
-		return append([]Stage{structural}, SkippedStages("structural failed", "cross-field", "policy", "environments")...)
+		return append([]Stage{structural}, SkippedStages("structural failed", "cross-field", "policy", "configuration-refs", "environments")...)
 	}
 
 	// Layer 2: Cross-field validation.
 	crossField := RanStage("cross-field", ValidateCrossField(c, bundleFS))
 	if crossField.Status == StageFail {
-		return append([]Stage{structural, crossField}, SkippedStages("cross-field failed", "policy", "environments")...)
+		return append([]Stage{structural, crossField}, SkippedStages("cross-field failed", "policy", "configuration-refs", "environments")...)
 	}
 
 	// Layer 3: Policy resolution + enforcement.
@@ -121,12 +139,15 @@ func runLayers(c *contract.Contract, doc *contract.Document, bundleFS fs.FS, res
 	}
 	policy := RanStage("policy", policyResult)
 	if policy.Status == StageFail {
-		return append([]Stage{structural, crossField, policy}, SkippedStages("policy failed", "environments")...)
+		return append([]Stage{structural, crossField, policy}, SkippedStages("policy failed", "configuration-refs", "environments")...)
 	}
 
-	// The environments stage reads the files cross-field checked, so it runs
-	// only when every layer before it passed.
-	return []Stage{structural, crossField, policy, EnvironmentStage(c, bundleFS)}
+	// The later stages read the files cross-field checked, so they run only
+	// when every layer before them passed.
+	refs, refResult := resolveRefs()
+	return []Stage{structural, crossField, policy,
+		ConfigRefStage(c, refs, refResult, ConfigRefOptions{Now: now}),
+		EnvironmentStageWith(c, bundleFS, refs)}
 }
 
 // ValidateStructuralRaw performs Layer 1 (JSON Schema) validation on raw YAML bytes.

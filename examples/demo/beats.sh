@@ -37,11 +37,20 @@ beat_args() {
     11) echo "mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1" ;;
     11-writes)
         echo "mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1 --allow-writes" ;;
-    13) echo "validate examples/demo/bundles/storefront-web/v1.2.0" ;;
+    13) echo "validate examples/demo/bundles/storefront-web/v1.2.1" ;;
     14) echo "diff examples/demo/bundles/catalog-service/v1.1.0 examples/demo/bundles/catalog-service/v1.2.0" ;;
     14-epoch)
         echo "diff examples/demo/bundles/shipping-rates/v1.1.0 examples/demo/bundles/shipping-rates/v2.0.0" ;;
     15) echo "impact examples/demo/bundles/inventory-service/v2.1.0 examples/demo/bundles/inventory-service/v3.0.0 --local examples/demo/bundles" ;;
     *)  echo "beats.sh: no such beat: $1" >&2; exit 1 ;;
   esac
+}
+
+# seed_demo_cache <cache-home> writes the provider beat 13 references into
+# Pacto's disk cache under <cache-home> (an XDG_CACHE_HOME), through the cache's
+# own writer and with no registry, so the beat resolves the configuration ref
+# offline. GOCACHE is kept because XDG_CACHE_HOME also moves it on Linux.
+seed_demo_cache() {
+  GOCACHE="$(go env GOCACHE)" XDG_CACHE_HOME="$1" go run ./examples/demo/publishbundles --seed-cache \
+    examples/demo/bundles/platform-app-config/v1.0.1 ghcr.io/trianalab/pacto/platform-app-config:1.0.1
 }

@@ -991,16 +991,27 @@ fields:
     meaning: OCI reference to a configuration defined by another bundle.
     runtime: static-only
     evidence: 'none: the referenced bundle defines no schema path to validate live content against'
-    rule: 'cross-field: valid OCI reference'
-    outcomes: INVALID_CONFIG_REF; at runtime a ref-only configuration stays Insufficient
-    limitations: documented in the design as not doing
+    rule: 'cross-field: valid OCI reference; configuration-refs: resolves to the referenced contract and selects one
+      configuration'
+    outcomes: INVALID_CONFIG_REF; CONFIG_REF_UNRESOLVED (validate) or CONFIG_REF_UNVERIFIED (fleet, delivery, operator);
+      CONFIG_REF_AMBIGUOUS; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_CYCLE; CONFIG_REF_VERSION_OUTSIDE_RANGE; at runtime
+      a ref-only configuration stays Insufficient
+    limitations: before 2.6 a ref that no value or ranged dependency depends on is CONFIG_REF_UNVERIFIED (a warning) when it
+      cannot be resolved, and an ambiguous or unknown selection is a warning; local-only validation resolves nothing and
+      warns CONFIG_REF_NOT_ENFORCED; the runtime check does not follow the ref
     tests:
       unit:
       - pkg/validation/crossfield_test.go:TestValidateConfigRef_InvalidOCI
       - pkg/validation/crossfield_test.go:TestValidateConfigRef_ValidOCI
+      - pkg/validation/configref_test.go:TestResolveConfigRefs
+      - pkg/validation/configref_test.go:TestSelectConfiguration
+      - pkg/validation/configref_test.go:TestResolveConfigRefs_FollowsAChainAndCatchesACycle
+      - pkg/validation/configref_test.go:TestConfigRefStage
+      - internal/app/validate_test.go:TestValidate_ConfigRefUnresolvable
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/unresolved
       e2e: []
   configurations[].configuration:
     meaning: Which configuration of the referenced contract a ref configuration takes values for (pactoVersion 2.6).
@@ -1013,6 +1024,8 @@ fields:
       unit:
       - pkg/validation/structural_test.go:TestPactoVersion26
       - pkg/validation/structural_test.go:TestNeeds26
+      - pkg/validation/configref_test.go:TestSelectConfiguration
+      - pkg/validation/configref_test.go:TestSelectConfiguration_SeverityFollowsTheConsumerVersion
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].configuration/invalid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].configuration/needs-2.6
@@ -1021,12 +1034,18 @@ fields:
     meaning: Declared configuration values, validated against the schema.
     runtime: static-only
     evidence: 'none: the runtime check reads live content, not these declared values'
-    rule: 'cross-field: values satisfy the schema'
-    outcomes: CONFIG_VALUES_VALIDATION_FAILED
-    limitations: the operator may merge spec.overrides into them before validation
+    rule: 'cross-field: values satisfy the schema; configuration-refs: or the referenced contract''s selected configuration
+      schema (2.6)'
+    outcomes: CONFIG_VALUES_VALIDATION_FAILED; values beside a ref under 2.0 to 2.5 are NEEDS_PACTO_2_6; ENVIRONMENT_VALUES_MISSING
+      for a required ref configuration only in 2.6
+    limitations: the operator may merge spec.overrides into them before validation; values for a ref that cannot be resolved
+      stay unchecked (CONFIG_REF_UNVERIFIED in lenient callers)
     tests:
       unit:
       - pkg/validation/crossfield_test.go:TestValidateConfigValues_WithSchema_Invalid
+      - pkg/validation/configref_test.go:TestConfigRefStage
+      - pkg/validation/configref_test.go:TestEnvironmentStageConfigRef
+      - internal/app/validate_test.go:TestValidate_ConfigRefValues
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].values/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].values/invalid
