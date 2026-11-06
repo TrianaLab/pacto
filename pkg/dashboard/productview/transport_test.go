@@ -360,6 +360,10 @@ func TestProductLists_DomainOfferingAndDocumentHrefs(t *testing.T) {
 	one := fleet.RefPreview{Total: 1, Count: 1, Items: []fleet.EntityRef{svc}}
 	assertNoEmptyHrefs(t, "entities", ToEntityList(&fleet.EntityList{Entities: []fleet.EntityRef{svc, off}}))
 	assertNoEmptyHrefs(t, "attention", ToAttentionList(&fleet.AttentionList{Items: []fleet.AttentionItem{{Entity: svc}}}))
+	vrev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "pay@sha256:b"}
+	assertNoEmptyHrefs(t, "versions", ToOfferingVersions(&fleet.OfferingVersionsResult{Offering: off, Providers: []fleet.OfferingProviderVersions{{
+		Provider: svc, Versions: fleet.ProviderVersionsPreview{Items: []fleet.ProviderVersion{{Revision: vrev}}, LatestCompatible: &vrev},
+	}}}))
 	assertNoEmptyHrefs(t, "document", ToRevisionDocument(&fleet.RevisionDocument{Revision: fleet.EntityRef{Kind: fleet.KindRevision, Key: "pay@sha256:a"}}))
 	dom := ToEntityDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindDomain, Key: "payments"}, Domain: &fleet.DomainDetailData{Services: one}})
 	if dom.Domain == nil || dom.Entity.Href != "/fleet/domains/payments" || dom.Domain.Services.Items[0].Href == "" {
