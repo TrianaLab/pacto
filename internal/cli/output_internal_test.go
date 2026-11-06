@@ -472,12 +472,21 @@ func TestPrintExplainResult_Full(t *testing.T) {
 			{Name: "opt", Ref: "ghcr.io/opt:2.0.0", Required: false, Compatibility: "^2.0.0"},
 			{Name: "model", External: true, Version: "claude-sonnet-4-5", Required: true},
 		},
+		Configurations: []app.ExplainConfiguration{{
+			Name: "database", Ref: "oci://ghcr.io/acme/postgresql:16.1.0", Configuration: "provisioning", Required: true,
+			Values:            map[string]any{"size": "medium"},
+			EnvironmentValues: map[string]any{"production": map[string]any{"size": "large"}},
+		}},
 		Environments: []contract.Environment{{Name: "production", File: "environments/production.yaml"}},
 	}
 	if err := printExplainResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
+	if !strings.Contains(out, "\nConfigurations (1):\n  - database: oci://ghcr.io/acme/postgresql:16.1.0, configuration provisioning (required)\n"+
+		"      values: {\"size\":\"medium\"}\n      production: {\"size\":\"large\"}\n") {
+		t.Errorf("expected configurations with effective values, got %q", out)
+	}
 	if !strings.Contains(out, "\nEnvironments (1):\n  - production: environments/production.yaml\n") {
 		t.Errorf("expected environments, got %q", out)
 	}

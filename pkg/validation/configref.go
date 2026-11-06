@@ -277,7 +277,7 @@ func checkRefValues(res *ValidationResult, path string, cfg contract.Configurati
 	if len(cfg.Values) == 0 {
 		return
 	}
-	for _, v := range schemaViolations(schema.Validate(effectiveValues(cfg.Values, nil))) {
+	for _, v := range schemaViolations(schema.Validate(EffectiveValues(cfg.Values, nil))) {
 		_, msg, _ := strings.Cut(v.Error()+enumSuggestion(v.ErrorKind), "': ")
 		res.AddError(path, "CONFIG_VALUES_VALIDATION_FAILED", fmt.Sprintf("configuration %s at %s: %s", cfg.Name, "/"+strings.TrimPrefix(jsonPointer(v.InstanceLocation), "/"), msg))
 	}

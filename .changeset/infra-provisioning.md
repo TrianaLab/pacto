@@ -40,7 +40,9 @@ list an offering's consumers, and `pacto_edit` gains
 `lifecycle`. A provider with no Kubernetes target that declares its offering
 is visible to every signed-in viewer, with its targets hidden and its hidden
 consumers counted. `OfferingProvider.revisions` and `activeRevisions` become
-`versions`.
+`versions`. `pacto explain` lists each configuration with its
+`environmentValues`, the effective values per environment an adapter
+provisions from.
 
 The operator resolves configuration references with host-scoped credentials
 and validates their values, `spec.overrides` and bound ConfigMaps against the

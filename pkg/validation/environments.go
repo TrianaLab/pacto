@@ -113,7 +113,7 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 		if !ok {
 			code = "ENVIRONMENT_VALUES_MISSING"
 		}
-		for _, v := range schemaViolations(schema.Validate(effectiveValues(cfg.Values, given))) {
+		for _, v := range schemaViolations(schema.Validate(EffectiveValues(cfg.Values, given))) {
 			at := append([]string{cfg.Name}, v.InstanceLocation...)
 			_, msg, _ := strings.Cut(v.Error()+enumSuggestion(v.ErrorKind), "': ")
 			if !ok {
@@ -182,10 +182,11 @@ func jsonPointer(segments []string) string {
 	return b.String()
 }
 
-// effectiveValues is a configuration's default values with an environment's
-// values merged over them. Values that are not an object replace the
-// defaults, so the schema judges them as written.
-func effectiveValues(defaults map[string]any, given any) any {
+// EffectiveValues is a configuration's default values with an environment's
+// values merged over them (see [MergeValues]): the values a consumer requests
+// in that environment. Values that are not an object replace the defaults, so
+// the schema judges them as written. defaults is not modified.
+func EffectiveValues(defaults map[string]any, given any) any {
 	b, _ := json.Marshal(defaults) // defaults decoded from YAML that validated against the schema
 	var out map[string]any
 	_ = json.Unmarshal(b, &out)

@@ -116,8 +116,11 @@ resource: a CI job, a controller or a script. It:
 
 1. Maps the offering slug, `postgresql`, to your implementation. The mapping
    lives in the adapter; the contract carries no provider hints.
-2. Reads the consumer's values: the inline `values` with each environment's
-   file merged on top. Objects merge key by key, and a `null` removes its key.
+2. Reads the consumer's values for each environment from
+   `pacto explain <consumer> --output-format json`. Each entry of
+   `configurations` carries `environmentValues`: the inline `values` with that
+   environment's file merged on top. Objects merge key by key, and a `null`
+   removes its key.
 3. Provisions the resource with your platform's tools.
 4. Reports the result:
 

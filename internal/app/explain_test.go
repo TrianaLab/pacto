@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -290,5 +292,109 @@ func TestExplain_Lifecycle(t *testing.T) {
 	}
 	if l := result.Lifecycle; l == nil || l.String() != "deprecated 2026-01-01, sunset 2027-06-30" {
 		t.Errorf("Lifecycle = %+v", l)
+	}
+}
+
+// writeRequestBundle writes a 2.6 consumer whose configuration reference
+// requests values, with two environment files merged over them.
+func writeRequestBundle(t *testing.T, staging string) string {
+	t.Helper()
+	dir := t.TempDir()
+	files := map[string]string{
+		"pacto.yaml": `pactoVersion: "2.6"
+service:
+  name: orders
+  version: 1.0.0
+configurations:
+  - name: database
+    ref: oci://ghcr.io/acme/postgresql:16.1.0
+    configuration: provisioning
+    required: true
+    values:
+      size: medium
+      backups: { enabled: true, retentionDays: 7 }
+environments:
+  - name: production
+    file: environments/production.yaml
+  - name: staging
+    file: environments/staging.yaml
+`,
+		"environments/production.yaml": "database:\n  backups:\n    retentionDays: 14\n",
+		"environments/staging.yaml":    staging,
+	}
+	for name, data := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// Explain gives an adapter each environment's effective request: the inline
+// values with the environment's file deep-merged on top, a null deleting.
+func TestExplain_ConfigurationEnvironmentValues(t *testing.T) {
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: writeRequestBundle(t, "database:\n  backups: null\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Configurations) != 1 {
+		t.Fatalf("configurations = %+v", result.Configurations)
+	}
+	c := result.Configurations[0]
+	if c.Ref != "oci://ghcr.io/acme/postgresql:16.1.0" || c.Configuration != "provisioning" || !c.Required {
+		t.Errorf("configuration = %+v", c)
+	}
+	got, _ := json.Marshal(c.EnvironmentValues)
+	want := `{"production":{"backups":{"enabled":true,"retentionDays":14},"size":"medium"},"staging":{"size":"medium"}}`
+	if string(got) != want {
+		t.Errorf("environmentValues = %s, want %s", got, want)
+	}
+	// The inline values are the request where no environment applies, untouched
+	// by the merges.
+	if inline, _ := json.Marshal(c.Values); string(inline) != `{"backups":{"enabled":true,"retentionDays":7},"size":"medium"}` {
+		t.Errorf("values = %s", inline)
+	}
+	if s := c.Summary(); s != "database: oci://ghcr.io/acme/postgresql:16.1.0, configuration provisioning (required)" {
+		t.Errorf("summary = %q", s)
+	}
+	if lines := c.ValueLines(); len(lines) != 3 || lines[2] != `staging: {"size":"medium"}` {
+		t.Errorf("value lines = %q", lines)
+	}
+}
+
+// A values file that cannot be read fails the explain rather than reporting
+// the inline values alone as the request.
+func TestExplain_UnreadableEnvironmentFile(t *testing.T) {
+	_, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: writeRequestBundle(t, "database: [unclosed\n")})
+	if err == nil || !strings.Contains(err.Error(), "environment staging: cannot read environments/staging.yaml") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestExplainConfiguration_SchemaSummary(t *testing.T) {
+	c := ExplainConfiguration{Name: "chart", Schema: "chart/values.schema.json"}
+	if s := c.Summary(); s != "chart: chart/values.schema.json (optional)" {
+		t.Errorf("summary = %q", s)
+	}
+	if lines := c.ValueLines(); len(lines) != 0 {
+		t.Errorf("value lines = %q", lines)
+	}
+}
+
+func TestExplainConfigurations_NoBundleFiles(t *testing.T) {
+	c := &contract.Contract{
+		Configurations: []contract.Configuration{{Name: "database", Values: map[string]any{"size": "medium"}}},
+		Environments:   []contract.Environment{{Name: "production", File: "environments/production.yaml"}},
+	}
+	if _, err := explainConfigurations(c, nil); err == nil || !strings.Contains(err.Error(), "no bundle files") {
+		t.Fatalf("err = %v", err)
+	}
+	c.Environments = nil
+	got, err := explainConfigurations(c, nil)
+	if err != nil || len(got) != 1 || got[0].EnvironmentValues != nil {
+		t.Fatalf("got %+v, %v", got, err)
 	}
 }

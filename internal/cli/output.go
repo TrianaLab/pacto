@@ -327,6 +327,21 @@ func printExplainDependencies(w io.Writer, deps []app.ExplainDependency) {
 	}
 }
 
+// printExplainConfigurations lists each configuration with its inline values
+// and its effective values in each environment.
+func printExplainConfigurations(w io.Writer, configs []app.ExplainConfiguration) {
+	if len(configs) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nConfigurations (%d):\n", len(configs))
+	for _, c := range configs {
+		_, _ = fmt.Fprintf(w, "  - %s\n", c.Summary())
+		for _, line := range c.ValueLines() {
+			_, _ = fmt.Fprintf(w, "      %s\n", line)
+		}
+	}
+}
+
 // printEnvironments lists each environment and its file, when there are any.
 func printEnvironments(w io.Writer, envs []contract.Environment) {
 	if len(envs) == 0 {
@@ -383,6 +398,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 
 		printExplainInterfaces(w, result.Interfaces)
 		printExplainDependencies(w, result.Dependencies)
+		printExplainConfigurations(w, result.Configurations)
 
 		printEnvironments(w, result.Environments)
 

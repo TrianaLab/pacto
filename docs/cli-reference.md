@@ -751,7 +751,7 @@ pacto evidence verify <envelope.json> [flags]
 
 ## `pacto explain`
 
-Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract.
+Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top.
 
 ```
 pacto explain [dir | oci://ref] [flags]
@@ -761,6 +761,7 @@ pacto explain [dir | oci://ref] [flags]
 
 ```
   pacto explain my-service
+  pacto explain oci://ghcr.io/acme/orders@sha256:<digest> --output-format json
 ```
 
 **Flags:**
