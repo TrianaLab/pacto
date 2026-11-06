@@ -597,10 +597,13 @@ func (o fileOps) validateStaged(ctx context.Context, validate Validator, dir str
 
 // needsResolve reports whether input adds or changes something configuration
 // resolution depends on: a configuration ref, an environment (its file may
-// already hold values) or environment values. Only a resolved schema can
-// check those, so removals and lifecycle edits keep the local check.
-func needsResolve(input EditInput) bool {
-	return len(input.AddConfigurationRefs) > 0 || len(input.AddEnvironments) > 0 || len(input.SetEnvironmentValues) > 0
+// already hold values), environment values, or a dependency of c, the edited
+// contract, while it references a configuration (the dependency's range is
+// checked against the resolved provider). Only a resolved schema can check
+// those, so removals and lifecycle edits keep the local check.
+func needsResolve(input EditInput, c *contract.Contract) bool {
+	return len(input.AddConfigurationRefs) > 0 || len(input.AddEnvironments) > 0 || len(input.SetEnvironmentValues) > 0 ||
+		(len(input.AddDependencies) > 0 && slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool { return cfg.Ref != "" }))
 }
 
 // Edit modifies an existing pacto contract. validate is the check pacto_check
@@ -646,7 +649,7 @@ func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) 
 		return nil, fmt.Errorf("edited contract is invalid: %w", err)
 	}
 
-	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, needsResolve(input)); err != nil {
+	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, needsResolve(input, c)); err != nil {
 		return nil, err
 	}
 

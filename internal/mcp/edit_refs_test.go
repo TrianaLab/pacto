@@ -358,6 +358,21 @@ func TestEdit_DryRunWritesNothing(t *testing.T) {
 	assertNoStagingLeft(t, dir)
 }
 
+// A dependency added beside a configuration reference is checked against the
+// provider the reference resolves, as pacto_check does.
+func TestEditRejectsADependencyRangeTheConfigurationRefMisses(t *testing.T) {
+	dir := refRoot(t, orders26, nil)
+	_, err := Edit(context.Background(), realValidator, EditInput{Path: dir,
+		AddDependencies: []DependencyInput{{Name: "postgresql", Ref: "../pg", Compatibility: "^17.0.0"}}})
+	if err == nil || !strings.Contains(err.Error(), "CONFIG_REF_VERSION_OUTSIDE_RANGE") {
+		t.Fatalf("err %v", err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(raw) != orders26 {
+		t.Errorf("pacto.yaml changed:\n%s", raw)
+	}
+	assertNoStagingLeft(t, dir)
+}
+
 func TestEditRejectsValuesTheProviderSchemaRejects(t *testing.T) {
 	t.Run("inline values", func(t *testing.T) {
 		dir := refRoot(t, orders25, nil)
