@@ -88,6 +88,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		forwardDepsByRevision: map[RevisionKey][]ServiceKey{},
 		observedReverse:       map[ServiceKey][]ServiceKey{},
 		observedForward:       map[ServiceKey][]ServiceKey{},
+		provisioningWindow:    opts.FreshnessWindow,
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -140,6 +141,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	buildRelationships(snap)
 	foldObservedRelationships(snap, observed)
 	reconcileDeclared(snap, undeclaredOnly)
+	matchProvisioning(snap)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	sortSnapshot(snap)
@@ -262,6 +264,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		}
 		targetCount++
 	}
+	recordProblems = append(recordProblems, ingestProvisioning(snap, src, col.Provisioning, now)...)
 	// A source that reported record-level problems is partial: keep its usable
 	// records AND surface the problems. Canonicalization limitations (invalid finite
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
@@ -2389,6 +2392,7 @@ func sortSnapshot(snap *FleetSnapshot) {
 		return a.RequestedRef < b.RequestedRef
 	})
 	sort.Slice(snap.Sources, func(i, j int) bool { return snap.Sources[i].ID < snap.Sources[j].ID })
+	sortProvisioning(snap.Provisioning)
 	sortSnapshotLimitations(snap)
 	for _, s := range snap.Services {
 		sort.Slice(s.Revisions, func(i, j int) bool { return s.Revisions[i] < s.Revisions[j] })

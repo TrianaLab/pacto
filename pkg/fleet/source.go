@@ -67,6 +67,25 @@ type Collection struct {
 	// [Build] folds its observations and lets them corroborate a declared edge,
 	// but its silence never counts against one.
 	ObservedUndeclaredOnly bool
+	// Provisioning is provider-reported state of what a consumer's
+	// configuration reference or dependency asked for. It is never a target.
+	Provisioning []RawProvisioning
+}
+
+// RawProvisioning is one provider report about the resource a consumer
+// revision (Service, Domain, Digest) asked for through its configuration
+// reference or dependency (Kind "configuration" or "dependency", Name). Phase,
+// Provider, ExternalRef and Environment are set only for an Observed outcome.
+// Verified is true only for records accepted through signed envelopes.
+type RawProvisioning struct {
+	Service, Domain, Digest      string
+	Kind, Name, Environment      string
+	Provider, ExternalRef, Phase string
+	Outcome                      string
+	Producer, ProducerKeyID      string
+	ObservedAt                   time.Time
+	AcceptedAt                   *time.Time
+	Verified                     bool
 }
 
 // ObservedEdge is one runtime-observed caller→provider dependency. From and To are

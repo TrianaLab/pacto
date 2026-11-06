@@ -185,12 +185,16 @@ type ProductMeta struct {
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
 }
 
-func (q *Query) productMeta() ProductMeta {
+func (q *Query) productMeta() ProductMeta { return q.productMetaWith(nil) }
+
+// productMetaWith is productMeta with the limitations an answer derives at query
+// time, such as provisioning conflicts, listed first.
+func (q *Query) productMetaWith(derived []Limitation) ProductMeta {
 	// Deep copies, then hard caps: a consumer may mutate the returned meta without
 	// reaching back into the snapshot or a later answer, and the meta never grows
 	// unbounded with the fleet's source or limitation count.
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
-	lims, limTrunc := BoundLimitations(cloneLimitations(q.snap.Limitations))
+	lims, limTrunc := BoundLimitations(append(derived, cloneLimitations(q.snap.Limitations)...))
 	return ProductMeta{
 		SchemaVersion:        ProductSchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,

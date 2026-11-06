@@ -72,7 +72,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	}
 	restricted := !visible("")
 	hiddenSvc := hiddenServices(s, hiddenNS, restricted)
-	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && (!restricted || !hasBareNames(s)) {
+	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && (!restricted || !hasBareNames(s)) && provisioningVisible(s) {
 		return q
 	}
 
@@ -95,6 +95,9 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	hiddenDeps, hiddenDependents := restrictRelationships(&out, s.Relationships, hiddenSvc)
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenDeps, hiddenDependents)...)
+	// An allowlist: a report stays only when its consumer is visible, so an
+	// orphaned report or one about a hidden service never reaches the view.
+	out.Provisioning = slices.DeleteFunc(slices.Clone(s.Provisioning), func(rec ProvisioningRecord) bool { return out.Services[rec.ServiceKey] == nil })
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
 	out.reverseDeps = restrictIndex(s.reverseDeps, keep, keep)
@@ -111,6 +114,12 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.Completeness = CompletenessPartial
 	out.SnapshotID = computeSnapshotID(&out)
 	return NewQuery(&out)
+}
+
+// provisioningVisible reports whether every provisioning report of s is about
+// a service s holds.
+func provisioningVisible(s *FleetSnapshot) bool {
+	return !slices.ContainsFunc(s.Provisioning, func(rec ProvisioningRecord) bool { return s.Services[rec.ServiceKey] == nil })
 }
 
 // restrictCallers is s's uncontracted callers without those of a hidden

@@ -1930,6 +1930,7 @@ export interface components {
             /** Format: date-time */
             generatedAt: string;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            provisioning?: components["schemas"]["Fleet.ProvisioningRecord"][] | null;
             relationships: components["schemas"]["Fleet.Relationship"][] | null;
             revisions: {
                 [key: string]: components["schemas"]["Fleet.ContractRevision"];
@@ -2242,6 +2243,29 @@ export interface components {
         "Fleet.ProductSubjectRef": {
             kind?: string;
             name?: string;
+        };
+        "Fleet.ProvisioningRecord": {
+            /** Format: date-time */
+            acceptedAt?: string;
+            digest: string;
+            domain?: string;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            kind: "configuration" | "dependency";
+            name: string;
+            /** Format: date-time */
+            observedAt: string;
+            outcome: string;
+            phase?: string;
+            producer?: string;
+            producerKeyId?: string;
+            provider?: string;
+            service: string;
+            serviceKey: string;
+            source: string;
+            sourceKind?: string;
+            verified: boolean;
         };
         "Fleet.ReadinessCheck": {
             category?: string;
@@ -3308,6 +3332,7 @@ export interface components {
             offering: string;
             provider: components["schemas"]["ProductRef"];
             providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            provisioning?: components["schemas"]["ProductProvisioningStatus"][] | null;
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             /** @enum {string} */
@@ -3358,6 +3383,27 @@ export interface components {
             resolution?: components["schemas"]["ProductRefResolution"];
             schema?: string;
             target?: string;
+        };
+        ProductProvisioningStatus: {
+            /** Format: date-time */
+            asOf?: string;
+            conflict?: string[] | null;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            phase: "Requested" | "Provisioning" | "Ready" | "Failed" | "Deleting" | "Unknown";
+            producer?: string;
+            producerKeyId?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            provider?: string;
+            reason?: string;
+            reportedPhase?: string;
+            revision?: components["schemas"]["ProductRef"];
+            source?: string;
+            sourceKind?: string;
+            stale?: boolean;
+            verified: boolean;
         };
         ProductRef: {
             businessDomain?: string;

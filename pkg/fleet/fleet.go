@@ -262,6 +262,10 @@ const SchemaVersion = "pacto.dev/fleet/v1"
 // is rejected, so a producer cannot outrank later reports by lying about time.
 const MaxProvisioningClockSkew = 5 * time.Minute
 
+// MaxProvisioningRecords bounds the provisioning reports a snapshot keeps; the
+// newest win.
+const MaxProvisioningRecords = 10000
+
 // Limitation codes explain, in a structured way, why an answer is incomplete or
 // why a record could not be fully established. Codes are stable and typed so
 // agents branch on them; the human message is advisory.
@@ -330,6 +334,15 @@ const (
 	// LimitationNeighborhoodUnavailable: the relationships of a service could not
 	// be computed, so its relationship list is empty for that reason alone.
 	LimitationNeighborhoodUnavailable = "NEIGHBORHOOD_UNAVAILABLE"
+	// LimitationProvisioningConflict: two reporters disagree about the
+	// provisioning phase of one use in one environment, so its status is Unknown.
+	LimitationProvisioningConflict = "PROVISIONING_CONFLICT"
+	// LimitationProvisioningTruncated: the sources reported more than
+	// MaxProvisioningRecords provisioning reports; the oldest were dropped.
+	LimitationProvisioningTruncated = "PROVISIONING_TRUNCATED"
+	// LimitationProvisioningUnmatched: provisioning reports name no contract
+	// revision in the snapshot, or a use that revision does not resolve.
+	LimitationProvisioningUnmatched = "PROVISIONING_UNMATCHED"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -781,6 +794,14 @@ type FleetSnapshot struct {
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`
+	// Provisioning are the validated provider reports on what consumers'
+	// configuration references and dependencies asked for, each matched to a
+	// revision in this snapshot and a use it resolves. Sorted deterministically.
+	Provisioning []ProvisioningRecord `json:"provisioning,omitempty"`
+
+	// provisioningWindow is BuildOptions.FreshnessWindow: a provisioning report
+	// older than it (RecentEvidenceWindow when zero) is stale.
+	provisioningWindow time.Duration
 
 	// reverseDeps maps a service KEY to the keys of services that declare a
 	// dependency or a resolved configuration reference on it (see
@@ -801,6 +822,30 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
+}
+
+// ProvisioningRecord is one validated provisioning report (see
+// [RawProvisioning]) about the consumer revision Digest of ServiceKey. Source
+// and SourceKind name the source that delivered it.
+type ProvisioningRecord struct {
+	ServiceKey    ServiceKey `json:"serviceKey"`
+	Service       string     `json:"service"`
+	Domain        string     `json:"domain,omitempty"`
+	Digest        string     `json:"digest"`
+	Kind          string     `json:"kind" enum:"configuration,dependency"`
+	Name          string     `json:"name"`
+	Environment   string     `json:"environment,omitempty"`
+	Provider      string     `json:"provider,omitempty"`
+	ExternalRef   string     `json:"externalRef,omitempty"`
+	Phase         string     `json:"phase,omitempty"`
+	Outcome       string     `json:"outcome"`
+	Producer      string     `json:"producer,omitempty"`
+	ProducerKeyID string     `json:"producerKeyId,omitempty"`
+	ObservedAt    time.Time  `json:"observedAt"`
+	AcceptedAt    *time.Time `json:"acceptedAt,omitempty"`
+	Verified      bool       `json:"verified"`
+	Source        string     `json:"source"`
+	SourceKind    string     `json:"sourceKind,omitempty"`
 }
 
 // UncontractedCaller is a runtime caller no contract describes, of a service

@@ -556,6 +556,11 @@ type OfferingUse struct {
 	// ProviderLifecycle is the provider's service lifecycle as the newest
 	// consumer revision's relationship reaches it.
 	ProviderLifecycle *contract.InterfaceLifecycle `json:"providerLifecycle,omitempty"`
+	// Provisioning is what providers report about the resource this use asked
+	// for, one status per environment (see [ProvisioningStatus]); Unknown when
+	// no provider has reported. A policy reference provisions nothing and
+	// carries none.
+	Provisioning []ProvisioningStatus `json:"provisioning,omitempty"`
 }
 
 // OfferingUsesPreview is a bounded preview of offering uses.
@@ -755,6 +760,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	rels, nbLims := serviceRelationships(nb, nbErr, self)
 	current, cfgs, pols := q.currentRevisionContent(active, view.Revisions)
 	unresolved := unresolvedDependencyItems(self, view.Dependencies)
+	consumed, conflicts := q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)
 	data := &ServiceDetailData{
 		Domain:                 s.Domain,
 		Ownership:              ownership,
@@ -763,7 +769,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Capabilities:           stringsPreview(slices.DeleteFunc(q.serviceCapabilities(s), func(c string) bool { return c == "" })),
 		Sources:                refPreview(q.serviceSources(view)),
 		UnresolvedDependencies: unresolved,
-		ConsumedOfferings:      offeringUsesPreview(q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)),
+		ConsumedOfferings:      offeringUsesPreview(consumed),
 		InferredOfferings:      q.inferredOfferings(unresolved.Items),
 		CurrentRevision:        current,
 		Policies:               pols,
@@ -786,7 +792,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Limitations:        serviceLimitations(nbLims, view.Targets),
 	}
 	return &EntityDetail{
-		Meta: q.productMeta(), Entity: self, Status: s.Status,
+		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
 		Service: data, Actions: []string{"open-graph", "compare", "impact"},
 	}, nil
 }
@@ -1019,9 +1025,9 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 	for _, ref := range shown {
 		items = append(items, q.offeringProvider(q.snap.Services[ServiceKey(ref.Key)]))
 	}
-	uses := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == key }, "")
+	uses, conflicts := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == key }, "")
 	return &EntityDetail{
-		Meta: q.productMeta(), Entity: offeringEntityRef(key),
+		Meta: q.productMetaWith(conflicts), Entity: offeringEntityRef(key),
 		Offering: &OfferingDetailData{
 			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
 			Consumers: offeringUsesPreview(uses),
@@ -1062,15 +1068,17 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 // offeringUses is every service consuming a provider match accepts, from one
 // consumer when from is set: one row per consumer, provider and relationship
 // type, over every revision. Revisions that disagree on the range status make
-// it unknown.
-func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) []OfferingUse {
+// it unknown. It also returns the provisioning conflicts the rows raise.
+func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) ([]OfferingUse, []Limitation) {
 	type useKey struct {
 		consumer, provider ServiceKey
 		via                string
 	}
 	seen := map[useKey]int{}
 	keptRev := map[useKey]*ContractRevision{} // the consumer revision whose provider lifecycle a row keeps
+	rels := map[useKey][]*Relationship{}
 	var uses []OfferingUse
+	var keys []useKey // keys[j] is the key of uses[j]
 	for i := range q.snap.Relationships {
 		rel := &q.snap.Relationships[i]
 		if !offeringRelationship(rel, from) {
@@ -1081,22 +1089,17 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 			continue
 		}
 		k := useKey{rel.FromService, rel.ToService, rel.Type}
+		rels[k] = append(rels[k], rel)
 		if j, ok := seen[k]; ok {
 			u := &uses[j]
-			if u.RangeStatus == "" {
-				u.RangeStatus = rel.RangeStatus
-			} else if rel.RangeStatus != "" && rel.RangeStatus != u.RangeStatus {
-				u.RangeStatus = RangeUnknown
-			}
-			if rel.Compatibility != u.Compatibility {
-				u.Compatibility = ""
-			}
+			mergeUse(u, rel)
 			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (keptRev[k] == nil || lessRevisionChrono(keptRev[k], r)) {
 				keptRev[k], u.ProviderLifecycle = r, rel.ProviderLifecycle
 			}
 			continue
 		}
 		seen[k] = len(uses)
+		keys = append(keys, k)
 		keptRev[k] = q.snap.Revisions[rel.FromRevision]
 		uses = append(uses, OfferingUse{
 			Offering: p.Offering, Consumer: q.serviceRef(rel.FromService), Provider: serviceEntityRef(p),
@@ -1104,10 +1107,31 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 			ProviderLifecycle: rel.ProviderLifecycle,
 		})
 	}
+	var lims []Limitation
+	for j, k := range keys {
+		if k.via != RelationshipPolicyRef {
+			var conflicts []Limitation
+			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k])
+			lims = append(lims, conflicts...)
+		}
+	}
 	slices.SortStableFunc(uses, func(a, b OfferingUse) int {
 		return cmp.Or(cmp.Compare(a.Consumer.Key, b.Consumer.Key), cmp.Compare(a.Provider.Key, b.Provider.Key), cmp.Compare(a.Via, b.Via))
 	})
-	return uses
+	return uses, lims
+}
+
+// mergeUse folds another revision's relationship into a use row: a range
+// status or compatibility the revisions disagree on is unknown.
+func mergeUse(u *OfferingUse, rel *Relationship) {
+	if u.RangeStatus == "" {
+		u.RangeStatus = rel.RangeStatus
+	} else if rel.RangeStatus != "" && rel.RangeStatus != u.RangeStatus {
+		u.RangeStatus = RangeUnknown
+	}
+	if rel.Compatibility != u.Compatibility {
+		u.Compatibility = ""
+	}
 }
 
 // inferredOfferings suggests an offering for each unresolved dependency whose

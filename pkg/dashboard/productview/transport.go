@@ -532,8 +532,16 @@ func toProductDomainDetail(d *fleet.DomainDetailData) *ProductDomainDetail {
 // both navigable.
 type ProductOfferingUse struct {
 	fleet.OfferingUse
-	Consumer ProductRef `json:"consumer"`
-	Provider ProductRef `json:"provider"`
+	Consumer     ProductRef                  `json:"consumer"`
+	Provider     ProductRef                  `json:"provider"`
+	Provisioning []ProductProvisioningStatus `json:"provisioning,omitempty"`
+}
+
+// ProductProvisioningStatus is a provisioning status whose consumer revision is
+// navigable.
+type ProductProvisioningStatus struct {
+	fleet.ProvisioningStatus
+	Revision *ProductRef `json:"revision,omitempty"`
 }
 
 // ProductOfferingUsesPreview is a bounded preview of offering uses.
@@ -546,6 +554,9 @@ func productOfferingUses(p fleet.OfferingUsesPreview) ProductOfferingUsesPreview
 	items := make([]ProductOfferingUse, len(p.Items))
 	for i, u := range p.Items {
 		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: Ref(u.Consumer), Provider: Ref(u.Provider)}
+		for _, st := range u.Provisioning {
+			items[i].Provisioning = append(items[i].Provisioning, ProductProvisioningStatus{ProvisioningStatus: st, Revision: RefPtr(st.Revision)})
+		}
 	}
 	return ProductOfferingUsesPreview{OfferingUsesPreview: p, Items: items}
 }

@@ -121,6 +121,19 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 		})
 	}
 
+	for _, p := range body.Provisioning {
+		digest := p.Digest
+		if digest == "" {
+			digest = digestFromRef(p.ContractRef)
+		}
+		acceptedAt := p.AcceptedAt
+		col.Provisioning = append(col.Provisioning, fleet.RawProvisioning{
+			Service: p.Service, Domain: p.Domain, Digest: digest, Kind: p.Kind, Name: p.Name, Environment: p.Environment,
+			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: p.Phase, Outcome: p.Outcome,
+			Producer: p.Producer, ObservedAt: p.EvidenceAt, AcceptedAt: &acceptedAt, Verified: true,
+		})
+	}
+
 	// An unreadable subject, an invalid published artifact or a truncated response
 	// means the contribution is incomplete: surface the limitation so downstream
 	// answers carry the honesty rather than presenting a full-looking graph.

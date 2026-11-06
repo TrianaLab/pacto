@@ -59,7 +59,8 @@ const (
 	Insufficient Outcome = "Insufficient" // partial/ambiguous, not conclusive (incl. within-window negatives)
 )
 
-func (o Outcome) valid() bool {
+// Valid reports whether o is one of the five outcomes.
+func (o Outcome) Valid() bool {
 	switch o {
 	case Observed, Unsupported, Failed, Stale, Insufficient:
 		return true
@@ -141,8 +142,9 @@ const (
 
 func validSlug(s string) bool { return len(s) <= maxSlugBytes && slugPattern.MatchString(s) }
 
-// validateProvisioned checks a ResourceProvisioned payload beyond its shape.
-func validateProvisioned(p ProvisionedObservation) error {
+// ValidateProvisioned checks a ResourceProvisioned payload beyond its shape. The
+// fleet applies it again to every provisioning record it ingests.
+func ValidateProvisioned(p ProvisionedObservation) error {
 	switch {
 	case !validSlug(p.Provider):
 		return fmt.Errorf("provider %q must be a lowercase slug of at most %d bytes", p.Provider, maxSlugBytes)
@@ -215,7 +217,7 @@ func (o Observation) validate() error {
 	if len(want) == 0 {
 		return fmt.Errorf("unknown observation kind: %q", o.Kind)
 	}
-	if !o.Outcome.valid() {
+	if !o.Outcome.Valid() {
 		return fmt.Errorf("unknown outcome: %q", o.Outcome)
 	}
 	if !slices.Contains(want, o.Subject.Kind) {
@@ -270,7 +272,7 @@ func (o Observation) checkKind() error {
 	case ResourceProvisioned:
 		var p ProvisionedObservation
 		if p, err = decode[ProvisionedObservation](o.Value); err == nil {
-			err = validateProvisioned(p)
+			err = ValidateProvisioned(p)
 		}
 	}
 	if err != nil {
