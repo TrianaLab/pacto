@@ -10,7 +10,7 @@
 // tab stop is added only while the element actually overflows and removed again
 // when it stops, so no page grows stops it does not need.
 (function () {
-  var SELECTOR = ".md-typeset__scrollwrap, .md-typeset code.md-code__content";
+  var SELECTOR = ".md-typeset__scrollwrap, .md-typeset code.md-code__content, .pacto-term pre";
 
   function apply() {
     var els = document.querySelectorAll(SELECTOR);
