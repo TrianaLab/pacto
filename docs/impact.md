@@ -98,11 +98,11 @@ uncertainty and an `inferred` consumer is a lead to verify.
 ### Configuration-reference consumers
 
 A service that takes a configuration schema from the changed service by `ref`
-is a consumer too. When it also declares a dependency on the changed service,
-that dependency's range speaks for it. When the reference is its only edge,
-Pacto judges it directly: it selects the consumer's configuration in the new
-revision and checks the consumer's inline and environment values against that
-schema.
+is a consumer too. Pacto judges it directly: it selects the consumer's
+configuration in the new revision and checks the consumer's inline and
+environment values against that schema. When the consumer also declares a
+dependency on the changed service, the stricter of the range verdict and the
+values verdict speaks for it.
 
 - Values that pass give `compatible`.
 - Values that fail give `incompatible`, and the note lists each violation as

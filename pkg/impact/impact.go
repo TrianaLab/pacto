@@ -283,11 +283,16 @@ func (r *Result) noteRangeOnlyMatches() {
 		if c.CompatibilityVerdict != CompatibilityCompatible || c.Compatibility == "" {
 			continue
 		}
-		c.Note = "compatible only means the range " + c.Compatibility + " accepts " + r.NewVersion +
+		note := "compatible only means the range " + c.Compatibility + " accepts " + r.NewVersion +
 			"; this change is BREAKING, so check that " + c.Service + " does not use what it removes or changes"
 		if fleet.CheckRange(c.Compatibility, openRangeProbe) == fleet.RangeSatisfied {
-			c.Note = "the range " + c.Compatibility + " has no upper bound, so " + c.Note
+			note = "the range " + c.Compatibility + " has no upper bound, so " + note
 		}
+		// A configuration-reference check that passed keeps its note.
+		if c.Note != "" {
+			note = c.Note + "; " + note
+		}
+		c.Note = note
 	}
 }
 
@@ -545,11 +550,16 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 	c.Required = rel.Required
 	c.Compatibility = rel.Compatibility
 	c.CompatibilityVerdict = compatibilityVerdict(rel.Compatibility, newVersion, hasDeclared)
-	if !hasDeclared && len(refs) > 0 {
-		// Only configuration references: Pacto judges the consumer's values
-		// against the new revision's schema itself.
-		hasDeclared = true
-		c.CompatibilityVerdict, c.Note = configRefVerdict(snap, refs, newBundle)
+	if len(refs) > 0 {
+		// Pacto judges the consumer's configuration-reference values against
+		// the new revision's schema itself; with a dependency too, the check
+		// that accepts the change least speaks, so a range match never masks
+		// values the new schema rejects.
+		v, note := configRefVerdict(snap, refs, newBundle)
+		if !hasDeclared || verdictRank(v) > verdictRank(c.CompatibilityVerdict) {
+			c.CompatibilityVerdict = v
+		}
+		c.Note, hasDeclared = note, true
 	}
 	c.Provenance = provenance(hasDeclared, observedCounted)
 	c.Confidence = confidence(node.depth, hasDeclared, rel.Compatibility != "", observedCounted)
@@ -567,9 +577,8 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 // over unknown over compatible): one running revision that breaks is enough
 // for the change to break the consumer, whatever order the edges come in.
 //
-// refs are the consumer's configuration-reference edges to changed. A
-// dependency edge speaks for the consumer when it has one; refs judge it only
-// when it has none.
+// refs are the consumer's configuration-reference edges to changed, whose
+// values the caller checks beside the dependency edge.
 //
 // Observed relationships are never counted here: [fleet.ConsumesEdge] takes
 // declared edges only. Build folds observed relationships into the snapshot

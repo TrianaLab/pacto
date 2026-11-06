@@ -225,5 +225,6 @@ publish.
 When the platform team ships a new provider version, `pacto impact` and
 `pacto_impact` list every consumer by dependency and by configuration
 reference. Impact checks a reference consumer's values against the new schema,
-so a breaking change never clears on its behalf. Pacto shows the declared
+also when it declares a dependency, so a breaking change never clears on its
+behalf and values the new schema rejects block it where the consumer runs. Pacto shows the declared
 lifecycle and the provider's latest report.
