@@ -110,6 +110,32 @@ func TestDeploymentAC_ArgsAndSingleWriter(t *testing.T) {
 	}
 }
 
+func trustArg(t *testing.T, cfg Config) string {
+	t.Helper()
+	args := deploymentACFor(t, cfg).Spec.Template.Spec.Containers[0].Args
+	for i, a := range args {
+		if a == "--trust" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	t.Fatalf("no --trust arg in %v", args)
+	return ""
+}
+
+func TestDeploymentAC_TrustMode(t *testing.T) {
+	// Bare-key mode: the whole mounted Secret, every *.pub key in it.
+	if got := trustArg(t, serverCfg()); got != TrustMountPath {
+		t.Errorf("bare-key mode: --trust = %q, want %q", got, TrustMountPath)
+	}
+	// Structured mode: the config file inside the same mount, so its
+	// publicKeyFile entries resolve against the other keys of the Secret.
+	cfg := serverCfg()
+	cfg.TrustConfigKey = "trust.yaml"
+	if got, want := trustArg(t, cfg), TrustMountPath+"/trust.yaml"; got != want {
+		t.Errorf("structured mode: --trust = %q, want %q", got, want)
+	}
+}
+
 func TestDeploymentAC_ProbesAndSecurity(t *testing.T) {
 	container := deploymentACFor(t, serverCfg()).Spec.Template.Spec.Containers[0]
 

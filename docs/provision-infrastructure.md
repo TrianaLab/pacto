@@ -160,11 +160,11 @@ lists consumer contracts, producers and external references: keep it behind
 the same network and auth boundary as the dashboard. See
 [Evidence](evidence.md) for the trust store and the Evidence Server.
 
-The Evidence Server the operator deploys reads its trust Secret as a directory
-of public keys, so it accepts no `ResourceProvisioned` reports. Run
-`pacto evidence serve --trust <trust.yaml>` with the trust config above to
-accept them; see
+On Kubernetes, put that trust config in the operator's trust Secret next to
+the public keys and set `evidence.trust.configKey` to its key; see
 [Provisioning reports](integrations/kubernetes/evidence-server.md#provisioning-reports).
+Without it, the operator's Evidence Server trusts each public key for runtime
+evidence only and rejects `ResourceProvisioned` reports.
 
 [Plugins](plugins.md) are another seam: `pacto generate` hands a contract to
 a program that writes files, such as the manifests your provisioning tool

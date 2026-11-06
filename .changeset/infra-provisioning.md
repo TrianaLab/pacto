@@ -45,3 +45,7 @@ consumers counted. `OfferingProvider.revisions` and `activeRevisions` become
 The operator resolves configuration references with host-scoped credentials
 and validates their values, `spec.overrides` and bound ConfigMaps against the
 resolved schema. `status.metadata` renders non-string values as JSON.
+The chart's `evidence.trust.configKey` (operator flag
+`--evidence-trust-config-key`) names a structured trust config inside the
+trust Secret, so the operator's Evidence Server can grant an adapter key
+`ResourceProvisioned`.

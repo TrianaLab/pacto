@@ -94,6 +94,7 @@ type options struct {
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
+	evidenceTrustConfigKey    string
 	evidenceCredentialsSecret string
 	evidenceSubjects          []string
 	evidenceResources         component.Resources
@@ -218,6 +219,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"mounted read-only. Empty means anonymous or in-cluster registry access.")
 	fs.StringVar(&o.evidenceTrustSecret, "evidence-trust-secret", "",
 		"Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled.")
+	fs.StringVar(&o.evidenceTrustConfigKey, "evidence-trust-config-key", "",
+		"Optional: key of the trust Secret holding a structured trust config (pacto.dev/evidence-trust/v1, a .yaml key). "+
+			"Set it to grant per-key allowlists such as ResourceProvisioned. Empty trusts every *.pub key in the Secret.")
 	bindResourceFlags(fs, &o.evidenceResources, "evidence", "Evidence Server")
 	fs.BoolVar(&o.showVersion, "version", false, "Print version information and exit.")
 	fs.DurationVar(&o.stabilizationWindow, "stabilization-window", 2*time.Minute,
@@ -546,6 +550,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Namespace:          namespace,
 		Subjects:           o.evidenceSubjects,
 		TrustSecret:        o.evidenceTrustSecret,
+		TrustConfigKey:     o.evidenceTrustConfigKey,
 		CredentialsSecret:  o.evidenceCredentialsSecret,
 		InsecureRegistries: insecureRegistries,
 		Resources:          o.evidenceResources,

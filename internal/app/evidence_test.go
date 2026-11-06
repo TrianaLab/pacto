@@ -311,6 +311,41 @@ keys:
 	}
 }
 
+// The operator mounts its trust Secret as a Kubernetes Secret volume: each key
+// is a symlink into a ..data directory. Pointing --trust at the config key must
+// load it and resolve publicKeyFile against the sibling keys.
+func TestLoadStructuredTrustStore_SecretVolumeLayout(t *testing.T) {
+	mount := t.TempDir()
+	data := filepath.Join(mount, "..2026_11_06")
+	if err := os.Mkdir(data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&Service{}).GenerateKey(data, "platform-adapter", "adapter-2026", false); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "apiVersion: pacto.dev/evidence-trust/v1\nkeys:\n  - keyId: adapter-2026\n" +
+		"    producerId: platform-adapter\n    publicKeyFile: platform-adapter__adapter-2026.pub\n" +
+		"    allowedObservationKinds: [ResourceProvisioned]\n"
+	if err := os.WriteFile(filepath.Join(data, "trust.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Base(data), filepath.Join(mount, "..data")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"trust.yaml", "platform-adapter__adapter-2026.pub"} {
+		if err := os.Symlink(filepath.Join("..data", name), filepath.Join(mount, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts, err := loadTrustStore(filepath.Join(mount, "trust.yaml"))
+	if err != nil {
+		t.Fatalf("loadTrustStore: %v", err)
+	}
+	if e, ok := ts["adapter-2026"]; !ok || !e.KindAllowed(evidence.ResourceProvisioned) {
+		t.Fatalf("adapter key must be trusted for ResourceProvisioned, got %v", ts)
+	}
+}
+
 func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := (&Service{}).GenerateKey(dir, "", "edgekey", false); err != nil {

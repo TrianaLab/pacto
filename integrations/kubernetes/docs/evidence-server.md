@@ -151,12 +151,42 @@ default, `<repository>/<environment or default>/<name>`, keeps each resource's
 latest report apart.
 
 Only a key whose trust entry lists `ResourceProvisioned` in
-`allowedObservationKinds` may report it, so give the adapter its own key. The
-trust Secret the operator mounts is a directory of public keys, which grants
+`allowedObservationKinds` may report it, so give the adapter its own key. By
+default the server trusts every `.pub` key in the trust Secret, which grants
 every runtime kind and withholds `ResourceProvisioned`. To accept provisioning
-reports, run `pacto evidence serve --trust <trust.yaml>` with a
-[structured trust config](../../evidence.md#trust-store-and-trust-config) that
-grants the adapter's key the kind.
+reports, add a
+[structured trust config](../../evidence.md#trust-store-and-trust-config) to
+the same Secret and name its key in `evidence.trust.configKey`:
+
+```yaml
+apiVersion: pacto.dev/evidence-trust/v1
+keys:
+  - keyId: release-2026
+    producerId: acme-ci
+    publicKeyFile: acme-ci__release-2026.pub
+  - keyId: adapter-2026
+    producerId: platform-adapter
+    publicKeyFile: platform-adapter__adapter-2026.pub
+    allowedObservationKinds: [ResourceProvisioned]
+```
+
+```bash
+kubectl create secret generic pacto-evidence-trust \
+  --namespace pacto-operator-system \
+  --from-file=trust.yaml \
+  --from-file=keys/acme-ci__release-2026.pub \
+  --from-file=keys/platform-adapter__adapter-2026.pub
+helm upgrade pacto-operator \
+  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
+  --namespace pacto-operator-system --reuse-values \
+  --set evidence.trust.configKey=trust.yaml
+```
+
+The server then starts with `--trust /etc/pacto/trust/trust.yaml`, and each
+`publicKeyFile` names another key of the Secret. The config replaces the
+directory scan, so list every key you trust in it: a `.pub` key the config
+omits is no longer trusted. The key has to end in `.yaml` or `.yml`, and the
+chart rejects any other value.
 
 The targets endpoint answers with schema `pacto.dev/evidence-source/v3` and a
 `provisioning` list when it holds provisioning reports, and with

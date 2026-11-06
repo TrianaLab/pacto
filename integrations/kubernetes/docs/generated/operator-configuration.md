@@ -60,6 +60,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-evidence-memory-limit` | `string` |  | chart value | Memory limit for the Evidence Server container. Empty uses the built-in default. |
 | `-evidence-memory-request` | `string` |  | chart value | Memory request for the Evidence Server container. Empty uses the built-in default. |
 | `-evidence-subject` | `value` |  | chart value | Repeatable: an exact contract revision evidence is stored on, as oci://&lt;repo&gt;@sha256:&lt;digest&gt;. The registry holding it is the durable evidence store: accepted records are published as OCI 1.1 referrers of that manifest. At least one is required when the Evidence Server is enabled. |
+| `-evidence-trust-config-key` | `string` |  | chart value | Optional: key of the trust Secret holding a structured trust config (pacto.dev/evidence-trust/v1, a .yaml key). Set it to grant per-key allowlists such as ResourceProvisioned. Empty trusts every *.pub key in the Secret. |
 | `-evidence-trust-secret` | `string` |  | chart value | Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled. |
 | `-health-probe-bind-address` | `string` | `:8081` | always on | The address the probe endpoint binds to. |
 | `-interface-name-match-discovery` | `bool` |  | no | Enable resolving an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never produces an absent or error result). |

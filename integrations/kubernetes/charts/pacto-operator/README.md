@@ -346,6 +346,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | evidence.service.nodePort | string | `""` | Node port (only used when type is NodePort). |
 | evidence.service.port | int | `8686` | Evidence service port. |
 | evidence.service.type | string | `"ClusterIP"` | Evidence exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-evidence) for in-cluster access; this chart-managed Service provides optional external access and backs any Ingress/HTTPRoute. |
+| evidence.trust.configKey | string | `""` | Optional key of the existingSecret holding a structured trust config (apiVersion pacto.dev/evidence-trust/v1, a .yaml or .yml key). When set, the Evidence Server starts with that file, so each key can carry subject, contract-repository and observation-kind allowlists: a provisioning adapter needs allowedObservationKinds [ResourceProvisioned]. Its publicKeyFile entries name other keys of the same Secret. Empty trusts every *.pub key in the Secret for runtime evidence only. |
 | evidence.trust.existingSecret | string | `""` | Name of an existing Secret of trusted producer public keys, mounted read-only. Signature verification is mandatory, so this is required when evidence is enabled. |
 | fullnameOverride | string | `""` | Override the full release name |
 | global.commonLabels | object | `{}` | Labels added to every object the chart renders |

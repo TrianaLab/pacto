@@ -270,7 +270,7 @@ its own key that lists it.
 
 Loading validates the schema version, identifier grammar, duplicate key ids, contradictory producer bindings, missing or traversing key files and malformed patterns.
 
-**Distributing the trust store is an out-of-band operator responsibility.** The protocol verifies against whatever keys the host trusts and never fetches them. In Kubernetes the trust store is a Secret mounted read-only (`evidence.trust.existingSecret`).
+**Distributing the trust store is an out-of-band operator responsibility.** The protocol verifies against whatever keys the host trusts and never fetches them. In Kubernetes the trust store is a Secret mounted read-only (`evidence.trust.existingSecret`); `evidence.trust.configKey` names a structured trust config inside it.
 
 For Kubernetes deployment (trust store creation, subject configuration, registry credentials), see [The Evidence Server](integrations/kubernetes/evidence-server.md).
 
