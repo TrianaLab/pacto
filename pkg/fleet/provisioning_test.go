@@ -388,3 +388,24 @@ func TestOfferingUseProvisioning_OnlyCurrentReportsConflict(t *testing.T) {
 		})
 	}
 }
+
+// A use whose relationships name no known revision, or name one twice, has no
+// report to join and reads one Unknown status.
+func TestProvisioningForWithoutReports(t *testing.T) {
+	q := NewQuery(provisioningSnap(t, 0, ordersFleet()))
+	var rev *ContractRevision
+	for _, r := range q.snap.Revisions {
+		rev = r
+		break
+	}
+	known := &Relationship{FromRevision: rev.Key, FromService: rev.ServiceKey, Type: RelationshipConfigRef, To: "db"}
+	for name, rels := range map[string][]*Relationship{
+		"unknown revision": {{FromRevision: "missing", Type: RelationshipConfigRef, To: "db"}},
+		"repeated":         {known, known},
+	} {
+		got, lims := q.provisioningFor(OfferingUse{}, rels, nil, nil)
+		if len(got) != 1 || got[0].Phase != StatusUnknown || got[0].Reason != noProvisioningReport || len(lims) != 0 {
+			t.Errorf("%s: %+v %+v", name, got, lims)
+		}
+	}
+}
