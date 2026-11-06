@@ -51,7 +51,7 @@ test.describe('WASM demo — platform offerings', () => {
     const consumer = page.getByTestId('offering-consumer').filter({ hasText: 'payments-service' }).first();
     await expect(consumer).toBeVisible();
     // No provider reports provisioning in this demo, so the badge says Unknown.
-    await expect(consumer.getByTestId('provisioning-badge').first()).toHaveText('Unknown');
+    await expect(consumer.getByTestId('provisioning-badge').first().locator('.tag')).toHaveText('Unknown');
     await expect(provider.locator('.ov-chips li').first()).toBeVisible();
     expect(await noSideScroll(page)).toBe(true);
   });
