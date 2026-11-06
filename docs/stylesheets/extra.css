@@ -753,6 +753,12 @@
   fill: var(--c-text-3);
   font: 500 12px var(--md-code-font-family);
 }
+/* The drawing scales down with its column; keep its labels legible on a phone. */
+@media (max-width: 600px) {
+  .pacto-iso text {
+    font-size: 15px;
+  }
+}
 .pacto-iso .em {
   fill: var(--c-text);
   font-weight: 600;
@@ -887,6 +893,13 @@
   font-variant-ligatures: none;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* On a phone, scroll the output sideways: wrapped rows split flags and verdicts. */
+@media (max-width: 480px) {
+  .pacto-term pre {
+    white-space: pre;
+    overflow-x: auto;
+  }
 }
 .pacto-term .g {
   color: #6ee7b7;
