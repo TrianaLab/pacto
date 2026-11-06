@@ -2,6 +2,7 @@ package validation
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -655,5 +656,22 @@ func TestEvaluate_UnverifiedSortedUnique(t *testing.T) {
 	_, cov = Evaluate(contract.Contract{Service: c.Service}, es())
 	if data, _ := json.Marshal(cov); string(data) != `{"evaluated":0,"required":0}` {
 		t.Errorf("empty coverage JSON = %s", data)
+	}
+}
+
+// A ResourceProvisioned report is about a provider's resource, never about the consumer's runtime, so
+// Evaluate ignores it: coverage and findings stay exactly what the runtime evidence gives.
+func TestEvaluateIgnoresResourceProvisioned(t *testing.T) {
+	base := satisfied()
+	wantFs, wantCov := Evaluate(fullContract(), base)
+	for _, phase := range []evidence.ProvisionPhase{evidence.PhaseReady, evidence.PhaseFailed} {
+		set := satisfied()
+		set.Observations = append(set.Observations,
+			evidence.NewResourceProvisioned(sr("configuration", "app"), evidence.ProvisionedObservation{Provider: "acme-db", Phase: phase}, prov()),
+			evidence.NewResourceProvisioned(sr("dependency", "payments"), evidence.ProvisionedObservation{Provider: "acme-db", Phase: phase}, prov()))
+		fs, cov := Evaluate(fullContract(), set)
+		if !reflect.DeepEqual(fs, wantFs) || !reflect.DeepEqual(cov, wantCov) {
+			t.Errorf("%s: findings %v coverage %+v, want %v %+v", phase, fs, cov, wantFs, wantCov)
+		}
 	}
 }

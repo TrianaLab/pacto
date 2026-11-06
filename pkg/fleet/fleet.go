@@ -257,6 +257,11 @@ func CanonicalStatuses() []string { return slices.Sorted(maps.Keys(severityRank)
 // changes.
 const SchemaVersion = "pacto.dev/fleet/v1"
 
+// MaxProvisioningClockSkew is how far a provisioning report's observedAt may
+// run ahead of the time it was accepted. A report dated further in the future
+// is rejected, so a producer cannot outrank later reports by lying about time.
+const MaxProvisioningClockSkew = 5 * time.Minute
+
 // Limitation codes explain, in a structured way, why an answer is incomplete or
 // why a record could not be fully established. Codes are stable and typed so
 // agents branch on them; the human message is advisory.

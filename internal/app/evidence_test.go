@@ -284,6 +284,8 @@ keys:
       - "payments-*"
     allowedContractRepos:
       - ghcr.io/acme/contracts
+    allowedObservationKinds:
+      - ResourceProvisioned
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -304,6 +306,9 @@ keys:
 	if len(e.ContractRepos) != 1 || e.ContractRepos[0] != "ghcr.io/acme/contracts" {
 		t.Errorf("contractRepos = %v", e.ContractRepos)
 	}
+	if !e.KindAllowed(evidence.ResourceProvisioned) || e.KindAllowed(evidence.WorkloadObserved) {
+		t.Errorf("allowedObservationKinds = %v, want only ResourceProvisioned granted", e.AllowedObservationKinds)
+	}
 }
 
 func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
@@ -313,20 +318,21 @@ func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
 	}
 	head := "apiVersion: pacto.dev/evidence-trust/v1\nkeys:\n"
 	cases := map[string]string{
-		"unsupported apiVersion": "apiVersion: pacto.dev/evidence-trust/v2\nkeys:\n  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub}\n",
-		"no keys":                "apiVersion: pacto.dev/evidence-trust/v1\nkeys: []\n",
-		"unknown field":          head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, bogus: 1}\n",
-		"duplicate key id":       head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub}\n  - {keyId: k, producerId: q, publicKeyFile: edgekey.pub}\n",
-		"contradictory producer": head + "  - {keyId: a, producerId: p, publicKeyFile: edgekey.pub}\n  - {keyId: b, producerId: q, publicKeyFile: edgekey.pub}\n",
-		"missing key file":       head + "  - {keyId: k, producerId: p, publicKeyFile: nope.pub}\n",
-		"traversal key file":     head + "  - {keyId: k, producerId: p, publicKeyFile: ../edgekey.pub}\n",
-		"bad key id grammar":     head + "  - {keyId: a/b, producerId: p, publicKeyFile: edgekey.pub}\n",
-		"bad producer grammar":   head + "  - {keyId: k, producerId: p/q, publicKeyFile: edgekey.pub}\n",
-		"empty public key file":  head + "  - {keyId: k, producerId: p}\n",
-		"malformed subject glob": head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedSubjects: [\"[\"]}\n",
-		"malformed repo prefix":  head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"oci://x@y\"]}\n",
-		"empty repo prefix":      head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"\"]}\n",
-		"whitespace repo prefix": head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"a b\"]}\n",
+		"unsupported apiVersion":   "apiVersion: pacto.dev/evidence-trust/v2\nkeys:\n  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub}\n",
+		"no keys":                  "apiVersion: pacto.dev/evidence-trust/v1\nkeys: []\n",
+		"unknown field":            head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, bogus: 1}\n",
+		"duplicate key id":         head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub}\n  - {keyId: k, producerId: q, publicKeyFile: edgekey.pub}\n",
+		"contradictory producer":   head + "  - {keyId: a, producerId: p, publicKeyFile: edgekey.pub}\n  - {keyId: b, producerId: q, publicKeyFile: edgekey.pub}\n",
+		"missing key file":         head + "  - {keyId: k, producerId: p, publicKeyFile: nope.pub}\n",
+		"traversal key file":       head + "  - {keyId: k, producerId: p, publicKeyFile: ../edgekey.pub}\n",
+		"bad key id grammar":       head + "  - {keyId: a/b, producerId: p, publicKeyFile: edgekey.pub}\n",
+		"bad producer grammar":     head + "  - {keyId: k, producerId: p/q, publicKeyFile: edgekey.pub}\n",
+		"empty public key file":    head + "  - {keyId: k, producerId: p}\n",
+		"malformed subject glob":   head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedSubjects: [\"[\"]}\n",
+		"malformed repo prefix":    head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"oci://x@y\"]}\n",
+		"empty repo prefix":        head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"\"]}\n",
+		"whitespace repo prefix":   head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedContractRepos: [\"a b\"]}\n",
+		"unknown observation kind": head + "  - {keyId: k, producerId: p, publicKeyFile: edgekey.pub, allowedObservationKinds: [\"ResourceReady\"]}\n",
 	}
 	// A directly-unreadable config file surfaces the read error.
 	if _, err := loadStructuredTrustStore(filepath.Join(t.TempDir(), "absent.yaml")); err == nil {
@@ -1262,5 +1268,100 @@ func TestPostEnvelope_BoundedClient(t *testing.T) {
 	svc := &Service{sys: sysDeps{httpClient: &http.Client{Timeout: 50 * time.Millisecond}}}
 	if _, err := svc.postEnvelope(context.Background(), slow.URL, []byte("{}")); err == nil {
 		t.Fatal("want a timeout from a host that never answers")
+	}
+}
+
+func TestSignEvidenceStdin(t *testing.T) {
+	dir := t.TempDir()
+	svc := &Service{}
+	kp, _ := svc.GenerateKey(dir, "", "", false)
+	data, _ := json.Marshal(sampleEvidenceSet())
+	env, err := svc.SignEvidence(SignOptions{
+		EvidencePath: "-", Stdin: bytes.NewReader(data), KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "p",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.EvidenceSet.Subject != sampleEvidenceSet().Subject {
+		t.Errorf("subject = %+v, want the set read from stdin", env.EvidenceSet.Subject)
+	}
+	if _, err := svc.SignEvidence(SignOptions{EvidencePath: "-", Stdin: iotestErrReader{}, KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "p"}); err == nil {
+		t.Error("an unreadable stdin must error")
+	}
+}
+
+type iotestErrReader struct{}
+
+func (iotestErrReader) Read([]byte) (int, error) { return 0, errors.New("read failure") }
+
+var provisionedAt = time.Date(2026, 11, 6, 10, 0, 0, 0, time.UTC)
+
+const provisionedDigest = "@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+func provisionedFixture() (*Service, func(func(*ProvisionedOptions)) ProvisionedOptions) {
+	svc := &Service{sys: sysDeps{now: func() time.Time { return provisionedAt }}}
+	base := ProvisionedOptions{ContractRef: "oci://ghcr.io/a/orders" + provisionedDigest, Configuration: "db", Provider: "acme-db", Phase: "Ready"}
+	return svc, func(f func(*ProvisionedOptions)) ProvisionedOptions { o := base; f(&o); return o }
+}
+
+func TestProvisionedEvidence(t *testing.T) {
+	svc, with := provisionedFixture()
+	set, err := svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) { o.Environment = "production" }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The default subject is the full repository path, so two repositories never collide.
+	if set.Subject.Name != "ghcr.io/a/orders/production/db" || !set.ObservedAt.Equal(provisionedAt) || set.Source != "pacto" {
+		t.Errorf("set = %+v", set)
+	}
+	p, err := set.Observations[0].GetProvisionedObservation()
+	if err != nil || p.Phase != evidence.PhaseReady || p.Environment != "production" || set.Observations[0].Subject.Kind != "configuration" {
+		t.Errorf("observation = %+v %v", p, err)
+	}
+	a, _ := svc.ProvisionedEvidence(with(func(*ProvisionedOptions) {}))
+	b, _ := svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) { o.ContractRef = "oci://ghcr.io/b/orders" + provisionedDigest }))
+	if a.Subject.Name != "ghcr.io/a/orders/default/db" || b.Subject.Name != "ghcr.io/b/orders/default/db" {
+		t.Errorf("subjects %q and %q", a.Subject.Name, b.Subject.Name)
+	}
+}
+
+func TestProvisionedEvidence_DependencyAndOverrides(t *testing.T) {
+	svc, with := provisionedFixture()
+	earlier := provisionedAt.Add(-time.Hour)
+	set, err := svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) {
+		o.Configuration, o.Dependency, o.Subject, o.Collector, o.ObservedAt = "", "postgresql", "ghcr.io/a/orders/pg-main", "adapter", earlier
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set.Subject.Name != "ghcr.io/a/orders/pg-main" || set.Observations[0].Subject.Kind != "dependency" || set.Source != "adapter" || !set.ObservedAt.Equal(earlier) {
+		t.Errorf("set = %+v", set)
+	}
+	// Anything short of Observed carries no phase.
+	set, err = svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) { o.Outcome = "Insufficient" }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := set.Observations[0]; o.Outcome != evidence.Insufficient || len(o.Value) != 0 {
+		t.Errorf("observation = %+v", o)
+	}
+}
+
+func TestProvisionedEvidence_Rejects(t *testing.T) {
+	svc, with := provisionedFixture()
+	for name, opts := range map[string]ProvisionedOptions{
+		"both names":                    with(func(o *ProvisionedOptions) { o.Dependency = "postgresql" }),
+		"no name":                       with(func(o *ProvisionedOptions) { o.Configuration = "" }),
+		"mutable ref":                   with(func(o *ProvisionedOptions) { o.ContractRef = "oci://ghcr.io/a/orders:1.0.0" }),
+		"subject outside repository":    with(func(o *ProvisionedOptions) { o.Subject = "ghcr.io/b/orders/default/db" }),
+		"unknown outcome":               with(func(o *ProvisionedOptions) { o.Outcome = "Done" }),
+		"provider not a slug":           with(func(o *ProvisionedOptions) { o.Provider = "Crossplane" }),
+		"externalRef control character": with(func(o *ProvisionedOptions) { o.ExternalRef = "x\ny" }),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := svc.ProvisionedEvidence(opts); err == nil {
+				t.Error("expected an error")
+			}
+		})
 	}
 }

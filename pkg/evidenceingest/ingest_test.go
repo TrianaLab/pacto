@@ -233,6 +233,7 @@ func TestClassifyAcceptError(t *testing.T) {
 		{"replay", ErrReplay, http.StatusConflict, "replay"},
 		{"auth", evidenceenvelope.ErrBadSignature, http.StatusUnauthorized, "unauthorized_producer"},
 		{"producer mismatch", evidenceenvelope.ErrProducerMismatch, http.StatusUnauthorized, "unauthorized_producer"},
+		{"kind not allowed", evidenceenvelope.ErrKindNotAllowed, http.StatusUnauthorized, "unauthorized_producer"},
 		{"contract ref", ErrContractRefPolicy, http.StatusUnprocessableEntity, "contract_ref_rejected"},
 		{"invalid evidence", ErrInvalidEvidence, http.StatusUnprocessableEntity, "invalid_evidence"},
 		{"malformed", fmt.Errorf("%w: %w", ErrMalformedEnvelope, errors.New("bad json")), http.StatusBadRequest, "invalid_envelope"},
@@ -757,6 +758,146 @@ func TestCheckContractRef(t *testing.T) {
 	for _, ref := range []string{"./svc", "oci://ghcr.io/acme/svc:1.0.0"} {
 		if err := CheckContractRef(ref); err == nil {
 			t.Errorf("%q accepted", ref)
+		}
+	}
+}
+
+// ordersRef is a consumer contract in ghcr.io/a/orders.
+var ordersRef = "oci://ghcr.io/a/orders@sha256:" + strings.Repeat("b", 64)
+
+func ordersContract() contract.Contract {
+	return contract.Contract{
+		PactoVersion: "2.6",
+		Service:      contract.Service{Name: "orders"},
+		Configurations: []contract.Configuration{
+			{Name: "db", Ref: "oci://ghcr.io/platform/postgresql@sha256:" + strings.Repeat("c", 64)},
+			{Name: "app", Schema: "configuration/schema.json"},
+		},
+		Dependencies: []contract.Dependency{{Name: "postgresql", Ref: "oci://ghcr.io/platform/postgresql"}},
+		Environments: []contract.Environment{{Name: "production", File: "environments/production.yaml"}},
+	}
+}
+
+func provisionedSet(subject string, observed time.Time, obs ...evidence.Observation) evidence.EvidenceSet {
+	return evidence.EvidenceSet{
+		Subject:      evidence.SubjectRef{Kind: "resource", Name: subject},
+		ContractRef:  ordersRef,
+		Source:       "platform-adapter",
+		ObservedAt:   observed,
+		Observations: obs,
+	}
+}
+
+func provisioned(kind, name, env string) evidence.Observation {
+	return evidence.NewResourceProvisioned(evidence.SubjectRef{Kind: kind, Name: name},
+		evidence.ProvisionedObservation{Provider: "acme-db", ExternalRef: "orders-db", Phase: evidence.PhaseReady, Environment: env},
+		evidence.Provenance{Collector: "platform-adapter", DetectedAt: fixedNow().Add(-time.Minute)})
+}
+
+func provisioningAcceptor(t *testing.T, kinds []string) (*Acceptor, ed25519.PrivateKey) {
+	t.Helper()
+	pub, priv := testKeypair()
+	trust := evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: "env-a", AllowedObservationKinds: kinds}}
+	return NewAcceptor(trust, fakeResolver{c: ordersContract()}, NewMemoryStore(), fixedNow), priv
+}
+
+func TestAcceptProvisioning(t *testing.T) {
+	grant := []string{string(evidence.ResourceProvisioned)}
+	before := fixedNow().Add(-time.Minute)
+	unobserved, _ := evidence.NewUnobserved(evidence.ResourceProvisioned, evidence.SubjectRef{Kind: "configuration", Name: "db"},
+		evidence.Insufficient, evidence.Provenance{Collector: "platform-adapter", DetectedAt: before})
+	workload := evidence.NewWorkloadObserved(evidence.SubjectRef{Kind: "service", Name: "orders"}, "service",
+		evidence.Provenance{Collector: "platform-adapter", DetectedAt: before})
+	cases := []struct {
+		name  string
+		kinds []string
+		set   evidence.EvidenceSet
+		want  error
+	}{
+		{"configuration ref", grant, provisionedSet("ghcr.io/a/orders/production/db", before, provisioned("configuration", "db", "production")), nil},
+		{"dependency", grant, provisionedSet("ghcr.io/a/orders/default/postgresql", before, provisioned("dependency", "postgresql", "")), nil},
+		{"non-Observed outcome", grant, provisionedSet("ghcr.io/a/orders/default/db", before, unobserved), nil},
+		{"unknown configuration", grant, provisionedSet("ghcr.io/a/orders/production/cache", before, provisioned("configuration", "cache", "production")), ErrInvalidEvidence},
+		{"local-schema configuration", grant, provisionedSet("ghcr.io/a/orders/production/app", before, provisioned("configuration", "app", "production")), ErrInvalidEvidence},
+		{"unknown dependency", grant, provisionedSet("ghcr.io/a/orders/default/redis", before, provisioned("dependency", "redis", "")), ErrInvalidEvidence},
+		{"unknown environment", grant, provisionedSet("ghcr.io/a/orders/staging/db", before, provisioned("configuration", "db", "staging")), ErrInvalidEvidence},
+		{"mixed with WorkloadObserved", nil, provisionedSet("ghcr.io/a/orders/production/db", before, provisioned("configuration", "db", "production"), workload), evidenceenvelope.ErrKindNotAllowed},
+		{"mixed, both kinds granted", append([]string{string(evidence.WorkloadObserved)}, grant...), provisionedSet("ghcr.io/a/orders/production/db", before, provisioned("configuration", "db", "production"), workload), ErrInvalidEvidence},
+		{"key without the grant", nil, provisionedSet("ghcr.io/a/orders/production/db", before, provisioned("configuration", "db", "production")), evidenceenvelope.ErrKindNotAllowed},
+		{"subject in another repository", grant, provisionedSet("ghcr.io/b/orders/production/db", before, provisioned("configuration", "db", "production")), ErrInvalidEvidence},
+		{"subject prefix without a segment boundary", grant, provisionedSet("ghcr.io/a/orders-other/db", before, provisioned("configuration", "db", "production")), ErrInvalidEvidence},
+		{"observedAt an hour after accept", grant, provisionedSet("ghcr.io/a/orders/production/db", fixedNow().Add(time.Hour), provisioned("configuration", "db", "production")), ErrInvalidEvidence},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, priv := provisioningAcceptor(t, tc.kinds)
+			rec, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", tc.set))
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Accept = %v, want %v", err, tc.want)
+			}
+			if err == nil && (rec.Compliance != "" || len(rec.Findings) != 0 || rec.Service != "orders") {
+				t.Errorf("a provisioning record claims no compliance: %+v", rec)
+			}
+		})
+	}
+}
+
+func TestHandleTargetsProvisioning(t *testing.T) {
+	a, priv := provisioningAcceptor(t, []string{string(evidence.ResourceProvisioned), string(evidence.WorkloadObserved)})
+	before := fixedNow().Add(-time.Minute)
+	runtime := testEvidenceSet()
+	runtime.ContractRef = ordersRef
+	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", runtime)); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(a, nil, nil)
+	mux := http.NewServeMux()
+	h.Routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	var body TargetsResponse
+	getJSON(t, srv.URL+TargetsPath, &body)
+	if body.SchemaVersion != TargetsSchemaVersion || body.Provisioning != nil {
+		t.Errorf("no provisioning records: schema %q, provisioning %+v, want v2 and none", body.SchemaVersion, body.Provisioning)
+	}
+
+	set := provisionedSet("ghcr.io/a/orders/production/db", before, provisioned("configuration", "db", "production"))
+	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 2, "e2", set)); err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	getJSON(t, srv.URL+TargetsPath, &raw)
+	if p := string(raw["provisioning"]); p == "" || strings.Contains(p, "producerKeyId") {
+		t.Errorf("provisioning DTO must be listed without producerKeyId: %s", p)
+	}
+	getJSON(t, srv.URL+TargetsPath, &body)
+	if body.SchemaVersion != TargetsSchemaVersionProvisioning {
+		t.Errorf("schema = %q, want v3 with provisioning records", body.SchemaVersion)
+	}
+	if len(body.Targets) != 1 || body.Targets[0].Subject != "payments" {
+		t.Errorf("a provisioning report is never a target: %+v", body.Targets)
+	}
+	want := ProvisioningDTO{Subject: "ghcr.io/a/orders/production/db", Service: "orders", Domain: "ghcr.io/a", Digest: "sha256:" + strings.Repeat("b", 64),
+		ContractRef: ordersRef, Producer: "env-a", Kind: "configuration", Name: "db", Environment: "production",
+		Provider: "acme-db", ExternalRef: "orders-db", Phase: "Ready", Outcome: "Observed", EvidenceAt: before, AcceptedAt: fixedNow()}
+	if len(body.Provisioning) != 1 || body.Provisioning[0] != want {
+		t.Errorf("provisioning = %+v, want %+v", body.Provisioning, want)
+	}
+
+	assertSharedBudget(t, h, srv.URL)
+}
+
+// assertSharedBudget checks that targets and provisioning share one budget and
+// one truncation flag (the provisioning record sorts first in the store).
+func assertSharedBudget(t *testing.T, h *Handler, url string) {
+	t.Helper()
+	for _, tc := range []struct{ budget, targets, provisioning int }{{0, 0, 0}, {1, 0, 1}} {
+		h.maxTargets = tc.budget
+		var body TargetsResponse
+		getJSON(t, url+TargetsPath, &body)
+		if len(body.Targets) != tc.targets || len(body.Provisioning) != tc.provisioning || !body.Truncated {
+			t.Errorf("budget %d: targets %d provisioning %d truncated %v", tc.budget, len(body.Targets), len(body.Provisioning), body.Truncated)
 		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 )
 
@@ -33,6 +34,9 @@ type trustConfigKey struct {
 	PublicKeyFile        string   `yaml:"publicKeyFile"`
 	AllowedSubjects      []string `yaml:"allowedSubjects"`
 	AllowedContractRepos []string `yaml:"allowedContractRepos"`
+	// AllowedObservationKinds grants the kinds this key may report; empty keeps
+	// every runtime kind and withholds ResourceProvisioned.
+	AllowedObservationKinds []string `yaml:"allowedObservationKinds"`
 }
 
 // loadStructuredTrustStore parses a versioned trust-config file into a
@@ -110,12 +114,27 @@ func trustEntryFromConfigKey(k trustConfigKey, dir string, ts evidenceenvelope.M
 			return evidenceenvelope.TrustEntry{}, fmt.Errorf("key %q: %w", k.KeyID, err)
 		}
 	}
+	if err := validateObservationKinds(k.AllowedObservationKinds); err != nil {
+		return evidenceenvelope.TrustEntry{}, fmt.Errorf("key %q: %w", k.KeyID, err)
+	}
 	return evidenceenvelope.TrustEntry{
-		PublicKey:     pub,
-		ProducerID:    k.ProducerID,
-		Subjects:      k.AllowedSubjects,
-		ContractRepos: k.AllowedContractRepos,
+		PublicKey:               pub,
+		ProducerID:              k.ProducerID,
+		Subjects:                k.AllowedSubjects,
+		ContractRepos:           k.AllowedContractRepos,
+		AllowedObservationKinds: k.AllowedObservationKinds,
 	}, nil
+}
+
+// validateObservationKinds rejects a granted kind this build does not know, so a
+// typo never silently grants nothing.
+func validateObservationKinds(kinds []string) error {
+	for _, k := range kinds {
+		if !evidence.ObservationKind(k).Known() {
+			return fmt.Errorf("unknown observation kind %q in allowedObservationKinds", k)
+		}
+	}
+	return nil
 }
 
 // validateContractRepoPrefix rejects a malformed contract-repo allowlist prefix:

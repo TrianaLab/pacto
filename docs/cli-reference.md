@@ -651,6 +651,31 @@ pacto evidence keygen [flags]
       --producer string   producer id to bind the key to (writes <producer>__<keyId>.pub)
 ```
 
+### `pacto evidence provisioned`
+
+Writes an EvidenceSet that reports the provisioning state of the resource a consumer's configuration reference or dependency asked for. Sign it with pacto evidence sign and post it with pacto evidence send. Any adapter (a CI job, a controller, a script) can run it; Pacto keeps no provider-specific code. The subject defaults to &lt;repository&gt;/<environment or default>/&lt;name&gt;, so each resource keeps its own latest report. Prints the EvidenceSet JSON.
+
+```
+pacto evidence provisioned [flags]
+```
+
+**Flags:**
+
+```
+      --collector string       collector id recorded as provenance (defaults to pacto)
+      --configuration string   consumer configuration (with a ref) that asked for the resource
+      --contract string        consumer contract revision: oci://<repo>@sha256:<digest>
+      --dependency string      consumer dependency that asked for the resource
+      --environment string     consumer environment the resource serves
+      --external-ref string    opaque handle of the resource at the provider (at most 253 printable bytes)
+  -h, --help                   help for provisioned
+      --observed-at string     observation timestamp (RFC3339; defaults to now)
+      --outcome string         collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no phase (default "Observed")
+      --phase string           provisioning phase: Requested, Provisioning, Ready, Failed or Deleting
+      --provider string        provider slug (lowercase letters, digits and hyphens)
+      --subject string         EvidenceSet subject (defaults to <repository>/<environment or default>/<name>)
+```
+
 ### `pacto evidence send`
 
 Reads a signed envelope JSON file and POSTs it to an ingestion host's --url. Prints the host's JSON response and exits non-zero on a non-2xx status.
@@ -687,7 +712,7 @@ pacto evidence serve [flags]
 
 ### `pacto evidence sign`
 
-Reads an EvidenceSet JSON file, wraps it in an Ed25519-signed envelope and prints the envelope JSON. Only --issued-at is non-deterministic (it defaults to now), so pinning it is enough to make re-signing the same evidence produce a byte-identical envelope.
+Reads an EvidenceSet JSON file (- reads stdin), wraps it in an Ed25519-signed envelope and prints the envelope JSON. Only --issued-at is non-deterministic (it defaults to now), so pinning it is enough to make re-signing the same evidence produce a byte-identical envelope.
 
 ```
 pacto evidence sign <evidence.json> [flags]

@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
@@ -82,6 +83,7 @@ var (
 	ErrTrailingData       = errors.New("evidence envelope: unexpected trailing data after the envelope")
 	ErrProducerMismatch   = errors.New("evidence envelope: producer id is not authorized for this key")
 	ErrSubjectNotAllowed  = errors.New("evidence envelope: subject is outside the key's authorized scope")
+	ErrKindNotAllowed     = errors.New("evidence envelope: observation kind is not authorized for this key")
 )
 
 // signingBytes returns the canonical bytes signed and verified. It normalizes to
@@ -150,6 +152,19 @@ type TrustEntry struct {
 	// ContractRepos, when non-empty, is the allowlist of immutable contract-repo
 	// prefixes evidence from this key may reference. Enforced at the ingestion seam.
 	ContractRepos []string
+	// AllowedObservationKinds, when non-empty, is the allowlist of observation
+	// kinds this key may report. Empty means every kind except
+	// ResourceProvisioned, which a key reports only when it lists it, so a
+	// team's runtime-evidence key cannot certify its own resources as Ready.
+	AllowedObservationKinds []string
+}
+
+// KindAllowed reports whether this key may report observations of kind k.
+func (t TrustEntry) KindAllowed(k evidence.ObservationKind) bool {
+	if len(t.AllowedObservationKinds) == 0 {
+		return k != evidence.ResourceProvisioned
+	}
+	return slices.Contains(t.AllowedObservationKinds, string(k))
 }
 
 // TrustStore resolves a producer key id to its trust entry.
@@ -209,20 +224,33 @@ func Verify(e Envelope, ts TrustStore, now time.Time) error {
 	if !ed25519.Verify(entry.PublicKey, msg, sig) {
 		return ErrBadSignature
 	}
-	// Authenticated. Now authorize: a trusted key may only sign as its bound
-	// producer and report subjects within its allowlist — a leaked or misused key
-	// cannot impersonate another producer or report an out-of-scope subject.
-	if entry.ProducerID != "" && e.Producer.ID != entry.ProducerID {
-		return ErrProducerMismatch
-	}
-	if !subjectAllowed(entry.Subjects, e.EvidenceSet.Subject.Name) {
-		return ErrSubjectNotAllowed
+	if err := entry.authorize(e); err != nil {
+		return err
 	}
 	if !e.ExpiresAt.IsZero() && now.After(e.ExpiresAt) {
 		return ErrExpired
 	}
 	if !e.IssuedAt.IsZero() && now.Before(e.IssuedAt) {
 		return ErrNotYetValid
+	}
+	return nil
+}
+
+// authorize runs after authentication: a trusted key may only sign as its bound
+// producer, report subjects within its allowlist and report kinds it is granted,
+// so a leaked or misused key cannot impersonate another producer, report an
+// out-of-scope subject or certify provisioning it was never trusted with.
+func (t TrustEntry) authorize(e Envelope) error {
+	if t.ProducerID != "" && e.Producer.ID != t.ProducerID {
+		return ErrProducerMismatch
+	}
+	if !subjectAllowed(t.Subjects, e.EvidenceSet.Subject.Name) {
+		return ErrSubjectNotAllowed
+	}
+	for _, o := range e.EvidenceSet.Observations {
+		if !t.KindAllowed(o.Kind) {
+			return ErrKindNotAllowed
+		}
 	}
 	return nil
 }

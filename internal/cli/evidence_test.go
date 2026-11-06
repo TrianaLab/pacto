@@ -337,3 +337,44 @@ func TestEvidenceSend(t *testing.T) {
 		t.Error("expected read error")
 	}
 }
+
+func TestEvidenceProvisionedCommand(t *testing.T) {
+	ref := "oci://ghcr.io/acme/orders@sha256:" + strings.Repeat("a", 64)
+	out, err := runEvidence(t, "evidence", "provisioned", "--contract", ref, "--configuration", "db",
+		"--provider", "acme-db", "--phase", "Ready", "--environment", "production", "--external-ref", "orders-db",
+		"--observed-at", "2026-11-06T10:00:00Z", "--collector", "adapter")
+	if err != nil {
+		t.Fatalf("provisioned: %v", err)
+	}
+	var set evidence.EvidenceSet
+	if err := json.Unmarshal([]byte(out), &set); err != nil {
+		t.Fatalf("decode %q: %v", out, err)
+	}
+	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
+		t.Fatalf("invalid set: %v", errs)
+	}
+	if set.Subject.Name != "ghcr.io/acme/orders/production/db" || set.Source != "adapter" {
+		t.Errorf("set = %+v", set)
+	}
+
+	// The printed set is what sign reads from stdin.
+	_, keyPath, _ := setup(t)
+	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "dev"})
+	root.SetArgs([]string{"evidence", "sign", "--key", keyPath, "--key-id", "k1", "--producer", "p", "-"})
+	root.SetIn(strings.NewReader(out))
+	var signed bytes.Buffer
+	root.SetOut(&signed)
+	root.SetErr(&bytes.Buffer{})
+	if err := root.Execute(); err != nil || !strings.Contains(signed.String(), "ResourceProvisioned") {
+		t.Errorf("sign from stdin: %v %s", err, signed.String())
+	}
+
+	for name, args := range map[string][]string{
+		"bad observed-at": {"--configuration", "db", "--provider", "acme-db", "--phase", "Ready", "--observed-at", "nope"},
+		"control char":    {"--configuration", "db", "--provider", "acme-db", "--phase", "Ready", "--external-ref", "x\ny"},
+	} {
+		if _, err := runEvidence(t, append([]string{"evidence", "provisioned", "--contract", ref}, args...)...); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}

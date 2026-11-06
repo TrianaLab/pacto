@@ -269,3 +269,21 @@ func TestEvidenceHTTPSource_Collect_ContextCancelled(t *testing.T) {
 		t.Fatal("expected a context-cancellation error")
 	}
 }
+
+// A v3 body is v2 plus provisioning records: the reader accepts both versions.
+func TestEvidenceHTTPSource_Collect_ProvisioningSchema(t *testing.T) {
+	payload, err := json.Marshal(evidenceingest.TargetsResponse{
+		SchemaVersion: evidenceingest.TargetsSchemaVersionProvisioning,
+		Health:        evidenceingest.SourceHealth{Status: evidenceingest.HealthReady},
+		Targets:       []evidenceingest.TargetDTO{},
+		Provisioning:  []evidenceingest.ProvisioningDTO{{Subject: "ghcr.io/a/orders/default/db", Service: "orders", Kind: "configuration", Name: "db", Outcome: "Observed"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := serveJSON(t, string(payload))
+	defer srv.Close()
+	if _, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background()); err != nil {
+		t.Fatalf("a v3 body must be accepted: %v", err)
+	}
+}

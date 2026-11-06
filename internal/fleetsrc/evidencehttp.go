@@ -77,8 +77,10 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	if err := strictjson.Decode(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &body); err != nil {
 		return nil, err
 	}
-	if body.SchemaVersion != evidenceingest.TargetsSchemaVersion {
-		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q", url, body.SchemaVersion, evidenceingest.TargetsSchemaVersion)
+	// v3 is v2 plus provisioning records, which a v2 body never carries.
+	if body.SchemaVersion != evidenceingest.TargetsSchemaVersion && body.SchemaVersion != evidenceingest.TargetsSchemaVersionProvisioning {
+		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q or %q", url, body.SchemaVersion,
+			evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning)
 	}
 
 	col := &fleet.Collection{}

@@ -19,6 +19,8 @@ func allObserved() []Observation {
 		NewDependencyReachable(SubjectRef{Kind: "dependency", Name: "payments"}, true, prov()),
 		NewConfigurationPresent(SubjectRef{Kind: "configuration", Name: "app"}, true, true, prov()),
 		NewPersistenceObserved(SubjectRef{Kind: "service", Name: "orders"}, true, prov()),
+		NewResourceProvisioned(SubjectRef{Kind: "configuration", Name: "db"},
+			ProvisionedObservation{Provider: "acme-db", Phase: PhaseReady}, prov()),
 	}
 }
 
@@ -112,6 +114,12 @@ func TestAllGetters(t *testing.T) {
 	}
 }
 
+func TestProvisionedGetter(t *testing.T) {
+	if p, err := allObserved()[6].GetProvisionedObservation(); err != nil || p.Phase != PhaseReady || p.Provider != "acme-db" {
+		t.Errorf("provisioned getter: %+v %v", p, err)
+	}
+}
+
 func TestGetterGuard(t *testing.T) {
 	u, _ := NewUnobserved(CapabilityObserved, SubjectRef{Kind: "capability", Name: "health"}, Failed, prov())
 	if _, err := u.GetCapabilityObservation(); err == nil {
@@ -133,6 +141,9 @@ func TestGetterGuard(t *testing.T) {
 	}
 	if _, err := c.GetPersistenceObservation(); err == nil {
 		t.Error("persistence getter mismatch")
+	}
+	if _, err := c.GetProvisionedObservation(); err == nil {
+		t.Error("provisioned getter mismatch")
 	}
 }
 
@@ -400,5 +411,49 @@ func TestUnmarshal_RequiresVerdictKeys(t *testing.T) {
 	s := SubjectRef{Kind: "configuration", Name: "x"}
 	if _, err := json.Marshal(NewConfigurationPresent(s, true, false, prov())); err != nil {
 		t.Errorf("constructor payload rejected: %v", err)
+	}
+}
+
+func TestResourceProvisioned(t *testing.T) {
+	obs := func(subject, outcome, value string) string {
+		v := ""
+		if value != "" {
+			v = `"value":` + value + `,`
+		}
+		return `{"kind":"ResourceProvisioned","subject":{"kind":"` + subject + `","name":"db"},"outcome":"` + outcome + `",` + v +
+			`"provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"}}`
+	}
+	cases := []struct {
+		name string
+		in   string
+		ok   bool
+	}{
+		{"valid observed", obs("configuration", "Observed", `{"provider":"acme-db","externalRef":"orders-db-7f","phase":"Ready","environment":"production"}`), true},
+		{"dependency subject", obs("dependency", "Observed", `{"provider":"acme-db","phase":"Requested"}`), true},
+		{"missing phase", obs("configuration", "Observed", `{"provider":"acme-db"}`), false},
+		{"missing provider", obs("configuration", "Observed", `{"phase":"Ready"}`), false},
+		{"extra key", obs("configuration", "Observed", `{"provider":"acme-db","phase":"Ready","accountId":"123"}`), false},
+		{"provider not a slug", obs("configuration", "Observed", `{"provider":"Crossplane","phase":"Ready"}`), false},
+		{"provider too long", obs("configuration", "Observed", `{"provider":"`+strings.Repeat("a", 64)+`","phase":"Ready"}`), false},
+		{"unknown phase", obs("configuration", "Observed", `{"provider":"acme-db","phase":"Done"}`), false},
+		{"externalRef control char", obs("configuration", "Observed", `{"provider":"acme-db","phase":"Ready","externalRef":"x\ny"}`), false},
+		{"externalRef 253 bytes", obs("configuration", "Observed", `{"provider":"acme-db","phase":"Ready","externalRef":"`+strings.Repeat("x", 253)+`"}`), true},
+		{"externalRef 254 bytes", obs("configuration", "Observed", `{"provider":"acme-db","phase":"Ready","externalRef":"`+strings.Repeat("x", 254)+`"}`), false},
+		{"environment not a slug", obs("configuration", "Observed", `{"provider":"acme-db","phase":"Ready","environment":"Prod"}`), false},
+		{"interface subject", obs("interface", "Observed", `{"provider":"acme-db","phase":"Ready"}`), false},
+		{"unsupported with payload", obs("configuration", "Unsupported", `{"provider":"acme-db","phase":"Ready"}`), false},
+		{"unsupported without payload", obs("configuration", "Unsupported", ""), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var o Observation
+			err := json.Unmarshal([]byte(tc.in), &o)
+			if (err == nil) != tc.ok {
+				t.Errorf("ok=%v, err=%v", tc.ok, err)
+			}
+		})
+	}
+	if !ResourceProvisioned.Known() || ObservationKind("Bogus").Known() {
+		t.Error("Known must report ResourceProvisioned and reject an unknown kind")
 	}
 }

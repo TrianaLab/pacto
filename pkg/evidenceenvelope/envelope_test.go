@@ -396,3 +396,34 @@ func TestErrorMessagesNoKeyLeak(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyObservationKinds(t *testing.T) {
+	priv, pub := keyPair(1)
+	e := baseEnvelope()
+	e.EvidenceSet.Observations = []evidence.Observation{evidence.NewResourceProvisioned(
+		evidence.SubjectRef{Kind: "configuration", Name: "db"},
+		evidence.ProvisionedObservation{Provider: "acme-db", Phase: evidence.PhaseReady}, prov())}
+	provisioned := mustSign(t, e, priv)
+	runtime := mustSign(t, baseEnvelope(), priv)
+	entry := func(kinds ...string) MapTrustStore {
+		return MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1", AllowedObservationKinds: kinds}}
+	}
+	cases := []struct {
+		name string
+		env  Envelope
+		ts   MapTrustStore
+		want error
+	}{
+		{"empty list keeps runtime kinds", runtime, entry(), nil},
+		{"empty list excludes ResourceProvisioned", provisioned, entry(), ErrKindNotAllowed},
+		{"listed ResourceProvisioned", provisioned, entry("ResourceProvisioned"), nil},
+		{"allowlist excludes unlisted kinds", runtime, entry("ResourceProvisioned"), ErrKindNotAllowed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := Verify(tc.env, tc.ts, validNow); !errors.Is(err, tc.want) {
+				t.Errorf("Verify = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}

@@ -57,6 +57,8 @@ An assertion is one claim of the contract the operator can check. These are the 
 - `PersistenceObserved`
 - `WorkloadObserved`
 
+Provider-reported kinds: `ResourceProvisioned`. Platform adapters report them through the Evidence Server; the operator never emits them.
+
 ## Facts
 
 Details an observation can carry beyond "it is there", such as the protocol a port answers with. An empty fact means not observed: the engine lists the check in `evaluationCoverage.unverified` and never treats it as a contradiction. Values are generated from `pkg/evidence/facts.go`.
