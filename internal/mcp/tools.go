@@ -196,7 +196,7 @@ func editTool() *mcpsdk.Tool {
 		Description: "Edits an existing Pacto contract. Supports adding/removing interfaces, " +
 			"dependencies and configuration references, environments and their values, the service lifecycle, " +
 			"workload and state semantics, metadata and more. " +
-			"Validates the result before writing; when the edit writes configuration values or a provider configuration selector, " +
+			"Validates the result before writing; when the edit adds configuration references or environments or sets environment values, " +
 			"the edited bundle must pass the same check as pacto_check, so values are checked against the referenced contract's configuration schema, " +
 			"and a reference that cannot be resolved fails the edit. Nothing is written unless the check passes; then every file is written together. Supports dry_run mode. " +
 			"The result lists the changes made and warnings, such as an owner that is not a bare team name.",
