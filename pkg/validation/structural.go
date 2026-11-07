@@ -150,11 +150,11 @@ func olderThan(version, than string) bool {
 	return slices.Index(contract.SupportedVersions, version) < slices.Index(contract.SupportedVersions, than)
 }
 
-// needsServiceFields records a code error for each of the service fields only
-// pactoVersion version has, in an older contract in place of the older
+// needsServiceFields records a NEEDS_PACTO_2_4 error for each of the service
+// fields only pactoVersion 2.4 has, in an older contract in place of the older
 // schema's generic "not allowed", and returns data with a service without
 // them for that schema to check the rest.
-func needsServiceFields(result *ValidationResult, data any, version string, code finding.Code, fields ...string) any {
+func needsServiceFields(result *ValidationResult, data any, fields ...string) any {
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	svc, _ := m["service"].(map[string]any)
 	var found []string
@@ -168,7 +168,7 @@ func needsServiceFields(result *ValidationResult, data any, version string, code
 	}
 	svc = maps.Clone(svc)
 	for _, f := range found {
-		result.AddError("service."+f, string(code), fmt.Sprintf(`service.%s needs pactoVersion %q; set pactoVersion: %q, which keeps every older field`, f, version, version))
+		result.AddError("service."+f, string(finding.CodeNeedsPacto24), "service."+f+` needs pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`)
 		delete(svc, f)
 	}
 	out := maps.Clone(m)
@@ -184,7 +184,7 @@ func needsServiceFields(result *ValidationResult, data any, version string, code
 // index.
 func needs24(result *ValidationResult, data any) any {
 	const fix = `pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`
-	data = needsServiceFields(result, data, "2.4", finding.CodeNeedsPacto24, "domain", "offering", "summary", "lifecycle")
+	data = needsServiceFields(result, data, "domain", "offering", "summary", "lifecycle")
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	items, ok := m["configurations"].([]any)
 	if !ok {
