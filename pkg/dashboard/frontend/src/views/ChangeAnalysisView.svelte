@@ -18,6 +18,7 @@
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import { changeSegments, verdictSegments, confidenceSegments } from '../lib/distributions.ts';
+  import { classificationLabel, IMPACT_GATE } from '../lib/isoImpact.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
   // WHAT CHANGED between two revisions of a service, and WHAT THAT CHANGE AFFECTS in the
@@ -99,12 +100,8 @@
   // says which, rather than silently opening the wrong service or an empty search.
   let migrateNote = $state('');
 
-  // The release gate `pacto impact` exits on: blocked (1), unverified (2), clear (0).
-  const GATE = {
-    blocked: { cls: 'badge-err', label: 'Blocked' },
-    unverified: { cls: 'badge-warn', label: 'Unverified' },
-    clear: { cls: 'badge-ok', label: 'Clear' },
-  };
+  // The release gate `pacto impact` exits on, worded once for the badge and the diagram.
+  const GATE = IMPACT_GATE;
 
   function verdictClass(v) {
     if (v === 'compatible') return 'badge-ok';
@@ -327,10 +324,6 @@
   });
   // The one-line answer. Version-range verdicts are per consumer (the range each one
   // declared), never per field, and come from the backend tallies over EVERY consumer.
-  function classificationLabel(c) {
-    const t = String(c || 'unknown').replace(/_/g, ' ').toLowerCase();
-    return t.charAt(0).toUpperCase() + t.slice(1);
-  }
   const verdictCount = (k) => (consumers.byVerdict ?? []).find((b) => b.key === k)?.count ?? 0;
   const answerText = $derived.by(() => {
     if (!result) return '';
@@ -583,7 +576,7 @@
                     </td>
                     <!-- A refused guarantee breaks the consumer whatever its range accepts, so its
                          range verdict is never shown as a plain pass next to the refusal. -->
-                    <td data-label="Verdict">{#if c.unmet?.length}<span class="badge badge-neutral" title="The range verdict. The new revision still refuses a guarantee this consumer requires.">range {c.compatibilityVerdict}</span>{:else}<span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{/if}{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
+                    <td data-label="Verdict">{#if c.unmet?.length}<span class="badge badge-neutral" title="The range verdict. The new revision still refuses a guarantee this consumer requires.">range {c.compatibilityVerdict}</span>{:else}<span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span>{/if}{#if c.compatibility}<span class="consumer-range t-meta">accepts <code>{c.compatibility}</code></span>{/if}{#if c.note}<p class="text-3 consumer-note" data-testid="consumer-note">{c.note}</p>{/if}
                       {#if c.unmet?.length}
                         <div class="consumer-refused" data-testid="consumer-refused"><RequirementList unmet={c.unmet} /></div>
                       {/if}</td>
@@ -677,6 +670,7 @@
   .ca-answer-line { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: 0; font-size: var(--text-md); color: var(--c-text); }
   .consumer-refused { display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; margin-top: var(--sp-1); }
   .consumer-note { margin: var(--sp-1) 0 0; font-size: var(--text-xs); }
+  .consumer-range { display: block; margin-top: var(--sp-1); overflow-wrap: anywhere; }
   .impact-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
   .ca-stack { border-top: 1px solid var(--c-border); }
   .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; }

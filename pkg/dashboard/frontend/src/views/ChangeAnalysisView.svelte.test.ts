@@ -207,6 +207,20 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
+  it('shows the range each consumer declared in its verdict cell', async () => {
+    const res = impactResult();
+    res.consumers.items[0].compatibility = '^1.0.0';
+    impactFn.mockResolvedValue(res);
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('.consumer-range')).toBeTruthy());
+    const ranges = target.querySelectorAll('[data-testid="changes-consumers"] [data-label="Verdict"] .consumer-range');
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('accepts ^1.0.0');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('shows the release gate with its reason, and none when the answer carries no gate', async () => {
     const { target, component } = mountView({ svc: 'domain-a/payments' });
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());

@@ -184,6 +184,9 @@
   --motion-feedback: var(--dur-1) var(--ease-in-place);
   --motion-flip:     var(--dur-2) var(--ease-in-place);
   --motion-reveal:   var(--dur-3) var(--ease-arrive);
+  /* The travel of an err entrance (the isometric impact's consumer rise): transform
+     only, so contrast never dips mid-flight. Reduced motion zeroes it. */
+  --motion-rise: 6px;
 
   /* What a control is allowed to transition. Eight of the most-clicked controls in the
      product said `transition: all`, which animates every property a rule declares now AND
@@ -237,6 +240,17 @@
   --motion-alarm-period: 1.2s;
   --motion-alarm-count: 3;
 
+  /* Isometric identity: the landing hero's plane, as dashboard tokens. Slab faces and
+     sides (the side is tinted toward a tone with color-mix), the shadow under a lifted
+     drawing, and the faint 2:1 grid with its accent glow. Decorative only: no text
+     sits on --c-iso-side or --c-iso-grid. */
+  --c-iso-face: #141b2d;
+  --c-iso-side: #1b2340;
+  --c-iso-side-2: #121933;
+  --c-iso-shadow: rgba(0, 0, 0, 0.55);
+  --c-iso-grid: rgba(129, 140, 248, 0.09);
+  --c-iso-glow: rgba(129, 140, 248, 0.14);
+
   /* Layout */
   --navbar-h: 56px;
   --container-max: 1200px;
@@ -287,6 +301,13 @@
   --c-on-accent: #ffffff;
   --seg-ink: #ffffff;
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  /* The hero's default (light) isometric plane. */
+  --c-iso-face: #ffffff;
+  --c-iso-side: #e0e4fb;
+  --c-iso-side-2: #c7cdf6;
+  --c-iso-shadow: rgba(49, 46, 129, 0.22);
+  --c-iso-grid: rgba(79, 70, 229, 0.1);
+  --c-iso-glow: rgba(79, 70, 229, 0.1);
 }
 
 /* ─── Responsive token overrides ─── */
@@ -315,5 +336,6 @@
     --stagger-step: 0ms;
     --motion-alarm-period: 0s;
     --motion-alarm-count: 0;
+    --motion-rise: 0px;
   }
 }
