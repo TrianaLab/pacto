@@ -64,6 +64,21 @@
 .badge-definition { background: var(--c-neutral-bg); color: var(--c-text-2); }
 .badge-definition .badge-dot { background: var(--c-text-3); }
 
+/* C7: a badge, chip or pill never shrinks below its content. The container wraps or
+   its column gets a min-width instead. A sentence never sits in a nowrap badge: it
+   uses .badge.wrap. */
+.badge:not(.wrap), .pill {
+  flex-shrink: 0;
+  min-width: max-content;
+}
+.badge.wrap { white-space: normal; overflow-wrap: break-word; min-width: 0; }
+
+/* The grey hatch (unknown, partial, hidden) on any HTML mark, with its solid edge. */
+.hatch {
+  background: var(--c-hatch), var(--c-surface);
+  box-shadow: inset 0 0 0 1px var(--c-neutral);
+}
+
 /* ─── Pill (small inline tag) ─── */
 .pill {
   display: inline-block;
@@ -91,6 +106,7 @@
    room to spare, in a column the layout could have widened. */
 td .pill,
 td .badge {
+  min-width: 0;
   max-width: 100%;
   white-space: normal;
   overflow-wrap: break-word;
@@ -101,6 +117,7 @@ td .badge {
    otherwise let a cramped table column break a status word mid-character
    ("Complian"/"t"). Keep status badges intact. */
 td .badge.status-badge {
+  min-width: max-content;
   max-width: none;
   white-space: nowrap;
   overflow-wrap: normal;

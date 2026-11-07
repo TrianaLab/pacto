@@ -244,6 +244,10 @@
      sides (the side is tinted toward a tone with color-mix), the shadow under a lifted
      drawing, and the faint 2:1 grid with its accent glow. Decorative only: no text
      sits on --c-iso-side or --c-iso-grid. */
+  /* The grey hatch: unknown, partial and hidden, and nothing else. A pattern, so it
+     never reads as the flat grey of a benign neutral bucket; the element that wears it
+     also draws a solid 1px --c-neutral edge, which carries the contrast. */
+  --c-hatch: repeating-linear-gradient(135deg, var(--c-neutral) 0 3px, transparent 3px 6px);
   --c-iso-face: #141b2d;
   --c-iso-side: #1b2340;
   --c-iso-side-2: #121933;
@@ -289,9 +293,9 @@
   --c-info: #2563eb;
   --c-info-bg: rgba(37, 99, 235, 0.06);
   --c-info-border: rgba(37, 99, 235, 0.15);
-  /* deepened from #64748b so a neutral tag's text clears AA 4.5:1 on the inset
-     surface it sits on (was 4.34, now 4.97). */
-  --c-neutral: #5b6b80;
+  /* #586577, not #64748b: the old value gave 4.43:1 on the tinted badge background
+     and 4.34:1 on the inset surface; this clears AA 4.5:1 on both. */
+  --c-neutral: #586577;
   --c-neutral-bg: rgba(100, 116, 139, 0.06);
   /* indigo-600: deepened from #6366f1 so accent-as-text (links, badges) AND white-on-accent
      controls both clear AA 4.5:1 on the light surface (was 4.47/4.27, now 6.29/6.01). */
