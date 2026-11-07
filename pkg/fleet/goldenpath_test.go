@@ -313,7 +313,9 @@ func TestGoldenPathExcludedFromOwnerAndDomain(t *testing.T) {
 	for _, ref := range append(listRefs(t, q, KindOwner), listRefs(t, q, KindDomain)...) {
 		rows[string(ref.Kind)+"/"+ref.Key] = ref.Services
 	}
-	if n, ok := rows["owner/team:platform"]; !ok || n != 0 || rows["domain/commerce"] != 1 {
+	// An owner that only publishes golden paths has no roster row, like a domain
+	// that holds only golden paths; its page above still answers.
+	if _, ok := rows["owner/team:platform"]; ok || rows["domain/commerce"] != 1 {
 		t.Errorf("list rows = %v", rows)
 	}
 }

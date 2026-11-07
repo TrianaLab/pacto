@@ -32,6 +32,8 @@ from it need. They are never consumption:
 - the Overview service, owner, domain, readiness and attention summaries leave
   it out and count it in `goldenPaths` and `invalidGoldenPaths`; their links
   carry `template=exclude`, so a count matches its list;
+- an owner or domain that holds only golden paths has no row in the owner or
+  domain list, and its own page still answers with zero services;
 - the path's detail lists the same edges as requirements, through the
   offerings they reach.
 

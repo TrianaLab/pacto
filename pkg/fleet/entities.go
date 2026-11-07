@@ -483,13 +483,16 @@ func (q *Query) ownerListRefs() []EntityRef {
 // rows here, because they are two owners with two estates.
 func (q *Query) owners() []string {
 	seen := map[string]bool{}
+	// A golden path is no service of its owner's estate, so, like a domain that
+	// holds only golden paths, an owner that only publishes golden paths has no
+	// row. Its owner page still answers.
 	for _, s := range q.snap.Services {
-		if o := s.Owner.KeyString(); o != "" {
+		if o := s.Owner.KeyString(); o != "" && !s.Template {
 			seen[o] = true
 		}
 	}
 	for _, r := range q.snap.Revisions {
-		if o := r.Owner.KeyString(); o != "" {
+		if o := r.Owner.KeyString(); o != "" && !q.goldenPath(r.ServiceKey) {
 			seen[o] = true
 		}
 	}
