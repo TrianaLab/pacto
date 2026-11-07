@@ -17,7 +17,8 @@ The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"` or `"2.4"
 2.3 adds [`environments`](environments.md).
 2.4 adds [`service.domain`](#business-domain),
 [`service.offering`](#platform-offering) and [`service.summary`](#summary), the
-[service lifecycle](#service-lifecycle), and `values` and a
+[service lifecycle](#service-lifecycle), [`service.template`](#golden-path-template)
+and [`service.origin`](#service-origin), and `values` and a
 [`configuration`](configuration-and-policy.md#selecting-a-configuration) selector
 beside a configuration `ref`.
 Each version accepts every contract of the version before it.
@@ -53,6 +54,8 @@ Identifies the service.
 | `offering` | string | No | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. pactoVersion 2.4 |
 | `summary` | string | No | 1 to 200 characters on one line with no control characters. pactoVersion 2.4 |
 | `lifecycle` | object | No | pactoVersion 2.4. See [service lifecycle](#service-lifecycle) |
+| `template` | object | No | pactoVersion 2.4. See [golden path template](#golden-path-template) |
+| `origin` | object | No | pactoVersion 2.4. See [service origin](#service-origin) |
 
 `service` carries identity only. The contract has no `image` or `chart` field:
 how you build and deploy a service is a delivery concern that lives outside the
@@ -148,6 +151,69 @@ reference are warned with `DEPENDENCY_SERVICE_DEPRECATED`, then
 `pacto diff` reports the schedule
 ([change classification](diff.md#service-identity)). A `"2.0"` to `"2.3"`
 contract that sets `lifecycle` reports `NEEDS_PACTO_2_4`.
+
+### Golden path template
+
+`service.template` marks the contract as a
+[golden path](../golden-paths.md), which `pacto init --from` copies into a new
+service:
+
+```yaml
+pactoVersion: "2.7"
+service:
+  name: http-service
+  version: 1.0.0
+  owner: {team: platform}
+  summary: An HTTP API on the platform runtime with a PostgreSQL database and the HTTP baseline policy
+  template:
+    plugins:
+      - name: dockerfile
+        description: A Dockerfile for a Go HTTP service
+      - name: github-actions
+        description: A CI workflow that validates and publishes the contract
+        options: {go-version: "1.27"}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `plugins` | array | No | 1 to 32 [generate plugins](../plugins.md) a person may run when they create a service. `template` may be `{}` |
+| `plugins[].name` | string | Yes | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters. Pacto runs the `pacto-plugin-<name>` binary it finds. Listed once: a repeat reports `DUPLICATE_TEMPLATE_PLUGIN` |
+| `plugins[].description` | string | No | 1 to 200 characters on one line with no control characters |
+| `plugins[].options` | map of string | No | At most 32 entries, each value at most 1024 characters. Passed to the plugin |
+
+- `service.summary` describes the golden path.
+- Creation removes the path's `service.offering`, and the
+  [operational graph](../golden-paths-reference.md) gives a golden path no
+  offering membership.
+
+### Service origin
+
+`service.origin` records the golden path a service was created from:
+
+```yaml
+pactoVersion: "2.7"
+service:
+  name: gift-cards
+  version: 0.1.0
+  owner: {team: checkout}
+  domain: commerce
+  origin:
+    ref: oci://ghcr.io/trianalab/pacto/http-service:1.0.0
+    digest: sha256:c4729e2dec5851e0b9f8db46728870ceebb7706ec3894df350368b5cddfa05b3
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `ref` | string | Yes | 1 to 512 characters with no control characters. An `oci://` reference or a directory path: any other scheme or an `oci://` reference that does not parse reports `INVALID_ORIGIN_REF` |
+| `digest` | string | Yes | Pattern: `^sha256:[a-f0-9]{64}$`. The content digest of the golden path bundle, as `pacto.lock` records it |
+
+- `pacto init --from` and `pacto_create` write it, and the graph shows it
+  labelled declared.
+- A golden path derived from another golden path sets both fields.
+- Changes to either field are non-breaking
+  ([change classification](diff.md#service-identity)).
+- A `"2.0"` to `"2.6"` contract that sets `template` or `origin` reports
+  `NEEDS_PACTO_2_7`.
 
 ### OwnerInfo
 

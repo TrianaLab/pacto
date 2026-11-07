@@ -25,7 +25,12 @@ else it is hidden like the rest. A provider of a platform offering is the
 exception when its contract declares the offering and every Kubernetes source
 answered: every signed-in person sees its owner, offering and versions, with
 all its targets hidden. Its consumers follow their own namespaces, and the
-offering counts the ones you cannot see. A hidden service is never named: the dashboard says
+offering counts the ones you cannot see. A
+[golden path](../../golden-paths.md) with no Kubernetes target is visible the
+same way, with only its revisions that declare `service.template`, and counts
+the services created from it that you cannot see. A visible service whose path
+is hidden shows its origin unlinked, and `createdFrom` answers alike for a
+hidden path and an absent one. A hidden service is never named: the dashboard says
 some services are hidden, and a service page counts the hidden services it
 depends on and that depend on it. If the apiserver cannot answer, the views
 show an error, not a smaller fleet.

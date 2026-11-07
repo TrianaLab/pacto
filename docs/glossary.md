@@ -46,6 +46,7 @@ words. Where the dashboard shows a different label, the last column gives it.
 | <a id="freeze"></a>Freeze | Stop automation moving a Stage until a person unfreezes it. See [When a Stage is frozen](pactify-decide.md#when-a-stage-is-frozen) | Frozen |
 | <a id="gitlessops"></a>GitlessOps | Signed artifacts in your registry and evidence decide which version runs where, while your code and manifests stay in git. See [What GitlessOps means](manifesto.md#what-gitlessops-means) | — |
 | <a id="gitops"></a>GitOps | Keeping a cluster in line with files in git, with a tool such as Flux or Argo CD. Pacto works with it | — |
+| <a id="golden-path"></a>Golden path | A contract your platform team publishes as a starting point for new services, marked by `service.template`. `pacto init --from` copies it into a new service that records it as its `service.origin`. See [Create a service from a golden path](golden-paths.md) | Golden paths |
 | <a id="held"></a>Held change | A change waiting for a person to decide. See [Why you were asked](pactify-decide.md#why-you-were-asked) | Inbox |
 | <a id="in-toto"></a>in-toto | A standard format for signed statements about software. Every [record](#record) is an in-toto statement. See [What a record says](verify-a-record.md#what-a-record-says) | — |
 | <a id="invalid"></a>Invalid | The [compliance state](model.md#compliance-model) of a contract that fails validation. It ranks worse than [NonCompliant](#noncompliant). | Invalid |

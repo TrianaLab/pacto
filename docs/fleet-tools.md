@@ -43,6 +43,16 @@ which satisfy it, and `pacto fleet entities --consumes <offering>` lists the
 services that consume it. `pacto fleet entity offering <slug>` shows each
 consumer's [provisioning status](platform-offerings.md#provisioning-status).
 
+[Golden paths](golden-paths.md) have their own filters:
+
+- `pacto fleet entities --template` lists golden paths, and
+  `--template=exclude` leaves them out;
+- `pacto fleet entities --created-from <key>` lists the services created from
+  one golden path;
+- `pacto fleet search --template` filters a search the same way;
+- the MCP tools take `template` and `created_from`, and the dashboard lists
+  golden paths on its Golden paths tab.
+
 ```bash
 $ pacto fleet search --local ./contracts --oci ghcr.io/acme/unreachable-pacto:1.0.0
 1 of 1 service(s):

@@ -343,6 +343,10 @@ Domains are returned only to a query that asks for the `domain` kind.
 The registry path in the service key, such as `ghcr.io/acme`, is a different
 value: `domain` in the API and Registry on the dashboard.
 
+## Golden paths
+
+See the [golden paths reference](golden-paths-reference.md).
+
 ## Platform offerings
 
 See the [platform offerings reference](platform-offerings.md).

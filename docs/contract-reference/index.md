@@ -33,8 +33,8 @@ dependency `requires`, and
 which adds `environments`, and
 [`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json),
 which adds `service.domain`, `service.offering`, `service.summary`,
-`service.lifecycle` and `values` and a `configuration` selector beside a
-configuration `ref`. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
+`service.lifecycle`, `service.template` and `service.origin`, and `values` and a
+`configuration` selector beside a configuration `ref`. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
 
 ---
 

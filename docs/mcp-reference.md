@@ -90,6 +90,7 @@ Every mode except `--root` carries these four.
 - `add_environments` declares environments and creates each missing file holding `{}`. It raises `pactoVersion` to 2.3.
 - `set_environment_values` merges values into environment files. Objects merge key by key and a `null` removes its key.
 - `lifecycle` sets `service.lifecycle` (`deprecated`, `sunset`, `successor`), and `{"clear": true}` removes it. Setting it raises `pactoVersion` to 2.4.
+- `template` sets [`service.template`](contract-reference/sections.md#golden-path-template), which makes the contract a golden path: `{"plugins": [...]}` replaces it, an empty `plugins` list writes `template: {}` and `{"clear": true}` removes it. Either raises `pactoVersion` to 2.4. No input sets `service.origin`: only creation from a golden path writes it.
 
 **Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only after `pacto_check` passes.
 
@@ -164,6 +165,23 @@ flags, and `dry_run` plans without writing. See
 Without `pactify`, `pacto_create` refuses a folder that already holds
 `pacto.yaml` (change that contract with `pacto_edit`) and leaves any interface
 or schema file already there as it is, listed in `kept`.
+
+## Create a service from a golden path
+
+- `pacto_create` with `from` creates a service from a
+  [golden path](golden-paths.md), like `pacto init --from`.
+- `from` is an `oci://` reference or a directory. `name` and `owner` are
+  required; `domain`, `path`, `registry`, `describe_only` and `dry_run` match
+  the CLI flags.
+- `values` is a JSON object merged over the path's contract and `set` a JSON
+  array of `key=value` overrides, like `--values` and `--set`.
+- `run_plugins` is a JSON array of plugin names, each one the path lists.
+  Nothing else runs. A `dry_run` lists each plugin and the binary it runs.
+- `from` refuses the intent inputs, such as `interfaces`, and `pactify`,
+  `delivery` and the cluster inputs.
+- `from` serves stdio only. Over HTTP every caller would pull with the
+  server's registry credentials, read its directories and write to its paths.
+- `pacto_fleet_entities` with `template: only` lists golden paths.
 
 `pacto_create` and `pacto_edit` return `warnings` for a value that validates
 but is likely wrong, such as an owner written as `team/billing`.

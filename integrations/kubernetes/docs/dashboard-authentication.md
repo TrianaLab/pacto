@@ -20,7 +20,9 @@ follows that person's Kubernetes RBAC and every action runs as them:
   namespace see it, and counts and totals leave it out for everyone else. A
   platform offering's provider with no Kubernetes target is the exception:
   every signed-in person sees it, with its targets hidden and its hidden
-  consumers counted.
+  consumers counted. A [golden path](../../golden-paths.md) is seen the same
+  way, with only its revisions that declare `service.template`; the services
+  created from it that you may not read are counted, never named.
 
 The dashboard's ServiceAccount stays read-only: it may get, list and watch
 Stages and Operations and ask the API server what a person may read. There is

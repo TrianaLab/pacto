@@ -191,3 +191,6 @@ content digest matches and the same steps as a checklist derived from what the
 fleet observes. `pacto fleet entities --created-from http-service` and
 `pacto_fleet_entities` with `created_from` list every service created from a
 path.
+
+The [golden paths reference](golden-paths-reference.md) lists how each
+checklist step is derived.

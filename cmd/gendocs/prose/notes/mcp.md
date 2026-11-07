@@ -2,8 +2,8 @@ The **default** server exposes the four authoring tools below. A bundle referenc
 
 | Tool | Description |
 |------|-------------|
-| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |
-| `pacto_edit` | Edit an existing contract: add or remove interfaces, dependencies and configuration references, add environments and set their values, set the service lifecycle, change runtime, update metadata. Checks values against a referenced contract's schema before writing. Supports dry run. |
+| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics), or with `from` from a golden path (stdio only). Supports dry run. |
+| `pacto_edit` | Edit an existing contract: add or remove interfaces, dependencies and configuration references, add environments and set their values, set the service lifecycle or the golden path template, change runtime, update metadata. Checks values against a referenced contract's schema before writing. Supports dry run. |
 | `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 
@@ -30,12 +30,12 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 
 | Tool | Arguments |
 |------|-----------|
-| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit`, `offset` |
+| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `template` (`only` keeps golden paths, `exclude` leaves them out), `limit`, `offset` |
 | `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
 | `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`, `unowned`, `undeclared`; plus `limit`. No category, including empty input, reports every category |
 | `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
-| `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `ownership`, `status`, `sort`, `limit`, `offset` |
+| `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `template` (`only` lists golden paths, `exclude` leaves them out), `created_from` (the services created from this golden path, by service key), `ownership`, `status`, `sort`, `limit`, `offset` |
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
 | `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `limit`, `offset` |
 | `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`) and `max_nodes` |
