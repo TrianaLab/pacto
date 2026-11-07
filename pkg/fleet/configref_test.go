@@ -12,11 +12,11 @@ import (
 
 const refSchemaJSON = `{"type":"object","properties":{"size":{"enum":["small","large"]}},"required":["size"]}`
 
-// refBundle is a 2.6 contract of service at 1.0.0 whose configuration db is
+// refBundle is a 2.4 contract of service at 1.0.0 whose configuration db is
 // cfg (a flow mapping body), with files.
 func refBundle(t *testing.T, service, cfg string, files fstest.MapFS) RawRevision {
 	t.Helper()
-	y := fmt.Sprintf("pactoVersion: \"2.6\"\nservice: {name: %s, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, %s}\n", service, cfg)
+	y := fmt.Sprintf("pactoVersion: \"2.4\"\nservice: {name: %s, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, %s}\n", service, cfg)
 	if _, ok := files["prod.yaml"]; ok {
 		y += "environments:\n  - {name: prod, file: prod.yaml}\n"
 	}

@@ -24,7 +24,7 @@ func validateInterfaceLifecycle(c *contract.Contract, result *ValidationResult) 
 	}
 }
 
-// validateServiceLifecycle checks service.lifecycle (pactoVersion 2.6) like an
+// validateServiceLifecycle checks service.lifecycle (pactoVersion 2.4) like an
 // interface lifecycle, except that its successor must be an absolute URL.
 func validateServiceLifecycle(c *contract.Contract, result *ValidationResult) {
 	checkLifecycle(result, "service.lifecycle", c.Service.Lifecycle, "INVALID_SERVICE_LIFECYCLE",

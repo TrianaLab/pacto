@@ -405,7 +405,7 @@ func TestValidationReport(t *testing.T) {
 }
 
 // writeConfigRefPair writes a postgresql provider under root/pg with an enum
-// configuration schema, and a 2.6 consumer under root/orders that references
+// configuration schema, and a 2.4 consumer under root/orders that references
 // it with the given values line, and returns the consumer's directory.
 func writeConfigRefPair(t *testing.T, ref, values string) string {
 	t.Helper()
@@ -419,9 +419,9 @@ func writeConfigRefPair(t *testing.T, ref, values string) string {
 			t.Fatal(err)
 		}
 	}
-	write("pg/pacto.yaml", "pactoVersion: \"2.6\"\nservice: {name: postgresql, version: 16.1.0}\nconfigurations:\n  - {name: provisioning, schema: provisioning.json, required: false}\n")
+	write("pg/pacto.yaml", "pactoVersion: \"2.4\"\nservice: {name: postgresql, version: 16.1.0}\nconfigurations:\n  - {name: provisioning, schema: provisioning.json, required: false}\n")
 	write("pg/provisioning.json", `{"type":"object","properties":{"size":{"enum":["small","large"]}},"required":["size"]}`)
-	write("orders/pacto.yaml", "pactoVersion: \"2.6\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - name: db\n    ref: "+ref+"\n    required: true\n    values: "+values+"\n")
+	write("orders/pacto.yaml", "pactoVersion: \"2.4\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - name: db\n    ref: "+ref+"\n    required: true\n    values: "+values+"\n")
 	return filepath.Join(root, "orders")
 }
 

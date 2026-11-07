@@ -1,4 +1,4 @@
-# Field coverage inventory for the Pacto v2.6 contract schema (2.5 plus the 2.6 additions).
+# Field coverage inventory for the Pacto v2.4 contract schema (2.3 plus the 2.4 additions).
 #
 # One entry per schema path (dotted, [] for array items) and, under values, one per
 # enum value. pkg/validation/fieldcoverage_test.go walks the schema and fails when a
@@ -29,11 +29,11 @@ fields:
     meaning: Contract format version; selects the JSON Schema the contract is validated against.
     runtime: not-applicable
     evidence: 'none: the field has no runtime counterpart'
-    rule: parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4", "2.5" and "2.6" before any other layer runs; the version
+    rule: parse rejects anything but "2.0", "2.1", "2.2", "2.3" and "2.4" before any other layer runs; the version
       selects the schema
     outcomes: PARSE_ERROR when unsupported
-    limitations: 2.0, 2.1, 2.2, 2.3, 2.4 and 2.5 have their own schemas without the fields later versions add; this inventory
-      walks 2.6, the superset
+    limitations: 2.0, 2.1, 2.2 and 2.3 have their own schemas without the fields later versions add; this inventory
+      walks 2.4, the superset
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_UnsupportedVersion
@@ -43,15 +43,13 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid
       e2e: []
     values:
-      '2.6':
-        meaning: the newest Operational Contract format; 2.0, 2.1, 2.2, 2.3, 2.4 and 2.5 contracts keep working unchanged
+      '2.4':
+        meaning: the newest Operational Contract format; 2.0, 2.1, 2.2 and 2.3 contracts keep working unchanged
         runtime: static-only
         tests:
           unit:
-          - pkg/validation/structural_test.go:TestPactoVersion26
+          - pkg/validation/structural_test.go:TestPactoVersion24
           integration:
-          - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.6
-          - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.5
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2
@@ -121,51 +119,51 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.domain/needs-2.4
       e2e: []
   service.offering:
-    meaning: The kind of platform offering the service provides to other teams (pactoVersion 2.5).
+    meaning: The kind of platform offering the service provides to other teams (pactoVersion 2.4).
     runtime: static-only
     evidence: 'none: the operational graph lists providers of the same offering together'
     rule: 'schema: lowercase slug, at most 63 characters; an older pactoVersion refuses it'
-    outcomes: NEEDS_PACTO_2_5 in an older contract; SCHEMA_VIOLATION for a value that is not a slug
+    outcomes: NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for a value that is not a slug
     limitations: an open slug; Pacto attaches no provider semantics to it
     tests:
       unit:
-      - pkg/validation/structural_test.go:TestNeeds25
+      - pkg/validation/structural_test.go:TestNeeds24
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.offering/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.offering/invalid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.offering/needs-2.5
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.offering/needs-2.4
       e2e: []
   service.summary:
-    meaning: One line that says what the service is for (pactoVersion 2.5).
+    meaning: One line that says what the service is for (pactoVersion 2.4).
     runtime: static-only
     evidence: 'none: search and the operational graph show it'
     rule: 'schema: one line of 1 to 200 characters; an older pactoVersion refuses it'
-    outcomes: NEEDS_PACTO_2_5 in an older contract; SCHEMA_VIOLATION for an empty, long or multi-line value
+    outcomes: NEEDS_PACTO_2_4 in an older contract; SCHEMA_VIOLATION for an empty, long or multi-line value
     limitations: display text; never an identity
     tests:
       unit:
-      - pkg/validation/structural_test.go:TestNeeds25
+      - pkg/validation/structural_test.go:TestNeeds24
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.summary/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.summary/invalid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.summary/needs-2.5
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.summary/needs-2.4
       e2e: []
   service.lifecycle:
-    meaning: Marks the whole service deprecated and schedules its retirement; pactoVersion 2.6 only.
+    meaning: Marks the whole service deprecated and schedules its retirement; pactoVersion 2.4 only.
     runtime: static-only
     evidence: 'none: a declared schedule'
     rule: 'schema: object with deprecated; cross-field: the interface lifecycle rules with an absolute URL successor'
-    outcomes: SCHEMA_VIOLATION; NEEDS_PACTO_2_6 under 2.0 to 2.5; INVALID_SERVICE_LIFECYCLE; SERVICE_SUCCESSOR_INVALID;
+    outcomes: SCHEMA_VIOLATION; NEEDS_PACTO_2_4 under 2.0 to 2.3; INVALID_SERVICE_LIFECYCLE; SERVICE_SUCCESSOR_INVALID;
       DEPENDENCY_SERVICE_DEPRECATED or DEPENDENCY_SERVICE_SUNSET (warnings) for a consumer
     limitations: a declared schedule; Pacto retires nothing
     tests:
       unit:
-      - pkg/validation/structural_test.go:TestNeeds26
+      - pkg/validation/structural_test.go:TestNeeds24
       - pkg/validation/lifecycle_test.go:TestValidateServiceLifecycle
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle/invalid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle/needs-2.6
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle/needs-2.4
       e2e: []
   service.lifecycle.deprecated:
     meaning: Date the service was deprecated (YYYY-MM-DD).
@@ -997,7 +995,7 @@ fields:
     outcomes: INVALID_CONFIG_REF; CONFIG_REF_UNRESOLVED (validate) or CONFIG_REF_UNVERIFIED (fleet, delivery, operator);
       CONFIG_REF_AMBIGUOUS; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_CYCLE; CONFIG_REF_VERSION_OUTSIDE_RANGE; at runtime
       Compliant or CONFIGURATION_MISMATCH for a bound ConfigMap, Insufficient when the ref could not be resolved
-    limitations: before 2.6 a ref that no value or ranged dependency depends on is CONFIG_REF_UNVERIFIED (a warning) when it
+    limitations: before 2.4 a ref that no value or ranged dependency depends on is CONFIG_REF_UNVERIFIED (a warning) when it
       cannot be resolved, and an ambiguous or unknown selection is a warning; local-only validation resolves nothing and
       warns CONFIG_REF_NOT_ENFORCED; the operator pulls a ref on the host of spec.contractRef with that ref's credentials
       and any other host anonymously, and a failed pull leaves the runtime check Insufficient
@@ -1031,30 +1029,30 @@ fields:
         evidence: unverified
         reason: 'no configuration content is read off Kubernetes'
   configurations[].configuration:
-    meaning: Which configuration of the referenced contract a ref configuration takes values for (pactoVersion 2.6).
+    meaning: Which configuration of the referenced contract a ref configuration takes values for (pactoVersion 2.4).
     runtime: static-only
     evidence: 'none: it selects the provider configuration schema validation reads'
     rule: selects the referenced contract's configuration; only beside a ref; an older pactoVersion refuses it
-    outcomes: NEEDS_PACTO_2_6; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_AMBIGUOUS
+    outcomes: NEEDS_PACTO_2_4; CONFIG_REF_UNKNOWN_CONFIGURATION; CONFIG_REF_AMBIGUOUS
     limitations: required only when the referenced contract declares more than one configuration
     tests:
       unit:
-      - pkg/validation/structural_test.go:TestPactoVersion26
-      - pkg/validation/structural_test.go:TestNeeds26
+      - pkg/validation/structural_test.go:TestPactoVersion24
+      - pkg/validation/structural_test.go:TestNeeds24
       - pkg/validation/configref_test.go:TestSelectConfiguration
       - pkg/validation/configref_test.go:TestSelectConfiguration_SeverityFollowsTheConsumerVersion
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].configuration/invalid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].configuration/needs-2.6
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].configuration/needs-2.4
       e2e: []
   configurations[].values:
     meaning: Declared configuration values, validated against the schema.
     runtime: static-only
     evidence: 'none: the runtime check reads live content, not these declared values'
     rule: 'cross-field: values satisfy the schema; configuration-refs: or the referenced contract''s selected configuration
-      schema (2.6)'
-    outcomes: CONFIG_VALUES_VALIDATION_FAILED; values beside a ref under 2.0 to 2.5 are NEEDS_PACTO_2_6; ENVIRONMENT_VALUES_MISSING
-      for a required ref configuration only in 2.6
+      schema (2.4)'
+    outcomes: CONFIG_VALUES_VALIDATION_FAILED; values beside a ref under 2.0 to 2.3 are NEEDS_PACTO_2_4; ENVIRONMENT_VALUES_MISSING
+      for a required ref configuration only in 2.4
     limitations: the operator may merge spec.overrides into them before validation, and validates the merged values against
       the resolved schema of a ref; values for a ref that cannot be resolved stay unchecked (CONFIG_REF_UNVERIFIED in lenient
       callers)

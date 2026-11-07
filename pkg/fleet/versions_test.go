@@ -15,15 +15,15 @@ import (
 func versionsFleet(t *testing.T) *Query {
 	t.Helper()
 	rev := func(name, version string) *contract.Contract {
-		c := svc25(name, version, "postgresql")
+		c := svc24(name, version, "postgresql")
 		c.Workload = contract.WorkloadService
 		return c
 	}
 	old := rev("postgresql", "16.0.0")
-	old.PactoVersion = "2.6"
+	old.PactoVersion = "2.4"
 	old.Service.Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2026-03-01", Successor: "oci://ghcr.io/acme/postgresql:16.1.0"}
 	bad := mustParse(t, invalidYAML)
-	bad.PactoVersion, bad.Service.Name, bad.Service.Version, bad.Service.Offering = "2.5", "postgresql", "17.0.0", "postgresql"
+	bad.PactoVersion, bad.Service.Name, bad.Service.Version, bad.Service.Offering = "2.4", "postgresql", "17.0.0", "postgresql"
 	invalid := ociRev("ghcr.io/acme", bad, nil)
 	invalid.Bundle.RawYAML = []byte(strings.ReplaceAll(strings.ReplaceAll(invalidYAML, "bad-svc", "postgresql"), "1.0.0", "17.0.0"))
 	return buildDomainSnap(t, "oci", &Collection{
@@ -163,7 +163,7 @@ func TestProviderVersionsInUseHiddenForOfferingOnly(t *testing.T) {
 // "not in use" for any version: the hidden target may run it.
 func TestProviderVersionsInUseHiddenForPartlyVisibleProvider(t *testing.T) {
 	rev := func(version string) RawRevision {
-		c := svc25("postgresql", version, "postgresql")
+		c := svc24("postgresql", version, "postgresql")
 		c.Workload = contract.WorkloadService
 		return ociRev("ghcr.io/acme", c, nil)
 	}

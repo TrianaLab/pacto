@@ -85,17 +85,13 @@ const (
 	needs22         = "NEEDS_PACTO_2_2" // a 2.2-only part in a 2.0 or 2.1 contract
 	needs23         = "NEEDS_PACTO_2_3" // a 2.3-only part in an older contract
 	needs24         = "NEEDS_PACTO_2_4" // a 2.4-only part in an older contract
-	needs25         = "NEEDS_PACTO_2_5" // a 2.5-only part in an older contract
-	needs26         = "NEEDS_PACTO_2_6" // a 2.6-only part in an older contract
 	unmet           = "GUARANTEE_UNMET" // a requirement the provider bundle does not meet
 )
 
 var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
-	valid("pactoVersion=2.6", set("pactoVersion", "2.6")),
-	valid("pactoVersion=2.5", set("pactoVersion", "2.5"), del("service.lifecycle")),
-	valid("pactoVersion=2.4", set("pactoVersion", "2.4"), del("service.lifecycle"), del("service.offering"), del("service.summary")),
+	valid("pactoVersion=2.4", set("pactoVersion", "2.4")),
 	valid("pactoVersion=2.3", set("pactoVersion", "2.3"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary")),
 	valid("pactoVersion=2.2", set("pactoVersion", "2.2"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments")),
 	valid("pactoVersion=2.1", set("pactoVersion", "2.1"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("environments"), del("interfaces.0.lifecycle"), del("interfaces.0.guarantees"), del("interfaces.0.compatibilityEpoch"), del("dependencies.1.requires")),
@@ -112,13 +108,13 @@ var fieldCoverageCases = []fcCase{
 	invalid("service.domain/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.lifecycle"), del("service.offering"), del("service.summary")),
 	valid("service.offering/valid", set("service.offering", "postgresql")),
 	invalid("service.offering/invalid", schemaViolation, set("service.offering", "Shared Config")),
-	invalid("service.offering/needs-2.5", needs25, set("pactoVersion", "2.4"), del("service.lifecycle"), del("service.summary")),
+	invalid("service.offering/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.lifecycle"), del("service.domain"), del("service.summary")),
 	valid("service.summary/valid", set("service.summary", "Primary database for the storefront")),
 	invalid("service.summary/invalid", schemaViolation, set("service.summary", "line\nbreak")),
-	invalid("service.summary/needs-2.5", needs25, set("pactoVersion", "2.4"), del("service.lifecycle"), del("service.offering")),
+	invalid("service.summary/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.lifecycle"), del("service.domain"), del("service.offering")),
 	valid("service.lifecycle/valid", del("service.lifecycle.sunset"), del("service.lifecycle.successor")),
 	invalid("service.lifecycle/invalid", "INVALID_SERVICE_LIFECYCLE", set("service.lifecycle.sunset", "2025-01-01")),
-	invalid("service.lifecycle/needs-2.6", needs26, set("pactoVersion", "2.5")),
+	invalid("service.lifecycle/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.domain"), del("service.offering"), del("service.summary")),
 	valid("service.lifecycle.deprecated/valid", set("service.lifecycle.deprecated", "2026-06-30")),
 	invalid("service.lifecycle.deprecated/invalid", "INVALID_SERVICE_LIFECYCLE", set("service.lifecycle.deprecated", "2026-13-01")),
 	valid("service.lifecycle.sunset/valid", del("service.lifecycle.sunset")),
@@ -218,12 +214,12 @@ var fieldCoverageCases = []fcCase{
 	invalid("configurations[].name/invalid", schemaViolation, del("configurations.0.name")),
 	valid("configurations[].schema/valid", del("configurations.0.values")),
 	invalid("configurations[].schema/invalid", "FILE_NOT_FOUND", set("configurations.0.schema", "configuration/missing.json")),
-	// Before 2.6 a ref nothing depends on stays valid when it cannot be resolved; from 2.6 it fails closed.
-	warns("configurations[].ref/valid", "CONFIG_REF_UNVERIFIED", set("pactoVersion", "2.5"), del("service.lifecycle"), del("environments"), del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://ghcr.io/acme/shared-config-pacto:1.0.0")),
+	// Before 2.4 a ref nothing depends on stays valid when it cannot be resolved; from 2.4 it fails closed.
+	warns("configurations[].ref/valid", "CONFIG_REF_UNVERIFIED", set("pactoVersion", "2.3"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), del("environments"), del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://ghcr.io/acme/shared-config-pacto:1.0.0")),
 	invalid("configurations[].ref/unresolved", "CONFIG_REF_UNRESOLVED", del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://ghcr.io/acme/shared-config-pacto:1.0.0")),
 	invalid("configurations[].ref/invalid", "INVALID_CONFIG_REF", del("configurations.0.schema"), del("configurations.0.values"), set("configurations.0.ref", "oci://")),
 	invalid("configurations[].configuration/invalid", schemaViolation, set("configurations.0.configuration", "provisioning")),
-	invalid("configurations[].configuration/needs-2.6", needs26, set("pactoVersion", "2.5"), del("service.lifecycle"), set("configurations.0.configuration", "provisioning")),
+	invalid("configurations[].configuration/needs-2.4", needs24, set("pactoVersion", "2.3"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary"), set("configurations.0.configuration", "provisioning")),
 	valid("configurations[].values/valid", set("configurations.0.values.port", 9090)),
 	invalid("configurations[].values/invalid", "CONFIG_VALUES_VALIDATION_FAILED", set("configurations.0.values.port", "eighty")),
 	valid("configurations[].required/valid", set("configurations.0.required", false)),
@@ -485,11 +481,11 @@ var fieldCoverageCases = []fcCase{
 	invalid("extensions/invalid", parseError, set("extensions", "acme")),
 }
 
-// fieldCoverageBase declares every field of the v2.6 schema at least once
+// fieldCoverageBase declares every field of the v2.4 schema at least once
 // (publish.sign declares one of its three ways; the cases cover the others; a
 // ref configuration with values needs a registry, so the
 // configurations[].configuration cases add the selector themselves).
-const fieldCoverageBase = `pactoVersion: "2.6"
+const fieldCoverageBase = `pactoVersion: "2.4"
 service:
   name: orders
   version: 1.0.0

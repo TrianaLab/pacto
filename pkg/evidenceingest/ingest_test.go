@@ -767,7 +767,7 @@ var ordersRef = "oci://ghcr.io/a/orders@sha256:" + strings.Repeat("b", 64)
 
 func ordersContract() contract.Contract {
 	return contract.Contract{
-		PactoVersion: "2.6",
+		PactoVersion: "2.4",
 		Service:      contract.Service{Name: "orders"},
 		Configurations: []contract.Configuration{
 			{Name: "db", Ref: "oci://ghcr.io/platform/postgresql@sha256:" + strings.Repeat("c", 64)},

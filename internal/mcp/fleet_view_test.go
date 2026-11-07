@@ -92,7 +92,7 @@ func secretFleet(t *testing.T, extra ...fleet.ObservedEdge) *fleet.Query {
 		for _, dep := range deps {
 			d = append(d, contract.Dependency{Name: dep, Ref: "oci://x/" + dep, Required: true})
 		}
-		return &contract.Contract{PactoVersion: "2.5", Dependencies: d,
+		return &contract.Contract{PactoVersion: "2.4", Dependencies: d,
 			Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: team}, Domain: domain}}
 	}
 	src := fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{

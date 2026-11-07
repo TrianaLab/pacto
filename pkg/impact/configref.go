@@ -63,7 +63,7 @@ func revisionConfigRefVerdict(rev *fleet.ContractRevision, names []string, provi
 	}
 	refs, res := validation.ResolveConfigRefs(context.Background(), &c, fsys, validation.ConfigRefOptions{Resolver: byRef})
 	// A selection the consumer's own version makes an error, such as an
-	// ambiguous ref in 2.6, is a confirmed break, not uncertainty.
+	// ambiguous ref in 2.4, is a confirmed break, not uncertainty.
 	if len(res.Errors) > 0 {
 		var why []string
 		for _, e := range res.Errors {

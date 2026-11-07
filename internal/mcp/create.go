@@ -93,7 +93,7 @@ type DependencyInput struct {
 // published contract whose configuration this service takes. Name defaults to
 // the last segment of the ref's repository. Configuration selects which of the
 // provider's configurations it takes and Values are the service's values for
-// it; either raises pactoVersion to 2.6.
+// it; either raises pactoVersion to 2.4.
 type ConfigurationRefInput struct {
 	Name          string         `json:"name,omitempty"`
 	Ref           string         `json:"ref"`
@@ -159,7 +159,7 @@ type EditInput struct {
 	// Domain sets service.domain and raises an older pactoVersion to 2.4.
 	Domain *string
 	// Offering and Summary set service.offering and service.summary and
-	// raise an older pactoVersion to 2.5.
+	// raise an older pactoVersion to 2.4.
 	Offering *string
 	Summary  *string
 
@@ -173,7 +173,7 @@ type EditInput struct {
 	AddEnvironments         []EnvironmentInput
 	SetEnvironmentValues    []EnvironmentValuesInput
 	// Lifecycle sets or clears service.lifecycle and raises an older
-	// pactoVersion to 2.6.
+	// pactoVersion to 2.4.
 	Lifecycle *LifecycleInput
 
 	Workload                  *string
@@ -784,10 +784,10 @@ func applyServiceEdits(m map[string]any, input EditInput) []string {
 		changes = append(changes, setServiceField(m, svc, "domain", *input.Domain, "2.4")...)
 	}
 	if input.Offering != nil {
-		changes = append(changes, setServiceField(m, svc, "offering", *input.Offering, "2.5")...)
+		changes = append(changes, setServiceField(m, svc, "offering", *input.Offering, "2.4")...)
 	}
 	if input.Summary != nil {
-		changes = append(changes, setServiceField(m, svc, "summary", *input.Summary, "2.5")...)
+		changes = append(changes, setServiceField(m, svc, "summary", *input.Summary, "2.4")...)
 	}
 	if input.Lifecycle != nil {
 		changes = append(changes, setLifecycle(m, svc, *input.Lifecycle)...)
@@ -795,7 +795,7 @@ func applyServiceEdits(m map[string]any, input EditInput) []string {
 	return changes
 }
 
-// setLifecycle sets service.lifecycle, raising an older pactoVersion to 2.6,
+// setLifecycle sets service.lifecycle, raising an older pactoVersion to 2.4,
 // or removes it when in.Clear is set.
 func setLifecycle(m, svc map[string]any, in LifecycleInput) []string {
 	if in.Clear {
@@ -804,7 +804,7 @@ func setLifecycle(m, svc map[string]any, in LifecycleInput) []string {
 	}
 	lc := contract.InterfaceLifecycle{Deprecated: in.Deprecated, Sunset: in.Sunset, Successor: in.Successor}
 	svc["lifecycle"] = lc
-	return append(raiseVersion(m, "2.6"), "set service lifecycle to "+lc.String())
+	return append(raiseVersion(m, "2.4"), "set service lifecycle to "+lc.String())
 }
 
 func removeInterfaces(m map[string]any, names []string) []string {
@@ -922,7 +922,7 @@ func raiseVersion(m map[string]any, minVersion string) []string {
 }
 
 // addConfigurationRefs appends a configurations[] entry for each reference. A
-// provider configuration selector or values raise pactoVersion to 2.6.
+// provider configuration selector or values raise pactoVersion to 2.4.
 func addConfigurationRefs(m map[string]any, inputs []ConfigurationRefInput) []string {
 	if len(inputs) == 0 {
 		return nil
@@ -933,7 +933,7 @@ func addConfigurationRefs(m map[string]any, inputs []ConfigurationRefInput) []st
 		name := dependencyName(DependencyInput{Name: in.Name, Ref: in.Ref})
 		entry := map[string]any{"name": name, "ref": in.Ref, "required": in.Required}
 		if in.Configuration != "" || len(in.Values) > 0 {
-			changes = append(changes, raiseVersion(m, "2.6")...)
+			changes = append(changes, raiseVersion(m, "2.4")...)
 		}
 		if in.Configuration != "" {
 			entry["configuration"] = in.Configuration

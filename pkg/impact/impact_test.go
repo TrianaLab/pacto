@@ -813,7 +813,7 @@ func pgSchema(sizes ...string) fstest.MapFS {
 // pgContract is postgresql at version with one configuration named cfgName.
 func pgContract(version, cfgName string, iface bool) *contract.Contract {
 	c := svcContract("postgresql", version, contract.Owner{Team: "platform"})
-	c.PactoVersion = "2.6"
+	c.PactoVersion = "2.4"
 	c.Configurations = []contract.Configuration{{Name: cfgName, Schema: "schema.json"}}
 	if iface {
 		c.Interfaces = []contract.Interface{{Name: "sql", Type: contract.InterfaceTypeGRPC, Ref: "sql.proto"}}
@@ -840,12 +840,12 @@ func configRefSnap(t *testing.T, running bool, consumers ...fleet.RawRevision) *
 	return snap
 }
 
-// refConsumer is a 2.6 consumer whose db configuration references postgresql
+// refConsumer is a 2.4 consumer whose db configuration references postgresql
 // with values, optionally selecting a provider configuration and depending on
 // it too. Locked pins the reference to the 16.1.0 revision.
 func refConsumer(name, selector string, values map[string]any, locked bool, deps ...contract.Dependency) fleet.RawRevision {
 	c := svcContract(name, "1.0.0", contract.Owner{Team: name + "-team"}, deps...)
-	c.PactoVersion = "2.6"
+	c.PactoVersion = "2.4"
 	ref := "oci://x/postgresql"
 	if !locked {
 		ref += ":16"
@@ -976,7 +976,7 @@ func TestConfigRefVerdict(t *testing.T) {
 	provider := &contract.Bundle{Contract: pgContract("16.2.0", "provisioning", false), FS: pgSchema("small", "large")}
 	rev := func(values map[string]any, envs ...contract.Environment) *fleet.ContractRevision {
 		c := svcContract("orders", "1.0.0", contract.Owner{})
-		c.PactoVersion = "2.6"
+		c.PactoVersion = "2.4"
 		c.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://x/postgresql", Values: values}, {Name: "local", Schema: "local.json"}}
 		c.Environments = envs
 		return &fleet.ContractRevision{Contract: c}

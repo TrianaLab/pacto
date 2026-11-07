@@ -196,7 +196,7 @@ func TestDoc_WithConfiguration(t *testing.T) {
 // it cannot fetch is CONFIG_REF_UNVERIFIED, never a pass.
 func TestDoc_UnreachableConfigRef(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "pactoVersion: \"2.6\"\nservice:\n  name: orders\n  version: 1.0.0\nconfigurations:\n  - name: db\n    ref: oci://ghcr.io/acme/pg:16.1.0\n    required: true\n    values:\n      size: small\n"
+	yaml := "pactoVersion: \"2.4\"\nservice:\n  name: orders\n  version: 1.0.0\nconfigurations:\n  - name: db\n    ref: oci://ghcr.io/acme/pg:16.1.0\n    required: true\n    values:\n      size: small\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}

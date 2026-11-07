@@ -222,10 +222,10 @@ func TestValidate_Closure_RootViolationKept(t *testing.T) {
 }
 
 // A consumer validated with --closure is warned when a provider it depends on
-// is deprecated as a whole (service.lifecycle, pactoVersion 2.6).
+// is deprecated as a whole (service.lifecycle, pactoVersion 2.4).
 func TestValidate_Closure_DeprecatedProviderService(t *testing.T) {
 	root := t.TempDir()
-	ledger := strings.Replace(closureService("ledger", "bob@example.com"), `"2.0"`, `"2.6"`, 1)
+	ledger := strings.Replace(closureService("ledger", "bob@example.com"), `"2.0"`, `"2.4"`, 1)
 	ledger = strings.Replace(ledger, "  owner:", "  lifecycle: {deprecated: \"2026-01-15\", successor: \"oci://r/ledger-v2\"}\n  owner:", 1)
 	writeClosureFile(t, root, "ledger/pacto.yaml", ledger)
 	writeClosureFile(t, root, "payments/pacto.yaml", closureService("payments", "alice@example.com", "ledger"))

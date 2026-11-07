@@ -471,19 +471,15 @@ func TestParse_ValidStructuredOwner(t *testing.T) {
 }
 
 func TestParse_Version24(t *testing.T) {
-	c, err := contract.Parse(strings.NewReader("pactoVersion: \"2.4\"\nservice: {name: svc, version: 1.0.0}\n"))
+	c, err := contract.Parse(strings.NewReader(`pactoVersion: "2.4"
+service: {name: svc, version: 1.0.0, domain: payments, offering: postgresql, summary: Primary database, lifecycle: {deprecated: 2026-01-01, sunset: 2027-01-01, successor: "oci://ghcr.io/acme/svc-v2"}}
+configurations: [{name: db, ref: "oci://r/pg:1.0.0", configuration: provisioning, values: {size: small}, required: true}]
+`))
 	if err != nil || c.PactoVersion != "2.4" {
 		t.Fatalf("2.4: %v %v", c, err)
 	}
-}
-
-func TestParse_Version26(t *testing.T) {
-	c, err := contract.Parse(strings.NewReader(`pactoVersion: "2.6"
-service: {name: svc, version: 1.0.0, lifecycle: {deprecated: 2026-01-01, sunset: 2027-01-01, successor: "oci://ghcr.io/acme/svc-v2"}}
-configurations: [{name: db, ref: "oci://r/pg:1.0.0", configuration: provisioning, values: {size: small}, required: true}]
-`))
-	if err != nil || c.PactoVersion != "2.6" {
-		t.Fatalf("2.6: %v %v", c, err)
+	if s := c.Service; s.Domain != "payments" || s.Offering != "postgresql" || s.Summary != "Primary database" {
+		t.Fatalf("service: %+v", s)
 	}
 	if l := c.Service.Lifecycle; l == nil || l.Deprecated != "2026-01-01" || l.Sunset != "2027-01-01" || l.Successor != "oci://ghcr.io/acme/svc-v2" {
 		t.Fatalf("service lifecycle: %+v", c.Service.Lifecycle)
@@ -491,11 +487,10 @@ configurations: [{name: db, ref: "oci://r/pg:1.0.0", configuration: provisioning
 	if cfg := c.Configurations[0]; cfg.ProviderConfiguration != "provisioning" || cfg.Values["size"] != "small" {
 		t.Fatalf("configuration: %+v", cfg)
 	}
-}
-
-func TestParse_Version25(t *testing.T) {
-	c, err := contract.Parse(strings.NewReader("pactoVersion: \"2.5\"\nservice: {name: svc, version: 1.0.0, offering: postgresql, summary: Primary database}\n"))
-	if err != nil || c.PactoVersion != "2.5" || c.Service.Offering != "postgresql" || c.Service.Summary != "Primary database" {
-		t.Fatalf("2.5: %v %v", c, err)
+	for _, v := range []string{"2.5", "2.6"} {
+		_, err := contract.Parse(strings.NewReader("pactoVersion: \"" + v + "\"\nservice: {name: svc, version: 1.0.0}\n"))
+		if err == nil || !strings.Contains(err.Error(), "unsupported pactoVersion") {
+			t.Fatalf("%s: %v", v, err)
+		}
 	}
 }

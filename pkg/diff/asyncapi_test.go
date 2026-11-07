@@ -283,7 +283,7 @@ func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
 	}
 }
 
-// TestDiffAsyncAPI_DemoFixtures runs the differ over the two real AsyncAPI 2.6
+// TestDiffAsyncAPI_DemoFixtures runs the differ over the two real AsyncAPI 2.4
 // documents shipped with the demo bundles, proving the engine against real
 // content rather than only hand-built strings.
 func TestDiffAsyncAPI_DemoFixtures(t *testing.T) {

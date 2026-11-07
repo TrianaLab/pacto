@@ -14,9 +14,9 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
-// offerRev is a 2.5 revision of name in ghcr.io/acme that provides offering.
+// offerRev is a 2.4 revision of name in ghcr.io/acme that provides offering.
 func offerRev(name, version, offering, summary string) RawRevision {
-	k := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: name, Version: version, Offering: offering, Summary: summary}}
+	k := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: version, Offering: offering, Summary: summary}}
 	return RawRevision{Bundle: &contract.Bundle{Contract: k, FS: fstest.MapFS{}}, Domain: "ghcr.io/acme", Digest: "sha256:" + name + version}
 }
 
@@ -49,7 +49,7 @@ func TestOffering_FromNewestValidRevision(t *testing.T) {
 
 func TestOffering_InvalidNewestRevisionIgnored(t *testing.T) {
 	bad := mustParse(t, invalidYAML)
-	bad.PactoVersion, bad.Service.Version, bad.Service.Offering = "2.5", "2.0.0", "cache"
+	bad.PactoVersion, bad.Service.Version, bad.Service.Offering = "2.4", "2.0.0", "cache"
 	old := offerRev("bad-svc", "0.9.0", "redis", "")
 	old.Domain = ""
 	q := buildDomainSnap(t, "local", &Collection{Revisions: []RawRevision{
@@ -229,22 +229,22 @@ func testDigest(domain, name, version string) string {
 	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(domain+"/"+name+":"+version)))
 }
 
-func svc25(name, version, offering string) *contract.Contract {
-	return &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: name, Version: version, Offering: offering}}
+func svc24(name, version, offering string) *contract.Contract {
+	return &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: version, Offering: offering}}
 }
 
 func offeringDetailFleet(t *testing.T) *Query {
 	t.Helper()
-	app := svc25("platform-app-config", "1.0.1", "shared-config")
+	app := svc24("platform-app-config", "1.0.1", "shared-config")
 	app.Service.Summary, app.Service.Owner = "Shared application configuration", contract.Owner{Team: "platform"}
 	app.Configurations = []contract.Configuration{{Name: "app", Schema: "config/schema.json", Required: true}}
 	app.Policies = []contract.Policy{{Name: "p", Schema: "policy/schema.json"}}
 	files := fstest.MapFS{"config/schema.json": {Data: []byte(`{"title":"App","properties":{"logLevel":{"type":"string"}}}`)}}
-	worker := svc25("platform-worker-config", "1.2.0", "shared-config")
+	worker := svc24("platform-worker-config", "1.2.0", "shared-config")
 	worker.Workload = contract.WorkloadService
-	web := svc25("web", "1.0.0", "")
+	web := svc24("web", "1.0.0", "")
 	web.Configurations = []contract.Configuration{{Name: "app", Ref: "oci://ghcr.io/acme/platform-app-config@" + testDigest("ghcr.io/acme", "platform-app-config", "1.0.1"), Required: true}}
-	jobs := svc25("jobs", "1.0.0", "")
+	jobs := svc24("jobs", "1.0.0", "")
 	jobs.Dependencies = []contract.Dependency{
 		{Name: "platform-worker-config", Ref: "oci://ghcr.io/acme/platform-worker-config", Required: true, Compatibility: "^1.0.0"},
 		{Name: "web", Required: true}, {Name: "nowhere", Required: true},
@@ -252,7 +252,7 @@ func offeringDetailFleet(t *testing.T) *Query {
 	return buildDomainSnap(t, "oci", &Collection{Targets: []RawTarget{
 		{Scope: "prod", Kind: "k8s", Name: "app-config", Service: "platform-app-config", Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", "platform-app-config", "1.0.1")},
 	}, Revisions: []RawRevision{
-		ociRev("ghcr.io/acme", svc25("platform-app-config", "1.0.0", "shared-config"), nil),
+		ociRev("ghcr.io/acme", svc24("platform-app-config", "1.0.0", "shared-config"), nil),
 		ociRev("ghcr.io/acme", app, files), ociRev("ghcr.io/acme", worker, nil),
 		ociRev("ghcr.io/acme", web, nil), ociRev("ghcr.io/acme", jobs, nil),
 	}})
@@ -311,13 +311,13 @@ func TestOfferingDetail_Consumers(t *testing.T) {
 
 func TestOfferingDetail_SameNameDifferentRegistries(t *testing.T) {
 	cfg := func(domain, name string) *contract.Contract {
-		c := svc25(name, "1.0.0", "")
+		c := svc24(name, "1.0.0", "")
 		ref := "oci://" + domain + "/platform-app-config@" + testDigest(domain, "platform-app-config", "1.0.0")
 		c.Configurations = []contract.Configuration{{Name: "app", Ref: ref, Required: true}}
 		return c
 	}
 	p := func() *contract.Contract {
-		c := svc25("platform-app-config", "1.0.0", "shared-config")
+		c := svc24("platform-app-config", "1.0.0", "shared-config")
 		c.Configurations = []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}}
 		return c
 	}
@@ -351,7 +351,7 @@ func snippetFor(t *testing.T, raw RawRevision) *ConsumeSnippet {
 }
 
 func TestConsumeSnippet_DependencyRange(t *testing.T) {
-	c := svc25("postgresql", "16.0.1", "postgresql")
+	c := svc24("postgresql", "16.0.1", "postgresql")
 	c.Workload = contract.WorkloadService
 	sn := snippetFor(t, ociRev("ghcr.io/trianalab/pacto", c, nil))
 	want := "dependencies:\n  - name: postgresql\n    ref: oci://ghcr.io/trianalab/pacto/postgresql\n    required: true\n    compatibility: \"^16.0.0\"\n"
@@ -364,7 +364,7 @@ func TestConsumeSnippet_DependencyRange(t *testing.T) {
 // still gets the line, empty, to fill in.
 func TestConsumeSnippet_NonSemverAsksForRange(t *testing.T) {
 	for _, v := range []string{"latest", "v-next"} {
-		c := svc25("redis", v, "redis")
+		c := svc24("redis", v, "redis")
 		c.Interfaces = []contract.Interface{{Name: "resp", Type: "tcp"}}
 		sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
 		if sn == nil || sn.Compatibility != "" || !strings.Contains(sn.YAML, "    compatibility: \"\" # set a semver range") || !sn.Dependency {
@@ -376,14 +376,14 @@ func TestConsumeSnippet_NonSemverAsksForRange(t *testing.T) {
 // Every rendered snippet for a semver provider makes a valid consumer contract.
 func TestConsumeSnippet_RangesValidate(t *testing.T) {
 	for v, want := range map[string]string{"16.0.1": "^16.0.0", "0.3.1": "^0.3.0", "0.0.4": "^0.0.4", "2024.01.01-beta": "^2024.01.01-beta", "2.0.0-beta.1": "^2.0.0-beta.1", "0.3.1-rc.1": "^0.3.1-rc.1"} {
-		c := svc25("redis", v, "redis")
+		c := svc24("redis", v, "redis")
 		c.Workload = contract.WorkloadService
 		sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
 		if sn == nil || sn.Compatibility != want {
 			t.Errorf("%s: snippet = %+v, want range %s", v, sn, want)
 			continue
 		}
-		consumer := mustParse(t, "pactoVersion: \"2.5\"\nservice:\n  name: app\n  version: 1.0.0\n"+sn.YAML)
+		consumer := mustParse(t, "pactoVersion: \"2.4\"\nservice:\n  name: app\n  version: 1.0.0\n"+sn.YAML)
 		if r := validation.ValidateCrossField(consumer, fstest.MapFS{}); !r.IsValid() {
 			t.Errorf("%s: snippet %q is invalid: %+v", v, sn.YAML, r.Errors)
 		}
@@ -392,10 +392,10 @@ func TestConsumeSnippet_RangesValidate(t *testing.T) {
 
 // Providers of one offering get distinct entry names.
 func TestConsumeSnippet_ConfigurationNamedAfterProvider(t *testing.T) {
-	c := svc25("platform-app-config", "1.0.0", "shared-config")
+	c := svc24("platform-app-config", "1.0.0", "shared-config")
 	c.Configurations = []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}}
 	sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
-	want := "# values and configuration need pactoVersion \"2.6\"; run pacto lock to pin the reference\n" +
+	want := "# values and configuration need pactoVersion \"2.4\"; run pacto lock to pin the reference\n" +
 		"configurations:\n  - name: platform-app-config\n    ref: oci://ghcr.io/acme/platform-app-config:1.0.0\n    required: true\n"
 	if sn == nil || sn.YAML != want {
 		t.Errorf("snippet = %+v, want %q", sn, want)
@@ -403,7 +403,7 @@ func TestConsumeSnippet_ConfigurationNamedAfterProvider(t *testing.T) {
 }
 
 func TestConsumeSnippet_PolicyOnly(t *testing.T) {
-	c := svc25("platform-http-policy", "1.0.0", "shared-policy")
+	c := svc24("platform-http-policy", "1.0.0", "shared-policy")
 	c.Policies = []contract.Policy{{Name: "http", Schema: "policy/schema.json"}}
 	sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
 	want := "policies:\n  - name: platform-http-policy\n    ref: oci://ghcr.io/acme/platform-http-policy\n"
@@ -415,7 +415,7 @@ func TestConsumeSnippet_PolicyOnly(t *testing.T) {
 // A policy provider that declares no policy, since a declared one would apply to
 // itself, still serves the fixed-path policy/schema.json to consumers.
 func TestConsumeSnippet_FixedPathPolicy(t *testing.T) {
-	c := svc25("platform-http-policy", "1.0.1", "shared-policy")
+	c := svc24("platform-http-policy", "1.0.1", "shared-policy")
 	files := fstest.MapFS{"policy/schema.json": {Data: []byte(`{"type":"object"}`)}}
 	sn := snippetFor(t, ociRev("ghcr.io/acme", c, files))
 	want := "policies:\n  - name: platform-http-policy\n    ref: oci://ghcr.io/acme/platform-http-policy\n"
@@ -425,7 +425,7 @@ func TestConsumeSnippet_FixedPathPolicy(t *testing.T) {
 }
 
 func TestConsumeSnippet_NoOCIRef(t *testing.T) {
-	c := svc25("redis", "7.0.0", "redis")
+	c := svc24("redis", "7.0.0", "redis")
 	c.Workload = contract.WorkloadService
 	raw := ociRev("ghcr.io/acme", c, nil)
 	raw.RequestedRef = ""
@@ -437,7 +437,7 @@ func TestConsumeSnippet_NoOCIRef(t *testing.T) {
 		t.Errorf("a local file: snippet = %+v", sn)
 	}
 	// Nothing to consume.
-	if sn := snippetFor(t, ociRev("ghcr.io/acme", svc25("empty", "1.0.0", "empty"), nil)); sn != nil {
+	if sn := snippetFor(t, ociRev("ghcr.io/acme", svc24("empty", "1.0.0", "empty"), nil)); sn != nil {
 		t.Errorf("an empty contract: snippet = %+v", sn)
 	}
 }
@@ -445,8 +445,8 @@ func TestConsumeSnippet_NoOCIRef(t *testing.T) {
 // The snippet comes from the newest revision that is not invalid.
 func TestConsumeSnippet_InvalidNewestRevisionIgnored(t *testing.T) {
 	bad := mustParse(t, invalidYAML)
-	bad.PactoVersion, bad.Service.Version, bad.Service.Offering = "2.5", "2.0.0", "cache"
-	old := svc25("bad-svc", "1.4.0", "cache")
+	bad.PactoVersion, bad.Service.Version, bad.Service.Offering = "2.4", "2.0.0", "cache"
+	old := svc24("bad-svc", "1.4.0", "cache")
 	old.Workload = contract.WorkloadService
 	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
 		ociRev("", old, nil), {Bundle: &contract.Bundle{Contract: bad, RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}, RequestedRef: "oci://bad-svc:2.0.0"},
@@ -491,10 +491,10 @@ func TestEntityDetail_OfferingIsCloned(t *testing.T) {
 // Revisions of one consumer collapse into one row; when their range statuses
 // disagree it is unknown.
 func TestOfferingUses_RevisionsCollapse(t *testing.T) {
-	worker := svc25("platform-worker-config", "1.2.0", "shared-config")
+	worker := svc24("platform-worker-config", "1.2.0", "shared-config")
 	worker.Workload = contract.WorkloadService
 	jobs := func(version, compat string) RawRevision {
-		c := svc25("jobs", version, "")
+		c := svc24("jobs", version, "")
 		c.Dependencies = []contract.Dependency{{Name: "platform-worker-config", Required: true, Compatibility: compat}}
 		return ociRev("ghcr.io/acme", c, nil)
 	}
@@ -570,11 +570,11 @@ func serviceData(t *testing.T, q *Query, key ServiceKey) *ServiceDetailData {
 }
 
 func TestServiceDetail_ConsumedOfferings(t *testing.T) {
-	pg := svc25("postgresql", "16.0.1", "postgresql")
+	pg := svc24("postgresql", "16.0.1", "postgresql")
 	pg.Workload = contract.WorkloadService
-	cfg := svc25("platform-app-config", "1.0.0", "shared-config")
+	cfg := svc24("platform-app-config", "1.0.0", "shared-config")
 	cfg.Configurations = []contract.Configuration{{Name: "app", Schema: "s.json", Required: true}}
-	pay := svc25("payments", "1.0.0", "")
+	pay := svc24("payments", "1.0.0", "")
 	pay.Dependencies = []contract.Dependency{
 		{Name: "postgresql", Required: true, Compatibility: "^16.0.0"},
 		{Name: "orders", Required: true},
@@ -582,7 +582,7 @@ func TestServiceDetail_ConsumedOfferings(t *testing.T) {
 	pay.Configurations = []contract.Configuration{{Name: "app", Ref: "oci://ghcr.io/acme/platform-app-config@" + testDigest("ghcr.io/acme", "platform-app-config", "1.0.0"), Required: true}}
 	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
 		ociRev("ghcr.io/acme", pg, nil), ociRev("ghcr.io/acme", cfg, nil), ociRev("ghcr.io/acme", pay, nil),
-		ociRev("ghcr.io/acme", svc25("orders", "1.0.0", ""), nil),
+		ociRev("ghcr.io/acme", svc24("orders", "1.0.0", ""), nil),
 	}})
 	d := serviceData(t, q, NewServiceKeyDomain("ghcr.io/acme", "payments"))
 	c := d.ConsumedOfferings
@@ -605,18 +605,18 @@ func TestServiceDetail_ConsumedOfferings(t *testing.T) {
 }
 
 func TestInferredOfferings_ExactNameOnly(t *testing.T) {
-	redis := svc25("redis", "7.0.0", "redis")
+	redis := svc24("redis", "7.0.0", "redis")
 	redis.Workload = contract.WorkloadService
-	pg := svc25("postgresql", "16.0.1", "relational-db")
+	pg := svc24("postgresql", "16.0.1", "relational-db")
 	pg.Workload = contract.WorkloadService
-	app := svc25("app", "1.0.0", "")
+	app := svc24("app", "1.0.0", "")
 	app.Dependencies = []contract.Dependency{
 		{Name: "redis", External: true, Version: "7"},
 		{Name: "db", Ref: "oci://other.io/x/postgresql", Required: true},
 		{Name: "redis-cache", External: true},
 		{Name: "Redis2", External: true},
 	}
-	local := svc25("local", "1.0.0", "")
+	local := svc24("local", "1.0.0", "")
 	local.Dependencies = []contract.Dependency{{Name: "redis", Required: true}}
 	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
 		ociRev("ghcr.io/acme", redis, nil), ociRev("partners.acme.com", pg, nil),
@@ -664,10 +664,10 @@ func TestRestrictedView_ConflictFromHiddenTargetDoesNotLeak(t *testing.T) {
 
 // Consumer revisions that declare different ranges leave no range to show.
 func TestOfferingDetail_ConsumerRevisionsDisagreeOnRange(t *testing.T) {
-	pg := svc25("postgresql", "16.0.1", "postgresql")
+	pg := svc24("postgresql", "16.0.1", "postgresql")
 	pg.Workload = contract.WorkloadService
 	jobs := func(version, rng string) *contract.Contract {
-		c := svc25("jobs", version, "")
+		c := svc24("jobs", version, "")
 		c.Dependencies = []contract.Dependency{{Name: "postgresql", Ref: "oci://ghcr.io/acme/postgresql", Required: true, Compatibility: rng}}
 		return c
 	}
@@ -698,8 +698,8 @@ const pgSchema = `{
 // pgOffering is a demo-shaped postgresql 16.1.0: a workload with an
 // interface and one required provisioning configuration.
 func pgOffering() *contract.Contract {
-	c := svc25("postgresql", "16.1.0", "postgresql")
-	c.PactoVersion, c.Workload = "2.6", contract.WorkloadService
+	c := svc24("postgresql", "16.1.0", "postgresql")
+	c.PactoVersion, c.Workload = "2.4", contract.WorkloadService
 	c.Interfaces = []contract.Interface{{Name: "sql", Type: "tcp"}}
 	c.Configurations = []contract.Configuration{{Name: "provisioning", Schema: "configuration/schema.json", Required: true}}
 	return c
@@ -716,7 +716,7 @@ func TestConsumeSnippet_BothFormsWithValues(t *testing.T) {
     ref: oci://ghcr.io/trianalab/pacto/postgresql
     required: true
     compatibility: "^16.0.0"
-# values and configuration need pactoVersion "2.6"; run pacto lock to pin the reference
+# values and configuration need pactoVersion "2.4"; run pacto lock to pin the reference
 configurations:
   - name: postgresql
     ref: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
@@ -732,7 +732,7 @@ configurations:
 	if sn == nil || sn.YAML != want || !sn.Dependency || !sn.Configuration {
 		t.Fatalf("snippet = %+v\n got:\n%s\nwant:\n%s", sn, sn.YAML, want)
 	}
-	consumer := mustParse(t, "pactoVersion: \"2.6\"\nservice:\n  name: app\n  version: 1.0.0\n"+sn.YAML)
+	consumer := mustParse(t, "pactoVersion: \"2.4\"\nservice:\n  name: app\n  version: 1.0.0\n"+sn.YAML)
 	if cfg := consumer.Configurations[0]; len(cfg.Values) != 6 || cfg.Values["size"] != "medium" {
 		t.Errorf("parsed values = %+v", cfg.Values)
 	}
@@ -744,7 +744,7 @@ configurations:
 // A provider with several configurations gets a selector on each entry; several
 // required configurations get one entry each, named apart.
 func TestConsumeSnippet_SelectorOnlyForSeveralConfigurations(t *testing.T) {
-	c := svc25("platform-app-config", "1.0.0", "shared-config")
+	c := svc24("platform-app-config", "1.0.0", "shared-config")
 	c.Configurations = []contract.Configuration{{Name: "app", Schema: "a.json", Required: true}, {Name: "extra", Schema: "a.json"}}
 	sn := snippetFor(t, ociRev("ghcr.io/acme", c, nil))
 	if sn == nil || !strings.Contains(sn.YAML, "  - name: platform-app-config\n    ref: oci://ghcr.io/acme/platform-app-config:1.0.0\n    configuration: app\n    required: true\n") || strings.Contains(sn.YAML, "extra") {
@@ -760,10 +760,10 @@ func TestConsumeSnippet_SelectorOnlyForSeveralConfigurations(t *testing.T) {
 // A provider configuration that is itself a reference takes its skeleton from
 // the schema the reference resolves to.
 func TestConsumeSnippet_SkeletonThroughReference(t *testing.T) {
-	base := svc25("base-config", "1.0.0", "")
+	base := svc24("base-config", "1.0.0", "")
 	base.Configurations = []contract.Configuration{{Name: "base", Schema: "s.json", Required: true}}
 	files := fstest.MapFS{"s.json": {Data: []byte(`{"required":["region"],"properties":{"region":{"type":"string","enum":["eu","us"]}}}`)}}
-	c := svc25("platform-app-config", "1.0.0", "shared-config")
+	c := svc24("platform-app-config", "1.0.0", "shared-config")
 	c.Configurations = []contract.Configuration{{Name: "app", Ref: "oci://ghcr.io/acme/base-config@" + testDigest("ghcr.io/acme", "base-config", "1.0.0"), Required: true}}
 	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{ociRev("ghcr.io/acme", base, files), ociRev("ghcr.io/acme", c, nil)}})
 	sn := offeringData(t, q, "shared-config").Providers.Items[0].Consume
@@ -812,7 +812,7 @@ func TestConsumeSnippet_DeprecatedComment(t *testing.T) {
 // when a target runs an older one that declares no offering; service detail
 // keeps the newest in use.
 func TestConsumeSnippetMatchesCurrent(t *testing.T) {
-	old := svc25("postgresql", "16.0.0", "")
+	old := svc24("postgresql", "16.0.0", "")
 	old.Workload = contract.WorkloadService
 	q := buildDomainSnap(t, "oci", &Collection{
 		Revisions: []RawRevision{ociRev("ghcr.io/acme", old, nil), ociRev("ghcr.io/acme", pgOffering(), fstest.MapFS{"configuration/schema.json": {Data: []byte(pgSchema)}})},

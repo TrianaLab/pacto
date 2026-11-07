@@ -16,7 +16,7 @@ const pgSchema = `{"type":"object","properties":{"size":{"enum":["small","large"
 // cfgs, its schema files holding pgSchema.
 func pgBundle(version string, cfgs ...contract.Configuration) *contract.Bundle {
 	return &contract.Bundle{
-		Contract: &contract.Contract{PactoVersion: "2.6", Service: contract.Service{Name: "postgresql", Version: version}, Configurations: cfgs},
+		Contract: &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "postgresql", Version: version}, Configurations: cfgs},
 		FS:       fstest.MapFS{"provisioning.json": {Data: []byte(pgSchema)}, "bad.json": {Data: []byte(`{`)}},
 	}
 }
@@ -77,13 +77,13 @@ func TestSelectConfiguration(t *testing.T) {
 
 func TestSelectConfiguration_SeverityFollowsTheConsumerVersion(t *testing.T) {
 	r := pgResolver(map[string]*contract.Bundle{"oci://r/pg:16.1.0": pgBundle("16.1.0", provisioning, contract.Configuration{Name: "tiers", Schema: "provisioning.json"})})
-	for version, want := range map[string]string{"2.6": "E:CONFIG_REF_AMBIGUOUS@configurations[0].ref", "2.5": "W:CONFIG_REF_AMBIGUOUS@configurations[0].ref"} {
+	for version, want := range map[string]string{"2.4": "E:CONFIG_REF_AMBIGUOUS@configurations[0].ref", "2.3": "W:CONFIG_REF_AMBIGUOUS@configurations[0].ref"} {
 		refs, res := ResolveConfigRefs(t.Context(), refConsumer(version, "oci://r/pg:16.1.0", nil), nil, ConfigRefOptions{Resolver: r, Strict: true})
 		if findingCodes(res) != want || refs["db"].Schema != nil || refs["db"].Err == nil {
 			t.Fatalf("%s: got %s %+v", version, findingCodes(res), refs["db"])
 		}
 	}
-	c := refConsumer("2.6", "oci://r/pg:16.1.0", nil)
+	c := refConsumer("2.4", "oci://r/pg:16.1.0", nil)
 	c.Configurations[0].ProviderConfiguration = "nope"
 	if _, res := ResolveConfigRefs(t.Context(), c, nil, ConfigRefOptions{Resolver: r}); findingCodes(res) != "E:CONFIG_REF_UNKNOWN_CONFIGURATION@configurations[0].configuration" {
 		t.Fatalf("got %s", findingCodes(res))
@@ -114,17 +114,17 @@ func TestResolveConfigRefs(t *testing.T) {
 		strict  bool
 		want    string
 	}{
-		{"resolved", refConsumer("2.6", ref, nil), nil, good, false, true, ""},
-		{"schema missing, strict", refConsumer("2.6", ref, nil), nil, noSchema, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
-		{"schema missing, lenient", refConsumer("2.6", ref, nil), nil, noSchema, false, false, "W:CONFIG_REF_UNVERIFIED@configurations[0].ref"},
-		{"schema does not compile", refConsumer("2.6", ref, nil), nil, badSchema, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
-		{"empty bundle", refConsumer("2.6", ref, nil), nil, empty, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
-		{"resolver error", refConsumer("2.6", ref, nil), nil, nil, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
-		{"nil resolver, strict", refConsumer("2.6", ref, nil), nil, nil, true, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
-		{"nil resolver, lenient", refConsumer("2.6", ref, nil), nil, nil, true, false, "W:CONFIG_REF_UNVERIFIED@configurations[0].ref"},
-		{"2.5, nothing depends on it", refConsumer("2.5", ref, nil), nil, nil, false, true, "W:CONFIG_REF_UNVERIFIED@configurations[0].ref"},
-		{"2.5, environment values", withEnv(refConsumer("2.5", ref, nil)), envFiles, nil, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
-		{"2.5, ranged dependency", withDep(refConsumer("2.5", ref, nil)), nil, nil, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
+		{"resolved", refConsumer("2.4", ref, nil), nil, good, false, true, ""},
+		{"schema missing, strict", refConsumer("2.4", ref, nil), nil, noSchema, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
+		{"schema missing, lenient", refConsumer("2.4", ref, nil), nil, noSchema, false, false, "W:CONFIG_REF_UNVERIFIED@configurations[0].ref"},
+		{"schema does not compile", refConsumer("2.4", ref, nil), nil, badSchema, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
+		{"empty bundle", refConsumer("2.4", ref, nil), nil, empty, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
+		{"resolver error", refConsumer("2.4", ref, nil), nil, nil, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
+		{"nil resolver, strict", refConsumer("2.4", ref, nil), nil, nil, true, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
+		{"nil resolver, lenient", refConsumer("2.4", ref, nil), nil, nil, true, false, "W:CONFIG_REF_UNVERIFIED@configurations[0].ref"},
+		{"2.3, nothing depends on it", refConsumer("2.3", ref, nil), nil, nil, false, true, "W:CONFIG_REF_UNVERIFIED@configurations[0].ref"},
+		{"2.3, environment values", withEnv(refConsumer("2.3", ref, nil)), envFiles, nil, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
+		{"2.3, ranged dependency", withDep(refConsumer("2.3", ref, nil)), nil, nil, false, true, "E:CONFIG_REF_UNRESOLVED@configurations[0].ref"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var resolver BundleResolver = pgResolver(tc.bundles)
@@ -141,7 +141,7 @@ func TestResolveConfigRefs(t *testing.T) {
 			}
 		})
 	}
-	refs, _ := ResolveConfigRefs(t.Context(), refConsumer("2.6", ref, nil), nil, ConfigRefOptions{Resolver: pgResolver(good)})
+	refs, _ := ResolveConfigRefs(t.Context(), refConsumer("2.4", ref, nil), nil, ConfigRefOptions{Resolver: pgResolver(good)})
 	if r := refs["db"]; r.Selected != "provisioning" || r.ProviderName != "postgresql" || r.ProviderVersion != "16.1.0" || r.SchemaPath != "provisioning.json" || r.ProviderFS == nil {
 		t.Fatalf("got %+v", r)
 	}
@@ -150,7 +150,7 @@ func TestResolveConfigRefs(t *testing.T) {
 func TestResolveConfigRefs_FollowsAChainAndCatchesACycle(t *testing.T) {
 	// orders -> shared (a ref) -> postgresql's provisioning schema.
 	shared := &contract.Bundle{
-		Contract: &contract.Contract{PactoVersion: "2.6", Service: contract.Service{Name: "shared", Version: "1.0.0"},
+		Contract: &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "shared", Version: "1.0.0"},
 			Configurations: []contract.Configuration{{Name: "shared", Ref: "./pg", ProviderConfiguration: "provisioning"}}},
 		FS: fstest.MapFS{},
 	}
@@ -158,7 +158,7 @@ func TestResolveConfigRefs_FollowsAChainAndCatchesACycle(t *testing.T) {
 		"/c\x00./shared":  shared,
 		"/shared\x00./pg": pgBundle("16.1.0", provisioning, contract.Configuration{Name: "other", Schema: "bad.json"}),
 	}, childOf: map[string]string{"/c\x00./shared": "/shared", "/shared\x00./pg": "/pg"}}
-	refs, res := ResolveConfigRefs(t.Context(), refConsumer("2.6", "./shared", nil), nil, ConfigRefOptions{Resolver: r, Strict: true})
+	refs, res := ResolveConfigRefs(t.Context(), refConsumer("2.4", "./shared", nil), nil, ConfigRefOptions{Resolver: r, Strict: true})
 	if got := refs["db"]; findingCodes(res) != "" || got.Schema == nil || got.ProviderName != "shared" || got.Selected != "shared" || got.SchemaPath != "provisioning.json" {
 		t.Fatalf("chain: %s %+v", findingCodes(res), got)
 	}
@@ -170,13 +170,13 @@ func TestResolveConfigRefs_FollowsAChainAndCatchesACycle(t *testing.T) {
 		Configurations: []contract.Configuration{{Name: "x", Ref: "./a"}}}, FS: fstest.MapFS{}}
 	r = &originResolver{root: "/c", bundles: map[string]*contract.Bundle{"/c\x00./b": b, "/b\x00./a": a},
 		childOf: map[string]string{"/c\x00./b": "/b", "/b\x00./a": "/c"}}
-	_, res = ResolveConfigRefs(t.Context(), refConsumer("2.6", "./b", nil), nil, ConfigRefOptions{Resolver: r})
+	_, res = ResolveConfigRefs(t.Context(), refConsumer("2.4", "./b", nil), nil, ConfigRefOptions{Resolver: r})
 	if findingCodes(res) != "E:CONFIG_REF_CYCLE@configurations[0].ref" || !strings.Contains(res.Errors[0].Message, "[./b ./a ./b]") {
 		t.Fatalf("cycle: %+v", res)
 	}
 
 	// A diamond, two refs to one provider, resolves twice without a cycle.
-	c := refConsumer("2.6", "oci://r/pg:16.1.0", nil)
+	c := refConsumer("2.4", "oci://r/pg:16.1.0", nil)
 	c.Configurations = append(c.Configurations, contract.Configuration{Name: "replica", Ref: "oci://r/pg:16.1.0"})
 	refs, res = ResolveConfigRefs(t.Context(), c, nil, ConfigRefOptions{Resolver: pgResolver(map[string]*contract.Bundle{"oci://r/pg:16.1.0": pgBundle("16.1.0", provisioning)})})
 	if findingCodes(res) != "" || refs["db"].Schema == nil || refs["replica"].Schema == nil {
@@ -198,11 +198,11 @@ func (r *endlessResolver) ResolveBundle(_ context.Context, ref string) (*contrac
 // caller, unverified for the others.
 func TestResolveConfigRefs_HopLimit(t *testing.T) {
 	r := &endlessResolver{}
-	_, res := ResolveConfigRefs(t.Context(), refConsumer("2.6", "oci://evil.example/p:1", nil), nil, ConfigRefOptions{Resolver: r, Strict: true})
+	_, res := ResolveConfigRefs(t.Context(), refConsumer("2.4", "oci://evil.example/p:1", nil), nil, ConfigRefOptions{Resolver: r, Strict: true})
 	if findingCodes(res) != "E:CONFIG_REF_UNRESOLVED@configurations[0].ref" || !strings.Contains(res.Errors[0].Message, "more than 8 configuration refs") || r.calls != MaxConfigRefHops {
 		t.Fatalf("strict: %+v after %d resolves", res, r.calls)
 	}
-	_, res = ResolveConfigRefs(t.Context(), refConsumer("2.6", "oci://evil.example/p:1", nil), nil, ConfigRefOptions{Resolver: &endlessResolver{}})
+	_, res = ResolveConfigRefs(t.Context(), refConsumer("2.4", "oci://evil.example/p:1", nil), nil, ConfigRefOptions{Resolver: &endlessResolver{}})
 	if findingCodes(res) != "W:CONFIG_REF_UNVERIFIED@configurations[0].ref" {
 		t.Fatalf("lenient: %+v", res)
 	}
@@ -210,7 +210,7 @@ func TestResolveConfigRefs_HopLimit(t *testing.T) {
 
 func TestResolveConfigRefs_PlainResolver(t *testing.T) {
 	m := &mockBundleResolver{bundles: map[string]*contract.Bundle{"oci://r/pg:16.1.0": pgBundle("16.1.0", provisioning)}}
-	if refs, res := ResolveConfigRefs(t.Context(), refConsumer("2.6", "oci://r/pg:16.1.0", nil), nil, ConfigRefOptions{Resolver: m}); findingCodes(res) != "" || refs["db"].Schema == nil {
+	if refs, res := ResolveConfigRefs(t.Context(), refConsumer("2.4", "oci://r/pg:16.1.0", nil), nil, ConfigRefOptions{Resolver: m}); findingCodes(res) != "" || refs["db"].Schema == nil {
 		t.Fatalf("got %+v", res)
 	}
 }
@@ -236,27 +236,27 @@ func TestConfigRefStage(t *testing.T) {
 	}
 	pg := pgBundle("16.1.0", provisioning)
 
-	if st := stage(refConsumer("2.6", ref, map[string]any{"size": "small"}), pg, true, time.Time{}); st.Status != StagePass || codes(st) != "" {
+	if st := stage(refConsumer("2.4", ref, map[string]any{"size": "small"}), pg, true, time.Time{}); st.Status != StagePass || codes(st) != "" {
 		t.Fatalf("pass: %+v", st)
 	}
-	st := stage(refConsumer("2.6", ref, map[string]any{"size": "huge"}), pg, false, time.Time{})
+	st := stage(refConsumer("2.4", ref, map[string]any{"size": "huge"}), pg, false, time.Time{})
 	if st.Status != StageFail || codes(st) != "CONFIG_VALUES_VALIDATION_FAILED" || st.Errors[0].Path != "configurations[0].values" ||
 		!strings.Contains(st.Errors[0].Message, "configuration db at /size:") || !strings.Contains(st.Errors[0].Message, "small") {
 		t.Fatalf("invalid: %+v", st)
 	}
-	if st := stage(refConsumer("2.6", ref, map[string]any{"storageGi": 2}), pg, false, time.Time{}); !strings.Contains(st.Errors[0].Message, "configuration db at /: missing property 'size'") {
+	if st := stage(refConsumer("2.4", ref, map[string]any{"storageGi": 2}), pg, false, time.Time{}); !strings.Contains(st.Errors[0].Message, "configuration db at /: missing property 'size'") {
 		t.Fatalf("root violation: %+v", st)
 	}
-	if st := stage(refConsumer("2.6", ref, map[string]any{"size": "small"}), nil, false, time.Time{}); st.Status != StageSkip || st.Reason != "could not verify: db" || codes(st) != "CONFIG_REF_UNVERIFIED" {
+	if st := stage(refConsumer("2.4", ref, map[string]any{"size": "small"}), nil, false, time.Time{}); st.Status != StageSkip || st.Reason != "could not verify: db" || codes(st) != "CONFIG_REF_UNVERIFIED" {
 		t.Fatalf("lenient unresolved: %+v", st)
 	}
-	if st := stage(&contract.Contract{PactoVersion: "2.6"}, nil, true, time.Time{}); st.Status != StageSkip || st.Reason != "no configuration references" {
+	if st := stage(&contract.Contract{PactoVersion: "2.4"}, nil, true, time.Time{}); st.Status != StageSkip || st.Reason != "no configuration references" {
 		t.Fatalf("no refs: %+v", st)
 	}
 }
 
 func TestConfigRefStage_VersionOutsideRange(t *testing.T) {
-	c := refConsumer("2.6", pgRef, nil)
+	c := refConsumer("2.4", pgRef, nil)
 	c.Dependencies = []contract.Dependency{
 		{Name: "pg", Ref: "oci://r/pg@sha256:abc", Compatibility: "^16.0.0"},
 		{Name: "other", Ref: "oci://r/other:1.0.0", Compatibility: "^1.0.0"},
@@ -276,12 +276,12 @@ func TestConfigRefStage_ProviderLifecycle(t *testing.T) {
 
 	old := pgBundle("16.1.0", provisioning)
 	old.Contract.Service.Lifecycle = &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2027-01-01", Successor: "oci://r/pg2"}
-	st := refStage(t, refConsumer("2.6", pgRef, nil), old, true, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	st := refStage(t, refConsumer("2.4", pgRef, nil), old, true, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
 	if st.Status != StagePass || codes(st) != "DEPENDENCY_SERVICE_DEPRECATED" || st.Warnings[0].Path != "configurations[0]" ||
 		st.Warnings[0].Message != "postgresql@16.1.0 is deprecated since 2026-01-01, sunset 2027-01-01; successor oci://r/pg2" {
 		t.Fatalf("deprecated: %+v", st)
 	}
-	st = refStage(t, refConsumer("2.6", pgRef, nil), old, true, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC))
+	st = refStage(t, refConsumer("2.4", pgRef, nil), old, true, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC))
 	if codes(st) != "DEPENDENCY_SERVICE_SUNSET" || !strings.Contains(st.Warnings[0].Message, "reached its sunset 2027-01-01: it may be retired in any release") {
 		t.Fatalf("sunset: %+v", st)
 	}
@@ -299,7 +299,7 @@ func TestDependencyServiceWarnings_Bare(t *testing.T) {
 }
 
 func TestConfigRefsNotEnforced(t *testing.T) {
-	c := refConsumer("2.6", "oci://r/pg:16.1.0", map[string]any{"size": "small"})
+	c := refConsumer("2.4", "oci://r/pg:16.1.0", map[string]any{"size": "small"})
 	c.Configurations = append(c.Configurations, contract.Configuration{Name: "quiet", Ref: "oci://r/pg:16.1.0"}, contract.Configuration{Name: "envd", Ref: "oci://r/pg:16.1.0"})
 	c.Environments = []contract.Environment{{Name: "prod", File: "prod.yaml"}, {Name: "gone", File: "gone.yaml"}}
 	fsys := fstest.MapFS{"prod.yaml": {Data: []byte("envd: {size: small}\n")}}
@@ -331,41 +331,41 @@ func TestEnvironmentStageConfigRef(t *testing.T) {
 	run := func(version string, values map[string]any, required bool, env string, resolvable bool) Stage {
 		return envRefStage(t, version, values, required, env, resolvable)
 	}
-	if st := run("2.5", nil, false, "db: {size: small}\n", true); st.Status != StagePass {
+	if st := run("2.3", nil, false, "db: {size: small}\n", true); st.Status != StagePass {
 		t.Fatalf("accepts: %+v", st)
 	}
-	st := run("2.5", nil, false, "db:\n  size: huge\n", true)
+	st := run("2.3", nil, false, "db:\n  size: huge\n", true)
 	if st.Status != StageFail || codes(st) != "ENVIRONMENT_VALUES_INVALID" || st.Errors[0].File != "prod.yaml" || st.Errors[0].Line != 2 {
 		t.Fatalf("rejects: %+v", st)
 	}
-	st = run("2.5", nil, false, "db: {size: small}\n", false)
+	st = run("2.3", nil, false, "db: {size: small}\n", false)
 	if st.Status != StageSkip || codes(st) != "ENVIRONMENT_VALUES_UNVERIFIED" || !strings.Contains(st.Warnings[0].Message, "which could not be resolved: configuration db: failed to resolve ref") {
 		t.Fatalf("unresolved: %+v", st)
 	}
 }
 
-// From 2.6 a ref configuration has defaults the environment merges over, and a
+// From 2.4 a ref configuration has defaults the environment merges over, and a
 // required one must pass with them alone, exactly like a local schema.
 func TestEnvironmentStageConfigRef_Defaults(t *testing.T) {
 	run := func(version string, values map[string]any, required bool, env string, resolvable bool) Stage {
 		return envRefStage(t, version, values, required, env, resolvable)
 	}
-	if st := run("2.6", map[string]any{"size": "small"}, false, "db: {size: null, storageGi: 20}\n", true); st.Status != StageFail || !strings.Contains(st.Errors[0].Message, "missing property 'size'") {
+	if st := run("2.4", map[string]any{"size": "small"}, false, "db: {size: null, storageGi: 20}\n", true); st.Status != StageFail || !strings.Contains(st.Errors[0].Message, "missing property 'size'") {
 		t.Fatalf("null deletes: %+v", st)
 	}
-	if st := run("2.6", map[string]any{"size": "small"}, false, "db: {storageGi: 20}\n", true); st.Status != StagePass {
+	if st := run("2.4", map[string]any{"size": "small"}, false, "db: {storageGi: 20}\n", true); st.Status != StagePass {
 		t.Fatalf("merged: %+v", st)
 	}
-	if st := run("2.5", nil, true, "{}\n", true); st.Status != StagePass || codes(st) != "" {
-		t.Fatalf("2.5 required, no values: %+v", st)
+	if st := run("2.3", nil, true, "{}\n", true); st.Status != StagePass || codes(st) != "" {
+		t.Fatalf("2.3 required, no values: %+v", st)
 	}
-	if st := run("2.6", nil, true, "{}\n", true); codes(st) != "ENVIRONMENT_VALUES_MISSING" {
-		t.Fatalf("2.6 required, no values: %+v", st)
+	if st := run("2.4", nil, true, "{}\n", true); codes(st) != "ENVIRONMENT_VALUES_MISSING" {
+		t.Fatalf("2.4 required, no values: %+v", st)
 	}
 }
 
 func TestValidateStages_ConfigRefs(t *testing.T) {
-	raw := []byte(`pactoVersion: "2.6"
+	raw := []byte(`pactoVersion: "2.4"
 service: {name: orders, version: 1.0.0}
 configurations:
   - {name: db, ref: "oci://r/pg:16.1.0", required: true, values: {size: huge}}

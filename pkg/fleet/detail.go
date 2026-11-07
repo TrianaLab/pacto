@@ -332,7 +332,7 @@ type ServiceDetailData struct {
 	// service owner is taken from and where its contacts are shown. Nil when no
 	// revision declares one (the owner, if any, comes from a target).
 	OwnerRevision *EntityRef `json:"ownerRevision,omitempty"`
-	// Lifecycle is the service lifecycle (pactoVersion 2.6) the newest readable
+	// Lifecycle is the service lifecycle (pactoVersion 2.4) the newest readable
 	// revision declares; nil when it declares none.
 	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	// Capabilities are the distinct capability types the service's readable
@@ -399,7 +399,7 @@ type RevisionDetailData struct {
 	Service      EntityRef `json:"service"`
 	Version      string    `json:"version,omitempty"`
 	PactoVersion string    `json:"pactoVersion,omitempty"`
-	// Lifecycle is the service lifecycle (pactoVersion 2.6) the revision declares.
+	// Lifecycle is the service lifecycle (pactoVersion 2.4) the revision declares.
 	Lifecycle  *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	Identity   RevisionIdentity             `json:"identity"`
 	Provenance RevisionProvenance           `json:"provenance"`

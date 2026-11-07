@@ -1101,7 +1101,7 @@ func configRefPlan(t *testing.T, locked bool) Plan {
 	from, to := rev(dA, c1, old), rev(dB, c2, breaking)
 	ref := "oci://reg.example/pactos/payments"
 	consumer := bundle("checkout", "1.0.0")
-	consumer.Contract.PactoVersion = "2.6"
+	consumer.Contract.PactoVersion = "2.4"
 	consumer.Contract.Configurations = []contract.Configuration{{Name: "settings", Ref: ref + ":1"}}
 	consumerRev := fleet.RawRevision{Bundle: consumer, Domain: contract.OCIDomain(to.ContractRef), Digest: c3}
 	if locked {

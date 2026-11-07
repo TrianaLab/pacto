@@ -128,7 +128,7 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 			if hop == 0 && entry.ProviderConfiguration != "" {
 				field = "configuration"
 			}
-			return fail(code, field, !olderThan(version, "2.6"), "%s", why)
+			return fail(code, field, !olderThan(version, "2.4"), "%s", why)
 		}
 		if hop == 0 {
 			r.Selected = sel.Name
@@ -184,11 +184,11 @@ func SelectConfiguration(entry contract.Configuration, provider *contract.Contra
 	return contract.Configuration{}, "CONFIG_REF_AMBIGUOUS", fmt.Sprintf("%s declares %d configurations (%s); set configuration: <name> to pick one", who, len(names), strings.Join(names, ", "))
 }
 
-// refNeeded reports whether a value depends on resolving cfg's ref: in 2.6 its
+// refNeeded reports whether a value depends on resolving cfg's ref: in 2.4 its
 // selector and inline values do, as do environment values for it and a
 // dependency on the same repository with a compatibility to check against.
 func refNeeded(c *contract.Contract, cfg contract.Configuration, given map[string]bool) bool {
-	if !olderThan(c.PactoVersion, "2.6") || given[cfg.Name] {
+	if !olderThan(c.PactoVersion, "2.4") || given[cfg.Name] {
 		return true
 	}
 	repo := refRepository(cfg.Ref)

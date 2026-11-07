@@ -20,7 +20,7 @@ func buildProductQuery(t *testing.T) *fleet.Query {
 		for _, dep := range deps {
 			d = append(d, contract.Dependency{Name: dep, Ref: "oci://x/" + dep, Required: true})
 		}
-		return &contract.Contract{PactoVersion: "2.5", Dependencies: d, Workload: contract.WorkloadService,
+		return &contract.Contract{PactoVersion: "2.4", Dependencies: d, Workload: contract.WorkloadService,
 			Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: team}, Domain: domain, Offering: offering}}
 	}
 	src := fleet.NewMemorySource("local", "local", &fleet.Collection{Revisions: []fleet.RawRevision{

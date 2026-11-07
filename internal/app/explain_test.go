@@ -269,7 +269,7 @@ func TestExplain_Domain(t *testing.T) {
 
 func TestExplain_OfferingAndSummary(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\n  offering: postgresql\n  summary: Primary database\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  offering: postgresql\n  summary: Primary database\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
@@ -283,7 +283,7 @@ func TestExplain_OfferingAndSummary(t *testing.T) {
 
 func TestExplain_Lifecycle(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.6\"\nservice:\n  name: svc\n  version: 1.0.0\n  lifecycle:\n    deprecated: \"2026-01-01\"\n    sunset: \"2027-06-30\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  lifecycle:\n    deprecated: \"2026-01-01\"\n    sunset: \"2027-06-30\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
@@ -295,13 +295,13 @@ func TestExplain_Lifecycle(t *testing.T) {
 	}
 }
 
-// writeRequestBundle writes a 2.6 consumer whose configuration reference
+// writeRequestBundle writes a 2.4 consumer whose configuration reference
 // requests values, with two environment files merged over them.
 func writeRequestBundle(t *testing.T, staging string) string {
 	t.Helper()
 	dir := t.TempDir()
 	files := map[string]string{
-		"pacto.yaml": `pactoVersion: "2.6"
+		"pacto.yaml": `pactoVersion: "2.4"
 service:
   name: orders
   version: 1.0.0
