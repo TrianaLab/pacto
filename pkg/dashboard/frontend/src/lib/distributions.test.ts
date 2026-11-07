@@ -28,10 +28,26 @@ describe('complianceSegments', () => {
     expect(segmentTotal(s)).toBe(10);
   });
 
-  // "We cannot evaluate this" is an open question, not a benign state.
-  it('tones Unknown as a warning rather than as neutral', () => {
-    const s = complianceSegments({ unknown: 1 });
-    expect(s.find((x) => x.label === 'Unknown')?.tone).toBe('warn');
+  // "We cannot evaluate this" is an open question: never a status tone, never green,
+  // and hatched so it never reads as the flat grey of "Not evaluated".
+  it('draws Unknown as the neutral hatch and Not evaluated as a flat neutral', () => {
+    const s = complianceSegments({ unknown: 1, notEvaluated: 1 });
+    const unknown = s.find((x) => x.label === 'Unknown');
+    expect(unknown?.tone).toBe('neutral');
+    expect(unknown?.hatch).toBe(true);
+    expect(s.find((x) => x.label === 'Not evaluated')?.hatch).toBeUndefined();
+  });
+
+  // The unknown family is one look on every builder: neutral and hatched, never ok.
+  it('never tones the unknown family ok, warn or err', () => {
+    const all = [
+      ...complianceSegments({}), ...severitySegments({}), ...signatureSegments({}),
+      ...evidenceSegments({}),
+      ...verdictSegments([{ key: 'unknown', count: 1 }]), ...confidenceSegments([{ key: 'unknown', count: 1 }]),
+    ];
+    const hatched = all.filter((x) => x.hatch);
+    expect(hatched.length).toBeGreaterThanOrEqual(6);
+    for (const x of hatched) expect(x.tone, x.label).toBe('neutral');
   });
 
   it('treats a missing tally as all zeros instead of throwing', () => {
@@ -133,7 +149,8 @@ describe('impact consumer buckets', () => {
       'Declared and observed', 'Declared with a range', 'Declared only',
       'Observed only', 'Reached through another service', 'Evidence incomplete',
     ]);
-    expect(s[5].tone).toBe('warn');
+    expect(s[5].tone).toBe('neutral');
+    expect(s[5].hatch).toBe(true);
   });
 
   // A newer engine emitting a value this build has never seen must still appear in the

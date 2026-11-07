@@ -33,7 +33,7 @@ const EDGE_REST = 0.07;
 // (Cytoscape's canvas can't read CSS custom properties directly). Status has no table
 // here: it reads format.ts's, so a node cannot be a different colour from the badge on
 // the row that names it. The hand-written one omitted Invalid and NotEvaluated, so both
-// drew grey, and toned Unknown grey where every other surface toned it amber.
+// drew grey, and toned Unknown in a colour no other surface used.
 const REASON_TO_PAL: Record<string, string> = {
   non_oci_ref: 'neutral', auth_failed: 'err', no_semver_tags: 'warn', not_found: 'warn', discovering: 'accent',
 };
@@ -610,7 +610,7 @@ function resolvePalette(container: HTMLElement): Palette {
     warn: v('--c-warn', '#fbbf24'),
     err: v('--c-err', '#f87171'),
     info: v('--c-info', '#60a5fa'),
-    neutral: v('--c-neutral', '#64748b'),
+    neutral: v('--c-neutral', '#586577'),
     accent: v('--c-accent', '#818cf8'),
   };
 }

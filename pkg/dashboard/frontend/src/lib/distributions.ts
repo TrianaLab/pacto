@@ -12,12 +12,18 @@
  * preview's Items as a population: no semantics are invented in the frontend.
  */
 
-import { statusLabel, statusTone } from './format.ts';
+import { isUnknownStatus, statusLabel, statusTone } from './format.ts';
 
 export interface Segment {
   label: string;
   value: number;
   tone: 'ok' | 'warn' | 'err' | 'info' | 'neutral';
+  /**
+   * Unknown, partial and hidden are drawn as the grey hatch, never as a status tone.
+   * Set only on the unknown family, whose tone is always neutral; a plain neutral
+   * bucket ("Not evaluated") stays a flat fill so the hatch keeps one meaning.
+   */
+  hatch?: boolean;
   href?: string;
 }
 
@@ -35,6 +41,7 @@ export interface BucketState<F> {
   field: F;
   label: string;
   tone: Segment['tone'];
+  hatch?: boolean;
 }
 
 function stateSegments<F extends string>(
@@ -43,7 +50,9 @@ function stateSegments<F extends string>(
   hrefs: Record<string, string>,
 ): Segment[] {
   const t: Partial<Record<F, number>> = tally || {};
-  return states.map((s) => ({ label: s.label, value: n(t[s.field]), tone: s.tone, href: hrefs[s.field] }));
+  return states.map((s) => ({
+    label: s.label, value: n(t[s.field]), tone: s.tone, href: hrefs[s.field], ...(s.hatch ? { hatch: true } : {}),
+  }));
 }
 
 /** The label a bucket state is always shown under, for a filter chip or an <option>. */
@@ -101,7 +110,7 @@ export const COMPLIANCE_STATES: BucketState<keyof ComplianceTally>[] = [
       ['Reference', 'reference'],
       ['NotEvaluated', 'notEvaluated'],
     ] as [string, keyof ComplianceTally][]
-  ).map(([value, field]) => ({ value, field, label: statusLabel(value), tone: statusTone(value) })),
+  ).map(([value, field]) => ({ value, field, label: statusLabel(value), tone: statusTone(value), ...(isUnknownStatus(value) ? { hatch: true } : {}) })),
   // No wire value: "Other" is by definition not a status this build can filter for.
   { value: '', field: 'other', label: 'Other', tone: 'neutral' } as BucketState<keyof ComplianceTally>,
 ];
@@ -143,7 +152,7 @@ export const SEVERITY_STATES: BucketState<keyof SeverityTally>[] = [
   { value: 'error', field: 'errors', label: 'Errors', tone: 'err' },
   { value: 'warning', field: 'warnings', label: 'Warnings', tone: 'warn' },
   { value: 'info', field: 'infos', label: 'Info', tone: 'info' },
-  { value: '', field: 'unknown', label: 'Unknown severity', tone: 'neutral' },
+  { value: '', field: 'unknown', label: 'Unknown severity', tone: 'neutral', hatch: true },
 ];
 
 /** severitySegments renders a finding-severity distribution. */
@@ -167,7 +176,7 @@ export function evidenceSegments(e: { withEvidence?: number; withoutEvidence?: n
   return [
     { label: 'Fresh evidence', value: fresh, tone: 'ok' },
     { label: 'Stale evidence', value: n(w.stale), tone: 'warn' },
-    { label: 'No evidence', value: n(w.withoutEvidence), tone: 'neutral' },
+    { label: 'No evidence', value: n(w.withoutEvidence), tone: 'neutral', hatch: true },
   ];
 }
 
@@ -378,7 +387,7 @@ export const SIGNATURE_STATES: BucketState<keyof SignatureTally>[] = [
   { value: 'verified', field: 'verified', label: 'Verified', tone: 'ok' },
   { value: 'unverified', field: 'unverified', label: 'Unverified', tone: 'err' },
   { value: 'unsigned', field: 'unsigned', label: 'Unsigned', tone: 'warn' },
-  { value: 'unknown', field: 'unknown', label: 'Unknown', tone: 'neutral' },
+  { value: 'unknown', field: 'unknown', label: 'Unknown', tone: 'neutral', hatch: true },
   { value: 'not-checked', field: 'notChecked', label: 'Not checked', tone: 'neutral' },
 ];
 
@@ -417,25 +426,29 @@ export function changeSegments(c: { breaking?: number; potential?: number; nonBr
  * label and tone of each key are decided once, and an unrecognized key -- a value a
  * newer engine emits -- is shown as itself in neutral rather than dropped.
  */
-const VERDICT_META: Record<string, { label: string; tone: Segment['tone'] }> = {
+type Meta = Record<string, { label: string; tone: Segment['tone']; hatch?: boolean }>;
+
+// Unknown is the grey hatch, never warn: a verdict Pacto cannot reach is not a warning
+// about the consumer, and an amber bucket between red and green read as one.
+const VERDICT_META: Meta = {
   incompatible: { label: 'Incompatible', tone: 'err' },
+  unknown: { label: 'Compatibility unknown', tone: 'neutral', hatch: true },
   compatible: { label: 'Compatible', tone: 'ok' },
-  unknown: { label: 'Compatibility unknown', tone: 'warn' },
 };
 
-const CONFIDENCE_META: Record<string, { label: string; tone: Segment['tone'] }> = {
+const CONFIDENCE_META: Meta = {
   corroborated: { label: 'Declared and observed', tone: 'ok' },
   contractual: { label: 'Declared with a range', tone: 'ok' },
   declared: { label: 'Declared only', tone: 'info' },
   observed: { label: 'Observed only', tone: 'info' },
   inferred: { label: 'Reached through another service', tone: 'neutral' },
-  unknown: { label: 'Evidence incomplete', tone: 'warn' },
+  unknown: { label: 'Evidence incomplete', tone: 'neutral', hatch: true },
 };
 
-function buckets(items: { key?: string; count?: number }[] | undefined, meta: Record<string, { label: string; tone: Segment['tone'] }>): Segment[] {
+function buckets(items: { key?: string; count?: number }[] | undefined, meta: Meta): Segment[] {
   return (items || []).map((b) => {
     const m = meta[b.key || ''];
-    return { label: m?.label ?? (b.key || 'Unknown'), value: n(b.count), tone: m?.tone ?? 'neutral' };
+    return { label: m?.label ?? (b.key || 'Unknown'), value: n(b.count), tone: m?.tone ?? 'neutral', ...(m?.hatch ? { hatch: true } : {}) };
   });
 }
 

@@ -83,7 +83,7 @@
   // answer ("nothing is running for this owner") and dropping it deletes information.
   const rows = $derived([
     ...segments.map((s) => ({ ...s, value: s.value || 0 })),
-    ...(rest > 0 ? [{ label: 'Unclassified', value: rest, tone: 'neutral' }] : []),
+    ...(rest > 0 ? [{ label: 'Unclassified', value: rest, tone: 'neutral', hatch: true }] : []),
   ].filter((s) => s.value > 0));
   // An authoritative population of zero that the buckets nonetheless counted against.
   // Distinct from "nothing to show": there IS something on screen, and it contradicts
@@ -178,6 +178,7 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span
           class="dist-seg tone-{r.tone || 'neutral'}"
+          class:hatch={r.hatch}
           class:dim={dimmed(r.label)}
           class:sel={selected === r.label}
           data-motion
@@ -201,13 +202,13 @@
         >
           {#if r.href}
             <a href={r.href} aria-current={selected === r.label ? 'true' : undefined}>
-              <span class="dist-swatch" aria-hidden="true"></span>
+              <span class="dist-swatch" class:hatch={r.hatch} aria-hidden="true"></span>
               <span class="dist-label">{r.label}</span>
               <span class="dist-value">{formatCount(r.value)}</span>
               {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
             </a>
           {:else}
-            <span class="dist-swatch" aria-hidden="true"></span>
+            <span class="dist-swatch" class:hatch={r.hatch} aria-hidden="true"></span>
             <span class="dist-label">{r.label}</span>
             <span class="dist-value">{formatCount(r.value)}</span>
             {#if !one}<span class="dist-pct">{pctLabel(r.value)}</span>{/if}
@@ -298,6 +299,13 @@
   }
   .dist-value { font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
   .dist-pct { font-size: var(--text-xs); color: var(--c-text-3); }
+  /* Unknown, partial and hidden: the grey hatch with its solid edge (components.css). */
+  .dist-seg.hatch, .dist-swatch.hatch {
+    background: var(--c-hatch), var(--c-surface);
+    box-shadow: inset 0 0 0 1px var(--c-neutral);
+    border-color: var(--c-neutral);
+  }
+  .dist-seg.hatch .dist-seg-text { color: var(--c-text); background: var(--c-surface); border-radius: 2px; }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }
   .tone-err { --tone-c: var(--c-err); }
