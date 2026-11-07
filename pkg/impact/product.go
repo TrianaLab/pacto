@@ -328,11 +328,14 @@ func highlightRank(c ProductConsumer) int {
 }
 
 // verdictOrder and confidenceOrder are the canonical display orders of the two
-// consumer dimensions, worst/strongest first. They are declared here rather than
+// consumer dimensions, worst/strongest first. Verdicts follow the dashboard's one
+// order for every distribution: err, warn, unknown, ok, so unknown sits between
+// incompatible and compatible and never next to the green bucket's place by accident.
+// They are declared here rather than
 // derived from the data so an empty bucket keeps its place and the chart does not
 // reorder itself between two analyses of the same change.
 var (
-	verdictOrder    = []string{CompatibilityIncompatible, CompatibilityCompatible, CompatibilityUnknown}
+	verdictOrder    = []string{CompatibilityIncompatible, CompatibilityUnknown, CompatibilityCompatible}
 	confidenceOrder = []string{
 		string(ConfidenceCorroborated), string(ConfidenceContractual), string(ConfidenceDeclared),
 		string(ConfidenceObserved), string(ConfidenceInferred), string(ConfidenceUnknown),

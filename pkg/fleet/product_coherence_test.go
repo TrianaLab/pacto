@@ -329,3 +329,29 @@ func TestSourceDetail_ContributionSurvivesThePreviewBound(t *testing.T) {
 		t.Errorf("contributed = %+v, want the complete %+v rather than the bounded preview", src.Contributed, want)
 	}
 }
+
+// SOURCE COUNTS SUM TO THE TOTAL, OR THE SHORTFALL IS EXACTLY THE UNRECOGNIZED SOURCES.
+//
+// A figure draws the four buckets against Total and shows any shortfall as an
+// unclassified lane. That only works if the buckets never overlap and Total is the
+// whole population.
+func TestSourceCounts_SumToTotal(t *testing.T) {
+	statuses := []SourceStatus{SourceAvailable, SourcePartial, SourceStale, SourceUnavailable, SourceStatus("future")}
+	var ss []SourceState
+	for i := 0; i < 23; i++ {
+		ss = append(ss, SourceState{ID: fmt.Sprintf("s%d", i), Status: statuses[i%len(statuses)]})
+	}
+	c := sourceCounts(ss)
+	if c.Total != len(ss) {
+		t.Fatalf("total = %d, want %d", c.Total, len(ss))
+	}
+	unrecognized := 0
+	for _, s := range ss {
+		if s.Status == "future" {
+			unrecognized++
+		}
+	}
+	if sum := c.Available + c.Partial + c.Stale + c.Unavailable; sum+unrecognized != c.Total {
+		t.Errorf("buckets %+v sum to %d, plus %d unrecognized, want total %d", c, sum, unrecognized, c.Total)
+	}
+}

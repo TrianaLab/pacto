@@ -385,3 +385,19 @@ func TestBuildProduct_HiddenUnderRestrict(t *testing.T) {
 		t.Errorf("hidden %d, total %d, items %+v", page.Hidden, page.Total, page.Items)
 	}
 }
+
+// TestVerdictOrder pins the canonical order the dashboard draws: err, unknown, ok.
+// Every bucket is emitted even when empty, so a lane keeps its place between two
+// analyses of the same change.
+func TestVerdictOrder(t *testing.T) {
+	got := tallyConsumers(nil, verdictOrder, func(c ProductConsumer) string { return c.CompatibilityVerdict })
+	want := []string{CompatibilityIncompatible, CompatibilityUnknown, CompatibilityCompatible}
+	if len(got) != len(want) {
+		t.Fatalf("buckets = %+v, want %v", got, want)
+	}
+	for i, b := range got {
+		if b.Key != want[i] || b.Count != 0 {
+			t.Errorf("bucket %d = %+v, want {%s 0}", i, b, want[i])
+		}
+	}
+}
