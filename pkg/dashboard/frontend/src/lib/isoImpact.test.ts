@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { slab, ringPath, fit, verdictOf, TONE, classificationLabel, IMPACT_GATE, layoutImpact } from './isoImpact.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
@@ -95,6 +97,13 @@ describe('verdictOf', () => {
       expect(verdictOf(consumer('a', { compatibilityVerdict: v }))).toBe('unknown');
     }
     expect(TONE.unknown).toBe('neutral');
+  });
+  it('ranks the shared Go fixture exactly as highlightRank does', () => {
+    // pkg/impact/highlight_rank_test.go runs highlightRank over the same file.
+    const cases: Any[] = JSON.parse(readFileSync(join(process.cwd(), '../../impact/testdata/highlight-rank.json'), 'utf8'));
+    expect(cases.length).toBeGreaterThan(0);
+    const rank = (c: Any) => (c.blocking ? 0 : ({ err: 1, neutral: 2, ok: 3 } as Any)[TONE[verdictOf(c)]]);
+    for (const c of cases) expect(rank(c), c.name).toBe(c.rank);
   });
   it('agrees with the Go highlight ranking', () => {
     const L = layoutImpact(twelve());
