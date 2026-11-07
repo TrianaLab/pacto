@@ -42,7 +42,9 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"'reconciliation'; each graph node says how it was reached. Say which kind each fact is: " +
 	"declared in a contract, observed at runtime or inferred. Pacto uses 'inferred' in three " +
 	"places: a transitive consumer in pacto_impact, a target linked to a revision by tag or " +
-	"version match and a relationship provenance reserved for future use. Use " +
+	"version match and a relationship provenance reserved for future use. pacto_fleet_entities " +
+	"with template=only lists golden paths, the starting points pacto_create takes as 'from'; a " +
+	"golden path is never a consumer, so it is absent from impact and offering consumers. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
 	"pacto_fleet_neighborhood lists the services around one service with their owners, for the " +
@@ -181,6 +183,7 @@ func fleetSearchTool() *mcpsdk.Tool {
 			"has_dependency": {Type: "boolean", Description: "Only services declaring a dependency"},
 			"ready":          {Type: "boolean", Description: "Only operationally ready services"},
 			"not_ready":      {Type: "boolean", Description: "Only services not operationally ready"},
+			"template":       {Type: "string", Description: "only: keep only golden paths (services whose contract declares service.template and that run nowhere); exclude: leave them out. Empty lists every service, golden paths marked 'template'", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
 			"limit":          {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":         {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -205,6 +208,7 @@ type fleetSearchArgs struct {
 	HasDependency  bool   `json:"has_dependency"`
 	Ready          bool   `json:"ready"`
 	NotReady       bool   `json:"not_ready"`
+	Template       string `json:"template"`
 	Limit          int    `json:"limit"`
 	Offset         int    `json:"offset"`
 }
@@ -215,7 +219,7 @@ func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, a
 			Text: a.Text, Owner: a.Owner, BusinessDomain: a.BusinessDomain, Offering: a.Offering, Status: a.Status, Compliance: a.Compliance,
 			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
 			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
-			ReadyOnly: a.Ready, NotReady: a.NotReady, Limit: a.Limit, Offset: a.Offset,
+			ReadyOnly: a.Ready, NotReady: a.NotReady, Template: a.Template, Limit: a.Limit, Offset: a.Offset,
 		})
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -407,7 +411,8 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 		Description: "List services, owners, business domains or platform offerings, with paging ('total', " +
 			"'truncated', 'nextOffset') and an aggregate over everything matched. Use kind=owner to learn the " +
 			"exact owner keys (team:NAME, dri:NAME) that 'owner_key' takes, ownership=unowned for services with " +
-			"no declared owner and sort=health for the least healthy first. Read-only.",
+			"no declared owner and sort=health for the least healthy first. template=only lists golden paths: " +
+			"starting points for pacto_create from. created_from lists the services created from one. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"text":            {Type: "string", Description: "Substring over name, key and owner"},
 			"kind":            {Type: "string", Description: "Entity kind (empty lists all four)", Enum: fleet.ProductKinds()},
@@ -418,6 +423,8 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"consumes":        {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"ownership":       {Type: "string", Description: "How a service's revisions declare ownership", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned}},
 			"status":          {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
+			"template":        {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"created_from":    {Type: "string", Description: "Services created from this golden path, by service key"},
 			"sort":            {Type: "string", Description: "Order: by name, least healthy first or owners with the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices}},
 			"limit":           {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":          {Type: "integer", Description: "Number of results to skip, for paging"},
@@ -435,6 +442,8 @@ type fleetEntitiesArgs struct {
 	Consumes       string `json:"consumes"`
 	Ownership      string `json:"ownership"`
 	Status         string `json:"status"`
+	Template       string `json:"template"`
+	CreatedFrom    string `json:"created_from"`
 	Sort           string `json:"sort"`
 	Limit          int    `json:"limit"`
 	Offset         int    `json:"offset"`
@@ -445,6 +454,8 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		kinds := fleet.ProductKinds()
 		if a.Kind != "" {
 			kinds = []string{a.Kind}
+		} else if a.Template == fleet.TemplateOnly {
+			kinds = []string{string(fleet.KindService)}
 		}
 		var ks []fleet.EntityKind
 		for _, k := range kinds {
@@ -453,6 +464,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		return productResult(link, productview.ToEntityList)(q.Entities(fleet.EntityFilter{
 			Text: a.Text, Kinds: ks, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
 			Offering: a.Offering, Consumes: a.Consumes, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
+			Template: a.Template, CreatedFrom: a.CreatedFrom,
 		}))
 	}
 }
@@ -464,7 +476,11 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"or platform offering. A domain or owner answer summarizes its services; an offering answer lists " +
 			"providers and consumers. Each offering use carries 'provisioning': observed evidence a provider " +
 			"adapter reports per environment, Unknown until a provider reports. A status with 'verified' false " +
-			"comes from an unsigned target-state file. Read-only.",
+			"comes from an unsigned target-state file. A golden path's service answer carries 'template': the " +
+			"plugins its service.template names, its requirements, the services created from it and the " +
+			"pacto_create call. A service created from one carries 'origin', its service.origin as declared, " +
+			"and 'creation', a checklist derived from what sources show: each step is unknown until a source " +
+			"shows otherwise. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},

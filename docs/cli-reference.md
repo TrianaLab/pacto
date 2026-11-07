@@ -836,18 +836,20 @@ pacto fleet entities [text] [flags]
 **Flags:**
 
 ```
-      --business-domain string   exact business domain, (none) for none or (unknown) for unknown
-      --consumes string          services that depend on or reference a provider of this platform offering
-  -h, --help                     help for entities
-      --kind string              entity kind (service, owner, domain, offering; empty lists all four)
-      --limit int                maximum results (0 = 100, capped at 500)
-      --offering string          services that provide this platform offering, and the offering itself
-      --offset int               result offset for paging
-      --owner string             free-text owner search over team, DRI and contacts
-      --owner-key string         exact owner key, such as team:platform or dri:alice
-      --ownership string         how a service's revisions declare ownership (consistent, conflicting, unowned)
-      --sort string              order: name, health (least healthy first) or services (owners with the most services first)
-      --status string            canonical compliance status
+      --business-domain string     exact business domain, (none) for none or (unknown) for unknown
+      --consumes string            services that depend on or reference a provider of this platform offering
+      --created-from string        services created from this golden path, by key
+  -h, --help                       help for entities
+      --kind string                entity kind (service, owner, domain, offering; empty lists all four)
+      --limit int                  maximum results (0 = 100, capped at 500)
+      --offering string            services that provide this platform offering, and the offering itself
+      --offset int                 result offset for paging
+      --owner string               free-text owner search over team, DRI and contacts
+      --owner-key string           exact owner key, such as team:platform or dri:alice
+      --ownership string           how a service's revisions declare ownership (consistent, conflicting, unowned)
+      --sort string                order: name, health (least healthy first) or services (owners with the most services first)
+      --status string              canonical compliance status
+      --template string[="only"]   golden paths only, or exclude to leave them out
 ```
 
 ### `pacto fleet entity`
@@ -963,22 +965,23 @@ pacto fleet search [text] [flags]
 **Flags:**
 
 ```
-      --business-domain string   filter by business domain, (none) for none or (unknown) for unknown
-      --compliance string        filter to services with a target of this compliance
-      --has-capability           only services declaring a capability
-      --has-dependency           only services declaring a dependency
-  -h, --help                     help for search
-      --label stringArray        filter by label key=value (repeatable)
-      --limit int                maximum results (0 = 100, capped at 500)
-      --not-ready                only services whose readiness gate does not pass (below minScore, expired or undeclared)
-      --offering string          filter by the platform offering a service provides (service.offering)
-      --offset int               result offset for paging
-      --owner string             filter by owner (team, DRI or contact)
-      --ready                    only services whose readiness gate passes (score >= minScore, not expired)
-      --scope string             correlate to a target with this scope
-      --source string            filter by observing source
-      --status string            filter by aggregate status (Compliant, Invalid, NonCompliant, NotEvaluated, Reference, Unknown, Warning)
-      --workload string          filter by workload (service, job, scheduled)
+      --business-domain string     filter by business domain, (none) for none or (unknown) for unknown
+      --compliance string          filter to services with a target of this compliance
+      --has-capability             only services declaring a capability
+      --has-dependency             only services declaring a dependency
+  -h, --help                       help for search
+      --label stringArray          filter by label key=value (repeatable)
+      --limit int                  maximum results (0 = 100, capped at 500)
+      --not-ready                  only services whose readiness gate does not pass (below minScore, expired or undeclared)
+      --offering string            filter by the platform offering a service provides (service.offering)
+      --offset int                 result offset for paging
+      --owner string               filter by owner (team, DRI or contact)
+      --ready                      only services whose readiness gate passes (score >= minScore, not expired)
+      --scope string               correlate to a target with this scope
+      --source string              filter by observing source
+      --status string              filter by aggregate status (Compliant, Invalid, NonCompliant, NotEvaluated, Reference, Unknown, Warning)
+      --template string[="only"]   golden paths only, or exclude to leave them out
+      --workload string            filter by workload (service, job, scheduled)
 ```
 
 ### `pacto fleet snapshot`

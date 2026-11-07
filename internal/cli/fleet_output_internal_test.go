@@ -172,3 +172,46 @@ func TestOfferingTextEdges(t *testing.T) {
 		}
 	}
 }
+
+// TestPrintTemplateText_Branches: a verified signature names its signer,
+// unresolved, truncated and hidden created services are listed, and a golden
+// path with no pinned reference gives the reason instead of a command.
+func TestPrintTemplateText_Branches(t *testing.T) {
+	var b bytes.Buffer
+	printTemplateText(&b, "", &fleet.TemplateDetail{
+		Signature:              fleet.BundleSignature{Status: fleet.SignatureVerified, Signer: "ci@acme"},
+		SignatureNote:          "self-declared",
+		UnresolvedRequirements: fleet.UnresolvedDependenciesPreview{Total: 1, Items: []fleet.UnresolvedDependency{{Ref: "oci://r/redis", Reason: "no provider"}}},
+		CreatedServices:        fleet.RefPreview{Total: 3, Count: 1, Truncated: true, Items: []fleet.EntityRef{{Label: "gift-cards"}}},
+		HiddenCreatedServices:  2,
+		InstantiateReason:      "no digest-pinned reference",
+	})
+	for _, want := range []string{
+		"Golden path: -\n", "Signature: verified, signed by ci@acme\n  self-declared\n",
+		"Unresolved requirements:\n  oci://r/redis: no provider\n",
+		"Created services:\n  gift-cards\n  2 more\n  2 created services you may not see\n",
+		"Create a service: no digest-pinned reference\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("template text lacks %q:\n%s", want, b.String())
+		}
+	}
+	if r := signatureReason(fleet.BundleSignature{Status: fleet.SignatureUnsigned}); r != "" {
+		t.Errorf("a check with no reason adds nothing, got %q", r)
+	}
+	b.Reset()
+	printTemplateText(&b, "x", nil)
+	printOriginText(&b, nil, nil)
+	if b.Len() != 0 {
+		t.Errorf("no template and no origin print nothing: %q", b.String())
+	}
+}
+
+func TestPrintOriginText_Unresolved(t *testing.T) {
+	var b bytes.Buffer
+	printOriginText(&b, &fleet.OriginDetail{Ref: "oci://r/p:1", Digest: "sha256:x", Provenance: "declared", GoldenPath: &fleet.EntityRef{Label: "p"}}, nil)
+	printOriginText(&b, &fleet.OriginDetail{Ref: "oci://r/q:1", Digest: "sha256:y", Provenance: "declared", Reason: "not in this view"}, nil)
+	if !strings.Contains(b.String(), "  golden path: p\n") || !strings.Contains(b.String(), "  golden path: not in this view\n") {
+		t.Errorf("origin text:\n%s", b.String())
+	}
+}

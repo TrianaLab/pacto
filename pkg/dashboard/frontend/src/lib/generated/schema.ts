@@ -5494,6 +5494,10 @@ export interface operations {
                 source?: string;
                 /** @description Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service) */
                 service?: string;
+                /** @description Golden path filter for service entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them out. Absent lists every service, golden paths marked template */
+                template?: "only" | "exclude";
+                /** @description Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities). A hidden, absent or non-golden-path key answers an empty list */
+                createdFrom?: string;
                 /** @description Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key */
                 sort?: "name" | "health" | "services";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
@@ -5779,6 +5783,8 @@ export interface operations {
                 /** @description Compliance status filter */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
                 source?: string;
+                /** @description Golden path filter: only keeps the golden paths, exclude leaves them out; absent lists every service, golden paths marked template */
+                template?: "only" | "exclude";
                 limit?: number;
                 offset?: number;
             };

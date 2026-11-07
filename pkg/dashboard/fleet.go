@@ -174,13 +174,14 @@ func (s *Server) fleetSnapshot(ctx context.Context, _ *struct{}) (*fleetSnapshot
 }
 
 type fleetSearchInput struct {
-	Text   string `query:"text"`
-	Owner  string `query:"owner"`
-	Scope  string `query:"scope"`
-	Status string `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter"`
-	Source string `query:"source"`
-	Limit  int    `query:"limit"`
-	Offset int    `query:"offset"`
+	Text     string `query:"text"`
+	Owner    string `query:"owner"`
+	Scope    string `query:"scope"`
+	Status   string `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter"`
+	Source   string `query:"source"`
+	Template string `query:"template" enum:"only,exclude" doc:"Golden path filter: only keeps the golden paths, exclude leaves them out; absent lists every service, golden paths marked template"`
+	Limit    int    `query:"limit"`
+	Offset   int    `query:"offset"`
 }
 
 type fleetSearchOutput struct {
@@ -194,7 +195,7 @@ func (s *Server) fleetSearch(ctx context.Context, in *fleetSearchInput) (*fleetS
 	}
 	res, err := q.Search(fleet.SearchFilter{
 		Text: in.Text, Owner: in.Owner, Scope: in.Scope, Status: in.Status,
-		Source: in.Source, Limit: in.Limit, Offset: in.Offset,
+		Source: in.Source, Template: in.Template, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("invalid fleet search filter", err)

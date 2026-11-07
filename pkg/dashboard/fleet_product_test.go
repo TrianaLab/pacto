@@ -408,3 +408,55 @@ func TestProductOwnerKey_IsAnExactFilterOverTheWire(t *testing.T) {
 		}
 	}
 }
+
+// goldenPathDashboardQuery: the http-service golden path, gift-cards created
+// from it and an ordinary service, read from one local source.
+func goldenPathDashboardQuery(t *testing.T) *fleet.Query {
+	t.Helper()
+	digest := validDigest("a")
+	path := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: "http-service", Version: "1.0.0", Template: &contract.Template{}}}
+	created := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: "gift-cards", Version: "0.1.0",
+		Origin: &contract.Origin{Ref: "oci://ghcr.io/acme/http-service:1.0.0", Digest: digest}}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("local", "local", &fleet.Collection{Revisions: []fleet.RawRevision{
+			{Bundle: &contract.Bundle{Contract: path}, Digest: digest},
+			{Bundle: &contract.Bundle{Contract: created}, Digest: validDigest("b")},
+			{Bundle: newPaymentBundle(), Digest: validDigest("c")},
+		}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fleet.NewQuery(snap)
+}
+
+func TestProductEntities_TemplateFilters(t *testing.T) {
+	q := goldenPathDashboardQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	for _, tc := range []struct {
+		query string
+		want  []string
+	}{
+		{"template=only", []string{"http-service"}},
+		{"kinds=service&template=exclude", []string{"gift-cards", "payment-service"}},
+		{"createdFrom=http-service", []string{"gift-cards"}},
+	} {
+		var list fleet.EntityList
+		getJSON(t, base+"/api/fleet/entities?"+tc.query, http.StatusOK, &list)
+		var got []string
+		for _, e := range list.Entities {
+			got = append(got, e.Key)
+		}
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf("%s = %v, want %v", tc.query, got, tc.want)
+		}
+	}
+	var search fleet.SearchResult
+	getJSON(t, base+"/api/fleet/services?template=only", http.StatusOK, &search)
+	if search.Total != 1 || !search.Services[0].Template {
+		t.Errorf("search template=only = %+v", search.Services)
+	}
+	expectStatus(t, base+"/api/fleet/entities?template=bogus", http.StatusUnprocessableEntity)
+	expectStatus(t, base+"/api/fleet/services?template=bogus", http.StatusUnprocessableEntity)
+}

@@ -166,6 +166,8 @@ func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.ActiveRevisions.Total-len(s.ActiveRevisions.Items))) + "\n")
 		}
 	}
+	renderTemplateDetail(b, s.Template)
+	renderOriginDetail(b, s.Origin, s.Creation)
 	if s.Findings.Total > 0 {
 		section(b, fmt.Sprintf("Findings (%d)", s.Findings.Total))
 		for _, f := range s.Findings.Items {
@@ -174,6 +176,50 @@ func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
 		if s.Findings.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.Findings.Total-len(s.Findings.Items))) + "\n")
 		}
+	}
+}
+
+// renderTemplateDetail writes a golden path's section: its signature, the
+// plugins it names, what it requires, the services created from it and how
+// to create one.
+func renderTemplateDetail(b *strings.Builder, t *fleet.TemplateDetail) {
+	if t == nil {
+		return
+	}
+	section(b, "Golden path")
+	field(b, "signature", t.Signature.Status)
+	for _, p := range t.Plugins {
+		field(b, "plugin", p.Name+": "+p.Description)
+	}
+	field(b, "requirements", fmt.Sprintf("%d (%d unresolved)", t.Requirements.Total, t.UnresolvedRequirements.Total))
+	field(b, "created services", fmt.Sprintf("%d", t.CreatedServices.Total+t.HiddenCreatedServices))
+	if t.Instantiate != nil {
+		field(b, "create", t.Instantiate.CLI)
+	} else {
+		field(b, "create", t.InstantiateReason)
+	}
+}
+
+// renderOriginDetail writes a created service's declared origin and its
+// creation checklist.
+func renderOriginDetail(b *strings.Builder, o *fleet.OriginDetail, steps []fleet.CreationStep) {
+	if o == nil {
+		return
+	}
+	section(b, "Created from (declared)")
+	field(b, "ref", o.Ref)
+	field(b, "digest", o.Digest)
+	if o.GoldenPath != nil {
+		field(b, "golden path", o.GoldenPath.Label)
+	} else {
+		field(b, "golden path", o.Reason)
+	}
+	for _, st := range steps {
+		step := st.Step
+		if st.Name != "" {
+			step += " " + st.Name
+		}
+		field(b, step, st.Status+": "+st.Detail)
 	}
 }
 

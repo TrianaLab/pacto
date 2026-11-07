@@ -596,3 +596,48 @@ func TestRenderDetailForAnOffering(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderServiceDetail_GoldenPath(t *testing.T) {
+	var b strings.Builder
+	renderServiceDetail(&b, &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{
+		Plugins:               []contract.TemplatePlugin{{Name: "dockerfile", Description: "A Dockerfile"}},
+		Requirements:          fleet.OfferingUsesPreview{Total: 2},
+		CreatedServices:       fleet.RefPreview{Total: 1},
+		HiddenCreatedServices: 2,
+		Signature:             fleet.BundleSignature{Status: fleet.SignatureUnsigned},
+		Instantiate:           &fleet.TemplateInstantiation{CLI: "pacto init <name> --from oci://r/p@sha256:x --owner <team>"},
+	}})
+	out := b.String()
+	for _, want := range []string{"Golden path", "unsigned", "dockerfile: A Dockerfile", "2 (0 unresolved)", "3", "pacto init <name> --from oci://r/p@sha256:x"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("golden path detail lacks %q:\n%s", want, out)
+		}
+	}
+	b.Reset()
+	renderServiceDetail(&b, &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{InstantiateReason: "no digest-pinned reference"}})
+	if !strings.Contains(b.String(), "no digest-pinned reference") {
+		t.Errorf("a golden path with no pinned reference gives the reason:\n%s", b.String())
+	}
+}
+
+func TestRenderServiceDetail_Origin(t *testing.T) {
+	var b strings.Builder
+	renderServiceDetail(&b, &fleet.ServiceDetailData{
+		Origin: &fleet.OriginDetail{Ref: "oci://r/http-service:1.0.0", Digest: "sha256:abc", GoldenPath: &fleet.EntityRef{Label: "http-service"}},
+		Creation: []fleet.CreationStep{
+			{Step: fleet.StepContract, Status: fleet.StepStatusDone, Detail: "read"},
+			{Step: fleet.StepPlugin, Name: "dockerfile", Status: fleet.StepStatusUnknown, Detail: "not observed"},
+		},
+	})
+	out := b.String()
+	for _, want := range []string{"Created from (declared)", "oci://r/http-service:1.0.0", "sha256:abc", "http-service", "done: read", "plugin dockerfile", "unknown: not observed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("origin detail lacks %q:\n%s", want, out)
+		}
+	}
+	b.Reset()
+	renderServiceDetail(&b, &fleet.ServiceDetailData{Origin: &fleet.OriginDetail{Ref: "oci://r/p:1", Reason: "the golden path it names is not in this view"}})
+	if !strings.Contains(b.String(), "not in this view") {
+		t.Errorf("an unresolved origin gives the reason:\n%s", b.String())
+	}
+}

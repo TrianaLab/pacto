@@ -239,11 +239,11 @@ func TestTemplateTrustBarePEM(t *testing.T) {
 // TestPrintInitSteps: one line per step, its plugin name after the step.
 func TestPrintInitSteps(t *testing.T) {
 	var b bytes.Buffer
-	printInitSteps(&b, nil)
+	printCreationSteps(&b, "\nStatus", nil)
 	if b.Len() != 0 {
 		t.Errorf("no steps printed %q", b.String())
 	}
-	printInitSteps(&b, []fleet.CreationStep{
+	printCreationSteps(&b, "\nStatus", []fleet.CreationStep{
 		{Step: fleet.StepSignature, Status: fleet.StepStatusUnknown, Detail: "a directory carries no signature"},
 		{Step: fleet.StepPlugin, Name: "dockerfile", Status: fleet.StepStatusSkipped, Detail: "not run"},
 	})

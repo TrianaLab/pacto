@@ -115,7 +115,7 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 	case "template":
 		section("Found", r.Found)
 	}
-	printInitSteps(w, r.Steps)
+	printCreationSteps(w, "\nStatus", r.Steps)
 	section("Unknown", r.Unknown)
 	section("Next", r.Next)
 	var kept []string
@@ -127,13 +127,13 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 	section("Already there, left as it is", kept)
 }
 
-// printInitSteps prints how far creating from a golden path got, one line
-// per step: its status, the step and what it rests on.
-func printInitSteps(w io.Writer, steps []fleet.CreationStep) {
+// printCreationSteps prints how far creating from a golden path got under
+// title, one line per step: its status, the step and what it rests on.
+func printCreationSteps(w io.Writer, title string, steps []fleet.CreationStep) {
 	if len(steps) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintln(w, "\nStatus")
+	_, _ = fmt.Fprintln(w, title)
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	for _, s := range steps {
 		step := s.Step

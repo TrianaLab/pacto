@@ -486,3 +486,20 @@ func TestListRowsCannotBeForged(t *testing.T) {
 		t.Fatalf("a row emits the bytes that repaint the line:\n%q", out)
 	}
 }
+
+// TestListMarksGoldenPath: a golden path row says so in its name cell and the
+// pane names it a golden path instead of a service.
+func TestListMarksGoldenPath(t *testing.T) {
+	c := newLoadedContext(t)
+	l := newListScreen(c).(*listScreen)
+	l.entities = []fleet.EntityRef{{Kind: fleet.KindService, Key: "http-service", Label: "http-service", Template: true}, {Kind: fleet.KindService, Key: "app", Label: "app"}}
+	rows := l.rows(c)
+	if !strings.Contains(rows[0][1], goldenPathLabel) || strings.Contains(rows[1][1], goldenPathLabel) {
+		t.Errorf("rows = %q, want only the golden path marked", rows)
+	}
+	l.tbl.SetRows(rows)
+	l.tbl.SetCursor(0)
+	if pane := l.paneBody(c, 40); !strings.Contains(pane, goldenPathLabel) {
+		t.Errorf("pane lacks the golden path kind:\n%s", pane)
+	}
+}

@@ -198,3 +198,20 @@ func TestNeighborhoodToolAnswersFromTheView(t *testing.T) {
 		}
 	}
 }
+
+// TestFleetEntitiesTemplateFromTheView: under a restricted view the golden
+// path stays listed, and created_from names only the visible services created
+// from it.
+func TestFleetEntitiesTemplateFromTheView(t *testing.T) {
+	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		return q.Restrict(func(ns string) bool { return ns != "shop" }), nil
+	}
+	server := NewFleetServer("test", staticFleet(goldenPathFleet(t)), Authoring{}, FleetOptions{View: view})
+	if got := listedKeys(t, callToolOn(t, server, "pacto_fleet_entities", map[string]any{"template": "only"})); !slices.Equal(got, []string{"service/http-service"}) {
+		t.Errorf("template=only under the view = %v", got)
+	}
+	text := resultText(t, callToolOn(t, server, "pacto_fleet_entities", map[string]any{"kind": "service"}))
+	if strings.Contains(text, `"app"`) {
+		t.Errorf("the view names a hidden service:\n%s", text)
+	}
+}

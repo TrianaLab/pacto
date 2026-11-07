@@ -719,3 +719,78 @@ func TestFleetOfferingToolsAnswerFromTheView(t *testing.T) {
 		}
 	}
 }
+
+// goldenPathFleet: the http-service golden path depends on postgresql, a
+// running app consumes postgresql and gift-cards was created from the path.
+func goldenPathFleet(t *testing.T) *fleet.Query {
+	t.Helper()
+	digest := "sha256:" + strings.Repeat("a", 64)
+	pg := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: "postgresql", Version: "16.1.0", Offering: "postgresql"}}
+	dep := []contract.Dependency{{Name: "postgresql", Ref: "oci://ghcr.io/acme/postgresql", Required: true, Compatibility: "^16.0.0"}}
+	path := &contract.Contract{PactoVersion: "2.7", Dependencies: dep,
+		Service: contract.Service{Name: "http-service", Version: "1.0.0", Template: &contract.Template{}}}
+	app := &contract.Contract{PactoVersion: "2.7", Dependencies: dep, Service: contract.Service{Name: "app", Version: "1.0.0"}}
+	created := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: "gift-cards", Version: "0.1.0",
+		Origin: &contract.Origin{Ref: "oci://ghcr.io/acme/http-service:1.0.0", Digest: digest}}}
+	src := fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{
+		Revisions: []fleet.RawRevision{
+			{Bundle: &contract.Bundle{Contract: pg}, Digest: "sha256:p"},
+			{Bundle: &contract.Bundle{Contract: path}, Digest: digest},
+			{Bundle: &contract.Bundle{Contract: app}, Digest: "sha256:a"},
+			{Bundle: &contract.Bundle{Contract: created}, Digest: "sha256:g"},
+		},
+		Targets: []fleet.RawTarget{{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "app", Service: "app", Compliance: fleet.StatusCompliant}},
+	})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fleet.NewQuery(snap)
+}
+
+// listedKeys decodes an entities answer into its kind/key pairs.
+func listedKeys(t *testing.T, res *mcpsdk.CallToolResult) []string {
+	t.Helper()
+	var out fleet.EntityList
+	decode(t, res, &out)
+	return entityKeys(out)
+}
+
+func TestFleetEntitiesTemplateArgs(t *testing.T) {
+	q := goldenPathFleet(t)
+	call := func(args map[string]any) []string {
+		return listedKeys(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), args))
+	}
+	if got := call(map[string]any{"template": "only"}); !slices.Equal(got, []string{"service/http-service"}) {
+		t.Errorf("template=only = %v, want only the golden path", got)
+	}
+	if got := call(map[string]any{"template": "exclude", "kind": "service"}); slices.Contains(got, "service/http-service") || !slices.Contains(got, "service/app") {
+		t.Errorf("template=exclude = %v", got)
+	}
+	if got := call(map[string]any{"created_from": "http-service"}); !slices.Equal(got, []string{"service/gift-cards"}) {
+		t.Errorf("created_from = %v, want gift-cards", got)
+	}
+	if got := call(map[string]any{"consumes": "postgresql"}); !slices.Equal(got, []string{"service/app"}) {
+		t.Errorf("consumes = %v, the golden path is never a consumer", got)
+	}
+	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"template": "bogus"}); !res.IsError {
+		t.Errorf("template=bogus = %s, want an error result", resultText(t, res))
+	}
+	if !strings.Contains(fleetInstructions, "template=only") {
+		t.Error("the fleet instructions never mention golden paths")
+	}
+}
+
+func TestFleetSearchTemplateArg(t *testing.T) {
+	q := goldenPathFleet(t)
+	var out fleet.SearchResult
+	decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"template": "only"}), &out)
+	if out.Total != 1 || out.Services[0].Name != "http-service" || !out.Services[0].Template {
+		t.Errorf("template=only search = %+v", out.Services)
+	}
+	var rest fleet.SearchResult
+	decode(t, callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"template": "exclude"}), &rest)
+	if out := rest; out.Total != 3 || slices.ContainsFunc(out.Services, func(s fleet.ServiceHit) bool { return s.Template }) {
+		t.Errorf("template=exclude search = %+v", out.Services)
+	}
+}
