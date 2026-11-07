@@ -240,6 +240,33 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oci-secrets=ghcr-creds,ecr-creds"
 
+  - it: should pass the extra dashboard repositories
+    set:
+      dashboard.enabled: true
+      dashboard.repositories:
+        - oci://ghcr.io/acme/paths/http-service
+        - oci://ghcr.io/acme/paths/worker
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-repositories=oci://ghcr.io/acme/paths/http-service,oci://ghcr.io/acme/paths/worker"
+
+  - it: should pass no extra dashboard repositories by default
+    set:
+      dashboard.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-repositories"
+
+  - it: should refuse a dashboard repository without oci://
+    set:
+      dashboard.enabled: true
+      dashboard.repositories:
+        - ghcr.io/acme/paths/http-service
+    asserts:
+      - failedTemplate: {}
+
   - it: should pass no sign-in by default
     set:
       dashboard.enabled: true

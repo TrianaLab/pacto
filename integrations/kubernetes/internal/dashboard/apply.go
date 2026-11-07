@@ -194,6 +194,15 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	if cfg.InsecureRegistries != "" {
 		env = append(env, corev1ac.EnvVar().WithName(loader.InsecureRegistriesEnvVar).WithValue(cfg.InsecureRegistries))
 	}
+	if len(cfg.Repositories) > 0 {
+		// The dashboard takes PACTO_DASHBOARD_REPO entries raw (only its
+		// arguments get the scheme stripped), so trim oci:// here.
+		repos := make([]string, len(cfg.Repositories))
+		for i, r := range cfg.Repositories {
+			repos[i] = strings.TrimPrefix(r, "oci://")
+		}
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_REPO").WithValue(strings.Join(repos, ",")))
+	}
 	if obs := cfg.ObservationEnv(); obs != "" {
 		env = append(env, corev1ac.EnvVar().WithName(ObservationEnvVar).WithValue(obs))
 	}

@@ -181,6 +181,9 @@ dashboard:
   # and kubernetes.io/dockerconfigjson secrets.
   # When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry.
   ociSecrets: []
+  # -- oci:// references the dashboard reads beside the contracts it discovers
+  # from Pacto resources, such as golden paths, which are never deployed.
+  repositories: []
   # A `# --` comment only reaches the generated Helm reference when it sits on a
   # LEAF key: the table is flattened, so a comment on `resources:` is never
   # rendered and its children publish as blank cells. One per leaf.

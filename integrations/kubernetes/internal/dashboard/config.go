@@ -66,6 +66,11 @@ type Config struct {
 	// by the controller. Empty means every registry is https-only.
 	InsecureRegistries string
 
+	// Repositories are oci:// references the dashboard reads beside the
+	// contracts it discovers from Pacto resources, such as golden paths, which
+	// are never deployed and so have no Pacto resource to discover them from.
+	Repositories []string
+
 	// Observation declares offline OTLP/JSON trace files to mount read-only into
 	// the dashboard, each under a stable Data Source name. Pacto reads exactly the
 	// declared files and never scans the mount; the trace exports themselves are
