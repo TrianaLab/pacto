@@ -309,3 +309,4 @@ services.
 | Check errors and response times after release | [Health checks](integrations/kubernetes/delivery-health.md) |
 | Keep a signed record of every change | [Signed records](integrations/kubernetes/delivery-records.md) |
 | Set up Stages by hand | [Setup and gates](integrations/kubernetes/delivery-setup.md) |
+| Start a new service from your platform team's golden path with `pacto init --from` | [Create a service from a golden path](golden-paths.md) |

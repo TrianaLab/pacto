@@ -235,13 +235,9 @@ from the registry. See
 
 ## Check who signed a golden path
 
-A golden path is a signed bundle that `pacto init --from` creates services
-from. Its signer has its own role in the trust config, `role: template`, so a
-recorder key never verifies a golden path and a template key never verifies a
-record or a runner's answer. On a template key, `streams` holds `path.Match`
-patterns over the bundle repository; empty means every repository. A template
-key takes no `untilSeq`, `untilRecord` or `providers`: to stop trusting a
-signer, remove its entry.
+A golden path's signer has its own role in the trust config, `role: template`,
+so a recorder key never verifies a golden path and a template key never
+verifies a record or a runner's answer:
 
 ```yaml
 keys:
@@ -257,13 +253,7 @@ keys:
       ...
 ```
 
-`pacto init --from` reads this file from `--trust` or
-`$PACTO_DELIVERY_TRUST`. A bare PEM key given to `--trust` is a template key
-for every repository. When the file names a template key, a golden path that
-no matching template key signed creates nothing. When it names none, the
-signature step of the creation says Unknown. To check the same signature
-without Pacto, run `cosign verify --key platform.pub` on the golden path's
-`repository@sha256:...`.
+See [Trust](golden-paths.md#trust) for how `pacto init --from` uses it.
 
 ## Known limits
 

@@ -184,8 +184,10 @@ The opt-in [delivery component](integrations/kubernetes/delivery.md) changes two
 of them, as noted.
 
 - **Pacto complements your developer portal and service catalog.** A portal
-  decides what people see and a catalog lists services to browse. Pacto has no
-  onboarding, scaffolding templates or golden paths.
+  decides what people see and a catalog lists services to browse. Pacto keeps
+  the contracts and their golden paths: contracts a platform team publishes
+  and `pacto init --from` copies into a new service. See
+  [Create a service from a golden path](golden-paths.md).
 - **Pacto publishes to the OCI registries you already run.**
 - **Pacto models one service's operational intent.** Your databases, queues and
   networks stay in the tools that manage them.

@@ -7,6 +7,11 @@ contract that references an infrastructure contract into the files your
 provisioning tool applies. See
 [Provision infrastructure through contracts](provision-infrastructure.md).
 
+A golden path names the plugins it offers under `service.template.plugins`.
+`pacto init --from` runs only the ones you name with `--run-plugins`, over a
+temporary copy of the new service's files, and adds the files they return. See
+[Create a service from a golden path](golden-paths.md#plugins).
+
 ---
 
 ## Official plugins

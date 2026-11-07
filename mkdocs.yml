@@ -213,6 +213,7 @@ nav:
       - Ask questions about your organization: ask-your-organization.md
       - Investigate a problem with Mira: investigate-a-problem.md
       - Provision infrastructure through contracts: provision-infrastructure.md
+      - Create a service from a golden path: golden-paths.md
       - Example contracts: examples/index.md
       - Composition patterns: patterns/index.md
       - CI with GitHub Actions: github-actions.md

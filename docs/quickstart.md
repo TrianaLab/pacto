@@ -206,6 +206,7 @@ For a real registry like GHCR, you need `pacto login` with a personal access tok
 | Goal | Guide |
 |------|-------|
 | Let Pacto check every release of a real service | [Pactify a service](pactify.md) |
+| Start a service from your platform team's golden path | [Create a service from a golden path](golden-paths.md) |
 | Put it in your repository | [Put it in your repository](ci.md) |
 | Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | See contracts for real services | [Examples](examples/index.md) |

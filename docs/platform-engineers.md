@@ -122,6 +122,16 @@ See [Provision infrastructure through contracts](provision-infrastructure.md).
 
 ---
 
+## Golden paths
+
+Publish a golden path for each kind of service your teams start often: a
+contract with `service.template`, the offerings it requires and the plugins it
+offers to run, signed with `pacto publish`. Developers create services from it
+with `pacto init --from`, and the fleet links each one back to its path. See
+[Create a service from a golden path](golden-paths.md).
+
+---
+
 ## See also
 
 - [Configuration and policy](contract-reference/configuration-and-policy.md): the full reference
