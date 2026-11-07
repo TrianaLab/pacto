@@ -138,6 +138,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	linkTargets(snap)
 	revalidateConfigRefs(snap)
 	aggregateServices(snap)
+	resolveOrigins(snap)
 	buildRelationships(snap)
 	foldObservedRelationships(snap, observed)
 	reconcileDeclared(snap, undeclaredOnly)
@@ -1379,10 +1380,12 @@ func aggregateServices(snap *FleetSnapshot) {
 		// collapsing them by map iteration order would fabricate a service label
 		// and break target-correlated search. Labels live on the target.
 	}
+	placed := kubePlacementKnown(snap)
 	for _, s := range snap.Services {
 		s.Status = serviceStatus(snap, s)
 		snap.Limitations = append(snap.Limitations, deriveOwner(snap, s)...)
 		snap.Limitations = append(snap.Limitations, deriveBusinessDomain(snap, s)...)
+		deriveTemplate(snap, s, placed)
 		snap.Limitations = append(snap.Limitations, deriveOffering(snap, s)...)
 	}
 }
@@ -1513,8 +1516,12 @@ func offeringConflict(name string, conflict []string) []Limitation {
 // offeringOf is a service's platform offering, where its membership comes from
 // (ProvenanceDeclared when a revision declares it, ProvenanceObserved when only
 // its targets report it, empty with no offering) and the offerings its sources
-// disagree on; the offering rule is the business-domain slug rule.
+// disagree on; the offering rule is the business-domain slug rule. A golden
+// path provides no offering, whatever it declares: it runs nowhere.
 func offeringOf(snap *FleetSnapshot, s *ServiceRecord) (offering, provenance string, conflict []string) {
+	if s.Template {
+		return "", "", nil
+	}
 	v, _, conflict, declared := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Offering }, validBusinessDomain,
 		func(t *TargetRecord) []string { return t.reportedOfferings }, nil)
 	switch {
@@ -1792,8 +1799,14 @@ func buildRelationships(snap *FleetSnapshot) {
 		if rev.Contract == nil {
 			continue
 		}
-		snap.Relationships = append(snap.Relationships, revisionDependencyEdges(snap, rk, rev)...)
-		snap.Relationships = append(snap.Relationships, revisionReferenceEdges(snap, rk, rev)...)
+		edges := append(revisionDependencyEdges(snap, rk, rev), revisionReferenceEdges(snap, rk, rev)...)
+		// A golden path consumes nothing: every edge of every one of its
+		// revisions stays out of Relationships, routed by the service.
+		if snap.Services[rev.ServiceKey].Template {
+			snap.templateEdges = append(snap.templateEdges, edges...)
+		} else {
+			snap.Relationships = append(snap.Relationships, edges...)
+		}
 	}
 }
 
@@ -2011,9 +2024,10 @@ func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name strin
 
 // revisionDependencyEdges builds one dependency edge per declared dependency of a
 // revision, updating the revision-accurate and aggregated indexes for resolved
-// edges.
+// edges of a service that is not a golden path.
 func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
 	var out []Relationship
+	index := !snap.Services[rev.ServiceKey].Template
 	for _, dep := range rev.Contract.Dependencies {
 		var toSvc ServiceKey
 		ok := false
@@ -2041,9 +2055,9 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 		case !ok:
 			rel.Reason = "no service in the fleet resolves this dependency ref"
 		default:
-			snap.forwardDepsByRevision[rk] = appendUnique(snap.forwardDepsByRevision[rk], toSvc)
-			snap.forwardDeps[rev.ServiceKey] = appendUnique(snap.forwardDeps[rev.ServiceKey], toSvc)
-			snap.reverseDeps[toSvc] = appendUnique(snap.reverseDeps[toSvc], rev.ServiceKey)
+			if index {
+				indexConsumption(snap, rk, rev.ServiceKey, toSvc)
+			}
 			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
 			rel.RangeStatus = dependencyRangeStatus(snap, rel)
 			rel.DeprecatedInterfaces = providerDeprecations(snap, rel)
@@ -2071,6 +2085,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 // distinct) for a revision.
 func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
 	var out []Relationship
+	index := !snap.Services[rev.ServiceKey].Template
 	for _, ref := range rev.Contract.ReferenceRefs() {
 		typ := RelationshipConfigRef
 		if ref.Kind == contract.ReferenceKindPolicy {
@@ -2093,15 +2108,22 @@ func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRe
 			// A configuration reference consumes its provider like a dependency
 			// does, so traversal, dependents and impact see it; a policy only
 			// constrains this contract and has no runtime consumer to break.
-			if typ == RelationshipConfigRef {
-				snap.forwardDepsByRevision[rk] = appendUnique(snap.forwardDepsByRevision[rk], target.ServiceKey)
-				snap.forwardDeps[rev.ServiceKey] = appendUnique(snap.forwardDeps[rev.ServiceKey], target.ServiceKey)
-				snap.reverseDeps[target.ServiceKey] = appendUnique(snap.reverseDeps[target.ServiceKey], rev.ServiceKey)
+			// A golden path consumes nothing, so it is never indexed.
+			if typ == RelationshipConfigRef && index {
+				indexConsumption(snap, rk, rev.ServiceKey, target.ServiceKey)
 			}
 		}
 		out = append(out, rel)
 	}
 	return out
+}
+
+// indexConsumption records that revision rk of service from consumes the
+// service to in the revision-accurate and aggregated dependency indexes.
+func indexConsumption(snap *FleetSnapshot, rk RevisionKey, from, to ServiceKey) {
+	snap.forwardDepsByRevision[rk] = appendUnique(snap.forwardDepsByRevision[rk], to)
+	snap.forwardDeps[from] = appendUnique(snap.forwardDeps[from], to)
+	snap.reverseDeps[to] = appendUnique(snap.reverseDeps[to], from)
 }
 
 // Range statuses of a declared dependency (see [Relationship.RangeStatus]).
@@ -2386,22 +2408,8 @@ func degradedLimitations(snap *FleetSnapshot) []Limitation {
 
 // sortSnapshot imposes deterministic ordering on every slice.
 func sortSnapshot(snap *FleetSnapshot) {
-	sort.Slice(snap.Relationships, func(i, j int) bool {
-		a, b := snap.Relationships[i], snap.Relationships[j]
-		if a.FromService != b.FromService {
-			return a.FromService < b.FromService
-		}
-		if a.FromRevision != b.FromRevision {
-			return a.FromRevision < b.FromRevision
-		}
-		if a.Type != b.Type {
-			return a.Type < b.Type
-		}
-		if a.To != b.To {
-			return a.To < b.To
-		}
-		return a.RequestedRef < b.RequestedRef
-	})
+	sortRelationships(snap.Relationships)
+	sortRelationships(snap.templateEdges)
 	sort.Slice(snap.Sources, func(i, j int) bool { return snap.Sources[i].ID < snap.Sources[j].ID })
 	sortProvisioning(snap.Provisioning)
 	sortSnapshotLimitations(snap)
@@ -2439,6 +2447,27 @@ func sortSnapshot(snap *FleetSnapshot) {
 	for k := range snap.forwardDepsByRevision {
 		sortKeys(snap.forwardDepsByRevision[k])
 	}
+}
+
+// sortRelationships orders relationships by source service, revision, type,
+// destination and requested ref.
+func sortRelationships(rels []Relationship) {
+	sort.Slice(rels, func(i, j int) bool {
+		a, b := rels[i], rels[j]
+		if a.FromService != b.FromService {
+			return a.FromService < b.FromService
+		}
+		if a.FromRevision != b.FromRevision {
+			return a.FromRevision < b.FromRevision
+		}
+		if a.Type != b.Type {
+			return a.Type < b.Type
+		}
+		if a.To != b.To {
+			return a.To < b.To
+		}
+		return a.RequestedRef < b.RequestedRef
+	})
 }
 
 // sortSnapshotLimitations orders the snapshot's limitations by code, source

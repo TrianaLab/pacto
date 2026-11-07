@@ -931,9 +931,16 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	// The comparison is IDENTITY ([contract.Owner.IsKey]), never the free-text owner
 	// search: this page IS one canonical owner, and a substring rule would hand
 	// `team-a` the estate of `team-a-platform`.
+	// The golden paths of the owner are no part of the estate; they only keep
+	// the page of an owner who publishes nothing else.
 	claimed := map[ServiceKey]bool{}
+	paths := 0
 	for _, r := range q.snap.Revisions {
-		if r.Owner.IsKey(key) {
+		switch {
+		case !r.Owner.IsKey(key):
+		case q.goldenPath(r.ServiceKey):
+			paths++
+		default:
 			claimed[r.ServiceKey] = true
 			revisions = append(revisions, revisionEntityRef(r))
 			// Read validity from the authoritative snapshot record: revisionStatus knows
@@ -955,7 +962,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 			}
 		}
 	}
-	if len(services) == 0 && len(revisions) == 0 {
+	if len(services) == 0 && len(revisions) == 0 && paths == 0 {
 		return nil, &NotFoundError{Kind: "owner", ID: key}
 	}
 	sum.Services, sum.Revisions, sum.Targets = len(services), len(revisions), len(deployments)
@@ -988,8 +995,14 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 	var sum OwnerSummary
 	var ownership OwnershipTally
 	owners := map[string]bool{}
+	paths := 0
 	for _, s := range q.snap.Services {
 		if key == "" || s.BusinessDomain != key {
+			continue
+		}
+		// A golden path is no part of the estate; it only keeps the page.
+		if s.Template {
+			paths++
 			continue
 		}
 		services = append(services, serviceEntityRef(s))
@@ -1009,7 +1022,7 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 			sum.addTarget(t)
 		}
 	}
-	if len(services) == 0 {
+	if len(services) == 0 && paths == 0 {
 		return nil, &NotFoundError{Kind: "domain", ID: key}
 	}
 	ownerRefs := make([]EntityRef, 0, len(owners))
@@ -1369,14 +1382,15 @@ func lessRevisionChrono(a, b *ContractRevision) bool {
 // ObservationScope + ServiceCorroboration instead.
 func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 	var out []NeighborhoodEdge
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
+	// A golden path's edges are templateEdges: its revision page still shows
+	// what it uses.
+	for rel := range q.snap.declaredEdges() {
 		// A resolved reference whose service left the snapshot is reported by
 		// revisionRefResolutions; it has no node to draw an edge to.
-		if !ConsumesEdge(rel) || rel.FromRevision != revKey || q.snap.Services[rel.ToService] == nil {
+		if !ConsumesEdge(*rel) || rel.FromRevision != revKey || q.snap.Services[rel.ToService] == nil {
 			continue
 		}
-		out = append(out, dependencyEdge(q.serviceRef(rel.FromService), q.serviceRef(rel.ToService), rel))
+		out = append(out, dependencyEdge(q.serviceRef(rel.FromService), q.serviceRef(rel.ToService), *rel))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].To.Key != out[j].To.Key {
@@ -1397,8 +1411,7 @@ func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 // resolve to different destinations. This only reads that verdict back.
 func (q *Query) revisionRefResolutions(revKey RevisionKey) (cfg, pol map[string]*RefResolution) {
 	cfg, pol = map[string]*RefResolution{}, map[string]*RefResolution{}
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
+	for rel := range q.snap.declaredEdges() {
 		if rel.FromRevision != revKey {
 			continue
 		}

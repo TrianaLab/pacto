@@ -312,6 +312,11 @@ func sourceEntityRef(st SourceState) EntityRef {
 type OverviewSummary struct {
 	Services                 int `json:"services"`
 	ServicesNeedingAttention int `json:"servicesNeedingAttention"`
+	// GoldenPaths counts the golden paths, which every other count leaves out:
+	// a golden path is a starting point for services, never one of them.
+	// InvalidGoldenPaths counts those with an invalid revision.
+	GoldenPaths        int `json:"goldenPaths"`
+	InvalidGoldenPaths int `json:"invalidGoldenPaths"`
 	// Revisions and Targets are the population denominators. Without them a
 	// consumer can only show "3 non-compliant" and never "3 of 40": a distribution
 	// needs its whole, and deriving the whole client-side from a truncated list
@@ -392,7 +397,8 @@ type DomainTally struct {
 	Unowned       int    `json:"unowned"`
 }
 
-// tallyDomains fills ByDomain and Domains from every service.
+// tallyDomains fills ByDomain and Domains from every service that is not a
+// golden path.
 func (q *Query) tallyDomains(sum *OverviewSummary) {
 	type row struct {
 		domain  string
@@ -400,6 +406,9 @@ func (q *Query) tallyDomains(sum *OverviewSummary) {
 	}
 	by := map[row]*DomainTally{}
 	for _, s := range q.snap.Services {
+		if s.Template {
+			continue
+		}
 		k := row{s.BusinessDomain, s.BusinessDomainUnknown}
 		dt := by[k]
 		if dt == nil {
@@ -544,19 +553,26 @@ type Overview struct {
 }
 
 // Overview computes the product landing summary in a single pass over the
-// immutable snapshot.
+// immutable snapshot. The golden paths and their revisions are counted apart.
 func (q *Query) Overview() *Overview {
 	ov := &Overview{Meta: q.productMeta(), EntryPoints: []EntryPoint{}}
 	sum := &ov.Summary
-	sum.Services = len(q.snap.Services)
-
 	for _, s := range q.snap.Services {
+		if s.Template {
+			sum.GoldenPaths++
+			sum.InvalidGoldenPaths += b2i(s.Status == StatusInvalid)
+			continue
+		}
+		sum.Services++
 		q.addOwnership(&sum.Ownership, s)
 	}
 
 	var recent []EvidenceItem
-	sum.Revisions = len(q.snap.Revisions)
 	for _, r := range q.snap.Revisions {
+		if q.goldenPath(r.ServiceKey) {
+			continue
+		}
+		sum.Revisions++
 		if r.validated && !r.Valid {
 			sum.InvalidRevisions++
 		}
@@ -674,7 +690,7 @@ func (q *Query) recentEvidence(t *TargetRecord) (EvidenceItem, bool) {
 
 // servicesNeedingAttention counts distinct real services that have any attention
 // signal: a target that is non-compliant, unknown or stale; an invalid revision;
-// or an unresolved declared dependency.
+// or an unresolved declared dependency. A golden path is no service.
 func (q *Query) servicesNeedingAttention() int {
 	need := map[ServiceKey]bool{}
 	for _, t := range q.snap.Targets {
@@ -696,7 +712,7 @@ func (q *Query) servicesNeedingAttention() int {
 	}
 	n := 0
 	for k := range need {
-		if q.snap.Services[k] != nil {
+		if q.populationService(k) {
 			n++
 		}
 	}
@@ -755,7 +771,7 @@ type AttentionItem struct {
 	// finding severity).
 	Severity string `json:"severity" enum:"error,warning,info"`
 	Code     string `json:"code"`
-	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,undeclared,unowned"`
+	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved,out-of-range,undeclared,golden-path,unowned"`
 	Summary  string `json:"summary"`
 	Reason   string `json:"reason"`
 	Source   string `json:"source,omitempty"`
@@ -773,6 +789,7 @@ const (
 	categoryOutOfRange   = "out-of-range"
 	categoryUndeclared   = "undeclared"
 	categoryUnowned      = "unowned"
+	categoryGoldenPath   = "golden-path"
 )
 
 // severity levels.
@@ -906,7 +923,7 @@ type AttentionCategoryCount struct {
 
 // attentionCategoryOrder is the canonical display order of the triage
 // categories, worst first. It mirrors the AttentionItem.Category enum.
-var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "undeclared", "readiness", "unowned"}
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "out-of-range", "undeclared", "golden-path", "readiness", "unowned"}
 
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
@@ -933,7 +950,8 @@ func attentionCategories(items []AttentionItem) []AttentionCategoryCount {
 	return out
 }
 
-// collectAttention gathers every attention item from the snapshot.
+// collectAttention gathers every attention item from the snapshot, none about a
+// golden path: it runs nowhere, so nothing about it needs attention.
 func (q *Query) collectAttention() []AttentionItem {
 	var items []AttentionItem
 	for _, t := range q.snap.Targets {
@@ -945,7 +963,8 @@ func (q *Query) collectAttention() []AttentionItem {
 	items = append(items, q.unresolvedAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.undeclaredAttention()...)
-	return items
+	items = append(items, q.deployedTemplateAttention()...)
+	return slices.DeleteFunc(items, func(it AttentionItem) bool { return q.goldenPath(ServiceKey(it.Service)) })
 }
 
 // undeclaredAttention reports each observed-only runtime call against the

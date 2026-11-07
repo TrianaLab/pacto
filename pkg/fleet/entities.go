@@ -342,11 +342,11 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 
 // domainListRefs is one row per declared business domain, with the number of
 // services in it and the targets they run on. No domain is not a row: it is asked
-// for with the NoBusinessDomain filter.
+// for with the NoBusinessDomain filter. A golden path is no service of a domain.
 func (q *Query) domainListRefs() []EntityRef {
 	by := map[string]*EntityRef{}
 	for _, s := range q.snap.Services {
-		if s.BusinessDomain == "" {
+		if s.BusinessDomain == "" || s.Template {
 			continue
 		}
 		ref := by[s.BusinessDomain]
@@ -410,6 +410,9 @@ func (q *Query) ownerListRefs() []EntityRef {
 	// revisions names them.
 	claimed := map[string]int{}
 	for _, s := range q.snap.Services {
+		if s.Template {
+			continue // a golden path is no service of its owner's estate
+		}
 		claims := q.ownerClaimsOf(s)
 		for _, k := range claims.keys {
 			claimed[k]++

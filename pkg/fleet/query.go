@@ -913,7 +913,9 @@ type StatusQuery struct {
 	// Undeclared reports runtime calls no contract declares and callers with no
 	// contract.
 	Undeclared bool
-	Limit      int
+	// GoldenPathDeployed reports running services that declare service.template.
+	GoldenPathDeployed bool
+	Limit              int
 }
 
 // StatusItem is one attention-worthy finding.
@@ -952,6 +954,7 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		categoryOutOfRange:   sq.UnsatisfiedRanges,
 		categoryUndeclared:   sq.Undeclared,
 		categoryUnowned:      sq.Unowned,
+		categoryGoldenPath:   sq.GoldenPathDeployed,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".

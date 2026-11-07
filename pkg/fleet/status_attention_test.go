@@ -69,8 +69,9 @@ func TestStatusCoversEveryAttentionCategory(t *testing.T) {
 		categoryUndeclared:   func(s *StatusQuery) { s.Undeclared = true },
 		categoryReadiness:    func(s *StatusQuery) { s.MissingReadiness = true },
 		categoryUnowned:      func(s *StatusQuery) { s.Unowned = true },
+		categoryGoldenPath:   func(s *StatusQuery) { s.GoldenPathDeployed = true },
 	}
-	fleets := []*Query{productFleet(t), rangeFleet(t), undeclaredFleet(t), domainFleet(t)}
+	fleets := []*Query{productFleet(t), rangeFleet(t), undeclaredFleet(t), domainFleet(t), deployedTemplateFleet(t)}
 	for _, c := range AttentionCategoriesList() {
 		set, ok := flag[c]
 		if !ok {

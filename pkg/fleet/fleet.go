@@ -448,6 +448,30 @@ type ServiceRecord struct {
 	// named. Zero outside a restricted answer.
 	HiddenDependencies int `json:"hiddenDependencies,omitempty"`
 	HiddenDependents   int `json:"hiddenDependents,omitempty"`
+	// Template marks a golden path: its newest readable revision declares
+	// service.template and the fleet knows it runs nowhere (see deriveTemplate).
+	// A golden path consumes nothing, provides no offering and stays out of the
+	// population summaries.
+	Template bool `json:"template,omitempty"`
+	// Origin is the golden path the newest readable revision says the service
+	// was created from (service.origin), as DECLARED provenance, with the golden
+	// path revision it resolves to or the reason it resolves to none.
+	Origin *ServiceOrigin `json:"origin,omitempty"`
+	// HiddenCreated counts, on a golden path, the services created from it that
+	// the caller's permissions hide. They are never named. Zero outside a
+	// restricted answer.
+	HiddenCreated int `json:"hiddenCreated,omitempty"`
+}
+
+// ServiceOrigin is a service's declared service.origin and what it resolves to:
+// the golden path service and revision whose content digest matches Digest, or
+// empty GoldenPath and Revision with the Reason none does.
+type ServiceOrigin struct {
+	Ref        string      `json:"ref"`
+	Digest     string      `json:"digest"`
+	GoldenPath ServiceKey  `json:"goldenPath,omitempty"`
+	Revision   RevisionKey `json:"revision,omitempty"`
+	Reason     string      `json:"reason,omitempty"`
 }
 
 // ContractRevision is an immutable resolved revision. It embeds a reference to
@@ -542,6 +566,10 @@ type ContractRevision struct {
 	// contributor that happens to agree with one side must not reinstate pins the
 	// fleet has already reported as contested.
 	lockConflict string
+	// contentHash is lock.HashFS of the bundle of a golden path revision that
+	// declares service.template, the digest a service.origin records whatever
+	// source read the path (see resolveOrigins). Empty on every other revision.
+	contentHash string
 	// fixedPolicy records that the contract declares no policy but its bundle
 	// serves policy/schema.json, which a policy reference to it resolves to.
 	fixedPolicy bool
@@ -801,6 +829,13 @@ type FleetSnapshot struct {
 	// configuration references and dependencies asked for, each matched to a
 	// revision in this snapshot and a use it resolves. Sorted deterministically.
 	Provisioning []ProvisioningRecord `json:"provisioning,omitempty"`
+
+	// templateEdges are the declared dependency and reference edges of the
+	// golden paths (see deriveTemplate). They are kept out of Relationships and
+	// the dependency indexes, because a golden path consumes nothing: impact,
+	// dependents, offering consumers and attention never count it. Readers of a
+	// revision's own references read both lists through declaredEdges.
+	templateEdges []Relationship
 
 	// provisioningWindow is BuildOptions.FreshnessWindow: a provisioning report
 	// older than it (RecentEvidenceWindow when zero) is stale.

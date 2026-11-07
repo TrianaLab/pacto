@@ -1019,3 +1019,47 @@ func TestConfigRefVerdict(t *testing.T) {
 		t.Errorf("missing file: %q", why)
 	}
 }
+
+// A golden path that consumes postgresql is never one of its consumers; a
+// service that declares service.template while it runs, or while the fleet
+// cannot tell whether it runs, stays one.
+func TestImpactLeavesGoldenPathsOut(t *testing.T) {
+	medium := map[string]any{"size": "medium"}
+	dep := contract.Dependency{Name: "postgresql", Ref: "oci://x/postgresql", Compatibility: "^16.0.0"}
+	path := refConsumer("http-service", "", medium, true, dep)
+	path.Bundle.Contract.PactoVersion = "2.7"
+	path.Bundle.Contract.Service.Template = &contract.Template{}
+	pg := fleet.RawRevision{
+		Bundle: &contract.Bundle{Contract: pgContract("16.1.0", "provisioning", true), FS: pgSchema("small", "medium", "large")},
+		Digest: "sha256:pg", RequestedRef: "oci://x/postgresql:16.1.0",
+	}
+	revs := &fleet.Collection{Revisions: []fleet.RawRevision{pg, path, refConsumer("orders", "", medium, true, dep)}}
+	running := fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{Targets: []fleet.RawTarget{
+		{Scope: "prod", Kind: fleet.SourceKindKubernetes, Name: "http", Service: "http-service", Compliance: fleet.StatusCompliant},
+	}})
+	for _, tt := range []struct {
+		name string
+		kube fleet.Source
+		want []string
+	}{
+		{"golden path", fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{}), []string{"orders"}},
+		{"deployed", running, []string{"http-service", "orders"}},
+		{"placement unknown", fleet.NewFailingSource("k8s", fleet.SourceKindKubernetes, fmt.Errorf("down")), []string{"http-service", "orders"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", revs), tt.kube)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res := Analyze(context.Background(), pgContract("16.1.0", "provisioning", true), pgContract("16.2.0", "provisioning", false),
+				pgSchema("small", "medium", "large"), pgSchema("small", "medium", "large"), snap, Options{})
+			var got []string
+			for _, c := range res.Consumers {
+				got = append(got, c.Service)
+			}
+			if res.Classification != "BREAKING" || !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("classification %s, consumers %v, want %v", res.Classification, got, tt.want)
+			}
+		})
+	}
+}

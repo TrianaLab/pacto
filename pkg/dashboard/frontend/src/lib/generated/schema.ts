@@ -2146,7 +2146,11 @@ export interface components {
             /** Format: int64 */
             exactTargetLinks: number;
             /** Format: int64 */
+            goldenPaths: number;
+            /** Format: int64 */
             inferredTargetLinks: number;
+            /** Format: int64 */
+            invalidGoldenPaths: number;
             /** Format: int64 */
             invalidRevisions: number;
             /** Format: int64 */
@@ -2486,10 +2490,19 @@ export interface components {
             /** Format: int64 */
             targetCount: number;
         };
+        "Fleet.ServiceOrigin": {
+            digest: string;
+            goldenPath?: string;
+            reason?: string;
+            ref: string;
+            revision?: string;
+        };
         "Fleet.ServiceRecord": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
             domain?: string;
+            /** Format: int64 */
+            hiddenCreated?: number;
             /** Format: int64 */
             hiddenDependencies?: number;
             /** Format: int64 */
@@ -2502,12 +2515,14 @@ export interface components {
             offering?: string;
             /** @enum {string} */
             offeringProvenance?: "declared" | "observed";
+            origin?: components["schemas"]["Fleet.ServiceOrigin"];
             owner?: components["schemas"]["Contract.Owner"];
             revisions?: string[] | null;
             sources?: string[] | null;
             status?: string;
             summary?: string;
             targets?: string[] | null;
+            template?: boolean;
         };
         "Fleet.ServiceSummary": {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
@@ -3087,7 +3102,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "undeclared" | "unowned";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "undeclared" | "golden-path" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
