@@ -67,6 +67,10 @@ function impactResult(opts: { offset?: number; nextOffset?: number; match?: bool
     oldRevision: rev1, newRevision: rev2, classification: 'BREAKING',
     consumers: {
       total: 2, count: 2, limit: 100, offset: opts.offset ?? 0, truncated: opts.nextOffset != null, nextOffset: opts.nextOffset,
+      direct: 1,
+      highlights: [
+        { service: ref('service', 'domain-a/billing', 'billing'), path: [], pathTotal: 0, pathTruncated: false, depth: 1, direct: true, confidence: 'contractual', compatibilityVerdict: 'incompatible', owner: 'core', blocking: true },
+      ],
       items: [
         { service: ref('service', 'domain-a/billing', 'billing'), path: [ref('service', 'domain-a/billing', 'billing'), ref('service', 'domain-a/payments', 'payments')], pathTotal: 2, pathTruncated: false, depth: 1, direct: true, confidence: 'contractual', compatibilityVerdict: 'incompatible', owner: 'core' },
         { service: ref('service', 'domain-a/ledger', 'ledger'), path: [], pathTotal: 0, pathTruncated: false, depth: 2, direct: false, confidence: 'inferred', compatibilityVerdict: 'unknown', note: 'the range >=1.0.0 is open' },
@@ -157,7 +161,8 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
     analyzeBtn(target).click();
     await vi.waitFor(() => expect(target.textContent).toContain('Affected consumers'));
-    const text = target.textContent || '';
+    // Scoped to the table: the diagram above it prints the same names and verdicts.
+    const text = target.querySelector('[data-testid="changes-consumers"]')?.textContent || '';
     expect(text).toContain('billing');
     expect(text).toContain('Direct');
     expect(text).toContain('Transitive · depth 2');
@@ -218,6 +223,49 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     const ranges = target.querySelectorAll('[data-testid="changes-consumers"] [data-label="Verdict"] .consumer-range');
     expect(ranges).toHaveLength(1);
     expect(ranges[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('accepts ^1.0.0');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('draws the impact once analysed, the same on every page of the table', async () => {
+    impactFn.mockResolvedValueOnce(impactResult({ offset: 0, nextOffset: 100 }));
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="iso-impact"] svg[role="img"]')).toBeTruthy());
+    const svg = () => target.querySelector('[data-testid="iso-impact"] svg[role="img"]');
+    const label = svg()!.getAttribute('aria-label');
+    expect(label).toContain('billing incompatible');
+    expect(target.querySelectorAll('[data-testid="iso-impact"] [data-verdict]')).toHaveLength(1);
+    // The diagram sits between the answer and the folds.
+    const order = [...target.querySelectorAll('[data-testid="changes-answer"], [data-testid="iso-impact"], .ca-stack')].map((e) => e.getAttribute('data-testid') ?? 'ca-stack');
+    expect(order).toEqual(['changes-answer', 'iso-impact', 'ca-stack']);
+    impactFn.mockResolvedValueOnce(impactResult({ offset: 100 }));
+    (Array.from(target.querySelectorAll('button')).find((b) => b.textContent === 'Next') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(impactFn).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100 })));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-answer"]')).toBeTruthy());
+    flushSync();
+    expect(svg()!.getAttribute('aria-label')).toBe(label);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('opens the consumer table from "more" and names no consumer the viewer may not see', async () => {
+    const res = impactResult();
+    res.consumers.hidden = 2;
+    impactFn.mockResolvedValue(res);
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="iso-impact-more"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="iso-impact-hidden"]')?.textContent?.trim()).toBe('2 consumers you may not see');
+    expect(target.querySelectorAll('[data-testid="changes-consumers"] tbody tr')).toHaveLength(2);
+    const fold = target.querySelector('#sec-affected-consumers') as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    const scrolled = vi.fn();
+    fold.scrollIntoView = scrolled; // jsdom has no layout
+    (target.querySelector('[data-testid="iso-impact-more"]') as HTMLButtonElement).click();
+    expect(fold.open).toBe(true);
+    expect(document.activeElement).toBe(fold.querySelector('summary'));
+    expect(scrolled).toHaveBeenCalledWith({ block: 'start' });
     unmount(component); document.body.removeChild(target);
   });
 

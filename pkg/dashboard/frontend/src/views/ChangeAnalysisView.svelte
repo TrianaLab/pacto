@@ -17,6 +17,7 @@
   import LimitationsList from '../components/LimitationsList.svelte';
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
+  import IsoImpact from '../components/IsoImpact.svelte';
   import { changeSegments, verdictSegments, confidenceSegments } from '../lib/distributions.ts';
   import { classificationLabel, IMPACT_GATE } from '../lib/isoImpact.ts';
 
@@ -286,6 +287,17 @@
     }
   }
 
+  // "+N more" under the diagram opens the full table: open the fold, focus its summary
+  // without the browser's own jump, then scroll it under the sticky navbar (.ca-fold
+  // carries the scroll margin).
+  function openConsumers() {
+    const d = /** @type {HTMLDetailsElement | null} */ (document.getElementById('sec-affected-consumers'));
+    if (!d) return;
+    d.open = true;
+    d.querySelector('summary')?.focus({ preventScroll: true });
+    d.scrollIntoView({ block: 'start' });
+  }
+
   async function refetchAndAnalyze() {
     await loadRevisions(serviceKey); // picks up the new snapshot id
     staleSnapshot = false;
@@ -495,6 +507,10 @@
       </p>
     </div>
 
+    <!-- The same answer, drawn: the drawing reads only the backend highlights and counts,
+         so paging the table below never changes it. The table stays the full answer. -->
+    <IsoImpact impact={result} onmore={openConsumers} />
+
     <div class="ca-stack">
     <!-- WHAT CHANGED: the field-level diff of the two contracts, breaking first. A
          statement about the contracts, not about what runs. -->
@@ -673,7 +689,7 @@
   .consumer-range { display: block; margin-top: var(--sp-1); overflow-wrap: anywhere; }
   .impact-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
   .ca-stack { border-top: 1px solid var(--c-border); }
-  .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; }
+  .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }
   .ca-fold > summary { gap: var(--sp-2); }
   .ca-fold > summary h2 { margin: 0; }
   .ca-fold-meta { margin-left: auto; color: var(--c-text-3); font-size: var(--text-sm); }

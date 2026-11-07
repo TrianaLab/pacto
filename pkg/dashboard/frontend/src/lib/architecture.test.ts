@@ -209,6 +209,23 @@ describe('product visualization system', () => {
     expect(present.sort()).toEqual(ALLOWED_VIZ.slice().sort());
   });
 
+  // Illustrations: one answer drawn beside the table that carries it in full. Not chart
+  // primitives, so not in ALLOWED_VIZ; their dash is the non-colour channel (unknown is
+  // dashed, a broken edge flows), not a retired chart shape.
+  const ILLUSTRATIONS = ['components/IsoImpact.svelte'];
+
+  it('keeps every illustration beside the table that carries its answer in full', () => {
+    for (const rel of ILLUSTRATIONS) {
+      expect(files.some((f) => f.rel === rel), `${rel} is listed but missing`).toBe(true);
+      const name = rel.split('/').pop()!;
+      const hosts = files.filter((f) => f.rel.endsWith('.svelte') && f.body.includes(`/${name}'`));
+      expect(hosts.length, `${name} is drawn nowhere`).toBeGreaterThan(0);
+      for (const h of hosts) {
+        expect(h.body, `${h.rel} draws ${name} without its table`).toContain('data-testid="changes-consumers"');
+      }
+    }
+  });
+
   it('still allows the legacy non-Fleet host its own charts', () => {
     // Proof the guard is scoped, not vacuous: the retired components DO still exist and
     // are still used somewhere, just never on a product surface.
