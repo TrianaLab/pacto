@@ -6,6 +6,7 @@ import (
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // pluginPath is the http-service golden path naming a dockerfile plugin, also
@@ -225,6 +226,9 @@ func TestCreationChecklistSteps(t *testing.T) {
 		{"not validated", validationStep(&ContractRevision{Version: "0.1.0"}), StepStatusUnknown},
 		{"valid", validationStep(&ContractRevision{Version: "0.1.0", validated: true, Valid: true}), StepStatusDone},
 		{"invalid", validationStep(&ContractRevision{Version: "0.1.0", validated: true}), StepStatusFailed},
+		{"valid, unverified ref", validationStep(&ContractRevision{Version: "0.1.0", validated: true, Valid: true, Validation: []finding.Finding{{Code: "CONFIG_REF_UNVERIFIED"}}}), StepStatusUnknown},
+		{"valid, not enforced", validationStep(&ContractRevision{Version: "0.1.0", validated: true, Valid: true, Validation: []finding.Finding{{Code: "X_NOT_ENFORCED"}}}), StepStatusUnknown},
+		{"valid, other warning", validationStep(&ContractRevision{Version: "0.1.0", validated: true, Valid: true, Validation: []finding.Finding{{Code: "SOME_WARNING"}}}), StepStatusDone},
 		{"published by resolved ref", publishedStep([]*ContractRevision{{ResolvedRef: "oci://r/x@sha256:1"}}), StepStatusDone},
 		{"local only", publishedStep([]*ContractRevision{{RequestedRef: "file:///x"}}), StepStatusUnknown},
 		{"one target", deployedStep([]*TargetRecord{{}}), StepStatusDone},
@@ -240,6 +244,9 @@ func TestCreationChecklistSteps(t *testing.T) {
 		if tt.got.Status != tt.want || tt.got.Detail == "" {
 			t.Errorf("%s: %+v, want %s", tt.name, tt.got, tt.want)
 		}
+	}
+	if d := validationStep(&ContractRevision{Validation: []finding.Finding{{Code: "CONFIG_REF_UNVERIFIED"}}, validated: true, Valid: true}).Detail; !strings.Contains(d, "CONFIG_REF_UNVERIFIED") {
+		t.Errorf("unverified validation detail = %q", d)
 	}
 	if d := deployedStep([]*TargetRecord{{}, {}}).Detail; d != "2 operational targets" {
 		t.Errorf("deployed detail = %q", d)

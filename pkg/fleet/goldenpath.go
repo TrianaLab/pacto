@@ -3,6 +3,7 @@ package fleet
 import (
 	"cmp"
 	"iter"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -302,15 +303,28 @@ func pathSignatureStep(path *ContractRevision) CreationStep {
 	return st
 }
 
-// validationStep is how the validation of r ended.
+// validationStep is how the validation of r ended. A valid revision is done
+// only when no reference was left unchecked, the same rule the creation-time
+// step applies.
 func validationStep(r *ContractRevision) CreationStep {
 	switch {
 	case !r.validated:
 		return CreationStep{Step: StepValidation, Status: StepStatusUnknown, Detail: "the contract was not validated"}
-	case r.Valid:
+	case !r.Valid:
+		return CreationStep{Step: StepValidation, Status: StepStatusFailed, Detail: "revision " + r.Version + " is invalid"}
+	}
+	var codes []string
+	for _, f := range r.Validation {
+		if c := string(f.Code); strings.HasSuffix(c, "_UNVERIFIED") || strings.HasSuffix(c, "_NOT_ENFORCED") {
+			codes = append(codes, c)
+		}
+	}
+	if len(codes) == 0 {
 		return CreationStep{Step: StepValidation, Status: StepStatusDone, Detail: "revision " + r.Version + " is valid"}
 	}
-	return CreationStep{Step: StepValidation, Status: StepStatusFailed, Detail: "revision " + r.Version + " is invalid"}
+	slices.Sort(codes)
+	return CreationStep{Step: StepValidation, Status: StepStatusUnknown,
+		Detail: "revision " + r.Version + " is valid, with references left unchecked: " + strings.Join(slices.Compact(codes), ", ")}
 }
 
 // publishedStep is done when a registry served a revision.
