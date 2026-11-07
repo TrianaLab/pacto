@@ -576,16 +576,35 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 	return OfferingUsesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
-// ConsumeSnippet is the contract YAML a service adds to consume a provider of a
-// platform offering, rendered once so every surface shows the same text.
-// Dependency, Configuration and Policy say which blocks YAML holds.
+// ConsumeSnippet is what a service adds to its contract to consume a provider
+// of a platform offering: the contract entries, and the YAML rendered from them
+// once so every surface shows the same text. Dependency, Configuration and
+// Policy say which blocks YAML holds.
 type ConsumeSnippet struct {
-	Ref           string `json:"ref"`
-	Compatibility string `json:"compatibility,omitempty"`
-	Dependency    bool   `json:"dependency"`
-	Configuration bool   `json:"configuration"`
-	Policy        bool   `json:"policy"`
-	YAML          string `json:"yaml"`
+	Ref           string         `json:"ref"`
+	Compatibility string         `json:"compatibility,omitempty"`
+	Dependency    bool           `json:"dependency"`
+	Configuration bool           `json:"configuration"`
+	Policy        bool           `json:"policy"`
+	Entries       ConsumeEntries `json:"entries"`
+	YAML          string         `json:"yaml"`
+}
+
+// ConsumeEntries are the contract entries of a consume snippet, one field per
+// block its YAML holds.
+type ConsumeEntries struct {
+	Dependency     *contract.Dependency   `json:"dependency,omitempty"`
+	Configurations []ConsumeConfiguration `json:"configurations,omitempty"`
+	Policy         *contract.Policy       `json:"policy,omitempty"`
+}
+
+// ConsumeConfiguration is a configuration entry of a consume snippet.
+// MissingValues names the required properties of the provider's schema that
+// no candidate value satisfies: the consumer sets them before the entry
+// validates.
+type ConsumeConfiguration struct {
+	contract.Configuration
+	MissingValues []string `json:"missingValues,omitempty"`
 }
 
 // InferredOffering suggests the offering an external or unresolved dependency

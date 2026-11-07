@@ -341,6 +341,12 @@ func printOfferingText(w io.Writer, o *fleet.OfferingDetailData) {
 			versions = append(versions, orDash(v.Version)+versionNotes(v))
 		}
 		_, _ = fmt.Fprintf(w, "    versions: %s\n", orDash(strings.Join(versions, "; ")))
+		if p.Consume != nil {
+			_, _ = fmt.Fprintf(w, "    To consume %s:\n", p.Service.Label)
+			for line := range strings.Lines(p.Consume.YAML) {
+				_, _ = fmt.Fprint(w, "      "+line)
+			}
+		}
 	}
 	printOfferingUses(w, "Consumers:", o.Consumers)
 	if o.HiddenConsumers > 0 {

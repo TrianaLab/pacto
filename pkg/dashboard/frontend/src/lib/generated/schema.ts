@@ -1769,10 +1769,27 @@ export interface components {
             /** Format: int64 */
             warning: number;
         };
+        "Fleet.ConsumeConfiguration": {
+            configuration?: string;
+            missingValues?: string[] | null;
+            name: string;
+            ref?: string;
+            required: boolean;
+            schema?: string;
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        "Fleet.ConsumeEntries": {
+            configurations?: components["schemas"]["Fleet.ConsumeConfiguration"][] | null;
+            dependency?: components["schemas"]["Contract.Dependency"];
+            policy?: components["schemas"]["Contract.Policy"];
+        };
         "Fleet.ConsumeSnippet": {
             compatibility?: string;
             configuration: boolean;
             dependency: boolean;
+            entries: components["schemas"]["Fleet.ConsumeEntries"];
             policy: boolean;
             ref: string;
             yaml: string;

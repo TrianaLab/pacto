@@ -3,8 +3,10 @@ package fleet
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -723,7 +725,7 @@ configurations:
     required: true
     values:
       size: "medium" # required string, one of small|medium|large, default medium
-      storageGiB: 0 # required integer
+      storageGiB: 10 # required integer
       highAvailability: false # required boolean
       extensions: [] # required array
       database: "" # required string
@@ -785,13 +787,131 @@ func TestValuesSkeleton(t *testing.T) {
 		{"quoted key and object default", `{"required":["true"],"properties":{"true":{"type":"object","default":{"x":1}}}}`, "    values:\n      \"true\": {\"x\":1} # required object, default {\"x\":1}\n"},
 		{"enum without default", `{"required":["count"],"properties":{"count":{"type":"integer","enum":[3,5]}}}`, "    values:\n      count: 3 # required integer, one of 3|5\n"},
 	} {
-		if got := valuesSkeleton([]byte(tc.schema), "s.json"); got != tc.want {
+		if _, _, got := valuesSkeleton([]byte(tc.schema), "s.json"); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
 	}
-	if got := valuesSkeleton([]byte("required: [a]\nproperties: {a: {type: boolean}}\n"), "s.yaml"); got != "    values:\n      a: false # required boolean\n" {
+	if _, _, got := valuesSkeleton([]byte("required: [a]\nproperties: {a: {type: boolean}}\n"), "s.yaml"); got != "    values:\n      a: false # required boolean\n" {
 		t.Errorf("yaml schema: %q", got)
 	}
+}
+
+// A required property no candidate satisfies is left out of the values, listed
+// as missing and written as a comment; a property holding a $ref cannot be
+// checked standalone, so it is missing too.
+func TestValuesSkeleton_OmitsInvalidCandidates(t *testing.T) {
+	schema := `{"required":["name","shared","storageGi","size"],"properties":{
+	  "name":{"type":"string","minLength":3,"pattern":"^[a-z]+$"},
+	  "shared":{"$ref":"#/$defs/shared"},
+	  "storageGi":{"type":"integer","minimum":10},
+	  "size":{"type":"string","enum":["small","large"]}},
+	  "$defs":{"shared":{"type":"string"}}}`
+	values, missing, block := valuesSkeleton([]byte(schema), "s.json")
+	want := "    values:\n" +
+		"      # name: required string, set a value\n" +
+		"      # shared: required, set a value\n" +
+		"      storageGi: 10 # required integer\n" +
+		"      size: \"small\" # required string, one of small|large\n"
+	if block != want || !slices.Equal(missing, []string{"name", "shared"}) || len(values) != 2 || values["storageGi"] != float64(10) || values["size"] != "small" {
+		t.Errorf("values %v, missing %v, block:\n%s", values, missing, block)
+	}
+	// Nothing kept: the block stays an object, never null.
+	values, missing, block = valuesSkeleton([]byte(`{"required":["name"],"properties":{"name":{"type":"string","minLength":3}}}`), "s.json")
+	if block != "    values: {}\n      # name: required string, set a value\n" || len(values) != 0 || values == nil || !slices.Equal(missing, []string{"name"}) {
+		t.Errorf("values %v, missing %v, block %q", values, missing, block)
+	}
+	// An invalid default falls through to the next candidate.
+	if values, _, _ := valuesSkeleton([]byte(`{"required":["n"],"properties":{"n":{"type":"number","default":1,"minimum":5}}}`), "s.json"); values["n"] != float64(5) {
+		t.Errorf("values %v, want the minimum", values)
+	}
+}
+
+// The values a skeleton keeps validate against the provider's schema once the
+// consumer sets the missing ones.
+func TestValuesSkeleton_ValidatesAgainstSchema(t *testing.T) {
+	values, missing, _ := valuesSkeleton([]byte(pgSchema), "configuration/schema.json")
+	if len(missing) != 0 {
+		t.Fatalf("missing = %v", missing)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(pgSchema), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if !validation.ValueAccepted(doc, values) {
+		t.Errorf("values %v do not validate against the provider schema", values)
+	}
+}
+
+// The demo postgresql gives storageGi its minimum, and the values it keeps
+// validate against its provisioning schema.
+func TestConsumeSnippet_DemoPostgresql(t *testing.T) {
+	dir := "../../examples/demo/bundles/postgresql/v16.1.0"
+	raw, err := os.ReadFile(dir + "/pacto.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := os.ReadFile(dir + "/configuration/provisioning.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := ociRev("ghcr.io/trianalab/pacto", mustParse(t, string(raw)), nil)
+	rev.Bundle.FS = os.DirFS(dir)
+	sn := snippetFor(t, rev)
+	if sn == nil || len(sn.Entries.Configurations) != 1 {
+		t.Fatalf("snippet = %+v", sn)
+	}
+	values := sn.Entries.Configurations[0].Values
+	var doc map[string]any
+	if err := json.Unmarshal(schema, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if values["storageGi"] != float64(10) || !validation.ValueAccepted(doc, values) {
+		t.Errorf("values %v, yaml:\n%s", values, sn.YAML)
+	}
+}
+
+// Entries hold exactly what YAML says: decoding the YAML into a contract gives
+// the same dependency, configurations and policy.
+func TestConsumeSnippet_EntriesMatchYAML(t *testing.T) {
+	asJSON := func(v any) string {
+		data, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	check := func(name string, sn *ConsumeSnippet) {
+		t.Helper()
+		if sn == nil {
+			t.Fatalf("%s: no snippet", name)
+		}
+		consumer := mustParse(t, "pactoVersion: \"2.6\"\nservice:\n  name: app\n  version: 1.0.0\n"+sn.YAML)
+		var cfgs []contract.Configuration
+		for _, e := range sn.Entries.Configurations {
+			cfgs = append(cfgs, e.Configuration)
+		}
+		var deps []contract.Dependency
+		if sn.Entries.Dependency != nil {
+			deps = append(deps, *sn.Entries.Dependency)
+		}
+		var pols []contract.Policy
+		if sn.Entries.Policy != nil {
+			pols = append(pols, *sn.Entries.Policy)
+		}
+		if asJSON(consumer.Dependencies) != asJSON(deps) || asJSON(consumer.Configurations) != asJSON(cfgs) || asJSON(consumer.Policies) != asJSON(pols) {
+			t.Errorf("%s: YAML decodes to %s %s %s, entries are %s", name, asJSON(consumer.Dependencies), asJSON(consumer.Configurations), asJSON(consumer.Policies), asJSON(sn.Entries))
+		}
+	}
+	check("both forms", snippetFor(t, ociRev("ghcr.io/trianalab/pacto", pgOffering(), fstest.MapFS{"configuration/schema.json": {Data: []byte(pgSchema)}})))
+	two := svc25("platform-app-config", "1.0.0", "shared-config")
+	two.Configurations = []contract.Configuration{{Name: "app", Schema: "a.json", Required: true}, {Name: "extra", Schema: "a.json", Required: true}}
+	check("selectors", snippetFor(t, ociRev("ghcr.io/acme", two, nil)))
+	pol := svc25("platform-http-policy", "1.0.0", "shared-policy")
+	pol.Policies = []contract.Policy{{Name: "http", Schema: "policy/schema.json"}}
+	check("policy", snippetFor(t, ociRev("ghcr.io/acme", pol, nil)))
+	semverless := svc25("redis", "latest", "redis")
+	semverless.Workload = contract.WorkloadService
+	check("no range", snippetFor(t, ociRev("ghcr.io/acme", semverless, nil)))
 }
 
 // A deprecated current revision says so, with its successor when it names one.

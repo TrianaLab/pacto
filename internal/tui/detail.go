@@ -339,6 +339,9 @@ func renderOfferingDetail(b *strings.Builder, o *fleet.OfferingDetailData) {
 		field(b, "  lifecycle", strings.TrimPrefix(lifecycleText(p.Lifecycle), ", "))
 		if p.Consume != nil {
 			field(b, "  consume", p.Consume.Ref)
+			for line := range strings.Lines(p.Consume.YAML) {
+				b.WriteString("    " + safeText(strings.TrimSuffix(line, "\n")) + "\n")
+			}
 		}
 	}
 	if o.Providers.Truncated {
