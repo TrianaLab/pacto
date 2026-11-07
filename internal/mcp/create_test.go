@@ -2930,6 +2930,37 @@ func TestEdit_Domain(t *testing.T) {
 	}
 }
 
+// Raising a 2.3 contract with a configuration ref to 2.4 makes refs strict,
+// so an edit that only adds metadata must resolve the ref before it writes.
+func TestEdit_RaiseTo24ResolvesConfigRefs(t *testing.T) {
+	const refContract = "service:\n  name: svc\n  version: 1.0.0\nconfigurations:\n  - name: db\n    ref: oci://ghcr.io/acme/postgresql:16.1.0\n    required: true\n"
+	for name, input := range map[string]EditInput{
+		"domain":    {Domain: strPtr("payments")},
+		"offering":  {Offering: strPtr("postgresql")},
+		"summary":   {Summary: strPtr("Orders")},
+		"lifecycle": {Lifecycle: &LifecycleInput{Deprecated: "2026-01-01"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			before := []byte("pactoVersion: \"2.3\"\n" + refContract)
+			_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), before, 0o644)
+			input.Path = dir
+			if _, err := Edit(context.Background(), nil, input); err == nil || !strings.Contains(err.Error(), "CONFIG_REF_UNRESOLVED") {
+				t.Fatalf("got %v, want CONFIG_REF_UNRESOLVED", err)
+			}
+			if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); !bytes.Equal(raw, before) {
+				t.Errorf("contract was written:\n%s", raw)
+			}
+		})
+	}
+	// Already 2.4: no raise, so the edit keeps the local check.
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\n"+refContract), 0o644)
+	if _, err := Edit(context.Background(), nil, EditInput{Path: dir, Domain: strPtr("payments")}); err != nil {
+		t.Fatalf("2.4 edit: %v", err)
+	}
+}
+
 func TestCheck_DomainSuggestion(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)

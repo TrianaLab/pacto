@@ -157,6 +157,8 @@ type EditInput struct {
 	Version *string
 	Owner   *string
 	// Domain sets service.domain and raises an older pactoVersion to 2.4.
+	// Every raise to 2.4 checks configuration refs strictly, so it fails
+	// when a ref cannot be resolved (see needsResolve).
 	Domain *string
 	// Offering and Summary set service.offering and service.summary and
 	// raise an older pactoVersion to 2.4.
@@ -599,11 +601,14 @@ func (o fileOps) validateStaged(ctx context.Context, validate Validator, dir str
 // resolution depends on: a configuration ref, an environment (its file may
 // already hold values), environment values, or a dependency of c, the edited
 // contract, while it references a configuration (the dependency's range is
-// checked against the resolved provider). Only a resolved schema can check
-// those, so removals and lifecycle edits keep the local check.
-func needsResolve(input EditInput, c *contract.Contract) bool {
+// checked against the resolved provider). Raising pactoVersion to 2.4 from
+// fromVersion counts too while c references a configuration: 2.4 checks refs
+// strictly, so a ref that only warned before can fail. Only a resolved schema
+// can check those, so removals and other edits keep the local check.
+func needsResolve(input EditInput, c *contract.Contract, fromVersion string) bool {
+	hasRef := slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool { return cfg.Ref != "" })
 	return len(input.AddConfigurationRefs) > 0 || len(input.AddEnvironments) > 0 || len(input.SetEnvironmentValues) > 0 ||
-		(len(input.AddDependencies) > 0 && slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool { return cfg.Ref != "" }))
+		(hasRef && (len(input.AddDependencies) > 0 || (fromVersion != "2.4" && c.PactoVersion == "2.4")))
 }
 
 // Edit modifies an existing pacto contract. validate is the check pacto_check
@@ -633,6 +638,7 @@ func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) 
 		return nil, fmt.Errorf("failed to parse %s: %w", pactoPath, err)
 	}
 
+	fromVersion, _ := m["pactoVersion"].(string)
 	files, changes, err := editFiles(dir, m, input)
 	if err != nil {
 		return nil, err
@@ -649,7 +655,7 @@ func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) 
 		return nil, fmt.Errorf("edited contract is invalid: %w", err)
 	}
 
-	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, needsResolve(input, c)); err != nil {
+	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, needsResolve(input, c, fromVersion)); err != nil {
 		return nil, err
 	}
 
