@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -19,7 +20,9 @@ const baseInstructions = "Pacto tells you which services a change breaks before 
 	"Use pacto_create to write a new contract, or with pactify to read one from an existing service folder " +
 	"(add describe_only when you are asked to describe or document a service). " +
 	"Use pacto_edit to change a contract and pacto_check to validate it and get suggestions. " +
-	"Call pacto_schema for the full JSON Schema and for how to describe an AI agent as a service."
+	"Call pacto_schema for the full JSON Schema and for how to describe an AI agent as a service. " +
+	"To create a service from a golden path, pass from to pacto_create (over stdio only); " +
+	"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template."
 
 // Validator runs the `pacto validate` path for the bundle in dir: lockfile
 // verification, recursive policies[].ref resolution relative to dir, and every
@@ -33,14 +36,39 @@ const baseInstructions = "Pacto tells you which services a change breaks before 
 // so a drifted pacto.lock passed pacto_check and then failed CI.
 type Validator func(ctx context.Context, dir string) (validation.Report, error)
 
-// NewServer creates a new MCP server with all Pacto authoring tools registered.
+// Initializer creates a service from a golden path: `pacto init --from` for an
+// agent. The command layer supplies it (app.Service.InitFrom), so this package
+// never pulls a bundle or reads a trust config itself.
+type Initializer func(ctx context.Context, opts pactify.Options, from FromRequest) (*pactify.Result, error)
+
+// FromRequest is the golden path pacto_create creates from and what the caller
+// gives it on top of the planner options.
+type FromRequest struct {
+	// Ref is an oci:// reference or a directory.
+	Ref string
+	// Values are merged over the path's contract, then Set is applied.
+	Values map[string]any
+	Set    []string
+	// RunPlugins are the plugins the path names that the caller asked to run.
+	RunPlugins []string
+}
+
+// Authoring is what the authoring tools need from the command layer.
 //
-// A nil validate is not a downgrade: Check falls back to local validation with no
-// policy resolver, which fails a ref-based policy closed with
+// A nil Validate is not a downgrade: Check falls back to local validation with
+// no policy resolver, which fails a ref-based policy closed with
 // POLICY_REF_UNRESOLVED, so the agent is told the contract cannot be confirmed
-// valid rather than told it is.
-func NewServer(validate Validator, version string) *mcpsdk.Server {
-	return newServer(version, baseInstructions, validate)
+// valid rather than told it is. A nil Init refuses pacto_create from: the
+// command layer leaves it nil over HTTP, where every caller would pull with this
+// process's registry credentials.
+type Authoring struct {
+	Validate Validator
+	Init     Initializer
+}
+
+// NewServer creates a new MCP server with all Pacto authoring tools registered.
+func NewServer(a Authoring, version string) *mcpsdk.Server {
+	return newServer(version, baseInstructions, a)
 }
 
 // newBareServer builds a server with no tools registered at all. A mode whose
@@ -55,9 +83,9 @@ func newBareServer(version, instructions string) *mcpsdk.Server {
 }
 
 // newServer builds a server with the given instructions and the authoring tools.
-func newServer(version, instructions string, validate Validator) *mcpsdk.Server {
+func newServer(version, instructions string, a Authoring) *mcpsdk.Server {
 	server := newBareServer(version, instructions)
-	registerTools(server, validate)
+	registerTools(server, a)
 	return server
 }
 
@@ -69,10 +97,10 @@ func newServer(version, instructions string, validate Validator) *mcpsdk.Server 
 // typed struct. The raw form does neither, so `{"max_depth":"3"}` used to decode
 // to nothing and be read as the 0 that means "unlimited" — the caller asked to
 // bound a traversal and got an unbounded one.
-func registerTools(server *mcpsdk.Server, validate Validator) {
-	mcpsdk.AddTool(server, createTool(), createHandler())
-	mcpsdk.AddTool(server, editTool(), editHandler(validate))
-	mcpsdk.AddTool(server, checkTool(), checkHandler(validate))
+func registerTools(server *mcpsdk.Server, a Authoring) {
+	mcpsdk.AddTool(server, createTool(), createHandler(a.Init))
+	mcpsdk.AddTool(server, editTool(), editHandler(a.Validate))
+	mcpsdk.AddTool(server, checkTool(), checkHandler(a.Validate))
 	mcpsdk.AddTool(server, schemaTool(), schemaHandler())
 }
 

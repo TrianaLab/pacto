@@ -27,6 +27,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
@@ -132,7 +133,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
-	cmd.Flags().String("delivery-trust", "", "in --delivery mode: the trust config delivery records are verified with "+
+	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode) and the golden paths pacto_create creates from are verified with "+
 		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
@@ -162,7 +163,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 
 	switch {
 	case publishMode:
-		return pactomcp.NewPublishServer(version, mcpPublish(svc, d), svc.ValidationReport), nil
+		return pactomcp.NewPublishServer(version, mcpPublish(svc, d), mcpAuthoring(cmd, svc)), nil
 	case deliveryMode:
 		return buildDeliveryServer(cmd, svc, version, d)
 	case catalogMode:
@@ -176,7 +177,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 	case len(args) > 0:
 		return buildCapabilityServer(cmd, svc, version, args[0])
 	}
-	return pactomcp.NewServer(svc.ValidationReport, version), nil
+	return pactomcp.NewServer(mcpAuthoring(cmd, svc), version), nil
 }
 
 // buildFleetServer exposes the fleet tools over a snapshot that rebuilds after
@@ -193,7 +194,7 @@ func buildFleetServer(cmd *cobra.Command, svc *app.Service, version string, d de
 	}
 	view := mcpFleetView(cmd, d)
 	url, _ := cmd.Flags().GetString("dashboard-url")
-	return pactomcp.NewFleetServer(version, src, svc.ValidationReport, pactomcp.FleetOptions{
+	return pactomcp.NewFleetServer(version, src, mcpAuthoring(cmd, svc), pactomcp.FleetOptions{
 		// Under a view the new revision is never added: the rebuild would read
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, view == nil), View: view, DashboardURL: url,
@@ -278,7 +279,7 @@ func buildDeliveryServer(cmd *cobra.Command, svc *app.Service, version string, d
 	if err != nil {
 		return nil, err
 	}
-	return pactomcp.NewDeliveryServer(version, mcpDelivery{c}, caller.Class == delivery.ClassAgent, svc.ValidationReport), nil
+	return pactomcp.NewDeliveryServer(version, mcpDelivery{c}, caller.Class == delivery.ClassAgent, mcpAuthoring(cmd, svc)), nil
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.
@@ -314,6 +315,34 @@ var errDeliveryOverHTTP = errors.New("--delivery over HTTP needs --auth-issuer, 
 // every caller would publish with this process's registry credentials.
 var errPublishOverHTTP = errors.New("--publish serves stdio only: over HTTP every caller would publish with this process's " +
 	"registry credentials; run `pacto mcp --publish` beside the agent, under the agent's own credentials")
+
+// mcpAuthoring is what every server's authoring tools get. pacto_create from
+// serves stdio only: over HTTP every caller would pull with this process's
+// registry credentials and write to its folders, so Init stays nil there.
+func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
+	a := pactomcp.Authoring{Validate: svc.ValidationReport}
+	if transport, _ := cmd.Flags().GetString("transport"); transport == "stdio" {
+		trust, _ := cmd.Flags().GetString("delivery-trust")
+		a.Init = mcpInit(svc, trust)
+	}
+	return a
+}
+
+// mcpInit adapts Service.InitFrom to pacto_create from. The trust config is
+// read on each call, so a broken one fails that call and not the server.
+func mcpInit(svc *app.Service, trustPath string) pactomcp.Initializer {
+	return func(ctx context.Context, opts app.InitOptions, req pactomcp.FromRequest) (*app.InitResult, error) {
+		trust, err := deliveryTrust(trustPath)
+		if err != nil {
+			return nil, err
+		}
+		from := app.InitFrom{From: req.Ref, Trust: trust, RunPlugins: req.RunPlugins, Overrides: override.Overrides{SetValues: req.Set}}
+		if req.Values != nil {
+			from.Overrides.Values = []map[string]any{req.Values}
+		}
+		return svc.InitFrom(ctx, opts, from)
+	}
+}
 
 // mcpPublish adapts Service.Publish to the publish tools.
 func mcpPublish(svc *app.Service, d deps) pactomcp.PublishFunc {
@@ -366,7 +395,7 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 		BaseURL:     baseURL,
 		Creds:       creds,
 		AllowWrites: allowWrites,
-		Validator:   svc.ValidationReport,
+		Authoring:   mcpAuthoring(cmd, svc),
 	}
 	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
 }

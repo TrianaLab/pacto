@@ -39,7 +39,7 @@ func httpIface(name, path string) contract.Interface {
 func connectCaps(t *testing.T, bundle *contract.Bundle, opts CapabilityOptions, stderr io.Writer) *mcpsdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewServer(nil, "test")
+	server := NewServer(Authoring{}, "test")
 	if err := RegisterCapabilities(server, bundle, opts, stderr); err != nil {
 		t.Fatalf("RegisterCapabilities: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestRegisterCapabilities_SkipsNonHTTP(t *testing.T) {
 
 func TestRegisterCapabilities_ReadDocError(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{}, httpIface("http", "missing.json"))
-	err := RegisterCapabilities(NewServer(nil, "t"), bundle, CapabilityOptions{BaseURL: "http://x"}, io.Discard)
+	err := RegisterCapabilities(NewServer(Authoring{}, "t"), bundle, CapabilityOptions{BaseURL: "http://x"}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error for missing openapi file")
 	}
@@ -184,7 +184,7 @@ func TestRegisterCapabilities_ReadDocError(t *testing.T) {
 
 func TestRegisterCapabilities_NoBaseURL(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
-	err := RegisterCapabilities(NewServer(nil, "t"), bundle, CapabilityOptions{}, io.Discard)
+	err := RegisterCapabilities(NewServer(Authoring{}, "t"), bundle, CapabilityOptions{}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error when no base URL and no servers")
 	}
@@ -254,7 +254,7 @@ func TestNewCapabilityServer_Error(t *testing.T) {
 
 func TestRegisterCapabilities_CredsRequireBaseURL(t *testing.T) {
 	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(capSpec)}}, httpIface("http", "o.json"))
-	err := RegisterCapabilities(NewServer(nil, "t"), bundle,
+	err := RegisterCapabilities(NewServer(Authoring{}, "t"), bundle,
 		CapabilityOptions{Creds: map[string]string{"apiKey": "secret"}}, io.Discard)
 	if err == nil {
 		t.Fatal("expected error: --auth without --base-url must be refused")
@@ -543,7 +543,7 @@ func TestNormalizeDraft4Bounds(t *testing.T) {
 // reserved becomes shadowable and this test says so.
 func TestReservedToolNames_CoversEveryPactoTool(t *testing.T) {
 	cat, _ := platformCatalog(t)
-	server := NewFleetServer("test", staticFleet(buildFleetQuery(t)), nil, FleetOptions{Impact: stubImpact(nil, nil, nil)})
+	server := NewFleetServer("test", staticFleet(buildFleetQuery(t)), Authoring{}, FleetOptions{Impact: stubImpact(nil, nil, nil)})
 	registerCatalogSurface(server, cat)
 	bundle := capBundle(fstest.MapFS{"openapi.json": &fstest.MapFile{Data: []byte(capSpec)}},
 		httpIface("api", "openapi.json"))

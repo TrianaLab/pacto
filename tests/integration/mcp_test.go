@@ -19,7 +19,7 @@ import (
 func mcpCallTool(t *testing.T, svc *app.Service, toolName string, args map[string]any) *mcpsdk.CallToolResult {
 	t.Helper()
 	ctx := context.Background()
-	server := pactomcp.NewServer(svc.ValidationReport, "test-e2e")
+	server := pactomcp.NewServer(pactomcp.Authoring{Validate: svc.ValidationReport}, "test-e2e")
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "e2e-client", Version: "1.0"}, nil)
 
 	t1, t2 := mcpsdk.NewInMemoryTransports()
@@ -168,5 +168,52 @@ func TestMCPCommandExtraArgs(t *testing.T) {
 	_, err := runCommand(t, nil, "mcp", "extra-arg")
 	if err == nil {
 		t.Error("expected error for extra args")
+	}
+}
+
+// TestMCPCreateFromGoldenPath: the shipped `pacto mcp` over stdio creates a
+// service from a golden path directory, records its origin and reports steps.
+func TestMCPCreateFromGoldenPath(t *testing.T) {
+	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	bin := buildPactoBinary(t)
+	root := t.TempDir()
+	path := filepath.Join(root, "paths", "http-service")
+	if err := os.MkdirAll(filepath.Join(path, "interfaces"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(path, "pacto.yaml"), "pactoVersion: \"2.7\"\nservice:\n  name: http-service\n  version: 1.0.0\n"+
+		"  owner: {team: platform}\n  summary: An HTTP API\n  template:\n    plugins:\n      - {name: dockerfile, description: A Dockerfile}\n"+
+		"interfaces:\n  - {name: api, type: openapi, ref: interfaces/openapi.yaml}\n")
+	writeFile(t, filepath.Join(path, "interfaces", "openapi.yaml"), "openapi: 3.0.0\ninfo: {title: api, version: 1.0.0}\npaths: {}\n")
+	session, _, stderr := catalogStdioSession(t, bin, t.TempDir())
+	defer session.Close()
+
+	out := filepath.Join(root, "gift-cards")
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "pacto_create", Arguments: map[string]any{
+		"from": path, "name": "gift-cards", "owner": "checkout", "domain": "commerce", "path": out,
+		"set": `["service.summary=Gift card balances"]`,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool: %v\nstderr:\n%s", err, stderr)
+	}
+	text := mcpResultText(t, res)
+	if res.IsError {
+		t.Fatalf("pacto_create from: %s", text)
+	}
+	assertContains(t, text, `"mode": "template"`)
+	assertContains(t, text, "a directory carries no signature")
+	assertContains(t, text, `"name": "dockerfile"`)
+	data, err := os.ReadFile(filepath.Join(out, "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"name: gift-cards", "team: checkout", "domain: commerce", "summary: Gift card balances", "origin:", "ref: ../paths/http-service", "digest: sha256:"} {
+		assertContains(t, string(data), want)
+	}
+	if strings.Contains(string(data), "template:") {
+		t.Errorf("the created contract keeps the template marker:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(out, "interfaces", "openapi.yaml")); err != nil {
+		t.Errorf("the path's files were not copied: %v", err)
 	}
 }

@@ -127,6 +127,13 @@ type LifecycleInput struct {
 	Clear      bool   `json:"clear,omitempty"`
 }
 
+// TemplateInput sets service.template, which marks the contract as a golden
+// path, or removes it when Clear is set.
+type TemplateInput struct {
+	Plugins []contract.TemplatePlugin `json:"plugins,omitempty"`
+	Clear   bool                      `json:"clear,omitempty"`
+}
+
 // PolicyRefInput describes a policy reference to add. Name defaults to the
 // last segment of the ref's repository.
 type PolicyRefInput struct {
@@ -182,6 +189,9 @@ type EditInput struct {
 	// Lifecycle sets or clears service.lifecycle and raises an older
 	// pactoVersion to 2.4.
 	Lifecycle *LifecycleInput
+	// Template sets or clears service.template and raises an older
+	// pactoVersion to 2.4. service.origin has no setter: only creation writes it.
+	Template *TemplateInput
 
 	Workload                  *string
 	StoresData                *bool
@@ -232,6 +242,10 @@ type ContractSummary struct {
 	Workload     string            `json:"workload,omitempty"`
 	StateType    string            `json:"stateType,omitempty"`
 	Sections     map[string]string `json:"sections"`
+	// Template says the contract is a golden path; Origin is the golden path
+	// it was created from, as it declares.
+	Template bool             `json:"template,omitempty"`
+	Origin   *contract.Origin `json:"origin,omitempty"`
 }
 
 // ValidationItem represents a single validation error or warning.
@@ -812,7 +826,21 @@ func applyServiceEdits(m map[string]any, input EditInput) []string {
 	if input.Lifecycle != nil {
 		changes = append(changes, setLifecycle(m, svc, *input.Lifecycle)...)
 	}
+	if input.Template != nil {
+		changes = append(changes, setTemplate(m, svc, *input.Template)...)
+	}
 	return changes
+}
+
+// setTemplate sets service.template, raising an older pactoVersion to 2.4, or
+// removes it when in.Clear is set. No plugins writes template: {}.
+func setTemplate(m, svc map[string]any, in TemplateInput) []string {
+	if in.Clear {
+		delete(svc, "template")
+		return []string{"removed service template"}
+	}
+	svc["template"] = contract.Template{Plugins: in.Plugins}
+	return append(raiseVersion(m, "2.4"), fmt.Sprintf("set service template with %d plugins", len(in.Plugins)))
 }
 
 // setLifecycle sets service.lifecycle, raising an older pactoVersion to 2.4,
@@ -1762,6 +1790,8 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 		Summary:  c.Service.Summary,
 		Workload: c.Workload,
 		Sections: assessSections(c),
+		Template: c.Service.Template != nil,
+		Origin:   c.Service.Origin,
 	}
 
 	if c.State != nil {

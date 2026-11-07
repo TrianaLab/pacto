@@ -48,7 +48,7 @@ func neighborLabels(nb fleet.Neighborhood) map[string]string {
 }
 
 func TestFleetNeighborhoodTool(t *testing.T) {
-	server := NewFleetServer("test", staticFleet(neighborhoodFleet(t)), nil, FleetOptions{})
+	server := NewFleetServer("test", staticFleet(neighborhoodFleet(t)), Authoring{}, FleetOptions{})
 
 	var nb fleet.Neighborhood
 	decode(t, callToolOn(t, server, "pacto_fleet_neighborhood", map[string]any{"service": "payments", "direction": "dependents"}), &nb)

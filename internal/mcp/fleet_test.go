@@ -321,7 +321,7 @@ func staticFleet(q *fleet.Query) FleetQuerySource {
 func connectFleetServer(t *testing.T, q *fleet.Query, provideImpact impactProvider) *mcpsdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewFleetServer("test", staticFleet(q), nil, FleetOptions{Impact: provideImpact})
+	server := NewFleetServer("test", staticFleet(q), Authoring{}, FleetOptions{Impact: provideImpact})
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
 	t1, t2 := mcpsdk.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, t1, nil); err != nil {
@@ -667,7 +667,7 @@ func TestFleetVersionsTool(t *testing.T) {
 // TestFleetVersionsToolLinks: with a dashboard URL, the provider, each version
 // and the latest compatible version link to their entity pages.
 func TestFleetVersionsToolLinks(t *testing.T) {
-	server := NewFleetServer("test", staticFleet(offeringFleet(t)), nil, FleetOptions{DashboardURL: "https://pacto.example"})
+	server := NewFleetServer("test", staticFleet(offeringFleet(t)), Authoring{}, FleetOptions{DashboardURL: "https://pacto.example"})
 	text := resultText(t, callToolOn(t, server, "pacto_fleet_versions", map[string]any{"offering": "postgresql", "range": "^16.0.0"}))
 	for _, want := range []string{`"href":"https://pacto.example/#/fleet/services/`, `"href":"https://pacto.example/#/fleet/revisions/`} {
 		if !strings.Contains(strings.ReplaceAll(text, " ", ""), want) {
@@ -702,7 +702,7 @@ func TestFleetOfferingToolsAnswerFromTheView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
 	}
-	server := NewFleetServer("test", staticFleet(offeringFleet(t)), nil, FleetOptions{View: view})
+	server := NewFleetServer("test", staticFleet(offeringFleet(t)), Authoring{}, FleetOptions{View: view})
 	for _, c := range []struct {
 		tool string
 		args map[string]any

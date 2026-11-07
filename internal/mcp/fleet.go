@@ -74,12 +74,12 @@ type FleetOptions struct {
 // fleet query tools backed by src. When src is nil, only authoring tools
 // register (identical to NewServer) so a caller with no fleet sources degrades
 // cleanly.
-func NewFleetServer(version string, src FleetQuerySource, validate Validator, opts FleetOptions) *mcpsdk.Server {
+func NewFleetServer(version string, src FleetQuerySource, a Authoring, opts FleetOptions) *mcpsdk.Server {
 	instructions := baseInstructions
 	if src != nil {
 		instructions += "\n\n" + fleetInstructions
 	}
-	server := newServer(version, instructions, validate)
+	server := newServer(version, instructions, a)
 	if src != nil {
 		registerFleetTools(server, src, opts)
 	}

@@ -591,7 +591,7 @@ func TestRefValuesSuggestions_NamesTheEnvironment(t *testing.T) {
 
 func TestEditTool_ReferenceOps(t *testing.T) {
 	dir := refRoot(t, orders23, nil)
-	res := callToolOn(t, NewServer(realValidator, "test"), "pacto_edit", map[string]any{
+	res := callToolOn(t, NewServer(Authoring{Validate: realValidator}, "test"), "pacto_edit", map[string]any{
 		"path":                   dir,
 		"add_configuration_refs": `[{"name":"db","ref":"../pg","required":true,"configuration":"provisioning","values":{"size":"small"}}]`,
 		"add_environments":       `[{"name":"prod"}]`,
@@ -604,7 +604,7 @@ func TestEditTool_ReferenceOps(t *testing.T) {
 	if v := readEnv(t, dir, "environments/prod.yaml"); !reflect.DeepEqual(v, map[string]any{"db": map[string]any{"size": "large"}}) {
 		t.Errorf("values %v", v)
 	}
-	res = callToolOn(t, NewServer(realValidator, "test"), "pacto_edit", map[string]any{
+	res = callToolOn(t, NewServer(Authoring{Validate: realValidator}, "test"), "pacto_edit", map[string]any{
 		"path": dir, "remove_configuration_refs": `["db"]`, "lifecycle": `{"clear":true}`,
 	})
 	if res.IsError {
