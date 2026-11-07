@@ -1,5 +1,144 @@
 # @pacto/core
 
+## 4.5.0
+
+### Minor Changes
+
+- 2ce6704: Agents and the CLI can ask the fleet about owners, business domains, platform
+  offerings and what needs attention: the `pacto_fleet_entities`,
+  `pacto_fleet_entity` and `pacto_fleet_attention` MCP tools and the
+  `pacto fleet entities`, `pacto fleet entity` and `pacto fleet attention`
+  commands. A new `undeclared` attention category lists runtime calls no contract
+  declares (`DEPENDENCY_UNDECLARED`) and callers with no contract
+  (`UNCONTRACTED_CALLER`), and one Overview tile, "Undeclared runtime dependencies
+  observed", opens it. Runtime calls and caller coverage the Kubernetes operator
+  reports now join the fleet, and leave declared edges `insufficient`.
+  `pacto_fleet_graph` and `pacto fleet graph` reach observed-only callers and mark
+  each node's `provenance`. `pacto_fleet_status` and `pacto fleet status` report
+  services with no declared owner, `total` and `truncated`. `pacto_fleet_search`
+  takes `offset`. `pacto_impact` reports `sources`. `pacto mcp --fleet` rebuilds
+  its snapshot when a call arrives 30 seconds or more after the last rebuild attempt and
+  shares it with `pacto_impact`, and `--dashboard-url` links fleet answers to
+  their dashboard pages.
+- da4494d: Add `pactoVersion: "2.4"` and `service.domain`, the business domain a service
+  belongs to. Every 2.3 contract is valid under 2.4. A `"2.0"` to `"2.3"` contract
+  that sets `service.domain` reports `NEEDS_PACTO_2_4`, and `pacto diff` reports an
+  added, changed or removed domain as `NON_BREAKING`. The operator reports the
+  domain in `status.contract.domain` and writes `status.statusFormat` 2, so a
+  service seen only through Kubernetes is still grouped by it. A status from an
+  older operator leaves that service's domain unknown.
+  
+  The dashboard groups services by domain: domains have a list and a page with
+  their services, owners, operational targets and attention, and the overview
+  breaks services down by domain, with services that declare none under No domain
+  and services whose domain Pacto cannot tell under Domain unknown. Sources that
+  disagree on a domain raise `DOMAIN_CONFLICT`.
+  The registry path that used to read "domain" now reads "Registry". Services with
+  no owner from any source appear in attention as `unowned`. An operational target shows
+  the environment it runs in when its Pacto carries the
+  `delivery.pacto.trianalab.io/environment` label, and whether the revision it runs
+  declares that environment; without the label it reads Unknown. The services list
+  filters by declared capability. `pacto fleet search --business-domain`, the
+  `pacto_fleet_search` MCP tool and the TUI accept a domain, `(none)` or
+  `(unknown)`, and `pacto_edit`
+  sets one.
+- af4f27d: Add `pactoVersion: "2.6"` with `service.lifecycle`, which deprecates a whole
+  service with a sunset and a successor, and with `values` and a `configuration`
+  selector beside a configuration `ref`. Every 2.5 contract is valid under 2.6. A
+  `"2.0"` to `"2.5"` contract that sets any of them reports `NEEDS_PACTO_2_6`.
+  Consumers of a deprecated service are warned with
+  `DEPENDENCY_SERVICE_DEPRECATED` or `DEPENDENCY_SERVICE_SUNSET`, and `pacto diff`
+  classifies the schedule like an interface lifecycle.
+  
+  Configuration references are now resolved and their values validated against
+  the referenced contract's selected configuration schema in a new
+  `configuration-refs` validation stage, in the fleet, the delivery gate,
+  `pacto_check`, `pacto_edit` and the operator. `pacto validate`, `pacto push` and
+  `pacto publish` fail with `CONFIG_REF_UNRESOLVED` on an unreachable
+  configuration ref whose values or selection depend on it, like a policy ref; a
+  `"2.0"` to `"2.5"` ref with no values anywhere only warns. Environment values
+  of `"2.0"` to `"2.5"` ref configurations are now checked, and only 2.6 reports
+  missing required values for a ref configuration. A failed configuration-refs
+  stage does not skip environments. Impact, graph traversal and dependents count
+  resolved configuration-reference consumers, and impact checks their values
+  against the new provider schema. Neighborhood edges gain the
+  `configuration_reference` relation.
+  
+  Provider adapters report provisioning status as `ResourceProvisioned`
+  evidence, written with `pacto evidence provisioned`. A trust entry needs
+  `allowedObservationKinds` listing `ResourceProvisioned` to report it. The
+  Evidence Server's targets endpoint answers `pacto.dev/evidence-source/v3` with
+  a `provisioning` list only when it holds provisioning reports, and v2
+  otherwise, and target-state files accept `pacto.dev/fleet-targets/v2` with
+  unsigned provisioning reports. Offering uses carry a provisioning status per
+  environment that reads Unknown without a current report. `pacto fleet
+  versions`, `pacto_fleet_versions` and the dashboard list each provider's
+  versions with their lifecycle and range status, `--consumes` and `consumes`
+  list an offering's consumers, and `pacto_edit` gains
+  `remove_configuration_refs`, `add_environments`, `set_environment_values` and
+  `lifecycle`. A provider with no Kubernetes target that declares its offering
+  is visible to every signed-in viewer, with its targets hidden and its hidden
+  consumers counted. `OfferingProvider.revisions` and `activeRevisions` become
+  `versions`. `pacto explain` lists each configuration with its
+  `environmentValues`, the effective values per environment an adapter
+  provisions from.
+  
+  The operator resolves configuration references with host-scoped credentials
+  and validates their values, `spec.overrides` and bound ConfigMaps against the
+  resolved schema. `status.metadata` renders non-string values as JSON.
+  The chart's `evidence.trust.configKey` (operator flag
+  `--evidence-trust-config-key`) names a structured trust config inside the
+  trust Secret, so the operator's Evidence Server can grant an adapter key
+  `ResourceProvisioned`.
+- 45b9afc: `--mira-source` reads a Mira node's service map into the fleet as observed
+  calls between services (source kind `mira`) on `pacto fleet`, `pacto mcp`,
+  `pacto tui`, `pacto impact` and `pacto dashboard`
+  (`PACTO_DASHBOARD_MIRA_SOURCES`). A declared dependency any source witnessed now
+  reconciles `matched`. Restricted views hide and count every caller that has no
+  namespace and every unresolved observed name, whichever source saw them. The
+  `pacto_fleet_neighborhood` MCP tool and the `pacto fleet neighborhood` command
+  list who a service depends on and who depends on it, with their owners, and
+  `pacto_impact` consumers link to their dashboard pages. Delivery history takes
+  `since`, `until`, `service` and `domain` and reports each change's `applied`
+  time, `cause` and `correlationID` and the Stage's service and environment. The
+  dashboard opens a service in Mira and filters delivery history by time. The new
+  "Investigate a problem with Mira" guide maps each incident question to a Pacto
+  or Mira tool.
+- 78fd229: Add `pactoVersion: "2.5"` with `service.offering`, the platform offering a
+  service provides to other teams such as `postgresql`, and `service.summary`, a
+  one-line purpose. Every 2.4 contract is valid under 2.5. A `"2.0"` to `"2.4"`
+  contract that sets either field reports `NEEDS_PACTO_2_5`, and `pacto diff`
+  reports an added, changed or removed offering or summary as `NON_BREAKING`.
+  The operator reports both in `status.contract.offering` and
+  `status.contract.summary`.
+  
+  The dashboard gains an Offerings page. Each offering lists its providers with
+  their versions, owners, interfaces, configuration and policies, the services
+  that consume it and a snippet to consume it from a contract. A service page
+  lists the platform offerings the service uses and, marked inferred, the
+  providers its unresolved dependencies may mean. The capability filter and chips
+  now read "Declared capability" and count each extension by its ref.
+  `pacto fleet search --offering`, the `offering` argument of
+  `pacto_fleet_search` and the TUI Offerings tab find providers, and `pacto_edit`
+  gains `offering`, `summary`, `add_configuration_refs` and `add_policy_refs`.
+- 83d2d1d: The dashboard's service page now shows a service's whole context. Its facts name
+  the contract it runs, its capabilities and the sources that saw it, and the owner
+  reads Owner unknown when Pacto could not read any of its contracts. Expected
+  dependencies list external and unresolved dependencies, and operational targets
+  show their environment. A Delivery section lists the service's Stages, found
+  through new exact `service` and `domain` filters on `/api/delivery/environments`
+  and `/api/delivery/history`; its links open the board and the history narrowed
+  to that service, and a Stage that names no domain is marked as matched by name
+  only. The dependency drift counts dependencies outside their accepted range and those that
+  cannot be observed, and a readiness bar tallies the service's revisions. When a
+  revision is read from a registry, Pacto checks its bundle signature against the
+  signer its contract declares in `publish.sign` and lists its OCI referrers; the
+  result is the new `provenance` field in `pacto_fleet_get` and on the revision
+  page. Policy and configuration schema content is read from the bundle and shown
+  on the service and revision pages. Revision-match buckets no longer link to the
+  unresolved dependencies list, and a service with stale or missing evidence no
+  longer reads Healthy.
+
 ## 4.4.2
 
 ### Patch Changes
