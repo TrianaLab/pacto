@@ -275,12 +275,14 @@
   --c-ok: #047857;
   --c-ok-bg: rgba(4, 120, 87, 0.06);
   --c-ok-border: rgba(4, 120, 87, 0.15);
-  /* amber-700: deepened from #d97706 so warn-as-text clears AA 4.5:1 on white (was 3.19,
-     now 5.02) while staying amber — warn(amber)↔err(red) is ΔE 27 (well over the ΔE≥15
+  /* amber, deepened twice: from #d97706 so warn-as-text clears AA on white, then from
+     amber-700 (#b45309) because a warn badge sits on its own tint over --c-bg, where
+     amber-700 measured 4.43:1. Now 5.25:1 on that tint and 4.83:1 on a doubled tint (a
+     badge inside a warn banner), and warn(amber)↔err(red) stays ΔE 28 (over the ΔE≥15
      normal-vision floor), so a "partial" segment still reads distinct from "not done". */
-  --c-warn: #b45309;
-  --c-warn-bg: rgba(180, 83, 9, 0.06);
-  --c-warn-border: rgba(180, 83, 9, 0.15);
+  --c-warn: #a14a07;
+  --c-warn-bg: rgba(161, 74, 7, 0.06);
+  --c-warn-border: rgba(161, 74, 7, 0.15);
   --c-err: #b91c1c;
   --c-err-bg: rgba(185, 28, 28, 0.06);
   --c-err-border: rgba(185, 28, 28, 0.15);

@@ -129,7 +129,9 @@ td .badge.status-badge {
   border-color: var(--c-accent);
   color: var(--c-on-accent);
 }
-.btn-primary:hover { opacity: 0.9; border-color: var(--c-accent); }
+/* .btn:hover outranks .btn-primary, so the hover keeps the accent ground itself: without
+   it a hovered primary button put its on-accent text on --c-surface-hover (1.27:1 dark). */
+.btn-primary:hover { opacity: 0.9; background: var(--c-accent); border-color: var(--c-accent); }
 .btn-sm { padding: 4px var(--sp-3); min-height: 32px; font-size: var(--text-xs); }
 /* A button that cannot be pressed yet looks it: a primary one too, so an empty required note reads as the reason. */
 .btn:disabled, .btn:disabled:hover { opacity: 0.5; cursor: not-allowed; background: var(--c-surface); border-color: var(--c-border); color: var(--c-text-3); }

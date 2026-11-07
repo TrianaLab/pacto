@@ -418,8 +418,9 @@ test.describe('WASM dashboard demo — workflows', () => {
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     // audit-log declares no dependency on payments-service — an observed-only shadow,
     // listed in the consumers fold under the one-line answer.
+    // Scoped to the table: the isometric diagram above it names audit-log too, in SVG.
     await page.getByTestId('changes-consumers').locator('summary').click();
-    await expect(page.getByText('audit-log').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('changes-consumers').getByText('audit-log').first()).toBeVisible({ timeout: 20_000 });
   });
 
   // The demo strip is DEMO-ONLY chrome (examples/demo/boot.js), never dashboard UI,
