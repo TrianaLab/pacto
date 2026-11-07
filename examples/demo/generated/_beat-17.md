@@ -10,8 +10,7 @@ Key: http-service
 Label: http-service
 Status: NotEvaluated
 Golden path: An HTTP API on the platform runtime with a PostgreSQL database and the HTTP baseline policy
-Signature: unknown: no source that read this revision checks signatures
-  The signer is the one the golden path's own contract declares; Pacto did not check it against a trust config.
+Signature: not checked: no source that read it checks signatures
 Plugins:
   dockerfile: A Dockerfile for a Go HTTP service
   github-actions: A CI workflow that validates and publishes the contract
