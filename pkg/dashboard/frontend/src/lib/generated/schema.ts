@@ -1097,6 +1097,10 @@ export interface components {
             provider: string;
             required: string;
         };
+        "Contract.Origin": {
+            digest: string;
+            ref: string;
+        };
         "Contract.Owner": {
             contacts?: components["schemas"]["Contract.OwnerContact"][] | null;
             dri?: string;
@@ -1182,14 +1186,26 @@ export interface components {
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             offering?: string;
+            origin?: components["schemas"]["Contract.Origin"];
             owner?: components["schemas"]["Contract.Owner"];
             summary?: string;
+            template?: components["schemas"]["Contract.Template"];
             version: string;
         };
         "Contract.State": {
             dataCriticality: string;
             persistence: components["schemas"]["Contract.Persistence"];
             type: string;
+        };
+        "Contract.Template": {
+            plugins?: components["schemas"]["Contract.TemplatePlugin"][] | null;
+        };
+        "Contract.TemplatePlugin": {
+            description?: string;
+            name: string;
+            options?: {
+                [key: string]: string;
+            };
         };
         ContractShare: {
             /**

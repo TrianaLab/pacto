@@ -177,14 +177,15 @@ func needsServiceFields(result *ValidationResult, data any, fields ...string) an
 }
 
 // needs24 records a NEEDS_PACTO_2_4 error for each field only pactoVersion 2.4
-// has (service.domain, service.offering, service.summary and service.lifecycle,
+// has (service.domain, service.offering, service.summary, service.lifecycle,
+// service.template and service.origin,
 // and values or a configuration selector beside a configuration ref) in an older contract, in place of the older schema's
 // generic error, and returns data without them for that schema to check the
 // rest. Every configuration stays in place so its other errors keep their
 // index.
 func needs24(result *ValidationResult, data any) any {
 	const fix = `pactoVersion "2.4"; set pactoVersion: "2.4", which keeps every older field`
-	data = needsServiceFields(result, data, "domain", "offering", "summary", "lifecycle")
+	data = needsServiceFields(result, data, "domain", "offering", "summary", "lifecycle", "template", "origin")
 	m, _ := data.(map[string]any) // an older pactoVersion was read from it
 	items, ok := m["configurations"].([]any)
 	if !ok {

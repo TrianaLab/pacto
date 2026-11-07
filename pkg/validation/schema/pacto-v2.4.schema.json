@@ -142,6 +142,73 @@
               "description": "The service that replaces this one, as an absolute URL such as an oci:// reference."
             }
           }
+        },
+        "template": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Marks this contract as a golden path (pactoVersion 2.4): an organization's starting point that pacto init --from and pacto_create copy into a new service. service.summary describes it.",
+          "properties": {
+            "plugins": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "description": "Generate plugins the path offers to run when a service is created from it. They run only when the person creating the service asks.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+                    "maxLength": 63,
+                    "description": "The plugin name: Pacto runs the pacto-plugin-<name> binary it finds."
+                  },
+                  "description": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$",
+                    "description": "What the plugin adds, in one line."
+                  },
+                  "options": {
+                    "type": "object",
+                    "maxProperties": 32,
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 1024
+                    },
+                    "description": "Options passed to the plugin."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "digest"
+          ],
+          "description": "The golden path this service was created from (pactoVersion 2.4). Declared provenance: Pacto records it at creation and shows it labelled declared.",
+          "properties": {
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$",
+              "description": "The oci:// reference or directory the service was created from."
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "description": "The content digest of the golden path bundle, as pacto.lock records it."
+            }
+          }
         }
       }
     },

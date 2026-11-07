@@ -204,6 +204,32 @@ type Service struct {
 	// Lifecycle (pactoVersion 2.4): the retirement schedule of the whole
 	// service; Successor is an absolute URL.
 	Lifecycle *InterfaceLifecycle `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
+	// Template marks the contract as a golden path (pactoVersion 2.4).
+	Template *Template `yaml:"template,omitempty" json:"template,omitempty"`
+	// Origin is the golden path the service was created from (pactoVersion
+	// 2.4): declared provenance.
+	Origin *Origin `yaml:"origin,omitempty" json:"origin,omitempty"`
+}
+
+// Template marks a contract as a golden path: an organization's starting point
+// that pacto init --from copies into a new service. It may be empty.
+type Template struct {
+	Plugins []TemplatePlugin `yaml:"plugins,omitempty" json:"plugins,omitempty"`
+}
+
+// TemplatePlugin is a generate plugin a golden path offers to run when a
+// service is created from it.
+type TemplatePlugin struct {
+	Name        string            `yaml:"name" json:"name"`
+	Description string            `yaml:"description,omitempty" json:"description,omitempty"`
+	Options     map[string]string `yaml:"options,omitempty" json:"options,omitempty"`
+}
+
+// Origin is the golden path a service was created from: the oci:// reference
+// or directory and the content digest of the path bundle.
+type Origin struct {
+	Ref    string `yaml:"ref" json:"ref"`
+	Digest string `yaml:"digest" json:"digest"`
 }
 
 // Interface describes a service interface declaration.

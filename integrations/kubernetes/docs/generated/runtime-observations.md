@@ -117,6 +117,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `DUPLICATE_INTERFACE_NAME` | `DuplicateName` |
 | `DUPLICATE_POLICY_NAME` | `DuplicateName` |
 | `DUPLICATE_READINESS_ID` | `DuplicateName` |
+| `DUPLICATE_TEMPLATE_PLUGIN` | `DuplicateName` |
 | `EMPTY_COMPATIBILITY` | `InvalidDependency` |
 | `EMPTY_READINESS_DESCRIPTION` | `MissingEvidence` |
 | `EMPTY_READINESS_EVIDENCE` | `MissingEvidence` |
@@ -133,6 +134,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `INVALID_CONFIG_SCHEMA` | `SchemaViolation` |
 | `INVALID_INTERFACE_SPEC` | `InvalidFile` |
 | `INVALID_OCI_REF` | `InvalidReference` |
+| `INVALID_ORIGIN_REF` | `InvalidReference` |
 | `INVALID_POLICY_JSON` | `InvalidFile` |
 | `INVALID_POLICY_REF` | `InvalidReference` |
 | `INVALID_POLICY_SCHEMA` | `SchemaViolation` |
