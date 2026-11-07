@@ -251,6 +251,13 @@ func TestCreationChecklistSteps(t *testing.T) {
 	if d := deployedStep([]*TargetRecord{{}, {}}).Detail; d != "2 operational targets" {
 		t.Errorf("deployed detail = %q", d)
 	}
+	// A status nothing reported is no report: the detail never counts it as one.
+	if d := provisioningStep([]OfferingUse{{Provisioning: []ProvisioningStatus{{Phase: StatusUnknown}}}}).Detail; d != "no provider has reported provisioning for what the service consumes" {
+		t.Errorf("unreported detail = %q", d)
+	}
+	if d := provisioningStep([]OfferingUse{{Provisioning: []ProvisioningStatus{{Phase: "Provisioning", ReportedPhase: "Provisioning"}, {Phase: StatusUnknown}}}}).Detail; d != "2 of 2 provisioning statuses are not Ready" {
+		t.Errorf("reported detail = %q", d)
+	}
 	if d := provisioningStep([]OfferingUse{{Provider: pg, Provisioning: []ProvisioningStatus{{Phase: "Failed"}}}}).Detail; !strings.Contains(d, "postgresql") {
 		t.Errorf("failed detail = %q", d)
 	}

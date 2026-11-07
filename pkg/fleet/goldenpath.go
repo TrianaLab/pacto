@@ -362,10 +362,13 @@ func deployedStep(targets []*TargetRecord) CreationStep {
 // provisioningStep folds what providers report about the offerings the
 // service consumes: any Failed fails it, all Ready makes it done.
 func provisioningStep(consumed []OfferingUse) CreationStep {
-	ready, total := 0, 0
+	ready, reported, total := 0, 0, 0
 	for _, u := range consumed {
 		for _, p := range u.Provisioning {
 			total++
+			if p.ReportedPhase != "" {
+				reported++
+			}
 			switch p.Phase {
 			case string(evidence.PhaseFailed):
 				return CreationStep{Step: StepProvisioning, Status: StepStatusFailed, Detail: "a provider reports " + u.Provider.Label + " failed to provision"}
@@ -379,6 +382,8 @@ func provisioningStep(consumed []OfferingUse) CreationStep {
 		return CreationStep{Step: StepProvisioning, Status: StepStatusNotApplicable, Detail: "the service consumes no offering that provisions"}
 	case ready == total:
 		return CreationStep{Step: StepProvisioning, Status: StepStatusDone, Detail: "every provider reports Ready"}
+	case reported == 0:
+		return CreationStep{Step: StepProvisioning, Status: StepStatusUnknown, Detail: "no provider has reported provisioning for what the service consumes"}
 	}
-	return CreationStep{Step: StepProvisioning, Status: StepStatusUnknown, Detail: strconv.Itoa(total-ready) + " of " + strconv.Itoa(total) + " provisioning reports are not Ready"}
+	return CreationStep{Step: StepProvisioning, Status: StepStatusUnknown, Detail: strconv.Itoa(total-ready) + " of " + strconv.Itoa(total) + " provisioning statuses are not Ready"}
 }
