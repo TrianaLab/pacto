@@ -3,11 +3,9 @@
 "@pacto/k8s-module": minor
 ---
 
-Add `pactoVersion: "2.6"` with `service.lifecycle`, which deprecates a whole
-service with a sunset and a successor, and with `values` and a `configuration`
-selector beside a configuration `ref`. Every 2.5 contract is valid under 2.6. A
-`"2.0"` to `"2.5"` contract that sets any of them reports `NEEDS_PACTO_2_6`.
-Consumers of a deprecated service are warned with
+`service.lifecycle` (pactoVersion 2.4) deprecates a whole service with a
+sunset and a successor, and a configuration `ref` takes `values` and a
+`configuration` selector beside it (pactoVersion 2.4). Consumers of a deprecated service are warned with
 `DEPENDENCY_SERVICE_DEPRECATED` or `DEPENDENCY_SERVICE_SUNSET`, and `pacto diff`
 classifies the schedule like an interface lifecycle.
 
@@ -17,8 +15,8 @@ the referenced contract's selected configuration schema in a new
 `pacto_check`, `pacto_edit` and the operator. `pacto validate`, `pacto push` and
 `pacto publish` fail with `CONFIG_REF_UNRESOLVED` on an unreachable
 configuration ref whose values or selection depend on it, like a policy ref; a
-`"2.0"` to `"2.5"` ref with no values anywhere only warns. Environment values
-of `"2.0"` to `"2.5"` ref configurations are now checked, and only 2.6 reports
+`"2.0"` to `"2.3"` ref with no values anywhere only warns. Environment values
+of `"2.0"` to `"2.3"` ref configurations are now checked, and only 2.4 reports
 missing required values for a ref configuration. A failed configuration-refs
 stage does not skip environments. Impact, graph traversal and dependents count
 resolved configuration-reference consumers, and impact checks their values

@@ -87,11 +87,11 @@ Every mode except `--root` carries these four.
 
 **`pacto_edit` edits configuration references, environments and the lifecycle:**
 
-- `add_configuration_refs` adds references to published contracts whose configuration the service takes. Each entry's `configuration` picks one of the referenced contract's configurations and `values` holds the service's values for it. Either field raises `pactoVersion` to 2.6.
+- `add_configuration_refs` adds references to published contracts whose configuration the service takes. Each entry's `configuration` picks one of the referenced contract's configurations and `values` holds the service's values for it. Either field raises `pactoVersion` to 2.4.
 - `remove_configuration_refs` removes references by name or ref, and removes their values from every environment file.
 - `add_environments` declares environments and creates each missing file holding `{}`. It raises `pactoVersion` to 2.3.
 - `set_environment_values` merges values into environment files. Objects merge key by key and a `null` removes its key.
-- `lifecycle` sets `service.lifecycle` (`deprecated`, `sunset`, `successor`), and `{"clear": true}` removes it. Setting it raises `pactoVersion` to 2.6.
+- `lifecycle` sets `service.lifecycle` (`deprecated`, `sunset`, `successor`), and `{"clear": true}` removes it. Setting it raises `pactoVersion` to 2.4.
 
 **Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only after `pacto_check` passes.
 

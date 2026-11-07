@@ -105,7 +105,7 @@ dependency too, the stricter of the range and values verdicts speaks.
 - Values that pass give `compatible`.
 - Values that fail give `incompatible`, and the note lists each violation as
   `configuration <name>: <violation> against <provider>@<version>`.
-- A selection that fails in a 2.6 consumer gives `incompatible`.
+- A selection that fails in a 2.4 consumer gives `incompatible`.
 - `unknown` remains when the consumer's values or the new schema cannot be
   read, or an older consumer's selection fails, and the note says why.
 

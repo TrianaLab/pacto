@@ -3,11 +3,9 @@
 "@pacto/k8s-module": minor
 ---
 
-Add `pactoVersion: "2.5"` with `service.offering`, the platform offering a
-service provides to other teams such as `postgresql`, and `service.summary`, a
-one-line purpose. Every 2.4 contract is valid under 2.5. A `"2.0"` to `"2.4"`
-contract that sets either field reports `NEEDS_PACTO_2_5`, and `pacto diff`
-reports an added, changed or removed offering or summary as `NON_BREAKING`.
+`service.offering` (pactoVersion 2.4) names the platform offering a service
+provides to other teams such as `postgresql`, and `service.summary` a one-line
+purpose; `pacto diff` reports an added, changed or removed offering or summary as `NON_BREAKING`.
 The operator reports both in `status.contract.offering` and
 `status.contract.summary`.
 

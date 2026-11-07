@@ -129,7 +129,7 @@ configurations:
 **Example: a postgres infrastructure contract.**
 
 ```yaml
-pactoVersion: "2.6"
+pactoVersion: "2.4"
 
 service:
   name: postgres
@@ -162,7 +162,7 @@ service:
 **How services consume it.** A service contract references the infra contract as a configuration (see [Configurations as composable claims](#configurations-as-composable-claims)), selects the provider's configuration and writes its values:
 
 ```yaml
-pactoVersion: "2.6"
+pactoVersion: "2.4"
 configurations:
   - name: database
     ref: oci://ghcr.io/example/pactos/postgres:17.0.0
@@ -245,7 +245,7 @@ configurations:
 `pacto validate -f overrides/values.stg.yaml` validates each entry's `values` against its local `schema`. Your deployment tooling reads the same file and produces: Helm values (`deployment` entry), a Postgres claim (`postgres` entry), a secret-store claim (`secrets` entry). Each value is written once, so a chart's `values.yaml` and a separate `claims/postgres.yaml` cannot drift apart.
 
 !!! info
-    Override files use **Helm-style array replacement** for `configurations`: the override's array replaces the contract's array entirely, with no merge by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `name` and `required` plus either a `schema` or a `ref`. Pacto rejects an entry without `required`. In `pactoVersion` 2.0 to 2.5, inline `values` require a local `schema`, so a `ref`-based entry carries no `values`. From 2.6 a `ref`-based entry may carry `values`, checked against the referenced contract's schema.
+    Override files use **Helm-style array replacement** for `configurations`: the override's array replaces the contract's array entirely, with no merge by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `name` and `required` plus either a `schema` or a `ref`. Pacto rejects an entry without `required`. In `pactoVersion` 2.0 to 2.3, inline `values` require a local `schema`, so a `ref`-based entry carries no `values`. From 2.4 a `ref`-based entry may carry `values`, checked against the referenced contract's schema.
 
 **Precedence:** Contract inline `values` → `-f overrides/values.<env>.yaml` → `--set` (wins). See [Precedence](../contract-reference/overrides.md#precedence) for the full chain.
 

@@ -18,7 +18,7 @@ nothing.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json`, `pacto-v2.4.schema.json`, `pacto-v2.5.schema.json` or `pacto-v2.6.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json` or `pacto-v2.4.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
@@ -34,15 +34,13 @@ instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
 `guarantees` or a dependency `requires` reports `NEEDS_PACTO_2_2` for each: set
 `pactoVersion: "2.2"`. A `"2.0"`, `"2.1"` or `"2.2"` contract that declares
 `environments` reports `NEEDS_PACTO_2_3`: set `pactoVersion: "2.3"`. A `"2.0"`
-to `"2.3"` contract that sets `service.domain` reports `NEEDS_PACTO_2_4`: set
-`pactoVersion: "2.4"`. A `"2.0"` to `"2.4"` contract that sets `service.offering`
-or `service.summary` reports `NEEDS_PACTO_2_5`: set `pactoVersion: "2.5"`. A
-`"2.0"` to `"2.5"` contract that sets `service.lifecycle` or puts `values` or a
-`configuration` selector beside a configuration `ref` reports
-`NEEDS_PACTO_2_6`: set `pactoVersion: "2.6"`.
+to `"2.3"` contract that sets `service.domain`, `service.offering`,
+`service.summary` or `service.lifecycle`, or puts `values` or a `configuration`
+selector beside a configuration `ref`, reports `NEEDS_PACTO_2_4`: set
+`pactoVersion: "2.4"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"`, `"2.5"` or `"2.6"`, fails before any layer runs and reports
+`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"` or `"2.4"`, fails before any layer runs and reports
 `PARSE_ERROR`. Loading is the parse step that turns `pacto.yaml` into a
 contract. Validation starts once it succeeds.
 
@@ -179,15 +177,15 @@ describes how the stage picks a configuration from the referenced contract.
 | The referenced contract declares a [service lifecycle](sections.md#service-lifecycle) | `DEPENDENCY_SERVICE_DEPRECATED` (warning) |
 | That service has reached its sunset | `DEPENDENCY_SERVICE_SUNSET` (warning) |
 
-In a `"2.0"` to `"2.5"` contract, `CONFIG_REF_AMBIGUOUS` and
+In a `"2.0"` to `"2.3"` contract, `CONFIG_REF_AMBIGUOUS` and
 `CONFIG_REF_UNKNOWN_CONFIGURATION` are warnings, because an older contract can
 carry no selector, and values for that configuration stay unchecked.
 
 **Who resolves refs.** `pacto validate`, `pacto push`, `pacto publish` and
 `pacto_check` fail closed: a ref reports `CONFIG_REF_UNRESOLVED` when its
-resolution protects a check. That is the case when the contract is 2.6, when an
+resolution protects a check. That is the case when the contract is 2.4, when an
 environment gives values for the configuration or when the contract also
-declares a ranged dependency on the same repository. A `"2.0"` to `"2.5"` ref
+declares a ranged dependency on the same repository. A `"2.0"` to `"2.3"` ref
 with nothing to check reports `CONFIG_REF_UNVERIFIED` and the stage reports
 `SKIP could not verify:`. The fleet, the delivery gate and `pacto doc` report
 every unresolved ref as `CONFIG_REF_UNVERIFIED` and skip the stage, so a
@@ -196,7 +194,7 @@ values. `pacto pack` resolves nothing and warns `CONFIG_REF_NOT_ENFORCED` for
 each ref with values to check. The [operator](../integrations/kubernetes/limitations.md#configurations-that-take-their-schema-by-ref)
 pulls referenced contracts itself.
 
-Values the resolved schema rejects and selection errors in a 2.6 contract are
+Values the resolved schema rejects and selection errors in a 2.4 contract are
 errors for every caller: two declarations contradict each other.
 
 ## Environments stage
