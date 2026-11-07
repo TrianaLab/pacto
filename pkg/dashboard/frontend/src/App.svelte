@@ -26,6 +26,7 @@
   import FleetSourcesView from './views/FleetSourcesView.svelte';
   import FleetDomainsView from './views/FleetDomainsView.svelte';
   import FleetOfferingsView from './views/FleetOfferingsView.svelte';
+  import FleetGoldenPathsView from './views/FleetGoldenPathsView.svelte';
   import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
@@ -422,6 +423,7 @@
       capability={route.params.capability || ''}
       offering={route.params.offering || ''}
       consumes={route.params.consumes || ''}
+      createdFrom={route.params.createdFrom || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}
@@ -437,6 +439,10 @@
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-offerings'}
     <FleetOfferingsView text={route.params.text || ''} offset={route.params.offset || ''}
+      limit={route.params.limit || ''}
+      sort={route.params.sort || ''} {refreshTick} />
+  {:else if route.view === 'fleet-golden-paths'}
+    <FleetGoldenPathsView text={route.params.text || ''} offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-sources'}

@@ -76,6 +76,29 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('counts golden paths apart from services and links to the Golden paths tab', async () => {
+    const o = baseOverview(false);
+    o.summary.goldenPaths = 2;
+    o.summary.invalidGoldenPaths = 1;
+    overviewFn.mockResolvedValue(o);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-golden-paths"]')).toBeTruthy());
+    const tile = target.querySelector('[data-testid="overview-golden-paths"]') as HTMLAnchorElement;
+    expect(tile.getAttribute('href')).toBe('#/fleet/golden-paths');
+    expect(tile.textContent).toContain('2');
+    expect(tile.textContent).toContain('Golden paths');
+    expect(tile.textContent).toContain('1 with an invalid contract');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows no golden path tile when there is none', async () => {
+    overviewFn.mockResolvedValue(baseOverview(false));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.textContent).toContain('Is anything wrong?'));
+    expect(target.querySelector('[data-testid="overview-golden-paths"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('scenario 2: partial source + zero attention NEVER shows "All clear"', async () => {
     overviewFn.mockResolvedValue(baseOverview(true));
     const { target, component } = mountView();

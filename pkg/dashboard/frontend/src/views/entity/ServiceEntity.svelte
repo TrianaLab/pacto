@@ -20,6 +20,7 @@
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ProvisioningBadges from '../../components/ProvisioningBadges.svelte';
+  import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
   import { readinessSegments, signatureSegments, signatureState, segmentTotal, READINESS_STATES } from '../../lib/distributions.ts';
   import { dropService, inService } from '../../lib/identityContext.ts';
   import { api } from '../../lib/api.ts';
@@ -126,6 +127,22 @@
     ? 'Relationships could not be computed. See the limitations below.'
     : 'No traffic observed for this service yet.');
   const current = $derived(d.currentRevision ? inService(d.currentRevision, self) : null);
+
+  // A golden path (service.template, running nowhere) and a service created from one
+  // (a declared service.origin). The creation checklist is derived by the fleet; only
+  // a step with its signal reads as done, and Unknown keeps the Unknown tone.
+  const gp = $derived(d.template ?? null);
+  const origin = $derived(d.origin ?? null);
+  const creation = $derived(d.creation ?? []);
+  const gpSig = $derived(gp ? signatureState(gp.signature) : null);
+  const VIA = { dependency: 'dependency', configuration_reference: 'configuration', policy_reference: 'policy' };
+  const STEP_LABEL = { signature: 'Signature', contract: 'Contract', validation: 'Validation', plugin: 'Plugin', published: 'Published', fleet: 'Seen by Pacto', deployed: 'Deployed', provisioning: 'Provisioning' };
+  const STEP_STATUS = {
+    done: ['Done', 'ok'], planned: ['Planned', 'info'], skipped: ['Skipped', 'neutral'],
+    unknown: ['Unknown', 'warn'], failed: ['Failed', 'err'], 'not-applicable': ['Not applicable', 'neutral'],
+  };
+  const stepStatus = (st) => STEP_STATUS[st] ?? ['Unknown', 'warn'];
+  const hiddenCreated = $derived(gp?.hiddenCreatedServices ?? 0);
 </script>
 
 <div class="svc-entity">
@@ -162,6 +179,19 @@
         <span class="se-none">No known revision</span>
       {/if}
     </div>
+    {#if origin}
+      <div class="se-fact" data-testid="service-origin">
+        <span class="se-k">Created from</span>
+        <IdentityBadge label="declared" tone="neutral" title="Its contract records this origin. Pacto did not observe the creation." describe />
+        {#if origin.goldenPath}
+          <EntityLink ref={origin.goldenPath} showStatus={false} showKind={false} />
+          {#if origin.revision}<EntityLink ref={origin.revision} showStatus={false} showKind={false} />{/if}
+        {:else}
+          <code class="se-code">{origin.ref}</code>
+          {#if origin.reason}<span class="se-note">{origin.reason}</span>{/if}
+        {/if}
+      </div>
+    {/if}
     {#if provides}
       <div class="se-fact" data-testid="service-offering">
         <span class="se-k">Provides</span>
@@ -228,6 +258,119 @@
         {#if d.ownership.conflicts.truncated}<li class="se-conflict-more">+{d.ownership.conflicts.total - d.ownership.conflicts.count} more</li>{/if}
       </ul>
     </div>
+  {/if}
+
+  {#if gp}
+    <section class="se-gp" id="sec-golden-path" data-toc="Golden path" aria-labelledby="se-gp-h" data-testid="golden-path">
+      <div class="se-gp-head">
+        <h2 id="se-gp-h" class="t-section-title">Golden path</h2>
+        <IdentityBadge label="Golden path" tone="info" title="Its contract declares service.template and nothing runs it." describe />
+      </div>
+      {#if detail.entity?.summary}<p class="se-lead t-body-2">{detail.entity.summary}</p>{/if}
+
+      <h3 class="t-subsection-title">Create a service from it</h3>
+      <div class="se-create" data-testid="golden-path-create">
+        {#if gp.instantiate}
+          <div class="se-cmd">
+            <span class="se-k">CLI</span>
+            <CopyableIdentifier value={gp.instantiate.cli} label="CLI command" iconOnly />
+          </div>
+          <pre class="se-snippet"><code>{gp.instantiate.cli}</code></pre>
+          <div class="se-cmd">
+            <span class="se-k">MCP</span>
+            <CopyableIdentifier value={gp.instantiate.mcp} label="MCP call" iconOnly />
+          </div>
+          <pre class="se-snippet"><code>{gp.instantiate.mcp}</code></pre>
+          <p class="se-note">The command names the exact bytes shown here by digest. Set a trust config with --trust or PACTO_DELIVERY_TRUST to check the signature at creation.</p>
+        {:else}
+          <p class="se-none">{gp.instantiateReason || 'No command is available.'}</p>
+        {/if}
+      </div>
+
+      <div class="se-fact" data-testid="golden-path-signature">
+        <span class="se-k">Signature</span>
+        <IdentityBadge label={gpSig.label} tone={gpSig.value === 'verified' ? 'neutral' : gpSig.tone} title={gp.signature?.reason ?? ''} describe />
+        {#if gpSig.value === 'verified' && gp.signature?.signer}<span class="se-sig-signer">Signer {gp.signature.signer}</span>{/if}
+        {#if gp.signatureNote}<span class="se-note">{gp.signatureNote}</span>{/if}
+      </div>
+
+      <h3 class="t-subsection-title">Plugins</h3>
+      {#if (gp.plugins ?? []).length}
+        <div class="data-scroll">
+          <table class="data-table" data-testid="golden-path-plugins">
+            <caption class="visually-hidden">Generate plugins the golden path names</caption>
+            <colgroup><col style="width: 22%" /><col /><col style="width: 34%" /></colgroup>
+            <thead><tr><th scope="col">Plugin</th><th scope="col">Description</th><th scope="col">Options</th></tr></thead>
+            <tbody>
+              {#each gp.plugins as p (p.name)}
+                <tr>
+                  <th scope="row"><code>{p.name}</code></th>
+                  <td data-label="Description">{p.description || ''}</td>
+                  <td data-label="Options">{#each Object.entries(p.options ?? {}) as [k, v] (k)}<code class="se-opt">{k}: {v}</code>{/each}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        <p class="se-note">Plugins run only when the person creating the service names them with --run-plugins.</p>
+      {:else}
+        <p class="se-none">It names no plugins.</p>
+      {/if}
+
+      <h3 class="t-subsection-title">Requirements</h3>
+      <div data-testid="golden-path-requirements">
+        {#if (gp.requirements?.items ?? []).length || (gp.unresolvedRequirements?.items ?? []).length}
+          <ul class="se-reqs">
+            {#each gp.requirements?.items ?? [] as u, ui (`${u.offering}:${u.provider?.key}:${u.via}:${ui}`)}
+              <li>
+                {#if u.offering}<a class="se-chip" href={fleetEntityUrl('offering', u.offering)}>{u.offering}</a><span class="se-note">from</span>{/if}
+                <EntityLink ref={u.provider} showStatus={false} showKind={false} />
+                <IdentityBadge label={VIA[u.via] ?? u.via} tone="neutral" />
+                {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
+                <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
+              </li>
+            {/each}
+            {#each gp.unresolvedRequirements?.items ?? [] as u (u.ref)}
+              <li><IdentityBadge label="unresolved" tone="warn" title={u.reason || ''} describe /><code class="se-code">{u.requestedRef || u.ref}</code></li>
+            {/each}
+          </ul>
+          {#if gp.requirements?.truncated}<p class="se-note">+{(gp.requirements.total ?? 0) - (gp.requirements.count ?? 0)} more</p>{/if}
+        {:else}
+          <p class="se-none">It consumes no offering.</p>
+        {/if}
+      </div>
+    </section>
+
+    <div class="se-wrap" data-testid="golden-path-created">
+      <PreviewSection title="Services created from it" total={gp.createdServices?.total ?? 0} count={gp.createdServices?.count ?? 0} truncated={gp.createdServices?.truncated} viewAllHref={fleetServicesUrl({ createdFrom: key })} viewAllLabel="View all" empty="No service you can see declares it as its origin." help="Services whose contract records this golden path as its origin, matched by content digest.">
+        <EntityRefList items={gp.createdServices?.items ?? []} showStatus={false} />
+      </PreviewSection>
+      <!-- Outside the section so the hidden count shows when every created service is
+           hidden; the section links to the full list itself only when it is truncated. -->
+      {#if hiddenCreated || ((gp.createdServices?.count ?? 0) > 0 && !gp.createdServices?.truncated)}
+        <p class="se-hidden t-body-2">
+          {#if hiddenCreated}{hiddenCreated === 1 ? '1 service' : `${hiddenCreated} services`} you may not see.{/if}
+          {#if (gp.createdServices?.count ?? 0) > 0 && !gp.createdServices?.truncated}<a href={fleetServicesUrl({ createdFrom: key })}>View all</a>{/if}
+        </p>
+      {/if}
+    </div>
+  {/if}
+
+  {#if creation.length}
+    <section class="se-gp" id="sec-creation" data-toc="Creation status" aria-labelledby="se-creation-h">
+      <h2 id="se-creation-h" class="t-section-title">Creation status</h2>
+      <p class="se-lead t-body-2">Derived from what Pacto observes now. Pacto keeps no record of the creation itself.</p>
+      <ul class="se-steps" data-testid="creation-status">
+        {#each creation as st, i (`${st.step}:${st.name ?? ''}:${i}`)}
+          {@const [label, tone] = stepStatus(st.status)}
+          <li data-step={st.step}>
+            <span class="se-step">{STEP_LABEL[st.step] ?? st.step}{st.name ? ` ${st.name}` : ''}</span>
+            <IdentityBadge {label} {tone} />
+            {#if st.detail}<span class="se-note">{st.detail}</span>{/if}
+          </li>
+        {/each}
+      </ul>
+    </section>
   {/if}
 
   <!-- ── operational summary ─────────────────────────────────────────────────
@@ -467,4 +610,16 @@
   .se-drift li b { color: var(--c-text); font-variant-numeric: tabular-nums; }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }
+  .se-gp { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+  .se-gp h2, .se-gp h3 { margin: 0; }
+  .se-gp-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+  .se-create { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+  .se-cmd { display: flex; align-items: center; gap: var(--sp-2); }
+  /* A long command scrolls by itself and never widens the page. */
+  .se-snippet { margin: 0; padding: var(--sp-2) var(--sp-3); max-width: 100%; overflow-x: auto; background: var(--c-surface-inset); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+  .se-code { overflow-wrap: anywhere; font-size: var(--text-sm); }
+  .se-opt { display: inline-block; margin: 0 var(--sp-1) var(--sp-1) 0; overflow-wrap: anywhere; }
+  .se-reqs, .se-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+  .se-reqs li, .se-steps li { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
+  .se-step { font-weight: 600; min-width: 9rem; }
 </style>

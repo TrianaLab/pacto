@@ -4,7 +4,7 @@
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { sourceHealthTally, splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
-  import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl } from '../lib/router.ts';
+  import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
   import { joinAnd, problemPhrase } from '../lib/answers.ts';
@@ -89,6 +89,10 @@
   // which is the same number only for as long as those buckets stay exhaustive -- an
   // avoidable coupling now that the population is reported directly.
   const totalTargets = $derived(s.targets || 0);
+  // Golden paths are counted apart: they run nowhere and stay out of every service
+  // count on this page.
+  const goldenPaths = $derived(s.goldenPaths || 0);
+  const invalidGoldenPaths = $derived(s.invalidGoldenPaths || 0);
   const isEmptyFleet = $derived(!!overview && totalServices === 0);
   // All-clear needs complete knowledge, zero attention AND a populated fleet.
   const canAllClear = $derived(!!overview && totalServices > 0 && allClearAllowed(knowledge, attentionTotal));
@@ -284,6 +288,13 @@
         <div class="ov-title"><h2 id="ov-org" class="t-section-title">Ownership and readiness</h2><HelpTip label="ownership and readiness" text="Gaps in the contracts: whether ownership is declared at all and whether anyone assesses readiness. Failures at run time appear under Operational posture." /></div>
         <a class="ov-viewall" href={fleetOwnersUrl()}>Browse owners</a>
       </div>
+      {#if goldenPaths > 0}
+        <a class="ov-gp" href={fleetGoldenPathsUrl()} data-testid="overview-golden-paths">
+          <span class="ov-gp-count t-metric">{formatCount(goldenPaths)}</span>
+          <span class="ov-gp-label">Golden {goldenPaths === 1 ? 'path' : 'paths'}</span><span class="ov-gp-sub ov-gp-note">counted apart from services</span>
+          {#if invalidGoldenPaths > 0}<span class="ov-gp-sub">{formatCount(invalidGoldenPaths)} with an invalid contract</span>{/if}
+        </a>
+      {/if}
       <div class="ov-org-grid">
         <DistributionBar
           title="Declared ownership"
@@ -392,4 +403,13 @@
   }
   .attn-reason { color: var(--c-text-3); font-size: var(--text-sm); }
   .ov-none, .ov-more { color: var(--c-text-3); font-size: var(--text-sm); }
+  .ov-gp {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); align-self: flex-start;
+    padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-md); text-decoration: none; color: var(--c-text);
+    background: var(--c-surface); border: 1px solid var(--c-border); border-left: 3px solid var(--c-info);
+  }
+  .ov-gp:hover, .ov-gp:focus-visible { border-color: var(--c-accent); }
+  .ov-gp-label { font-size: var(--text-sm); color: var(--c-text-2); }
+  .ov-gp-sub { font-size: var(--text-xs); color: var(--c-err); }
+  .ov-gp-sub.ov-gp-note { color: var(--c-text-3); }
 </style>

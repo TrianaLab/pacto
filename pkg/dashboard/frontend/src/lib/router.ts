@@ -16,6 +16,7 @@ export interface Route {
     | 'fleet-sources'   // /fleet/sources    product source list
     | 'fleet-domains'   // /fleet/domains    business-domain list
     | 'fleet-offerings' // /fleet/offerings  platform-offering list
+    | 'fleet-golden-paths' // /fleet/golden-paths  golden path list
     | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
     | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
     | 'fleet-attention' // /fleet/attention  attention list
@@ -215,7 +216,7 @@ function parseFleet(path: string, query: string): Route {
     // unowned), and it is what makes "12 services have no declared owner" a link.
     // `domain` is the registry path; `businessDomain` is the business domain, with
     // `(none)` for the services that declare none.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'offset', 'limit', 'sort']) {
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'businessDomain', 'capability', 'offering', 'consumes', 'createdFrom', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -246,14 +247,14 @@ function parseFleet(path: string, query: string): Route {
 
   // Bare /fleet/owners and /fleet/sources are the product owner/source LISTS. They
   // must be matched before the entity-detail regex (which needs a trailing key).
-  if (rest === 'owners' || rest === 'sources' || rest === 'domains' || rest === 'offerings') {
+  if (rest === 'owners' || rest === 'sources' || rest === 'domains' || rest === 'offerings' || rest === 'golden-paths') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
     for (const k of ['text', 'sourceHealth', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
-    const views: Record<string, Route['view']> = { owners: 'fleet-owners', sources: 'fleet-sources', domains: 'fleet-domains', offerings: 'fleet-offerings' };
+    const views: Record<string, Route['view']> = { owners: 'fleet-owners', sources: 'fleet-sources', domains: 'fleet-domains', offerings: 'fleet-offerings', 'golden-paths': 'fleet-golden-paths' };
     return { view: views[rest], params };
   }
 
@@ -449,7 +450,7 @@ function setPaging(qs: URLSearchParams, p: ListPaging) {
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string;
-  businessDomain?: string; capability?: string; offering?: string; consumes?: string; offset?: number;
+  businessDomain?: string; capability?: string; offering?: string; consumes?: string; createdFrom?: string; offset?: number;
 } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
@@ -470,6 +471,8 @@ export function fleetServicesUrl(opts: {
   if (opts.offering) qs.set('offering', opts.offering);
   // consumes keeps the services that consume a provider of that offering.
   if (opts.consumes) qs.set('consumes', opts.consumes);
+  // createdFrom keeps the services whose declared origin is that golden path.
+  if (opts.createdFrom) qs.set('createdFrom', opts.createdFrom);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';
@@ -499,6 +502,16 @@ export function fleetOfferingsUrl(opts: { text?: string } & ListPaging = {}): st
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/offerings?${str}` : '#/fleet/offerings';
+}
+
+// fleetGoldenPathsUrl builds the Golden paths list route: services whose contract
+// declares service.template and that run nowhere.
+export function fleetGoldenPathsUrl(opts: { text?: string } & ListPaging = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.text) qs.set('text', opts.text);
+  setPaging(qs, opts);
+  const str = qs.toString();
+  return str ? `#/fleet/golden-paths?${str}` : '#/fleet/golden-paths';
 }
 
 export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string } & ListPaging = {}): string {

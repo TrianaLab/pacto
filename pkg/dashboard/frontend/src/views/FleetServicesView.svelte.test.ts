@@ -386,6 +386,26 @@ describe('FleetServicesView — owner search vs owner identity', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('leaves golden paths out of the service list', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], template: 'exclude' }));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('lists the services created from a golden path, with a chip that removes the filter', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView({ createdFrom: 'ghcr.io/acme/http-service' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ createdFrom: 'ghcr.io/acme/http-service', template: 'exclude' }));
+    const chip = Array.from(target.querySelectorAll('.chip')).find((c) => c.textContent?.includes('Created from')) as HTMLElement;
+    expect(chip.textContent?.replace(/\s+/g, ' ').trim()).toBe('Created from: ghcr.io/acme/http-service ×');
+    (chip.querySelector('button') as HTMLButtonElement).click();
+    expect(location.hash).toBe('#/fleet/services');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('lists the consumers of an offering from the URL, with a chip that removes the filter', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
     const { target, component } = mountView({ consumes: 'postgresql', status: 'Compliant' });

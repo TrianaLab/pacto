@@ -149,7 +149,7 @@ describe('Navbar — primary destinations (product IA)', () => {
   // sources has its own control and readiness is a cut of the revision inventory.
   it('a fleet host has the primary destinations, in order', () => {
     expect(navLabels({ fleet: true, impact: true }))
-      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Operational graph', 'Change analysis']);
+      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Operational graph', 'Change analysis']);
   });
 
   it('does not promote readiness, compare or data sources to a tab', () => {
@@ -222,6 +222,7 @@ describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
     ['fleet-owners', 'Owners'],
     ['fleet-domains', 'Domains'],
     ['fleet-offerings', 'Offerings'],
+    ['fleet-golden-paths', 'Golden paths'],
     ['fleet-sources', 'Overview'],
     ['fleet-attention', 'Needs attention'],
     ['fleet', 'Operational graph'],

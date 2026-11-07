@@ -53,7 +53,7 @@
   // The two counts under the list. A failure costs only its row, which then says it
   // could not be counted: a missing row would read as zero.
   function countLoader(businessDomain) {
-    const l = createProductLoader(() => api.fleetEntities({ kinds: ['service'], businessDomain, limit: 1 }));
+    const l = createProductLoader(() => api.fleetEntities({ kinds: ['service'], businessDomain, template: 'exclude', limit: 1 }));
     $effect(() => { l.sync(`${businessDomain}@@${refreshTick}`, businessDomain); });
     onDestroy(() => l.destroy());
     return l;

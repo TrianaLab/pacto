@@ -31,6 +31,12 @@ describe('fleetEntityBreadcrumbs (H) — entity-relationship trails from canonic
     expect(t[1].href).toBe('#/fleet/services');
   });
 
+  it('golden path: Overview > Golden paths > http-service', () => {
+    const t = fleetEntityBreadcrumbs({ entity: { kind: 'service', key: 'ghcr.io/acme/http-service', label: 'http-service', template: true, businessDomain: 'platform' } });
+    expect(t.map((c) => c.label)).toEqual(['Overview', 'Golden paths', 'http-service']);
+    expect(t[1].href).toBe('#/fleet/golden-paths');
+  });
+
   it('revision: uses the parent service REF (never the display string) and a Revision leaf', () => {
     const t = fleetEntityBreadcrumbs({
       entity: { kind: 'revision', key: 'domain-a/payments@2.1.0', label: 'payments 2.1.0' },
