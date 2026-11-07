@@ -40,10 +40,17 @@ func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1alpha1.
 		configByName[cfg.Name] = i
 	}
 
-	// Validate all override names exist before applying any.
+	// Validate all override names exist before applying any. Before 2.6 a configuration that takes
+	// its schema by ref carries no values, so an override of one is refused in those words instead
+	// of an opaque schema violation.
+	before26 := slices.Index(contract.SupportedVersions, c.PactoVersion) < slices.Index(contract.SupportedVersions, "2.6")
 	for _, ov := range overrides.Configurations {
-		if _, ok := configByName[ov.Name]; !ok {
+		idx, ok := configByName[ov.Name]
+		if !ok {
 			return nil, nil, fmt.Errorf("configuration %q not found in contract", ov.Name)
+		}
+		if before26 && c.Configurations[idx].Ref != "" {
+			return nil, nil, fmt.Errorf("override for configuration %q: it takes its schema by ref; values for it need pactoVersion \"2.6\"", ov.Name)
 		}
 	}
 

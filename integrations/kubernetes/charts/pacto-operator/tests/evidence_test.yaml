@@ -51,6 +51,44 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --evidence-credentials-secret=registry-creds
 
+  - it: passes no trust config key by default (bare-key mode)
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: evidence-trust-config-key
+
+  - it: passes the structured trust config key when set
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.trust.configKey: trust.yaml
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-trust-config-key=trust.yaml
+
+  # The server picks the structured mode by extension, so a key it would read
+  # as a bare public key is rejected at install time.
+  - it: rejects a trust config key without a yaml extension
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.trust.configKey: adapter.pub
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - failedTemplate: {}
+
   # Enabling evidence without naming a subject is an install-time failure, not a
   # server that starts and reports an authoritative empty world.
   - it: fails when evidence is enabled with no subject

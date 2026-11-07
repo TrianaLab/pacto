@@ -6,7 +6,7 @@
 pacto diff oci://ghcr.io/acme/payments-api:1.4.0 ./payments-api
 ```
 
-Every change goes through a fixed rule table, so the same two contracts always give the same answer. The tables below are the complete list: every field Pacto compares and the verdict it reaches.
+Every change goes through a fixed rule table, so the same two contracts always give the same answer. The tables below list every field Pacto compares and its verdict.
 
 Each change is classified as:
 
@@ -28,6 +28,12 @@ A change that matches no specific rule below defaults to **POTENTIAL_BREAKING**.
 | `service.domain` | Added / Modified / Removed | NON_BREAKING |
 | `service.offering` | Added / Modified / Removed | NON_BREAKING |
 | `service.summary` | Added / Modified / Removed | NON_BREAKING |
+| `service.lifecycle` | Added / Removed | NON_BREAKING |
+| `service.lifecycle.deprecated` | Modified | NON_BREAKING |
+| `service.lifecycle.sunset` | Added / Removed | NON_BREAKING |
+| `service.lifecycle.sunset` | Modified, earlier | POTENTIAL_BREAKING |
+| `service.lifecycle.sunset` | Modified, later | NON_BREAKING |
+| `service.lifecycle.successor` | Added / Modified / Removed | NON_BREAKING |
 
 The owner block is compared field by field, so changing a `dri` or adding a
 contact while the `team` is unchanged reports that specific change. Contacts are
@@ -75,12 +81,15 @@ A [`compatibilityEpoch`](sections.md#compatibility-epoch) change marks a behavio
 |-------|--------|----------------|
 | `configurations[]` | Added | NON_BREAKING |
 | `configurations[]` | Removed | **BREAKING** |
+| `configurations[]` | One becomes several, so a selector-less `ref` turns ambiguous | **BREAKING** |
 | `configurations[].schema` | Added | POTENTIAL_BREAKING |
 | `configurations[].schema` | Modified | POTENTIAL_BREAKING |
 | `configurations[].schema` | Removed | **BREAKING** |
 | `configurations[].ref` | Added | NON_BREAKING |
 | `configurations[].ref` | Modified | POTENTIAL_BREAKING |
 | `configurations[].ref` | Removed | **BREAKING** |
+| `configurations[].configuration` | Added | NON_BREAKING |
+| `configurations[].configuration` | Modified / Removed | POTENTIAL_BREAKING |
 | `configurations[].values.*` | Added / Modified / Removed | NON_BREAKING |
 
 Dropping a `schema` is `BREAKING`: the configuration a consumer supplies stops
@@ -91,6 +100,8 @@ fail validation.
 Inline configuration `values` and [environment](environments.md#what-a-change-needs)
 values are the provider's own inputs. Pacto diffs them key by key (for example
 `configurations[app].values.replicas`) and classifies each change `NON_BREAKING`.
+Values beside a `ref` are a request the provider's schema checks.
+Removing the `configuration` selector can leave the `ref` ambiguous.
 
 ## Environments
 
@@ -141,9 +152,8 @@ section to diff.
 Capabilities (`health`, `metrics`, `extension`) are compared as a set, keyed by
 `type`, plus `ref` for an `extension`. Adding a capability is a new signal
 (`NON_BREAKING`). Removing one loses an observability guarantee
-(`POTENTIAL_BREAKING`). The diff compares only set membership and ignores
-`binding`, so re-pointing an existing capability's `binding.interface` or
-`binding.path` produces no change entry.
+(`POTENTIAL_BREAKING`). The diff ignores `binding`, so re-pointing a
+capability's `binding.interface` or `binding.path` produces no change.
 
 ## Dependencies
 
@@ -217,7 +227,7 @@ documentation edit, such as a response `description` or an `example`, is
 header, is `POTENTIAL_BREAKING`, except that removing a response's whole
 `content`, one of its media types or its schema is `BREAKING`.
 
-Change paths use a hierarchical format that pinpoints the exact location, for example:
+Change paths pinpoint the exact location, for example:
 
 ```text
 openapi.paths[/users].methods[GET].parameters[filter:query]

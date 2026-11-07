@@ -572,6 +572,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Offering provider versions
+         * @description Lists the versions of every provider of a platform offering, or of one provider, newest first, with each version's lifecycle and, when a range is given, whether it satisfies the range and the latest compatible version. The list comes from the contract revisions the fleet holds; the registry may publish others.
+         */
+        get: operations["fleet-versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/graph": {
         parameters: {
             query?: never;
@@ -970,6 +990,7 @@ export interface components {
             status: string;
         };
         ConfigurationInfo: {
+            configuration?: string;
             hasSchema: boolean;
             lockedDigest?: string;
             lockedVersion?: string;
@@ -996,6 +1017,7 @@ export interface components {
             name: string;
         };
         "Contract.Configuration": {
+            configuration?: string;
             name: string;
             ref?: string;
             required: boolean;
@@ -1157,6 +1179,7 @@ export interface components {
         };
         "Contract.Service": {
             domain?: string;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             offering?: string;
             owner?: components["schemas"]["Contract.Owner"];
@@ -1927,6 +1950,7 @@ export interface components {
             /** Format: date-time */
             generatedAt: string;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            provisioning?: components["schemas"]["Fleet.ProvisioningRecord"][] | null;
             relationships: components["schemas"]["Fleet.Relationship"][] | null;
             revisions: {
                 [key: string]: components["schemas"]["Fleet.ContractRevision"];
@@ -2240,6 +2264,29 @@ export interface components {
             kind?: string;
             name?: string;
         };
+        "Fleet.ProvisioningRecord": {
+            /** Format: date-time */
+            acceptedAt?: string;
+            digest: string;
+            domain?: string;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            kind: "configuration" | "dependency";
+            name: string;
+            /** Format: date-time */
+            observedAt: string;
+            outcome: string;
+            phase?: string;
+            producer?: string;
+            producerKeyId?: string;
+            provider?: string;
+            service: string;
+            serviceKey: string;
+            source: string;
+            sourceKind?: string;
+            verified: boolean;
+        };
         "Fleet.ReadinessCheck": {
             category?: string;
             description?: string;
@@ -2299,6 +2346,7 @@ export interface components {
             observedCount?: number;
             observedSources?: components["schemas"]["Fleet.ObservedSourceStat"][] | null;
             provenance: string;
+            providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             reason?: string;
@@ -2419,6 +2467,8 @@ export interface components {
             };
             name: string;
             offering?: string;
+            /** @enum {string} */
+            offeringProvenance?: "declared" | "observed";
             owner?: components["schemas"]["Contract.Owner"];
             revisions?: string[] | null;
             sources?: string[] | null;
@@ -3066,6 +3116,7 @@ export interface components {
             truncated: boolean;
         };
         ProductConfigurationSummary: {
+            configuration?: string;
             content?: components["schemas"]["Fleet.SchemaContent"];
             name: string;
             ref?: string;
@@ -3113,8 +3164,9 @@ export interface components {
             observed: boolean;
             /** @enum {string} */
             provenance: "declared" | "observed" | "declared+observed";
+            providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             /** @enum {string} */
-            relation: "dependency" | "runs";
+            relation: "dependency" | "runs" | "configuration_reference";
             /** @enum {string} */
             serviceCorroboration?: "matched" | "expected-not-observed" | "insufficient";
             stale?: boolean;
@@ -3273,19 +3325,27 @@ export interface components {
         };
         ProductOfferingDetail: {
             consumers: components["schemas"]["ProductOfferingUsesPreview"];
+            /** Format: int64 */
+            hiddenConsumers: number;
             providers: components["schemas"]["ProductOfferingProvidersPreview"];
         };
         ProductOfferingProvider: {
-            activeRevisions: components["schemas"]["ProductRefPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consume?: components["schemas"]["Fleet.ConsumeSnippet"];
             currentRevision?: components["schemas"]["ProductRef"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /** @enum {string} */
+            offeringProvenance: "declared" | "observed";
             ownership?: components["schemas"]["ProductOwnership"];
             policies: components["schemas"]["ProductPoliciesPreview"];
-            revisions: components["schemas"]["ProductRefPreview"];
             service: components["schemas"]["ProductRef"];
             summary?: string;
+            versions: components["schemas"]["ProductProviderVersions"];
+        };
+        ProductOfferingProviderVersions: {
+            provider: components["schemas"]["ProductRef"];
+            versions: components["schemas"]["ProductProviderVersions"];
         };
         ProductOfferingProvidersPreview: {
             /** Format: int64 */
@@ -3300,6 +3360,8 @@ export interface components {
             consumer: components["schemas"]["ProductRef"];
             offering: string;
             provider: components["schemas"]["ProductRef"];
+            providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            provisioning?: components["schemas"]["ProductProvisioningStatus"][] | null;
             /** @enum {string} */
             rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
             /** @enum {string} */
@@ -3309,6 +3371,14 @@ export interface components {
             /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductOfferingUse"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        ProductOfferingVersions: {
+            meta: components["schemas"]["Fleet.ProductMeta"];
+            offering: components["schemas"]["ProductRef"];
+            providers: components["schemas"]["ProductOfferingProviderVersions"][] | null;
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -3351,6 +3421,50 @@ export interface components {
             schema?: string;
             target?: string;
         };
+        ProductProviderVersion: {
+            inUse?: boolean;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /** @enum {string} */
+            rangeStatus?: "satisfied" | "unsatisfied" | "unknown";
+            revision: components["schemas"]["ProductRef"];
+            sunsetReached?: boolean;
+            version?: string;
+        };
+        ProductProviderVersions: {
+            /** @enum {string} */
+            completeness: "fleet";
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductProviderVersion"][] | null;
+            latestCompatible?: components["schemas"]["ProductRef"];
+            note: string;
+            range?: string;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        ProductProvisioningStatus: {
+            /** Format: date-time */
+            asOf?: string;
+            conflict?: string[] | null;
+            entry?: string;
+            environment?: string;
+            externalRef?: string;
+            /** @enum {string} */
+            phase: "Requested" | "Provisioning" | "Ready" | "Failed" | "Deleting" | "Unknown";
+            producer?: string;
+            producerKeyId?: string;
+            /** @enum {string} */
+            provenance: "observed";
+            provider?: string;
+            reason?: string;
+            reportedPhase?: string;
+            revision?: components["schemas"]["ProductRef"];
+            source?: string;
+            sourceKind?: string;
+            stale?: boolean;
+            verified: boolean;
+        };
         ProductRef: {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
@@ -3365,6 +3479,8 @@ export interface components {
             kind: "service" | "revision" | "target" | "owner" | "source" | "domain" | "offering";
             label: string;
             offering?: string;
+            /** @enum {string} */
+            offeringProvenance?: "declared" | "observed";
             owner?: string;
             parentService?: string;
             scope?: string;
@@ -3388,6 +3504,7 @@ export interface components {
         ProductRefResolution: {
             reason?: string;
             resolved: boolean;
+            revision?: components["schemas"]["ProductRef"];
             service?: components["schemas"]["ProductRef"];
         };
         ProductRelationshipsPreview: {
@@ -3408,6 +3525,7 @@ export interface components {
             identity: components["schemas"]["Fleet.RevisionIdentity"];
             inferredTargets: components["schemas"]["ProductRefPreview"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             metadata: components["schemas"]["Fleet.RuntimePreview"];
             next?: components["schemas"]["ProductRef"];
@@ -3469,6 +3587,7 @@ export interface components {
             /** Format: int64 */
             hiddenDependents?: number;
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
@@ -3766,6 +3885,7 @@ export interface components {
             lastReconciledAt?: string;
             /** Format: date-time */
             lastUpdated?: string;
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             lock?: components["schemas"]["LockInfo"];
             metadata?: {
                 [key: string]: string;
@@ -3812,6 +3932,7 @@ export interface components {
             dependencyCount?: number;
             domain?: string;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
+            lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             namespace?: string;
             offering?: string;
@@ -5262,6 +5383,8 @@ export interface operations {
                 capability?: string;
                 /** @description Exact platform offering (service.offering) a service provides (service and offering entities) */
                 offering?: string;
+                /** @description Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities) */
+                consumes?: string;
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
@@ -5703,6 +5826,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Fleet.TargetView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-versions": {
+        parameters: {
+            query: {
+                /** @description Platform offering (service.offering) slug */
+                offering: string;
+                /** @description One provider of the offering, by canonical service key or unique name; absent lists every provider */
+                provider?: string;
+                /** @description Semver range such as ^16.0.0; each version reports whether it satisfies it */
+                range?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductOfferingVersions"];
                 };
             };
             /** @description Error */

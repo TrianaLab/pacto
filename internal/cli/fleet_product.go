@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/mcp"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -42,6 +44,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("owner-key", "", "exact owner key, such as team:platform or dri:alice")
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
 	f.String("offering", "", "services that provide this platform offering, and the offering itself")
+	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned)")
 	f.String("status", "", "canonical compliance status")
 	f.String("sort", "", "order: name, health (least healthy first) or services (owners with the most services first)")
@@ -108,7 +111,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	}
 	return fleet.EntityFilter{
 		Text: text, Kinds: ks, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
+		Offering: get("offering"), Consumes: get("consumes"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
 		Limit: limit, Offset: offset,
 	}
 }
@@ -138,6 +141,35 @@ func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			return printFleetEntity(cmd, res, v.GetString(outputFormatKey))
 		},
 	}
+}
+
+func newFleetVersionsCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "versions <offering>",
+		Short: "List the versions of each provider of a platform offering",
+		Long: "Lists each provider's versions of a platform offering, newest first, with whether a target runs " +
+			"each one and the service lifecycle it declares. With --range, each version shows whether it " +
+			"satisfies the range and each provider names its latest compatible version. The list comes from " +
+			"the contract revisions the snapshot holds; the registry may publish others.",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: noCompletions,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			q, err := buildQuery(cmd, svc)
+			if err != nil {
+				return err
+			}
+			provider, _ := cmd.Flags().GetString("provider")
+			rng, _ := cmd.Flags().GetString("range")
+			res, err := q.OfferingVersions(args[0], provider, rng)
+			if err != nil {
+				return err
+			}
+			return printFleetVersions(cmd, res, v.GetString(outputFormatKey))
+		},
+	}
+	cmd.Flags().String("provider", "", "only this provider: its key, or a name only one domain uses")
+	cmd.Flags().String("range", "", "semver range to check each version against, such as ^16.0.0")
+	return cmd
 }
 
 func newFleetAttentionCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
@@ -199,10 +231,163 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 	return formatResult(cmd, format, res, func() error {
 		w := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(w, "Kind: %s\nKey: %s\nLabel: %s\nStatus: %s\n", res.Entity.Kind, res.Entity.Key, res.Entity.Label, orDash(res.Status))
+		if res.Offering != nil {
+			printOfferingText(w, res.Offering)
+		}
+		if res.Service != nil {
+			printOfferingUses(w, "Offerings used:", res.Service.ConsumedOfferings)
+		}
 		_, _ = fmt.Fprintln(w, "Run with --output-format json for the full detail")
 		warnProductPartial(cmd, res.Meta)
 		return nil
 	}, nil)
+}
+
+func printFleetVersions(cmd *cobra.Command, res *fleet.OfferingVersionsResult, format string) error {
+	return formatResult(cmd, format, res, func() error {
+		w := cmd.OutOrStdout()
+		note := ""
+		for _, p := range res.Providers {
+			_, _ = fmt.Fprint(w, p.Provider.Label)
+			if p.Versions.Range != "" {
+				_, _ = fmt.Fprintf(w, ": latest compatible %s", latestCompatible(p.Versions))
+			}
+			_, _ = fmt.Fprintln(w)
+			for _, it := range p.Versions.Items {
+				_, _ = fmt.Fprintf(w, "  %s%s\n", orDash(it.Version), versionNotes(it))
+			}
+			if p.Versions.Truncated {
+				_, _ = fmt.Fprintf(w, "  %d more\n", p.Versions.Total-p.Versions.Count)
+			}
+			note = p.Versions.Note
+		}
+		if res.Truncated {
+			_, _ = fmt.Fprintf(w, "%d of %d providers shown\n", len(res.Providers), res.Total)
+		}
+		_, _ = fmt.Fprintln(w, note)
+		warnProductPartial(cmd, res.Meta)
+		return nil
+	}, nil)
+}
+
+// latestCompatible is the version of v's latest compatible revision, "none"
+// when no version satisfies the range.
+func latestCompatible(v fleet.ProviderVersionsPreview) string {
+	if v.LatestCompatible == nil {
+		return "none"
+	}
+	for _, it := range v.Items {
+		if it.Revision.Key == v.LatestCompatible.Key {
+			return orDash(it.Version)
+		}
+	}
+	return v.LatestCompatible.Label
+}
+
+// versionNotes is the bracketed suffix of one version line: whether a target
+// runs it, its lifecycle and its range status.
+func versionNotes(v fleet.ProviderVersion) string {
+	var notes []string
+	if v.InUse != nil && *v.InUse {
+		notes = append(notes, "in use")
+	}
+	if l := lifecycleText(v.Lifecycle); l != "" {
+		notes = append(notes, l)
+	}
+	if v.RangeStatus != "" {
+		notes = append(notes, v.RangeStatus)
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return " [" + strings.Join(notes, ", ") + "]"
+}
+
+// lifecycleText renders a service lifecycle, empty when there is none.
+func lifecycleText(l *contract.InterfaceLifecycle) string {
+	if l == nil {
+		return ""
+	}
+	var parts []string
+	if l.Deprecated != "" {
+		parts = append(parts, "deprecated since "+l.Deprecated)
+	}
+	if l.Sunset != "" {
+		parts = append(parts, "sunset "+l.Sunset)
+	}
+	if l.Successor != "" {
+		parts = append(parts, "successor "+l.Successor)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// printOfferingText renders an offering's providers, its consumers and how
+// many consumers the caller's permissions hide.
+func printOfferingText(w io.Writer, o *fleet.OfferingDetailData) {
+	_, _ = fmt.Fprintln(w, "Providers:")
+	for _, p := range o.Providers.Items {
+		_, _ = fmt.Fprintf(w, "  %s (%s)\n", p.Service.Label, p.OfferingProvenance)
+		if p.Ownership != nil && p.Ownership.Owner != "" {
+			_, _ = fmt.Fprintf(w, "    owner: %s\n", p.Ownership.Owner)
+		}
+		if p.CurrentRevision != nil {
+			_, _ = fmt.Fprintf(w, "    current: %s\n", p.CurrentRevision.Label)
+		}
+		if l := lifecycleText(p.Lifecycle); l != "" {
+			_, _ = fmt.Fprintf(w, "    lifecycle: %s\n", l)
+		}
+		versions := make([]string, 0, len(p.Versions.Items))
+		for _, v := range p.Versions.Items {
+			versions = append(versions, orDash(v.Version)+versionNotes(v))
+		}
+		_, _ = fmt.Fprintf(w, "    versions: %s\n", orDash(strings.Join(versions, "; ")))
+	}
+	printOfferingUses(w, "Consumers:", o.Consumers)
+	if o.HiddenConsumers > 0 {
+		_, _ = fmt.Fprintf(w, "%d consumers you may not see\n", o.HiddenConsumers)
+	}
+}
+
+// printOfferingUses renders offering uses with their range, the provider's
+// lifecycle and one provisioning line per environment.
+func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview) {
+	if uses.Total == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, title)
+	for _, u := range uses.Items {
+		_, _ = fmt.Fprintf(w, "  %s -> %s (%s) via %s", u.Consumer.Label, u.Provider.Label, u.Offering, u.Via)
+		if u.RangeStatus != "" {
+			_, _ = fmt.Fprintf(w, ", range %s", u.RangeStatus)
+		}
+		if l := lifecycleText(u.ProviderLifecycle); l != "" {
+			_, _ = fmt.Fprintf(w, ", provider %s", l)
+		}
+		_, _ = fmt.Fprintln(w)
+		for _, st := range u.Provisioning {
+			where := strings.TrimSpace(st.Environment + " " + st.Entry)
+			if where != "" {
+				where = " " + where
+			}
+			_, _ = fmt.Fprintf(w, "    provisioning%s: %s\n", where, provisioningText(st))
+		}
+	}
+	if uses.Truncated {
+		_, _ = fmt.Fprintf(w, "  %d more\n", uses.Total-uses.Count)
+	}
+}
+
+// provisioningText renders one provisioning status: its phase, (unsigned) for
+// a report from an unsigned file and, for Unknown, why.
+func provisioningText(st fleet.ProvisioningStatus) string {
+	s := st.Phase
+	if st.Source != "" && !st.Verified {
+		s += " (unsigned)"
+	}
+	if st.Reason != "" {
+		s += ": " + st.Reason
+	}
+	return s
 }
 
 func printFleetAttention(cmd *cobra.Command, res *fleet.AttentionList, format string) error {

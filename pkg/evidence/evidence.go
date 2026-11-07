@@ -8,7 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"slices"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
@@ -16,10 +20,12 @@ import (
 // SubjectRef identifies the specific entity an observation is about. For per-assertion kinds it names the
 // assertion (capability type, interface name, dependency name, configuration name); for service-scoped
 // kinds (workload, persistence) it names the service (c.Service.Name). Identity lives here, not in the
-// payload, so a non-Observed observation is still attributable.
+// payload, so a non-Observed observation is still attributable. Environment is set only on a
+// non-Observed ResourceProvisioned observation, which has no payload to name the consumer environment in.
 type SubjectRef struct {
-	Kind string `json:"kind"`
-	Name string `json:"name"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Environment string `json:"environment,omitempty"`
 }
 
 // Provenance tracks how an observation was collected.
@@ -38,7 +44,11 @@ const (
 	DependencyReachable  ObservationKind = "DependencyReachable"
 	ConfigurationPresent ObservationKind = "ConfigurationPresent"
 	PersistenceObserved  ObservationKind = "PersistenceObserved"
+	ResourceProvisioned  ObservationKind = "ResourceProvisioned"
 )
+
+// Known reports whether k is an observation kind this build understands.
+func (k ObservationKind) Known() bool { return len(k.subjectKinds()) > 0 }
 
 // Outcome is the collection verdict. Exactly Observed carries a payload. There is NO OutcomeAbsent.
 type Outcome string
@@ -51,7 +61,8 @@ const (
 	Insufficient Outcome = "Insufficient" // partial/ambiguous, not conclusive (incl. within-window negatives)
 )
 
-func (o Outcome) valid() bool {
+// Valid reports whether o is one of the five outcomes.
+func (o Outcome) Valid() bool {
 	switch o {
 	case Observed, Unsupported, Failed, Stale, Insufficient:
 		return true
@@ -93,6 +104,82 @@ type PersistenceObservation struct {
 	Shared *bool `json:"shared,omitempty"`
 }
 
+// ProvisionPhase is the provisioning state a provider reports for a requested resource.
+type ProvisionPhase string
+
+const (
+	PhaseRequested    ProvisionPhase = "Requested"    // the provider accepted the request
+	PhaseProvisioning ProvisionPhase = "Provisioning" // the provider is creating or updating the resource
+	PhaseReady        ProvisionPhase = "Ready"        // the resource exists and is usable
+	PhaseFailed       ProvisionPhase = "Failed"       // the provider could not provision the resource
+	PhaseDeleting     ProvisionPhase = "Deleting"     // the provider is retiring the resource
+)
+
+func (p ProvisionPhase) valid() bool {
+	switch p {
+	case PhaseRequested, PhaseProvisioning, PhaseReady, PhaseFailed, PhaseDeleting:
+		return true
+	}
+	return false
+}
+
+// ProvisionedObservation is a provider's report on the resource a consumer asked for. It is limited by
+// design: Provider is a free slug (no product enum) and strict decode rejects any other key. ExternalRef is
+// an opaque handle the adapter chooses and every viewer of the consumer reads, so the adapter keeps it
+// free of secrets; validation refuses a URL that carries credentials.
+type ProvisionedObservation struct {
+	Provider    string         `json:"provider"`
+	ExternalRef string         `json:"externalRef,omitempty"`
+	Phase       ProvisionPhase `json:"phase"`
+	Environment string         `json:"environment,omitempty"`
+}
+
+// credentialURL matches a URL with userinfo, such as postgres://user:password@host.
+var credentialURL = regexp.MustCompile(`://[^/@]*@`)
+
+// slugPattern is the DNS-label rule a provider slug and an environment name follow.
+var slugPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
+// Bounds on a ResourceProvisioned payload.
+const (
+	maxSlugBytes        = 63
+	maxExternalRefBytes = 253
+)
+
+func validSlug(s string) bool { return len(s) <= maxSlugBytes && slugPattern.MatchString(s) }
+
+// ValidEnvironment reports whether s is a valid environment name in a provisioning report.
+func ValidEnvironment(s string) bool { return validSlug(s) }
+
+// ProvisionedEnvironment is the consumer environment a ResourceProvisioned observation is about: the
+// payload's for an Observed one, the subject's otherwise.
+func (o Observation) ProvisionedEnvironment() string {
+	if p, err := o.GetProvisionedObservation(); err == nil {
+		return p.Environment
+	}
+	return o.Subject.Environment
+}
+
+// ValidateProvisioned checks a ResourceProvisioned payload beyond its shape. The
+// fleet applies it again to every provisioning record it ingests.
+func ValidateProvisioned(p ProvisionedObservation) error {
+	switch {
+	case !validSlug(p.Provider):
+		return fmt.Errorf("provider %q must be a lowercase slug of at most %d bytes", p.Provider, maxSlugBytes)
+	case !p.Phase.valid():
+		return fmt.Errorf("unknown phase %q", p.Phase)
+	case len(p.ExternalRef) > maxExternalRefBytes:
+		return fmt.Errorf("externalRef exceeds %d bytes", maxExternalRefBytes)
+	case strings.ContainsFunc(p.ExternalRef, func(r rune) bool { return !unicode.IsPrint(r) }):
+		return errors.New("externalRef must be printable text")
+	case credentialURL.MatchString(p.ExternalRef):
+		return errors.New("externalRef must not carry URL credentials")
+	case p.Environment != "" && !validSlug(p.Environment):
+		return fmt.Errorf("environment %q must be a lowercase slug of at most %d bytes", p.Environment, maxSlugBytes)
+	}
+	return nil
+}
+
 // Observation is a single observed fact. Value holds the typed payload as raw JSON and is set iff
 // Outcome == Observed. The Observed-implies-one-payload invariant is enforced by validate() at every
 // JSON boundary.
@@ -122,36 +209,42 @@ type EvidenceSet struct {
 	Observations []Observation
 }
 
-// subjectKind is the expected Subject.Kind for an ObservationKind (INV-1c). Per-assertion kinds name their
-// assertion; workload/persistence are service-scoped.
-func (k ObservationKind) subjectKind() string {
+// subjectKinds lists the Subject.Kind values an ObservationKind pairs with (INV-1c). Per-assertion kinds
+// name their assertion; workload/persistence are service-scoped; ResourceProvisioned names the consumer's
+// configuration or dependency entry that asked for the resource. Empty means the kind is unknown.
+func (k ObservationKind) subjectKinds() []string {
 	switch k {
 	case CapabilityObserved:
-		return "capability"
+		return []string{"capability"}
 	case InterfaceObserved:
-		return "interface"
+		return []string{"interface"}
 	case DependencyReachable:
-		return "dependency"
+		return []string{"dependency"}
 	case ConfigurationPresent:
-		return "configuration"
+		return []string{"configuration"}
 	case WorkloadObserved, PersistenceObserved:
-		return "service"
+		return []string{"service"}
+	case ResourceProvisioned:
+		return []string{"configuration", "dependency"}
 	}
-	return ""
+	return nil
 }
 
 // validate enforces: Kind/Outcome known; Subject.Kind pairs with Kind (INV-1c); Observed <=> exactly one
 // payload present AND decodable as the declared kind; non-Observed => no payload.
 func (o Observation) validate() error {
-	want := o.Kind.subjectKind()
-	if want == "" {
+	want := o.Kind.subjectKinds()
+	if len(want) == 0 {
 		return fmt.Errorf("unknown observation kind: %q", o.Kind)
 	}
-	if !o.Outcome.valid() {
+	if !o.Outcome.Valid() {
 		return fmt.Errorf("unknown outcome: %q", o.Outcome)
 	}
-	if o.Subject.Kind != want {
-		return fmt.Errorf("kind %s requires Subject.Kind %q, got %q (INV-1c)", o.Kind, want, o.Subject.Kind)
+	if !slices.Contains(want, o.Subject.Kind) {
+		return fmt.Errorf("kind %s requires Subject.Kind %q, got %q (INV-1c)", o.Kind, strings.Join(want, `" or "`), o.Subject.Kind)
+	}
+	if err := o.checkSubjectEnvironment(); err != nil {
+		return err
 	}
 	if o.Outcome == Observed {
 		if len(o.Value) == 0 {
@@ -161,6 +254,22 @@ func (o Observation) validate() error {
 	}
 	if len(o.Value) != 0 {
 		return fmt.Errorf("outcome %s must not carry a value payload", o.Outcome)
+	}
+	return nil
+}
+
+// checkSubjectEnvironment allows Subject.Environment only where a payload cannot carry it: on a
+// non-Observed ResourceProvisioned observation, as a lowercase slug.
+func (o Observation) checkSubjectEnvironment() error {
+	switch env := o.Subject.Environment; {
+	case env == "":
+		return nil
+	case o.Kind != ResourceProvisioned:
+		return fmt.Errorf("kind %s takes no subject environment", o.Kind)
+	case o.Outcome == Observed:
+		return errors.New("an Observed ResourceProvisioned observation names its environment in the payload")
+	case !ValidEnvironment(env):
+		return fmt.Errorf("subject environment %q must be a lowercase slug of at most %d bytes", env, maxSlugBytes)
 	}
 	return nil
 }
@@ -176,6 +285,7 @@ var verdictKeys = map[ObservationKind][]string{
 	DependencyReachable:  {"reachable"},
 	ConfigurationPresent: {"present"},
 	PersistenceObserved:  {"durable"},
+	ResourceProvisioned:  {"provider", "phase"},
 }
 
 // checkKind proves Value decodes as the payload type for Kind. Rejects EXTRA fields and any payload that
@@ -198,6 +308,11 @@ func (o Observation) checkKind() error {
 		_, err = decode[ConfigurationObservation](o.Value)
 	case PersistenceObserved:
 		_, err = decode[PersistenceObservation](o.Value)
+	case ResourceProvisioned:
+		var p ProvisionedObservation
+		if p, err = decode[ProvisionedObservation](o.Value); err == nil {
+			err = ValidateProvisioned(p)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("value does not match kind %s: %w", o.Kind, err)
@@ -323,6 +438,13 @@ func NewPersistenceObservation(subject SubjectRef, p PersistenceObservation, pro
 		Value: mustMarshal(p), Provenance: prov}
 }
 
+// NewResourceProvisioned constructs an Observed provisioning report. The payload is validated when the
+// observation is marshalled or checked with ValidateEvidenceSet.
+func NewResourceProvisioned(subject SubjectRef, p ProvisionedObservation, prov Provenance) Observation {
+	return Observation{Kind: ResourceProvisioned, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(p), Provenance: prov}
+}
+
 // NewUnobserved builds a payload-less observation for any non-Observed outcome. Identity is carried on
 // subject so the observation stays attributable (INV-1b); the Kind<->Subject.Kind pairing is enforced.
 func NewUnobserved(kind ObservationKind, subject SubjectRef, outcome Outcome, prov Provenance) (Observation, error) {
@@ -377,6 +499,11 @@ func (o Observation) GetPersistenceObservation() (PersistenceObservation, error)
 	return get[PersistenceObservation](o, PersistenceObserved)
 }
 
+// GetProvisionedObservation returns the typed payload iff Outcome == Observed and Kind matches.
+func (o Observation) GetProvisionedObservation() (ProvisionedObservation, error) {
+	return get[ProvisionedObservation](o, ResourceProvisioned)
+}
+
 // ValidateEvidenceSet checks structural validity of an EvidenceSet: top-level identity/source/timestamp
 // and each observation (Subject/Provenance non-empty plus the Observation invariant via validate()).
 func ValidateEvidenceSet(es EvidenceSet) []error {
@@ -386,6 +513,9 @@ func ValidateEvidenceSet(es EvidenceSet) []error {
 	}
 	if es.Subject.Name == "" {
 		errs = append(errs, errors.New("subject name is empty"))
+	}
+	if es.Subject.Environment != "" {
+		errs = append(errs, errors.New("the evidence set subject takes no environment"))
 	}
 	if es.ContractRef == "" {
 		errs = append(errs, errors.New("contract ref is empty"))

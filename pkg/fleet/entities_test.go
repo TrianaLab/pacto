@@ -1,6 +1,12 @@
 package fleet
 
-import "testing"
+import (
+	"errors"
+	"slices"
+	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
+)
 
 func TestEntities_AllKindsDefault(t *testing.T) {
 	q := productFleet(t)
@@ -209,5 +215,40 @@ func TestEntities_ServiceScope(t *testing.T) {
 	svc, _ := q.Entities(EntityFilter{Kinds: []EntityKind{KindService}, Service: "beta"})
 	if svc.Total != 1 || svc.Entities[0].Key != "beta" {
 		t.Errorf("service scope = %+v, want exactly the beta service", svc.Entities)
+	}
+}
+
+// Consumes lists the services with a resolved declared use of a provider of
+// the offering, whatever the use; an unresolved one is no use.
+func TestEntitiesConsumesFilter(t *testing.T) {
+	pin := "oci://ghcr.io/acme/pa@" + testDigest("ghcr.io/acme", "pa", "1.0.0")
+	dep := svc25("dep", "1.0.0", "")
+	dep.Dependencies = []contract.Dependency{{Name: "pa", Required: true}}
+	cfg := svc25("cfg", "1.0.0", "")
+	cfg.Configurations = []contract.Configuration{{Name: "c", Ref: pin}}
+	pol := svc25("pol", "1.0.0", "")
+	pol.Policies = []contract.Policy{{Name: "p", Ref: pin}}
+	unres := svc25("unres", "1.0.0", "")
+	unres.Configurations = []contract.Configuration{{Name: "c", Ref: "oci://ghcr.io/acme/pa:1.0.0"}}
+	var revs []RawRevision
+	for _, c := range []*contract.Contract{svc25("pa", "1.0.0", "db"), svc25("other", "1.0.0", "cache"), dep, cfg, pol, unres} {
+		revs = append(revs, ociRev("ghcr.io/acme", c, nil))
+	}
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: revs})
+	got := entityKeys(t, q, EntityFilter{Consumes: "db"})
+	want := []string{"cfg", "dep", "pol"}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("consumers of db = %v, want %v", got, want)
+	}
+	if got := entityKeys(t, q, EntityFilter{Consumes: "cache"}); len(got) != 0 {
+		t.Errorf("consumers of cache = %v", got)
+	}
+	var iq *InvalidQueryError
+	if _, err := q.Entities(EntityFilter{Consumes: "Not A Slug"}); !errors.As(err, &iq) || iq.Field != "consumes" {
+		t.Errorf("bad slug: %v", err)
+	}
+	if _, err := q.Entities(EntityFilter{Consumes: "db", Kinds: []EntityKind{KindRevision}}); !errors.As(err, &iq) || iq.Field != "consumes" {
+		t.Errorf("revision kind: %v", err)
 	}
 }

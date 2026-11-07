@@ -623,3 +623,31 @@ func TestPush_ChecksGuarantees(t *testing.T) {
 		t.Fatalf("warnings %+v, want GUARANTEE_UNVERIFIED", res.Warnings)
 	}
 }
+
+// A 2.6 consumer whose configuration ref cannot be fetched is refused: push
+// runs the same strict validation as validate.
+func TestPushFailsOnUnresolvableConfigRef(t *testing.T) {
+	dir := t.TempDir()
+	content := "pactoVersion: \"2.6\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - {name: db, ref: \"oci://ghcr.io/acme/pg:16.1.0\", required: true, values: {size: small}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := &mockBundleStore{
+		ResolveFn: func(_ context.Context, ref string) (string, error) {
+			return "", &oci.ArtifactNotFoundError{Ref: ref}
+		},
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			return nil, &oci.ArtifactNotFoundError{Ref: ref}
+		},
+	}
+	svc := NewService(store, nil)
+	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/orders:1.0.0", Path: dir})
+	if err == nil || err.Error() != "contract validation failed with 1 error(s)" {
+		t.Fatalf("expected a refused push, got %v", err)
+	}
+	// The one error is the unresolved ref, as validate reports it.
+	r, _ := svc.Validate(context.Background(), ValidateOptions{Path: dir})
+	if len(r.Errors) != 1 || r.Errors[0].Code != "CONFIG_REF_UNRESOLVED" {
+		t.Fatalf("errors = %+v", r.Errors)
+	}
+}

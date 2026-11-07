@@ -136,6 +136,63 @@ kubectl port-forward -n pacto-operator-system svc/pacto-evidence 8686:8686 &
 pacto fleet search --evidence-url http://127.0.0.1:8686
 ```
 
+The targets endpoint takes no authentication. It lists contract references,
+producers and the external references of provisioned resources, so keep the
+Service behind the same network and auth boundary as the dashboard.
+
+## Provisioning reports
+
+A provider adapter reports the state of a resource a consumer's contract asked
+for as a [`ResourceProvisioned`](../../evidence.md#provisioning-reports)
+EvidenceSet, written with `pacto evidence provisioned`. The report is stored on
+the consumer's contract revision, so that revision must be one of the
+`evidence.registry.subjects`. Use one EvidenceSet subject per resource: the
+default, `<repository>/<environment or default>/<kind>/<name>`, keeps each resource's
+latest report apart.
+
+### Grant the adapter's key
+
+Only a key whose trust entry lists `ResourceProvisioned` in
+`allowedObservationKinds` may report it, so give the adapter its own key. By
+default the server trusts every `.pub` key in the trust Secret, which grants
+every runtime kind and withholds `ResourceProvisioned`. To accept provisioning
+reports, add a
+[structured trust config](../../evidence.md#trust-store-and-trust-config) to
+the same Secret and name its key in `evidence.trust.configKey`:
+
+```yaml
+apiVersion: pacto.dev/evidence-trust/v1
+keys:
+  - keyId: release-2026
+    producerId: acme-ci
+    publicKeyFile: acme-ci__release-2026.pub
+  - keyId: adapter-2026
+    producerId: platform-adapter
+    publicKeyFile: platform-adapter__adapter-2026.pub
+    allowedObservationKinds: [ResourceProvisioned]
+```
+
+```bash
+kubectl create secret generic pacto-evidence-trust \
+  --namespace pacto-operator-system \
+  --from-file=trust.yaml \
+  --from-file=keys/acme-ci__release-2026.pub \
+  --from-file=keys/platform-adapter__adapter-2026.pub
+```
+
+Add `--set evidence.trust.configKey=trust.yaml` to the install command above.
+The server then starts with `--trust /etc/pacto/trust/trust.yaml`, and each
+`publicKeyFile` names another key of the Secret. The config replaces the
+directory scan, so list every key you trust: a `.pub` key it omits is no
+longer trusted. The chart accepts only a `.yaml` or `.yml` key.
+
+### Read provisioning reports
+
+The targets endpoint answers with schema `pacto.dev/evidence-source/v3` and a
+`provisioning` list when it holds provisioning reports, and with
+`pacto.dev/evidence-source/v2` otherwise, so an older reader keeps working
+against a server that holds none. A provisioning report is never a target.
+
 Nothing durable lives in the cluster: no PersistentVolumeClaim, no data volume,
 because the registry is the store. Delete and recreate the Deployment and the
 accepted evidence is still there.

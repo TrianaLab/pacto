@@ -14,16 +14,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/registry"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
@@ -1024,6 +1027,28 @@ func (b bundleLoader) ListTags(ctx context.Context, repo string, a *authn.AuthCo
 	return sharedLoader.ListTags(ctx, repo, a)
 }
 
+// pushConfigProvider serves a registry on loopback holding a provider bundle whose one configuration
+// takes configSchemaBody, and returns the provider's reference.
+func pushConfigProvider(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(registry.New())
+	t.Cleanup(srv.Close)
+	const providerYAML = "pactoVersion: \"2.6\"\nservice: {name: provider, version: 1.0.0}\n" +
+		"configurations:\n  - {name: appcfg, schema: " + configSchemaPath + ", required: true}\n"
+	c, err := contract.Parse(strings.NewReader(providerYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := strings.TrimPrefix(srv.URL, "http://") + "/acme/provider:1.0.0"
+	if _, err := oci.NewClient(authn.NewMultiKeychain()).Push(testCtx, ref, &contract.Bundle{Contract: c, FS: fstest.MapFS{
+		"pacto.yaml":     &fstest.MapFile{Data: []byte(providerYAML)},
+		configSchemaPath: &fstest.MapFile{Data: []byte(configSchemaBody)},
+	}}); err != nil {
+		t.Fatalf("push provider: %v", err)
+	}
+	return ref
+}
+
 func TestConfigurations(t *testing.T) {
 	cfgContract := func(required bool, schema string) string {
 		return buildContract(contractSpec{name: "app", cfgs: []cfgSpec{{name: "appcfg", required: required, schema: schema}}})
@@ -1101,6 +1126,57 @@ func TestConfigurations(t *testing.T) {
 		if f == nil || f.Severity != "warning" {
 			t.Fatalf("expected optional CONFIGURATION_MISMATCH at warning severity, got %+v", f)
 		}
+	})
+
+	// A configuration that names its schema by ref: the real loader pulls the provider bundle from a
+	// registry and the bound ConfigMap is validated against the provider's schema.
+	providerRef := pushConfigProvider(t)
+	refContract := "pactoVersion: \"2.6\"\nservice:\n  name: app\n  version: 1.0.0\nconfigurations:\n" +
+		"  - name: appcfg\n    ref: oci://" + providerRef + "\n    required: true\n"
+
+	t.Run("ref_unlisted_loopback_registry_refused_CONFIG_REF_UNVERIFIED", func(t *testing.T) {
+		// The provider sits on loopback, an internal host other than the contract's own registry: the
+		// operator refuses to reach it until the host is listed in PACTO_INSECURE_REGISTRIES.
+		t.Setenv(loader.InsecureRegistriesEnvVar, "")
+		ns := newNamespace(t)
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: refContract},
+			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		f := findFinding(p, "CONFIG_REF_UNVERIFIED")
+		if f == nil || !strings.Contains(f.Message, loader.InsecureRegistriesEnvVar) {
+			t.Fatalf("expected CONFIG_REF_UNVERIFIED naming %s, got %+v", loader.InsecureRegistriesEnvVar, f)
+		}
+	})
+
+	// Listing the loopback registry host lets the operator pull the provider bundle.
+	t.Setenv(loader.InsecureRegistriesEnvVar, strings.SplitN(providerRef, "/", 2)[0])
+
+	t.Run("ref_configmap_conforms_resolved_schema_compliant", func(t *testing.T) {
+		ns := newNamespace(t)
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: refContract},
+			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireCoverage(t, p, 1, 1)
+	})
+
+	t.Run("ref_configmap_violates_resolved_schema_noncompliant_CONFIGURATION_MISMATCH", func(t *testing.T) {
+		ns := newNamespace(t)
+		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: 123\n"}) // level int, schema wants string
+		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: refContract},
+			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
+		})
+		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireFinding(t, p, "CONFIGURATION_MISMATCH")
 	})
 
 	t.Run("bound_configmap_missing_beyond_window_noncompliant_CONFIGURATION_ABSENT", func(t *testing.T) {

@@ -99,6 +99,8 @@ func (q *Query) revisionDepIndex() (bySource, byProvider map[RevisionKey][]Relat
 	byProvider = map[RevisionKey][]Relationship{}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependencies only: this index answers "who locks this revision" through
+		// ranges and lock pins, which a configuration reference does not carry.
 		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {
 			continue
 		}
@@ -305,12 +307,17 @@ func (q *Query) serviceLeafNode(svc ServiceKey, depth int) NeighborhoodNode {
 // the LOGICAL service relationship was corroborated without ever claiming this specific
 // fine-grained edge was observed. There is no edge-scope difference verdict at this
 // scope, so Difference stays empty.
+//
+// A configuration-reference edge gets the same shape with no observation context:
+// a reference never produces runtime calls to corroborate.
 func dependencyEdge(from, to EntityRef, rel Relationship) NeighborhoodEdge {
+	relation := edgeRelation(rel)
 	e := NeighborhoodEdge{
-		ID: from.Key + "|" + to.Key, Relation: RelationDependency, From: from, To: to, Expected: true,
+		ID: edgeID(from.Key, to.Key, relation), Relation: relation, From: from, To: to, Expected: true,
 		Observed: false, Provenance: ProvenanceDeclared,
-		ObservationScope:     ObservationScopeService,
-		ServiceCorroboration: serviceCorroboration(rel.Reconciliation),
+	}
+	if relation == RelationDependency {
+		e.ObservationScope, e.ServiceCorroboration = ObservationScopeService, serviceCorroboration(rel.Reconciliation)
 	}
 	e.DeclaredClaims = declaredClaimsPreview([]DeclaredClaim{declaredClaim(rel)})
 	foldBehavior(&e, rel)

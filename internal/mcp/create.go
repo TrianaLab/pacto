@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,11 +32,12 @@ type fileOps struct {
 	dirFS     func(string) fs.FS
 	marshal   func(any) ([]byte, error)
 	unmarshal func([]byte, any) error
+	mkdirTemp func(dir, pattern string) (string, error)
 }
 
 // osFileOps is the production fileOps.
 func osFileOps() fileOps {
-	return fileOps{os.MkdirAll, os.WriteFile, os.Rename, os.DirFS, yaml.Marshal, yaml.Unmarshal}
+	return fileOps{os.MkdirAll, os.WriteFile, os.Rename, os.DirFS, yaml.Marshal, yaml.Unmarshal, os.MkdirTemp}
 }
 
 // --- Input/Output types ---
@@ -89,11 +91,38 @@ type DependencyInput struct {
 
 // ConfigurationRefInput describes a configuration reference to add: a
 // published contract whose configuration this service takes. Name defaults to
-// the last segment of the ref's repository.
+// the last segment of the ref's repository. Configuration selects which of the
+// provider's configurations it takes and Values are the service's values for
+// it; either raises pactoVersion to 2.6.
 type ConfigurationRefInput struct {
-	Name     string `json:"name,omitempty"`
-	Ref      string `json:"ref"`
-	Required bool   `json:"required,omitempty"`
+	Name          string         `json:"name,omitempty"`
+	Ref           string         `json:"ref"`
+	Required      bool           `json:"required,omitempty"`
+	Configuration string         `json:"configuration,omitempty"`
+	Values        map[string]any `json:"values,omitempty"`
+}
+
+// EnvironmentInput describes an environment to add. File defaults to
+// environments/<name>.yaml.
+type EnvironmentInput struct {
+	Name string `json:"name"`
+	File string `json:"file,omitempty"`
+}
+
+// EnvironmentValuesInput is values to merge into one environment's file for
+// one configuration. A null value removes its key.
+type EnvironmentValuesInput struct {
+	Environment   string         `json:"environment"`
+	Configuration string         `json:"configuration"`
+	Values        map[string]any `json:"values"`
+}
+
+// LifecycleInput sets service.lifecycle, or removes it when Clear is set.
+type LifecycleInput struct {
+	Deprecated string `json:"deprecated,omitempty"`
+	Sunset     string `json:"sunset,omitempty"`
+	Successor  string `json:"successor,omitempty"`
+	Clear      bool   `json:"clear,omitempty"`
 }
 
 // PolicyRefInput describes a policy reference to add. Name defaults to the
@@ -134,12 +163,18 @@ type EditInput struct {
 	Offering *string
 	Summary  *string
 
-	AddInterfaces        []InterfaceInput
-	RemoveInterfaces     []string
-	AddDependencies      []DependencyInput
-	RemoveDeps           []string
-	AddConfigurationRefs []ConfigurationRefInput
-	AddPolicyRefs        []PolicyRefInput
+	AddInterfaces           []InterfaceInput
+	RemoveInterfaces        []string
+	AddDependencies         []DependencyInput
+	RemoveDeps              []string
+	AddConfigurationRefs    []ConfigurationRefInput
+	RemoveConfigurationRefs []string
+	AddPolicyRefs           []PolicyRefInput
+	AddEnvironments         []EnvironmentInput
+	SetEnvironmentValues    []EnvironmentValuesInput
+	// Lifecycle sets or clears service.lifecycle and raises an older
+	// pactoVersion to 2.6.
+	Lifecycle *LifecycleInput
 
 	Workload                  *string
 	StoresData                *bool
@@ -510,22 +545,74 @@ func needs21(m map[string]any, deps []DependencyInput) bool {
 // --- Edit ---
 
 // validateEdited validates an edited contract over its bundle: the existing
-// files, the new YAML, stubs for new refs and a merged config schema.
-func (o fileOps) validateEdited(dir string, yamlBytes []byte, c *contract.Contract, schemaRel string, schemaBytes []byte) error {
-	bundleFS := o.buildBundleFSForValidation(dir, yamlBytes, c)
-	if schemaRel != "" {
-		bundleFS[schemaRel] = &fstest.MapFile{Data: schemaBytes}
+// files, the new YAML, the files the edit writes and stubs for new refs. When
+// resolve is set (see needsResolve) the edited bundle must also pass validate,
+// the check pacto_check runs, so the values are checked against the resolved
+// provider schema. A nil validate resolves configuration refs with no
+// resolver, so a ref the contract depends on fails closed with
+// CONFIG_REF_UNRESOLVED.
+func (o fileOps) validateEdited(ctx context.Context, validate Validator, dir string, yamlBytes []byte, c *contract.Contract, files map[string][]byte, resolve bool) error {
+	bundleFS := o.buildBundleFSForValidation(dir, yamlBytes, c, files)
+	result := validation.Validate(c, yamlBytes, bundleFS)
+	if result.IsValid() && resolve {
+		if validate == nil {
+			_, result = validation.ResolveConfigRefs(ctx, c, bundleFS, validation.ConfigRefOptions{Strict: true})
+		} else {
+			report, err := o.validateStaged(ctx, validate, dir, bundleFS)
+			if err != nil {
+				return err
+			}
+			result = report.ValidationResult
+		}
 	}
-	if result := validation.Validate(c, yamlBytes, bundleFS); !result.IsValid() {
-		return fmt.Errorf("edited contract fails validation: %s", result.Errors[0].Message)
+	if !result.IsValid() {
+		return fmt.Errorf("edited contract fails validation: %s: %s", result.Errors[0].Code, result.Errors[0].Message)
 	}
 	return nil
 }
 
-// Edit modifies an existing pacto contract.
-func Edit(input EditInput) (*EditResult, error) { return osFileOps().edit(input) }
+// validateStaged writes bundleFS to a temporary directory beside dir, so a
+// relative ref resolves from it as it does from dir, runs validate on it and
+// removes it.
+func (o fileOps) validateStaged(ctx context.Context, validate Validator, dir string, bundleFS fstest.MapFS) (validation.Report, error) {
+	abs, _ := filepath.Abs(dir) //nolint:errcheck // fails only when the working directory is gone, and then the stage fails below
+	stage, err := o.mkdirTemp(filepath.Dir(abs), ".pacto-edit-*")
+	if err != nil {
+		return validation.Report{}, fmt.Errorf("failed to stage the edited bundle: %w", err)
+	}
+	defer os.RemoveAll(stage) //nolint:errcheck // best-effort cleanup of a temporary directory
+	for _, rel := range slices.Sorted(maps.Keys(bundleFS)) {
+		p := filepath.Join(stage, filepath.FromSlash(rel))
+		if bundleFS[rel].Mode.IsDir() {
+			err = o.mkdirAll(p, 0o755)
+		} else if err = o.mkdirAll(filepath.Dir(p), 0o755); err == nil {
+			err = o.writeFile(p, bundleFS[rel].Data, 0o644)
+		}
+		if err != nil {
+			return validation.Report{}, fmt.Errorf("failed to stage the edited bundle: %w", err)
+		}
+	}
+	return validate(ctx, stage)
+}
 
-func (o fileOps) edit(input EditInput) (*EditResult, error) {
+// needsResolve reports whether input adds or changes something configuration
+// resolution depends on: a configuration ref, an environment (its file may
+// already hold values), environment values, or a dependency of c, the edited
+// contract, while it references a configuration (the dependency's range is
+// checked against the resolved provider). Only a resolved schema can check
+// those, so removals and lifecycle edits keep the local check.
+func needsResolve(input EditInput, c *contract.Contract) bool {
+	return len(input.AddConfigurationRefs) > 0 || len(input.AddEnvironments) > 0 || len(input.SetEnvironmentValues) > 0 ||
+		(len(input.AddDependencies) > 0 && slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool { return cfg.Ref != "" }))
+}
+
+// Edit modifies an existing pacto contract. validate is the check pacto_check
+// runs (see validateEdited); nothing is written unless the edited bundle passes.
+func Edit(ctx context.Context, validate Validator, input EditInput) (*EditResult, error) {
+	return osFileOps().edit(ctx, validate, input)
+}
+
+func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) (*EditResult, error) {
 	dir := input.Path
 	if dir == "" {
 		dir = "."
@@ -546,14 +633,9 @@ func (o fileOps) edit(input EditInput) (*EditResult, error) {
 		return nil, fmt.Errorf("failed to parse %s: %w", pactoPath, err)
 	}
 
-	changes := applyEdits(m, input)
-
-	var schemaRel string
-	var schemaBytes []byte
-	if len(input.AddConfigProperties) > 0 {
-		if schemaRel, schemaBytes, err = mergeConfigSchema(dir, m, input.AddConfigProperties); err != nil {
-			return nil, err
-		}
+	files, changes, err := editFiles(dir, m, input)
+	if err != nil {
+		return nil, err
 	}
 
 	yamlBytes, err := o.marshalContract(m)
@@ -567,51 +649,56 @@ func (o fileOps) edit(input EditInput) (*EditResult, error) {
 		return nil, fmt.Errorf("edited contract is invalid: %w", err)
 	}
 
-	if err := o.validateEdited(dir, yamlBytes, c, schemaRel, schemaBytes); err != nil {
+	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, needsResolve(input, c)); err != nil {
 		return nil, err
 	}
 
-	summary := summarizeContract(c)
-	var warnings []string
+	result := &EditResult{Path: pactoPath, Summary: summarizeContract(c), Changes: changes}
 	if input.Owner != nil {
-		warnings = ownerWarnings(*input.Owner)
+		result.Warnings = ownerWarnings(*input.Owner)
 	}
-
 	if input.DryRun {
-		return &EditResult{
-			Path:     pactoPath,
-			Summary:  summary,
-			Changes:  changes,
-			Warnings: warnings,
-		}, nil
+		return result, nil
 	}
 
-	// The schema goes first: a failure then leaves pacto.yaml untouched rather
-	// than pointing at a schema that was never written.
-	if schemaRel != "" {
-		if err := o.writeConfigSchema(filepath.Join(dir, schemaRel), schemaBytes); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := o.atomicWriteFile(pactoPath, yamlBytes, 0644); err != nil {
-		return nil, fmt.Errorf("failed to write %s: %w", pactoPath, err)
+	files["pacto.yaml"] = yamlBytes
+	if err := o.writeFiles(dir, files); err != nil {
+		return nil, err
 	}
 
 	// Scaffold any new interface contract files
 	if err := o.scaffoldNewInterfaceFiles(dir, input.AddInterfaces); err != nil {
 		return nil, err
 	}
-
-	return &EditResult{
-		Path:     pactoPath,
-		Summary:  summary,
-		Changes:  changes,
-		Warnings: warnings,
-	}, nil
+	return result, nil
 }
 
-func applyEdits(m map[string]any, input EditInput) []string {
+// editFiles applies input's edits to m and returns the bundle files the edit
+// writes beside pacto.yaml (a merged config schema and every new or edited
+// environment file) with the changes made.
+func editFiles(dir string, m map[string]any, input EditInput) (map[string][]byte, []string, error) {
+	before := configNames(m)
+	changes, err := applyEdits(m, input)
+	if err != nil {
+		return nil, nil, err
+	}
+	files := map[string][]byte{}
+	if len(input.AddConfigProperties) > 0 {
+		rel, data, err := mergeConfigSchema(dir, m, input.AddConfigProperties)
+		if err != nil {
+			return nil, nil, err
+		}
+		files[rel] = data
+	}
+	gone := slices.DeleteFunc(before, func(name string) bool { return slices.Contains(configNames(m), name) })
+	envChanges, err := environmentFiles(dir, m, input, gone, files)
+	if err != nil {
+		return nil, nil, err
+	}
+	return files, append(changes, envChanges...), nil
+}
+
+func applyEdits(m map[string]any, input EditInput) ([]string, error) {
 	var changes []string
 
 	changes = append(changes, applyServiceEdits(m, input)...)
@@ -631,8 +718,11 @@ func applyEdits(m map[string]any, input EditInput) []string {
 	if len(input.AddDependencies) > 0 {
 		changes = append(changes, addDependencies(m, input.AddDependencies)...)
 	}
-	changes = append(changes, addConfigurationRefs(m, input.AddConfigurationRefs)...)
-	changes = append(changes, addPolicyRefs(m, input.AddPolicyRefs)...)
+	refChanges, err := applyReferenceEdits(m, input)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, refChanges...)
 
 	// Workload and state
 	if input.Workload != nil {
@@ -654,7 +744,20 @@ func applyEdits(m map[string]any, input EditInput) []string {
 		changes = append(changes, applyMetadataEdits(m, input.SetMetadata, input.RemoveMetadata)...)
 	}
 
-	return changes
+	return changes, nil
+}
+
+// applyReferenceEdits applies the configuration-reference, policy-reference
+// and environment edits.
+func applyReferenceEdits(m map[string]any, input EditInput) ([]string, error) {
+	changes, err := removeConfigurationRefs(m, input.RemoveConfigurationRefs)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, addConfigurationRefs(m, input.AddConfigurationRefs)...)
+	changes = append(changes, addPolicyRefs(m, input.AddPolicyRefs)...)
+	envChanges, err := addEnvironments(m, input.AddEnvironments)
+	return append(changes, envChanges...), err
 }
 
 // applyServiceEdits applies the edits to the service block.
@@ -686,7 +789,22 @@ func applyServiceEdits(m map[string]any, input EditInput) []string {
 	if input.Summary != nil {
 		changes = append(changes, setServiceField(m, svc, "summary", *input.Summary, "2.5")...)
 	}
+	if input.Lifecycle != nil {
+		changes = append(changes, setLifecycle(m, svc, *input.Lifecycle)...)
+	}
 	return changes
+}
+
+// setLifecycle sets service.lifecycle, raising an older pactoVersion to 2.6,
+// or removes it when in.Clear is set.
+func setLifecycle(m, svc map[string]any, in LifecycleInput) []string {
+	if in.Clear {
+		delete(svc, "lifecycle")
+		return []string{"removed service lifecycle"}
+	}
+	lc := contract.InterfaceLifecycle{Deprecated: in.Deprecated, Sunset: in.Sunset, Successor: in.Successor}
+	svc["lifecycle"] = lc
+	return append(raiseVersion(m, "2.6"), "set service lifecycle to "+lc.String())
 }
 
 func removeInterfaces(m map[string]any, names []string) []string {
@@ -788,16 +906,23 @@ func addDependencies(m map[string]any, inputs []DependencyInput) []string {
 // pactoVersion minVersion, raises pactoVersion to minVersion, which keeps
 // every older field.
 func setServiceField(m, svc map[string]any, field, value, minVersion string) []string {
-	var changes []string
-	if v, _ := m["pactoVersion"].(string); slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, minVersion) {
-		m["pactoVersion"] = minVersion
-		changes = append(changes, fmt.Sprintf("set pactoVersion to %q", minVersion))
-	}
+	changes := raiseVersion(m, minVersion)
 	svc[field] = value
 	return append(changes, fmt.Sprintf("set %s to %q", field, value))
 }
 
-// addConfigurationRefs appends a configurations[] entry for each reference.
+// raiseVersion raises a pactoVersion older than minVersion to minVersion,
+// which keeps every older field, and returns the change it made.
+func raiseVersion(m map[string]any, minVersion string) []string {
+	if v, _ := m["pactoVersion"].(string); slices.Index(contract.SupportedVersions, v) < slices.Index(contract.SupportedVersions, minVersion) {
+		m["pactoVersion"] = minVersion
+		return []string{fmt.Sprintf("set pactoVersion to %q", minVersion)}
+	}
+	return nil
+}
+
+// addConfigurationRefs appends a configurations[] entry for each reference. A
+// provider configuration selector or values raise pactoVersion to 2.6.
 func addConfigurationRefs(m map[string]any, inputs []ConfigurationRefInput) []string {
 	if len(inputs) == 0 {
 		return nil
@@ -806,10 +931,175 @@ func addConfigurationRefs(m map[string]any, inputs []ConfigurationRefInput) []st
 	configs, _ := m["configurations"].([]any)
 	for _, in := range inputs {
 		name := dependencyName(DependencyInput{Name: in.Name, Ref: in.Ref})
-		configs = append(configs, map[string]any{"name": name, "ref": in.Ref, "required": in.Required})
+		entry := map[string]any{"name": name, "ref": in.Ref, "required": in.Required}
+		if in.Configuration != "" || len(in.Values) > 0 {
+			changes = append(changes, raiseVersion(m, "2.6")...)
+		}
+		if in.Configuration != "" {
+			entry["configuration"] = in.Configuration
+		}
+		if len(in.Values) > 0 {
+			entry["values"] = in.Values
+		}
+		configs = append(configs, entry)
 		changes = append(changes, fmt.Sprintf("added configuration reference %q", name))
 	}
 	m["configurations"] = configs
+	return changes
+}
+
+// removeConfigurationRefs removes each configuration reference named or
+// pointing at one of keys.
+func removeConfigurationRefs(m map[string]any, keys []string) ([]string, error) {
+	var changes []string
+	for _, key := range keys {
+		configs, _ := m["configurations"].([]any)
+		var kept []any
+		for _, cfg := range configs {
+			cm, _ := cfg.(map[string]any)
+			if ref, _ := cm["ref"].(string); ref != "" && (cm["name"] == key || ref == key) {
+				changes = append(changes, fmt.Sprintf("removed configuration reference %q", cm["name"]))
+				continue
+			}
+			kept = append(kept, cfg)
+		}
+		if len(kept) == len(configs) {
+			return nil, fmt.Errorf("no configuration reference named or pointing at %q", key)
+		}
+		if len(kept) == 0 {
+			delete(m, "configurations")
+		} else {
+			m["configurations"] = kept
+		}
+	}
+	return changes, nil
+}
+
+// configNames is the name of each configuration m declares.
+func configNames(m map[string]any) []string {
+	var names []string
+	configs, _ := m["configurations"].([]any)
+	for _, cfg := range configs {
+		cm, _ := cfg.(map[string]any)
+		if name, _ := cm["name"].(string); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// declaredEnvironments is each environment m declares.
+func declaredEnvironments(m map[string]any) []contract.Environment {
+	var envs []contract.Environment
+	list, _ := m["environments"].([]any)
+	for _, e := range list {
+		em, _ := e.(map[string]any)
+		name, _ := em["name"].(string)
+		file, _ := em["file"].(string)
+		envs = append(envs, contract.Environment{Name: name, File: file})
+	}
+	return envs
+}
+
+// addEnvironments declares each environment, its file defaulting to
+// environments/<name>.yaml, and raises an older pactoVersion to 2.3.
+func addEnvironments(m map[string]any, inputs []EnvironmentInput) ([]string, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+	list, _ := m["environments"].([]any)
+	changes := raiseVersion(m, "2.3")
+	for _, in := range inputs {
+		if slices.ContainsFunc(declaredEnvironments(m), func(e contract.Environment) bool { return e.Name == in.Name }) {
+			return nil, fmt.Errorf("environment %q is already declared", in.Name)
+		}
+		file := cmp.Or(in.File, "environments/"+in.Name+".yaml")
+		list = append(list, map[string]any{"name": in.Name, "file": file})
+		m["environments"] = list
+		changes = append(changes, fmt.Sprintf("added environment %q (%s)", in.Name, file))
+	}
+	return changes, nil
+}
+
+// environmentFiles adds to files the file of each environment the edit adds
+// (an empty object when it is not on disk yet) and each environment file whose
+// values the edit changes: values set through set_environment_values, merged
+// as an environment merges over defaults (a null removes its key), and the
+// values of every configuration in gone, which the edit removed. It reads the
+// edited contract, so values may go to an environment or configuration the
+// same edit adds.
+func environmentFiles(dir string, m map[string]any, input EditInput, gone []string, files map[string][]byte) ([]string, error) {
+	envs := declaredEnvironments(m)
+	for _, in := range input.SetEnvironmentValues {
+		if !slices.ContainsFunc(envs, func(e contract.Environment) bool { return e.Name == in.Environment }) {
+			return nil, fmt.Errorf("environment %q is not declared; add it with add_environments", in.Environment)
+		}
+		if !slices.Contains(configNames(m), in.Configuration) {
+			return nil, fmt.Errorf("configuration %q is not declared", in.Configuration)
+		}
+	}
+	var changes []string
+	for _, env := range envs {
+		values, exists, err := readEnvironmentValues(dir, env)
+		if err != nil {
+			return nil, err
+		}
+		edited := editEnvironmentValues(env.Name, values, input.SetEnvironmentValues, gone)
+		added := slices.ContainsFunc(input.AddEnvironments, func(a EnvironmentInput) bool { return a.Name == env.Name })
+		if len(edited) > 0 || (added && !exists) {
+			files[env.File], _ = yaml.Marshal(values) //nolint:errcheck // values decoded from YAML or JSON always encode
+			changes = append(changes, edited...)
+		}
+	}
+	return changes, nil
+}
+
+// readEnvironmentValues reads env's file under dir. A file that is not there
+// yet holds no values.
+func readEnvironmentValues(dir string, env contract.Environment) (map[string]any, bool, error) {
+	if !filepath.IsLocal(env.File) {
+		return nil, false, fmt.Errorf("environment %q: file %q is outside the bundle", env.Name, env.File)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, env.File))
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]any{}, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read %s: %w", env.File, err)
+	}
+	values, err := contract.ParseEnvironmentValues(raw)
+	if err != nil {
+		return nil, false, fmt.Errorf("environment %q: cannot read %s: %w", env.Name, env.File, err)
+	}
+	return values, true, nil
+}
+
+// editEnvironmentValues removes the values of every configuration in gone
+// from one environment's values and merges in the values sets give it, and
+// returns the changes.
+func editEnvironmentValues(env string, values map[string]any, sets []EnvironmentValuesInput, gone []string) []string {
+	var changes []string
+	for _, name := range gone {
+		if _, ok := values[name]; ok {
+			delete(values, name)
+			changes = append(changes, fmt.Sprintf("removed values for configuration %q from environment %q", name, env))
+		}
+	}
+	for _, in := range sets {
+		if in.Environment != env {
+			continue
+		}
+		cfg, _ := values[in.Configuration].(map[string]any)
+		if cfg == nil {
+			cfg = map[string]any{}
+		}
+		validation.MergeValues(cfg, in.Values)
+		values[in.Configuration] = cfg
+		if len(cfg) == 0 {
+			delete(values, in.Configuration)
+		}
+		changes = append(changes, fmt.Sprintf("set values for configuration %q in environment %q", in.Configuration, env))
+	}
 	return changes
 }
 
@@ -884,17 +1174,6 @@ func readCurrentState(m map[string]any) (storesData, dataSurvives, dataShared bo
 		dataLossImpact = dc
 	}
 	return
-}
-
-// writeConfigSchema writes a merged configuration schema, creating its directory.
-func (o fileOps) writeConfigSchema(path string, data []byte) error {
-	if err := o.mkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("failed to create %s: %w", filepath.Dir(path), err)
-	}
-	if err := o.atomicWriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", path, err)
-	}
-	return nil
 }
 
 // firstConfigSchema returns the schema path of the first configuration that
@@ -1073,7 +1352,7 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string) (*C
 		})
 	}
 
-	cr.Suggestions = buildSuggestions(c, vr.IsValid())
+	cr.Suggestions = buildSuggestions(c, o.dirFS(dir), vr.IsValid())
 
 	return cr, nil
 }
@@ -1191,7 +1470,10 @@ func buildStubFS(c *contract.Contract, yamlBytes []byte) fstest.MapFS {
 	return m
 }
 
-func (o fileOps) buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contract) fstest.MapFS {
+// buildBundleFSForValidation is the bundle in dir as an edit leaves it: the
+// files on disk, then the edited YAML and files over them, then stubs for
+// refs that are not on disk yet.
+func (o fileOps) buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contract, files map[string][]byte) fstest.MapFS {
 	m := fstest.MapFS{
 		"pacto.yaml": &fstest.MapFile{Data: yamlBytes},
 	}
@@ -1217,6 +1499,10 @@ func (o fileOps) buildBundleFSForValidation(dir string, yamlBytes []byte, c *con
 		m[path] = &fstest.MapFile{Data: data, Mode: 0644}
 		return nil
 	})
+
+	for rel, data := range files {
+		m[rel] = &fstest.MapFile{Data: data, Mode: 0644}
+	}
 
 	// Add stubs for referenced files not yet on disk
 	for _, iface := range c.Interfaces {
@@ -1380,12 +1666,26 @@ func generateConfigSchema(props []ConfigProperty) []byte {
 // reader never sees a partial one. An existing file keeps its permissions; the
 // temp file is removed on any failure.
 func (o fileOps) atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmp, err := o.stageFile(path, data, perm)
+	if err != nil {
+		return err
+	}
+	if err = o.rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
+}
+
+// stageFile writes data to a uniquely named temp file next to path, with the
+// permissions path has when it exists, and returns the temp file's name. The
+// temp file is removed on any failure.
+func (o fileOps) stageFile(path string, data []byte, perm os.FileMode) (string, error) {
 	if fi, err := os.Stat(path); err == nil {
 		perm = fi.Mode().Perm()
 	}
 	f, err := os.CreateTemp(filepath.Dir(path), ".pacto-tmp-"+filepath.Base(path)+"-*")
 	if err != nil {
-		return err
+		return "", err
 	}
 	tmp := f.Name()
 	_ = f.Close()
@@ -1394,13 +1694,42 @@ func (o fileOps) atomicWriteFile(path string, data []byte, perm os.FileMode) err
 		// CreateTemp opens 0600 and WriteFile keeps an existing file's mode.
 		err = os.Chmod(tmp, perm)
 	}
-	if err == nil {
-		err = o.rename(tmp, path)
-	}
 	if err != nil {
 		_ = os.Remove(tmp)
+		return "", err
 	}
-	return err
+	return tmp, nil
+}
+
+// writeFiles writes every file under dir in one sequence: each goes to a temp
+// file beside its target first, and only once all are written does each
+// replace its target, pacto.yaml last, so a failed write changes nothing.
+func (o fileOps) writeFiles(dir string, files map[string][]byte) error {
+	names := slices.DeleteFunc(slices.Sorted(maps.Keys(files)), func(rel string) bool { return rel == "pacto.yaml" })
+	names = append(names, "pacto.yaml")
+	var temps []string
+	defer func() {
+		for _, tmp := range temps {
+			_ = os.Remove(tmp) // gone already once renamed
+		}
+	}()
+	for _, rel := range names {
+		path := filepath.Join(dir, rel)
+		if err := o.mkdirAll(filepath.Dir(path), 0755); err != nil {
+			return fmt.Errorf("failed to create %s: %w", filepath.Dir(path), err)
+		}
+		tmp, err := o.stageFile(path, files[rel], 0644)
+		if err != nil {
+			return fmt.Errorf("failed to write %s: %w", path, err)
+		}
+		temps = append(temps, tmp)
+	}
+	for i, rel := range names {
+		if err := o.rename(temps[i], filepath.Join(dir, rel)); err != nil {
+			return fmt.Errorf("failed to write %s: %w", filepath.Join(dir, rel), err)
+		}
+	}
+	return nil
 }
 
 // --- Contract summary ---
@@ -1518,7 +1847,9 @@ func assessSections(c *contract.Contract) map[string]string {
 
 // --- Suggestions ---
 
-func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
+// buildSuggestions is what to improve in a valid contract c, whose bundle
+// files bundleFS holds.
+func buildSuggestions(c *contract.Contract, bundleFS fs.FS, valid bool) []Suggestion {
 	var suggestions []Suggestion
 
 	if !valid {
@@ -1574,6 +1905,8 @@ func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
 		})
 	}
 
+	suggestions = append(suggestions, refValuesSuggestions(c, bundleFS)...)
+
 	for _, d := range c.Dependencies {
 		if d.External && d.Ref == "" {
 			suggestions = append(suggestions, Suggestion{
@@ -1586,6 +1919,32 @@ func buildSuggestions(c *contract.Contract, valid bool) []Suggestion {
 	}
 
 	return suggestions
+}
+
+// refValuesSuggestions suggests values for each required configuration that
+// takes its schema from a referenced contract and has no values, inline or in
+// any environment. With no environment declared the call adds one first.
+func refValuesSuggestions(c *contract.Contract, bundleFS fs.FS) []Suggestion {
+	var out []Suggestion
+	given := validation.EnvironmentValueNames(c, bundleFS)
+	for _, cfg := range c.Configurations {
+		if cfg.Ref == "" || !cfg.Required || len(cfg.Values) > 0 || given[cfg.Name] {
+			continue
+		}
+		set := map[string]any{"environment": "<environment>", "configuration": cfg.Name, "values": map[string]any{}}
+		params := map[string]any{"set_environment_values": []map[string]any{set}}
+		if len(c.Environments) == 0 {
+			params["add_environments"] = []map[string]any{{"name": "<environment>"}}
+		} else {
+			set["environment"] = c.Environments[0].Name
+		}
+		out = append(out, Suggestion{
+			Message: fmt.Sprintf("Required configuration %q takes its schema from %s and no environment gives values for it. "+
+				"Give each environment the values the referenced contract's schema lets this service control.", cfg.Name, cfg.Ref),
+			ToolCall: &ToolCall{Tool: "pacto_edit", Params: params},
+		})
+	}
+	return out
 }
 
 // providerShaped reports whether c declares no offering yet looks like one:

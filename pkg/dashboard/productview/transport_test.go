@@ -360,20 +360,33 @@ func TestProductLists_DomainOfferingAndDocumentHrefs(t *testing.T) {
 	one := fleet.RefPreview{Total: 1, Count: 1, Items: []fleet.EntityRef{svc}}
 	assertNoEmptyHrefs(t, "entities", ToEntityList(&fleet.EntityList{Entities: []fleet.EntityRef{svc, off}}))
 	assertNoEmptyHrefs(t, "attention", ToAttentionList(&fleet.AttentionList{Items: []fleet.AttentionItem{{Entity: svc}}}))
+	vrev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "pay@sha256:b"}
+	assertNoEmptyHrefs(t, "versions", ToOfferingVersions(&fleet.OfferingVersionsResult{Offering: off, Providers: []fleet.OfferingProviderVersions{{
+		Provider: svc, Versions: fleet.ProviderVersionsPreview{Items: []fleet.ProviderVersion{{Revision: vrev}}, LatestCompatible: &vrev},
+	}}}))
 	assertNoEmptyHrefs(t, "document", ToRevisionDocument(&fleet.RevisionDocument{Revision: fleet.EntityRef{Kind: fleet.KindRevision, Key: "pay@sha256:a"}}))
 	dom := ToEntityDetail(&fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindDomain, Key: "payments"}, Domain: &fleet.DomainDetailData{Services: one}})
 	if dom.Domain == nil || dom.Entity.Href != "/fleet/domains/payments" || dom.Domain.Services.Items[0].Href == "" {
 		t.Errorf("domain detail = %+v", dom)
 	}
-	use := fleet.OfferingUse{Consumer: svc, Provider: svc}
+	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "pay@sha256:a"}
+	use := fleet.OfferingUse{Consumer: svc, Provider: svc, Provisioning: []fleet.ProvisioningStatus{{Phase: fleet.StatusUnknown}, {Phase: "Ready", Revision: &rev}}}
 	od := ToEntityDetail(&fleet.EntityDetail{Entity: off, Offering: &fleet.OfferingDetailData{
-		Providers: fleet.OfferingProvidersPreview{Total: 1, Count: 1, Items: []fleet.OfferingProvider{{Service: svc, Revisions: one}}},
+		Providers: fleet.OfferingProvidersPreview{Total: 1, Count: 1, Items: []fleet.OfferingProvider{{Service: svc, Versions: fleet.ProviderVersionsPreview{
+			Total: 1, Count: 1, Items: []fleet.ProviderVersion{{Revision: rev}}, LatestCompatible: &rev,
+		}}}},
 		Consumers: fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{use}},
 	}})
 	if od.Offering == nil || od.Entity.Href != "/fleet/offerings/postgres" {
 		t.Fatalf("offering detail = %+v", od)
 	}
 	assertNoEmptyHrefs(t, "offering", od)
+	if v := od.Offering.Providers.Items[0].Versions; v.Items[0].Revision.Href == "" || v.LatestCompatible == nil || v.LatestCompatible.Href == "" {
+		t.Errorf("provider versions = %+v", v)
+	}
+	if p := od.Offering.Consumers.Items[0].Provisioning; len(p) != 2 || p[0].Revision != nil || p[1].Revision.Href == "" {
+		t.Errorf("provisioning = %+v", p)
+	}
 	inf := productInferredOfferings([]fleet.InferredOffering{{Offering: off, Provider: &svc}})
 	if len(inf) != 1 || inf[0].Offering.Href == "" || inf[0].Provider.Href == "" {
 		t.Errorf("inferred offerings = %+v", inf)

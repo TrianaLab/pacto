@@ -1191,3 +1191,50 @@ func keysToStrings(ks []ServiceKey) []string {
 	}
 	return out
 }
+
+func TestGraphIncludesConfigRefConsumers(t *testing.T) {
+	q := configRefFleet(t)
+	dependents, err := q.Graph(GraphQuery{Service: "postgresql", Direction: DirectionDependents})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reached []string
+	for _, n := range dependents.Nodes {
+		reached = append(reached, string(n.Key))
+	}
+	if strings.Join(reached, ",") != "billing,orders" {
+		t.Errorf("dependents = %v", reached)
+	}
+	types := map[string]bool{}
+	for _, e := range dependents.Edges {
+		if e.FromService == "orders" {
+			types[e.Type] = true
+		}
+	}
+	if !types[RelationshipConfigRef] || len(types) != 1 {
+		t.Errorf("orders edges = %v, want one configuration reference", types)
+	}
+	deps, err := q.Graph(GraphQuery{Service: "orders", Direction: DirectionDependencies})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deps.Nodes) != 1 || deps.Nodes[0].Key != "postgresql" {
+		t.Errorf("orders dependencies = %+v; a policy reference and an unresolved reference stay out", deps.Nodes)
+	}
+	if len(deps.Unresolved) != 0 {
+		t.Errorf("unresolved = %+v; an unresolved configuration reference is no unresolved dependency", deps.Unresolved)
+	}
+}
+
+func TestGraphConfigRefDependents(t *testing.T) {
+	q := configRefFleet(t)
+	if view, _ := q.GetService("postgresql"); len(view.Dependents) != 2 {
+		t.Errorf("Dependents = %v", view.Dependents)
+	}
+	if view, _ := q.GetService("policies"); len(view.Dependents) != 1 || view.Dependents[0] != "postgresql" {
+		t.Errorf("a policy reference is no dependent: %v", view.Dependents)
+	}
+	if got := q.snap.reverseDeps[NewServiceKey("cache")]; len(got) != 0 {
+		t.Errorf("an unresolved reference reached reverseDeps: %v", got)
+	}
+}

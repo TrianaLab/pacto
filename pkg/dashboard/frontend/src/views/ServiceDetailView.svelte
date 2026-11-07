@@ -470,9 +470,11 @@
 
   <SbomSection id="section-sbom" sbom={detail.sbom} bind:open={openSections.sbom} />
 
-  <!-- The environments stage of a contract that declares none has nothing to say. -->
+  <!-- The environments stage of a contract that declares none has nothing to say, nor has
+       the configuration-refs stage of one that references no configuration. -->
   <ValidationSection id="section-validation" validation={detail.validation}
-    stages={(detail.stages || []).filter((st) => st.name !== 'environments' || detail.environments?.length > 0)}
+    stages={(detail.stages || []).filter((st) => (st.name !== 'environments' || detail.environments?.length > 0)
+      && !(st.name === 'configuration-refs' && st.status === 'skip' && st.reason === 'no configuration references'))}
     bind:open={openSections.validation} />
 
   <RuntimeDiffSection id="section-runtimeDiff" runtimeDiff={detail.runtimeDiff || []} bind:open={openSections.runtimeDiff} />

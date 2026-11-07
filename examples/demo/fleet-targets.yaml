@@ -14,7 +14,20 @@
 #
 # This is an OFFLINE demo/test adapter — precomputed target state, NOT the signed
 # external EvidenceSet ingestion protocol.
-schemaVersion: pacto.dev/fleet-targets/v1
+#
+# The provisioning list (schema v2) is what a platform adapter reports about the
+# resources consumers request. catalog-service 1.3.0 requests its database by
+# configuration reference, and the adapter last reported it Ready in production.
+# orders-service depends on postgresql, and the adapter could not observe that
+# resource (outcome Insufficient), so its status is Unknown. Each entry names the
+# consumer revision by its content digest, the digest `pacto fleet --local` gives
+# its bundle directory. File entries are unsigned, and every surface says so.
+# Both reports carry the same fixed date as the targets, so they read the same
+# on every run: older than the provisioning window (24h), catalog-service's
+# database reads Unknown with reportedPhase Ready, which is the freshness rule at
+# work. A wider --freshness, such as 100000h, shows it Ready. The in-browser demo
+# dates the same reports 30 minutes before it loads, so it shows them current.
+schemaVersion: pacto.dev/fleet-targets/v2
 targets:
   - scope: production-eu
     kind: kubernetes-workload
@@ -81,6 +94,25 @@ targets:
     labels: { env: production, region: us }
     # The oldest evidenceAt in the file, by design. See the header for why every
     # timestamped target here reads as stale under a short freshness window.
+
+provisioning:
+  - service: catalog-service
+    digest: sha256:6f9cf17b75d1407289141c3949d179bada41775a431a1e75cacbb8c4af93234e
+    kind: configuration
+    name: database
+    environment: production
+    provider: platform-db
+    externalRef: databases/catalog-production
+    phase: Ready
+    producer: platform-adapter
+    observedAt: 2026-07-29T09:40:00Z
+  - service: orders-service
+    digest: sha256:67631b06ae23e670b62c2ed42929855df42eab880644a7ff8f0d67a6daa57061
+    kind: dependency
+    name: postgresql
+    outcome: Insufficient
+    producer: platform-adapter
+    observedAt: 2026-07-29T09:40:00Z
 
 state:
   status: available

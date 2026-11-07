@@ -27,7 +27,11 @@ import (
 // makes the server unready without restarting it.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	args := make([]string, 0, 6+2*len(cfg.Subjects))
-	args = append(args, "evidence", "serve", "--trust", TrustMountPath, "--listen-address", ":8686")
+	trust := TrustMountPath
+	if cfg.TrustConfigKey != "" {
+		trust = TrustMountPath + "/" + cfg.TrustConfigKey
+	}
+	args = append(args, "evidence", "serve", "--trust", trust, "--listen-address", ":8686")
 	for _, subject := range cfg.Subjects {
 		args = append(args, "--subject", subject)
 	}

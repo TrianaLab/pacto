@@ -871,15 +871,17 @@ func TestValidateConfigFiles_EmptySchema(t *testing.T) {
 	}
 }
 
-func TestValidateConfigValues_WithRef_Deferred(t *testing.T) {
+// A ref configuration's values are left to the configuration-refs stage,
+// which checks them against the resolved schema (TestConfigRefStage).
+func TestValidateConfigValues_WithRef_LeftToConfigRefStage(t *testing.T) {
 	c := validV20Contract()
 	c.Configurations = []contract.Configuration{
 		{Name: "app", Ref: "oci://ghcr.io/acme/config:1.0.0", Values: map[string]any{"x": 1}},
 	}
 	var result ValidationResult
-	validateConfigValues(c, nil, &result)
-	if !result.IsValid() {
-		t.Errorf("expected values with ref to be deferred, got errors: %v", result.Errors)
+	validateConfigValues(c, fstest.MapFS{}, &result)
+	if len(result.Errors)+len(result.Warnings) != 0 {
+		t.Errorf("expected no cross-field finding, got %+v", result)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -70,10 +71,16 @@ func WithInsecureRegistries(hosts ...string) ClientOption {
 	}
 }
 
+// WithTransport sends every registry request, token exchanges and redirects included, through rt.
+func WithTransport(rt http.RoundTripper) ClientOption {
+	return func(c *Client) { c.transport = rt }
+}
+
 // Client implements BundleStore using go-containerregistry.
 type Client struct {
-	keychain authn.Keychain
-	insecure map[string]bool // registry hosts to reach over plain HTTP
+	keychain  authn.Keychain
+	transport http.RoundTripper // nil is remote.DefaultTransport
+	insecure  map[string]bool   // registry hosts to reach over plain HTTP
 	// listTags lists a repository's tags; nil is remote.List. A test sets it to
 	// observe the repository asked about, including the scheme it would be
 	// reached over, which no loopback test registry can exercise
@@ -94,7 +101,15 @@ func NewClient(keychain authn.Keychain, opts ...ClientOption) *Client {
 
 // remoteOptions builds the remote.Option slice for all OCI operations.
 func (c *Client) remoteOptions(ctx context.Context) []remote.Option {
-	return []remote.Option{remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx)}
+	return c.withTransport(remote.WithAuthFromKeychain(c.keychain), remote.WithContext(ctx))
+}
+
+// withTransport appends the client's transport, when it has one, to opts.
+func (c *Client) withTransport(opts ...remote.Option) []remote.Option {
+	if c.transport != nil {
+		opts = append(opts, remote.WithTransport(c.transport))
+	}
+	return opts
 }
 
 // candidateProvider is implemented by keychains that can enumerate all
@@ -133,7 +148,7 @@ func (c *Client) doWithAuth(ctx context.Context, res authn.Resource, ref string,
 	var lastErr error
 	for _, cand := range cands {
 		tried = append(tried, cand.Name)
-		err := op([]remote.Option{remote.WithAuth(cand.Authenticator), remote.WithContext(ctx)})
+		err := op(c.withTransport(remote.WithAuth(cand.Authenticator), remote.WithContext(ctx)))
 		switch {
 		case err == nil:
 			return nil

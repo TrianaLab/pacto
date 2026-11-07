@@ -173,8 +173,8 @@ func buildIndex(roots ...string) (index, error) {
 }
 
 // offlineResolver is a validation.BundleResolver that resolves a dependency /
-// config / policy ref to the LOCAL sibling bundle by service name (latest semver),
-// NO registry. Mirrors internal/app's bundleResolverAdapter, but the underlying
+// config / policy ref to the LOCAL sibling bundle by service name, NO registry:
+// the version a ref's tag names, or the latest semver for a tag-less ref. Mirrors internal/app's bundleResolverAdapter, but the underlying
 // resolution is offline-by-name instead of an OCI pull. The returned Bundle
 // carries the bundle dir as its FS so ValidateWithResolver can read the referenced
 // bundle's own policy/schema.json.
@@ -183,7 +183,13 @@ type offlineResolver struct {
 }
 
 func (r *offlineResolver) ResolveBundle(_ context.Context, ref string) (*contract.Bundle, error) {
-	sv, err := latest(r.idx, serviceName(ref))
+	name := serviceName(ref)
+	sv, err := latest(r.idx, name)
+	if tag := refTag(ref); tag != "" {
+		if sv, err = r.idx[name][tag], nil; sv == nil {
+			err = fmt.Errorf("%s:%s not found in demo set", name, tag)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -226,4 +232,18 @@ func serviceName(ref string) string {
 		name = name[:i]
 	}
 	return name
+}
+
+// refTag returns the tag a ref names ("16.1.0" in oci://host/postgresql:16.1.0),
+// or "" when it names none or pins a digest.
+func refTag(ref string) string {
+	loc := graph.ParseDependencyRef(ref).Location
+	last := loc[strings.LastIndex(loc, "/")+1:]
+	if strings.Contains(last, "@") {
+		return ""
+	}
+	if i := strings.Index(last, ":"); i > 0 {
+		return last[i+1:]
+	}
+	return ""
 }

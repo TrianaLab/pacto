@@ -155,6 +155,8 @@ func TestPrintValidateResult_Invalid(t *testing.T) {
 				{Code: "TEST_WARN", Path: "runtime", Message: "check this"},
 			}},
 			{Name: "policy", Status: validation.StageSkip, Reason: "structural failed"},
+			{Name: "configuration-refs", Status: validation.StageSkip, Reason: "structural failed"},
+			{Name: "environments", Status: validation.StageSkip, Reason: "structural failed"},
 		},
 		Next: "fix service.name at svc/pacto.yaml:3:3 [TEST_ERR], then run pacto validate svc",
 	}
@@ -168,7 +170,9 @@ FAIL structural
   ERROR [LOOSE_ERR] : nowhere
   svc/env.yaml: ERROR [FILE_ERR] environments[0].values: in values
   WARN  [TEST_WARN] runtime: check this
-SKIP policy       structural failed
+SKIP policy             structural failed
+SKIP configuration-refs structural failed
+SKIP environments       structural failed
 Next: fix service.name at svc/pacto.yaml:3:3 [TEST_ERR], then run pacto validate svc
 `
 	if got := buf.String(); got != want {
@@ -446,6 +450,7 @@ func TestPrintExplainResult_Full(t *testing.T) {
 		Domain:       "platform",
 		Offering:     "postgres",
 		Summary:      "Managed Postgres",
+		Lifecycle:    &contract.InterfaceLifecycle{Deprecated: "2026-01-01"},
 		PactoVersion: "2.0",
 		Workload:     "service",
 		State: &app.ExplainState{
@@ -467,19 +472,28 @@ func TestPrintExplainResult_Full(t *testing.T) {
 			{Name: "opt", Ref: "ghcr.io/opt:2.0.0", Required: false, Compatibility: "^2.0.0"},
 			{Name: "model", External: true, Version: "claude-sonnet-4-5", Required: true},
 		},
+		Configurations: []app.ExplainConfiguration{{
+			Name: "database", Ref: "oci://ghcr.io/acme/postgresql:16.1.0", Configuration: "provisioning", Required: true,
+			Values:            map[string]any{"size": "medium"},
+			EnvironmentValues: map[string]any{"production": map[string]any{"size": "large"}},
+		}},
 		Environments: []contract.Environment{{Name: "production", File: "environments/production.yaml"}},
 	}
 	if err := printExplainResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
+	if !strings.Contains(out, "\nConfigurations (1):\n  - database: oci://ghcr.io/acme/postgresql:16.1.0, configuration provisioning (required)\n"+
+		"      values: {\"size\":\"medium\"}\n      production: {\"size\":\"large\"}\n") {
+		t.Errorf("expected configurations with effective values, got %q", out)
+	}
 	if !strings.Contains(out, "\nEnvironments (1):\n  - production: environments/production.yaml\n") {
 		t.Errorf("expected environments, got %q", out)
 	}
 	if !strings.Contains(out, "Service: svc@1.0.0") {
 		t.Errorf("expected service header, got %q", out)
 	}
-	if !strings.Contains(out, "Owner: team/platform\nDomain: platform\nOffering: postgres\nSummary: Managed Postgres\n") {
+	if !strings.Contains(out, "Owner: team/platform\nDomain: platform\nOffering: postgres\nSummary: Managed Postgres\nLifecycle: deprecated 2026-01-01\n") {
 		t.Errorf("expected owner, domain, offering and summary, got %q", out)
 	}
 	if !strings.Contains(out, "openapi.yaml") {

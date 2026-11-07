@@ -332,6 +332,9 @@ type ServiceDetailData struct {
 	// service owner is taken from and where its contacts are shown. Nil when no
 	// revision declares one (the owner, if any, comes from a target).
 	OwnerRevision *EntityRef `json:"ownerRevision,omitempty"`
+	// Lifecycle is the service lifecycle (pactoVersion 2.6) the newest readable
+	// revision declares; nil when it declares none.
+	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	// Capabilities are the distinct capability types the service's readable
 	// revisions declare.
 	Capabilities StringsPreview `json:"capabilities"`
@@ -393,14 +396,16 @@ type ServiceDetailData struct {
 // (bounded, not merely counted), bounded tools/skills/docs, exact/inferred
 // targets, and the previous/next known revisions of the same logical service.
 type RevisionDetailData struct {
-	Service      EntityRef          `json:"service"`
-	Version      string             `json:"version,omitempty"`
-	PactoVersion string             `json:"pactoVersion,omitempty"`
-	Identity     RevisionIdentity   `json:"identity"`
-	Provenance   RevisionProvenance `json:"provenance"`
-	Valid        bool               `json:"valid"`
-	Readiness    *ProductReadiness  `json:"readiness,omitempty"`
-	Validation   FindingsPreview    `json:"validation"`
+	Service      EntityRef `json:"service"`
+	Version      string    `json:"version,omitempty"`
+	PactoVersion string    `json:"pactoVersion,omitempty"`
+	// Lifecycle is the service lifecycle (pactoVersion 2.6) the revision declares.
+	Lifecycle  *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	Identity   RevisionIdentity             `json:"identity"`
+	Provenance RevisionProvenance           `json:"provenance"`
+	Valid      bool                         `json:"valid"`
+	Readiness  *ProductReadiness            `json:"readiness,omitempty"`
+	Validation FindingsPreview              `json:"validation"`
 	// Stages is how each stage of the validation run ended, in run order. Empty
 	// when the contract document was never validated.
 	Stages []ValidationStage `json:"stages"`
@@ -548,6 +553,14 @@ type OfferingUse struct {
 	Via           string    `json:"via" enum:"dependency,configuration_reference,policy_reference"`
 	Compatibility string    `json:"compatibility,omitempty"`
 	RangeStatus   string    `json:"rangeStatus,omitempty" enum:"satisfied,unsatisfied,unknown"`
+	// ProviderLifecycle is the provider's service lifecycle as the newest
+	// consumer revision's relationship reaches it.
+	ProviderLifecycle *contract.InterfaceLifecycle `json:"providerLifecycle,omitempty"`
+	// Provisioning is what providers report about the resource this use asked
+	// for, one status per environment (see [ProvisioningStatus]); Unknown when
+	// no provider has reported. A policy reference provisions nothing and
+	// carries none.
+	Provisioning []ProvisioningStatus `json:"provisioning,omitempty"`
 }
 
 // OfferingUsesPreview is a bounded preview of offering uses.
@@ -590,16 +603,22 @@ type InferredOffering struct {
 // its versions, what its current revision declares and how to consume it.
 // Consume is nil when the provider has no OCI reference to consume.
 type OfferingProvider struct {
-	Service         EntityRef             `json:"service"`
-	Ownership       *OwnershipInfo        `json:"ownership,omitempty"`
-	Summary         string                `json:"summary,omitempty"`
-	CurrentRevision *EntityRef            `json:"currentRevision,omitempty"`
-	Revisions       RefPreview            `json:"revisions"`
-	ActiveRevisions RefPreview            `json:"activeRevisions"`
-	Interfaces      InterfacesPreview     `json:"interfaces"`
-	Configurations  ConfigurationsPreview `json:"configurations"`
-	Policies        PoliciesPreview       `json:"policies"`
-	Consume         *ConsumeSnippet       `json:"consume,omitempty"`
+	Service         EntityRef      `json:"service"`
+	Ownership       *OwnershipInfo `json:"ownership,omitempty"`
+	Summary         string         `json:"summary,omitempty"`
+	CurrentRevision *EntityRef     `json:"currentRevision,omitempty"`
+	// Lifecycle is the service lifecycle CurrentRevision declares.
+	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	// Versions lists the provider's versions, newest first, with the lifecycle
+	// each declares and whether a target runs it.
+	Versions       ProviderVersionsPreview `json:"versions"`
+	Interfaces     InterfacesPreview       `json:"interfaces"`
+	Configurations ConfigurationsPreview   `json:"configurations"`
+	Policies       PoliciesPreview         `json:"policies"`
+	Consume        *ConsumeSnippet         `json:"consume,omitempty"`
+	// OfferingProvenance says where this provider's membership in the offering
+	// comes from: declared by its contract or observed from its targets.
+	OfferingProvenance string `json:"offeringProvenance" enum:"declared,observed"`
 }
 
 // OfferingProvidersPreview is a bounded preview of offering providers.
@@ -619,6 +638,10 @@ const MaxOfferingProviders = 25
 type OfferingDetailData struct {
 	Providers OfferingProvidersPreview `json:"providers"`
 	Consumers OfferingUsesPreview      `json:"consumers"`
+	// HiddenConsumers counts the distinct services the caller's permissions hide
+	// that depend on or reference a provider of the offering. They are never
+	// named. Zero outside a restricted answer.
+	HiddenConsumers int `json:"hiddenConsumers"`
 }
 
 // SourceContribution counts the DISTINCT product entities attributable to one
@@ -743,16 +766,18 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	ownership.Unknown = !ownership.Declared && q.ownershipUnknown(s)
 	nb, nbErr := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()})
 	rels, nbLims := serviceRelationships(nb, nbErr, self)
-	current, cfgs, pols := q.currentRevisionContent(active, view.Revisions)
+	current, cfgs, pols := q.currentRevisionContent(newestInUse(active, view.Revisions))
 	unresolved := unresolvedDependencyItems(self, view.Dependencies)
+	consumed, conflicts := q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)
 	data := &ServiceDetailData{
 		Domain:                 s.Domain,
 		Ownership:              ownership,
 		OwnerRevision:          q.ownerRevision(s),
+		Lifecycle:              serviceLifecycle(newestReadable(view.Revisions)),
 		Capabilities:           stringsPreview(slices.DeleteFunc(q.serviceCapabilities(s), func(c string) bool { return c == "" })),
 		Sources:                refPreview(q.serviceSources(view)),
 		UnresolvedDependencies: unresolved,
-		ConsumedOfferings:      offeringUsesPreview(q.offeringUses(func(*ServiceRecord) bool { return true }, s.Key)),
+		ConsumedOfferings:      offeringUsesPreview(consumed),
 		InferredOfferings:      q.inferredOfferings(unresolved.Items),
 		CurrentRevision:        current,
 		Policies:               pols,
@@ -775,7 +800,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Limitations:        serviceLimitations(nbLims, view.Targets),
 	}
 	return &EntityDetail{
-		Meta: q.productMeta(), Entity: self, Status: s.Status,
+		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
 		Service: data, Actions: []string{"open-graph", "compare", "impact"},
 	}, nil
 }
@@ -788,13 +813,14 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	exact, inferred := q.targetsForRevision(rev.Key)
 	prev, next := q.siblingRevisions(rev)
 	cfgRefs, polRefs := q.revisionRefResolutions(rev.Key)
-	cfgs, pols := withSchemaContent(rev, withConfigResolutions(rev.configurations, cfgRefs), policiesPreview(rev.Contract.Policies, polRefs))
+	cfgs, pols := withSchemaContent(q.snap, rev, withConfigResolutions(rev.configurations, cfgRefs), policiesPreview(rev.Contract.Policies, polRefs))
 	data := &RevisionDetailData{
 		Configurations:  cfgs,
 		Policies:        pols,
 		Service:         q.serviceRef(rev.ServiceKey),
 		Version:         rev.Version,
 		PactoVersion:    rev.PactoVersion,
+		Lifecycle:       rev.Contract.Service.Lifecycle,
 		Identity:        revisionIdentity(rev.Digest, rev.RequestedRef, rev.ResolvedRef),
 		Provenance:      revisionProvenance(rev),
 		Valid:           rev.Valid,
@@ -1007,44 +1033,39 @@ func (q *Query) offeringDetail(key string) (*EntityDetail, error) {
 	for _, ref := range shown {
 		items = append(items, q.offeringProvider(q.snap.Services[ServiceKey(ref.Key)]))
 	}
-	uses := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == key }, "")
+	uses, conflicts := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == key }, "")
+	hidden := map[ServiceKey]bool{}
+	for _, ref := range providers {
+		maps.Copy(hidden, q.snap.hiddenConsumers[ServiceKey(ref.Key)])
+	}
 	return &EntityDetail{
-		Meta: q.productMeta(), Entity: offeringEntityRef(key),
+		Meta: q.productMetaWith(conflicts), Entity: offeringEntityRef(key, offeringProvenance(q.snap, key)),
 		Offering: &OfferingDetailData{
 			Providers: OfferingProvidersPreview{Total: total, Count: len(items), Truncated: trunc, Items: items},
-			Consumers: offeringUsesPreview(uses),
+			Consumers: offeringUsesPreview(uses), HiddenConsumers: len(hidden),
 		},
 	}, nil
 }
 
-// offeringProvider projects one provider of an offering from the snapshot.
+// offeringProvider projects one provider of an offering from the snapshot. Its
+// current revision is the newest readable one, the revision the snippet pins.
 func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
-	inUse := map[RevisionKey]bool{}
-	for _, tk := range s.Targets {
-		inUse[q.snap.Targets[tk].ContractRevision] = true
-	}
-	var all, active []*ContractRevision
-	var newest *ContractRevision
+	var all []*ContractRevision
 	for _, rk := range s.Revisions {
-		r := q.snap.Revisions[rk]
-		all = append(all, r)
-		if inUse[rk] {
-			active = append(active, r)
-		}
-		if readableRevision(r) && (newest == nil || lessRevisionChrono(newest, r)) {
-			newest = r
-		}
+		all = append(all, q.snap.Revisions[rk])
 	}
-	current, cfgs, pols := q.currentRevisionContent(active, all)
+	newest := newestReadable(all)
+	current, cfgs, pols := q.currentRevisionContent(newest)
 	p := OfferingProvider{
-		Service: serviceEntityRef(s), Ownership: serviceOwnership(s, all), Summary: s.Summary, CurrentRevision: current,
-		Revisions: refPreview(chronologicalRevisionRefs(all)), ActiveRevisions: refPreview(chronologicalRevisionRefs(active)),
+		Service: serviceEntityRef(s), OfferingProvenance: s.OfferingProvenance, Ownership: serviceOwnership(s, all), Summary: s.Summary, CurrentRevision: current,
+		Versions:       q.offeringProviderVersions(s, ""),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
-		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(s, newest),
+		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(q.snap, s, newest),
 	}
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {
 			p.Interfaces = interfacesPreview(rec.Contract.Interfaces, rec.Tools, rec.SpecsRead, q.snap.GeneratedAt)
+			p.Lifecycle = rec.Contract.Service.Lifecycle
 		}
 	}
 	return p
@@ -1053,14 +1074,17 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 // offeringUses is every service consuming a provider match accepts, from one
 // consumer when from is set: one row per consumer, provider and relationship
 // type, over every revision. Revisions that disagree on the range status make
-// it unknown.
-func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) []OfferingUse {
+// it unknown. It also returns the provisioning conflicts the rows raise.
+func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) ([]OfferingUse, []Limitation) {
 	type useKey struct {
 		consumer, provider ServiceKey
 		via                string
 	}
 	seen := map[useKey]int{}
+	keptRev := map[useKey]*ContractRevision{} // the consumer revision whose provider lifecycle a row keeps
+	rels := map[useKey][]*Relationship{}
 	var uses []OfferingUse
+	var keys []useKey // keys[j] is the key of uses[j]
 	for i := range q.snap.Relationships {
 		rel := &q.snap.Relationships[i]
 		if !offeringRelationship(rel, from) {
@@ -1071,28 +1095,50 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 			continue
 		}
 		k := useKey{rel.FromService, rel.ToService, rel.Type}
+		rels[k] = append(rels[k], rel)
 		if j, ok := seen[k]; ok {
 			u := &uses[j]
-			if u.RangeStatus == "" {
-				u.RangeStatus = rel.RangeStatus
-			} else if rel.RangeStatus != "" && rel.RangeStatus != u.RangeStatus {
-				u.RangeStatus = RangeUnknown
-			}
-			if rel.Compatibility != u.Compatibility {
-				u.Compatibility = ""
+			mergeUse(u, rel)
+			if r := q.snap.Revisions[rel.FromRevision]; r != nil && (keptRev[k] == nil || lessRevisionChrono(keptRev[k], r)) {
+				keptRev[k], u.ProviderLifecycle = r, rel.ProviderLifecycle
 			}
 			continue
 		}
 		seen[k] = len(uses)
+		keys = append(keys, k)
+		keptRev[k] = q.snap.Revisions[rel.FromRevision]
 		uses = append(uses, OfferingUse{
 			Offering: p.Offering, Consumer: q.serviceRef(rel.FromService), Provider: serviceEntityRef(p),
 			Via: rel.Type, Compatibility: rel.Compatibility, RangeStatus: rel.RangeStatus,
+			ProviderLifecycle: rel.ProviderLifecycle,
 		})
+	}
+	var lims []Limitation
+	idx := q.provisioningIndex()
+	for j, k := range keys {
+		if k.via != RelationshipPolicyRef {
+			var conflicts []Limitation
+			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)
+			lims = append(lims, conflicts...)
+		}
 	}
 	slices.SortStableFunc(uses, func(a, b OfferingUse) int {
 		return cmp.Or(cmp.Compare(a.Consumer.Key, b.Consumer.Key), cmp.Compare(a.Provider.Key, b.Provider.Key), cmp.Compare(a.Via, b.Via))
 	})
-	return uses
+	return uses, lims
+}
+
+// mergeUse folds another revision's relationship into a use row: a range
+// status or compatibility the revisions disagree on is unknown.
+func mergeUse(u *OfferingUse, rel *Relationship) {
+	if u.RangeStatus == "" {
+		u.RangeStatus = rel.RangeStatus
+	} else if rel.RangeStatus != "" && rel.RangeStatus != u.RangeStatus {
+		u.RangeStatus = RangeUnknown
+	}
+	if rel.Compatibility != u.Compatibility {
+		u.Compatibility = ""
+	}
 }
 
 // inferredOfferings suggests an offering for each unresolved dependency whose
@@ -1118,9 +1164,9 @@ func (q *Query) inferredOfferings(unresolved []UnresolvedDependency) []InferredO
 		name := strings.ToLower(path.Base(repo))
 		switch p := providers[name]; {
 		case offerings[name]:
-			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(name), Reason: "offering-name"})
+			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(name, offeringProvenance(q.snap, name)), Reason: "offering-name"})
 		case p != nil:
-			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(p.Offering), Provider: new(serviceEntityRef(p)), Reason: "provider-name"})
+			out = append(out, InferredOffering{Ref: u.Ref, Offering: offeringEntityRef(p.Offering, offeringProvenance(q.snap, p.Offering)), Provider: new(serviceEntityRef(p)), Reason: "provider-name"})
 		}
 	}
 	return out
@@ -1260,6 +1306,26 @@ func (q *Query) siblingRevisions(rev *ContractRevision) (prev, next *EntityRef) 
 	return prev, next
 }
 
+// newestReadable is the newest readable revision of revs in revision
+// chronology, nil when none is readable.
+func newestReadable(revs []*ContractRevision) *ContractRevision {
+	var newest *ContractRevision
+	for _, r := range revs {
+		if readableRevision(r) && (newest == nil || lessRevisionChrono(newest, r)) {
+			newest = r
+		}
+	}
+	return newest
+}
+
+// serviceLifecycle is the service lifecycle rev declares, nil for no revision.
+func serviceLifecycle(rev *ContractRevision) *contract.InterfaceLifecycle {
+	if rev == nil {
+		return nil
+	}
+	return rev.Contract.Service.Lifecycle
+}
+
 // lessRevisionChrono is the canonical ascending revision order used by
 // siblingRevisions: semver chronology first, the immutable RevisionKey as a
 // deterministic tie-breaker only (see siblingRevisions for the full rationale).
@@ -1270,8 +1336,8 @@ func lessRevisionChrono(a, b *ContractRevision) bool {
 	return a.Key < b.Key
 }
 
-// revisionEdges builds the declared, resolved dependency edges a specific revision
-// declares. Observed edges carry no revision, so only this revision's declared
+// revisionEdges builds the declared, resolved dependency and configuration-reference
+// edges a specific revision declares. Observed edges carry no revision, so only this revision's declared
 // dependencies appear; every edge shares this revision's service as its source, so
 // ordering by destination is sufficient and deterministic.
 //
@@ -1286,12 +1352,19 @@ func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 	var out []NeighborhoodEdge
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type != RelationshipDependency || rel.FromRevision != revKey || rel.ToService == "" {
+		// A resolved reference whose service left the snapshot is reported by
+		// revisionRefResolutions; it has no node to draw an edge to.
+		if !ConsumesEdge(rel) || rel.FromRevision != revKey || q.snap.Services[rel.ToService] == nil {
 			continue
 		}
 		out = append(out, dependencyEdge(q.serviceRef(rel.FromService), q.serviceRef(rel.ToService), rel))
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].To.Key < out[j].To.Key })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].To.Key != out[j].To.Key {
+			return out[i].To.Key < out[j].To.Key
+		}
+		return out[i].Relation < out[j].Relation
+	})
 	return out
 }
 
@@ -1327,6 +1400,10 @@ func (q *Query) revisionRefResolutions(revKey RevisionKey) (cfg, pol map[string]
 			if s := q.snap.Services[rel.ToService]; s != nil {
 				ref := serviceEntityRef(s)
 				res.Service = &ref
+				if to := q.snap.Revisions[rel.ResolvedRevision]; to != nil {
+					rr := revisionEntityRef(to)
+					res.Revision = &rr
+				}
 			} else {
 				res.Resolved = false
 				if !rel.Hidden { // a hidden one keeps the reason that says so
@@ -1340,10 +1417,9 @@ func (q *Query) revisionRefResolutions(revKey RevisionKey) (cfg, pol map[string]
 }
 
 // referencingServices names the services whose revisions declare a configuration
-// or policy reference to the given service. Reference edges are not dependency
-// edges and so are absent from reverseDeps and from graph traversal; without
-// this, a shared configuration or policy service could be reached from its
-// consumers but never listed its consumers back.
+// or policy reference to the given service. Policy references are absent from
+// reverseDeps and from graph traversal, and configuration references reach them
+// only when resolved; this lists both kinds back from the service they name.
 func (q *Query) referencingServices(key ServiceKey) []EntityRef {
 	var keys []ServiceKey
 	for i := range q.snap.Relationships {
@@ -1518,11 +1594,9 @@ func (q *Query) ownershipUnknown(s *ServiceRecord) bool {
 	return true
 }
 
-// currentRevisionContent picks the service's current revision (the newest in
-// use, else the newest known) and projects its policies and configurations.
-// It reads the SNAPSHOT record: active and all are clones without bundle files.
-func (q *Query) currentRevisionContent(active, all []*ContractRevision) (*EntityRef, ConfigurationsPreview, PoliciesPreview) {
-	cfgs, pols := ConfigurationsPreview{Items: []ConfigurationSummary{}}, PoliciesPreview{Items: []PolicySummary{}}
+// newestInUse is a service's current revision: the newest in use, else the
+// newest known, nil when there is none.
+func newestInUse(active, all []*ContractRevision) *ContractRevision {
 	pick := active
 	if len(pick) == 0 {
 		pick = all
@@ -1533,6 +1607,14 @@ func (q *Query) currentRevisionContent(active, all []*ContractRevision) (*Entity
 			cur = r
 		}
 	}
+	return cur
+}
+
+// currentRevisionContent projects the policies and configurations of cur, the
+// revision a caller chose as current. It reads the SNAPSHOT record: cur may be a
+// clone without bundle files.
+func (q *Query) currentRevisionContent(cur *ContractRevision) (*EntityRef, ConfigurationsPreview, PoliciesPreview) {
+	cfgs, pols := ConfigurationsPreview{Items: []ConfigurationSummary{}}, PoliciesPreview{Items: []PolicySummary{}}
 	if cur == nil {
 		return nil, cfgs, pols
 	}
@@ -1542,7 +1624,7 @@ func (q *Query) currentRevisionContent(active, all []*ContractRevision) (*Entity
 		return &ref, cfgs, pols
 	}
 	cfgRefs, polRefs := q.revisionRefResolutions(rec.Key)
-	cfgs, pols = withSchemaContent(rec, withConfigResolutions(rec.configurations, cfgRefs), policiesPreview(rec.Contract.Policies, polRefs))
+	cfgs, pols = withSchemaContent(q.snap, rec, withConfigResolutions(rec.configurations, cfgRefs), policiesPreview(rec.Contract.Policies, polRefs))
 	return &ref, cfgs, pols
 }
 

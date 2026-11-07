@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 // mkBundle wraps a contract in an in-memory bundle with an (empty) MapFS. RawYAML
@@ -363,7 +364,7 @@ func TestAnalyzeBlastRadiusTruncated(t *testing.T) {
 func TestConsumerImpactServiceAbsent(t *testing.T) {
 	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{}}
 	node := consumerNode{key: fleet.NewServiceKey("ghost"), name: "ghost", depth: 2, path: []fleet.ServiceKey{"auth-service", "ghost"}}
-	got := consumerImpact(snap, fleet.NewServiceKey("auth-service"), node, "2.0.0", nil)
+	got := consumerImpact(snap, fleet.NewServiceKey("auth-service"), node, mkBundle(svcContract("auth-service", "2.0.0", contract.Owner{})), nil)
 	want := AffectedConsumer{
 		Service: "ghost", Depth: 2, Path: []string{"ghost", "auth-service"},
 		CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceInferred, Confidence: ConfidenceInferred,
@@ -375,25 +376,25 @@ func TestConsumerImpactServiceAbsent(t *testing.T) {
 
 func TestEdgeEvidence(t *testing.T) {
 	snap := &fleet.FleetSnapshot{Relationships: []fleet.Relationship{
-		{Type: fleet.RelationshipConfigRef, FromService: "a", ToService: "b"},                                                                                 // wrong type
-		{Type: fleet.RelationshipDependency, FromService: "x", ToService: "b"},                                                                                // wrong from
-		{Type: fleet.RelationshipDependency, FromService: "a", ToService: "y"},                                                                                // wrong to
-		{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceObserved},                                          // observed
-		{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Required: true, Compatibility: "^1.0.0"}, // declared
+		{Type: fleet.RelationshipConfigRef, FromService: "a", ToService: "b"},                                                                                                 // wrong type
+		{Type: fleet.RelationshipDependency, FromService: "x", ToService: "b"},                                                                                                // wrong from
+		{Type: fleet.RelationshipDependency, FromService: "a", ToService: "y"},                                                                                                // wrong to
+		{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceObserved},                                                          // observed
+		{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Resolved: true, Required: true, Compatibility: "^1.0.0"}, // declared
 	}}
 	// The observed relationship is SKIPPED, not counted: corroboration reaches
 	// edgeEvidence only through observedEdges, which the caller gates on
 	// IncludeObserved. Skipping it must still not let it be mistaken for the
 	// declared edge, so the declared claim below is what comes back.
-	rel, declared, observed := edgeEvidence(snap, "a", "b", "1.2.0", nil)
+	rel, declared, observed, _ := edgeEvidence(snap, "a", "b", "1.2.0", nil)
 	if !declared || observed || !rel.Required || rel.Compatibility != "^1.0.0" {
 		t.Errorf("edgeEvidence = rel:%+v declared:%v observed:%v", rel, declared, observed)
 	}
 
 	// An observed edge supplied via telemetry (not in the graph) also counts.
-	relT, declaredT, observedT := edgeEvidence(
+	relT, declaredT, observedT, _ := edgeEvidence(
 		&fleet.FleetSnapshot{Relationships: []fleet.Relationship{
-			{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Required: true},
+			{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Resolved: true, Required: true},
 		}},
 		"a", "b", "1.2.0", []resolvedObservedEdge{{consumer: "a", provider: "b"}, {consumer: "other", provider: "b"}})
 	if !declaredT || !observedT || !relT.Required {
@@ -405,18 +406,18 @@ func TestEdgeEvidence(t *testing.T) {
 // least speaks for the consumer, in either order.
 func TestEdgeEvidenceWorstRevisionSpeaks(t *testing.T) {
 	dep := func(rng string) fleet.Relationship {
-		return fleet.Relationship{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Compatibility: rng}
+		return fleet.Relationship{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Resolved: true, Compatibility: rng}
 	}
 	for _, rels := range [][]fleet.Relationship{
 		{dep("^3.0.0"), dep("not a range"), dep("^2.0.0"), dep("^3.0.0")},
 		{dep("^2.0.0"), dep("^3.0.0"), dep("not a range")},
 	} {
-		if rel, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "^2.0.0" {
+		if rel, _, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "^2.0.0" {
 			t.Errorf("edges %v: the consumer speaks through %q, want ^2.0.0", rels, rel.Compatibility)
 		}
 	}
 	rels := []fleet.Relationship{dep("^3.0.0"), dep("not a range")}
-	if rel, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "not a range" {
+	if rel, _, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "not a range" {
 		t.Errorf("an unreadable range outranks one that accepts, got %q", rel.Compatibility)
 	}
 }
@@ -800,5 +801,221 @@ func TestResultCarriesSources(t *testing.T) {
 	res = Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
 	if len(res.Sources) != fleet.MaxMetaSources || !res.SourcesTruncated {
 		t.Errorf("sources = %d, truncated %v", len(res.Sources), res.SourcesTruncated)
+	}
+}
+
+// pgSchema is a provider configuration schema whose size takes one of sizes.
+func pgSchema(sizes ...string) fstest.MapFS {
+	enum, _ := json.Marshal(sizes)
+	return fstest.MapFS{"schema.json": {Data: []byte(`{"type":"object","properties":{"size":{"enum":` + string(enum) + `}},"additionalProperties":false}`)}}
+}
+
+// pgContract is postgresql at version with one configuration named cfgName.
+func pgContract(version, cfgName string, iface bool) *contract.Contract {
+	c := svcContract("postgresql", version, contract.Owner{Team: "platform"})
+	c.PactoVersion = "2.6"
+	c.Configurations = []contract.Configuration{{Name: cfgName, Schema: "schema.json"}}
+	if iface {
+		c.Interfaces = []contract.Interface{{Name: "sql", Type: contract.InterfaceTypeGRPC, Ref: "sql.proto"}}
+	}
+	return c
+}
+
+// configRefSnap holds postgresql 16.1.0 and the given consumers, each taking
+// its db configuration from postgresql. A consumer whose lock is nil names the
+// provider by tag only, so the reference stays unresolved.
+func configRefSnap(t *testing.T, running bool, consumers ...fleet.RawRevision) *fleet.FleetSnapshot {
+	t.Helper()
+	col := &fleet.Collection{Revisions: append([]fleet.RawRevision{{
+		Bundle: &contract.Bundle{Contract: pgContract("16.1.0", "provisioning", true), FS: pgSchema("small", "medium", "large")},
+		Digest: "sha256:pg", RequestedRef: "oci://x/postgresql:16.1.0",
+	}}, consumers...)}
+	if running {
+		col.Targets = []fleet.RawTarget{{Scope: "prod", Kind: "deployment", Name: "orders", Service: "orders", Compliance: fleet.StatusCompliant}}
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
+}
+
+// refConsumer is a 2.6 consumer whose db configuration references postgresql
+// with values, optionally selecting a provider configuration and depending on
+// it too. Locked pins the reference to the 16.1.0 revision.
+func refConsumer(name, selector string, values map[string]any, locked bool, deps ...contract.Dependency) fleet.RawRevision {
+	c := svcContract(name, "1.0.0", contract.Owner{Team: name + "-team"}, deps...)
+	c.PactoVersion = "2.6"
+	ref := "oci://x/postgresql"
+	if !locked {
+		ref += ":16"
+	}
+	c.Configurations = []contract.Configuration{{Name: "db", Ref: ref, ProviderConfiguration: selector, Values: values}}
+	rev := fleet.RawRevision{Bundle: mkBundle(c), Digest: "sha256:" + name}
+	if locked {
+		rev.Lock = &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{{
+			Kind: contract.ReferenceKindConfig, Name: "db", Source: "oci", Ref: ref, Digest: "sha256:pg",
+		}}}
+	}
+	return rev
+}
+
+func TestImpactConfigRefConsumer(t *testing.T) {
+	medium := map[string]any{"size": "medium"}
+	// withEnv gives orders a prod environment asking for size medium, and
+	// values for a local configuration the check leaves alone.
+	withEnv := refConsumer("orders", "", nil, true)
+	withEnv.Bundle.Contract.Configurations = append(withEnv.Bundle.Contract.Configurations, contract.Configuration{Name: "local", Schema: "local.json"})
+	withEnv.Bundle.Contract.Environments = []contract.Environment{{Name: "prod", File: "prod.yaml"}}
+	withEnv.Bundle.FS = fstest.MapFS{"prod.yaml": {Data: []byte("db:\n  size: medium\nlocal:\n  x: 1\n")}}
+	old := pgContract("16.1.0", "provisioning", true)
+	twoConfigs := pgContract("16.2.0", "provisioning", true)
+	twoConfigs.Configurations = append(twoConfigs.Configurations, contract.Configuration{Name: "replica", Schema: "schema.json"})
+	tests := []struct {
+		name       string
+		snap       *fleet.FleetSnapshot
+		newC       *contract.Contract
+		newFS      fstest.MapFS
+		verdict    string
+		note       string
+		gate       string
+		limitation bool
+	}{
+		{"values satisfy the new schema", configRefSnap(t, false, refConsumer("orders", "", medium, true)),
+			pgContract("16.2.0", "provisioning", false), pgSchema("small", "medium", "large"),
+			CompatibilityCompatible, "satisfy the schema of postgresql@16.2.0", GateUnverified, false},
+		{"values the new schema rejects", configRefSnap(t, false, refConsumer("orders", "", medium, true)),
+			pgContract("16.2.0", "provisioning", false), pgSchema("small", "large"),
+			CompatibilityIncompatible, "configuration db at /size", GateUnverified, false},
+		{"environment values the new schema rejects", configRefSnap(t, false, withEnv),
+			pgContract("16.2.0", "provisioning", false), pgSchema("small", "large"),
+			CompatibilityIncompatible, "environment prod: configuration db at /db/size", GateUnverified, false},
+		{"rejected and running", configRefSnap(t, true, refConsumer("orders", "", medium, true)),
+			pgContract("16.2.0", "provisioning", false), pgSchema("small", "large"),
+			CompatibilityIncompatible, "against postgresql@16.2.0", GateBlocked, false},
+		{"selected configuration gone", configRefSnap(t, false, refConsumer("orders", "provisioning", medium, true)),
+			pgContract("16.2.0", "other", false), pgSchema("small", "medium", "large"),
+			CompatibilityIncompatible, `declares no configuration "provisioning"`, GateUnverified, false},
+		{"a second configuration leaves a selector-less reference ambiguous", configRefSnap(t, true, refConsumer("orders", "", medium, true)),
+			twoConfigs, pgSchema("small", "medium", "large"),
+			CompatibilityIncompatible, "set configuration: <name> to pick one", GateBlocked, false},
+		{"a selector keeps the reference unambiguous", configRefSnap(t, false, refConsumer("orders", "provisioning", medium, true)),
+			twoConfigs, pgSchema("small", "medium", "large"),
+			CompatibilityCompatible, "satisfy the schema of postgresql@16.2.0", GateUnverified, false},
+		{"rejected values beat a matching dependency range", configRefSnap(t, false, refConsumer("orders", "", map[string]any{"size": "huge"}, true,
+			contract.Dependency{Name: "postgresql", Ref: "oci://x/postgresql", Compatibility: "^16.0.0"})),
+			pgContract("16.2.0", "provisioning", false), pgSchema("small", "medium", "large"),
+			CompatibilityIncompatible, "configuration db at /size", GateUnverified, false},
+		{"rejected values beat a matching dependency range when running", configRefSnap(t, true, refConsumer("orders", "", map[string]any{"size": "huge"}, true,
+			contract.Dependency{Name: "postgresql", Ref: "oci://x/postgresql", Compatibility: "^16.0.0"})),
+			pgContract("16.2.0", "provisioning", false), pgSchema("small", "medium", "large"),
+			CompatibilityIncompatible, "configuration db at /size", GateBlocked, false},
+		{"accepted values and a matching range keep both notes", configRefSnap(t, false, refConsumer("orders", "", medium, true,
+			contract.Dependency{Name: "postgresql", Ref: "oci://x/postgresql", Compatibility: "^16.0.0"})),
+			pgContract("16.2.0", "provisioning", false), pgSchema("small", "medium", "large"),
+			CompatibilityCompatible, "satisfy the schema of postgresql@16.2.0; compatible only means the range ^16.0.0 accepts 16.2.0", GateUnverified, false},
+		{"unpinned reference", configRefSnap(t, false, refConsumer("orders", "", medium, false)),
+			pgContract("16.2.0", "provisioning", false), pgSchema("small", "medium", "large"),
+			"", "", GateUnverified, true},
+		{"no consumers", configRefSnap(t, false),
+			pgContract("16.2.0", "provisioning", false), pgSchema("small", "medium", "large"),
+			"", "", GateClear, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := Analyze(context.Background(), old, tt.newC, pgSchema("small", "medium", "large"), tt.newFS, tt.snap, Options{})
+			if res.Classification != "BREAKING" || res.Gate != tt.gate {
+				t.Fatalf("classification %s, gate %s (%s); want BREAKING, %s", res.Classification, res.Gate, res.GateReason, tt.gate)
+			}
+			if tt.verdict == "" {
+				if len(res.Consumers) != 0 {
+					t.Errorf("consumers = %+v", res.Consumers)
+				}
+			} else if len(res.Consumers) != 1 || res.Consumers[0].CompatibilityVerdict != tt.verdict || !strings.Contains(res.Consumers[0].Note, tt.note) ||
+				res.Consumers[0].Provenance != fleet.ProvenanceDeclared {
+				t.Errorf("consumers = %+v, want %s noting %q", res.Consumers, tt.verdict, tt.note)
+			}
+			if got := hasCode(res.Limitations, "CONFIG_REF_CONSUMERS_UNRESOLVED"); got != tt.limitation || tt.limitation && res.Completeness != fleet.CompletenessPartial {
+				t.Errorf("CONFIG_REF_CONSUMERS_UNRESOLVED = %v (completeness %s), want %v", got, res.Completeness, tt.limitation)
+			}
+		})
+	}
+}
+
+// An unresolved configuration reference names the changed service by its last
+// path segment when the provider came from a directory or the ref is relative,
+// so the gate never clears with that consumer unseen.
+func TestUnresolvedConfigRefConsumersByName(t *testing.T) {
+	for _, ref := range []string{"oci://x/postgresql:16", "../postgresql", "oci://x/postgresql-pacto:16"} {
+		consumer := refConsumer("orders", "", map[string]any{"size": "medium"}, false)
+		consumer.Bundle.Contract.Configurations[0].Ref = ref
+		col := &fleet.Collection{Revisions: []fleet.RawRevision{{
+			Bundle: &contract.Bundle{Contract: pgContract("16.1.0", "provisioning", true), FS: pgSchema("small", "medium", "large")},
+			Digest: "sha256:pg", RequestedRef: "file:///tmp/fleet/postgresql",
+		}, consumer}}
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("local", "local", col))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := Analyze(context.Background(), pgContract("16.1.0", "provisioning", true), pgContract("16.2.0", "provisioning", false),
+			pgSchema("small", "medium", "large"), pgSchema("small", "large"), snap, Options{})
+		if res.Gate != GateUnverified || !hasCode(res.Limitations, "CONFIG_REF_CONSUMERS_UNRESOLVED") {
+			t.Errorf("%s: gate %s (%s), limitations %+v", ref, res.Gate, res.GateReason, res.Limitations)
+		}
+	}
+	if n := unresolvedConfigRefConsumers(&fleet.FleetSnapshot{Relationships: []fleet.Relationship{{
+		Type: fleet.RelationshipConfigRef, Provenance: fleet.ProvenanceDeclared, RequestedRef: "oci://x/redis:7",
+	}}}, fleet.NewServiceKey("postgresql")); n != 0 {
+		t.Errorf("a ref to another name counted %d", n)
+	}
+}
+
+// Each referencing revision is judged and the one that accepts least speaks;
+// what Pacto cannot read is unknown with the reason.
+func TestConfigRefVerdict(t *testing.T) {
+	provider := &contract.Bundle{Contract: pgContract("16.2.0", "provisioning", false), FS: pgSchema("small", "large")}
+	rev := func(values map[string]any, envs ...contract.Environment) *fleet.ContractRevision {
+		c := svcContract("orders", "1.0.0", contract.Owner{})
+		c.PactoVersion = "2.6"
+		c.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://x/postgresql", Values: values}, {Name: "local", Schema: "local.json"}}
+		c.Environments = envs
+		return &fleet.ContractRevision{Contract: c}
+	}
+	snap := &fleet.FleetSnapshot{Revisions: map[fleet.RevisionKey]*fleet.ContractRevision{
+		"a": rev(map[string]any{"size": "small"}), "b": rev(map[string]any{"size": "medium"}),
+	}}
+	edge := func(rk fleet.RevisionKey) fleet.Relationship { return fleet.Relationship{FromRevision: rk, To: "db"} }
+	if v, note := configRefVerdict(snap, []fleet.Relationship{edge("a"), edge("b")}, provider); v != CompatibilityIncompatible || !strings.Contains(note, "/size") {
+		t.Errorf("worst revision: %s %q", v, note)
+	}
+	if v, _ := configRefVerdict(snap, []fleet.Relationship{edge("a"), edge("a")}, provider); v != CompatibilityCompatible {
+		t.Errorf("one revision with two edges: %s", v)
+	}
+
+	envFS := fstest.MapFS{"prod.yaml": {Data: []byte("db:\n  size: medium\nlocal:\n  x: 1\n")}}
+	chained := &contract.Bundle{Contract: pgContract("16.2.0", "provisioning", false), FS: pgSchema("small")}
+	chained.Contract.Configurations[0] = contract.Configuration{Name: "provisioning", Ref: "oci://y/base"}
+	for _, tt := range []struct {
+		name     string
+		rev      *fleet.ContractRevision
+		provider *contract.Bundle
+		verdict  string
+		note     string
+	}{
+		{"no contract", nil, provider, CompatibilityUnknown, "cannot be read"},
+		{"no environment files", rev(nil, contract.Environment{Name: "prod", File: "prod.yaml"}), provider, CompatibilityUnknown, "environment files are not in this snapshot"},
+		{"chained provider configuration", rev(nil), chained, CompatibilityUnknown, "does not follow oci://y/base"},
+	} {
+		if v, note := revisionConfigRefVerdict(tt.rev, []string{"db"}, tt.provider); v != tt.verdict || !strings.Contains(note, tt.note) {
+			t.Errorf("%s: %s %q, want %s %q", tt.name, v, note, tt.verdict, tt.note)
+		}
+	}
+	// An environment's values are checked too; values for a configuration this
+	// check leaves out are no business of it.
+	if why := unreadableEnvironments(rev(nil, contract.Environment{Name: "prod", File: "prod.yaml"}).Contract, envFS); why != "" {
+		t.Errorf("readable environments: %q", why)
+	}
+	if why := unreadableEnvironments(rev(nil, contract.Environment{Name: "dev", File: "dev.yaml"}).Contract, envFS); !strings.Contains(why, "cannot read dev.yaml") {
+		t.Errorf("missing file: %q", why)
 	}
 }

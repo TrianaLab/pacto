@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -321,4 +322,55 @@ func findTarget(t *testing.T, targets []fleet.RawTarget, name string) fleet.RawT
 	}
 	t.Fatalf("target %q not found in %+v", name, targets)
 	return fleet.RawTarget{}
+}
+
+// A v2 file carries provisioning reports beside its targets; an empty outcome
+// is Observed and every report is unverified.
+func TestTargetStateFileSource_V2Provisioning(t *testing.T) {
+	body := `schemaVersion: pacto.dev/fleet-targets/v2
+targets: []
+provisioning:
+  - service: orders
+    domain: ghcr.io/acme
+    digest: sha256:o
+    kind: configuration
+    name: db
+    environment: production
+    provider: aws
+    externalRef: orders-db
+    phase: Ready
+    observedAt: 2026-07-29T09:40:00Z
+    producer: platform-adapter
+  - service: orders
+    digest: sha256:o
+    kind: dependency
+    name: cache
+    outcome: Insufficient
+    observedAt: 2026-07-29T09:40:00Z
+`
+	col, err := NewTargetStateFileSource("", writeFixture(t, "t.yaml", body)).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(col.Provisioning) != 2 {
+		t.Fatalf("provisioning = %+v", col.Provisioning)
+	}
+	want := fleet.RawProvisioning{Service: "orders", Domain: "ghcr.io/acme", Digest: "sha256:o", Kind: "configuration", Name: "db",
+		Environment: "production", Provider: "aws", ExternalRef: "orders-db", Phase: "Ready", Outcome: "Observed",
+		Producer: "platform-adapter", ObservedAt: time.Date(2026, 7, 29, 9, 40, 0, 0, time.UTC)}
+	if got := col.Provisioning[0]; !reflect.DeepEqual(got, want) {
+		t.Errorf("first = %+v, want %+v", got, want)
+	}
+	if got := col.Provisioning[1]; got.Outcome != "Insufficient" || got.Phase != "" || got.Verified {
+		t.Errorf("second = %+v", got)
+	}
+}
+
+// Provisioning reports need v2: a v1 file that carries them is rejected.
+func TestTargetStateFileSource_V1ProvisioningRejected(t *testing.T) {
+	body := "schemaVersion: pacto.dev/fleet-targets/v1\ntargets: []\nprovisioning:\n  - service: orders\n"
+	_, err := NewTargetStateFileSource("", writeFixture(t, "t.yaml", body)).Collect(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "fleet-targets/v2") {
+		t.Errorf("err = %v, want the v2 hint", err)
+	}
 }

@@ -76,8 +76,12 @@ func printValidateResult(cmd *cobra.Command, result *app.ValidateResult, format 
 			}
 		}
 
+		width := 0
 		for _, st := range result.Stages {
-			_, _ = fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%s %-12s %s", strings.ToUpper(st.Status), st.Name, st.Reason), " "))
+			width = max(width, len(st.Name))
+		}
+		for _, st := range result.Stages {
+			_, _ = fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%s %-*s %s", strings.ToUpper(st.Status), width, st.Name, st.Reason), " "))
 			for _, e := range st.Errors {
 				at := ""
 				if e.Line > 0 || e.File != "" {
@@ -323,6 +327,21 @@ func printExplainDependencies(w io.Writer, deps []app.ExplainDependency) {
 	}
 }
 
+// printExplainConfigurations lists each configuration with its inline values
+// and its effective values in each environment.
+func printExplainConfigurations(w io.Writer, configs []app.ExplainConfiguration) {
+	if len(configs) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\nConfigurations (%d):\n", len(configs))
+	for _, c := range configs {
+		_, _ = fmt.Fprintf(w, "  - %s\n", c.Summary())
+		for _, line := range c.ValueLines() {
+			_, _ = fmt.Fprintf(w, "      %s\n", line)
+		}
+	}
+}
+
 // printEnvironments lists each environment and its file, when there are any.
 func printEnvironments(w io.Writer, envs []contract.Environment) {
 	if len(envs) == 0 {
@@ -350,6 +369,9 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		if result.Summary != "" {
 			_, _ = fmt.Fprintf(w, "Summary: %s\n", result.Summary)
 		}
+		if result.Lifecycle != nil {
+			_, _ = fmt.Fprintf(w, "Lifecycle: %s\n", result.Lifecycle)
+		}
 		_, _ = fmt.Fprintf(w, "Pacto Version: %s\n", result.PactoVersion)
 
 		if result.Workload != "" {
@@ -376,6 +398,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 
 		printExplainInterfaces(w, result.Interfaces)
 		printExplainDependencies(w, result.Dependencies)
+		printExplainConfigurations(w, result.Configurations)
 
 		printEnvironments(w, result.Environments)
 

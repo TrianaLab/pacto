@@ -697,6 +697,7 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 	unsatisfied := map[string]bool{}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependencies only: range and resolution tallies are dependency semantics.
 		if rel.FromService != key || rel.Type != RelationshipDependency {
 			continue
 		}

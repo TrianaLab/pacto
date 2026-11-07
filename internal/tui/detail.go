@@ -100,6 +100,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 	case d.Service != nil:
 		field(&b, "domain", businessDomainText(d.Entity))
 		field(&b, "offering", d.Entity.Offering)
+		field(&b, "lifecycle", strings.TrimPrefix(lifecycleText(d.Service.Lifecycle), ", "))
 		renderServiceDetail(&b, d.Service)
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
@@ -180,6 +181,7 @@ func renderRevisionDetail(b *strings.Builder, r *fleet.RevisionDetailData) {
 	field(b, "service", r.Service.Label)
 	field(b, "version", r.Version)
 	field(b, "pacto version", r.PactoVersion)
+	field(b, "lifecycle", strings.TrimPrefix(lifecycleText(r.Lifecycle), ", "))
 	field(b, "valid", fmt.Sprintf("%t", r.Valid))
 	field(b, "workload", r.Workload)
 	if r.Ownership != nil {
@@ -319,11 +321,22 @@ func renderOfferingDetail(b *strings.Builder, o *fleet.OfferingDetailData) {
 		if p.Ownership != nil {
 			field(b, "  owner", p.Ownership.Owner)
 		}
-		versions := make([]string, 0, len(p.Revisions.Items))
-		for _, r := range p.Revisions.Items {
-			versions = append(versions, r.Label)
+		versions := make([]string, 0, len(p.Versions.Items))
+		for _, v := range p.Versions.Items {
+			label := v.Revision.Label
+			switch {
+			case v.SunsetReached:
+				label += " (sunset)"
+			case v.Lifecycle != nil:
+				label += " (deprecated)"
+			}
+			versions = append(versions, label)
+		}
+		if p.Versions.Truncated {
+			versions = append(versions, fmt.Sprintf("+%d more", p.Versions.Total-len(p.Versions.Items)))
 		}
 		field(b, "  versions", strings.Join(versions, ", "))
+		field(b, "  lifecycle", strings.TrimPrefix(lifecycleText(p.Lifecycle), ", "))
 		if p.Consume != nil {
 			field(b, "  consume", p.Consume.Ref)
 		}

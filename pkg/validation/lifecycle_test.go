@@ -47,6 +47,38 @@ func TestValidateInterfaceLifecycle(t *testing.T) {
 	}
 }
 
+func TestValidateServiceLifecycle(t *testing.T) {
+	cases := map[string]struct {
+		lc   *contract.InterfaceLifecycle
+		code string // "" = valid
+		path string
+	}{
+		"nil":                      {nil, "", ""},
+		"valid full":               {&contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2027-01-01", Successor: "oci://ghcr.io/acme/orders-v2"}, "", ""},
+		"oci successor with tag":   {&contract.InterfaceLifecycle{Deprecated: "2026-01-01", Successor: "oci://ghcr.io/acme/orders-v2:2.0.0"}, "", ""},
+		"bad deprecated":           {&contract.InterfaceLifecycle{Deprecated: "2026-1-1"}, "INVALID_SERVICE_LIFECYCLE", "service.lifecycle.deprecated"},
+		"sunset before deprecated": {&contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2025-12-31"}, "INVALID_SERVICE_LIFECYCLE", "service.lifecycle.sunset"},
+		"name successor":           {&contract.InterfaceLifecycle{Deprecated: "2026-01-01", Successor: "orders-v2"}, "SERVICE_SUCCESSOR_INVALID", "service.lifecycle.successor"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := validV20Contract()
+			c.Service.Lifecycle = tc.lc
+			var result ValidationResult
+			validateServiceLifecycle(c, &result)
+			if tc.code == "" {
+				if !result.IsValid() {
+					t.Fatalf("want valid, got %+v", result.Errors)
+				}
+				return
+			}
+			if len(result.Errors) != 1 || result.Errors[0].Code != tc.code || result.Errors[0].Path != tc.path {
+				t.Fatalf("want one %s at %s, got %+v", tc.code, tc.path, result.Errors)
+			}
+		})
+	}
+}
+
 // TestNeeds22Lifecycle: interfaces[].lifecycle is 2.2 only. Under 2.0 and 2.1
 // it reports NEEDS_PACTO_2_2 in place of the schema's generic error, the rest of
 // the interface is still checked and the caller's data is left alone.

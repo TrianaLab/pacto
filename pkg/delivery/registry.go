@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Registry is the read-only registry access delivery needs. *oci.Client
@@ -67,5 +68,18 @@ func ResolveRevision(ctx context.Context, reg Registry, repo, digest string) Rev
 		return r
 	}
 	r.Bundle = b
+	r.ConfigRefs, _ = validation.ResolveConfigRefs(bounded, b.Contract, b.FS, validation.ConfigRefOptions{Resolver: registryResolver{reg}})
 	return r
+}
+
+// registryResolver resolves a published contract's configuration refs from the
+// registry. A published contract cannot name a local directory, so it resolves
+// oci:// refs only.
+type registryResolver struct{ reg Registry }
+
+func (r registryResolver) ResolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
+	if !strings.HasPrefix(ref, "oci://") {
+		return nil, errors.New("a published contract resolves oci:// refs only")
+	}
+	return r.reg.Pull(ctx, contract.TrimOCIScheme(ref))
 }

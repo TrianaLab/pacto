@@ -594,3 +594,101 @@ func TestServiceRelationshipsNeighborhoodError(t *testing.T) {
 		t.Errorf("limitations preview = total %d count %d first %+v", got.Total, got.Count, got.Items[0])
 	}
 }
+
+func TestRevisionEdgesConfigRef(t *testing.T) {
+	q := configRefFleet(t)
+	d, err := q.EntityDetail(KindRevision, revKeyOf(t, q, "billing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := d.Revision.Dependencies.Items
+	if len(items) != 2 || items[0].Relation != RelationConfigurationReference || items[1].Relation != RelationDependency {
+		t.Fatalf("revision edges = %+v", items)
+	}
+	if e := items[0]; !strings.HasSuffix(e.ID, "|configuration_reference") || e.ObservationScope != "" || e.ServiceCorroboration != "" {
+		t.Errorf("configuration reference edge = %+v", e)
+	}
+	if e := items[1]; e.ObservationScope != ObservationScopeService {
+		t.Errorf("dependency edge lost its observation scope: %+v", e)
+	} // Impact reads a consumer's environment files through BundleFS.
+	if q.snap.Revisions[RevisionKey(revKeyOf(t, q, "billing"))].BundleFS() == nil || (&ContractRevision{}).BundleFS() != nil {
+		t.Error("BundleFS must return the bundle's files, and nil without a bundle")
+	}
+}
+
+func TestOfferingProviderLifecycle(t *testing.T) {
+	q := lifecycleFleet(t)
+	d, err := q.EntityDetail(KindOffering, "postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.Offering.Providers.Items[0]
+	cur := q.snap.Revisions[RevisionKey(p.CurrentRevision.Key)]
+	if p.Lifecycle == nil || *p.Lifecycle != *cur.Contract.Service.Lifecycle {
+		t.Errorf("provider lifecycle = %+v, current %s", p.Lifecycle, cur.Version)
+	}
+	// app has two revisions: the row keeps what the newest one reaches.
+	u := d.Offering.Consumers.Items[0]
+	if u.Consumer.Label != "app" || u.ProviderLifecycle == nil || *u.ProviderLifecycle != *newLifecycle() {
+		t.Errorf("consumer row = %+v", u)
+	}
+}
+
+func TestServiceDetailLifecycle(t *testing.T) {
+	q := lifecycleFleet(t)
+	d, err := q.EntityDetail(KindService, "pg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := d.Service.Lifecycle; l == nil || *l != *newLifecycle() {
+		t.Errorf("service lifecycle = %+v", l)
+	}
+	if d, _ := q.EntityDetail(KindService, "redis"); d.Service.Lifecycle != nil {
+		t.Errorf("redis declares no lifecycle, got %+v", d.Service.Lifecycle)
+	}
+	for k, r := range q.snap.Revisions {
+		if r.Service == "pg" && r.Version == "1.0.0" {
+			rd, err := q.EntityDetail(KindRevision, string(k))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if l := rd.Revision.Lifecycle; l == nil || *l != *oldLifecycle() {
+				t.Errorf("revision lifecycle = %+v", l)
+			}
+		}
+	}
+}
+
+// A hidden service consuming two providers of an offering counts once; an
+// observed caller and a hidden service that only references a provider's
+// policy never count.
+func TestOfferingHiddenConsumers(t *testing.T) {
+	both := svc25("both", "1.0.0", "")
+	both.Dependencies = []contract.Dependency{{Name: "pa", Required: true}, {Name: "pb", Required: true}}
+	pol := svc25("pol", "1.0.0", "")
+	pol.Policies = []contract.Policy{{Name: "guard", Ref: "oci://ghcr.io/acme/pa@" + testDigest("ghcr.io/acme", "pa", "1.0.0")}}
+	tgt := func(ns, name string) RawTarget {
+		return RawTarget{Scope: ns, Kind: SourceKindKubernetes, Name: name, Service: name, Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", name, "1.0.0")}
+	}
+	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{
+		Revisions: []RawRevision{
+			ociRev("ghcr.io/acme", svc25("pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", svc25("pb", "1.0.0", "db"), nil),
+			ociRev("ghcr.io/acme", both, nil), ociRev("ghcr.io/acme", pol, nil),
+		},
+		Targets:  []RawTarget{tgt("shop", "pa"), tgt("shop", "pb"), tgt("hush", "both"), tgt("hush", "pol")},
+		Observed: []ObservedEdge{{From: "k8s:hush/Deployment/x", To: "pa", Count: 1}, {From: "somecaller", To: "pa", Count: 1}},
+	})
+	if !slices.ContainsFunc(q.snap.Relationships, func(r Relationship) bool { return r.Type == RelationshipPolicyRef && r.Resolved }) {
+		t.Fatal("pol's policy reference does not resolve")
+	}
+	if n := offeringData(t, q, "db").HiddenConsumers; n != 0 {
+		t.Errorf("unrestricted hidden consumers = %d", n)
+	}
+	r := q.Restrict(func(ns string) bool { return ns == "shop" })
+	if n := offeringData(t, r, "db").HiddenConsumers; n != 1 {
+		t.Errorf("hidden consumers = %d, want 1", n)
+	}
+	if pa := r.snap.Services[NewServiceKeyDomain("ghcr.io/acme", "pa")]; pa.HiddenDependents < 3 {
+		t.Errorf("pa hidden dependents = %d, want the callers counted there", pa.HiddenDependents)
+	}
+}

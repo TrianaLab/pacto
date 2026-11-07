@@ -98,7 +98,7 @@ func TestWithSchemaContent(t *testing.T) {
 	shared := ConfigurationsPreview{Total: 2, Count: 2, Items: []ConfigurationSummary{{Name: "app", Schema: "cfg/schema.json"}, {Name: "vals"}}}
 	pols := PoliciesPreview{Total: 2, Count: 2, Items: []PolicySummary{{Name: "local", Schema: "policy/schema.json"}, {Name: "remote", Ref: "oci://x/p", Resolution: res}}}
 
-	cfgs, gotPols := withSchemaContent(rev, shared, pols)
+	cfgs, gotPols := withSchemaContent(&FleetSnapshot{}, rev, shared, pols)
 	if cfgs.Items[0].Content == nil || cfgs.Items[0].Content.Total != 2 || cfgs.Items[1].Content != nil {
 		t.Errorf("configurations = %+v", cfgs.Items)
 	}
@@ -217,5 +217,49 @@ func TestServiceDetailCatalogRevisionNoFS(t *testing.T) {
 	}
 	if c := d.Service.Policies.Items[0].Content; c == nil || !strings.Contains(c.Unavailable, "not retained") {
 		t.Errorf("policy content = %+v", c)
+	}
+}
+
+func TestConfigurationSummaryRefContent(t *testing.T) {
+	pg := "oci://r/pg@" + refDigest("pg")
+	a := "oci://r/a@" + refDigest("a")
+	content := func(t *testing.T, revs ...RawRevision) ConfigurationSummary {
+		t.Helper()
+		snap := refSnap(t, revs...)
+		d, err := NewQuery(snap).EntityDetail(KindRevision, string(revisionOf(t, snap, "orders").Key))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d.Revision.Configurations.Items[0]
+	}
+	selected := refBundle(t, "orders", fmt.Sprintf("ref: %q, configuration: db", pg), fstest.MapFS{})
+	if got := content(t, pgProvider(t), selected); got.Configuration != "db" || got.Content == nil || got.Content.Total != 1 || got.Content.Properties[0].Key != "size" {
+		t.Errorf("resolved = %+v", got)
+	}
+	if got := content(t, pgProvider(t), refOrders(t, "oci://r/pg:1.0.0", "small", "")); got.Content != nil {
+		t.Errorf("unresolved has content: %+v", got.Content)
+	}
+	chain := refBundle(t, "a", fmt.Sprintf("ref: %q", pg), fstest.MapFS{})
+	if got := content(t, pgProvider(t), chain, refOrders(t, a, "small", "")); got.Content == nil || got.Content.Total != 1 {
+		t.Errorf("chained = %+v", got)
+	}
+	none := map[string]RawRevision{
+		"selection fails": refBundle(t, "a", "schema: db.json", fstest.MapFS{"db.json": {Data: []byte(refSchemaJSON)}}),
+		"values only":     refBundle(t, "a", "values: {size: small}", fstest.MapFS{}),
+		"hop unresolved":  refBundle(t, "a", `ref: "oci://r/gone:1"`, fstest.MapFS{}),
+	}
+	for name, provider := range none {
+		orders := refOrders(t, a, "small", "")
+		if name == "selection fails" {
+			orders = refBundle(t, "orders", fmt.Sprintf("ref: %q, configuration: other", a), fstest.MapFS{})
+		}
+		if got := content(t, provider, orders); got.Resolution == nil || !got.Resolution.Resolved || got.Content != nil {
+			t.Errorf("%s = %+v", name, got)
+		}
+	}
+	cycleB := refBundle(t, "b", fmt.Sprintf("ref: %q", a), fstest.MapFS{})
+	cycleA := refBundle(t, "a", fmt.Sprintf("ref: %q", "oci://r/b@"+refDigest("b")), fstest.MapFS{})
+	if got := content(t, cycleA, cycleB, refOrders(t, a, "small", "")); got.Content != nil {
+		t.Errorf("cycle has content: %+v", got.Content)
 	}
 }

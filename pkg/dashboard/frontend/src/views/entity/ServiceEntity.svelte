@@ -18,6 +18,8 @@
   import DistributionBar from '../../components/viz/DistributionBar.svelte';
   import PolicyList from '../../components/PolicyList.svelte';
   import ConfigurationList from '../../components/ConfigurationList.svelte';
+  import LifecycleBadge from '../../components/LifecycleBadge.svelte';
+  import ProvisioningBadges from '../../components/ProvisioningBadges.svelte';
   import { readinessSegments, signatureSegments, signatureState, segmentTotal, READINESS_STATES } from '../../lib/distributions.ts';
   import { dropService, inService } from '../../lib/identityContext.ts';
   import { api } from '../../lib/api.ts';
@@ -175,6 +177,8 @@
               <a class="se-chip" href={fleetEntityUrl('offering', u.offering)}>{u.offering}</a>
               <span class="se-note">from {u.provider?.label ?? u.provider?.key}</span>
               {#if u.rangeStatus}<IdentityBadge label={u.rangeStatus} tone={RANGE_TONE[u.rangeStatus] ?? 'neutral'} title={u.compatibility ? `Accepts ${u.compatibility}` : ''} describe />{/if}
+              <LifecycleBadge lifecycle={u.providerLifecycle} detail={false} />
+              <ProvisioningBadges statuses={u.provisioning ?? []} />
             </li>
           {/each}
           {#if used.truncated}<li class="se-note">+{(used.total ?? 0) - (used.count ?? 0)} more</li>{/if}

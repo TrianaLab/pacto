@@ -191,15 +191,24 @@ wait "$DASH" 2>/dev/null || true
 DASH=""
 
 echo "== beat 13: validate names each stage and the next step =="
-if OUT="$("$BIN" $(beat_args 13) 2>&1)"; then
+# The provider the configuration ref names comes from a seeded cache, with every
+# connection refused, exactly as the transcript generator runs it.
+seed_demo_cache "$WORK/cache"
+if OUT="$(XDG_CACHE_HOME="$WORK/cache" HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 NO_PROXY= no_proxy= \
+  "$BIN" $(beat_args 13) 2>&1)"; then
   fail "validate should exit non-zero on a failing environment"
 else
   pass "validate exits non-zero"
 fi
+assert_contains "$OUT" "PASS configuration-refs" "the configuration ref resolves and its stage passes"
 assert_contains "$OUT" "FAIL environments" "the environments stage fails on its own line"
-assert_contains "$OUT" "storefront-web/v1.2.0/environments/production.yaml:5:3: ERROR [ENVIRONMENT_VALUES_INVALID]" "the error points at the line in the values file"
-assert_contains "$OUT" "[ENVIRONMENT_VALUES_UNVERIFIED] environments[2].file: environment preview" "values for a ref-only configuration are not verified"
-assert_contains "$OUT" "Next: fix environments[1].file" "Next names what to fix first"
+assert_contains "$OUT" "storefront-web/v1.2.1/environments/production.yaml:5:3: ERROR [ENVIRONMENT_VALUES_INVALID]" "the error points at the line in the values file"
+if grep -Fq "ENVIRONMENT_VALUES_UNVERIFIED" <<<"$OUT"; then
+  echo "--- output ---"; echo "$OUT"; fail "preview's values for the ref configuration are checked against the provider schema"
+else
+  pass "preview's values for the ref configuration are checked against the provider schema"
+fi
+assert_contains "$OUT" "Next: fix environments[1].file at examples/demo/bundles/storefront-web/v1.2.1/environments/production.yaml:5:3 [ENVIRONMENT_VALUES_INVALID]" "Next names what to fix first"
 
 echo "== beat 14: an enum value behind a \$ref, and a raised compatibility epoch =="
 rc=0; OUT="$("$BIN" $(beat_args 14) 2>&1)" || rc=$?

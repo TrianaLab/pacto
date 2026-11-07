@@ -16,13 +16,14 @@ Declares the named configuration **inputs** the service reads at runtime. Platfo
 | `required` | boolean | Yes | Whether the configuration is mandatory. `true` = its confirmed absence at runtime is a violation; `false` = optional. Has no default, so every entry must set it |
 | `schema` | string | Conditional | Non-empty. Must reference a file in the bundle. Required if `ref` is not set |
 | `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract. Required if `schema` is not set |
-| `values` | object | No | Must conform to the schema defined in `schema` |
+| `configuration` | string | No | Non-empty, only with `ref`. Names the configuration of the referenced contract this entry takes values for. pactoVersion 2.6. See [Selecting a configuration](#selecting-a-configuration) |
+| `values` | object | No | Must conform to the schema: the local `schema`, or the selected configuration schema of the `ref`. Beside a `ref`, pactoVersion 2.6 |
 
-With `schema`, the configuration schema is a local file, and validation checks that it exists in the bundle and parses. With `ref`, the entry points at another Pacto contract. Pacto checks that the reference is a well-formed OCI or local reference, records it as a reference edge in the graph and pins it by digest in [`pacto.lock`](../lockfile.md). A `ref` records which contract owns the schema. Pacto leaves the schema in the referenced bundle and validates nothing against it. **`schema` and `ref` are mutually exclusive**: when `ref` is set, `schema` and `values` must be absent.
+With `schema`, the configuration schema is a local file, and validation checks that it exists in the bundle and parses. With `ref`, the entry points at another Pacto contract that owns the schema. Pacto fetches that contract, checks the values against the schema of the configuration it selects, records the reference as an edge in the graph and pins it by digest in [`pacto.lock`](../lockfile.md); see [External configuration schema reference](#external-configuration-schema-reference). **`schema` and `ref` are mutually exclusive**, and `configuration` needs a `ref`.
 
 Required configuration keys are derived from the JSON Schema's `required` array.
 
-The optional `values` field provides default configuration values validated against the local `schema`. A `ref:` entry carries no `values`. To attach values, vendor a local `schema:`. Values document expected defaults or provide environment-specific overrides through the `--set` and `--values` flags (see [Contract overrides](overrides.md#contract-overrides)). To check the values each environment uses against the schema, list them in [`environments`](environments.md).
+The optional `values` field provides default configuration values validated against the schema. Beside a `ref`, `values` need pactoVersion 2.6 (`NEEDS_PACTO_2_6` otherwise). Values document expected defaults or provide environment-specific overrides through the `--set` and `--values` flags (see [Contract overrides](overrides.md#contract-overrides)). To check the values each environment uses against the schema, list them in [`environments`](environments.md).
 
 !!! tip
     `pacto push` packages every file the contract references, the configuration schema included, into a self-contained OCI artifact.
@@ -40,8 +41,57 @@ configurations:
 
 A platform team publishes one configuration contract and every service references it. [`pacto lock`](../lockfile.md) follows the chain with cycle detection, so a referenced contract that has its own `configurations[].ref` is resolved and pinned to the end of the closure.
 
+In 2.6, `values` beside the `ref` are the defaults, each
+[environment](environments.md) file merges on top and Pacto checks the result
+against the referenced schema:
+
+```yaml
+pactoVersion: "2.6"
+configurations:
+  - name: database
+    ref: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+    configuration: provisioning
+    required: true
+    values:
+      size: medium
+      storageGi: 50
+```
+
+In a `"2.0"` to `"2.5"` contract, environment values for a `ref` are checked
+too. Only 2.6 reports `ENVIRONMENT_VALUES_MISSING` for a required `ref`
+configuration an environment leaves out, because only 2.6 can give defaults.
+
+#### Selecting a configuration
+
+The referenced contract may declare several configurations. Pacto picks one:
+
+| The entry | The referenced contract | Result |
+|---|---|---|
+| Sets `configuration` | Declares that configuration | That configuration |
+| Sets `configuration` | Declares no such configuration | `CONFIG_REF_UNKNOWN_CONFIGURATION`, with a suggestion |
+| Omits `configuration` | Declares exactly one | That configuration |
+| Omits `configuration` | Declares none | `CONFIG_REF_UNKNOWN_CONFIGURATION` |
+| Omits `configuration` | Declares more than one | `CONFIG_REF_AMBIGUOUS` |
+
+Both codes are errors in 2.6 and warnings in older contracts, which can carry
+no selector. A selected configuration that is itself a `ref` is followed up to
+eight refs deep, and a cycle reports `CONFIG_REF_CYCLE`.
+
+#### Resolution and versions
+
+A configuration reference has no `compatibility`: it pins the exact schema its
+values were checked against, by digest, tag or `pacto.lock`. Choose the
+provider's version on a `dependencies[]` entry for the same repository. When
+that dependency's range excludes the version the reference resolves,
+validation reports `CONFIG_REF_VERSION_OUTSIDE_RANGE`.
+
+A reference that cannot be fetched fails `pacto validate` and `pacto push`
+when a check depends on it, like a policy reference. The [configuration-refs
+stage](validation.md#configuration-references-stage) lists every code and
+caller.
+
 !!! tip
-    Configuration references create **reference edges** in the dependency graph, separate from `dependencies[].ref` edges. `pacto graph --with-references` shows them alongside dependencies, `--only-references` shows them alone and the dashboard graph draws them dashed. The graph records these edges and traverses only `dependencies[].ref`, so a service coupled to another only through a shared configuration schema shows no dependents. [`pacto.lock`](../lockfile.md) resolves and pins the transitive reference closure.
+    Configuration references create **reference edges** in the dependency graph, separate from `dependencies[].ref` edges. `pacto graph --with-references` shows them alongside dependencies, `--only-references` shows them alone and the dashboard graph draws them dashed. `pacto graph` traverses only `dependencies[].ref`. The [operational graph](../operational-graph-reference.md#configuration-reference-consumers) counts a resolved configuration reference as a consumer, so traversal, dependents and `pacto impact` include services coupled only through a referenced schema. [`pacto.lock`](../lockfile.md) resolves and pins the transitive reference closure.
 
 !!! warning
     `pacto push` rejects local configuration references (`file://` and bare paths). Use them for development and switch every ref to `oci://` before you publish.
@@ -85,7 +135,7 @@ describes something different:
 | Artifact | Describes |
 |----------|-----------|
 | Service runtime configuration | keys the running service reads (for example a ConfigMap it mounts) |
-| Platform provisioning API | inputs to a provisioning claim |
+| Platform provisioning API | inputs a platform's provisioning tool reads |
 | Helm deployment values | inputs to `helm install`/`upgrade` |
 | Kubernetes ConfigMap/Secret content | the runtime configuration object itself |
 
@@ -99,7 +149,8 @@ explains whether the service or the platform owns that schema.
 The Kubernetes integration binds a `configurations[]` scope to a runtime object
 only when the Pacto CR sets `spec.target.configBindings`. When it does, it
 validates the **decoded content of the bound ConfigMap key** against the
-declared schema. It validates the whole decoded JSON or YAML value at that key.
+declared schema, or against the referenced schema for a configuration that
+takes its schema by `ref`. It validates the whole decoded JSON or YAML value at that key.
 For a `Secret` it verifies only that the object exists and never reads Secret
 values. A `required`
 scope whose bound object or key is confirmed absent is a violation

@@ -88,8 +88,10 @@
     ].filter(Boolean), 'and');
   });
 
-  // The environments stage of a revision that declares none has nothing to say.
-  const stages = $derived((d.stages ?? []).filter((st) => st.name !== 'environments' || (d.environments?.total ?? 0) > 0));
+  // The environments stage of a revision that declares none has nothing to say, nor has
+  // the configuration-refs stage of one that references no configuration.
+  const stages = $derived((d.stages ?? []).filter((st) => (st.name !== 'environments' || (d.environments?.total ?? 0) > 0)
+    && !(st.name === 'configuration-refs' && st.status === 'skip' && st.reason === 'no configuration references')));
 
   // The environments check: a failure or a value set Pacto could not check stays open;
   // a clean run is inspection detail.

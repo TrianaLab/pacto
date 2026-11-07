@@ -178,6 +178,15 @@ func renderExplain(r *app.ExplainResult) string {
 func renderExplainSurface(b *strings.Builder, r *app.ExplainResult) {
 	renderExplainInterfaces(b, r.Interfaces)
 	renderExplainDependencies(b, r.Dependencies)
+	if len(r.Configurations) > 0 {
+		section(b, fmt.Sprintf("Configurations (%d)", len(r.Configurations)))
+		for _, c := range r.Configurations {
+			fmt.Fprintf(b, "  %s\n", safeText(c.Summary()))
+			for _, line := range c.ValueLines() {
+				fmt.Fprintf(b, "      %s\n", safeText(line))
+			}
+		}
+	}
 	if len(r.Environments) > 0 {
 		section(b, fmt.Sprintf("Environments (%d)", len(r.Environments)))
 		for _, env := range r.Environments {

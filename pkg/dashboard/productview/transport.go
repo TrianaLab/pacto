@@ -391,14 +391,15 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 // replaced by the resolution.
 type ProductRefResolution struct {
 	fleet.RefResolution
-	Service *ProductRef `json:"service,omitempty"`
+	Service  *ProductRef `json:"service,omitempty"`
+	Revision *ProductRef `json:"revision,omitempty"`
 }
 
 func productRefResolution(r *fleet.RefResolution) *ProductRefResolution {
 	if r == nil {
 		return nil
 	}
-	return &ProductRefResolution{RefResolution: *r, Service: RefPtr(r.Service)}
+	return &ProductRefResolution{RefResolution: *r, Service: RefPtr(r.Service), Revision: RefPtr(r.Revision)}
 }
 
 // ProductConfigurationSummary is a declared configuration scope whose ref, when
@@ -532,8 +533,16 @@ func toProductDomainDetail(d *fleet.DomainDetailData) *ProductDomainDetail {
 // both navigable.
 type ProductOfferingUse struct {
 	fleet.OfferingUse
-	Consumer ProductRef `json:"consumer"`
-	Provider ProductRef `json:"provider"`
+	Consumer     ProductRef                  `json:"consumer"`
+	Provider     ProductRef                  `json:"provider"`
+	Provisioning []ProductProvisioningStatus `json:"provisioning,omitempty"`
+}
+
+// ProductProvisioningStatus is a provisioning status whose consumer revision is
+// navigable.
+type ProductProvisioningStatus struct {
+	fleet.ProvisioningStatus
+	Revision *ProductRef `json:"revision,omitempty"`
 }
 
 // ProductOfferingUsesPreview is a bounded preview of offering uses.
@@ -546,6 +555,9 @@ func productOfferingUses(p fleet.OfferingUsesPreview) ProductOfferingUsesPreview
 	items := make([]ProductOfferingUse, len(p.Items))
 	for i, u := range p.Items {
 		items[i] = ProductOfferingUse{OfferingUse: u, Consumer: Ref(u.Consumer), Provider: Ref(u.Provider)}
+		for _, st := range u.Provisioning {
+			items[i].Provisioning = append(items[i].Provisioning, ProductProvisioningStatus{ProvisioningStatus: st, Revision: RefPtr(st.Revision)})
+		}
 	}
 	return ProductOfferingUsesPreview{OfferingUsesPreview: p, Items: items}
 }
@@ -571,10 +583,56 @@ type ProductOfferingProvider struct {
 	Service         ProductRef                   `json:"service"`
 	Ownership       *ProductOwnership            `json:"ownership,omitempty"`
 	CurrentRevision *ProductRef                  `json:"currentRevision,omitempty"`
-	Revisions       ProductRefPreview            `json:"revisions"`
-	ActiveRevisions ProductRefPreview            `json:"activeRevisions"`
+	Versions        ProductProviderVersions      `json:"versions"`
 	Policies        ProductPoliciesPreview       `json:"policies"`
 	Configurations  ProductConfigurationsPreview `json:"configurations"`
+}
+
+// ProductProviderVersion is one navigable version of an offering provider.
+type ProductProviderVersion struct {
+	fleet.ProviderVersion
+	Revision ProductRef `json:"revision"`
+}
+
+// ProductProviderVersions is a navigable preview of an offering provider's
+// versions.
+type ProductProviderVersions struct {
+	fleet.ProviderVersionsPreview
+	Items            []ProductProviderVersion `json:"items"`
+	LatestCompatible *ProductRef              `json:"latestCompatible,omitempty"`
+}
+
+func productProviderVersions(p fleet.ProviderVersionsPreview) ProductProviderVersions {
+	items := make([]ProductProviderVersion, len(p.Items))
+	for i, v := range p.Items {
+		items[i] = ProductProviderVersion{ProviderVersion: v, Revision: Ref(v.Revision)}
+	}
+	return ProductProviderVersions{ProviderVersionsPreview: p, Items: items, LatestCompatible: RefPtr(p.LatestCompatible)}
+}
+
+// ProductOfferingProviderVersions is one navigable provider's versions.
+type ProductOfferingProviderVersions struct {
+	fleet.OfferingProviderVersions
+	Provider ProductRef              `json:"provider"`
+	Versions ProductProviderVersions `json:"versions"`
+}
+
+// ProductOfferingVersions is the navigable answer to which versions each
+// provider of an offering has and which satisfy a range.
+type ProductOfferingVersions struct {
+	fleet.OfferingVersionsResult
+	Offering  ProductRef                        `json:"offering"`
+	Providers []ProductOfferingProviderVersions `json:"providers"`
+}
+
+// ToOfferingVersions adds an href to the offering, every provider and every
+// version.
+func ToOfferingVersions(r *fleet.OfferingVersionsResult) *ProductOfferingVersions {
+	out := &ProductOfferingVersions{OfferingVersionsResult: *r, Offering: Ref(r.Offering), Providers: make([]ProductOfferingProviderVersions, len(r.Providers))}
+	for i, p := range r.Providers {
+		out.Providers[i] = ProductOfferingProviderVersions{OfferingProviderVersions: p, Provider: Ref(p.Provider), Versions: productProviderVersions(p.Versions)}
+	}
+	return out
 }
 
 // ProductOfferingProvidersPreview is a bounded preview of offering providers.
@@ -598,8 +656,7 @@ func toProductOfferingDetail(d *fleet.OfferingDetailData) *ProductOfferingDetail
 			Service:          Ref(p.Service),
 			Ownership:        productOwnership(p.Ownership),
 			CurrentRevision:  RefPtr(p.CurrentRevision),
-			Revisions:        RefPreview(p.Revisions),
-			ActiveRevisions:  RefPreview(p.ActiveRevisions),
+			Versions:         productProviderVersions(p.Versions),
 			Policies:         productPoliciesPreview(p.Policies),
 			Configurations:   productConfigurationsPreview(p.Configurations),
 		}

@@ -50,6 +50,15 @@ func TestConfigValidate(t *testing.T) {
 	noTrust := validEnabledConfig()
 	noTrust.TrustSecret = ""
 
+	trustConfig := validEnabledConfig()
+	trustConfig.TrustConfigKey = "trust.yaml"
+
+	pubAsConfig := validEnabledConfig()
+	pubAsConfig.TrustConfigKey = "adapter.pub"
+
+	nestedConfig := validEnabledConfig()
+	nestedConfig.TrustConfigKey = "../trust.yaml"
+
 	tests := []struct {
 		name    string
 		cfg     Config
@@ -68,6 +77,11 @@ func TestConfigValidate(t *testing.T) {
 		{"enabled with bad resource quantity fails", badResources, true, "invalid evidence memory-request quantity"},
 		{"enabled with a subject valid", validEnabledConfig(), false, ""},
 		{"enabled with registry credentials valid", withCredentials, false, ""},
+		{"enabled with a structured trust config key valid", trustConfig, false, ""},
+		// The server reads a structured config by its extension, so any other key
+		// would silently fall back to bare-key mode.
+		{"a trust config key without a yaml extension fails", pubAsConfig, true, "ending in .yaml or .yml"},
+		{"a trust config key outside the Secret fails", nestedConfig, true, "plain Secret key"},
 	}
 
 	for _, tt := range tests {

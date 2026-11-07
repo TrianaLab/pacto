@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -102,7 +103,8 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// The cluster collector reports what is running; the registry above reports what
 	// was declared. Keeping them apart is what lets a target say which source saw it.
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
-		Targets: demoTargets(src),
+		Targets:      demoTargets(src),
+		Provisioning: demoProvisioning(src),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
 	// targets it can see (agreeing on every identity-bearing field, so they merge
@@ -279,6 +281,23 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "pricing-service"})},
 		{Scope: "staging", Kind: "Deployment", Name: "search-indexer", Service: "search-indexer", Compliance: fleet.StatusUnknown,
 			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "search-indexer"}},
+	}
+}
+
+// demoProvisioning is what a platform adapter reports about the resources two
+// consumers asked for, the same two reports examples/demo/fleet-targets.yaml
+// carries: catalog-service 1.3.0's database is Ready in production, and the
+// adapter could not observe orders-service's postgresql, so that use reads
+// Unknown. Neither is signed, and the dashboard says so. They are dated off the
+// demo clock, so they stay current; the file's fixed date reads stale instead.
+func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
+	at := demoNow().Add(-30 * time.Minute)
+	return []fleet.RawProvisioning{
+		{Service: "catalog-service", Digest: demoDigest(src, "catalog-service", "1.3.0"), Kind: "configuration", Name: "database",
+			Environment: "production", Provider: "platform-db", ExternalRef: "databases/catalog-production", Phase: string(evidence.PhaseReady),
+			Outcome: string(evidence.Observed), Producer: "platform-adapter", ObservedAt: at},
+		{Service: "orders-service", Digest: demoDigest(src, "orders-service", "1.2.1"), Kind: "dependency", Name: "postgresql",
+			Outcome: string(evidence.Insufficient), Producer: "platform-adapter", ObservedAt: at},
 	}
 }
 

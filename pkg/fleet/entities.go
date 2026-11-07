@@ -53,6 +53,9 @@ type EntityFilter struct {
 	// Offering keeps the SERVICES that provide this platform offering, and the
 	// offering reference of that name.
 	Offering string
+	// Consumes keeps the SERVICES with a declared, resolved use of a provider of
+	// this platform offering: a dependency or a configuration or policy reference.
+	Consumes string
 	// Environment is the exact environment a target runs in (TargetRecord.Environment).
 	Environment string
 	// Capability keeps the SERVICES any of whose read revisions declares a
@@ -128,10 +131,11 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	}
 	want := kindSet(f.Kinds)
 	refs := q.candidateRefs(want)
+	consumers := q.offeringConsumers(f.Consumes)
 
 	filtered := refs[:0:0]
 	for _, r := range refs {
-		if q.entityMatches(r, f) {
+		if q.entityMatches(r, f) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
 			filtered = append(filtered, r)
 		}
 	}
@@ -216,6 +220,7 @@ func validateEntityFilter(f EntityFilter) error {
 		{"sourceHealth", f.SourceHealth, "not a source-health value (available, partial, stale, unavailable)", validSourceHealth},
 		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned)", validOwnershipFilter},
 		{"readiness", f.Readiness, "not a readiness state (passing, below-threshold, expired, not-declared)", validReadinessFilter},
+		{"consumes", f.Consumes, "not an offering slug", validBusinessDomain},
 	}); err != nil {
 		return err
 	}
@@ -271,6 +276,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain}},
 		{"offering", f.Offering, []EntityKind{KindService, KindOffering}},
+		{"consumes", f.Consumes, []EntityKind{KindService}},
 		{"service", f.Service, []EntityKind{KindService, KindRevision, KindTarget}},
 		// Ownership is declared per revision but classified per SERVICE (the whole
 		// question is whether a service's revisions agree), and readiness is declared
@@ -368,8 +374,11 @@ func (q *Query) offeringListRefs() []EntityRef {
 		}
 		ref := by[s.Offering]
 		if ref == nil {
-			ref = new(offeringEntityRef(s.Offering))
+			ref = new(offeringEntityRef(s.Offering, ProvenanceObserved))
 			by[s.Offering] = ref
+		}
+		if s.OfferingProvenance == ProvenanceDeclared {
+			ref.OfferingProvenance = ProvenanceDeclared
 		}
 		ref.Services++
 		ref.Targets += len(s.Targets)
@@ -461,6 +470,22 @@ func (q *Query) matchOrganization(r EntityRef, f EntityFilter) bool {
 	return (f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain)) &&
 		(f.Offering == "" || (r.Kind == KindService || r.Kind == KindOffering) && r.Offering == f.Offering) &&
 		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
+}
+
+// offeringConsumers is the services with a declared use of a provider of the
+// platform offering (see offeringRelationship), nil when offering is empty.
+func (q *Query) offeringConsumers(offering string) map[ServiceKey]bool {
+	if offering == "" {
+		return nil
+	}
+	out := map[ServiceKey]bool{}
+	for i := range q.snap.Relationships {
+		rel := &q.snap.Relationships[i]
+		if p := q.snap.Services[rel.ToService]; offeringRelationship(rel, "") && p != nil && p.Offering == offering {
+			out[rel.FromService] = true
+		}
+	}
+	return out
 }
 
 // serviceCapabilities is the sorted, distinct self-declared assertion identities

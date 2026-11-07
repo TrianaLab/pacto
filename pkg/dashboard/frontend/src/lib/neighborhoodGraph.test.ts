@@ -53,6 +53,15 @@ describe('neighborhoodToGraph', () => {
     expect(types).toEqual(['domain-a/api:dependency', 'domain-a/web@sha256:1:runs']);
   });
 
+  it('maps a configuration reference to the dashed reference edge type', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nb: any = { nodes: [{ ref: ref('service', 'a') }, { ref: ref('service', 'b') }],
+      edges: [{ from: ref('service', 'a'), to: ref('service', 'b'), relation: 'configuration_reference' }] };
+    const gd = neighborhoodToGraph(nb);
+    expect(gd.nodes[0].edges).toEqual([expect.objectContaining({ targetId: 'b', type: 'reference' })]);
+    expect(cyEdgeId('a', 'b', 'configuration_reference')).toBe('a→b:reference');
+  });
+
   it('drops an edge to a node the backend did not return (never invents a node/edge)', () => {
     const gd = neighborhoodToGraph(mixed);
     const api = gd.nodes.find((n) => n.id === 'domain-a/api')!;

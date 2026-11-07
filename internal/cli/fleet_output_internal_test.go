@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -107,5 +108,55 @@ func TestPrintFleetStatus_HeaderReportsTotal(t *testing.T) {
 	}
 	if !strings.HasPrefix(out.String(), "1 of 5 attention item(s):\n") {
 		t.Errorf("status header:\n%s", out.String())
+	}
+}
+
+// TestOfferingTextEdges covers what the CLI fixtures cannot reach cheaply: a
+// latest compatible version past the preview, truncated previews, a running
+// version, a full lifecycle and hidden consumers.
+func TestOfferingTextEdges(t *testing.T) {
+	inUse := true
+	rev := func(k string) fleet.EntityRef {
+		return fleet.EntityRef{Kind: fleet.KindRevision, Key: k, Label: "pg " + k}
+	}
+	old := rev("old")
+	versions := fleet.ProviderVersionsPreview{
+		Total: 3, Count: 1, Truncated: true, Range: "^1", LatestCompatible: &old,
+		Items: []fleet.ProviderVersion{{Revision: rev("new"), Version: "2.0.0", InUse: &inUse, RangeStatus: fleet.RangeUnsatisfied,
+			Lifecycle: &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2027-01-01", Successor: "https://x"}}},
+	}
+	if got := latestCompatible(versions); got != "pg old" {
+		t.Errorf("latest compatible past the preview = %q", got)
+	}
+	if got := latestCompatible(fleet.ProviderVersionsPreview{}); got != "none" {
+		t.Errorf("no latest compatible = %q", got)
+	}
+	if got := versionNotes(versions.Items[0]); got != " [in use, deprecated since 2026-01-01, sunset 2027-01-01, successor https://x, unsatisfied]" {
+		t.Errorf("version notes = %q", got)
+	}
+
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	res := &fleet.OfferingVersionsResult{Total: 30, Truncated: true, Providers: []fleet.OfferingProviderVersions{{Provider: fleet.EntityRef{Label: "pg"}, Versions: versions}}}
+	if err := printFleetVersions(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"pg: latest compatible pg old\n", "  2 more\n", "1 of 30 providers shown\n"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("versions text lacks %q:\n%s", want, buf.String())
+		}
+	}
+
+	buf.Reset()
+	printOfferingText(&buf, &fleet.OfferingDetailData{
+		Providers:       fleet.OfferingProvidersPreview{Items: []fleet.OfferingProvider{{Service: fleet.EntityRef{Label: "pg"}, Lifecycle: versions.Items[0].Lifecycle}}},
+		Consumers:       fleet.OfferingUsesPreview{Total: 2, Count: 1, Truncated: true, Items: []fleet.OfferingUse{{Consumer: fleet.EntityRef{Label: "app"}, Provider: fleet.EntityRef{Label: "pg"}, Offering: "pg", Via: "dependency", ProviderLifecycle: versions.Items[0].Lifecycle}}},
+		HiddenConsumers: 3,
+	})
+	for _, want := range []string{"    lifecycle: deprecated since 2026-01-01", "    versions: -\n", "via dependency, provider deprecated since", "  1 more\n", "3 consumers you may not see\n"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("offering text lacks %q:\n%s", want, buf.String())
+		}
 	}
 }

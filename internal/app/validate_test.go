@@ -403,3 +403,51 @@ func TestValidationReport(t *testing.T) {
 		t.Errorf("want an invalid verdict and no error, got %+v, %v", r, err)
 	}
 }
+
+// writeConfigRefPair writes a postgresql provider under root/pg with an enum
+// configuration schema, and a 2.6 consumer under root/orders that references
+// it with the given values line, and returns the consumer's directory.
+func writeConfigRefPair(t *testing.T, ref, values string) string {
+	t.Helper()
+	root := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("pg/pacto.yaml", "pactoVersion: \"2.6\"\nservice: {name: postgresql, version: 16.1.0}\nconfigurations:\n  - {name: provisioning, schema: provisioning.json, required: false}\n")
+	write("pg/provisioning.json", `{"type":"object","properties":{"size":{"enum":["small","large"]}},"required":["size"]}`)
+	write("orders/pacto.yaml", "pactoVersion: \"2.6\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - name: db\n    ref: "+ref+"\n    required: true\n    values: "+values+"\n")
+	return filepath.Join(root, "orders")
+}
+
+func TestValidate_ConfigRefValues(t *testing.T) {
+	svc := NewService(&mockBundleStore{}, nil)
+	r, err := svc.Validate(context.Background(), ValidateOptions{Path: writeConfigRefPair(t, "../pg", "{size: huge}")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Valid || r.Errors[0].Code != "CONFIG_VALUES_VALIDATION_FAILED" || r.Errors[0].Path != "configurations[0].values" ||
+		r.Stages[5].Name != "configuration-refs" || r.Stages[5].Status != validation.StageFail || !strings.Contains(r.Next, "configurations[0].values") {
+		t.Fatalf("invalid: %+v", r)
+	}
+	r, err = svc.Validate(context.Background(), ValidateOptions{Path: writeConfigRefPair(t, "../pg", "{size: small}")})
+	if err != nil || !r.Valid || r.Stages[5].Status != validation.StagePass {
+		t.Fatalf("valid: %+v %v", r, err)
+	}
+}
+
+// With no bundle store nothing can fetch the ref, and validate fails closed.
+func TestValidate_ConfigRefUnresolvable(t *testing.T) {
+	r, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: writeConfigRefPair(t, "oci://ghcr.io/acme/pg:16.1.0", "{size: small}")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Valid || r.Errors[0].Code != "CONFIG_REF_UNRESOLVED" || r.Errors[0].Path != "configurations[0].ref" {
+		t.Fatalf("got %+v", r)
+	}
+}

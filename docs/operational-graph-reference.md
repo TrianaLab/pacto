@@ -66,8 +66,10 @@ limitation per source.
 ### What a target-state fixture looks like
 
 `--target-state` is the only source you author yourself: a single YAML or JSON
-document with `schemaVersion: pacto.dev/fleet-targets/v1`. Pacto rejects a second
-`---` document, an unknown field or any other `schemaVersion`.
+document with `schemaVersion: pacto.dev/fleet-targets/v1`, or
+`pacto.dev/fleet-targets/v2` when it also carries `provisioning` reports. Pacto
+rejects a second `---` document, an unknown field, `provisioning` in a v1 file
+or any other `schemaVersion`.
 
 ```yaml
 schemaVersion: pacto.dev/fleet-targets/v1
@@ -117,6 +119,28 @@ drops the whole source with `SOURCE_UNAVAILABLE` and marks the snapshot
     suspect the file: check `schemaVersion` first, then field spelling and the
     closed sets above.
 
+A v2 file adds `provisioning`, one entry per report about a resource a
+consumer revision asked for:
+
+```yaml
+schemaVersion: pacto.dev/fleet-targets/v2
+provisioning:
+  - service: catalog-service       # required: the consumer
+    digest: sha256:6f9cf17b75d1407289141c3949d179bada41775a431a1e75cacbb8c4af93234e  # required
+    kind: configuration            # required: configuration or dependency
+    name: database                 # required: the consumer's entry
+    environment: production
+    provider: platform-db          # a lowercase slug
+    externalRef: databases/catalog-production
+    phase: Ready                   # Requested, Provisioning, Ready, Failed or Deleting
+    outcome: Observed              # the default; any other outcome carries no phase
+    producer: platform-adapter
+    observedAt: 2026-11-06T09:00:00Z
+```
+
+The file is unsigned, so every surface shows its reports as unverified. See
+[Provisioning status](platform-offerings.md#provisioning-status) for how reports join the graph.
+
 [`examples/demo/fleet-targets.yaml`](https://github.com/TrianaLab/pacto/blob/main/examples/demo/fleet-targets.yaml)
 is the complete fixture the live demo runs on.
 
@@ -129,7 +153,7 @@ I/O. A single snapshot serves concurrent queries.
 |-------|---------|
 | **search** | Which logical services match this filter (owner, label, status, compliance, capability, dependency, readiness). Bounded and deterministically ordered. |
 | **get** | Everything about one service (its owner, revisions, targets, declared dependencies, dependents, tools and skills) or one target. |
-| **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. The CLI and MCP graph also follow observed-only edges, and each node's `provenance` (`declared`, `observed` or `declared+observed`) says how the edge that first reached it was known. Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. |
+| **graph** | Traverse dependencies or dependents from a service, direct or transitive, cycle-safe, with unresolved edges surfaced. Resolved [configuration references](#configuration-reference-consumers) count as dependencies. The CLI and MCP graph also follow observed-only edges, and each node's `provenance` (`declared`, `observed` or `declared+observed`) says how the edge that first reached it was known. Rooted at a revision or target, a dependencies traversal takes its first step over that revision's declared edges only; deeper steps are service-level and include observed edges. |
 | **status** | What needs attention, in the [attention categories](#attention-categories). With no category selected it reports every category. `total` counts every match and `truncated` says the limit cut the list. |
 | **explain** | Deterministic, structured reasons for a subject's state. An agent can turn them into prose; Pacto itself embeds no model. |
 
@@ -193,6 +217,25 @@ separate from a failing one.
 missing subject is a *failure*. `pacto fleet get ghost` exits 1
 with `service "ghost" not found in the fleet snapshot` on stderr. These answers have no `meta` and so no `completeness`. Read `completeness` from
 `search` before you treat a subject miss as an absence.
+
+### Configuration-reference consumers
+
+A service that takes a configuration schema from another contract by `ref`
+consumes that contract. Once the reference resolves to a revision in the
+snapshot, by digest or through the consumer's `pacto.lock`, the edge counts
+like a declared dependency: graph traversal, `dependents`, the neighborhood
+and hidden counts include it, and [impact](impact.md#configuration-reference-consumers)
+judges the consumer. A neighborhood edge carries the relation
+`configuration_reference` and no declared-against-observed comparison, because
+a reference never produces runtime calls. Policy references stay out: a policy
+checks the consumer's own contract.
+
+The fleet validates configuration references against the revisions it holds.
+A reference it cannot place reads `CONFIG_REF_UNVERIFIED`, so a missing
+provider never makes a revision invalid and never passes its values. A
+relationship carries the provider's
+[service lifecycle](contract-reference/sections.md#service-lifecycle) as
+`providerLifecycle`.
 
 ### Attention categories
 
@@ -302,48 +345,7 @@ value: `domain` in the API and Registry on the dashboard.
 
 ## Platform offerings
 
-A service's platform offering and summary are the
-[`service.offering`](contract-reference/sections.md#platform-offering) and
-[`service.summary`](contract-reference/sections.md#summary) of its newest valid
-revision, by the rule business domains use. When no revision declares an
-offering, the service takes the one the operator read from the contract each
-target runs (`status.contract.offering` and `status.contract.summary`). When
-those operators report different offerings, the service has none and the graph
-raises an `OFFERING_CONFLICT` limitation. Different summaries leave the summary
-empty and raise no limitation.
-
-Each distinct offering is an `offering` entity. The `offering` filter keeps the
-services that provide it. Offerings are returned only to a query that asks for
-the `offering` kind.
-
-An offering's detail lists its providers and its consumers:
-
-- each provider with its owner, summary, current revision, versions,
-  interfaces, configuration and policies, at most 25 providers with the true
-  total;
-- each consumer that reaches a provider through a dependency, a configuration
-  reference or a policy reference, with the range status of a dependency.
-
-Each provider carries a consume snippet to add to a contract, built from its
-newest revision:
-
-- a `dependencies` entry when the provider declares a workload or an interface,
-  with `compatibility` set to the widest caret range that admits the newest
-  version: `^<major>.0.0`, `^0.<minor>.0` for a 0.x version or the version
-  itself for a prerelease. A version that is not semver gets an empty
-  `compatibility` to fill in;
-- a `configurations` entry named after the provider when the provider declares
-  a required configuration;
-- a `policies` entry named after the provider when the provider declares a
-  policy or ships `policy/schema.json`, and neither entry above applies.
-
-The `ref` is the provider's registry repository without a tag or digest. A
-provider that is not published to a registry has no snippet.
-
-A service's detail lists the offerings it consumes (`consumedOfferings`) and,
-separately, inferred suggestions (`inferredOfferings`). A suggestion is an
-external or unresolved dependency whose name exactly matches an offering or a
-provider's name, ignoring case. Suggestions are never counted as consumption.
+See the [platform offerings reference](platform-offerings.md).
 
 The `capability` filter and facet count each declared capability by its key:
 `health`, `metrics` or, for an extension, its ref, such as `acme.io/cost`.

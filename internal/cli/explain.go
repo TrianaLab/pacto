@@ -8,11 +8,13 @@ import (
 
 func newExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "explain [dir | oci://ref]",
-		Short:   "Human-readable contract summary",
-		Long:    "Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract.",
-		Example: "  pacto explain my-service",
-		Args:    cobra.MaximumNArgs(1),
+		Use:   "explain [dir | oci://ref]",
+		Short: "Human-readable contract summary",
+		Long: "Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. " +
+			"Each configuration lists its effective values per environment: its inline values with that environment's file merged on top.",
+		Example: "  pacto explain my-service\n" +
+			"  pacto explain oci://ghcr.io/acme/orders@sha256:<digest> --output-format json",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := optionalArg(args)
 

@@ -14,6 +14,14 @@ func TestCategoryOf(t *testing.T) {
 		CodeNeedsPacto21:                 CategoryInvalidVersion,
 		CodeNeedsPacto22:                 CategoryInvalidVersion,
 		CodeNeedsPacto23:                 CategoryInvalidVersion,
+		CodeNeedsPacto26:                 CategoryInvalidVersion,
+		CodeConfigRefUnresolved:          CategoryUnresolvedReference,
+		CodeConfigRefUnverified:          CategoryUnresolvedReference,
+		CodeConfigRefNotEnforced:         CategoryUnresolvedReference,
+		CodeConfigRefAmbiguous:           CategoryInvalidReference,
+		CodeConfigRefUnknownConfig:       CategoryInvalidReference,
+		CodeConfigRefCycle:               CategoryReferenceCycle,
+		CodeConfigRefVersionOutsideRange: CategoryInvalidReference,
 		CodeDuplicateEnvironmentName:     CategoryDuplicateName,
 		CodeEnvironmentUnknownConfig:     CategoryInvalidReference,
 		CodeEnvironmentValuesInvalid:     CategoryConfigurationViolation,
@@ -70,6 +78,8 @@ func expectedSeverities() map[Code]Severity {
 		// Warning-severity codes.
 		CodeTagNotDigest:                SeverityWarning,
 		CodePolicyRefNotEnforced:        SeverityWarning,
+		CodeConfigRefUnverified:         SeverityWarning,
+		CodeConfigRefNotEnforced:        SeverityWarning,
 		CodeEnvironmentValuesUnverified: SeverityWarning,
 		CodeDependencyUndeclared:        SeverityWarning,
 		// Family 2 — uncertainty -> Unknown.

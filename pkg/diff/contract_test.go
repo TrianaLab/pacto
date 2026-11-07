@@ -2,6 +2,7 @@ package diff
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -355,5 +356,42 @@ func TestDiffContract_OfferingAndSummary(t *testing.T) {
 				t.Fatalf("%s %s -> %s: %+v", path, tc.old, tc.new, changes)
 			}
 		}
+	}
+}
+
+func TestDiffContract_ServiceLifecycle(t *testing.T) {
+	lc := func(dep, sunset, succ string) *contract.InterfaceLifecycle {
+		return &contract.InterfaceLifecycle{Deprecated: dep, Sunset: sunset, Successor: succ}
+	}
+	cases := map[string]struct {
+		old, new *contract.InterfaceLifecycle
+		path     string
+		ct       ChangeType
+		cls      Classification
+		reason   string
+	}{
+		"added":            {nil, lc("2026-01-15", "2026-07-01", ""), "service.lifecycle", Added, NonBreaking, "my-svc deprecated 2026-01-15, sunset 2026-07-01"},
+		"removed":          {lc("2026-01-15", "", ""), nil, "service.lifecycle", Removed, NonBreaking, ""},
+		"deprecated moved": {lc("2026-01-15", "", ""), lc("2026-02-01", "", ""), "service.lifecycle.deprecated", Modified, NonBreaking, ""},
+		"sunset earlier":   {lc("2026-01-15", "2026-07-01", ""), lc("2026-01-15", "2026-03-01", ""), "service.lifecycle.sunset", Modified, PotentialBreaking, "my-svc sunset moved earlier"},
+		"sunset later":     {lc("2026-01-15", "2026-07-01", ""), lc("2026-01-15", "2026-12-01", ""), "service.lifecycle.sunset", Modified, NonBreaking, "later"},
+		"successor added":  {lc("2026-01-15", "", ""), lc("2026-01-15", "", "oci://ghcr.io/acme/my-svc-v2"), "service.lifecycle.successor", Added, NonBreaking, ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			old, new := minimalContract(), minimalContract()
+			old.Service.Lifecycle, new.Service.Lifecycle = tc.old, tc.new
+			changes := diffContract(old, new)
+			if len(changes) != 1 {
+				t.Fatalf("want 1 change, got %+v", changes)
+			}
+			c := changes[0]
+			if c.Path != tc.path || c.Type != tc.ct || c.Classification != tc.cls {
+				t.Fatalf("got %s %s %s", c.Path, c.Type, c.Classification)
+			}
+			if !strings.Contains(c.Reason, tc.reason) {
+				t.Fatalf("reason %q lacks %q", c.Reason, tc.reason)
+			}
+		})
 	}
 }

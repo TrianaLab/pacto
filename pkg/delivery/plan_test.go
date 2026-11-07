@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 const (
@@ -956,6 +957,36 @@ func TestPlanEnvironmentGate(t *testing.T) {
 	}
 }
 
+// TestEnvironmentGateConfigRef: values for a configuration that names its
+// schema by ref are checked against the schema the ref resolved to; a ref
+// that did not resolve leaves them for a person to accept as unknown.
+func TestEnvironmentGateConfigRef(t *testing.T) {
+	platform := "reg.example/pactos/platform@" + c3
+	for _, c := range []struct {
+		name, values string
+		reg          mapRegistry
+		result       Result
+		decision     Decision
+		message      string
+	}{
+		{"resolved, valid", "app:\n  replicas: 3\n", mapRegistry{platform: platformBundle()}, Pass, "", "the values of environment prod satisfy the configuration schemas"},
+		{"resolved, invalid", "app:\n  replicas: many\n", mapRegistry{platform: platformBundle()}, Pass, Approve,
+			"prod.yaml:2: ENVIRONMENT_VALUES_INVALID: environment prod: configuration app at /app/replicas: got string, want integer"},
+		{"unresolved", "app:\n  replicas: 3\n", mapRegistry{}, Unknown, AcceptUnknown,
+			"ENVIRONMENT_VALUES_UNVERIFIED: environment prod: cannot check the values for configuration app: its schema comes from the contract oci://" + platform + ", which could not be resolved"},
+	} {
+		b := envBundle(map[string]string{"prod": "prod.yaml"}, map[string]string{"prod.yaml": c.values}, false)
+		c.reg["r/consumer@"+c1] = b
+		to := ResolveRevision(t.Context(), c.reg, "r/a", dB)
+		to.ContractRef = rev(dB, c2, b).ContractRef // the gates before this one read it
+		p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, rev(dA, c1, bundle("payments", "1.0.0")), to)
+		v := verdict(t, p, GateEnvironment)
+		if v.Result != c.result || !strings.HasPrefix(v.Message, c.message) || p.Floor.Decision != c.decision {
+			t.Errorf("%s: verdict %+v, floor %+v", c.name, v, p.Floor)
+		}
+	}
+}
+
 // TestPlanEnvironmentGateRaisesAnUnknownToApprove: a confirmed environment gap
 // on a change already held for an unknown asks for an approval, which covers
 // both; it never lowers an approval to accepting an unknown.
@@ -1054,5 +1085,62 @@ func TestPlanUnmetGuaranteeNowhereSeenHolds(t *testing.T) {
 	p = PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: to, To: from, Snapshot: snap, Class: ClassHuman})
 	if p.Predicted != PredictHeld || !slices.Equal(p.Floor.Owners, []string{"team-checkout"}) {
 		t.Fatalf("a rollback that leaves an unplaced consumer's guarantee unmet waits: %+v", p)
+	}
+}
+
+// configRefPlan promotes payments 1.0.0 to 2.0.0 (a BREAKING workload change)
+// on a Stage that declares its graph complete, over a snapshot where checkout
+// takes its settings configuration from payments 1.0.0. locked pins that
+// reference; without it the reference names payments by tag only.
+func configRefPlan(t *testing.T, locked bool) Plan {
+	t.Helper()
+	old, breaking := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
+	old.Contract.Workload, breaking.Contract.Workload = "service", "job"
+	old.Contract.Configurations = []contract.Configuration{{Name: "settings", Schema: "settings.json"}}
+	old.FS = fstest.MapFS{"settings.json": {Data: []byte(`{"type":"object"}`)}}
+	from, to := rev(dA, c1, old), rev(dB, c2, breaking)
+	ref := "oci://reg.example/pactos/payments"
+	consumer := bundle("checkout", "1.0.0")
+	consumer.Contract.PactoVersion = "2.6"
+	consumer.Contract.Configurations = []contract.Configuration{{Name: "settings", Ref: ref + ":1"}}
+	consumerRev := fleet.RawRevision{Bundle: consumer, Domain: contract.OCIDomain(to.ContractRef), Digest: c3}
+	if locked {
+		consumer.Contract.Configurations[0].Ref = ref
+		consumerRev.Lock = &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{{
+			Kind: contract.ReferenceKindConfig, Name: "settings", Source: "oci", Ref: ref, Digest: c1,
+		}}}
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return now }}, fleet.NewMemorySource("test", "memory", &fleet.Collection{
+		Revisions: []fleet.RawRevision{
+			{Bundle: old, Domain: contract.OCIDomain(to.ContractRef), Digest: c1, RequestedRef: ref + ":1.0.0"},
+			consumerRev,
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+		From: from, To: to, Snapshot: snap, Class: ClassAgent}
+	in.Stage.Gates.Impact.DeclaredConsumersOnly = true
+	return autonomousPlan(in)
+}
+
+// TestImpactGateConfigRefConsumerDeclaredOnly: checkout reaches payments only
+// through a configuration reference, and 2.0.0 no longer declares the
+// configuration it selects. Before configuration-reference consumers counted,
+// the change had no consumers and a declared-complete graph shipped it.
+func TestImpactGateConfigRefConsumerDeclaredOnly(t *testing.T) {
+	p := configRefPlan(t, true)
+	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(v.Message, "checkout") {
+		t.Fatalf("a configuration-reference consumer Pacto cannot judge must hold the change: %+v", p)
+	}
+}
+
+// TestImpactGateUnresolvedConfigRef: a tag-only reference to payments may
+// consume it at a revision Pacto cannot tell, so the impact answer is partial.
+func TestImpactGateUnresolvedConfigRef(t *testing.T) {
+	p := configRefPlan(t, false)
+	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(v.Message, "CONFIG_REF_CONSUMERS_UNRESOLVED") {
+		t.Fatalf("an unresolved configuration reference must make the gate unverified: %+v", p)
 	}
 }

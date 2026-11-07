@@ -98,6 +98,7 @@ func fullSnapshot() *contractview.ServiceDetails {
 			Domain:         "payments",
 			Offering:       "postgresql",
 			Summary:        "Payments API for the storefront",
+			Lifecycle:      &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2027-06-30", Successor: "oci://ghcr.io/acme/payments-api-v3"},
 			ContractStatus: contractview.StatusCompliant,
 		},
 		Compliance: &contractview.ComplianceInfo{Status: contractview.ComplianceOK},
@@ -169,7 +170,7 @@ func TestGenerate_FullSnapshot(t *testing.T) {
 		"status `Compliant`",
 		"compliance `OK`",
 		"readiness `82/100`",
-		"| **Owner** | `team/payments` |\n| **Domain** | `payments` |\n| **Offering** | `postgresql` |\n| **Summary** | `Payments API for the storefront` |",
+		"| **Owner** | `team/payments` |\n| **Domain** | `payments` |\n| **Offering** | `postgresql` |\n| **Summary** | `Payments API for the storefront` |\n| **Lifecycle** | `deprecated 2026-01-01, sunset 2027-06-30, successor oci://ghcr.io/acme/payments-api-v3` |",
 		"## Table of Contents",
 		"## 1. Runtime & operations",
 		"| **Workload** | `service` |",
@@ -372,6 +373,7 @@ func TestGenerate_ConfigVariants(t *testing.T) {
 		Configurations: []contractview.ConfigurationInfo{
 			{Name: "app", Values: []schemax.Property{{Key: "K", Value: "V", Type: "string"}}},
 			{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
+			{Name: "pg", Ref: "oci://ghcr.io/acme/pg:16.1.0", Configuration: "provisioning"},
 			{Name: "", HasSchema: true}, // empty name → "default", no values → note
 		},
 	}
@@ -381,7 +383,8 @@ func TestGenerate_ConfigVariants(t *testing.T) {
 	}
 	for _, want := range []string{
 		"_app_", "| `K` | `string` | `V` |",
-		"_db_", "References: `oci://ghcr.io/acme/db-config:1.0.0`",
+		"_db_", "References: `oci://ghcr.io/acme/db-config:1.0.0`\n",
+		"_pg_", "References: `oci://ghcr.io/acme/pg:16.1.0`, configuration `provisioning`\n",
 		"_default_", "_No configurable properties._",
 	} {
 		if !strings.Contains(md, want) {
@@ -895,7 +898,8 @@ func behaviorSnapshot() *contractview.ServiceDetails {
 		},
 		Stages: []fleet.ValidationStage{
 			{Name: "structural", Status: "pass"}, {Name: "cross-field", Status: "fail"},
-			{Name: "policy", Status: "skip", Reason: "no policies declared"}, {Name: "custom", Status: "odd"},
+			{Name: "policy", Status: "skip", Reason: "no policies declared"},
+			{Name: "configuration-refs", Status: "pass"}, {Name: "custom", Status: "odd"},
 		},
 		Validation: &contractview.ValidationInfo{
 			Errors:   []contractview.ValidationIssue{{Code: "BAD_REF", Path: "interfaces[0].ref", Message: "file | missing"}},
@@ -933,7 +937,8 @@ func TestGenerate_Behavior(t *testing.T) {
 		"- **`ledger`**: Not verified: the provider's contract was not fetched.\n  - Requires from `http`: Timeout at most `2s`\n",
 		"- **`legacy`**\n  - Interface `v1` · **Past sunset**: deprecated `2026-01-01` · sunset `2026-03-01`. It may be removed in any release.\n",
 		"## 5. Validation\n\n| Stage | Result | Reason |\n|-------|--------|--------|\n" +
-			"| Structure | passed | — |\n| Cross-field | failed | — |\n| Policy | not run | no policies declared |\n| custom | odd | — |\n",
+			"| Structure | passed | — |\n| Cross-field | failed | — |\n| Policy | not run | no policies declared |\n" +
+			"| Configuration references | passed | — |\n| custom | odd | — |\n",
 		"**Errors**\n\n| Code | Path | Message |\n|------|------|---------|\n| `BAD_REF` | `interfaces[0].ref` | file \\| missing |\n",
 		"**Warnings**\n\n| Code | Path | Message |\n|------|------|---------|\n| `OLD` | `service` | old |\n",
 		"## 3. Environments\n\n1 failed, 1 not verified and 1 not checked.\n\n" +

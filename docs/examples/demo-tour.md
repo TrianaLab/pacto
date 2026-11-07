@@ -240,9 +240,9 @@ tools, register this server only where you want contracts written. See
 --8<-- "examples/demo/generated/_beat-13.md"
 
 Each stage has its own line, and `Next` names the first fix: the new chart
-schema requires an ingress host that production leaves out. `preview` sets
-values for `platform`, whose schema is in another bundle, so Pacto could not
-check them.
+schema requires an ingress host that production leaves out. `preview`'s
+`platform` values pass the schema Pacto fetched from `platform-app-config`.
+When Pacto cannot fetch it, validation fails.
 
 --8<-- "examples/demo/generated/_beat-14.md"
 

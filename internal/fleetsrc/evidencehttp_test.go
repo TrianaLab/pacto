@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -267,5 +269,61 @@ func TestEvidenceHTTPSource_Collect_ContextCancelled(t *testing.T) {
 	cancel()
 	if _, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(ctx); err == nil {
 		t.Fatal("expected a context-cancellation error")
+	}
+}
+
+// A v3 body is v2 plus provisioning records: the reader accepts both versions.
+func TestEvidenceHTTPSource_Collect_ProvisioningSchema(t *testing.T) {
+	payload, err := json.Marshal(evidenceingest.TargetsResponse{
+		SchemaVersion: evidenceingest.TargetsSchemaVersionProvisioning,
+		Health:        evidenceingest.SourceHealth{Status: evidenceingest.HealthReady},
+		Targets:       []evidenceingest.TargetDTO{},
+		Provisioning:  []evidenceingest.ProvisioningDTO{{Subject: "ghcr.io/a/orders/default/db", Service: "orders", Kind: "configuration", Name: "db", Outcome: "Observed"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := serveJSON(t, string(payload))
+	defer srv.Close()
+	col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("a v3 body must be accepted: %v", err)
+	}
+	if len(col.Provisioning) != 1 {
+		t.Fatalf("provisioning = %+v", col.Provisioning)
+	}
+	if p := col.Provisioning[0]; p.Service != "orders" || p.Kind != "configuration" || p.Name != "db" || p.Outcome != "Observed" || !p.Verified || p.AcceptedAt == nil {
+		t.Errorf("provisioning record = %+v", p)
+	}
+}
+
+// Each DTO becomes a verified raw record carrying the server's accept time and
+// the producer; a missing digest falls back to the contract ref's.
+func TestEvidenceHTTPSource_Collect_ProvisioningMapped(t *testing.T) {
+	at, accepted := time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC), time.Date(2026, 7, 29, 9, 1, 0, 0, time.UTC)
+	payload, err := json.Marshal(evidenceingest.TargetsResponse{
+		SchemaVersion: evidenceingest.TargetsSchemaVersionProvisioning,
+		Health:        evidenceingest.SourceHealth{Status: evidenceingest.HealthReady},
+		Targets:       []evidenceingest.TargetDTO{},
+		Provisioning: []evidenceingest.ProvisioningDTO{{
+			Subject: "ghcr.io/a/orders/production/db", Service: "orders", Domain: "ghcr.io/a", ContractRef: "oci://ghcr.io/a/orders@sha256:abc",
+			Producer: "platform-adapter", ProducerKeyID: "adapter-key", Kind: "configuration", Name: "db", Environment: "production", Provider: "aws",
+			ExternalRef: "orders-db", Phase: "Ready", Outcome: "Observed", EvidenceAt: at, AcceptedAt: accepted,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := serveJSON(t, string(payload))
+	defer srv.Close()
+	col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fleet.RawProvisioning{Service: "orders", Domain: "ghcr.io/a", Digest: "sha256:abc", Kind: "configuration", Name: "db",
+		Environment: "production", Provider: "aws", ExternalRef: "orders-db", Phase: "Ready", Outcome: "Observed",
+		Producer: "platform-adapter", ProducerKeyID: "adapter-key", ObservedAt: at, AcceptedAt: &accepted, Verified: true}
+	if got := col.Provisioning; len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+		t.Errorf("provisioning = %+v, want %+v", got, want)
 	}
 }

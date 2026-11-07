@@ -777,6 +777,11 @@ def engine_registry(repo_root: str) -> dict:
     return json.loads(proc.stdout)
 
 
+# Observation kinds a platform adapter reports through the Evidence Server. The
+# operator never emits them, so they stay out of its assertion-kind list.
+ADAPTER_REPORTED_KINDS = {"ResourceProvisioned"}
+
+
 def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     observer_src = read(os.path.join(k8s, "internal/observer/runtime.go"))
     engine = engine_registry(repo_root)
@@ -873,9 +878,14 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     out.append("## Assertion kinds\n")
     out.append("An assertion is one claim of the contract the operator can check. These are the "
                "kinds of evidence it emits, one per assertion:\n")
-    for k in sorted(kinds):
+    for k in sorted(set(kinds) - ADAPTER_REPORTED_KINDS):
         out.append(f"- `{k}`")
     out.append("")
+    provider_kinds = sorted(set(kinds) & ADAPTER_REPORTED_KINDS)
+    if provider_kinds:
+        out.append("Provider-reported kinds: " + ", ".join(f"`{k}`" for k in provider_kinds) +
+                   ". Platform adapters report them through the Evidence Server; the operator "
+                   "never emits them.\n")
 
     out.append("## Facts\n")
     out.append(

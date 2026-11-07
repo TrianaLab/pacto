@@ -51,6 +51,7 @@ func orderFor(ctx context.Context, in PlanInput, res *impact.Result, blocked []i
 func runningVersion(snap *fleet.FleetSnapshot, consumer, provider fleet.ServiceKey, rng string) string {
 	v := ""
 	for _, r := range snap.Relationships {
+		// Dependencies only: a configuration reference carries no range.
 		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceDeclared &&
 			r.FromService == consumer && r.ToService == provider && r.Compatibility == rng {
 			v = snap.Revisions[r.FromRevision].Version
@@ -211,6 +212,7 @@ func acceptedHere(snap *fleet.FleetSnapshot, consumer fleet.ServiceKey, c *contr
 		return "", fmt.Errorf("the operational graph is partial, so Pacto cannot tell whether something that rejects %s %s runs here", c.Service.Name, c.Service.Version)
 	}
 	for _, r := range snap.Relationships {
+		// Dependencies only: promotion order follows ranges; a configuration reference pins an exact revision.
 		if r.Type != fleet.RelationshipDependency || r.Provenance != fleet.ProvenanceDeclared ||
 			r.ToService != consumer || r.FromService == consumer {
 			continue

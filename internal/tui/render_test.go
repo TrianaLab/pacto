@@ -225,6 +225,21 @@ func TestRenderExplainWithState(t *testing.T) {
 	}
 }
 
+func TestRenderExplainWithConfigurations(t *testing.T) {
+	r := &app.ExplainResult{
+		Name: "test", Version: "1.0.0",
+		Configurations: []app.ExplainConfiguration{{
+			Name: "database", Ref: "oci://ghcr.io/acme/postgresql:16.1.0", Required: true,
+			EnvironmentValues: map[string]any{"production": map[string]any{"size": "large"}},
+		}},
+	}
+	got := renderExplain(r)
+	if !strings.Contains(got, "Configurations (1)") || !strings.Contains(got, "database: oci://ghcr.io/acme/postgresql:16.1.0 (required)") ||
+		!strings.Contains(got, `production: {"size":"large"}`) {
+		t.Fatalf("render should list the configuration and its effective values, got:\n%s", got)
+	}
+}
+
 func TestRenderExplainWithReadiness(t *testing.T) {
 	r := &app.ExplainResult{
 		Name:    "test",

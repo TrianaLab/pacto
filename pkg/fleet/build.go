@@ -88,6 +88,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		forwardDepsByRevision: map[RevisionKey][]ServiceKey{},
 		observedReverse:       map[ServiceKey][]ServiceKey{},
 		observedForward:       map[ServiceKey][]ServiceKey{},
+		provisioningWindow:    opts.FreshnessWindow,
 	}
 
 	// Zero configured sources is NOT the same as "every source was available and
@@ -135,10 +136,12 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 
 	boundTargetLabels(snap)
 	linkTargets(snap)
+	revalidateConfigRefs(snap)
 	aggregateServices(snap)
 	buildRelationships(snap)
 	foldObservedRelationships(snap, observed)
 	reconcileDeclared(snap, undeclaredOnly)
+	matchProvisioning(snap)
 	snap.Completeness = classifyCompleteness(snap)
 	snap.Limitations = append(snap.Limitations, degradedLimitations(snap)...)
 	sortSnapshot(snap)
@@ -261,6 +264,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		}
 		targetCount++
 	}
+	recordProblems = append(recordProblems, ingestProvisioning(snap, src, col.Provisioning, now)...)
 	// A source that reported record-level problems is partial: keep its usable
 	// records AND surface the problems. Canonicalization limitations (invalid finite
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
@@ -791,12 +795,8 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		if doc == nil {
 			doc = contract.DecodeDocument(yml)
 		}
-		stages := validation.ValidateDocumentStages(c, doc, b.FS)
-		res := validation.Merged(stages)
-		rev.Valid = res.IsValid()
-		rev.Validation = res.Findings()
-		rev.Stages = StageSummaries(stages)
-		rev.Environments = EnvironmentResults(c.Environments, stages)
+		rev.localStages = validation.ValidateDocumentStages(c, doc, b.FS)
+		setStages(rev, rev.localStages)
 		rev.validated = true
 	} else {
 		rev.Environments = EnvironmentResults(c.Environments, nil)
@@ -1422,16 +1422,18 @@ func domainConflict(name string, conflict []string) []Limitation {
 // none, and unknown when nothing says either way. A value that is not a domain
 // slug is never a domain.
 func businessDomainOf(snap *FleetSnapshot, s *ServiceRecord) (domain string, unknown bool, conflict []string) {
-	return declaredServiceValue(snap, s, func(c contract.Service) string { return c.Domain }, validBusinessDomain,
+	domain, unknown, conflict, _ = declaredServiceValue(snap, s, func(c contract.Service) string { return c.Domain }, validBusinessDomain,
 		func(t *TargetRecord) []string { return t.reportedDomains }, func(t *TargetRecord) bool { return t.domainKnown })
+	return domain, unknown, conflict
 }
 
 // declaredServiceValue is the rule businessDomainOf documents, for any service
 // field: declared reads it from a contract, valid says a non-empty value can be
 // one, and reported and known read what the sources observing a target say. A
-// nil known means no source says a contract declares none.
+// nil known means no source says a contract declares none. fromContract says a
+// revision declares the value.
 func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(contract.Service) string, valid func(string) bool,
-	reported func(*TargetRecord) []string, known func(*TargetRecord) bool) (value string, unknown bool, conflict []string) {
+	reported func(*TargetRecord) []string, known func(*TargetRecord) bool) (value string, unknown bool, conflict []string, fromContract bool) {
 	var newest *ContractRevision
 	isDeclared := false
 	for _, rk := range s.Revisions {
@@ -1445,7 +1447,7 @@ func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(c
 		}
 	}
 	if isDeclared {
-		return declared(newest.Contract.Service), false, nil
+		return declared(newest.Contract.Service), false, nil, true
 	}
 	isKnown := newest != nil
 	var values []string
@@ -1459,11 +1461,11 @@ func declaredServiceValue(snap *FleetSnapshot, s *ServiceRecord, declared func(c
 	slices.Sort(values)
 	switch len(values) {
 	case 0:
-		return "", !isKnown, nil
+		return "", !isKnown, nil, false
 	case 1:
-		return values[0], false, nil
+		return values[0], false, nil, false
 	default:
-		return "", true, values
+		return "", true, values, false
 	}
 }
 
@@ -1490,7 +1492,7 @@ func readableRevision(r *ContractRevision) bool {
 // with none and no limitation.
 func deriveOffering(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	var conflict []string
-	s.Offering, conflict = offeringOf(snap, s)
+	s.Offering, s.OfferingProvenance, conflict = offeringOf(snap, s)
 	s.Summary = summaryOf(snap, s)
 	return offeringConflict(s.Name, conflict)
 }
@@ -1508,17 +1510,26 @@ func offeringConflict(name string, conflict []string) []Limitation {
 	}}
 }
 
-// offeringOf is a service's platform offering and the offerings its sources
+// offeringOf is a service's platform offering, where its membership comes from
+// (ProvenanceDeclared when a revision declares it, ProvenanceObserved when only
+// its targets report it, empty with no offering) and the offerings its sources
 // disagree on; the offering rule is the business-domain slug rule.
-func offeringOf(snap *FleetSnapshot, s *ServiceRecord) (string, []string) {
-	v, _, conflict := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Offering }, validBusinessDomain,
+func offeringOf(snap *FleetSnapshot, s *ServiceRecord) (offering, provenance string, conflict []string) {
+	v, _, conflict, declared := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Offering }, validBusinessDomain,
 		func(t *TargetRecord) []string { return t.reportedOfferings }, nil)
-	return v, conflict
+	switch {
+	case v == "":
+	case declared:
+		provenance = ProvenanceDeclared
+	default:
+		provenance = ProvenanceObserved
+	}
+	return v, provenance, conflict
 }
 
 // summaryOf is a service's one-line summary, empty when its sources disagree.
 func summaryOf(snap *FleetSnapshot, s *ServiceRecord) string {
-	v, _, _ := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Summary }, validSummary,
+	v, _, _, _ := declaredServiceValue(snap, s, func(c contract.Service) string { return c.Summary }, validSummary,
 		func(t *TargetRecord) []string { return t.reportedSummaries }, nil)
 	return v
 }
@@ -1926,6 +1937,7 @@ func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	observed := map[edge]bool{}
 	haveObservation := false
 	for _, rel := range snap.Relationships {
+		// Runtime calls are observed dependencies; a reference never makes one.
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved {
 			observed[edge{rel.FromService, rel.ToService}] = true
 			haveObservation = haveObservation || slices.ContainsFunc(rel.ObservedSources, func(s ObservedSourceStat) bool { return !undeclaredOnly[s.Source] })
@@ -1933,6 +1945,7 @@ func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	}
 	for i := range snap.Relationships {
 		rel := &snap.Relationships[i]
+		// Dependencies only: reconciliation judges runtime calls, which a configuration reference never makes.
 		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {
 			continue
 		}
@@ -2034,6 +2047,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
 			rel.RangeStatus = dependencyRangeStatus(snap, rel)
 			rel.DeprecatedInterfaces = providerDeprecations(snap, rel)
+			rel.ProviderLifecycle = providerServiceLifecycle(snap, rel)
 			// A contested lock reaches this edge exactly as a missing one does — nil —
 			// so the pin is absent either way and only the reason distinguishes them.
 			// mergeRevisionLock deterministically discards BOTH sides of a lock
@@ -2075,6 +2089,15 @@ func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRe
 			rel.Reason = reason
 		} else {
 			rel.Resolved, rel.ToService, rel.ResolvedRevision = true, target.ServiceKey, target.Key
+			rel.ProviderLifecycle = providerServiceLifecycle(snap, rel)
+			// A configuration reference consumes its provider like a dependency
+			// does, so traversal, dependents and impact see it; a policy only
+			// constrains this contract and has no runtime consumer to break.
+			if typ == RelationshipConfigRef {
+				snap.forwardDepsByRevision[rk] = appendUnique(snap.forwardDepsByRevision[rk], target.ServiceKey)
+				snap.forwardDeps[rev.ServiceKey] = appendUnique(snap.forwardDeps[rev.ServiceKey], target.ServiceKey)
+				snap.reverseDeps[target.ServiceKey] = appendUnique(snap.reverseDeps[target.ServiceKey], rev.ServiceKey)
+			}
 		}
 		out = append(out, rel)
 	}
@@ -2380,6 +2403,7 @@ func sortSnapshot(snap *FleetSnapshot) {
 		return a.RequestedRef < b.RequestedRef
 	})
 	sort.Slice(snap.Sources, func(i, j int) bool { return snap.Sources[i].ID < snap.Sources[j].ID })
+	sortProvisioning(snap.Provisioning)
 	sortSnapshotLimitations(snap)
 	for _, s := range snap.Services {
 		sort.Slice(s.Revisions, func(i, j int) bool { return s.Revisions[i] < s.Revisions[j] })

@@ -50,7 +50,7 @@ var fuzzKinds = []ObservationKind{
 }
 
 func makeObs(k ObservationKind, name string) Observation {
-	subj := SubjectRef{Kind: k.subjectKind(), Name: name}
+	subj := SubjectRef{Kind: k.subjectKinds()[0], Name: name}
 	prov := Provenance{Collector: "c", DetectedAt: time.Unix(1, 0)}
 	switch k {
 	case CapabilityObserved:
@@ -91,7 +91,7 @@ func FuzzEvidenceSetDuplicateIdentity(f *testing.F) {
 			k := fuzzKinds[int(b)%len(fuzzKinds)]
 			name := names[(int(b)/len(fuzzKinds))%len(names)]
 			es.Observations = append(es.Observations, makeObs(k, name))
-			key := [3]string{string(k), k.subjectKind(), name}
+			key := [3]string{string(k), k.subjectKinds()[0], name}
 			if distinct[key] {
 				expectedDups++
 			}

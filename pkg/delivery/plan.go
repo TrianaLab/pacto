@@ -50,6 +50,9 @@ type Revision struct {
 	ContractRef string
 	// Bundle is the contract; nil when it could not be read.
 	Bundle *contract.Bundle
+	// ConfigRefs is what the contract's configuration refs resolved to, for
+	// the environment gate to check values against.
+	ConfigRefs validation.ConfigRefs `json:"-"`
 	// Err says why Bundle is nil.
 	Err string
 	// NoContract is true when the artifact was read and names no
@@ -368,7 +371,7 @@ func environmentGate(in PlanInput, p *Plan) {
 	}
 	var errs, unverified []string
 	if i := slices.IndexFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }); i >= 0 {
-		errs, unverified = environmentFindings(c, in.To.Bundle.FS, i)
+		errs, unverified = environmentFindings(c, in.To.Bundle.FS, in.To.ConfigRefs, i)
 	} else {
 		names := make([]string, len(c.Environments))
 		for j, e := range c.Environments {
@@ -393,14 +396,14 @@ func environmentGate(in PlanInput, p *Plan) {
 
 // environmentFindings runs the environments stage on a contract and returns
 // the errors, located in their values file, and the unverified warnings it
-// reports for its environment i.
-func environmentFindings(c *contract.Contract, bundleFS fs.FS, i int) (errs, unverified []string) {
+// reports for its environment i, with refs the contract's configuration refs.
+func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.ConfigRefs, i int) (errs, unverified []string) {
 	at := fmt.Sprintf("environments[%d]", i)
 	under := func(path string) bool {
 		rest, ok := strings.CutPrefix(path, at)
 		return ok && (rest == "" || rest[0] == '.')
 	}
-	st := validation.EnvironmentStage(c, bundleFS)
+	st := validation.EnvironmentStageWith(c, bundleFS, refs)
 	for _, e := range st.Errors {
 		if under(e.Path) {
 			loc := e.File
@@ -865,7 +868,9 @@ func unresolvedConsumers(snap *fleet.FleetSnapshot, service string) []string {
 }
 
 // unresolvedTo reports whether r is a declared dependency on service the
-// graph could not resolve.
+// graph could not resolve. Dependencies only: an unresolved configuration
+// reference to the service already makes the impact answer partial
+// (CONFIG_REF_CONSUMERS_UNRESOLVED).
 func unresolvedTo(r fleet.Relationship, service string) bool {
 	return r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceDeclared && !r.Resolved && !r.External && r.To == service
 }

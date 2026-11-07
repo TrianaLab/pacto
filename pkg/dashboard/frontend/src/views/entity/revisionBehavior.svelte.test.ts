@@ -51,18 +51,25 @@ describe('RevisionEntity behavior', () => {
   });
 
   const stages = [
-    { name: 'structural', status: 'pass' }, { name: 'cross-field', status: 'pass' }, { name: 'policy', status: 'fail' }, { name: 'environments', status: 'skip', reason: 'policy failed' },
+    { name: 'structural', status: 'pass' }, { name: 'cross-field', status: 'pass' }, { name: 'policy', status: 'fail' },
+    { name: 'configuration-refs', status: 'skip', reason: 'policy failed' }, { name: 'environments', status: 'skip', reason: 'policy failed' },
   ];
   const stageTags = () => [...target.querySelectorAll('[data-testid="revision-stages"] .tag')];
   it('lists the validation stages', () => {
     comp = mount(RevisionEntity, { target, props: { detail: detail({ valid: false, stages, environments: preview([env('staging', 'skip', { reason: 'policy failed' })], { skipped: 1 }) }) } });
-    expect(stageTags().map((t) => t.textContent)).toEqual(['Structure passed', 'Cross-field passed', 'Policy failed', 'Environments not run']);
-    expect(stageTags()[3].getAttribute('title')).toBe('Environments: policy failed');
+    expect(stageTags().map((t) => t.textContent)).toEqual(['Structure passed', 'Cross-field passed', 'Policy failed', 'Configuration references not run', 'Environments not run']);
+    expect(stageTags()[4].getAttribute('title')).toBe('Environments: policy failed');
     expect(target.textContent).toContain('Not checked: policy failed.');
   });
 
   it('leaves out the environments stage of a revision that declares none', () => {
     comp = mount(RevisionEntity, { target, props: { detail: detail({ stages }) } });
+    expect(stageTags().map((t) => t.textContent)).toEqual(['Structure passed', 'Cross-field passed', 'Policy failed', 'Configuration references not run']);
+  });
+
+  it('leaves out the configuration-refs stage of a revision that references no configuration', () => {
+    const none = [...stages.slice(0, 3), { name: 'configuration-refs', status: 'skip', reason: 'no configuration references' }];
+    comp = mount(RevisionEntity, { target, props: { detail: detail({ stages: none }) } });
     expect(stageTags().map((t) => t.textContent)).toEqual(['Structure passed', 'Cross-field passed', 'Policy failed']);
   });
 

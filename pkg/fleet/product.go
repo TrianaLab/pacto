@@ -102,6 +102,11 @@ type EntityRef struct {
 	// purpose.
 	Offering string `json:"offering,omitempty"`
 	Summary  string `json:"summary,omitempty"`
+	// OfferingProvenance says where an offering reference's membership comes
+	// from: declared when a contract revision of any provider declares it,
+	// observed when only the sources observing targets report it. A service
+	// reference that carries Offering carries its own.
+	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
 	// Environment is the environment a TARGET reference runs in (see
 	// TargetRecord.Environment), empty when unknown.
 	Environment   string `json:"environment,omitempty"`
@@ -185,12 +190,16 @@ type ProductMeta struct {
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
 }
 
-func (q *Query) productMeta() ProductMeta {
+func (q *Query) productMeta() ProductMeta { return q.productMetaWith(nil) }
+
+// productMetaWith is productMeta with the limitations an answer derives at query
+// time, such as provisioning conflicts, listed first.
+func (q *Query) productMetaWith(derived []Limitation) ProductMeta {
 	// Deep copies, then hard caps: a consumer may mutate the returned meta without
 	// reaching back into the snapshot or a later answer, and the meta never grows
 	// unbounded with the fleet's source or limitation count.
 	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
-	lims, limTrunc := BoundLimitations(cloneLimitations(q.snap.Limitations))
+	lims, limTrunc := BoundLimitations(append(derived, cloneLimitations(q.snap.Limitations)...))
 	return ProductMeta{
 		SchemaVersion:        ProductSchemaVersion,
 		SnapshotID:           q.snap.SnapshotID,
@@ -213,7 +222,7 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 	return EntityRef{
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
 		Status: s.Status, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
-		Offering: s.Offering, Summary: s.Summary,
+		Offering: s.Offering, Summary: s.Summary, OfferingProvenance: s.OfferingProvenance,
 	}
 }
 
@@ -272,9 +281,21 @@ func domainEntityRef(name string) EntityRef {
 	return EntityRef{Kind: KindDomain, Key: name, Label: name, BusinessDomain: name}
 }
 
-// offeringEntityRef builds a route-neutral reference to a platform offering.
-func offeringEntityRef(name string) EntityRef {
-	return EntityRef{Kind: KindOffering, Key: name, Label: name, Offering: name}
+// offeringEntityRef builds a route-neutral reference to a platform offering
+// whose membership has the given provenance.
+func offeringEntityRef(name, provenance string) EntityRef {
+	return EntityRef{Kind: KindOffering, Key: name, Label: name, Offering: name, OfferingProvenance: provenance}
+}
+
+// offeringProvenance is ProvenanceDeclared when any provider of the offering
+// name declares it and ProvenanceObserved otherwise.
+func offeringProvenance(snap *FleetSnapshot, name string) string {
+	for _, s := range snap.Services {
+		if s.Offering == name && s.OfferingProvenance == ProvenanceDeclared {
+			return ProvenanceDeclared
+		}
+	}
+	return ProvenanceObserved
 }
 
 // sourceEntityRef builds a route-neutral reference to a source.
@@ -589,6 +610,7 @@ func (q *Query) Overview() *Overview {
 func (q *Query) tallyRelationships(sum *OverviewSummary) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependencies only: the tallies count unresolved and out-of-range dependencies.
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared {
 			if rel.missing() {
 				sum.UnresolvedRelationships++
@@ -610,6 +632,7 @@ func (q *Query) observedOnly(from ServiceKey) []Relationship {
 	mine := func(rel Relationship) bool { return rel.ToService != "" && (from == "" || rel.FromService == from) }
 	declared := map[[2]ServiceKey]bool{}
 	for _, rel := range q.snap.Relationships {
+		// Dependencies only: an observed call pairs with a declared dependency, never a reference.
 		if rel.Type == RelationshipDependency && rel.Provenance != ProvenanceObserved && mine(rel) {
 			declared[[2]ServiceKey{rel.FromService, rel.ToService}] = true
 		}
@@ -666,6 +689,7 @@ func (q *Query) servicesNeedingAttention() int {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependencies only: unresolved and out-of-range attention judges dependencies.
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && (rel.missing() || rel.RangeStatus == RangeUnsatisfied) {
 			need[rel.FromService] = true
 		}
@@ -1045,6 +1069,7 @@ func (q *Query) unresolvedAttention() []AttentionItem {
 	var out []AttentionItem
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependencies only: the unresolved and out-of-range attention judges dependencies.
 		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared {
 			continue
 		}

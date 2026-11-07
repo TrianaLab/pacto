@@ -168,6 +168,15 @@ describe('RelationshipList behavior', () => {
     expect(target.textContent).toContain('Requires from orders');
     expect(target.textContent).toContain('orders: Delivery at-least-once required, at-most-once offered');
   });
+  it('names a configuration reference both ways and gives it no observation verdict', () => {
+    const ref = edge({ id: 'a|b|configuration_reference', relation: 'configuration_reference', guaranteeStatus: undefined, deprecatedInterfaces: [] });
+    comp = mount(RelationshipList, { target, props: { items: [ref], selfKey: 'd/checkout' } });
+    expect(target.querySelector('.rel')!.textContent).toContain('Takes configuration from');
+    expect(target.textContent).not.toContain('Unknown');
+    unmount(comp);
+    comp = mount(RelationshipList, { target, props: { items: [ref], selfKey: 'd/events' } });
+    expect(target.querySelector('.rel')!.textContent).toContain('Referenced by');
+  });
   it('surfaces the consumer of a deprecated interface on the provider page', () => {
     comp = mount(RelationshipList, { target, props: { items: [edge({ guaranteeStatus: undefined })], selfKey: 'd/events' } });
     const row = target.querySelector('.rel')!;

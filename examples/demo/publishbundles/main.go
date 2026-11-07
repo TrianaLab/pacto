@@ -17,6 +17,11 @@
 //
 //	e.g.  go run ./publishbundles /tmp/work/bundles localhost:5001/pacto-demo
 //
+// --seed-cache <bundle-dir> <ref> writes one bundle into Pacto's disk cache
+// ($XDG_CACHE_HOME/pacto/oci) under ref, through the cache's own writer and
+// with no registry, so a hermetic run resolves ref offline (the tour's beat 13
+// and the acceptance demo arc).
+//
 // Registry credentials, when needed, come from PACTO_REGISTRY_USERNAME /
 // PACTO_REGISTRY_PASSWORD / PACTO_REGISTRY_TOKEN (same env as the pacto CLI).
 // Prints "<service>:<version> <digest>" per pushed bundle to stdout.
@@ -49,6 +54,9 @@ func run() error {
 	// print "<svc>:<version> <digest>" WITHOUT pushing. The demo publisher uses this
 	// for a byte-exact absent/identical/conflict gate before touching the registry.
 	args := os.Args[1:]
+	if len(args) == 3 && args[0] == "--seed-cache" {
+		return seedCache(args[1], args[2])
+	}
 	printOnly := false
 	if len(args) > 0 && args[0] == "--print-digests" {
 		printOnly = true
@@ -166,4 +174,39 @@ func loadBundle(dir string) (*contract.Bundle, error) {
 		return nil, err
 	}
 	return &contract.Bundle{Contract: c, RawYAML: raw, FS: ignore.FS(dirFS, matcher)}, nil
+}
+
+// seedCache pulls ref through a [oci.CachedStore] whose registry is the local
+// bundle at dir, so the cache commits the entry exactly as a real pull would,
+// recording the digest the bundle is published under.
+func seedCache(dir, ref string) error {
+	b, err := loadBundle(dir)
+	if err != nil {
+		return err
+	}
+	d, err := bundleDigest(b)
+	if err != nil {
+		return err
+	}
+	store := oci.NewCachedStore(localStore{bundle: b, digest: d})
+	if store.CacheDir() == "" {
+		return fmt.Errorf("no cache directory: set XDG_CACHE_HOME")
+	}
+	_, err = store.Pull(context.Background(), ref)
+	return err
+}
+
+// localStore is a registry that holds one bundle under every reference.
+type localStore struct {
+	bundle *contract.Bundle
+	digest string
+}
+
+func (s localStore) Push(context.Context, string, *contract.Bundle) (string, error) {
+	return "", fmt.Errorf("read-only")
+}
+func (s localStore) Pull(context.Context, string) (*contract.Bundle, error) { return s.bundle, nil }
+func (s localStore) Resolve(context.Context, string) (string, error)        { return s.digest, nil }
+func (s localStore) ListTags(context.Context, string) ([]string, error) {
+	return []string{s.bundle.Contract.Service.Version}, nil
 }

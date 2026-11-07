@@ -320,6 +320,7 @@ describe('renderGraph (Cytoscape)', () => {
         { targetId: 'eno', edgeState: 'expected-not-observed' },
         { targetId: 'dri', edgeState: 'drift' },
         { targetId: 'ins', edgeState: 'insufficient', refused: true },
+        { targetId: 'dep', type: 'reference' },
       ] },
       { id: 'rev', serviceName: 'svc', status: 'Compliant', kind: 'revision', edges: [] },
       { id: 'tgt', serviceName: 'svc', status: 'Compliant', kind: 'target', edges: [{ targetId: 'rev', type: 'runs' }] },

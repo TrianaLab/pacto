@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -147,13 +148,15 @@ type SignOptions struct {
 	// reports; each accepted envelope must have a sequence strictly greater than
 	// the producer's last.
 	Sequence uint64
+	// Stdin is read when EvidencePath is "-".
+	Stdin io.Reader
 }
 
 // SignEvidence reads an EvidenceSet JSON file, wraps it in a signed Envelope and
 // returns it. The envelope ID defaults to a content hash so signing is
 // deterministic given the same evidence, key and IssuedAt.
 func (s *Service) SignEvidence(opts SignOptions) (evidenceenvelope.Envelope, error) {
-	return s.sign(opts, func() (evidence.EvidenceSet, error) { return readEvidenceSet(opts.EvidencePath) })
+	return s.sign(opts, func() (evidence.EvidenceSet, error) { return readEvidenceSet(opts.EvidencePath, opts.Stdin) })
 }
 
 // SignEvidenceSet is SignEvidence for a set a producer holds in memory (opts.EvidencePath is unused): `pacto
@@ -204,9 +207,16 @@ func (s *Service) sign(opts SignOptions, load func() (evidence.EvidenceSet, erro
 	return evidenceenvelope.Sign(env, key)
 }
 
-// readEvidenceSet strictly decodes and structurally validates an EvidenceSet.
-func readEvidenceSet(path string) (evidence.EvidenceSet, error) {
-	data, err := os.ReadFile(path)
+// readEvidenceSet strictly decodes and structurally validates an EvidenceSet,
+// read from stdin when path is "-".
+func readEvidenceSet(path string, stdin io.Reader) (evidence.EvidenceSet, error) {
+	var data []byte
+	var err error
+	if path == "-" {
+		data, err = io.ReadAll(stdin)
+	} else {
+		data, err = os.ReadFile(path)
+	}
 	if err != nil {
 		return evidence.EvidenceSet{}, err
 	}
@@ -216,6 +226,75 @@ func readEvidenceSet(path string) (evidence.EvidenceSet, error) {
 	}
 	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
 		return evidence.EvidenceSet{}, fmt.Errorf("invalid evidence set: %w", errors.Join(errs...))
+	}
+	return set, nil
+}
+
+// ProvisionedOptions configures ProvisionedEvidence. Exactly one of
+// Configuration or Dependency names the consumer entry that asked for the
+// resource.
+type ProvisionedOptions struct {
+	ContractRef   string // the consumer revision: oci://<repo>@sha256:<digest>
+	Subject       string // optional; defaults to <repository>/<environment or default>/<kind>/<name>
+	Configuration string
+	Dependency    string
+	Environment   string
+	Provider      string
+	ExternalRef   string
+	Phase         string
+	Outcome       string    // optional; defaults to Observed
+	ObservedAt    time.Time // optional; defaults to now
+	Collector     string    // optional; defaults to "pacto"
+}
+
+// ProvisionedEvidence builds the EvidenceSet a platform adapter reports: the
+// provisioning state of the resource a consumer's configuration reference or
+// dependency asked for, about the consumer's immutable contract revision. The
+// subject sits under the consumer's repository path, one resource per subject
+// (the kind keeps a dependency and a configuration of one name apart), so two
+// resources never replace each other in the latest-per-target store.
+func (s *Service) ProvisionedEvidence(opts ProvisionedOptions) (evidence.EvidenceSet, error) {
+	if (opts.Configuration == "") == (opts.Dependency == "") {
+		return evidence.EvidenceSet{}, errors.New("set exactly one of configuration or dependency")
+	}
+	if err := evidenceingest.CheckContractRef(opts.ContractRef); err != nil {
+		return evidence.EvidenceSet{}, fmt.Errorf("contract %q must be an immutable oci://<repo>@sha256:<digest> reference: %w", opts.ContractRef, err)
+	}
+	use := evidence.SubjectRef{Kind: "configuration", Name: opts.Configuration}
+	if opts.Dependency != "" {
+		use = evidence.SubjectRef{Kind: "dependency", Name: opts.Dependency}
+	}
+	repo, _, _ := strings.Cut(contract.TrimOCIScheme(opts.ContractRef), "@")
+	subject := cmp.Or(opts.Subject, repo+"/"+cmp.Or(opts.Environment, "default")+"/"+use.Kind+"/"+use.Name)
+	if !strings.HasPrefix(subject, repo+"/") {
+		return evidence.EvidenceSet{}, fmt.Errorf("subject %q must start with the contract repository %q", subject, repo+"/")
+	}
+	observedAt := opts.ObservedAt
+	if observedAt.IsZero() {
+		observedAt = s.env().now().UTC()
+	}
+	collector := cmp.Or(opts.Collector, "pacto")
+	prov := evidence.Provenance{Collector: collector, DetectedAt: observedAt}
+	obs := evidence.NewResourceProvisioned(use, evidence.ProvisionedObservation{Provider: opts.Provider,
+		ExternalRef: opts.ExternalRef, Phase: evidence.ProvisionPhase(opts.Phase), Environment: opts.Environment}, prov)
+	if outcome := evidence.Outcome(cmp.Or(opts.Outcome, string(evidence.Observed))); outcome != evidence.Observed {
+		// Anything short of Observed carries no phase: Unknown is never reported as a state.
+		var err error
+		// The environment rides on the subject, so the report keeps its environment's row.
+		use.Environment = opts.Environment
+		if obs, err = evidence.NewUnobserved(evidence.ResourceProvisioned, use, outcome, prov); err != nil {
+			return evidence.EvidenceSet{}, err
+		}
+	}
+	set := evidence.EvidenceSet{
+		Subject:      evidence.SubjectRef{Kind: "resource", Name: subject},
+		ContractRef:  opts.ContractRef,
+		Source:       collector,
+		ObservedAt:   observedAt,
+		Observations: []evidence.Observation{obs},
+	}
+	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
+		return evidence.EvidenceSet{}, fmt.Errorf("invalid provisioning report: %w", errors.Join(errs...))
 	}
 	return set, nil
 }

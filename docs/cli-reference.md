@@ -651,6 +651,31 @@ pacto evidence keygen [flags]
       --producer string   producer id to bind the key to (writes <producer>__<keyId>.pub)
 ```
 
+### `pacto evidence provisioned`
+
+Writes an EvidenceSet that reports the provisioning state of the resource a consumer's configuration reference or dependency asked for. Sign it with pacto evidence sign and post it with pacto evidence send. Any adapter (a CI job, a controller, a script) can run it; Pacto keeps no provider-specific code. The subject defaults to &lt;repository&gt;/<environment or default>/&lt;kind&gt;/&lt;name&gt;, so each resource keeps its own latest report. Prints the EvidenceSet JSON.
+
+```
+pacto evidence provisioned [flags]
+```
+
+**Flags:**
+
+```
+      --collector string       collector id recorded as provenance (defaults to pacto)
+      --configuration string   consumer configuration (with a ref) that asked for the resource
+      --contract string        consumer contract revision: oci://<repo>@sha256:<digest>
+      --dependency string      consumer dependency that asked for the resource
+      --environment string     consumer environment the resource serves
+      --external-ref string    opaque handle of the resource at the provider (at most 253 printable bytes)
+  -h, --help                   help for provisioned
+      --observed-at string     observation timestamp (RFC3339; defaults to now)
+      --outcome string         collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no phase (default "Observed")
+      --phase string           provisioning phase: Requested, Provisioning, Ready, Failed or Deleting
+      --provider string        provider slug (lowercase letters, digits and hyphens)
+      --subject string         EvidenceSet subject (defaults to <repository>/<environment or default>/<kind>/<name>)
+```
+
 ### `pacto evidence send`
 
 Reads a signed envelope JSON file and POSTs it to an ingestion host's --url. Prints the host's JSON response and exits non-zero on a non-2xx status.
@@ -687,7 +712,7 @@ pacto evidence serve [flags]
 
 ### `pacto evidence sign`
 
-Reads an EvidenceSet JSON file, wraps it in an Ed25519-signed envelope and prints the envelope JSON. Only --issued-at is non-deterministic (it defaults to now), so pinning it is enough to make re-signing the same evidence produce a byte-identical envelope.
+Reads an EvidenceSet JSON file (- reads stdin), wraps it in an Ed25519-signed envelope and prints the envelope JSON. Only --issued-at is non-deterministic (it defaults to now), so pinning it is enough to make re-signing the same evidence produce a byte-identical envelope.
 
 ```
 pacto evidence sign <evidence.json> [flags]
@@ -726,7 +751,7 @@ pacto evidence verify <envelope.json> [flags]
 
 ## `pacto explain`
 
-Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract.
+Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract. Each configuration lists its effective values per environment: its inline values with that environment's file merged on top.
 
 ```
 pacto explain [dir | oci://ref] [flags]
@@ -736,6 +761,7 @@ pacto explain [dir | oci://ref] [flags]
 
 ```
   pacto explain my-service
+  pacto explain oci://ghcr.io/acme/orders@sha256:<digest> --output-format json
 ```
 
 **Flags:**
@@ -811,6 +837,7 @@ pacto fleet entities [text] [flags]
 
 ```
       --business-domain string   exact business domain, (none) for none or (unknown) for unknown
+      --consumes string          services that depend on or reference a provider of this platform offering
   -h, --help                     help for entities
       --kind string              entity kind (service, owner, domain, offering; empty lists all four)
       --limit int                maximum results (0 = 100, capped at 500)
@@ -991,6 +1018,22 @@ pacto fleet status [flags]
       --unowned              report services with no declared owner
       --unresolved-deps      report unresolved declared dependencies
       --unsatisfied-ranges   report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
+```
+
+### `pacto fleet versions`
+
+Lists each provider's versions of a platform offering, newest first, with whether a target runs each one and the service lifecycle it declares. With --range, each version shows whether it satisfies the range and each provider names its latest compatible version. The list comes from the contract revisions the snapshot holds; the registry may publish others.
+
+```
+pacto fleet versions <offering> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help              help for versions
+      --provider string   only this provider: its key, or a name only one domain uses
+      --range string      semver range to check each version against, such as ^16.0.0
 ```
 
 ---
@@ -1391,7 +1434,7 @@ The **default** server exposes the four authoring tools below. A bundle referenc
 | Tool | Description |
 |------|-------------|
 | `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |
-| `pacto_edit` | Edit an existing contract: add or remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |
+| `pacto_edit` | Edit an existing contract: add or remove interfaces, dependencies and configuration references, add environments and set their values, set the service lifecycle, change runtime, update metadata. Checks values against a referenced contract's schema before writing. Supports dry run. |
 | `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 
@@ -1423,15 +1466,16 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
 | `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`, `unowned`, `undeclared`; plus `limit`. No category, including empty input, reports every category |
 | `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
-| `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `ownership`, `status`, `sort`, `limit`, `offset` |
+| `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `ownership`, `status`, `sort`, `limit`, `offset` |
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
 | `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `limit`, `offset` |
 | `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`) and `max_nodes` |
+| `pacto_fleet_versions` | `offering` (**required**), then `provider` (a key, or a name only one domain uses) and `range` (a semver range; each version then carries `rangeStatus` and each provider its `latestCompatible` version) |
 | `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
 
 Argument names differ from flag names: the substring filter is `text`. Every tool above closes its schema, so an unknown argument is an error.
 
-With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity, attention and neighborhood answers carry an `href` to each entity's page on that Pacto dashboard, and each contracted consumer in a `pacto_impact` answer an `href` to its service page.
+With `--fleet`, the server rebuilds its snapshot when a call arrives 30 seconds or more after the last rebuild attempt, and `pacto_impact` analyses over the same snapshot as the other tools. Add `--dashboard-url <url>` to make search, graph, status, entities, entity, attention, neighborhood and versions answers carry an `href` to each entity's page on that Pacto dashboard, and each contracted consumer in a `pacto_impact` answer an `href` to its service page.
 
 See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.
 
@@ -1748,7 +1792,7 @@ Notifications are suppressed when:
 
 Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field and policy.
 
-The output has one PASS, FAIL or SKIP line per stage, in order: load, lock, structural, cross-field, policy, environments, guarantees, readiness and closure. The environments stage checks each environment's file against the schema of every configuration it names. Each error sits under its stage with its file:line:column when Pacto can locate it. A failed load or lock stage skips every stage after it, and a failed structural or cross-field stage skips the stages after it up to policy. Any failed stage skips environments. The guarantees, readiness and closure stages run even when an earlier stage fails. The last line, Next:, names the one command to run now. With --output-format json the same comes as stages and next.
+The output has one PASS, FAIL or SKIP line per stage, in order: load, lock, structural, cross-field, policy, configuration-refs, environments, guarantees, readiness and closure. The configuration-refs stage fetches the contract each configuration ref names and checks the values against its configuration schema; a ref that cannot be fetched fails it when values depend on it. The environments stage checks each environment's file against the schema of every configuration it names. Each error sits under its stage with its file:line:column when Pacto can locate it. A failed load or lock stage skips every stage after it, and a failed structural, cross-field or policy stage skips the stages after it up to environments. A failed configuration-refs stage skips nothing. The guarantees, readiness and closure stages run even when an earlier stage fails. The last line, Next:, names the one command to run now. With --output-format json the same comes as stages and next.
 
 ```
 pacto validate [dir | oci://ref] [flags]
@@ -1793,15 +1837,16 @@ A contract with a mistyped value fails like this:
 ```
 svc is invalid
 PASS load
-SKIP lock         no pacto.lock
+SKIP lock               no pacto.lock
 FAIL structural
   svc/pacto.yaml:6:1: ERROR [SCHEMA_VIOLATION] workload: at '/workload': value must be one of 'service', 'job', 'scheduled' (did you mean "service"?)
-SKIP cross-field  structural failed
-SKIP policy       structural failed
-SKIP environments structural failed
-SKIP guarantees   no dependency declares requires
-SKIP readiness    not requested (--readiness)
-SKIP closure      not requested (--closure)
+SKIP cross-field        structural failed
+SKIP policy             structural failed
+SKIP configuration-refs structural failed
+SKIP environments       structural failed
+SKIP guarantees         no dependency declares requires
+SKIP readiness          not requested (--readiness)
+SKIP closure            not requested (--closure)
 Next: fix workload at svc/pacto.yaml:6:1 [SCHEMA_VIOLATION], then run pacto validate svc
 ```
 

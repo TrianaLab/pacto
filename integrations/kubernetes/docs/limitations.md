@@ -219,6 +219,46 @@ is nothing transient to wait out; the evidence is already conclusive.
 This split matters if you gate deployments on the verdict. See
 [GitOps promotion gates](gitops.md#timing).
 
+## Configurations that take their schema by ref
+
+A configuration can take its schema from another contract with `ref:
+oci://...`. The operator pulls that contract and checks three things against
+the schema of the configuration it selects: the configuration's values, the
+values `spec.overrides` merges in and the content of a bound ConfigMap. A bound
+Secret stays metadata-only.
+
+The operator scopes credentials by registry host:
+
+- A ref on the host of `spec.contractRef.oci` is pulled with the same
+  credentials: the Secret named in `spec.contractRef.pullSecretRef`, or the
+  operator's own when there is none.
+- A ref on any other host is pulled anonymously, so a contract never sends your
+  pull Secret to a registry of its choosing.
+- A ref on any other host that names an internal address, such as a loopback,
+  private or link-local IP, `localhost`, a single-label name or a `.svc`,
+  `.local` or `.internal` name, is refused unless `PACTO_INSECURE_REGISTRIES`
+  lists it. A pull from any other host also refuses to connect to an internal
+  address after name resolution, so a public name that resolves to an internal
+  address, a token realm and a redirect are refused the same way.
+- With `HTTPS_PROXY` set, the operator connects to the proxy and the proxy
+  reaches the registry, so the proxy decides which addresses a ref can reach.
+
+The operator follows at most eight refs in a chain and spends at most two
+minutes resolving the refs of one reconcile. A registry error appears in
+`status.validation` as its first line, cut to 200 bytes.
+
+When the pull fails, `status.validation` carries a `CONFIG_REF_UNVERIFIED`
+warning, the contract stays valid and the bound ConfigMap reads `Insufficient`.
+Values the provider's schema rejects make the contract `Invalid` with
+`CONFIG_VALUES_VALIDATION_FAILED`.
+
+The referenced contract's lifecycle (`DEPENDENCY_SERVICE_DEPRECATED` and
+`DEPENDENCY_SERVICE_SUNSET`) and selection problems (`CONFIG_REF_AMBIGUOUS` and
+`CONFIG_REF_UNKNOWN_CONFIGURATION`) appear as entries in `status.validation`,
+with no status field of their own. To read a service's own `service.lifecycle`,
+run [`pacto explain`](../../cli-reference.md#pacto-explain) or open the
+dashboard.
+
 ## Delivery and private registries
 
 Images can stay private with only a pull Secret. A private contract or deploy

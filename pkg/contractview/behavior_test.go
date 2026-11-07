@@ -32,7 +32,7 @@ environments:
 		"prod.yaml":    {Data: []byte("chart:\n  replicas: many\n")},
 	}
 	d := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, RawYAML: raw, FS: fsys}, "local")
-	if n := len(d.Stages); n != 4 || d.Stages[3].Name != "environments" || d.Stages[3].Status != "fail" {
+	if n := len(d.Stages); n != 5 || d.Stages[4].Name != "environments" || d.Stages[4].Status != "fail" {
 		t.Fatalf("stages: %+v", d.Stages)
 	}
 	if len(d.Environments) != 2 || d.Environments[0].Status != fleet.EnvironmentPass || d.Environments[1].Status != fleet.EnvironmentFail {

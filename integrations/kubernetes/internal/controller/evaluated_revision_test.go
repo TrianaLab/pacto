@@ -140,7 +140,7 @@ func TestStatusCarriesGuaranteesToDelivery(t *testing.T) {
 			{Name: "ledger", Ref: "oci://r/ledger", Compatibility: "^1", Requires: requires},
 			{Name: "fraud", Ref: "oci://r/fraud"},
 		},
-	}})
+	}}, nil)
 	if g := p.Status.Interfaces[0]; g.CompatibilityEpoch != 2 || g.Lifecycle == nil || g.Lifecycle.Successor != "events-v2" ||
 		g.Guarantees == nil || g.Guarantees.Retention != "168h" || p.Status.Interfaces[2].Guarantees != nil || p.Status.Interfaces[2].Lifecycle != nil {
 		t.Fatalf("status.interfaces lost a field: %+v", p.Status.Interfaces)

@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -45,10 +46,13 @@ const InsecureRegistriesEnvVar = "PACTO_INSECURE_REGISTRIES"
 // If the ref has no explicit tag or digest, the highest semver tag is resolved.
 // An optional authOverride provides per-call credentials (e.g. from a K8s Secret).
 func (p *OCIPuller) Pull(ctx context.Context, ref string, authOverride *authn.AuthConfig) (*LoadResult, error) {
-	ref = strings.TrimPrefix(ref, "oci://")
+	return p.pullWith(ctx, strings.TrimPrefix(ref, "oci://"), p.effectiveKeychain(authOverride))
+}
 
-	kc := p.effectiveKeychain(authOverride)
-	client := oci.NewClient(kc, p.clientOpts...)
+// pullWith is [OCIPuller.Pull] with exactly the keychain kc: no default keychain is added behind it.
+// opts add to the puller's own client options.
+func (p *OCIPuller) pullWith(ctx context.Context, ref string, kc authn.Keychain, opts ...oci.ClientOption) (*LoadResult, error) {
+	client := oci.NewClient(kc, slices.Concat(p.clientOpts, opts)...)
 
 	// Resolve tag if not explicitly specified
 	resolvedRef, err := oci.ResolveRef(ctx, client, ref, "")

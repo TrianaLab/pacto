@@ -33,6 +33,11 @@ Dependencies (3):
   - orders-service: oci://ghcr.io/trianalab/pacto/orders-service (^1.0.0, required)
   - payments-service: oci://ghcr.io/trianalab/pacto/payments-service (^1.0.0, required)
 
+Configurations (2):
+  - platform: oci://ghcr.io/trianalab/pacto/platform-app-config (required)
+  - app: configuration/schema.json (required)
+      values: {"AUTH_SERVICE_URL":"auth-service:50051","ENABLE_WEBSOCKETS":true,"ORDERS_SERVICE_URL":"http://orders-service:8082","OTEL_SERVICE_NAME":"api-gateway","PAYMENTS_SERVICE_URL":"http://payments-service:8083","REQUEST_TIMEOUT_SECONDS":30}
+
 Readiness:
   Score: 0
   Gate: FAIL (score 0 / minScore 75)

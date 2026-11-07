@@ -278,14 +278,21 @@ func (r *Result) noteRangeOnlyMatches() {
 	}
 	for i := range r.Consumers {
 		c := &r.Consumers[i]
-		if c.CompatibilityVerdict != CompatibilityCompatible {
+		// With no range the verdict came from checking configuration values,
+		// and configRefVerdict already wrote its note.
+		if c.CompatibilityVerdict != CompatibilityCompatible || c.Compatibility == "" {
 			continue
 		}
-		c.Note = "compatible only means the range " + c.Compatibility + " accepts " + r.NewVersion +
+		note := "compatible only means the range " + c.Compatibility + " accepts " + r.NewVersion +
 			"; this change is BREAKING, so check that " + c.Service + " does not use what it removes or changes"
 		if fleet.CheckRange(c.Compatibility, openRangeProbe) == fleet.RangeSatisfied {
-			c.Note = "the range " + c.Compatibility + " has no upper bound, so " + c.Note
+			note = "the range " + c.Compatibility + " has no upper bound, so " + note
 		}
+		// A configuration-reference check that passed keeps its note.
+		if c.Note != "" {
+			note = c.Note + "; " + note
+		}
+		c.Note = note
 	}
 }
 
@@ -378,8 +385,17 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	for _, tk := range serviceTargets(snap, changed) {
 		targets[tk] = true
 	}
+	if n := unresolvedConfigRefConsumers(snap, changed); n > 0 {
+		res.Completeness = fleet.CompletenessPartial
+		res.Limitations = append(res.Limitations, fleet.Limitation{
+			Code: "CONFIG_REF_CONSUMERS_UNRESOLVED", Source: limitationSource,
+			Message: strconv.Itoa(n) + " configuration references name " + string(changed) +
+				" but are not digest-pinned or locked, so Pacto cannot tell which revision they consume",
+		})
+	}
+	newBundle := &contract.Bundle{Contract: new, FS: newFS}
 	for _, cn := range unionConsumers(graph, changed, resolvedObserved) {
-		c := consumerImpact(snap, changed, cn, new.Service.Version, resolvedObserved)
+		c := consumerImpact(snap, changed, cn, newBundle, resolvedObserved)
 		c.Unmet = unmetGuarantees(snap, cn.key, changed, new)
 		res.Consumers = append(res.Consumers, c)
 		if c.Owner != "" {
@@ -472,6 +488,7 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 func snapshotObservedEdges(snap *fleet.FleetSnapshot) []resolvedObservedEdge {
 	var out []resolvedObservedEdge
 	for _, r := range snap.Relationships {
+		// Observed runtime calls are dependency edges; a reference never makes one.
 		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceObserved && r.Resolved {
 			out = append(out, resolvedObservedEdge{consumer: r.FromService, provider: r.ToService})
 		}
@@ -505,8 +522,10 @@ func unionConsumers(graph *fleet.GraphResult, changed fleet.ServiceKey, observed
 	return out
 }
 
-// consumerImpact builds the affected-consumer record for one consumer.
-func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node consumerNode, newVersion string, observedEdges []resolvedObservedEdge) AffectedConsumer {
+// consumerImpact builds the affected-consumer record for one consumer of the
+// changed service's new revision.
+func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node consumerNode, newBundle *contract.Bundle, observedEdges []resolvedObservedEdge) AffectedConsumer {
+	newVersion := newBundle.Contract.Service.Version
 	domain, _ := fleet.ParseServiceKey(node.key)
 	c := AffectedConsumer{
 		Service: node.name,
@@ -524,14 +543,25 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 		sort.Strings(c.Targets)
 	}
 
-	rel, hasDeclared, observed := edgeEvidence(snap, node.key, changed, newVersion, observedEdges)
+	rel, hasDeclared, observed, refs := edgeEvidence(snap, node.key, changed, newVersion, observedEdges)
 	// The observedEdges slice is empty unless the caller opted in and the endpoints
 	// resolved to unique domain-qualified keys, so `observed` is already gated.
 	observedCounted := observed
 	c.Required = rel.Required
 	c.Compatibility = rel.Compatibility
-	c.Provenance = provenance(hasDeclared, observedCounted)
 	c.CompatibilityVerdict = compatibilityVerdict(rel.Compatibility, newVersion, hasDeclared)
+	if len(refs) > 0 {
+		// Pacto judges the consumer's configuration-reference values against
+		// the new revision's schema itself; with a dependency too, the check
+		// that accepts the change least speaks, so a range match never masks
+		// values the new schema rejects.
+		v, note := configRefVerdict(snap, refs, newBundle)
+		if !hasDeclared || verdictRank(v) > verdictRank(c.CompatibilityVerdict) {
+			c.CompatibilityVerdict = v
+		}
+		c.Note, hasDeclared = note, true
+	}
+	c.Provenance = provenance(hasDeclared, observedCounted)
 	c.Confidence = confidence(node.depth, hasDeclared, rel.Compatibility != "", observedCounted)
 	return c
 }
@@ -546,21 +576,23 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 // The one that accepts newVersion least speaks for the consumer (incompatible
 // over unknown over compatible): one running revision that breaks is enough
 // for the change to break the consumer, whatever order the edges come in.
-func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, newVersion string, observedEdges []resolvedObservedEdge) (rel fleet.Relationship, declared, observed bool) {
+//
+// refs are the consumer's configuration-reference edges to changed, whose
+// values the caller checks beside the dependency edge.
+//
+// Observed relationships are never counted here: [fleet.ConsumesEdge] takes
+// declared edges only. Build folds observed relationships into the snapshot
+// unconditionally, so reading corroboration out of them here would bypass the
+// opt-in; when the caller DOES opt in, snapshotObservedEdges supplies the same
+// edges through observedEdges.
+func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey, newVersion string, observedEdges []resolvedObservedEdge) (rel fleet.Relationship, declared, observed bool, refs []fleet.Relationship) {
 	for i := range snap.Relationships {
 		r := snap.Relationships[i]
-		if r.Type != fleet.RelationshipDependency || r.FromService != consumer || r.ToService != changed {
+		if !fleet.ConsumesEdge(r) || r.FromService != consumer || r.ToService != changed {
 			continue
 		}
-		// Skipped, never counted. Build folds observed relationships into the
-		// snapshot unconditionally, so reading corroboration out of them here
-		// bypassed the opt-in: a declared consumer came back "declared+observed" and
-		// corroborated from a plain declared-only analysis over any snapshot with
-		// observation sources. When the caller DOES opt in, snapshotObservedEdges
-		// already supplies the same edges through observedEdges, so this is the one
-		// place the gate belongs. The continue stays: an observed relationship is
-		// not the declared one.
-		if r.Provenance == fleet.ProvenanceObserved {
+		if r.Type == fleet.RelationshipConfigRef {
+			refs = append(refs, r)
 			continue
 		}
 		if !declared || verdictRank(compatibilityVerdict(r.Compatibility, newVersion, true)) > verdictRank(compatibilityVerdict(rel.Compatibility, newVersion, true)) {
@@ -573,7 +605,7 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey,
 			observed = true
 		}
 	}
-	return rel, declared, observed
+	return rel, declared, observed, refs
 }
 
 // unmetGuarantees lists what the consumer's declared dependencies on the
@@ -584,6 +616,7 @@ func unmetGuarantees(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceK
 	seen := map[contract.Mismatch]bool{}
 	for _, r := range snap.Relationships {
 		rev := snap.Revisions[r.FromRevision]
+		// Dependencies only: guarantee requirements live on dependencies.
 		if r.Type != fleet.RelationshipDependency || r.Provenance != fleet.ProvenanceDeclared || r.FromService != consumer || r.ToService != changed || rev == nil || rev.Contract == nil {
 			continue
 		}

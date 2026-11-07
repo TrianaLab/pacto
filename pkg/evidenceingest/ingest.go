@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -247,19 +248,8 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	if err != nil {
 		return Record{}, fmt.Errorf("%w: %w", ErrContractResolution, err)
 	}
-	findings, coverage := validation.Evaluate(c, env.EvidenceSet)
 	rec := Record{
-		Envelope: env,
-		// The compliance ladder has ONE producer. Ingestion and the operator rank
-		// their verdicts against each other, so a second copy here is a copy that
-		// drifts: this one already ranked an unknown finding under complete coverage
-		// as Compliant where the producer ranks it Unknown. Runtime findings are all
-		// ingestion has to give -- the record it accepted was already validated, so
-		// it holds no structural findings -- which is a difference in what this
-		// caller holds, not in the rule. See [validation.DeriveStatus].
-		Compliance: validation.DeriveStatus(findings, coverage),
-		Findings:   findings,
-		Coverage:   coverage,
+		Envelope:   env,
 		AcceptedAt: a.now(),
 		// The logical service is what the ContractRef resolved to, never the
 		// envelope Subject; the domain and digest come from the immutable ref.
@@ -268,6 +258,24 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		// domain by, so evidence lands on the same service identity.
 		Domain: contract.OCIDomain(env.EvidenceSet.ContractRef),
 		Digest: digestOf(env.EvidenceSet.ContractRef),
+	}
+	if isProvisioning(env.EvidenceSet) {
+		// A provisioning report claims nothing about the consumer's compliance:
+		// it is checked against what the consumer declared and stored as is.
+		if err := checkProvisioning(c, env.EvidenceSet, rec.AcceptedAt); err != nil {
+			return Record{}, fmt.Errorf("%w: %w", ErrInvalidEvidence, err)
+		}
+	} else {
+		findings, coverage := validation.Evaluate(c, env.EvidenceSet)
+		// The compliance ladder has ONE producer. Ingestion and the operator rank
+		// their verdicts against each other, so a second copy here is a copy that
+		// drifts: this one already ranked an unknown finding under complete coverage
+		// as Compliant where the producer ranks it Unknown. Runtime findings are all
+		// ingestion has to give -- the record it accepted was already validated, so
+		// it holds no structural findings -- which is a difference in what this
+		// caller holds, not in the rule. See [validation.DeriveStatus].
+		rec.Compliance = validation.DeriveStatus(findings, coverage)
+		rec.Findings, rec.Coverage = findings, coverage
 	}
 	if err := a.store.Commit(ctx, rec); err != nil {
 		// Replay is a defined, safe-to-surface outcome; any other commit failure is
@@ -278,6 +286,59 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		return Record{}, fmt.Errorf("%w: %w", ErrStoreWrite, err)
 	}
 	return rec, nil
+}
+
+// isProvisioning reports whether set carries provisioning reports.
+func isProvisioning(set evidence.EvidenceSet) bool {
+	return slices.ContainsFunc(set.Observations, func(o evidence.Observation) bool {
+		return o.Kind == evidence.ResourceProvisioned
+	})
+}
+
+// checkProvisioning binds a provisioning report to the consumer contract it is
+// about: the set carries only ResourceProvisioned observations, its subject sits
+// under the consumer's repository path (so trust-entry subject globs scope which
+// consumers a key may report for), it is not dated beyond the allowed clock skew
+// past acceptedAt, and every observation names a configuration reference or a
+// dependency the consumer declares, in an environment it declares.
+func checkProvisioning(c contract.Contract, set evidence.EvidenceSet, acceptedAt time.Time) error {
+	repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
+	if !strings.HasPrefix(set.Subject.Name, repo+"/") {
+		return fmt.Errorf("provisioning subject %q must start with the contract repository %q", set.Subject.Name, repo+"/")
+	}
+	if set.ObservedAt.After(acceptedAt.Add(fleet.MaxProvisioningClockSkew)) {
+		return fmt.Errorf("provisioning report is dated %s, more than %s after it was accepted", set.ObservedAt.Format(time.RFC3339), fleet.MaxProvisioningClockSkew)
+	}
+	for i, o := range set.Observations {
+		if err := checkProvisionedObservation(c, o); err != nil {
+			return fmt.Errorf("observation[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func checkProvisionedObservation(c contract.Contract, o evidence.Observation) error {
+	if o.Kind != evidence.ResourceProvisioned {
+		return errors.New("a ResourceProvisioned evidence set carries only ResourceProvisioned observations")
+	}
+	if !declaresUse(c, o.Subject) {
+		return fmt.Errorf("the contract declares no configuration reference or dependency %s %q", o.Subject.Kind, o.Subject.Name)
+	}
+	if env := o.ProvisionedEnvironment(); env != "" && !slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }) {
+		return fmt.Errorf("the contract declares no environment %q", env)
+	}
+	return nil
+}
+
+// declaresUse reports whether c asks for a resource through subject: a
+// configuration that takes its schema by ref, or any declared dependency.
+func declaresUse(c contract.Contract, subject evidence.SubjectRef) bool {
+	if subject.Kind == "configuration" {
+		return slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool {
+			return cfg.Name == subject.Name && cfg.Ref != ""
+		})
+	}
+	return slices.ContainsFunc(c.Dependencies, func(d contract.Dependency) bool { return d.Name == subject.Name })
 }
 
 // List returns the latest committed record per target, for the read-only source
@@ -402,6 +463,11 @@ func (h *Handler) handleProducers(w http.ResponseWriter, _ *http.Request) {
 // must refuse the body rather than misread it.
 const TargetsSchemaVersion = "pacto.dev/evidence-source/v2"
 
+// TargetsSchemaVersionProvisioning is v2 plus the provisioning list. The server
+// writes it only when the response carries provisioning records, so a reader
+// that knows only v2 keeps working against a server with none.
+const TargetsSchemaVersionProvisioning = "pacto.dev/evidence-source/v3"
+
 // maxFindingsPerTarget bounds the findings projected per target so one pathological
 // target cannot blow the response body even under the target-count bound.
 const maxFindingsPerTarget = 500
@@ -469,13 +535,39 @@ type TargetDTO struct {
 	AcceptedAt    time.Time           `json:"acceptedAt"`
 }
 
+// ProvisioningDTO is one provider-reported provisioning observation: the state
+// of the resource a consumer's configuration reference or dependency (Kind,
+// Name) asked for. Service/Domain/Digest/ContractRef name the CONSUMER revision.
+// It is never a target: a provisioning report adds no environment to the fleet.
+type ProvisioningDTO struct {
+	Subject     string `json:"subject"`
+	Service     string `json:"service"`
+	Domain      string `json:"domain,omitempty"`
+	Digest      string `json:"digest,omitempty"`
+	ContractRef string `json:"contractRef"`
+	Producer    string `json:"producer"`
+	// ProducerKeyID is the trusted key that signed the report, so a reader can
+	// tell which key certified a phase when several share one producer.
+	ProducerKeyID string    `json:"producerKeyId,omitempty"`
+	Kind          string    `json:"kind"`
+	Name          string    `json:"name"`
+	Environment   string    `json:"environment,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
+	ExternalRef   string    `json:"externalRef,omitempty"`
+	Phase         string    `json:"phase,omitempty"`
+	Outcome       string    `json:"outcome"`
+	EvidenceAt    time.Time `json:"evidenceAt"`
+	AcceptedAt    time.Time `json:"acceptedAt"`
+}
+
 // TargetsResponse is the versioned read-only evidence-source contribution.
 type TargetsResponse struct {
-	SchemaVersion string       `json:"schemaVersion"`
-	GeneratedAt   time.Time    `json:"generatedAt"`
-	Health        SourceHealth `json:"health"`
-	Truncated     bool         `json:"truncated"`
-	Targets       []TargetDTO  `json:"targets"`
+	SchemaVersion string            `json:"schemaVersion"`
+	GeneratedAt   time.Time         `json:"generatedAt"`
+	Health        SourceHealth      `json:"health"`
+	Truncated     bool              `json:"truncated"`
+	Targets       []TargetDTO       `json:"targets"`
+	Provisioning  []ProvisioningDTO `json:"provisioning,omitempty"`
 }
 
 // handleTargets serves the versioned, bounded, read-only evidence-source DTO. It
@@ -491,40 +583,77 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "registry_unavailable", "the evidence store could not be read")
 		return
 	}
-	recs := res.Records
-	truncated := false
-	if len(recs) > h.maxTargets {
-		recs, truncated = recs[:h.maxTargets], true
-	}
-	out := make([]TargetDTO, 0, len(recs))
-	for _, rec := range recs {
-		es := rec.Envelope.EvidenceSet
-		findings := rec.Findings
-		if len(findings) > h.maxFindings {
-			findings, truncated = findings[:h.maxFindings], true
-		}
-		out = append(out, TargetDTO{
-			Subject:       es.Subject.Name,
-			Service:       rec.Service,
-			Domain:        rec.Domain,
-			Digest:        rec.Digest,
-			Producer:      rec.Envelope.Producer.ID,
-			ProducerKeyID: rec.Envelope.Producer.KeyID,
-			Compliance:    rec.Compliance,
-			Coverage:      rec.Coverage,
-			Findings:      findings,
-			ContractRef:   es.ContractRef,
-			EvidenceAt:    es.ObservedAt,
-			AcceptedAt:    rec.AcceptedAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, TargetsResponse{
+	out := TargetsResponse{
 		SchemaVersion: TargetsSchemaVersion,
 		GeneratedAt:   time.Now().UTC(),
 		Health:        res.Health,
-		Truncated:     truncated,
-		Targets:       out,
-	})
+		Targets:       []TargetDTO{},
+	}
+	// Targets and provisioning observations share one budget, so provisioning
+	// reports cannot grow the response past the bound targets alone respect.
+	budget := h.maxTargets
+	for _, rec := range res.Records {
+		if isProvisioning(rec.Envelope.EvidenceSet) {
+			budget = h.appendProvisioning(&out, rec, budget)
+			continue
+		}
+		if budget == 0 {
+			out.Truncated = true
+			continue
+		}
+		out.Targets = append(out.Targets, h.targetDTO(rec, &out.Truncated))
+		budget--
+	}
+	if len(out.Provisioning) > 0 {
+		out.SchemaVersion = TargetsSchemaVersionProvisioning
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// targetDTO projects one accepted runtime record, bounding its findings.
+func (h *Handler) targetDTO(rec Record, truncated *bool) TargetDTO {
+	es := rec.Envelope.EvidenceSet
+	findings := rec.Findings
+	if len(findings) > h.maxFindings {
+		findings, *truncated = findings[:h.maxFindings], true
+	}
+	return TargetDTO{
+		Subject:       es.Subject.Name,
+		Service:       rec.Service,
+		Domain:        rec.Domain,
+		Digest:        rec.Digest,
+		Producer:      rec.Envelope.Producer.ID,
+		ProducerKeyID: rec.Envelope.Producer.KeyID,
+		Compliance:    rec.Compliance,
+		Coverage:      rec.Coverage,
+		Findings:      findings,
+		ContractRef:   es.ContractRef,
+		EvidenceAt:    es.ObservedAt,
+		AcceptedAt:    rec.AcceptedAt,
+	}
+}
+
+// appendProvisioning projects one provisioning record, one DTO per observation,
+// within budget, and returns the budget left.
+func (h *Handler) appendProvisioning(out *TargetsResponse, rec Record, budget int) int {
+	es := rec.Envelope.EvidenceSet
+	for _, o := range es.Observations {
+		if budget == 0 {
+			out.Truncated = true
+			return 0
+		}
+		// The payload was validated at accept; a non-Observed outcome has none.
+		p, _ := o.GetProvisionedObservation()
+		out.Provisioning = append(out.Provisioning, ProvisioningDTO{
+			Subject: es.Subject.Name, Service: rec.Service, Domain: rec.Domain, Digest: rec.Digest,
+			ContractRef: es.ContractRef, Producer: rec.Envelope.Producer.ID, ProducerKeyID: rec.Envelope.Producer.KeyID,
+			Kind: o.Subject.Kind, Name: o.Subject.Name, Environment: o.ProvisionedEnvironment(),
+			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: string(p.Phase), Outcome: string(o.Outcome),
+			EvidenceAt: es.ObservedAt, AcceptedAt: rec.AcceptedAt,
+		})
+		budget--
+	}
+	return budget
 }
 
 // classifyAcceptError maps an accept error to (HTTP status, stable code, generic
@@ -539,7 +668,8 @@ func classifyAcceptError(err error) (int, string, string) {
 	case errors.Is(err, evidenceenvelope.ErrExpired), errors.Is(err, evidenceenvelope.ErrNotYetValid),
 		errors.Is(err, evidenceenvelope.ErrBadSignature), errors.Is(err, evidenceenvelope.ErrUnknownKey),
 		errors.Is(err, evidenceenvelope.ErrUnsignedEnvelope), errors.Is(err, evidenceenvelope.ErrBadAlgorithm),
-		errors.Is(err, evidenceenvelope.ErrProducerMismatch), errors.Is(err, evidenceenvelope.ErrSubjectNotAllowed):
+		errors.Is(err, evidenceenvelope.ErrProducerMismatch), errors.Is(err, evidenceenvelope.ErrSubjectNotAllowed),
+		errors.Is(err, evidenceenvelope.ErrKindNotAllowed):
 		return http.StatusUnauthorized, "unauthorized_producer", "the envelope could not be authenticated or is not authorized for this producer or subject"
 	case errors.Is(err, ErrContractRefPolicy):
 		return http.StatusUnprocessableEntity, "contract_ref_rejected", "the contract reference is not an approved immutable digest reference"

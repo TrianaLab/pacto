@@ -2,6 +2,11 @@
 
 A plugin turns a contract into files: Helm charts, Terraform, Kubernetes manifests, a README. It is a separate program, written in any language. `pacto generate <name>` sends it the contract as JSON on stdin, and the plugin answers with a list of files on stdout. The [Bash example](#example-minimal-plugin-in-bash) below is a complete, working plugin.
 
+A plugin is also one seam for infrastructure adapters: it can turn a consumer
+contract that references an infrastructure contract into the files your
+provisioning tool applies. See
+[Provision infrastructure through contracts](provision-infrastructure.md).
+
 ---
 
 ## Official plugins

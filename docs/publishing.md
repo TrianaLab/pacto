@@ -29,6 +29,11 @@ Pacto runs no tests. It refuses to publish when one of its own checks fails:
   guarantee as the failed `validation` check. An unmet guarantee of an optional
   dependency and a provider Pacto cannot fetch (`GUARANTEE_UNVERIFIED`) are
   warnings: the `validation` check passes and names them;
+- a configuration reference that a check depends on cannot be fetched
+  (`CONFIG_REF_UNRESOLVED`), as with an unreachable policy reference, or the
+  values fail the referenced schema. `pacto push` refuses the same way. A
+  `"2.0"` to `"2.5"` reference with no values anywhere only warns; see
+  [Resolution and versions](contract-reference/configuration-and-policy.md#resolution-and-versions);
 - `publish.sign` is missing, the signing key file would end up inside the
   bundle, or the signer does not open: a missing key file, a wrong
   `COSIGN_PASSWORD` or an unreachable KMS key refuses the plan, before

@@ -21,7 +21,11 @@ Change analysis on raw references answers only for services you can see: a
 hidden one, on either side of the change, reads as not found. A service known
 only from a registry, with no Pacto in any namespace, belongs to no namespace:
 only people who may list Pactos in every namespace see it, and for everyone
-else it is hidden like the rest. A hidden service is never named: the dashboard says
+else it is hidden like the rest. A provider of a platform offering is the
+exception when its contract declares the offering and every Kubernetes source
+answered: every signed-in person sees its owner, offering and versions, with
+all its targets hidden. Its consumers follow their own namespaces, and the
+offering counts the ones you cannot see. A hidden service is never named: the dashboard says
 some services are hidden, and a service page counts the hidden services it
 depends on and that depend on it. If the apiserver cannot answer, the views
 show an error, not a smaller fleet.

@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -47,6 +48,11 @@ func callerNamespace(c UncontractedCaller) (string, bool) {
 // with its revisions, its targets everywhere and its edges. A service known
 // only from a registry or files, with no Kubernetes target, has no namespace:
 // visible("") decides it, and a caller who may read every namespace says yes.
+// One such service stays for a caller visible("") refuses: a service whose
+// contract revisions declare a platform offering, when every Kubernetes source
+// is available, so it truly has no Kubernetes placement. Its revisions, owner
+// and offering show and all its targets are gone from the view, so no target
+// name an adapter chose reaches the caller.
 //
 // An edge between a visible and a hidden service keeps the visible side:
 // each visible service counts the hidden services it depends on and that
@@ -71,8 +77,8 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 		}
 	}
 	restricted := !visible("")
-	hiddenSvc := hiddenServices(s, hiddenNS, restricted)
-	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && (!restricted || !hasBareNames(s)) {
+	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, restricted)
+	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 && len(offeringOnly) == 0 && keepsEveryName(s, restricted) {
 		return q
 	}
 
@@ -80,7 +86,7 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	var hiddenNames []string
 	out.Targets = make(map[TargetKey]*TargetRecord, len(s.Targets))
 	for k, t := range s.Targets {
-		if (kubeTarget(t) && hiddenNS[t.Scope]) || hiddenSvc[t.ServiceKey] {
+		if (kubeTarget(t) && hiddenNS[t.Scope]) || hiddenSvc[t.ServiceKey] || offeringOnly[t.ServiceKey] {
 			hiddenNames = append(hiddenNames, t.Name, string(k))
 			continue
 		}
@@ -92,9 +98,15 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 			out.Revisions[k] = r
 		}
 	}
-	hiddenDeps, hiddenDependents := restrictRelationships(&out, s.Relationships, hiddenSvc)
+	restrictRevalidation(&out, s.Relationships, hiddenSvc)
+	hiddenDeps, hiddenDependents, hiddenConsumers := restrictRelationships(&out, s.Relationships, hiddenSvc)
+	out.hiddenConsumers = hiddenConsumers
 	out.UncontractedCallers = restrictCallers(s, hiddenSvc, hiddenNS, restricted, hiddenDependents)
 	hiddenNames = append(hiddenNames, restrictServices(&out, s.Services, hiddenSvc, hiddenDeps, hiddenDependents)...)
+	out.targetsHidden = targetsHidden(&out, s.Services, offeringOnly)
+	// An allowlist: a report stays only when its consumer is visible, so an
+	// orphaned report or one about a hidden service never reaches the view.
+	out.Provisioning = slices.DeleteFunc(slices.Clone(s.Provisioning), func(rec ProvisioningRecord) bool { return out.Services[rec.ServiceKey] == nil })
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
 	out.reverseDeps = restrictIndex(s.reverseDeps, keep, keep)
@@ -111,6 +123,29 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 	out.Completeness = CompletenessPartial
 	out.SnapshotID = computeSnapshotID(&out)
 	return NewQuery(&out)
+}
+
+// targetsHidden is offeringOnly plus every visible service of out that lost a
+// target to the view. out.Services must already be restricted.
+func targetsHidden(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, offeringOnly map[ServiceKey]bool) map[ServiceKey]bool {
+	for k, svc := range out.Services {
+		if len(svc.Targets) != len(services[k].Targets) {
+			offeringOnly[k] = true
+		}
+	}
+	return offeringOnly
+}
+
+// keepsEveryName reports whether a caller restricted or not may see every
+// name with no namespace and every provisioning report of s.
+func keepsEveryName(s *FleetSnapshot, restricted bool) bool {
+	return (!restricted || !hasBareNames(s)) && provisioningVisible(s)
+}
+
+// provisioningVisible reports whether every provisioning report of s is about
+// a service s holds.
+func provisioningVisible(s *FleetSnapshot) bool {
+	return !slices.ContainsFunc(s.Provisioning, func(rec ProvisioningRecord) bool { return s.Services[rec.ServiceKey] == nil })
 }
 
 // restrictCallers is s's uncontracted callers without those of a hidden
@@ -185,13 +220,18 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 		if l.Code == LimitationDomainConflict || l.Code == LimitationOfferingConflict || l.Code == LimitationOwnerConflict {
 			return true
 		}
+		// A fleet-wide count of reports; rebuilt below from the visible ones.
+		if l.Code == LimitationProvisioningTruncated {
+			return true
+		}
 		return slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
 	})
 	for _, svc := range out.Services {
 		_, _, dc := businessDomainOf(out, svc)
-		_, oc := offeringOf(out, svc)
+		_, _, oc := offeringOf(out, svc)
 		out.Limitations = append(append(append(out.Limitations, domainConflict(svc.Name, dc)...), offeringConflict(svc.Name, oc)...), ownerConflict(out, svc)...)
 	}
+	out.Limitations = append(out.Limitations, provisioningTruncated(out)...)
 	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
 		out.Limitations = append(out.Limitations, Limitation{
 			Code: LimitationObservedIdentityUnresolved, Source: src,
@@ -200,14 +240,32 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	}
 }
 
+// provisioningTruncated is the PROVISIONING_TRUNCATED limitation of a
+// restricted view: how many reports about its visible consumers the fleet-wide
+// bound dropped, none when it dropped none of theirs.
+func provisioningTruncated(out *FleetSnapshot) []Limitation {
+	dropped := 0
+	for k := range out.Services {
+		dropped += out.provisioningDropped[k]
+	}
+	if dropped == 0 {
+		return nil
+	}
+	return []Limitation{{Code: LimitationProvisioningTruncated, Message: fmt.Sprintf(
+		"%d provisioning reports about the services you can see were dropped: the fleet holds more than the limit of %d", dropped, MaxProvisioningRecords)}}
+}
+
 // kubeTarget reports whether t is a Kubernetes target with a namespace, the
 // only kind a caller's permissions decide.
 func kubeTarget(t *TargetRecord) bool { return t.Kind == SourceKindKubernetes && t.Scope != "" }
 
 // hiddenServices is the services whose Kubernetes targets all run in a hidden
-// namespace, and with hideUnscoped the services with no Kubernetes target.
-func hiddenServices(s *FleetSnapshot, hiddenNS map[string]bool, hideUnscoped bool) map[ServiceKey]bool {
-	hiddenSvc := map[ServiceKey]bool{}
+// namespace, and with hideUnscoped the services with no Kubernetes target. Of
+// those, a service that declares its offering stays visible when the snapshot
+// knows it has no Kubernetes placement; it is returned in offeringOnly.
+func hiddenServices(s *FleetSnapshot, hiddenNS map[string]bool, hideUnscoped bool) (hiddenSvc, offeringOnly map[ServiceKey]bool) {
+	hiddenSvc, offeringOnly = map[ServiceKey]bool{}, map[ServiceKey]bool{}
+	placed := kubePlacementKnown(s)
 	for k, svc := range s.Services {
 		hidden, shown, scoped := false, false, false
 		for _, tk := range svc.Targets {
@@ -217,18 +275,34 @@ func hiddenServices(s *FleetSnapshot, hiddenNS map[string]bool, hideUnscoped boo
 				shown = shown || !hiddenNS[t.Scope]
 			}
 		}
-		if (hidden && !shown) || (!scoped && hideUnscoped) {
+		switch {
+		case hidden && !shown:
+			hiddenSvc[k] = true
+		case !scoped && hideUnscoped && svc.OfferingProvenance == ProvenanceDeclared && placed:
+			offeringOnly[k] = true
+		case !scoped && hideUnscoped:
 			hiddenSvc[k] = true
 		}
 	}
-	return hiddenSvc
+	return hiddenSvc, offeringOnly
+}
+
+// kubePlacementKnown reports whether a service with no Kubernetes target in s
+// truly has none: every Kubernetes source is available, or there is none. An
+// unavailable or partial source contributes no records, so the absence of a
+// target proves nothing.
+func kubePlacementKnown(s *FleetSnapshot) bool {
+	return !slices.ContainsFunc(s.Sources, func(src SourceState) bool {
+		return src.Kind == SourceKindKubernetes && src.Status != SourceAvailable
+	})
 }
 
 // restrictRelationships sets out.Relationships to rels without the hidden
 // services, and returns, per visible service, the hidden services it depends
-// on and that depend on it.
-func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool) (deps, dependents map[ServiceKey]map[ServiceKey]bool) {
-	deps, dependents = map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}
+// on, that depend on it and that consume it (see [ConsumesEdge]; observed
+// callers depend on a service without consuming it).
+func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool) (deps, dependents, consumers map[ServiceKey]map[ServiceKey]bool) {
+	deps, dependents, consumers = map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}, map[ServiceKey]map[ServiceKey]bool{}
 	count := func(m map[ServiceKey]map[ServiceKey]bool, at, other ServiceKey) {
 		if m[at] == nil {
 			m[at] = map[ServiceKey]bool{}
@@ -242,33 +316,72 @@ func restrictRelationships(out *FleetSnapshot, rels []Relationship, hiddenSvc ma
 		case from && to:
 			continue
 		case from:
-			if rel.Type == RelationshipDependency && rel.ToService != "" {
+			// Observed callers count too: they are dependents the viewer cannot see.
+			if rel.ToService != "" && (rel.Type == RelationshipDependency || ConsumesEdge(rel)) {
 				count(dependents, rel.ToService, rel.FromService)
+			}
+			if ConsumesEdge(rel) {
+				count(consumers, rel.ToService, rel.FromService)
 			}
 			continue
 		case to:
 			if rel.Provenance == ProvenanceObserved {
 				continue // runtime evidence about the hidden service, not the caller's declaration
 			}
-			if rel.Type == RelationshipDependency {
+			if ConsumesEdge(rel) {
 				count(deps, rel.FromService, rel.ToService)
 			}
 			rel.hiddenTo = rel.ToService // keeps tallyServiceEdges collapsing it like a visible provider
 			rel.ToService, rel.ResolvedRevision, rel.Hidden, rel.Reason, rel.RangeStatus = "", "", true, hiddenMessage, ""
 			// What the hidden provider offers and deprecates is its own contract.
-			rel.Unmet, rel.DeprecatedInterfaces = nil, nil
+			rel.Unmet, rel.DeprecatedInterfaces, rel.ProviderLifecycle = nil, nil, nil
 			if rel.GuaranteeStatus != "" {
 				rel.GuaranteeStatus, rel.GuaranteeReason = GuaranteeUnknown, hiddenMessage
 			}
 		}
 		out.Relationships = append(out.Relationships, rel)
 	}
-	return deps, dependents
+	return deps, dependents, consumers
+}
+
+// restrictRevalidation validates again, against out, each visible revision
+// whose configuration references resolve to a hidden service, directly or
+// through a provider's own configuration ref, so no finding carries what the
+// hidden provider declares: the reference becomes unverified. A revision is
+// copied, never changed in place. out.Services must not be restricted yet: its
+// statuses read the revalidated revisions.
+func restrictRevalidation(out *FleetSnapshot, rels []Relationship, hiddenSvc map[ServiceKey]bool) {
+	stale := map[RevisionKey]bool{}
+	// ponytail: a fixpoint costing config refs x chain depth passes.
+	for changed := true; changed; {
+		changed = false
+		for _, rel := range rels {
+			if rel.Type == RelationshipConfigRef && !stale[rel.FromRevision] && out.Revisions[rel.FromRevision] != nil &&
+				(hiddenSvc[rel.ToService] || stale[rel.ResolvedRevision]) {
+				stale[rel.FromRevision], changed = true, true
+			}
+		}
+	}
+	if len(stale) == 0 {
+		return
+	}
+	revs := make(map[RevisionKey]*ContractRevision, len(out.Revisions))
+	for k, r := range out.Revisions {
+		if stale[k] {
+			cp := *r
+			r = &cp
+		}
+		revs[k] = r
+	}
+	out.Revisions = revs
+	for k := range stale {
+		revalidateRevision(out, revs[k])
+	}
 }
 
 // restrictServices sets out.Services to the visible services, copying any
 // that lost a target or gained a hidden count, and returns the names and keys
-// of the hidden ones. out.Targets must already be restricted.
+// of the hidden ones. out.Targets and out.Revisions must already be restricted.
 func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord, hiddenSvc map[ServiceKey]bool, deps, dependents map[ServiceKey]map[ServiceKey]bool) []string {
 	var hiddenNames []string
 	out.Services = make(map[ServiceKey]*ServiceRecord, len(services))
@@ -278,7 +391,8 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 			continue
 		}
 		targets := slices.DeleteFunc(slices.Clone(svc.Targets), func(tk TargetKey) bool { return out.Targets[tk] == nil })
-		if len(targets) == len(svc.Targets) && deps[k] == nil && dependents[k] == nil {
+		// A revision revalidated against the view may change the status.
+		if len(targets) == len(svc.Targets) && deps[k] == nil && dependents[k] == nil && serviceStatus(out, svc) == svc.Status {
 			out.Services[k] = svc
 			continue
 		}
@@ -314,7 +428,7 @@ func restrictBusinessDomain(out *FleetSnapshot, s *ServiceRecord) {
 // restrictOffering recomputes a service's platform offering and summary from
 // what out still holds, so a value only a hidden target reported never shows.
 func restrictOffering(out *FleetSnapshot, s *ServiceRecord) {
-	s.Offering, _ = offeringOf(out, s)
+	s.Offering, s.OfferingProvenance, _ = offeringOf(out, s)
 	s.Summary = summaryOf(out, s)
 }
 

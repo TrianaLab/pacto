@@ -11,6 +11,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
@@ -371,7 +372,7 @@ var fleetToolNames = []string{
 	"pacto_fleet_search", "pacto_fleet_get", "pacto_fleet_graph",
 	"pacto_fleet_status", "pacto_fleet_explain",
 	"pacto_fleet_entities", "pacto_fleet_entity", "pacto_fleet_attention",
-	"pacto_fleet_neighborhood",
+	"pacto_fleet_neighborhood", "pacto_fleet_versions",
 }
 
 // --- SAFETY ----------------------------------------------------------------
@@ -606,5 +607,115 @@ func TestFleetSearchHandler_Offering(t *testing.T) {
 	}
 	if !strings.Contains(fleetInstructions, "platform offering") {
 		t.Error("the fleet instructions never mention a platform offering")
+	}
+}
+
+// offeringFleet: postgresql 16.0.0 (deprecated) and 16.1.0 provide the
+// postgresql offering; app depends on it, in the shop namespace, and vault in
+// secretns.
+func offeringFleet(t *testing.T) *fleet.Query {
+	t.Helper()
+	pg := func(v string, l *contract.InterfaceLifecycle) *contract.Contract {
+		return &contract.Contract{PactoVersion: "2.6", Service: contract.Service{Name: "postgresql", Version: v, Offering: "postgresql", Lifecycle: l}}
+	}
+	consumer := func(name string) *contract.Contract {
+		return &contract.Contract{PactoVersion: "2.6", Workload: contract.WorkloadService, Service: contract.Service{Name: name, Version: "1.0.0"},
+			Dependencies: []contract.Dependency{{Name: "postgresql", Ref: "oci://ghcr.io/acme/postgresql", Required: true, Compatibility: "^16.0.0"}}}
+	}
+	k := fleet.SourceKindKubernetes
+	src := fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
+		Revisions: []fleet.RawRevision{
+			{Bundle: &contract.Bundle{Contract: pg("16.0.0", &contract.InterfaceLifecycle{Deprecated: "2026-01-01"})}, Digest: "sha256:p0"},
+			{Bundle: &contract.Bundle{Contract: pg("16.1.0", nil)}, Digest: "sha256:p1"},
+			{Bundle: &contract.Bundle{Contract: consumer("app")}, Digest: "sha256:a"},
+			{Bundle: &contract.Bundle{Contract: consumer("vault")}, Digest: "sha256:v"},
+		},
+		Targets: []fleet.RawTarget{
+			{Scope: "shop", Kind: k, Name: "app", Service: "app", Compliance: fleet.StatusCompliant},
+			{Scope: "secretns", Kind: k, Name: "vault", Service: "vault", Compliance: fleet.StatusCompliant},
+		},
+	})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fleet.NewQuery(snap)
+}
+
+func TestFleetVersionsTool(t *testing.T) {
+	q := offeringFleet(t)
+	var out fleet.OfferingVersionsResult
+	decode(t, callHandler(t, fleetVersionsTool(), fleetVersionsHandler(q), map[string]any{"offering": "postgresql", "range": "^16.1.0"}), &out)
+	if len(out.Providers) != 1 {
+		t.Fatalf("providers = %+v", out.Providers)
+	}
+	v := out.Providers[0].Versions
+	if v.LatestCompatible == nil || v.LatestCompatible.Label != "postgresql 16.1.0" || v.Note == "" ||
+		v.Items[0].RangeStatus != fleet.RangeSatisfied || v.Items[1].RangeStatus != fleet.RangeUnsatisfied || v.Items[1].Lifecycle == nil {
+		t.Errorf("versions = %+v", v)
+	}
+	for _, args := range []map[string]any{{"offering": "postgresql", "range": "not a range"}, {"offering": "ghost"}, {}} {
+		if res := callHandler(t, fleetVersionsTool(), fleetVersionsHandler(q), args); !res.IsError {
+			t.Errorf("%v = %s, want an error result", args, resultText(t, res))
+		}
+	}
+	if !strings.Contains(fleetInstructions, "Unknown means no current report") {
+		t.Error("the fleet instructions never say what an Unknown provisioning status means")
+	}
+}
+
+// TestFleetVersionsToolLinks: with a dashboard URL, the provider, each version
+// and the latest compatible version link to their entity pages.
+func TestFleetVersionsToolLinks(t *testing.T) {
+	server := NewFleetServer("test", staticFleet(offeringFleet(t)), nil, FleetOptions{DashboardURL: "https://pacto.example"})
+	text := resultText(t, callToolOn(t, server, "pacto_fleet_versions", map[string]any{"offering": "postgresql", "range": "^16.0.0"}))
+	for _, want := range []string{`"href":"https://pacto.example/#/fleet/services/`, `"href":"https://pacto.example/#/fleet/revisions/`} {
+		if !strings.Contains(strings.ReplaceAll(text, " ", ""), want) {
+			t.Errorf("versions answer lacks %s:\n%s", want, text)
+		}
+	}
+	if n := strings.Count(text, "/#/fleet/revisions/"); n != 3 {
+		t.Errorf("revision hrefs = %d, want 3 (two versions and the latest compatible):\n%s", n, text)
+	}
+}
+
+func TestFleetEntitiesConsumes(t *testing.T) {
+	q := offeringFleet(t)
+	var out fleet.EntityList
+	decode(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"consumes": "postgresql"}), &out)
+	var keys []string
+	for _, e := range out.Entities {
+		keys = append(keys, e.Key)
+	}
+	if !slices.Equal(keys, []string{"app", "vault"}) {
+		t.Errorf("consumes = %v, want app and vault", keys)
+	}
+	if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), map[string]any{"consumes": "Not A Slug"}); !res.IsError {
+		t.Errorf("a bad slug = %s, want an error result", resultText(t, res))
+	}
+}
+
+// TestFleetOfferingToolsAnswerFromTheView: under a restricted view the versions
+// and consumes answers come from the view, so a consumer in a hidden namespace
+// is never named.
+func TestFleetOfferingToolsAnswerFromTheView(t *testing.T) {
+	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
+	}
+	server := NewFleetServer("test", staticFleet(offeringFleet(t)), nil, FleetOptions{View: view})
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"pacto_fleet_versions", map[string]any{"offering": "postgresql"}},
+		{"pacto_fleet_entities", map[string]any{"consumes": "postgresql"}},
+	} {
+		text := resultText(t, callToolOn(t, server, c.tool, c.args))
+		if strings.Contains(text, "vault") || strings.Contains(text, "secretns") {
+			t.Errorf("%s names a hidden consumer:\n%s", c.tool, text)
+		}
+		if c.tool == "pacto_fleet_entities" && !strings.Contains(text, `"app"`) {
+			t.Errorf("consumes lacks the visible consumer:\n%s", text)
+		}
 	}
 }

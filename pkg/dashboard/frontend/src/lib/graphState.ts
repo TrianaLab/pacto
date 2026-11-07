@@ -158,7 +158,8 @@ export function differenceDescription(d: string | undefined): string {
 }
 
 export function relationLabel(rel: string | undefined): string {
-  return rel === 'runs' ? 'Runs' : 'Depends on';
+  if (rel === 'runs') return 'Runs';
+  return rel === 'configuration_reference' ? 'Takes configuration from' : 'Depends on';
 }
 
 // ── focus/perspective validity ────────────────────────────────

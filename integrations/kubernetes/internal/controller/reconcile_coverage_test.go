@@ -93,7 +93,7 @@ func TestPopulateContractStatus_FullContract(t *testing.T) {
 	}
 
 	r := newReconciler()
-	r.populateContractStatus(pacto, lr)
+	r.populateContractStatus(pacto, lr, nil)
 
 	// Verify contract info
 	if pacto.Status.Contract.ServiceName != "my-service" {
@@ -213,7 +213,7 @@ func TestPopulateContractStatus_MinimalContract(t *testing.T) {
 	}
 
 	r := newReconciler()
-	r.populateContractStatus(pacto, lr)
+	r.populateContractStatus(pacto, lr, nil)
 
 	// Verify empty slices are initialized (not nil)
 	if pacto.Status.Configurations == nil {
@@ -259,7 +259,7 @@ func TestPopulateContractStatus_ConfigurationWithSchema(t *testing.T) {
 	}
 
 	r := newReconciler()
-	r.populateContractStatus(pacto, lr)
+	r.populateContractStatus(pacto, lr, nil)
 
 	if len(pacto.Status.Configurations) != 1 {
 		t.Fatalf("expected 1 configuration, got %d", len(pacto.Status.Configurations))

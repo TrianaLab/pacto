@@ -28,6 +28,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/probe"
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 const (
@@ -86,6 +87,9 @@ type CollectInput struct {
 	// BundleDigest identifies BundleFS's content (empty for inline contracts): compiled configuration
 	// schemas are cached under it, so an unchanged bundle is not recompiled every reconcile.
 	BundleDigest string
+	// ConfigRefs holds what each configuration that names its schema by ref resolved to: a bound
+	// ConfigMap of one is validated against the resolved provider schema.
+	ConfigRefs validation.ConfigRefs
 
 	InterfaceBindings   []InterfaceBinding
 	ConfigBindings      []unversioned.ConfigBinding

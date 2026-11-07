@@ -191,3 +191,32 @@ func TestDoc_WithConfiguration(t *testing.T) {
 		t.Error("expected PORT property in configuration")
 	}
 }
+
+// pacto doc runs the configuration-refs stage lenient, like the fleet: a ref
+// it cannot fetch is CONFIG_REF_UNVERIFIED, never a pass.
+func TestDoc_UnreachableConfigRef(t *testing.T) {
+	dir := t.TempDir()
+	yaml := "pactoVersion: \"2.6\"\nservice:\n  name: orders\n  version: 1.0.0\nconfigurations:\n  - name: db\n    ref: oci://ghcr.io/acme/pg:16.1.0\n    required: true\n    values:\n      size: small\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := &mockBundleStore{PullFn: func(context.Context, string) (*contract.Bundle, error) {
+		return nil, fmt.Errorf("registry unreachable")
+	}}
+	result, err := NewService(store, nil).Doc(context.Background(), DocOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var codes []string
+	for _, w := range result.Details.Validation.Warnings {
+		codes = append(codes, w.Code)
+	}
+	if !strings.Contains(strings.Join(codes, ","), "CONFIG_REF_UNVERIFIED") {
+		t.Errorf("warnings = %v", codes)
+	}
+	for _, st := range result.Details.Stages {
+		if st.Name == "configuration-refs" && st.Status != "skip" {
+			t.Errorf("configuration-refs stage = %+v", st)
+		}
+	}
+}

@@ -77,8 +77,10 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	if err := strictjson.Decode(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &body); err != nil {
 		return nil, err
 	}
-	if body.SchemaVersion != evidenceingest.TargetsSchemaVersion {
-		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q", url, body.SchemaVersion, evidenceingest.TargetsSchemaVersion)
+	// v3 is v2 plus provisioning records, which a v2 body never carries.
+	if body.SchemaVersion != evidenceingest.TargetsSchemaVersion && body.SchemaVersion != evidenceingest.TargetsSchemaVersionProvisioning {
+		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q or %q", url, body.SchemaVersion,
+			evidenceingest.TargetsSchemaVersion, evidenceingest.TargetsSchemaVersionProvisioning)
 	}
 
 	col := &fleet.Collection{}
@@ -116,6 +118,19 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 			Coverage:     &coverage,
 			EvidenceAt:   &evidenceAt,
 			ReconciledAt: &acceptedAt,
+		})
+	}
+
+	for _, p := range body.Provisioning {
+		digest := p.Digest
+		if digest == "" {
+			digest = digestFromRef(p.ContractRef)
+		}
+		acceptedAt := p.AcceptedAt
+		col.Provisioning = append(col.Provisioning, fleet.RawProvisioning{
+			Service: p.Service, Domain: p.Domain, Digest: digest, Kind: p.Kind, Name: p.Name, Environment: p.Environment,
+			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: p.Phase, Outcome: p.Outcome,
+			Producer: p.Producer, ProducerKeyID: p.ProducerKeyID, ObservedAt: p.EvidenceAt, AcceptedAt: &acceptedAt, Verified: true,
 		})
 	}
 

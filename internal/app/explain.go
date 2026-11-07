@@ -2,11 +2,17 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"maps"
+	"slices"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // ExplainOptions holds options for the explain command.
@@ -17,18 +23,22 @@ type ExplainOptions struct {
 
 // ExplainResult holds the result of the explain command.
 type ExplainResult struct {
-	Name         string              `json:"name"`
-	Version      string              `json:"version"`
-	Owner        contract.Owner      `json:"owner,omitempty"`
-	Domain       string              `json:"domain,omitempty"`
-	Offering     string              `json:"offering,omitempty"`
-	Summary      string              `json:"summary,omitempty"`
-	PactoVersion string              `json:"pactoVersion"`
-	Workload     string              `json:"workload,omitempty"`
-	State        *ExplainState       `json:"state,omitempty"`
-	Capabilities []ExplainCapability `json:"capabilities,omitempty"`
-	Interfaces   []ExplainInterface  `json:"interfaces,omitempty"`
-	Dependencies []ExplainDependency `json:"dependencies,omitempty"`
+	Name     string         `json:"name"`
+	Version  string         `json:"version"`
+	Owner    contract.Owner `json:"owner,omitempty"`
+	Domain   string         `json:"domain,omitempty"`
+	Offering string         `json:"offering,omitempty"`
+	Summary  string         `json:"summary,omitempty"`
+	// Lifecycle is the service lifecycle (pactoVersion 2.6).
+	Lifecycle    *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	PactoVersion string                       `json:"pactoVersion"`
+	Workload     string                       `json:"workload,omitempty"`
+	State        *ExplainState                `json:"state,omitempty"`
+	Capabilities []ExplainCapability          `json:"capabilities,omitempty"`
+	Interfaces   []ExplainInterface           `json:"interfaces,omitempty"`
+	Dependencies []ExplainDependency          `json:"dependencies,omitempty"`
+	// Configurations lists each configuration with the values it requests.
+	Configurations []ExplainConfiguration `json:"configurations,omitempty"`
 	// Environments lists each environment and the file holding its values.
 	Environments []contract.Environment `json:"environments,omitempty"`
 	Readiness    *ExplainReadiness      `json:"readiness,omitempty"`
@@ -102,6 +112,56 @@ type ExplainInterface struct {
 	CompatibilityEpoch int                  `json:"compatibilityEpoch,omitempty"`
 }
 
+// ExplainConfiguration is a configuration and the values it requests.
+type ExplainConfiguration struct {
+	Name          string `json:"name"`
+	Schema        string `json:"schema,omitempty"`
+	Ref           string `json:"ref,omitempty"`
+	Configuration string `json:"configuration,omitempty"`
+	Required      bool   `json:"required"`
+	// Values are the inline values, the request where no environment applies.
+	Values map[string]any `json:"values,omitempty"`
+	// EnvironmentValues maps each environment to its effective values: Values
+	// with that environment's file merged on top, objects key by key, a null
+	// removing its key. An adapter provisions from these.
+	EnvironmentValues map[string]any `json:"environmentValues,omitempty"`
+}
+
+// Summary is the configuration's one-line text form: its name, where its
+// schema comes from and whether it is required.
+func (c ExplainConfiguration) Summary() string {
+	src := c.Schema
+	if c.Ref != "" {
+		src = c.Ref
+		if c.Configuration != "" {
+			src += ", configuration " + c.Configuration
+		}
+	}
+	req := "optional"
+	if c.Required {
+		req = "required"
+	}
+	return c.Name + ": " + src + " (" + req + ")"
+}
+
+// ValueLines are the configuration's values as compact JSON, the inline ones
+// first and then each environment's effective values by name.
+func (c ExplainConfiguration) ValueLines() []string {
+	var out []string
+	if len(c.Values) > 0 {
+		out = append(out, "values: "+compactJSON(c.Values))
+	}
+	for _, env := range slices.Sorted(maps.Keys(c.EnvironmentValues)) {
+		out = append(out, env+": "+compactJSON(c.EnvironmentValues[env]))
+	}
+	return out
+}
+
+func compactJSON(v any) string {
+	b, _ := json.Marshal(v) // values decoded from YAML or JSON always marshal
+	return string(b)
+}
+
 // ExplainDependency is a simplified dependency summary.
 type ExplainDependency struct {
 	Name          string `json:"name"`
@@ -136,6 +196,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		Domain:       c.Service.Domain,
 		Offering:     c.Service.Offering,
 		Summary:      c.Service.Summary,
+		Lifecycle:    c.Service.Lifecycle,
 		PactoVersion: c.PactoVersion,
 		Workload:     c.Workload,
 		Environments: c.Environments,
@@ -183,6 +244,12 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		})
 	}
 
+	configs, err := explainConfigurations(c, bundle.FS)
+	if err != nil {
+		return nil, err
+	}
+	result.Configurations = configs
+
 	if eval := readiness.Evaluate(c.Readiness, s.env().now()); eval != nil {
 		er := &ExplainReadiness{
 			Score:         eval.Score,
@@ -223,4 +290,41 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 	}
 
 	return result, nil
+}
+
+// explainConfigurations summarizes each configuration with its effective values
+// in every environment. An environment file that cannot be read fails the
+// explain: reporting the inline values alone would misstate the request.
+func explainConfigurations(c *contract.Contract, bundleFS fs.FS) ([]ExplainConfiguration, error) {
+	if len(c.Configurations) == 0 {
+		return nil, nil
+	}
+	envValues := make([]map[string]any, len(c.Environments))
+	for i, env := range c.Environments {
+		if bundleFS == nil {
+			return nil, fmt.Errorf("environment %s: no bundle files to read %s from", env.Name, env.File)
+		}
+		raw, err := fs.ReadFile(bundleFS, env.File)
+		if err == nil {
+			envValues[i], err = contract.ParseEnvironmentValues(raw)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("environment %s: cannot read %s: %w", env.Name, env.File, err)
+		}
+	}
+	out := make([]ExplainConfiguration, 0, len(c.Configurations))
+	for _, cfg := range c.Configurations {
+		ec := ExplainConfiguration{
+			Name: cfg.Name, Schema: cfg.Schema, Ref: cfg.Ref, Configuration: cfg.ProviderConfiguration,
+			Required: cfg.Required, Values: cfg.Values,
+		}
+		for i, env := range c.Environments {
+			if ec.EnvironmentValues == nil {
+				ec.EnvironmentValues = map[string]any{}
+			}
+			ec.EnvironmentValues[env.Name] = validation.EffectiveValues(cfg.Values, envValues[i][cfg.Name])
+		}
+		out = append(out, ec)
+	}
+	return out, nil
 }

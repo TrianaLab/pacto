@@ -2,6 +2,9 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -520,5 +523,217 @@ func TestRestrictCallersSnapshotID(t *testing.T) {
 	a, b := q.Restrict(restrictedVisible).SnapshotForSerialization(), q.Restrict(restrictedVisible).SnapshotForSerialization()
 	if a.SnapshotID == q.SnapshotForSerialization().SnapshotID || a.SnapshotID != b.SnapshotID {
 		t.Errorf("restricted ids %s/%s, full %s", a.SnapshotID, b.SnapshotID, q.SnapshotForSerialization().SnapshotID)
+	}
+}
+
+// A hidden consumer that only references a visible service's configuration is
+// one of its hidden dependents, and a visible consumer of a hidden provider
+// counts it as a hidden dependency.
+func TestRestrictCountsHiddenConfigRefConsumer(t *testing.T) {
+	mk := func(name, ref, dgst string) (*contract.Contract, *lock.Lock) {
+		c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0"}}
+		if ref == "" {
+			return c, nil
+		}
+		c.Configurations = []contract.Configuration{{Name: "db", Ref: ref}}
+		return c, &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{{Kind: contract.ReferenceKindConfig, Name: "db", Source: "oci", Ref: ref, Digest: dgst}}}
+	}
+	hiddenC, hiddenL := mk("hidden-consumer", "oci://x/shared", "sha256:shared")
+	visibleC, visibleL := mk("visible-consumer", "oci://x/secret-db", "sha256:secret-db")
+	shared, _ := mk("shared", "", "")
+	secretDB, _ := mk("secret-db", "", "")
+	k := SourceKindKubernetes
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", "kubernetes", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: hiddenC, FS: fstest.MapFS{}}, Digest: "sha256:hc", Lock: hiddenL},
+			{Bundle: &contract.Bundle{Contract: visibleC, FS: fstest.MapFS{}}, Digest: "sha256:vc", Lock: visibleL},
+			{Bundle: &contract.Bundle{Contract: shared, FS: fstest.MapFS{}}, Digest: "sha256:shared"},
+			{Bundle: &contract.Bundle{Contract: secretDB, FS: fstest.MapFS{}}, Digest: "sha256:secret-db"},
+		},
+		Targets: []RawTarget{
+			{Scope: "secret", Kind: k, Name: "hc", Service: "hidden-consumer", Compliance: StatusCompliant},
+			{Scope: "secret", Kind: k, Name: "db", Service: "secret-db", Compliance: StatusCompliant},
+			{Scope: "shop", Kind: k, Name: "vc", Service: "visible-consumer", Compliance: StatusCompliant},
+			{Scope: "shop", Kind: k, Name: "shared", Service: "shared", Compliance: StatusCompliant},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewQuery(snap).Restrict(func(ns string) bool { return ns == "shop" }).SnapshotForSerialization()
+	if got := s.Services[NewServiceKey("shared")].HiddenDependents; got != 1 {
+		t.Errorf("shared HiddenDependents = %d, want 1", got)
+	}
+	if got := s.Services[NewServiceKey("visible-consumer")].HiddenDependencies; got != 1 {
+		t.Errorf("visible-consumer HiddenDependencies = %d, want 1", got)
+	}
+}
+
+// offeringRestrictFleet: pgprov declares the relational-db offering and runs only
+// where an adapter reports it (no Kubernetes target); vaultdb runs in hush and
+// is configured by ref from orders, which runs in shop. hiddenapp (hush) and
+// orders depend on pgprov; loner has no offering and no target; reported has
+// an offering only its target reports; mixed reports two offerings from two
+// namespaces. extra adds Kubernetes sources.
+func offeringRestrictFleet(t *testing.T, extra ...Source) *Query {
+	t.Helper()
+	k := SourceKindKubernetes
+	raw := func(y string) RawRevision {
+		c := mustParse(t, y)
+		return RawRevision{Bundle: &contract.Bundle{Contract: c, RawYAML: []byte(y), FS: fstest.MapFS{"db.json": {Data: []byte(`{"type":"object","properties":{"size":{"enum":["zebrasize","large"]}}}`)}}}, Digest: refDigest(c.Service.Name)}
+	}
+	dep := "dependencies:\n  - {name: pgprov, ref: \"oci://r/pgprov\", required: true, compatibility: \"^1.0.0\"}\n"
+	src := NewMemorySource("k8s", k, &Collection{
+		Revisions: []RawRevision{
+			raw("pactoVersion: \"2.6\"\nservice: {name: pgprov, version: 1.0.0, offering: relational-db, owner: {team: platform}}\n"),
+			raw("pactoVersion: \"2.6\"\nservice: {name: vaultdb, version: 9.9.9, lifecycle: {deprecated: \"2026-01-01\", successor: \"oci://r/pgsuccessor\"}}\nconfigurations:\n  - {name: db, required: false, schema: db.json}\n"),
+			raw("pactoVersion: \"2.6\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/db-bundle@" + refDigest("vaultdb") + "\", values: {size: huge}}\n" + dep),
+			raw("pactoVersion: \"2.6\"\nservice: {name: hiddenapp, version: 1.0.0}\n" + dep),
+			raw("pactoVersion: \"2.6\"\nservice: {name: loner, version: 1.0.0}\n"),
+			raw("pactoVersion: \"2.6\"\nservice: {name: reported, version: 1.0.0}\n"),
+		},
+		Targets: []RawTarget{
+			{Scope: "prod", Kind: "evidence-http", Name: "adapter-pg-prod-xyz", Service: "pgprov"},
+			{Scope: "hush", Kind: k, Name: "vaultdb", Service: "vaultdb"},
+			{Scope: "shop", Kind: k, Name: "orders", Service: "orders"},
+			{Scope: "hush", Kind: k, Name: "hiddenapp", Service: "hiddenapp"},
+			{Scope: "prod", Kind: "evidence-http", Name: "reported", Service: "reported", Offering: "relational-db"},
+			{Scope: "shop", Kind: k, Name: "mixed-a", Service: "mixed", Offering: "cache"},
+			{Scope: "hush", Kind: k, Name: "mixed-b", Service: "mixed", Offering: "kv"},
+		},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, append([]Source{src}, extra...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewQuery(snap)
+}
+
+func shopOnly(ns string) bool { return ns == "shop" }
+
+func TestRestrictOfferingProvider(t *testing.T) {
+	q := offeringRestrictFleet(t)
+	if !strings.Contains(findingMessages(revisionOf(t, q.snap, "orders")), "zebrasize") {
+		t.Fatalf("the unrestricted orders findings name no provider enum:\n%s", findingMessages(revisionOf(t, q.snap, "orders")))
+	}
+	r := q.Restrict(shopOnly)
+	checkOfferingOnlyProvider(t, q, r)
+	o := offeringData(t, r, "relational-db")
+	if o.HiddenConsumers != 1 || o.Consumers.Total != 1 || o.Consumers.Items[0].Consumer.Label != "orders" || o.Providers.Items[0].OfferingProvenance != ProvenanceDeclared {
+		t.Errorf("offering = %+v", o)
+	}
+	orders := revisionOf(t, r.snap, "orders")
+	if stageOf(orders, "configuration-refs").Status != "skip" || !strings.Contains(findingMessages(orders), "CONFIG_REF_UNVERIFIED") || orders == revisionOf(t, q.snap, "orders") {
+		t.Errorf("orders stages = %+v findings:\n%s", orders.Stages, findingMessages(orders))
+	}
+	if !strings.Contains(findingMessages(revisionOf(t, q.snap, "orders")), "zebrasize") {
+		t.Error("restricting changed the unrestricted revision")
+	}
+	if st := r.snap.Services[NewServiceKey("orders")].Status; st == StatusInvalid || q.snap.Services[NewServiceKey("orders")].Status != StatusInvalid {
+		t.Errorf("restricted orders status = %s, unrestricted = %s", st, q.snap.Services[NewServiceKey("orders")].Status)
+	}
+	assertNoLeak(t, r, orders.Key, "hush", "hiddenapp", "adapter-pg-prod-xyz", "vaultdb", "9.9.9", "zebrasize", "pgsuccessor")
+}
+
+// A configuration ref that reaches a hidden provider through a visible
+// provider's own ref is revalidated too, and its service status follows.
+func TestRestrictChainedConfigRef(t *testing.T) {
+	k := SourceKindKubernetes
+	raw := func(y string) RawRevision {
+		c := mustParse(t, y)
+		return RawRevision{Bundle: &contract.Bundle{Contract: c, RawYAML: []byte(y), FS: fstest.MapFS{"db.json": {Data: []byte(`{"type":"object","properties":{"size":{"enum":["zebrasize","large"]}}}`)}}}, Digest: refDigest(c.Service.Name)}
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", k, &Collection{
+		Revisions: []RawRevision{
+			raw("pactoVersion: \"2.6\"\nservice: {name: hprov, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, schema: db.json}\n"),
+			raw("pactoVersion: \"2.6\"\nservice: {name: pmid, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/h@" + refDigest("hprov") + "\"}\n"),
+			raw("pactoVersion: \"2.6\"\nservice: {name: cons, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/m@" + refDigest("pmid") + "\", values: {size: huge}}\n"),
+		},
+		Targets: []RawTarget{
+			{Scope: "hush", Kind: k, Name: "hprov", Service: "hprov"},
+			{Scope: "shop", Kind: k, Name: "pmid", Service: "pmid"},
+			{Scope: "shop", Kind: k, Name: "cons", Service: "cons"},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	if !strings.Contains(findingMessages(revisionOf(t, q.snap, "cons")), "zebrasize") {
+		t.Fatalf("the unrestricted cons findings name no provider enum:\n%s", findingMessages(revisionOf(t, q.snap, "cons")))
+	}
+	r := q.Restrict(shopOnly)
+	cons := revisionOf(t, r.snap, "cons")
+	if strings.Contains(findingMessages(cons), "zebrasize") || !cons.Valid || r.snap.Services[NewServiceKey("cons")].Status == StatusInvalid {
+		t.Errorf("cons valid = %v status = %s findings:\n%s", cons.Valid, r.snap.Services[NewServiceKey("cons")].Status, findingMessages(cons))
+	}
+}
+
+// checkOfferingOnlyProvider: in r, pgprov shows with its revision, owner and
+// offering and no target; every other unscoped service is hidden.
+func checkOfferingOnlyProvider(t *testing.T, q, r *Query) {
+	t.Helper()
+	s := r.snap
+	pg := s.Services[NewServiceKey("pgprov")]
+	if pg == nil || len(pg.Revisions) != 1 || pg.Owner.Team != "platform" || pg.OfferingProvenance != ProvenanceDeclared || len(pg.Targets) != 0 || pg.HiddenDependents != 1 {
+		t.Fatalf("pgprov = %+v", pg)
+	}
+	if !s.targetsHidden[pg.Key] || len(s.Targets) != 2 {
+		t.Errorf("targetsHidden = %v, targets = %v", s.targetsHidden, slices.Collect(maps.Keys(s.Targets)))
+	}
+	for _, name := range []string{"loner", "reported", "vaultdb", "hiddenapp"} {
+		if s.Services[NewServiceKey(name)] != nil {
+			t.Errorf("%s is visible", name)
+		}
+	}
+	if hasLimitation(s.Limitations, LimitationOfferingConflict) || !hasLimitation(q.snap.Limitations, LimitationOfferingConflict) {
+		t.Error("OFFERING_CONFLICT was not rebuilt from the view")
+	}
+	if s.SnapshotID == q.snap.SnapshotID {
+		t.Error("snapshot id not recomputed")
+	}
+}
+
+// assertNoLeak marshals the restricted snapshot and the offering, provider and
+// revision details and fails on any of words.
+func assertNoLeak(t *testing.T, r *Query, rev RevisionKey, words ...string) {
+	t.Helper()
+	bodies := []any{r.SnapshotForSerialization()}
+	for _, d := range []struct {
+		kind EntityKind
+		key  string
+	}{{KindOffering, "relational-db"}, {KindService, string(NewServiceKey("pgprov"))}, {KindService, string(NewServiceKey("orders"))}, {KindRevision, string(rev)}} {
+		got, err := r.EntityDetail(d.kind, d.key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, got)
+	}
+	for _, b := range bodies {
+		data, err := json.Marshal(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range words {
+			if strings.Contains(string(data), w) {
+				t.Errorf("restricted answer contains %q", w)
+			}
+		}
+	}
+}
+
+// With a Kubernetes source down or partial, the absence of a target proves
+// nothing, so a declared provider stays hidden and counted.
+func TestRestrictOfferingProviderPlacementUnknown(t *testing.T) {
+	for name, src := range map[string]Source{
+		"unavailable": NewFailingSource("k8s-2", SourceKindKubernetes, errors.New("down")),
+		"partial":     NewMemorySource("k8s-2", SourceKindKubernetes, &Collection{Limitations: []Limitation{{Code: "X", Message: "x"}}}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := offeringRestrictFleet(t, src).Restrict(shopOnly).snap
+			if s.Services[NewServiceKey("pgprov")] != nil || s.Services[NewServiceKey("orders")].HiddenDependencies != 2 {
+				t.Errorf("pgprov visible or orders = %+v", s.Services[NewServiceKey("orders")])
+			}
+		})
 	}
 }

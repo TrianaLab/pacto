@@ -21,6 +21,12 @@ describe('platform-offering routes', () => {
     expect(fleetEntityListUrl('offering')).toBe('#/fleet/offerings');
   });
 
+  it('round-trips the consumes filter on services', () => {
+    const url = fleetServicesUrl({ consumes: 'postgresql' });
+    expect(url).toBe('#/fleet/services?consumes=postgresql');
+    expect(parseHash(url)).toEqual({ view: 'fleet-services', params: { consumes: 'postgresql' } });
+  });
+
   it('round-trips the offering filter on services', () => {
     const url = fleetServicesUrl({ offering: 'postgresql' });
     expect(url).toBe('#/fleet/services?offering=postgresql');

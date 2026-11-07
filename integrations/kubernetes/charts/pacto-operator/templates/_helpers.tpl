@@ -283,6 +283,9 @@ Controller arguments derived from values
 {{- if .Values.evidence.trust.existingSecret }}
 - --evidence-trust-secret={{ .Values.evidence.trust.existingSecret }}
 {{- end }}
+{{- with .Values.evidence.trust.configKey }}
+- --evidence-trust-config-key={{ . }}
+{{- end }}
 {{- range (required "evidence.registry.subjects is required when evidence is enabled: the registry holding those contract revisions IS the evidence store" .Values.evidence.registry.subjects) }}
 - --evidence-subject={{ . }}
 {{- end }}

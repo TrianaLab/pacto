@@ -220,3 +220,23 @@ func TestValidate_Closure_RootViolationKept(t *testing.T) {
 		t.Fatalf("errors = %v", res.Errors)
 	}
 }
+
+// A consumer validated with --closure is warned when a provider it depends on
+// is deprecated as a whole (service.lifecycle, pactoVersion 2.6).
+func TestValidate_Closure_DeprecatedProviderService(t *testing.T) {
+	root := t.TempDir()
+	ledger := strings.Replace(closureService("ledger", "bob@example.com"), `"2.0"`, `"2.6"`, 1)
+	ledger = strings.Replace(ledger, "  owner:", "  lifecycle: {deprecated: \"2026-01-15\", successor: \"oci://r/ledger-v2\"}\n  owner:", 1)
+	writeClosureFile(t, root, "ledger/pacto.yaml", ledger)
+	writeClosureFile(t, root, "payments/pacto.yaml", closureService("payments", "alice@example.com", "ledger"))
+	svc := NewService(&mockBundleStore{}, nil)
+	svc.sys.now = func() time.Time { return time.Date(2026, time.June, 30, 9, 0, 0, 0, time.UTC) }
+	res, err := svc.Validate(context.Background(), ValidateOptions{Path: filepath.Join(root, "payments"), Closure: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Valid || len(res.Warnings) != 1 || res.Warnings[0].Code != "DEPENDENCY_SERVICE_DEPRECATED" || res.Warnings[0].Path != "dependencies[0]" ||
+		res.Warnings[0].Message != "ledger@1.0.0 is deprecated since 2026-01-15; successor oci://r/ledger-v2" {
+		t.Fatalf("valid=%v warnings=%+v errors=%+v", res.Valid, res.Warnings, res.Errors)
+	}
+}

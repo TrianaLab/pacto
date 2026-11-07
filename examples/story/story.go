@@ -20,11 +20,13 @@ import (
 	"io/fs"
 	"path"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Files holds contracts/<service>/<version>/ (real pactoVersion 2.1 to 2.3
@@ -384,7 +386,28 @@ func Revision(service, version string) (delivery.Revision, error) {
 		return delivery.Revision{}, err
 	}
 	return delivery.Revision{Digest: ArtifactDigest(service, version),
-		ContractRef: "oci://" + Domain + "/" + service + "@" + sha(string(b.RawYAML)), Bundle: b}, nil
+		ContractRef: "oci://" + Domain + "/" + service + "@" + sha(string(b.RawYAML)), Bundle: b, ConfigRefs: configRefs(b)}, nil
+}
+
+// configRefs resolves b's configuration refs to story contracts, as
+// delivery.ResolveRevision resolves them from a registry, so the environment
+// gate checks their values the same way.
+func configRefs(b *contract.Bundle) validation.ConfigRefs {
+	refs, _ := validation.ResolveConfigRefs(context.Background(), b.Contract, b.FS, validation.ConfigRefOptions{Resolver: storyResolver{}})
+	return refs
+}
+
+// storyResolver resolves oci://<Domain>/<service>:<version> to that story
+// contract.
+type storyResolver struct{}
+
+func (storyResolver) ResolveBundle(_ context.Context, ref string) (*contract.Bundle, error) {
+	rest, ok := strings.CutPrefix(ref, "oci://"+Domain+"/")
+	service, version, tagged := strings.Cut(rest, ":")
+	if !ok || !tagged {
+		return nil, fmt.Errorf("%s names no story contract", ref)
+	}
+	return Bundle(service, version)
 }
 
 // pacto is the Pacto object that checks service at version in env, as the

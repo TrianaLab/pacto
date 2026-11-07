@@ -208,6 +208,7 @@
     { title: 'Relationship', items: [
       { key: 'rel:dependency', label: 'Depends on', cls: 'lg-edge lg-dep' },
       { key: 'rel:runs', label: 'Runs', cls: 'lg-edge lg-runs' },
+      { key: 'rel:reference', label: 'Configuration reference', cls: 'lg-edge lg-ref' },
     ] },
     { title: 'Reconciliation', items: [
       { key: 'state:matched', label: 'Matched / corroborated', cls: 'lg-edge lg-matched' },
@@ -728,6 +729,9 @@
             {#if selected.edge.relation === 'runs'}
               <p class="gv-ddesc">Seen running here. Not a declared dependency.</p>
             {:else}
+              {#if selected.edge.relation === 'configuration_reference'}
+                <p class="gv-ddesc" data-testid="edge-reference-note">Declared configuration reference. It makes no runtime calls, so observation does not apply to it.</p>
+              {/if}
               {#if selected.edge.difference}
                 <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(selected.edge.difference)} tone={differenceTone(selected.edge.difference)} /></p>
                 <p class="gv-ddesc">{differenceDescription(selected.edge.difference)}</p>
@@ -841,6 +845,7 @@
      entry corresponds to something the canvas actually renders. */
   .lg-dep { border-top-style: solid; }
   .lg-runs { border-top-style: dashed; border-top-color: var(--c-info); }
+  .lg-ref { border-top-style: dashed; }
   .lg-matched { border-top-color: var(--c-ok); }
   .lg-eno { border-top-color: var(--c-info); }
   .lg-drift { border-top-width: 3px; border-top-color: var(--c-warn); }

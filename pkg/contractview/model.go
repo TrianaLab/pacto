@@ -135,15 +135,17 @@ type RuntimeDiffRow struct {
 
 // Service is a summary entry for the service list view.
 type Service struct {
-	Name           string         `json:"name"`
-	Version        string         `json:"version"`
-	Owner          contract.Owner `json:"owner,omitempty"`
-	Domain         string         `json:"domain,omitempty"`
-	Offering       string         `json:"offering,omitempty"`
-	Summary        string         `json:"summary,omitempty"`
-	ContractStatus ContractStatus `json:"contractStatus"`
-	Source         string         `json:"source"`            // primary source: k8s, oci, local
-	Sources        []string       `json:"sources,omitempty"` // all sources this service appears in
+	Name     string         `json:"name"`
+	Version  string         `json:"version"`
+	Owner    contract.Owner `json:"owner,omitempty"`
+	Domain   string         `json:"domain,omitempty"`
+	Offering string         `json:"offering,omitempty"`
+	Summary  string         `json:"summary,omitempty"`
+	// Lifecycle is the service lifecycle (pactoVersion 2.6).
+	Lifecycle      *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	ContractStatus ContractStatus               `json:"contractStatus"`
+	Source         string                       `json:"source"`            // primary source: k8s, oci, local
+	Sources        []string                     `json:"sources,omitempty"` // all sources this service appears in
 }
 
 // ServiceDetails contains all information for the service detail view.
@@ -268,13 +270,15 @@ type ConfigValue = schemax.Property
 
 // ConfigurationInfo describes a single configuration scope.
 type ConfigurationInfo struct {
-	Name       string        `json:"name,omitempty"`
-	HasSchema  bool          `json:"hasSchema"`
-	Schema     string        `json:"schema,omitempty"`
-	Ref        string        `json:"ref,omitempty"`
-	ValueKeys  []string      `json:"valueKeys,omitempty"`
-	SecretKeys []string      `json:"secretKeys,omitempty"`
-	Values     []ConfigValue `json:"values,omitempty"`
+	Name      string `json:"name,omitempty"`
+	HasSchema bool   `json:"hasSchema"`
+	Schema    string `json:"schema,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	// Configuration is the provider configuration a ref selects (pactoVersion 2.6).
+	Configuration string        `json:"configuration,omitempty"`
+	ValueKeys     []string      `json:"valueKeys,omitempty"`
+	SecretKeys    []string      `json:"secretKeys,omitempty"`
+	Values        []ConfigValue `json:"values,omitempty"`
 	// ValuesAreCurrent is set when a remote ref's values were resolved from the
 	// referenced service's CURRENT version (because the ref is not version-pinned,
 	// or the pinned version was unavailable) while displaying a historical version.

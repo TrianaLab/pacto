@@ -642,6 +642,11 @@
           "properties": {
             "existingSecret": {
               "type": "string"
+            },
+            "configKey": {
+              "type": "string",
+              "description": "A key of the trust Secret holding a structured trust config; the server reads it as one by its .yaml or .yml extension.",
+              "pattern": "^$|^[A-Za-z0-9_-][A-Za-z0-9._-]*\\.(yaml|yml)$"
             }
           }
         },

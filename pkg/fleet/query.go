@@ -531,13 +531,15 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		// Declared dependency edges only, matching this field's documented meaning;
+		// Declared dependency edges only, matching this field's documented meaning
+		// (configuration references live in the contract's configurations);
 		// observed edges live in the separate observed adjacency index (and the
 		// graph's observed layer), so they never masquerade as declared intent here.
 		if rel.FromService == s.Key && rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared {
 			view.Dependencies = append(view.Dependencies, rel)
 		}
 	}
+	// Dependents includes configuration-reference consumers (see [ConsumesEdge]).
 	view.Dependents = append([]ServiceKey(nil), q.snap.reverseDeps[s.Key]...)
 	return view, nil
 }
@@ -863,13 +865,14 @@ func (q *Query) resolveGraphScope(gq GraphQuery) (rootKey ServiceKey, scopeRev R
 	}
 }
 
-// graphEdges collects the typed dependency edges spanned by the traversal (root +
-// reached nodes) and, separately, the unresolved ones. Root edges honor the
-// revision scope; downstream edges are service-level.
+// graphEdges collects the typed dependency and resolved configuration-reference
+// edges spanned by the traversal (root + reached nodes) and, separately, the
+// unresolved dependencies. Root edges honor the revision scope; downstream edges
+// are service-level.
 func (q *Query) graphEdges(nodeSet map[ServiceKey]bool, rootSvc ServiceKey, dir Direction, scopeRev RevisionKey) (edges, unresolved []Relationship) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type != RelationshipDependency {
+		if rel.Type != RelationshipDependency && !ConsumesEdge(rel) {
 			continue
 		}
 		if !edgeInScope(rel, nodeSet, rootSvc, dir, scopeRev) {
@@ -1062,6 +1065,7 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
+		// Dependency edges only: the reasons below judge resolution and ranges.
 		if rel.FromService != s.Key || rel.Type != RelationshipDependency {
 			continue
 		}

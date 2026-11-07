@@ -29,6 +29,60 @@ func newEvidenceCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newEvidenceVerifyCommand(svc, v))
 	cmd.AddCommand(newEvidenceServeCommand(svc, v))
 	cmd.AddCommand(newEvidenceSendCommand(svc, v))
+	cmd.AddCommand(newEvidenceProvisionedCommand(svc, v))
+	return cmd
+}
+
+func newEvidenceProvisionedCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "provisioned",
+		Short: "Write an EvidenceSet that reports a resource's provisioning state",
+		Long: "Writes an EvidenceSet that reports the provisioning state of the resource a " +
+			"consumer's configuration reference or dependency asked for. Sign it with pacto " +
+			"evidence sign and post it with pacto evidence send. Any adapter (a CI job, a " +
+			"controller, a script) can run it; Pacto keeps no provider-specific code. The " +
+			"subject defaults to <repository>/<environment or default>/<kind>/<name>, so each " +
+			"resource keeps its own latest report. Prints the EvidenceSet JSON.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := app.ProvisionedOptions{}
+			opts.ContractRef, _ = cmd.Flags().GetString("contract")
+			opts.Configuration, _ = cmd.Flags().GetString("configuration")
+			opts.Dependency, _ = cmd.Flags().GetString("dependency")
+			opts.Provider, _ = cmd.Flags().GetString("provider")
+			opts.Phase, _ = cmd.Flags().GetString("phase")
+			opts.ExternalRef, _ = cmd.Flags().GetString("external-ref")
+			opts.Environment, _ = cmd.Flags().GetString("environment")
+			opts.Subject, _ = cmd.Flags().GetString("subject")
+			opts.Outcome, _ = cmd.Flags().GetString("outcome")
+			opts.Collector, _ = cmd.Flags().GetString("collector")
+			if at, _ := cmd.Flags().GetString("observed-at"); at != "" {
+				t, err := time.Parse(time.RFC3339, at)
+				if err != nil {
+					return fmt.Errorf("invalid --observed-at: %w", err)
+				}
+				opts.ObservedAt = t
+			}
+			set, err := svc.ProvisionedEvidence(opts)
+			if err != nil {
+				return err
+			}
+			// A wire artifact for sign: always JSON, like sign's envelope.
+			return printJSON(cmd, set)
+		},
+	}
+	cmd.Flags().String("contract", "", "consumer contract revision: oci://<repo>@sha256:<digest>")
+	cmd.Flags().String("configuration", "", "consumer configuration (with a ref) that asked for the resource")
+	cmd.Flags().String("dependency", "", "consumer dependency that asked for the resource")
+	cmd.Flags().String("provider", "", "provider slug (lowercase letters, digits and hyphens)")
+	cmd.Flags().String("phase", "", "provisioning phase: Requested, Provisioning, Ready, Failed or Deleting")
+	cmd.Flags().String("external-ref", "", "opaque handle of the resource at the provider (at most 253 printable bytes)")
+	cmd.Flags().String("environment", "", "consumer environment the resource serves")
+	cmd.Flags().String("subject", "", "EvidenceSet subject (defaults to <repository>/<environment or default>/<kind>/<name>)")
+	cmd.Flags().String("outcome", "Observed", "collection outcome: Observed, Unsupported, Failed, Stale or Insufficient; anything but Observed carries no phase")
+	cmd.Flags().String("observed-at", "", "observation timestamp (RFC3339; defaults to now)")
+	cmd.Flags().String("collector", "", "collector id recorded as provenance (defaults to pacto)")
+	_ = cmd.MarkFlagRequired("contract")
 	return cmd
 }
 
@@ -142,13 +196,13 @@ func newEvidenceSignCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sign <evidence.json>",
 		Short: "Sign an EvidenceSet into a signed envelope",
-		Long: "Reads an EvidenceSet JSON file, wraps it in an Ed25519-signed envelope and " +
+		Long: "Reads an EvidenceSet JSON file (- reads stdin), wraps it in an Ed25519-signed envelope and " +
 			"prints the envelope JSON. Only --issued-at is non-deterministic (it defaults " +
 			"to now), so pinning it is enough to make re-signing the same evidence produce " +
 			"a byte-identical envelope.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := app.SignOptions{EvidencePath: args[0]}
+			opts := app.SignOptions{EvidencePath: args[0], Stdin: cmd.InOrStdin()}
 			opts.KeyPath, _ = cmd.Flags().GetString("key")
 			opts.KeyID, _ = cmd.Flags().GetString("key-id")
 			opts.ProducerID, _ = cmd.Flags().GetString("producer")

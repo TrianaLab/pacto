@@ -8,15 +8,17 @@ pacto validate .
 ```
 
 It runs three checks in order and then the
+[configuration-refs stage](#configuration-references-stage) and the
 [environments stage](#environments-stage), and so does anything else that has
 to trust a contract. `pack`, `push` and `publish` refuse before they write or
 transmit a byte, and the operator revalidates every bundle it loads.
 Each layer short-circuits: if it fails, the layers after it are skipped, so one
-broken field can hide the rest.
+broken field can hide the rest. A failed configuration-refs stage skips
+nothing.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json`, `pacto-v2.4.schema.json` or `pacto-v2.5.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json`, `pacto-v2.4.schema.json`, `pacto-v2.5.schema.json` or `pacto-v2.6.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
@@ -34,10 +36,13 @@ instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
 `environments` reports `NEEDS_PACTO_2_3`: set `pactoVersion: "2.3"`. A `"2.0"`
 to `"2.3"` contract that sets `service.domain` reports `NEEDS_PACTO_2_4`: set
 `pactoVersion: "2.4"`. A `"2.0"` to `"2.4"` contract that sets `service.offering`
-or `service.summary` reports `NEEDS_PACTO_2_5`: set `pactoVersion: "2.5"`.
+or `service.summary` reports `NEEDS_PACTO_2_5`: set `pactoVersion: "2.5"`. A
+`"2.0"` to `"2.5"` contract that sets `service.lifecycle` or puts `values` or a
+`configuration` selector beside a configuration `ref` reports
+`NEEDS_PACTO_2_6`: set `pactoVersion: "2.6"`.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`, fails before any layer runs and reports
+`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"`, `"2.5"` or `"2.6"`, fails before any layer runs and reports
 `PARSE_ERROR`. Loading is the parse step that turns `pacto.yaml` into a
 contract. Validation starts once it succeeds.
 
@@ -51,6 +56,8 @@ Validates semantic references and consistency:
 | Interface names are unique | `DUPLICATE_INTERFACE_NAME` |
 | `interfaces[].lifecycle` dates are strict `YYYY-MM-DD` and `sunset` is not before `deprecated` | `INVALID_INTERFACE_LIFECYCLE` |
 | `interfaces[].lifecycle.successor` names another interface or is an absolute URL | `INTERFACE_SUCCESSOR_UNKNOWN` |
+| `service.lifecycle` dates are strict `YYYY-MM-DD` and `sunset` is not before `deprecated` | `INVALID_SERVICE_LIFECYCLE` |
+| `service.lifecycle.successor` is an absolute URL | `SERVICE_SUCCESSOR_INVALID` |
 | Configuration names are unique | `DUPLICATE_CONFIGURATION_NAME` |
 | Policy names are unique | `DUPLICATE_POLICY_NAME` |
 | Dependency names are unique | `DUPLICATE_DEPENDENCY_NAME` |
@@ -74,7 +81,7 @@ Validates semantic references and consistency:
 | `configurations[].schema` file exists in the bundle | `FILE_NOT_FOUND` |
 | `configurations[].schema` file is valid JSON | `INVALID_CONFIG_JSON` |
 | `configurations[].schema` file is valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
-| `configurations[].values` match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
+| `configurations[].values` match the local schema (values beside a `ref` are checked by the [configuration-refs stage](#configuration-references-stage)) | `CONFIG_VALUES_VALIDATION_FAILED` |
 | `policies[].schema` file exists in the bundle | `FILE_NOT_FOUND` |
 | `policies[].schema` file is valid JSON | `INVALID_POLICY_JSON` |
 | `policies[].schema` file is valid JSON Schema | `INVALID_POLICY_SCHEMA` |
@@ -132,6 +139,8 @@ per dependency. External dependencies carry no contract and are skipped.
 | A dependency cannot be resolved, sits in a dependency cycle or has an unreadable contract | `CLOSURE_DEPENDENCY_UNRESOLVED` |
 | A direct dependency declares a [deprecated interface](sections.md#interface-lifecycle) | `DEPENDENCY_INTERFACE_DEPRECATED` (warning) |
 | That interface has reached its sunset | `DEPENDENCY_INTERFACE_SUNSET` (warning) |
+| A direct dependency declares a [service lifecycle](sections.md#service-lifecycle) | `DEPENDENCY_SERVICE_DEPRECATED` (warning) |
+| That service has reached its sunset | `DEPENDENCY_SERVICE_SUNSET` (warning) |
 
 A policy finding names the dependency in its path, for example
 `dependencies[ledger@1.0.0]`. A dependency that cannot be resolved is named in
@@ -145,11 +154,57 @@ the date the check runs. To fail a pipeline after the sunset, gate on
 `DEPENDENCY_INTERFACE_SUNSET` in `--output-format json`. When `pacto.lock` is present, the lock is verified first and
 a drifted closure fails with the lock error before the closure is checked.
 
+## Configuration-references stage
+
+After the policy layer, the `configuration-refs` stage resolves each
+configuration that takes its schema by `ref`. It fetches the referenced
+contract, selects one of its configurations and checks the inline `values`
+against that configuration's schema. A selected configuration that is itself a
+`ref` is followed to the end of the chain. The stage reports `SKIP no
+configuration references` for a contract without one.
+
+[Selecting a configuration](configuration-and-policy.md#selecting-a-configuration)
+describes how the stage picks a configuration from the referenced contract.
+
+| Condition | Code |
+|---|---|
+| The ref cannot be fetched, read or compiled, or its chain runs past eight refs, and something depends on it (see below) | `CONFIG_REF_UNRESOLVED` |
+| The ref cannot be resolved and nothing depends on it, or the caller is a gate | `CONFIG_REF_UNVERIFIED` (warning) |
+| Values for the ref were not checked because the caller has no resolver | `CONFIG_REF_NOT_ENFORCED` (warning) |
+| The referenced contract declares several configurations and no `configuration` names one | `CONFIG_REF_AMBIGUOUS` |
+| `configuration` names no configuration of the referenced contract, or it declares none | `CONFIG_REF_UNKNOWN_CONFIGURATION` |
+| The chain of refs comes back to a ref it already followed | `CONFIG_REF_CYCLE` |
+| A dependency on the same repository has a `compatibility` the resolved version is outside of | `CONFIG_REF_VERSION_OUTSIDE_RANGE` |
+| The inline `values` fail the selected schema | `CONFIG_VALUES_VALIDATION_FAILED` |
+| The referenced contract declares a [service lifecycle](sections.md#service-lifecycle) | `DEPENDENCY_SERVICE_DEPRECATED` (warning) |
+| That service has reached its sunset | `DEPENDENCY_SERVICE_SUNSET` (warning) |
+
+In a `"2.0"` to `"2.5"` contract, `CONFIG_REF_AMBIGUOUS` and
+`CONFIG_REF_UNKNOWN_CONFIGURATION` are warnings, because an older contract can
+carry no selector, and values for that configuration stay unchecked.
+
+**Who resolves refs.** `pacto validate`, `pacto push`, `pacto publish` and
+`pacto_check` fail closed: a ref reports `CONFIG_REF_UNRESOLVED` when its
+resolution protects a check. That is the case when the contract is 2.6, when an
+environment gives values for the configuration or when the contract also
+declares a ranged dependency on the same repository. A `"2.0"` to `"2.5"` ref
+with nothing to check reports `CONFIG_REF_UNVERIFIED` and the stage reports
+`SKIP could not verify:`. The fleet, the delivery gate and `pacto doc` report
+every unresolved ref as `CONFIG_REF_UNVERIFIED` and skip the stage, so a
+missing provider never makes a contract invalid there and never passes its
+values. `pacto pack` resolves nothing and warns `CONFIG_REF_NOT_ENFORCED` for
+each ref with values to check. The [operator](../integrations/kubernetes/limitations.md#configurations-that-take-their-schema-by-ref)
+pulls referenced contracts itself.
+
+Values the resolved schema rejects and selection errors in a 2.6 contract are
+errors for every caller: two declarations contradict each other.
+
 ## Environments stage
 
 After the policy layer, the `environments` stage checks each environment's
-file against the schema of every configuration it names. It runs only
-when every stage before it passed, and reports `SKIP no environments declared`
+file against the schema of every configuration it names. It runs when the
+structural, cross-field and policy layers passed, whatever the
+configuration-refs stage reported, and reports `SKIP no environments declared`
 for a contract without `environments`. [Environments](environments.md#how-values-are-checked)
 lists the rules and the codes it reports: `ENVIRONMENT_UNKNOWN_CONFIGURATION`,
 `ENVIRONMENT_VALUES_INVALID`, `ENVIRONMENT_VALUES_MISSING` and the
@@ -158,8 +213,10 @@ lists the rules and the codes it reports: `ENVIRONMENT_UNKNOWN_CONFIGURATION`,
 An error in an environment's file carries that file in `file`, with `line` and
 `column` pointing into it, also when `--set` or `-f` is given. The stage passes
 only when Pacto checked every value set and found no error. A configuration
-whose schema is behind a `ref` leaves its values unchecked, and so does a run
-with no bundle files to read, such as the operator loading an inline contract.
+whose schema is behind a `ref` is checked against the schema the
+configuration-refs stage resolved. A `ref` that stage could not resolve leaves
+its values unchecked, and so does a run with no bundle files to read, such as
+the operator loading an inline contract.
 A stage with no error and an unchecked value set reports
 `SKIP could not verify:` and names each environment and configuration.
 

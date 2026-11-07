@@ -9,6 +9,8 @@ package evidence
 
 import (
 	"fmt"
+	"path"
+	"strings"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 
@@ -41,6 +43,14 @@ type Config struct {
 	// TrustSecret is the name of a Secret of trusted producer public keys, mounted
 	// read-only. Signature verification is mandatory, so it is required.
 	TrustSecret string
+
+	// TrustConfigKey is the OPTIONAL key of TrustSecret holding a structured
+	// trust config (pacto.dev/evidence-trust/v1). When set, the server starts
+	// with that file, so a key can carry per-key subject, contract-repository
+	// and observation-kind allowlists (a provisioning adapter needs
+	// ResourceProvisioned); its publicKeyFile entries name other keys of the
+	// same Secret. Empty keeps the bare-key mode: every *.pub key in the Secret.
+	TrustConfigKey string
 
 	// InsecureRegistries is the comma-separated list of registry hosts the
 	// Evidence Server may reach over plain HTTP, inherited verbatim from the
@@ -97,8 +107,19 @@ func (c Config) Validate() error {
 	if c.TrustSecret == "" {
 		return fmt.Errorf("evidence enabled but no trust secret set: signature verification is mandatory (set --evidence-trust-secret)")
 	}
+	if c.TrustConfigKey != "" && !validTrustConfigKey(c.TrustConfigKey) {
+		return fmt.Errorf("evidence trust config key %q must be a plain Secret key ending in .yaml or .yml", c.TrustConfigKey)
+	}
 	if len(c.Subjects) == 0 {
 		return fmt.Errorf("evidence enabled but no contract subject set: the registry is the evidence store (set evidence.registry.subjects)")
 	}
 	return c.Resources.Validate("evidence")
+}
+
+// validTrustConfigKey reports whether key names a file directly inside the
+// mounted Secret that the server reads as a structured trust config: the
+// server picks that mode by the .yaml/.yml extension.
+func validTrustConfigKey(key string) bool {
+	ext := strings.ToLower(path.Ext(key))
+	return (ext == ".yaml" || ext == ".yml") && !strings.ContainsAny(key, "/\\") && !strings.HasPrefix(key, ".")
 }

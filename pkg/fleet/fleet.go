@@ -41,6 +41,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // ServiceKey is the stable identity of a logical service (its name).
@@ -256,6 +257,15 @@ func CanonicalStatuses() []string { return slices.Sorted(maps.Keys(severityRank)
 // changes.
 const SchemaVersion = "pacto.dev/fleet/v1"
 
+// MaxProvisioningClockSkew is how far a provisioning report's observedAt may
+// run ahead of the time it was accepted. A report dated further in the future
+// is rejected, so a producer cannot outrank later reports by lying about time.
+const MaxProvisioningClockSkew = 5 * time.Minute
+
+// MaxProvisioningRecords bounds the provisioning reports a snapshot keeps; the
+// newest win.
+const MaxProvisioningRecords = 10000
+
 // Limitation codes explain, in a structured way, why an answer is incomplete or
 // why a record could not be fully established. Codes are stable and typed so
 // agents branch on them; the human message is advisory.
@@ -324,6 +334,15 @@ const (
 	// LimitationNeighborhoodUnavailable: the relationships of a service could not
 	// be computed, so its relationship list is empty for that reason alone.
 	LimitationNeighborhoodUnavailable = "NEIGHBORHOOD_UNAVAILABLE"
+	// LimitationProvisioningConflict: two reporters disagree about the
+	// provisioning phase of one use in one environment, so its status is Unknown.
+	LimitationProvisioningConflict = "PROVISIONING_CONFLICT"
+	// LimitationProvisioningTruncated: the sources reported more than
+	// MaxProvisioningRecords provisioning reports; the oldest were dropped.
+	LimitationProvisioningTruncated = "PROVISIONING_TRUNCATED"
+	// LimitationProvisioningUnmatched: provisioning reports name no contract
+	// revision in the snapshot, or a use that revision does not resolve.
+	LimitationProvisioningUnmatched = "PROVISIONING_UNMATCHED"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -420,6 +439,9 @@ type ServiceRecord struct {
 	Labels    map[string]string `json:"labels,omitempty"`
 	Status    string            `json:"status,omitempty"`
 	Sources   []string          `json:"sources,omitempty"`
+	// OfferingProvenance says where Offering comes from: declared by a contract
+	// revision, or observed, reported only by the sources observing its targets.
+	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
 	// HiddenDependencies and HiddenDependents count the services this one
 	// depends on or calls, and the services, or callers with no contract, that
 	// depend on or call it, which the caller's permissions hide. They are never
@@ -507,6 +529,10 @@ type ContractRevision struct {
 	// was run through the validator at build time. Stored so status queries never
 	// dereference the build-only bundle after Build.
 	validated bool
+	// localStages is the validation run with no configuration ref resolved,
+	// kept when revalidateConfigRefs replaces it so a restricted view can
+	// derive the verdict again without a provider it hides.
+	localStages []validation.Stage
 	// lockConflict, when non-empty, is why this revision has no lock: two sources
 	// contributed it with disagreeing pacto.lock resolutions, so Lock was dropped
 	// (see mergeRevisionLock). Like docConflict it carries a reason rather than a
@@ -655,6 +681,15 @@ const (
 	RelationshipPolicyRef  = "policy_reference"
 )
 
+// ConsumesEdge reports whether rel is a declared, resolved edge through which
+// its source consumes its destination: a dependency or a configuration
+// reference. These are the edges the dependency indexes hold, so graph
+// traversal, dependents, hidden counts and impact all count the same consumers.
+func ConsumesEdge(rel Relationship) bool {
+	return rel.Provenance == ProvenanceDeclared && rel.Resolved &&
+		(rel.Type == RelationshipDependency || rel.Type == RelationshipConfigRef)
+}
+
 // Relationship is a directed, revision-scoped graph edge. A declared edge
 // originates from a specific [ContractRevision] (FromRevision) of a logical
 // service (FromService) — never from "the service's latest revision". Declared
@@ -700,6 +735,10 @@ type Relationship struct {
 	// DeprecatedInterfaces lists the deprecated interfaces of the provider
 	// revision a resolved dependency reaches (see [providerDeprecations]).
 	DeprecatedInterfaces []InterfaceDeprecation `json:"deprecatedInterfaces,omitempty"`
+	// ProviderLifecycle is the service lifecycle (pactoVersion 2.6) of the
+	// provider revision a resolved dependency or configuration reference reaches
+	// (see [providerServiceLifecycle]): the provider's own declaration.
+	ProviderLifecycle *contract.InterfaceLifecycle `json:"providerLifecycle,omitempty"`
 	// Hidden marks a declared dependency that resolves to a service the
 	// caller's Kubernetes permissions hide: ToService and ResolvedRevision are
 	// blank, and To is only what the declaring contract itself says.
@@ -758,9 +797,30 @@ type FleetSnapshot struct {
 	// UncontractedCallers are observed callers with no contract of a service
 	// that has one. Sorted by (ToService, Caller).
 	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`
+	// Provisioning are the validated provider reports on what consumers'
+	// configuration references and dependencies asked for, each matched to a
+	// revision in this snapshot and a use it resolves. Sorted deterministically.
+	Provisioning []ProvisioningRecord `json:"provisioning,omitempty"`
+
+	// provisioningWindow is BuildOptions.FreshnessWindow: a provisioning report
+	// older than it (RecentEvidenceWindow when zero) is stale.
+	provisioningWindow time.Duration
+	// provisioningDropped counts, per consumer service, the reports dropped past
+	// MaxProvisioningRecords, so a restricted view reports only its own losses.
+	provisioningDropped map[ServiceKey]int
+
+	// targetsHidden holds, in a restricted snapshot, the visible services that
+	// lost a target to the view: those visible only because they declare a
+	// platform offering (see [Query.Restrict]) and those with a target in a
+	// hidden namespace. What their targets run is not fully known.
+	targetsHidden map[ServiceKey]bool
+	// hiddenConsumers maps, in a restricted snapshot, a provider to the hidden
+	// services with a declared, resolved [ConsumesEdge] to it. Only counted.
+	hiddenConsumers map[ServiceKey]map[ServiceKey]bool
 
 	// reverseDeps maps a service KEY to the keys of services that declare a
-	// dependency on it, across all their revisions (the dependents index). Built
+	// dependency or a resolved configuration reference on it (see
+	// [ConsumesEdge]), across all their revisions (the dependents index). Built
 	// once at Build time; never mutated afterwards. Keyed by the domain-qualified
 	// ServiceKey (not the bare name) so same-named services in different domains
 	// never share a dependents set.
@@ -777,6 +837,30 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
+}
+
+// ProvisioningRecord is one validated provisioning report (see
+// [RawProvisioning]) about the consumer revision Digest of ServiceKey. Source
+// and SourceKind name the source that delivered it.
+type ProvisioningRecord struct {
+	ServiceKey    ServiceKey `json:"serviceKey"`
+	Service       string     `json:"service"`
+	Domain        string     `json:"domain,omitempty"`
+	Digest        string     `json:"digest"`
+	Kind          string     `json:"kind" enum:"configuration,dependency"`
+	Name          string     `json:"name"`
+	Environment   string     `json:"environment,omitempty"`
+	Provider      string     `json:"provider,omitempty"`
+	ExternalRef   string     `json:"externalRef,omitempty"`
+	Phase         string     `json:"phase,omitempty"`
+	Outcome       string     `json:"outcome"`
+	Producer      string     `json:"producer,omitempty"`
+	ProducerKeyID string     `json:"producerKeyId,omitempty"`
+	ObservedAt    time.Time  `json:"observedAt"`
+	AcceptedAt    *time.Time `json:"acceptedAt,omitempty"`
+	Verified      bool       `json:"verified"`
+	Source        string     `json:"source"`
+	SourceKind    string     `json:"sourceKind,omitempty"`
 }
 
 // UncontractedCaller is a runtime caller no contract describes, of a service

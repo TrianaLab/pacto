@@ -2135,3 +2135,93 @@ func TestBuild_DoesNotMutateInputContract(t *testing.T) {
 // ensure finding import is used (targets carry findings in query tests, but keep
 // this package-level reference explicit and cheap).
 var _ = finding.SeverityError
+
+// An invalid or future-dated provisioning report is dropped with one counted
+// limitation that names no service, and the valid ones are kept.
+func TestIngestProvisioning_InvalidDropped(t *testing.T) {
+	future := fixedNow().Add(MaxProvisioningClockSkew + time.Minute)
+	skewed := report(func(r *RawProvisioning) { r.ObservedAt = future.Add(time.Minute) })
+	bad := []RawProvisioning{
+		report(func(r *RawProvisioning) { r.Provider = "Not A Slug" }),
+		report(func(r *RawProvisioning) { r.Kind = "interface" }),
+		report(func(r *RawProvisioning) { r.Outcome = "Maybe" }),
+		report(func(r *RawProvisioning) { r.Service = "" }),
+		report(func(r *RawProvisioning) { r.Digest = "sha256:…" }), // a placeholder never names a revision
+		report(func(r *RawProvisioning) { r.ObservedAt = time.Time{} }),
+		report(func(r *RawProvisioning) { r.Outcome = "Failed" }), // a non-Observed outcome carries no payload
+		report(func(r *RawProvisioning) { // only the environment
+			r.Outcome, r.Provider, r.ExternalRef, r.Phase, r.Environment = "Failed", "", "", "", "Not A Slug"
+		}),
+		report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = future, nil }),
+		skewed,
+	}
+	snap := provisioningSnap(t, 0, ordersFleet(), append(bad, report()))
+	if len(snap.Provisioning) != 1 {
+		t.Fatalf("provisioning = %+v", snap.Provisioning)
+	}
+	var invalid []Limitation
+	for _, l := range snap.Limitations {
+		if l.Code == LimitationSourceRecordInvalid {
+			invalid = append(invalid, l)
+		}
+	}
+	if len(invalid) != 1 || invalid[0].Message != "10 provisioning records were invalid and dropped" || invalid[0].Source != "evidence-0" {
+		t.Errorf("limitations = %+v", invalid)
+	}
+}
+
+// Reports that name no revision, or a use the revision does not resolve, are
+// dropped with one counted limitation per source.
+func TestIngestProvisioning_Unmatched(t *testing.T) {
+	snap := provisioningSnap(t, 0, ordersFleet(), []RawProvisioning{
+		report(func(r *RawProvisioning) { r.Service = "secret-svc" }),
+		report(func(r *RawProvisioning) { r.Digest = testDigest(acme, "orders", "0.0.1") }), // a revision the snapshot lacks
+		report(func(r *RawProvisioning) { r.Name = "cache" }),
+		report(),
+	})
+	if len(snap.Provisioning) != 1 {
+		t.Fatalf("provisioning = %+v", snap.Provisioning)
+	}
+	var got []Limitation
+	for _, l := range snap.Limitations {
+		if l.Code == LimitationProvisioningUnmatched {
+			got = append(got, l)
+		}
+	}
+	if len(got) != 1 || !strings.HasPrefix(got[0].Message, "3 provisioning reports") || strings.Contains(got[0].Message, "secret-svc") {
+		t.Errorf("limitations = %+v", got)
+	}
+}
+
+// Over the cap the newest reports are kept.
+func TestIngestProvisioning_Truncated(t *testing.T) {
+	recs := make([]RawProvisioning, MaxProvisioningRecords+1)
+	for i := range recs {
+		at := fixedNow().Add(-time.Duration(i+1) * time.Second)
+		recs[i] = report(func(r *RawProvisioning) { r.ObservedAt, r.AcceptedAt = at, &at })
+	}
+	snap := provisioningSnap(t, 0, ordersFleet(), recs)
+	if len(snap.Provisioning) != MaxProvisioningRecords || !hasLimitation(snap.Limitations, LimitationProvisioningTruncated) {
+		t.Fatalf("%d reports, limitations %+v", len(snap.Provisioning), snap.Limitations)
+	}
+	oldest := fixedNow().Add(-time.Duration(MaxProvisioningRecords+1) * time.Second)
+	for _, r := range snap.Provisioning {
+		if r.ObservedAt.Equal(oldest) {
+			t.Fatal("the oldest report was kept")
+		}
+	}
+}
+
+// Report order and the snapshot id do not depend on source or record order.
+func TestIngestProvisioning_Deterministic(t *testing.T) {
+	a := []RawProvisioning{report(), report(func(r *RawProvisioning) { r.Environment = "staging" }), report(func(r *RawProvisioning) { r.Kind, r.Name = "dependency", "postgresql" })}
+	b := []RawProvisioning{report(func(r *RawProvisioning) { r.Producer = "other" })}
+	one := provisioningSnap(t, 0, ordersFleet(), a, b)
+	two := provisioningSnap(t, 0, ordersFleet(), []RawProvisioning{a[2], a[0], a[1]}, b)
+	if one.SnapshotID != two.SnapshotID {
+		t.Errorf("snapshot ids differ: %s vs %s", one.SnapshotID, two.SnapshotID)
+	}
+	if len(one.Provisioning) != 4 || one.Provisioning[0].Kind != "configuration" || one.Provisioning[3].Kind != "dependency" {
+		t.Errorf("order = %+v", one.Provisioning)
+	}
+}

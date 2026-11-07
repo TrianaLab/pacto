@@ -26,7 +26,7 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 			changes = append(changes, removedInterface(oldIface))
 			continue
 		}
-		changes = append(changes, diffLifecycle(name, oldIface.Lifecycle, newIface.Lifecycle)...)
+		changes = append(changes, diffLifecycleAt("interfaces.lifecycle", name, oldIface.Lifecycle, newIface.Lifecycle)...)
 
 		if oldIface.Type != newIface.Type {
 			changes = append(changes, newChange("interfaces.type", Modified, name+": "+oldIface.Type, name+": "+newIface.Type))
@@ -83,28 +83,29 @@ func removedInterface(iface contract.Interface) Change {
 // reached. Only the reason text reads it; no classification does.
 var now = time.Now
 
-// diffLifecycle compares the lifecycle of one interface. Deprecating, moving the
+// diffLifecycleAt compares the lifecycle of one interface or of the service
+// (prefix "interfaces.lifecycle" or "service.lifecycle"; name names it). Deprecating, moving the
 // deprecation date, adding or dropping a sunset and naming a successor are
 // notices that change nothing a consumer calls, so they are NonBreaking. An
 // earlier sunset shortens the window consumers were promised to migrate in and
 // is PotentialBreaking; a later one only extends it.
-func diffLifecycle(name string, o, n *contract.InterfaceLifecycle) []Change {
+func diffLifecycleAt(prefix, name string, o, n *contract.InterfaceLifecycle) []Change {
 	switch {
 	case o == nil && n == nil:
 		return nil
 	case o == nil:
-		c := newChange("interfaces.lifecycle", Added, nil, name+": deprecated "+n.Deprecated)
+		c := newChange(prefix, Added, nil, name+": deprecated "+n.Deprecated)
 		c.Reason += ": " + name + " " + n.String()
 		return []Change{c}
 	case n == nil:
-		return []Change{newChange("interfaces.lifecycle", Removed, name+": deprecated "+o.Deprecated, nil)}
+		return []Change{newChange(prefix, Removed, name+": deprecated "+o.Deprecated, nil)}
 	}
 	var changes []Change
 	if o.Deprecated != n.Deprecated {
-		changes = append(changes, newChange("interfaces.lifecycle.deprecated", Modified, name+": "+o.Deprecated, name+": "+n.Deprecated))
+		changes = append(changes, newChange(prefix+".deprecated", Modified, name+": "+o.Deprecated, name+": "+n.Deprecated))
 	}
 	if o.Sunset != n.Sunset {
-		c := newChange("interfaces.lifecycle.sunset", strChangeType(o.Sunset, n.Sunset), name+": "+o.Sunset, name+": "+n.Sunset)
+		c := newChange(prefix+".sunset", strChangeType(o.Sunset, n.Sunset), name+": "+o.Sunset, name+": "+n.Sunset)
 		if c.Type == Modified {
 			direction := "earlier"
 			if n.Sunset > o.Sunset { // canonical dates compare as strings
@@ -115,7 +116,7 @@ func diffLifecycle(name string, o, n *contract.InterfaceLifecycle) []Change {
 		changes = append(changes, c)
 	}
 	if o.Successor != n.Successor {
-		changes = append(changes, newChange("interfaces.lifecycle.successor", strChangeType(o.Successor, n.Successor), name+": "+o.Successor, name+": "+n.Successor))
+		changes = append(changes, newChange(prefix+".successor", strChangeType(o.Successor, n.Successor), name+": "+o.Successor, name+": "+n.Successor))
 	}
 	return changes
 }
@@ -135,23 +136,32 @@ func diffEpoch(name string, o, n int) []Change {
 }
 
 // diffConfiguration compares configuration slices by name and delegates to JSON Schema diff.
+// A contract that goes from one configuration to several also loses its default: a consumer's
+// reference that names no configuration selected the only one and now reads as ambiguous.
 func diffConfiguration(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
-	return diffRefSources("configurations",
+	changes := diffRefSources("configurations",
 		configRefSources(old.Configurations), configRefSources(new.Configurations), oldFS, newFS)
+	if len(old.Configurations) == 1 && len(new.Configurations) > 1 {
+		c := newChange("configurations.default", Removed, old.Configurations[0].Name, nil)
+		c.Reason = fmt.Sprintf("configuration %s is no longer the only one: a consumer's reference that names no configuration becomes ambiguous", old.Configurations[0].Name)
+		changes = append(changes, c)
+	}
+	return changes
 }
 
 // refSource is the common shape of a configuration or policy source (a name with
 // an optional schema and/or ref), used by the shared diff routine. values holds a
-// configuration's inline values (nil for policies).
+// configuration's inline values and selector its provider configuration (both
+// empty for policies).
 type refSource struct {
-	name, schema, ref string
-	values            map[string]any
+	name, schema, ref, selector string
+	values                      map[string]any
 }
 
 func configRefSources(cfgs []contract.Configuration) []refSource {
 	out := make([]refSource, len(cfgs))
 	for i, c := range cfgs {
-		out[i] = refSource{name: c.Name, schema: c.Schema, ref: c.Ref, values: c.Values}
+		out[i] = refSource{name: c.Name, schema: c.Schema, ref: c.Ref, selector: c.ProviderConfiguration, values: c.Values}
 	}
 	return out
 }
@@ -188,12 +198,15 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 		if o.ref != n.ref {
 			changes = append(changes, newChange(field+".ref", strChangeType(o.ref, n.ref), name+": "+o.ref, name+": "+n.ref))
 		}
+		if o.selector != n.selector {
+			changes = append(changes, newChange(field+".configuration", strChangeType(o.selector, n.selector), name+": "+o.selector, name+": "+n.selector))
+		}
 		// Diff schema file contents when both reference local schemas.
 		if o.schema != "" && n.schema != "" {
 			changes = append(changes, diffSchema(o.schema, n.schema, oldFS, newFS)...)
 		}
-		// Diff inline configuration values (provider defaults; never consumer-facing).
-		changes = append(changes, diffConfigValues(field, name, o.values, n.values)...)
+		// Diff inline configuration values (never consumer-facing).
+		changes = append(changes, diffConfigValues(field, name, n.ref, o.values, n.values)...)
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(newByName)) {
@@ -205,12 +218,17 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 }
 
 // diffConfigValues diffs two inline configuration value maps, reusing the JSON
-// structural diff but reclassifying every change as NonBreaking: values are the
-// provider's own defaults, not part of the consumer-facing contract surface.
-func diffConfigValues(field, name string, old, new map[string]any) []Change {
+// structural diff but reclassifying every change as NonBreaking: values beside a
+// local schema are the service's own defaults, and values beside a ref (the new
+// side's ref, when set) are its request to that provider. Neither is part of the
+// surface this service's consumers rely on.
+func diffConfigValues(field, name, ref string, old, new map[string]any) []Change {
 	changes := diffJSON(dirUnknown, nil, field+"["+name+"].values", old, new)
 	for i := range changes {
 		changes[i].Classification = NonBreaking
+		if ref != "" {
+			changes[i].Reason += ": request values for " + ref + ": the provider's schema validates them; this service's consumers are unaffected"
+		}
 	}
 	return changes
 }
