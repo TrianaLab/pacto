@@ -167,12 +167,13 @@ func (q *Query) createdFrom(k, path ServiceKey) bool {
 }
 
 // pathSignature is the signature status of the newest readable revision of
-// the golden path s, unknown when no source that read it checks signatures.
+// the golden path s, not-checked when no source that read it checks
+// signatures.
 func (q *Query) pathSignature(s *ServiceRecord) string {
 	if r := newestReadable(serviceRevisions(q.snap, s)); r != nil && r.Provenance != nil {
 		return r.Provenance.Signature.Status
 	}
-	return SignatureUnknown
+	return SignatureNotChecked
 }
 
 // selfDeclaredSignature is what a golden path's signature check proves.
@@ -206,9 +207,12 @@ func (q *Query) templateDetail(s *ServiceRecord) *TemplateDetail {
 		UnresolvedRequirements: unresolvedDependencyItems(serviceEntityRef(s), edges),
 		CreatedServices:        refPreview(createdRefs),
 		HiddenCreatedServices:  s.HiddenCreated,
-		Signature:              revisionSignature(rev),
 		SignatureNote:          selfDeclaredSignature,
 		Provenance:             ProvenanceDeclared,
+	}
+	if rev.Provenance != nil {
+		sig := rev.Provenance.Signature
+		d.Signature = &sig
 	}
 	d.Instantiate, d.InstantiateReason = instantiation(s.Name, rev)
 	return d

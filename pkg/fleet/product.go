@@ -133,10 +133,11 @@ type EntityRef struct {
 	// ServiceRecord.Template). On list answers a golden path reference also
 	// carries Created, the services in this view created from it, and Signature,
 	// the signature status of its newest readable revision: checked against the
-	// signer its own contract declares, never against a trust config.
+	// signer its own contract declares, never against a trust config, and
+	// not-checked when no source that read it checks signatures.
 	Template  bool   `json:"template,omitempty"`
 	Created   int    `json:"created,omitempty"`
-	Signature string `json:"signature,omitempty" enum:"verified,unverified,unsigned,unknown"`
+	Signature string `json:"signature,omitempty" enum:"verified,unverified,unsigned,unknown,not-checked"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY

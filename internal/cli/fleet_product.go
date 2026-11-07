@@ -380,7 +380,11 @@ func printTemplateText(w io.Writer, summary string, t *fleet.TemplateDetail) {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "Golden path: %s\n", orDash(summary))
-	_, _ = fmt.Fprintf(w, "Signature: %s%s\n  %s\n", t.Signature.Status, signatureReason(t.Signature), t.SignatureNote)
+	if t.Signature == nil {
+		_, _ = fmt.Fprintln(w, "Signature: not checked: no source that read it checks signatures")
+	} else {
+		_, _ = fmt.Fprintf(w, "Signature: %s%s\n  %s\n", t.Signature.Status, signatureReason(*t.Signature), t.SignatureNote)
+	}
 	if len(t.Plugins) > 0 {
 		_, _ = fmt.Fprintln(w, "Plugins:")
 		for _, p := range t.Plugins {

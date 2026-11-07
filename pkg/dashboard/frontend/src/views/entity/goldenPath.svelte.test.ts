@@ -119,6 +119,14 @@ describe('ServiceEntity: a golden path', () => {
     done();
   });
 
+  it('says Not checked, with no signer note, when no source checks signatures', async () => {
+    const { target, done } = await render(detail(PATH, 'http-service', { template: template({ signature: undefined }) }, { template: true }));
+    const sig = target.querySelector('[data-testid="golden-path-signature"]')!;
+    expect(sig.textContent).toContain('Not checked');
+    expect(sig.textContent).not.toContain('did not check it against a trust config');
+    done();
+  });
+
   it('shows nothing of the sort on an ordinary service', async () => {
     const { target, done } = await render(detail('ghcr.io/acme/payments', 'payments'));
     expect(target.querySelector('[data-testid="golden-path"]')).toBeNull();

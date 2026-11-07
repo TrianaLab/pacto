@@ -179,7 +179,7 @@ func TestOfferingTextEdges(t *testing.T) {
 func TestPrintTemplateText_Branches(t *testing.T) {
 	var b bytes.Buffer
 	printTemplateText(&b, "", &fleet.TemplateDetail{
-		Signature:              fleet.BundleSignature{Status: fleet.SignatureVerified, Signer: "ci@acme"},
+		Signature:              &fleet.BundleSignature{Status: fleet.SignatureVerified, Signer: "ci@acme"},
 		SignatureNote:          "self-declared",
 		UnresolvedRequirements: fleet.UnresolvedDependenciesPreview{Total: 1, Items: []fleet.UnresolvedDependency{{Ref: "oci://r/redis", Reason: "no provider"}}},
 		CreatedServices:        fleet.RefPreview{Total: 3, Count: 1, Truncated: true, Items: []fleet.EntityRef{{Label: "gift-cards"}}},
@@ -198,6 +198,11 @@ func TestPrintTemplateText_Branches(t *testing.T) {
 	}
 	if r := signatureReason(fleet.BundleSignature{Status: fleet.SignatureUnsigned}); r != "" {
 		t.Errorf("a check with no reason adds nothing, got %q", r)
+	}
+	b.Reset()
+	printTemplateText(&b, "x", &fleet.TemplateDetail{})
+	if !strings.Contains(b.String(), "Signature: not checked: no source that read it checks signatures\n") {
+		t.Errorf("an unchecked signature says so:\n%s", b.String())
 	}
 	b.Reset()
 	printTemplateText(&b, "x", nil)

@@ -293,7 +293,7 @@
         <span class="se-k">Signature</span>
         <IdentityBadge label={gpSig.label} tone={gpSig.value === 'verified' ? 'neutral' : gpSig.tone} title={gp.signature?.reason ?? ''} describe />
         {#if gpSig.value === 'verified' && gp.signature?.signer}<span class="se-sig-signer">Signer {gp.signature.signer}</span>{/if}
-        {#if gp.signatureNote}<span class="se-note">{gp.signatureNote}</span>{/if}
+        {#if gp.signature && gp.signatureNote}<span class="se-note">{gp.signatureNote}</span>{/if}
       </div>
 
       <h3 class="t-subsection-title">Plugins</h3>

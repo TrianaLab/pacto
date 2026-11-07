@@ -48,7 +48,7 @@ func TestTemplateDetail(t *testing.T) {
 	if d.Instantiate != nil || !strings.Contains(d.InstantiateReason, "no digest-pinned reference") {
 		t.Errorf("a tag is never instantiated: %+v, %q", d.Instantiate, d.InstantiateReason)
 	}
-	if d.Signature.Status != SignatureUnknown || !strings.Contains(d.SignatureNote, "own contract declares") {
+	if d.Signature != nil || !strings.Contains(d.SignatureNote, "own contract declares") {
 		t.Errorf("signature = %+v, note %q", d.Signature, d.SignatureNote)
 	}
 	if goldenDetail(t, q, "orders").Template != nil {
@@ -99,7 +99,7 @@ func TestTemplateDetail_Instantiate(t *testing.T) {
 			if d.Instantiate == nil || d.Instantiate.Ref != tt.ref || d.Instantiate.CLI != want || !strings.Contains(d.Instantiate.MCP, "from: "+tt.ref) || d.InstantiateReason != "" {
 				t.Errorf("instantiate = %+v, reason %q", d.Instantiate, d.InstantiateReason)
 			}
-			if d.Signature.Status != SignatureVerified || d.Signature.Signer != "platform@acme.dev" {
+			if d.Signature == nil || d.Signature.Status != SignatureVerified || d.Signature.Signer != "platform@acme.dev" {
 				t.Errorf("signature = %+v", d.Signature)
 			}
 		})

@@ -13,6 +13,10 @@ const (
 	SignatureUnverified = "unverified"
 	SignatureUnsigned   = "unsigned"
 	SignatureUnknown    = "unknown"
+	// SignatureNotChecked is a golden path list entry whose newest revision no
+	// source that read it checks signatures, the bucket SignatureTally counts as
+	// NotChecked.
+	SignatureNotChecked = "not-checked"
 )
 
 // BundleSignature is the outcome of checking the Sigstore bundles attached to a

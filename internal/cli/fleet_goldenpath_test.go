@@ -75,7 +75,7 @@ func TestPrintFleetEntity_GoldenPath(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Golden path: An HTTP API with a PostgreSQL database\n",
-		"Signature: unknown: no source that read this revision checks signatures\n  The signer is the one",
+		"Signature: not checked: no source that read it checks signatures\n",
 		"Plugins:\n  dockerfile: A Dockerfile for a Go HTTP service\n",
 		"Requirements:\n  http-service -> postgresql (postgresql) via dependency, range satisfied\n",
 		"Created services:\n  gift-cards\n",

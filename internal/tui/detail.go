@@ -187,7 +187,11 @@ func renderTemplateDetail(b *strings.Builder, t *fleet.TemplateDetail) {
 		return
 	}
 	section(b, "Golden path")
-	field(b, "signature", t.Signature.Status)
+	sig := fleet.SignatureNotChecked
+	if t.Signature != nil {
+		sig = t.Signature.Status
+	}
+	field(b, "signature", sig)
 	for _, p := range t.Plugins {
 		field(b, "plugin", p.Name+": "+p.Description)
 	}

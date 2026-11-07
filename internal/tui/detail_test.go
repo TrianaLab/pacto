@@ -604,7 +604,7 @@ func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 		Requirements:          fleet.OfferingUsesPreview{Total: 2},
 		CreatedServices:       fleet.RefPreview{Total: 1},
 		HiddenCreatedServices: 2,
-		Signature:             fleet.BundleSignature{Status: fleet.SignatureUnsigned},
+		Signature:             &fleet.BundleSignature{Status: fleet.SignatureUnsigned},
 		Instantiate:           &fleet.TemplateInstantiation{CLI: "pacto init <name> --from oci://r/p@sha256:x --owner <team>"},
 	}})
 	out := b.String()
@@ -615,7 +615,7 @@ func TestRenderServiceDetail_GoldenPath(t *testing.T) {
 	}
 	b.Reset()
 	renderServiceDetail(&b, &fleet.ServiceDetailData{Template: &fleet.TemplateDetail{InstantiateReason: "no digest-pinned reference"}})
-	if !strings.Contains(b.String(), "no digest-pinned reference") {
+	if !strings.Contains(b.String(), "no digest-pinned reference") || !strings.Contains(b.String(), "not-checked") {
 		t.Errorf("a golden path with no pinned reference gives the reason:\n%s", b.String())
 	}
 }

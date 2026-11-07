@@ -38,9 +38,10 @@ describe('FleetGoldenPathsView', () => {
     entitiesFn.mockResolvedValue(listResp([
       pathRef('http-service', { summary: 'An HTTP API on the platform runtime', owner: 'platform', signature: 'verified', created: 2 }),
       pathRef('worker', { signature: 'unsigned', created: 1 }),
+      pathRef('cron', { signature: 'not-checked' }),
     ]));
     const { target, done } = mountView({ text: 'http' });
-    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="golden-path-list"] tbody tr').length).toBe(2));
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="golden-path-list"] tbody tr').length).toBe(3));
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], template: 'only', text: 'http', limit: 25, sort: 'name' }));
     expect(target.querySelector('h1')?.textContent).toBe('Golden paths');
     const rows = target.querySelectorAll('[data-testid="golden-path-list"] tbody tr');
@@ -53,6 +54,8 @@ describe('FleetGoldenPathsView', () => {
     expect(rows[0].querySelector('[data-testid="path-signature"]')?.getAttribute('title')).toContain('its own contract declares');
     expect(rows[1].textContent).toContain('No owner declared');
     expect(rows[1].textContent).toContain('Unsigned');
+    // No source that read it checks signatures: never shown as unknown.
+    expect(rows[2].textContent).toContain('Not checked');
     const created = rows[0].querySelector('a[data-testid="path-created"]');
     expect(created?.textContent).toContain('2');
     expect(created?.getAttribute('href')).toBe('#/fleet/services?createdFrom=ghcr.io%2Facme%2Fhttp-service');

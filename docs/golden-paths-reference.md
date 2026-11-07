@@ -54,7 +54,9 @@ origin is labelled `declared`.
 | `template` (search) | `only`, `exclude` | The same filter on search; the default keeps golden paths, each hit marked `template` |
 
 A golden path row in an entity list carries `created`, the number of services
-created from it, and its signature status.
+created from it, and its signature status: `not-checked` when no source that
+read the path checks signatures, and the path's detail then has no
+`signature`.
 
 ## Creation checklist
 

@@ -61,7 +61,7 @@
   function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = fleetGoldenPathsUrl({ text: textDraft, sort: sort || undefined }); }
   function clearAll() { location.hash = fleetGoldenPathsUrl(); }
   const chips = $derived(text ? [{ key: 'text', label: 'Search', value: text }] : []);
-  const sig = (s) => SIGNATURE_STATES.find((x) => x.value === (s || 'unknown')) ?? SIGNATURE_STATES[3];
+  const sig = (s) => SIGNATURE_STATES.find((x) => x.value === s) ?? SIGNATURE_STATES[3];
 </script>
 
 <div class="product-page">

@@ -414,11 +414,12 @@ type TemplateDetail struct {
 	// path; HiddenCreatedServices counts those the caller's permissions hide.
 	CreatedServices       RefPreview `json:"createdServices"`
 	HiddenCreatedServices int        `json:"hiddenCreatedServices,omitempty"`
-	// Signature is the newest revision's signature check. SignatureNote says
-	// what it proves: the signer is the one the golden path's own contract
+	// Signature is the newest revision's signature check, nil when no source
+	// that read it checks signatures (not checked). SignatureNote says what a
+	// check proves: the signer is the one the golden path's own contract
 	// declares.
-	Signature     BundleSignature `json:"signature"`
-	SignatureNote string          `json:"signatureNote"`
+	Signature     *BundleSignature `json:"signature,omitempty"`
+	SignatureNote string           `json:"signatureNote"`
 	// Instantiate is the command that creates a service from the exact bytes
 	// shown; nil when no digest-pinned reference exists, with InstantiateReason.
 	Instantiate       *TemplateInstantiation `json:"instantiate,omitempty"`

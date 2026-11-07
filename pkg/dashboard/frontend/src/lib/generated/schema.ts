@@ -3561,7 +3561,7 @@ export interface components {
             /** Format: int64 */
             services?: number;
             /** @enum {string} */
-            signature?: "verified" | "unverified" | "unsigned" | "unknown";
+            signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
             status?: string;
             summary?: string;
             /** Format: int64 */
@@ -3734,7 +3734,7 @@ export interface components {
             /** @enum {string} */
             provenance: "declared";
             requirements: components["schemas"]["ProductOfferingUsesPreview"];
-            signature: components["schemas"]["Fleet.BundleSignature"];
+            signature?: components["schemas"]["Fleet.BundleSignature"];
             signatureNote: string;
             unresolvedRequirements: components["schemas"]["ProductUnresolvedDependenciesPreview"];
         };
