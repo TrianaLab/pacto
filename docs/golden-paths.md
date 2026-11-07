@@ -156,7 +156,10 @@ agent). A template key has `role: template` and lists in `streams` the
 `path.Match` patterns of the repositories it may sign for, such as
 `ghcr.io/acme/paths/*`; empty means every repository. It takes no `untilSeq`,
 `untilRecord` or `providers`: to stop trusting a signer, remove its entry. A
-bare PEM key given to `--trust` is a template key for every repository. See
+bare PEM key given to `--trust` is a template key for every repository. A bare
+PEM key in `PACTO_DELIVERY_TRUST` or `--delivery-trust` stays a record key and
+never verifies a golden path, so an agent needs a trust config with a
+`role: template` key. See
 [Check who signed a golden path](verify-a-record.md#check-who-signed-a-golden-path)
 for an example.
 
