@@ -273,7 +273,9 @@
   --c-info: #2563eb;
   --c-info-bg: rgba(37, 99, 235, 0.06);
   --c-info-border: rgba(37, 99, 235, 0.15);
-  --c-neutral: #64748b;
+  /* deepened from #64748b so a neutral tag's text clears AA 4.5:1 on the inset
+     surface it sits on (was 4.34, now 4.97). */
+  --c-neutral: #5b6b80;
   --c-neutral-bg: rgba(100, 116, 139, 0.06);
   /* indigo-600: deepened from #6366f1 so accent-as-text (links, badges) AND white-on-accent
      controls both clear AA 4.5:1 on the light surface (was 4.47/4.27, now 6.29/6.01). */
