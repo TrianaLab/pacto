@@ -26,7 +26,6 @@
   import FleetSourcesView from './views/FleetSourcesView.svelte';
   import FleetDomainsView from './views/FleetDomainsView.svelte';
   import FleetOfferingsView from './views/FleetOfferingsView.svelte';
-  import FleetGoldenPathsView from './views/FleetGoldenPathsView.svelte';
   import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
@@ -41,6 +40,7 @@
   const loadFleetEntityView = once(() => import('./views/FleetEntityView.svelte'));
   const loadChangeAnalysisView = once(() => import('./views/ChangeAnalysisView.svelte'));
   const loadOwnerDetailView = once(() => import('./views/OwnerDetailView.svelte'));
+  const loadFleetGoldenPathsView = once(() => import('./views/FleetGoldenPathsView.svelte'));
   // Delivery views load on first use too: most visitors never open them.
   const loadDeliveryInboxView = once(() => import('./views/DeliveryInboxView.svelte'));
   const loadDeliveryEnvironmentsView = once(() => import('./views/DeliveryEnvironmentsView.svelte'));
@@ -442,7 +442,7 @@
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-golden-paths'}
-    <FleetGoldenPathsView text={route.params.text || ''} offset={route.params.offset || ''}
+    <LazyView load={loadFleetGoldenPathsView} text={route.params.text || ''} offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-sources'}

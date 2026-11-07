@@ -275,12 +275,14 @@
             <span class="se-k">CLI</span>
             <CopyableIdentifier value={gp.instantiate.cli} label="CLI command" iconOnly />
           </div>
-          <pre class="se-snippet"><code>{gp.instantiate.cli}</code></pre>
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long digest-pinned command scrolls sideways; focus lets a keyboard reader scroll it) -->
+          <pre class="se-snippet" tabindex="0"><code>{gp.instantiate.cli}</code></pre>
           <div class="se-cmd">
             <span class="se-k">MCP</span>
             <CopyableIdentifier value={gp.instantiate.mcp} label="MCP call" iconOnly />
           </div>
-          <pre class="se-snippet"><code>{gp.instantiate.mcp}</code></pre>
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long digest-pinned command scrolls sideways; focus lets a keyboard reader scroll it) -->
+          <pre class="se-snippet" tabindex="0"><code>{gp.instantiate.mcp}</code></pre>
           <p class="se-note">The command names the exact bytes shown here by digest. Set a trust config with --trust or PACTO_DELIVERY_TRUST to check the signature at creation.</p>
         {:else}
           <p class="se-none">{gp.instantiateReason || 'No command is available.'}</p>
