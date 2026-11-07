@@ -3,10 +3,19 @@
 package integration
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/ignore"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 func TestInitCommand(t *testing.T) {
@@ -127,4 +136,167 @@ func TestInitCommand(t *testing.T) {
 		assertContains(t, output, "init")
 		assertContains(t, output, "Usage")
 	})
+}
+
+// writeGoldenPath writes a golden path bundle directory.
+func writeGoldenPath(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "http-service")
+	os.MkdirAll(filepath.Join(dir, "interfaces"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "configuration"), 0o755)
+	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.7"
+service:
+  name: http-service
+  version: 1.0.0
+  owner: {team: platform}
+  summary: An HTTP API on the platform runtime
+  template:
+    plugins:
+      - name: dockerfile
+        description: A Dockerfile for a Go HTTP service
+interfaces:
+  - name: api
+    type: openapi
+    ref: interfaces/openapi.yaml
+configurations:
+  - name: default
+    schema: configuration/schema.json
+    required: true
+    values:
+      port: 8080
+`), 0o644)
+	os.WriteFile(filepath.Join(dir, "interfaces", "openapi.yaml"), []byte("openapi: 3.0.0\ninfo: {title: api, version: \"1\"}\npaths: {}\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "configuration", "schema.json"), []byte(`{"type":"object","properties":{"port":{"type":"integer"}}}`), 0o644)
+	return dir
+}
+
+// pushGoldenPath pushes the golden path and returns its oci:// ref.
+func pushGoldenPath(t *testing.T, reg *testRegistry) string {
+	t.Helper()
+	ref := "oci://" + reg.host + "/paths/http-service:1.0.0"
+	if out, err := runCommand(t, reg, "push", ref, "-p", writeGoldenPath(t)); err != nil {
+		t.Fatalf("push: %v\n%s", err, out)
+	}
+	return ref
+}
+
+func originOf(t *testing.T, dir string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	origin, _ := m["service"].(map[string]any)["origin"].(map[string]any)
+	return origin
+}
+
+func contentHash(t *testing.T, dir string) string {
+	t.Helper()
+	d := os.DirFS(dir)
+	m, _ := ignore.Load(d)
+	h, err := lock.HashFS(ignore.FS(d, m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestInitFromGoldenPath_Directory(t *testing.T) {
+	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	path := writeGoldenPath(t)
+	dir := filepath.Join(t.TempDir(), "gift-cards")
+	out, err := runCommand(t, nil, "init", dir, "--from", path, "--owner", "checkout", "--domain", "commerce")
+	if err != nil {
+		t.Fatalf("init --from: %v\n%s", err, out)
+	}
+	assertContains(t, out, "a directory carries no signature")
+	if out, err = runCommand(t, nil, "validate", dir); err != nil {
+		t.Fatalf("validate: %v\n%s", err, out)
+	}
+	origin := originOf(t, dir)
+	if origin["digest"] != contentHash(t, path) || strings.HasPrefix(origin["ref"].(string), "/") {
+		t.Errorf("origin %v, content hash %s", origin, contentHash(t, path))
+	}
+}
+
+func TestInitFromGoldenPath_OCI(t *testing.T) {
+	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	reg := newTestRegistry(t)
+	ref := pushGoldenPath(t, reg)
+	dir := filepath.Join(t.TempDir(), "gift-cards")
+	out, err := runCommand(t, reg, "init", dir, "--from", ref, "--owner", "checkout", "--plan")
+	if err != nil {
+		t.Fatalf("init --from --plan: %v\n%s", err, out)
+	}
+	assertContains(t, out, "Status")
+	assertContains(t, out, "signature not checked")
+	if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
+		t.Fatal("--plan wrote pacto.yaml")
+	}
+	if out, err = runCommand(t, reg, "init", dir, "--from", ref, "--owner", "checkout"); err != nil {
+		t.Fatalf("init --from: %v\n%s", err, out)
+	}
+	if origin := originOf(t, dir); origin["ref"] != ref || !strings.HasPrefix(origin["digest"].(string), "sha256:") {
+		t.Errorf("origin %v", origin)
+	}
+	if out, err = runCommand(t, reg, "validate", dir); err != nil {
+		t.Fatalf("validate: %v\n%s", err, out)
+	}
+}
+
+func TestInitFromGoldenPath_TrustRefuses(t *testing.T) {
+	reg := newTestRegistry(t)
+	ref := pushGoldenPath(t, reg)
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	pem, _ := delivery.PublicKeyPEM(pub)
+	trust := filepath.Join(t.TempDir(), "platform.pub")
+	os.WriteFile(trust, []byte(pem), 0o644)
+	dir := filepath.Join(t.TempDir(), "gift-cards")
+	out, err := runCommand(t, reg, "init", dir, "--from", ref, "--owner", "checkout", "--trust", trust)
+	if err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Fatalf("an unsigned path was created from under a template key: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
+		t.Fatal("a refused creation wrote pacto.yaml")
+	}
+}
+
+func TestInitFromGoldenPath_PinnedRef(t *testing.T) {
+	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	reg := newTestRegistry(t)
+	ref := pushGoldenPath(t, reg)
+	digest, err := reg.client.Resolve(t.Context(), strings.TrimPrefix(ref, "oci://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := "oci://" + reg.host + "/paths/http-service@" + digest
+	dir := filepath.Join(t.TempDir(), "gift-cards")
+	if out, err := runCommand(t, reg, "init", dir, "--from", pinned, "--owner", "checkout"); err != nil {
+		t.Fatalf("init --from a pinned ref: %v\n%s", err, out)
+	}
+	if origin := originOf(t, dir); origin["ref"] != pinned {
+		t.Errorf("origin %v", origin)
+	}
+}
+
+func TestInitFromGoldenPath_ValuesAndSet(t *testing.T) {
+	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	path := writeGoldenPath(t)
+	values := filepath.Join(t.TempDir(), "values.yaml")
+	os.WriteFile(values, []byte("configurations:\n  - name: default\n    schema: configuration/schema.json\n    required: true\n    values:\n      port: 9090\n"), 0o644)
+	dir := filepath.Join(t.TempDir(), "gift-cards")
+	out, err := runCommand(t, nil, "init", dir, "--from", path, "--owner", "checkout", "--values", values, "--set", "service.version=0.3.0")
+	if err != nil {
+		t.Fatalf("init --from: %v\n%s", err, out)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	for _, s := range []string{"port: 9090", "version: 0.3.0"} {
+		if !strings.Contains(string(data), s) {
+			t.Errorf("pacto.yaml lacks %q:\n%s", s, data)
+		}
+	}
 }

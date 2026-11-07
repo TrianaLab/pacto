@@ -209,3 +209,66 @@ func TestRunnersRefuse(t *testing.T) {
 		t.Error("a runner key open refused still built a verifier")
 	}
 }
+
+// TestTemplateKeys: a template key signs golden paths in the repositories its
+// patterns match and takes no revocation or providers.
+func TestTemplateKeys(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	key := quoteYAML(pubPEM(t, pub))
+	trust, err := ParseTrust([]byte("keys:\n" +
+		"  - {name: recorder, publicKey: " + key + "}\n" +
+		"  - {name: paths, publicKey: " + key + ", role: template, streams: ['ghcr.io/acme/paths/*']}\n" +
+		"  - {name: any-path, publicKey: " + key + ", role: template}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !trust.HasTemplateKeys() || (TrustConfig{Keys: []TrustedKey{{Name: "recorder"}}}).HasTemplateKeys() {
+		t.Error("HasTemplateKeys")
+	}
+	names := func(keys []TrustedKey) (out []string) {
+		for _, k := range keys {
+			out = append(out, k.Name)
+		}
+		return out
+	}
+	if got := names(trust.TemplateKeys("ghcr.io/acme/paths/http-service")); strings.Join(got, ",") != "paths,any-path" {
+		t.Errorf("a matching repository: %v", got)
+	}
+	if got := names(trust.TemplateKeys("ghcr.io/other/http-service")); strings.Join(got, ",") != "any-path" {
+		t.Errorf("a repository the pattern misses: %v", got)
+	}
+	for name, extra := range map[string]string{
+		"untilSeq":  "untilSeq: 3, untilRecord: r3",
+		"providers": "providers: [evals]",
+		"pattern":   "streams: ['[']",
+	} {
+		_, err := ParseTrust([]byte("keys:\n  - {name: p, publicKey: " + key + ", role: template, " + extra + "}\n"))
+		if err == nil {
+			t.Errorf("%s on a template key: accepted", name)
+		}
+	}
+	if _, err := (TrustConfig{Keys: []TrustedKey{{Name: "p", Role: RoleTemplate}}}).Verifier(func(TrustedKey) (func([]byte) error, error) {
+		return nil, errors.New("bad key")
+	}); err == nil {
+		t.Error("a template key that does not open was accepted")
+	}
+	if _, err := ParseTrust([]byte("keys:\n  - {name: p, publicKey: " + key + ", role: other}\n")); err == nil || !strings.Contains(err.Error(), "template") {
+		t.Errorf("an unknown role: %v", err)
+	}
+}
+
+// TestVerifierSkipsTemplateKeys: a template key never verifies a record, and
+// For never names it.
+func TestVerifierSkipsTemplateKeys(t *testing.T) {
+	trust := TrustConfig{Keys: []TrustedKey{{Name: "paths", Role: RoleTemplate}}}
+	v, err := trust.Verifier(byName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v("c/prod/payments", 1, []byte("paths")) == nil {
+		t.Error("a template key verified a record")
+	}
+	if _, ok := trust.For("c/prod/payments"); ok {
+		t.Error("For named a template key")
+	}
+}

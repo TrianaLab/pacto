@@ -1192,6 +1192,18 @@ cluster, and the services its pods were seen calling become dependencies
 pinned to the version seen running, for you to widen. Drafts are only
 written, never published, and a draft that is not valid fails the command.
 
+With --from the service is created from a golden path: an oci:// reference or
+a directory whose contract declares service.template. The path's contract is
+copied with its identity reset: the name, version 0.1.0, --owner (required)
+and --domain, with --values and --set applied over any field and
+service.origin recording the path it came from. A path read from a registry
+is pulled by digest; when the trust config (--trust, else
+$PACTO_DELIVERY_TRUST) names a template key, the path must be signed by one
+or nothing is created, and otherwise the signature is reported Unknown. The
+created contract is validated with its references resolved before anything is
+written, and the Status block says what was checked and what Pacto cannot
+tell yet.
+
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
 changes nothing.
@@ -1212,6 +1224,7 @@ pacto init [dir...] [flags]
   pacto init --delivery --registry-secret registry-creds
   pacto init services/checkout services/payments --plan
   pacto init --cluster --namespace shop --out drafts
+  pacto init gift-cards --from oci://ghcr.io/acme/paths/http-service:1.0.0 --owner checkout --domain commerce
 ```
 
 **Flags:**
@@ -1223,6 +1236,7 @@ pacto init [dir...] [flags]
       --domain string            business domain, such as payments
       --env strings              environments for --delivery, in promotion order (default [test,prod])
       --fleet strings            folders of other services' contracts to find the services that use this one
+      --from string              a golden path to create the service from: an oci:// reference or a directory
   -h, --help                     help for init
       --insecure-registry        with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
       --name string              service name (default: the workload's name, then the folder's)
@@ -1233,6 +1247,9 @@ pacto init [dir...] [flags]
       --plan                     show what would be added and change nothing
       --registry string          where to publish, as host/path (default: read from the workload's image)
       --registry-secret string   with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
+      --set stringArray          set a contract value (e.g. --set service.version=2.0.0)
+      --trust string             the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)
+  -f, --values stringArray       values file to merge into the contract (can be repeated; last wins)
 ```
 
 In an empty folder it scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`. It also plans a `.pactoignore` that keeps the signing key out of the bundle.

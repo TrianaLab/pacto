@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/pactify"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/override"
 )
 
 // initDynamic is the cluster client pacto init --cluster reads with.
@@ -21,6 +24,7 @@ func newInitCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	var opts app.InitOptions
 	var cluster pactify.ClusterOptions
 	var fromCluster bool
+	var from, trust string
 	cmd := &cobra.Command{
 		Use:   "init [dir...]",
 		Short: "Pactify a service: write its contract, or a blank one",
@@ -62,6 +66,18 @@ cluster, and the services its pods were seen calling become dependencies
 pinned to the version seen running, for you to widen. Drafts are only
 written, never published, and a draft that is not valid fails the command.
 
+With --from the service is created from a golden path: an oci:// reference or
+a directory whose contract declares service.template. The path's contract is
+copied with its identity reset: the name, version 0.1.0, --owner (required)
+and --domain, with --values and --set applied over any field and
+service.origin recording the path it came from. A path read from a registry
+is pulled by digest; when the trust config (--trust, else
+$PACTO_DELIVERY_TRUST) names a template key, the path must be signed by one
+or nothing is created, and otherwise the signature is reported Unknown. The
+created contract is validated with its references resolved before anything is
+written, and the Status block says what was checked and what Pacto cannot
+tell yet.
+
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
 changes nothing.`,
@@ -73,9 +89,14 @@ changes nothing.`,
   pacto init --delivery --no-transparency-log --insecure-registry
   pacto init --delivery --registry-secret registry-creds
   pacto init services/checkout services/payments --plan
-  pacto init --cluster --namespace shop --out drafts`,
+  pacto init --cluster --namespace shop --out drafts
+  pacto init gift-cards --from oci://ghcr.io/acme/paths/http-service:1.0.0 --owner checkout --domain commerce`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format := v.GetString(outputFormatKey)
+			overrides := getOverrides(cmd)
+			if err := fromChecks(from, trust, fromCluster, len(args), overrides); err != nil {
+				return err
+			}
 			switch {
 			case fromCluster && len(args) > 0:
 				return errors.New("--cluster reads the cluster, not folders: drop the folders")
@@ -96,7 +117,7 @@ changes nothing.`,
 			if len(args) == 1 {
 				opts.Dir = args[0]
 			}
-			result, err := svc.Init(cmd.Context(), opts)
+			result, err := initOne(cmd, svc, opts, app.InitFrom{From: from, Overrides: overrides}, trust)
 			if err != nil {
 				return err
 			}
@@ -119,7 +140,50 @@ changes nothing.`,
 	f.BoolVar(&fromCluster, "cluster", false, "draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context")
 	f.StringSliceVar(&cluster.Namespaces, "namespace", nil, "with --cluster: a namespace to read; repeat it for more (default: every namespace)")
 	f.StringVar(&cluster.Out, "out", "", "with --cluster: the folder the drafts go in, one <namespace>/<name> folder each")
+	f.StringVar(&from, "from", "", "a golden path to create the service from: an oci:// reference or a directory")
+	f.StringVar(&trust, "trust", "", "the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)")
+	addOverrideFlags(cmd)
 	return cmd
+}
+
+// fromChecks refuses what cannot go with --from, and what needs it.
+func fromChecks(from, trust string, fromCluster bool, folders int, overrides override.Overrides) error {
+	switch {
+	case from != "" && (fromCluster || folders > 1):
+		return errors.New("--from creates one service in one folder: drop --cluster and the extra folders")
+	case from == "" && (!overrides.IsEmpty() || trust != ""):
+		return errors.New("--values, --set and --trust go with --from")
+	}
+	return nil
+}
+
+// initOne pactifies one folder, or creates it from the golden path from.From
+// with the trust config the --trust flag or the environment names.
+func initOne(cmd *cobra.Command, svc *app.Service, opts app.InitOptions, from app.InitFrom, trust string) (*app.InitResult, error) {
+	if from.From == "" {
+		return svc.Init(cmd.Context(), opts)
+	}
+	t, err := templateTrust(trust)
+	if err != nil {
+		return nil, err
+	}
+	from.Trust = t
+	return svc.InitFrom(cmd.Context(), opts, from)
+}
+
+// templateTrust reads the trust config a golden path is verified with. A bare
+// PEM key given to --trust is a template key for every repository, since the
+// flag says what it is for; one in $PACTO_DELIVERY_TRUST stays a record key.
+func templateTrust(flag string) (*delivery.TrustConfig, error) {
+	t, err := deliveryTrust(flag)
+	if err != nil || t == nil || flag == "" {
+		return t, err
+	}
+	raw, _ := os.ReadFile(flag) // ponytail: deliveryTrust just read it
+	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("-----BEGIN")) {
+		t.Keys[0].Role = delivery.RoleTemplate
+	}
+	return t, nil
 }
 
 // printBulk prints each service's plan or result, then a summary table, and

@@ -176,7 +176,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	if dir == "" {
 		dir = "."
 	}
-	if err := templateOptions(opts); err != nil {
+	if err := TemplateOptions(opts); err != nil {
 		return nil, err
 	}
 	if info, err := os.Stat(dir); err == nil && !info.IsDir() {

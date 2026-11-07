@@ -781,3 +781,16 @@ func TestReadCachedRef_Unusable(t *testing.T) {
 		}
 	}
 }
+
+// TestUncached: the uncached store is the wrapped one, so a pull reaches it
+// even when the cache holds the ref.
+func TestUncached(t *testing.T) {
+	store, inner := newCachedStoreWithTempDir(t)
+	ref := "ghcr.io/test/repo:1.0.0"
+	if _, err := store.Pull(context.Background(), ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Uncached().Pull(context.Background(), ref); err != nil || inner.pullCount.Load() != 2 {
+		t.Fatalf("uncached pull: %v, %d inner pulls", err, inner.pullCount.Load())
+	}
+}

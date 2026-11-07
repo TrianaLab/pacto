@@ -31,8 +31,8 @@ var dropped = []string{"service.summary", "service.lifecycle", "service.offering
 // .pactoignore.
 var notCopied = []string{"pacto.yaml", "pacto.lock", ignore.IgnoreFileName}
 
-// templateOptions refuses what creating from a golden path cannot do.
-func templateOptions(opts Options) error {
+// TemplateOptions refuses what creating from a golden path cannot do.
+func TemplateOptions(opts Options) error {
 	switch {
 	case opts.Template == nil:
 		return nil

@@ -2,10 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -18,6 +21,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func runInit(t *testing.T, args ...string) (string, error) {
@@ -162,5 +166,88 @@ func TestInitDomainFlag(t *testing.T) {
 		if !strings.Contains(string(data), s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, data)
 		}
+	}
+}
+
+// TestInitFromFlagChecks: what cannot go with a golden path, or needs one, is
+// refused before anything is read.
+func TestInitFromFlagChecks(t *testing.T) {
+	path := t.TempDir()
+	for name, c := range map[string]struct {
+		args []string
+		want string
+	}{
+		"values without from":   {[]string{"--set", "service.version=1.0.0"}, "go with --from"},
+		"trust without from":    {[]string{"--trust", "trust.yaml"}, "go with --from"},
+		"from with delivery":    {[]string{"--from", path, "--owner", "checkout", "--delivery"}, "drop --delivery"},
+		"from with folders":     {[]string{"a", "b", "--from", path}, "one service in one folder"},
+		"from with cluster":     {[]string{"--cluster", "--from", path}, "one service in one folder"},
+		"from without owner":    {[]string{t.TempDir(), "--from", path}, "--owner"},
+		"from with a bad trust": {[]string{t.TempDir(), "--from", path, "--owner", "checkout", "--trust", filepath.Join(path, "missing")}, "trust config"},
+	} {
+		if out, err := runInit(t, c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v\n%s", name, err, out)
+		}
+	}
+}
+
+// TestInitFromDirectory: --from creates the service and prints its Status.
+func TestInitFromDirectory(t *testing.T) {
+	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	path := t.TempDir()
+	_ = os.WriteFile(filepath.Join(path, "pacto.yaml"), []byte("pactoVersion: \"2.7\"\nservice:\n  name: http-service\n  version: 1.0.0\n  template: {}\n"), 0o644)
+	dir := filepath.Join(t.TempDir(), "gift-cards")
+	out, err := runInit(t, dir, "--from", path, "--owner", "checkout", "--set", "service.version=0.2.0")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Status\n  unknown") || !strings.Contains(out, "a directory carries no signature") {
+		t.Errorf("no Status block:\n%s", out)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); !strings.Contains(string(data), "version: 0.2.0") {
+		t.Errorf("--set did not reach the contract:\n%s", data)
+	}
+}
+
+// TestTemplateTrustBarePEM: a bare PEM given to --trust is a template key; the
+// same PEM in $PACTO_DELIVERY_TRUST stays a record key.
+func TestTemplateTrustBarePEM(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	pem, _ := delivery.PublicKeyPEM(pub)
+	file := filepath.Join(t.TempDir(), "cosign.pub")
+	_ = os.WriteFile(file, []byte(pem), 0o644)
+	got, err := templateTrust(file)
+	if err != nil || len(got.Keys) != 1 || got.Keys[0].Role != delivery.RoleTemplate {
+		t.Fatalf("--trust: %+v %v", got, err)
+	}
+	t.Setenv("PACTO_DELIVERY_TRUST", file)
+	if got, err = templateTrust(""); err != nil || got.Keys[0].Role != "" {
+		t.Errorf("$PACTO_DELIVERY_TRUST: %+v %v", got, err)
+	}
+	config := filepath.Join(t.TempDir(), "trust.yaml")
+	_ = os.WriteFile(config, []byte("keys:\n  - {name: recorder, publicKey: "+strconv.Quote(pem)+"}\n"), 0o644)
+	if got, err = templateTrust(config); err != nil || got.Keys[0].Role != "" {
+		t.Errorf("a trust config file: %+v %v", got, err)
+	}
+	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	if got, err = templateTrust(""); err != nil || got != nil {
+		t.Errorf("none: %+v %v", got, err)
+	}
+}
+
+// TestPrintInitSteps: one line per step, its plugin name after the step.
+func TestPrintInitSteps(t *testing.T) {
+	var b bytes.Buffer
+	printInitSteps(&b, nil)
+	if b.Len() != 0 {
+		t.Errorf("no steps printed %q", b.String())
+	}
+	printInitSteps(&b, []fleet.CreationStep{
+		{Step: fleet.StepSignature, Status: fleet.StepStatusUnknown, Detail: "a directory carries no signature"},
+		{Step: fleet.StepPlugin, Name: "dockerfile", Status: fleet.StepStatusSkipped, Detail: "not run"},
+	})
+	want := "\nStatus\n  unknown  signature          a directory carries no signature\n  skipped  plugin dockerfile  not run\n"
+	if b.String() != want {
+		t.Errorf("got %q, want %q", b.String(), want)
 	}
 }
