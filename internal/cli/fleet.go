@@ -386,6 +386,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("unsatisfied-ranges", false, "report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)")
 	cmd.Flags().Bool("unowned", false, "report services with no declared owner")
 	cmd.Flags().Bool("undeclared", false, "report runtime calls no contract declares and callers with no contract")
+	cmd.Flags().Bool("golden-path-deployed", false, "report running services that declare service.template (GOLDEN_PATH_DEPLOYED)")
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d)", fleet.DefaultStatusLimit))
 	return cmd
 }
@@ -399,7 +400,8 @@ func statusQueryFromCmd(cmd *cobra.Command) fleet.StatusQuery {
 		NeedsAttention: get("needs-attention"), NonCompliant: get("non-compliant"),
 		Unknown: get("unknown"), Invalid: get("invalid"), StaleEvidence: get("stale"),
 		MissingReadiness: get("missing-readiness"), UnresolvedDeps: get("unresolved-deps"),
-		UnsatisfiedRanges: get("unsatisfied-ranges"), Unowned: get("unowned"), Undeclared: get("undeclared"), Limit: limit,
+		UnsatisfiedRanges: get("unsatisfied-ranges"), Unowned: get("unowned"), Undeclared: get("undeclared"),
+		GoldenPathDeployed: get("golden-path-deployed"), Limit: limit,
 	}
 }
 

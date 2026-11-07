@@ -1009,18 +1009,19 @@ pacto fleet status [flags]
 **Flags:**
 
 ```
-  -h, --help                 help for status
-      --invalid              report structurally invalid contracts
-      --limit int            maximum results (0 = 200)
-      --missing-readiness    report revisions without a readiness assessment
-      --needs-attention      report every attention category
-      --non-compliant        report non-compliant targets
-      --stale                report targets with stale evidence
-      --undeclared           report runtime calls no contract declares and callers with no contract
-      --unknown              report targets with unknown compliance
-      --unowned              report services with no declared owner
-      --unresolved-deps      report unresolved declared dependencies
-      --unsatisfied-ranges   report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
+      --golden-path-deployed   report running services that declare service.template (GOLDEN_PATH_DEPLOYED)
+  -h, --help                   help for status
+      --invalid                report structurally invalid contracts
+      --limit int              maximum results (0 = 200)
+      --missing-readiness      report revisions without a readiness assessment
+      --needs-attention        report every attention category
+      --non-compliant          report non-compliant targets
+      --stale                  report targets with stale evidence
+      --undeclared             report runtime calls no contract declares and callers with no contract
+      --unknown                report targets with unknown compliance
+      --unowned                report services with no declared owner
+      --unresolved-deps        report unresolved declared dependencies
+      --unsatisfied-ranges     report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
 ```
 
 ### `pacto fleet versions`
@@ -1491,7 +1492,7 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 | `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `template` (`only` keeps golden paths, `exclude` leaves them out), `limit`, `offset` |
 | `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
-| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`, `unowned`, `undeclared`; plus `limit`. No category, including empty input, reports every category |
+| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`, `unowned`, `undeclared`, `golden_path_deployed`; plus `limit`. No category, including empty input, reports every category |
 | `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
 | `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `template` (`only` lists golden paths, `exclude` leaves them out), `created_from` (the services created from this golden path, by service key), `ownership`, `status`, `sort`, `limit`, `offset` |
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |

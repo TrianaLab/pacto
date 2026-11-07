@@ -184,6 +184,12 @@ func TestFleetStatusUnownedAndUndeclared(t *testing.T) {
 	if err != nil || !strings.HasPrefix(out, "0 of 0 attention item(s):") {
 		t.Errorf("status --undeclared = %v:\n%s", err, out)
 	}
+	// No running service declares service.template here, so the category
+	// alone reports nothing where the bare command reports every category.
+	out, _, err = execFleet(t, "fleet", "status", "--golden-path-deployed", "--local", root, "--target-state", ev)
+	if err != nil || !strings.HasPrefix(out, "0 of 0 attention item(s):") {
+		t.Errorf("status --golden-path-deployed = %v:\n%s", err, out)
+	}
 }
 
 // writeOfferingFixture lays out postgresql 16.0.0 (deprecated) and 16.1.0,

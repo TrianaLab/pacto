@@ -153,6 +153,11 @@ func TestFleetStatusUnownedFlag(t *testing.T) {
 	if und.Total != 0 {
 		t.Errorf("undeclared on a fleet with no observation = %+v", und)
 	}
+	var gp fleet.StatusResult
+	decode(t, callHandler(t, fleetStatusTool(), fleetStatusHandler(q), map[string]any{"golden_path_deployed": true}), &gp)
+	if gp.Total != 0 {
+		t.Errorf("golden_path_deployed on a fleet with no deployed golden path = %+v", gp)
+	}
 }
 
 func TestFleetInstructionsGroundAnswers(t *testing.T) {

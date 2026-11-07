@@ -332,21 +332,22 @@ func fleetStatusTool() *mcpsdk.Tool {
 		Name: "pacto_fleet_status",
 		Description: "Report services and targets needing attention: non-compliant, unknown, invalid, " +
 			"stale evidence, missing readiness, unresolved dependencies and dependencies whose provider " +
-			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services with no declared owner " +
-			"and undeclared runtime dependencies. 'total' and 'truncated' say whether the limit cut the list. With no category " +
+			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services with no declared owner, " +
+			"undeclared runtime dependencies and running services that declare service.template (GOLDEN_PATH_DEPLOYED). 'total' and 'truncated' say whether the limit cut the list. With no category " +
 			"selected, including empty input, it reports every category. Read-only.",
 		InputSchema: inputSchema(map[string]property{
-			"needs_attention":    {Type: "boolean", Description: "Report every attention category"},
-			"non_compliant":      {Type: "boolean", Description: "Non-compliant targets"},
-			"unknown":            {Type: "boolean", Description: "Targets with unknown compliance"},
-			"invalid":            {Type: "boolean", Description: "Structurally invalid contracts"},
-			"stale":              {Type: "boolean", Description: "Targets with stale evidence"},
-			"missing_readiness":  {Type: "boolean", Description: "Revisions without a readiness assessment"},
-			"unresolved_deps":    {Type: "boolean", Description: "Unresolved declared dependencies"},
-			"unsatisfied_ranges": {Type: "boolean", Description: "Dependencies whose provider version is outside the declared range"},
-			"unowned":            {Type: "boolean", Description: "Services with no declared owner"},
-			"undeclared":         {Type: "boolean", Description: "Runtime calls no contract declares and callers with no contract"},
-			"limit":              {Type: "integer", Description: "Maximum results (bounded)"},
+			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
+			"non_compliant":        {Type: "boolean", Description: "Non-compliant targets"},
+			"unknown":              {Type: "boolean", Description: "Targets with unknown compliance"},
+			"invalid":              {Type: "boolean", Description: "Structurally invalid contracts"},
+			"stale":                {Type: "boolean", Description: "Targets with stale evidence"},
+			"missing_readiness":    {Type: "boolean", Description: "Revisions without a readiness assessment"},
+			"unresolved_deps":      {Type: "boolean", Description: "Unresolved declared dependencies"},
+			"unsatisfied_ranges":   {Type: "boolean", Description: "Dependencies whose provider version is outside the declared range"},
+			"unowned":              {Type: "boolean", Description: "Services with no declared owner"},
+			"undeclared":           {Type: "boolean", Description: "Runtime calls no contract declares and callers with no contract"},
+			"golden_path_deployed": {Type: "boolean", Description: "Running services that declare service.template (GOLDEN_PATH_DEPLOYED)"},
+			"limit":                {Type: "integer", Description: "Maximum results (bounded)"},
 		}, nil),
 	}
 }
@@ -363,7 +364,9 @@ type fleetStatusArgs struct {
 	UnsatisfiedRanges bool `json:"unsatisfied_ranges"`
 	Unowned           bool `json:"unowned"`
 	Undeclared        bool `json:"undeclared"`
-	Limit             int  `json:"limit"`
+	// GoldenPathDeployed selects GOLDEN_PATH_DEPLOYED items.
+	GoldenPathDeployed bool `json:"golden_path_deployed"`
+	Limit              int  `json:"limit"`
 }
 
 func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetStatusArgs, any] {
@@ -373,7 +376,7 @@ func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetStatusArgs, a
 			Unknown: a.Unknown, Invalid: a.Invalid,
 			StaleEvidence: a.Stale, MissingReadiness: a.MissingReadiness,
 			UnresolvedDeps: a.UnresolvedDeps, UnsatisfiedRanges: a.UnsatisfiedRanges,
-			Unowned: a.Unowned, Undeclared: a.Undeclared, Limit: a.Limit,
+			Unowned: a.Unowned, Undeclared: a.Undeclared, GoldenPathDeployed: a.GoldenPathDeployed, Limit: a.Limit,
 		}))
 		return r, nil, err
 	}
