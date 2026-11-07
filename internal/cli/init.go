@@ -25,6 +25,7 @@ func newInitCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	var cluster pactify.ClusterOptions
 	var fromCluster bool
 	var from, trust string
+	var runPlugins []string
 	cmd := &cobra.Command{
 		Use:   "init [dir...]",
 		Short: "Pactify a service: write its contract, or a blank one",
@@ -76,7 +77,9 @@ $PACTO_DELIVERY_TRUST) names a template key, the path must be signed by one
 or nothing is created, and otherwise the signature is reported Unknown. The
 created contract is validated with its references resolved before anything is
 written, and the Status block says what was checked and what Pacto cannot
-tell yet.
+tell yet. Each plugin the path names is listed with the binary it resolves
+to; only the ones you name with --run-plugins run, never with --plan, and
+the files they return are added like the path's own.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
@@ -94,7 +97,7 @@ changes nothing.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format := v.GetString(outputFormatKey)
 			overrides := getOverrides(cmd)
-			if err := fromChecks(from, trust, fromCluster, len(args), overrides); err != nil {
+			if err := fromChecks(from, trust, runPlugins, fromCluster, len(args), overrides); err != nil {
 				return err
 			}
 			switch {
@@ -117,7 +120,7 @@ changes nothing.`,
 			if len(args) == 1 {
 				opts.Dir = args[0]
 			}
-			result, err := initOne(cmd, svc, opts, app.InitFrom{From: from, Overrides: overrides}, trust)
+			result, err := initOne(cmd, svc, opts, app.InitFrom{From: from, Overrides: overrides, RunPlugins: runPlugins}, trust)
 			if err != nil {
 				return err
 			}
@@ -142,17 +145,18 @@ changes nothing.`,
 	f.StringVar(&cluster.Out, "out", "", "with --cluster: the folder the drafts go in, one <namespace>/<name> folder each")
 	f.StringVar(&from, "from", "", "a golden path to create the service from: an oci:// reference or a directory")
 	f.StringVar(&trust, "trust", "", "the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)")
+	f.StringSliceVar(&runPlugins, "run-plugins", nil, "run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs")
 	addOverrideFlags(cmd)
 	return cmd
 }
 
 // fromChecks refuses what cannot go with --from, and what needs it.
-func fromChecks(from, trust string, fromCluster bool, folders int, overrides override.Overrides) error {
+func fromChecks(from, trust string, runPlugins []string, fromCluster bool, folders int, overrides override.Overrides) error {
 	switch {
 	case from != "" && (fromCluster || folders > 1):
 		return errors.New("--from creates one service in one folder: drop --cluster and the extra folders")
-	case from == "" && (!overrides.IsEmpty() || trust != ""):
-		return errors.New("--values, --set and --trust go with --from")
+	case from == "" && (!overrides.IsEmpty() || trust != "" || len(runPlugins) > 0):
+		return errors.New("--values, --set, --trust and --run-plugins go with --from")
 	}
 	return nil
 }

@@ -179,6 +179,7 @@ func TestInitFromFlagChecks(t *testing.T) {
 	}{
 		"values without from":   {[]string{"--set", "service.version=1.0.0"}, "go with --from"},
 		"trust without from":    {[]string{"--trust", "trust.yaml"}, "go with --from"},
+		"plugins without from":  {[]string{"--run-plugins", "dockerfile"}, "go with --from"},
 		"from with delivery":    {[]string{"--from", path, "--owner", "checkout", "--delivery"}, "drop --delivery"},
 		"from with folders":     {[]string{"a", "b", "--from", path}, "one service in one folder"},
 		"from with cluster":     {[]string{"--cluster", "--from", path}, "one service in one folder"},

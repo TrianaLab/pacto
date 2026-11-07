@@ -300,3 +300,30 @@ func TestInitFromGoldenPath_ValuesAndSet(t *testing.T) {
 		}
 	}
 }
+
+func TestInitFromGoldenPath_RunsTestPlugin(t *testing.T) {
+	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	path := writeGoldenPath(t)
+	raw, _ := os.ReadFile(filepath.Join(path, "pacto.yaml"))
+	os.WriteFile(filepath.Join(path, "pacto.yaml"), []byte(strings.Replace(string(raw), "    plugins:\n", "    plugins:\n      - name: test\n", 1)), 0o644)
+	dir := filepath.Join(t.TempDir(), "gift-cards")
+	out, err := runCommand(t, nil, "init", dir, "--from", path, "--owner", "checkout", "--run-plugins", "test", "--plan")
+	if err != nil {
+		t.Fatalf("init --from --plan: %v\n%s", err, out)
+	}
+	bin := filepath.Join(testPluginDir, "pacto-plugin-test")
+	assertContains(t, out, "would run "+bin)
+	if out, err = runCommand(t, nil, "init", dir, "--from", path, "--owner", "checkout", "--run-plugins", "test"); err != nil {
+		t.Fatalf("init --from --run-plugins: %v\n%s", err, out)
+	}
+	assertContains(t, out, "ran "+bin+": added 2 files, kept 0")
+	assertContains(t, out, "not installed: install pacto-plugin-dockerfile")
+	for _, f := range []string{"deployment.yaml", "service.yaml"} {
+		if data, err := os.ReadFile(filepath.Join(dir, f)); err != nil || !strings.Contains(string(data), "gift-cards") {
+			t.Errorf("%s: %v", f, err)
+		}
+	}
+	if out, err = runCommand(t, nil, "validate", dir); err != nil {
+		t.Fatalf("validate: %v\n%s", err, out)
+	}
+}

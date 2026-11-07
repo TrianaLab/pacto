@@ -733,7 +733,10 @@ func (p *planner) ignore() {
 	if len(need) == 0 {
 		return
 	}
-	data, err := os.ReadFile(filepath.Join(p.r.Dir, ".pactoignore"))
+	// A plugin may already have planned one; its lines are kept and the
+	// missing ones added to it.
+	i := slices.IndexFunc(p.r.Files, func(f File) bool { return f.Path == ".pactoignore" })
+	data, planned, err := p.currentIgnore(i)
 	if err != nil {
 		p.file(".pactoignore", strings.Join(need, "\n")+"\n")
 		return
@@ -745,11 +748,31 @@ func (p *planner) ignore() {
 			missing = append(missing, n)
 		}
 	}
-	if len(missing) == 0 {
-		p.r.Files = append(p.r.Files, File{Path: ".pactoignore", Action: Keep})
+	f := File{Path: ".pactoignore", Action: Keep}
+	switch {
+	case planned:
+		f = p.r.Files[i]
+		if len(missing) > 0 {
+			f.Content = strings.TrimSuffix(f.Content, "\n") + "\n" + strings.Join(missing, "\n") + "\n"
+		}
+	case len(missing) > 0:
+		f = File{Path: ".pactoignore", Action: Append, Content: strings.Join(missing, "\n") + "\n"}
+	}
+	if i >= 0 {
+		p.r.Files[i] = f
 		return
 	}
-	p.r.Files = append(p.r.Files, File{Path: ".pactoignore", Action: Append, Content: strings.Join(missing, "\n") + "\n"})
+	p.r.Files = append(p.r.Files, f)
+}
+
+// currentIgnore is the .pactoignore planned at i when it is added, else the
+// one in the folder, and whether it was the planned one.
+func (p *planner) currentIgnore(i int) ([]byte, bool, error) {
+	if i >= 0 && p.r.Files[i].Action == Add {
+		return []byte(p.r.Files[i].Content), true, nil
+	}
+	data, err := os.ReadFile(filepath.Join(p.r.Dir, ".pactoignore"))
+	return data, false, err
 }
 
 var (

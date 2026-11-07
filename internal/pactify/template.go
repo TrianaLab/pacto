@@ -91,22 +91,38 @@ func (p *planner) fromTemplate(ctx context.Context) error {
 	if err := p.copyTemplate(); err != nil {
 		return err
 	}
-	files := map[string][]byte{}
-	for _, f := range p.r.Files[1:] { // the contract is the first file planned
-		files[f.Path] = []byte(f.Content)
-		if f.Action == Keep {
-			if files[f.Path], err = os.ReadFile(filepath.Join(p.r.Dir, f.Path)); err != nil {
-				return fmt.Errorf("reading %s, which the folder already holds: %w", f.Path, err)
-			}
-		}
+	overlay, err := p.overlay(text)
+	if err != nil {
+		return err
 	}
-	c, err := p.validateTemplate(ctx, text, files)
+	c, err := p.validateTemplate(ctx, text, overlay)
+	if err != nil {
+		return err
+	}
+	steps, err := p.plugins(ctx, path.Service.Template.Plugins, c, overlay)
 	if err != nil {
 		return err
 	}
 	p.templateLines(path, c, m, registry)
-	p.creationSteps(c)
+	p.creationSteps(c, steps)
 	return nil
+}
+
+// overlay is what the folder will hold: the created contract, the path's
+// files it adds and the files it keeps as they are on disk.
+func (p *planner) overlay(text string) (fstest.MapFS, error) {
+	overlay := fstest.MapFS{"pacto.yaml": {Data: []byte(text)}}
+	for _, f := range p.r.Files[1:] { // the contract is the first file planned
+		data := []byte(f.Content)
+		if f.Action == Keep {
+			var err error
+			if data, err = os.ReadFile(filepath.Join(p.r.Dir, f.Path)); err != nil {
+				return nil, fmt.Errorf("reading %s, which the folder already holds: %w", f.Path, err)
+			}
+		}
+		overlay[f.Path] = &fstest.MapFile{Data: data}
+	}
+	return overlay, nil
 }
 
 // applyValues applies the caller's values while service.template is still
@@ -157,15 +173,11 @@ func (p *planner) copyTemplate() error {
 // validateTemplate validates the created contract over exactly what the
 // folder will hold: the contract, the path's files it adds and the files it
 // keeps as they are on disk. Any error refuses the creation.
-func (p *planner) validateTemplate(ctx context.Context, text string, files map[string][]byte) (*contract.Contract, error) {
+func (p *planner) validateTemplate(ctx context.Context, text string, fsys fs.FS) (*contract.Contract, error) {
 	t := p.opts.Template
 	c, err := contract.Parse(strings.NewReader(text))
 	if err != nil {
 		return nil, fmt.Errorf("the contract created from %s is not valid: %w", t.Ref, err)
-	}
-	fsys := fstest.MapFS{"pacto.yaml": {Data: []byte(text)}}
-	for name, data := range files {
-		fsys[name] = &fstest.MapFile{Data: data}
 	}
 	validate := t.Validate
 	if validate == nil {
@@ -268,9 +280,10 @@ func pathOfContract(c *contract.Contract, k string) string {
 	return ""
 }
 
-// creationSteps lists how far the creation got. Only what Pacto established
-// is done; the rest is planned or unknown with the reason.
-func (p *planner) creationSteps(c *contract.Contract) {
+// creationSteps lists how far the creation got, the plugin steps after
+// validation. Only what Pacto established is done; the rest is planned,
+// skipped or unknown with the reason.
+func (p *planner) creationSteps(c *contract.Contract, plugins []fleet.CreationStep) {
 	sig := p.opts.Template.Signature
 	sig.Step = fleet.StepSignature
 	if sig.Status == "" {
@@ -278,12 +291,14 @@ func (p *planner) creationSteps(c *contract.Contract) {
 	}
 	p.r.Steps = []fleet.CreationStep{sig,
 		{Step: fleet.StepContract, Status: fleet.StepStatusPlanned, Detail: "planned at " + p.r.Path},
-		validationStep(p.stages),
+		validationStep(p.stages)}
+	p.r.Steps = append(p.r.Steps, plugins...)
+	p.r.Steps = append(p.r.Steps, []fleet.CreationStep{
 		{Step: fleet.StepPublished, Status: fleet.StepStatusUnknown, Detail: "not observed at creation: publish the service with pacto publish"},
 		{Step: fleet.StepFleet, Status: fleet.StepStatusUnknown, Detail: "not observed at creation: the fleet links the service to its golden path once a source reads it"},
 		{Step: fleet.StepDeployed, Status: fleet.StepStatusUnknown, Detail: "not observed at creation: Pacto has seen no target that runs the service"},
 		provisioningStep(c),
-	}
+	}...)
 }
 
 // validationStep is done only when every reference was checked.

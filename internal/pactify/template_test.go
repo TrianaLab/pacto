@@ -112,6 +112,9 @@ func fromPath(t *testing.T, fsys fs.FS, opts Options, ov override.Overrides) (*R
 	}
 	opts.Template.FS, opts.Template.Ref, opts.Template.Digest = fsys, "oci://ghcr.io/platform/http-service:1.0.0", pathDigest
 	opts.Template.Overrides = ov
+	if opts.Template.Find == nil {
+		opts.Template.Find = notInstalled
+	}
 	r, err := Init(context.Background(), opts, nil)
 	if err != nil {
 		return r, nil, err
@@ -388,7 +391,7 @@ func TestCreationStepsAtCreation(t *testing.T) {
 	signed := fleet.CreationStep{Status: fleet.StepStatusDone, Detail: "signed by platform"}
 	r, _ := mustFromPath(t, goldenPath(refPath), Options{Template: &Template{Validate: pass, Signature: signed}}, override.Overrides{})
 	want := map[string]string{fleet.StepSignature: fleet.StepStatusDone, fleet.StepContract: fleet.StepStatusPlanned, fleet.StepValidation: fleet.StepStatusDone,
-		fleet.StepPublished: fleet.StepStatusUnknown, fleet.StepFleet: fleet.StepStatusUnknown, fleet.StepDeployed: fleet.StepStatusUnknown, fleet.StepProvisioning: fleet.StepStatusUnknown}
+		fleet.StepPublished: fleet.StepStatusUnknown, fleet.StepFleet: fleet.StepStatusUnknown, fleet.StepDeployed: fleet.StepStatusUnknown, fleet.StepProvisioning: fleet.StepStatusUnknown, fleet.StepPlugin: fleet.StepStatusSkipped}
 	if len(r.Steps) != len(want) {
 		t.Fatalf("steps: %+v", r.Steps)
 	}
@@ -398,13 +401,13 @@ func TestCreationStepsAtCreation(t *testing.T) {
 		}
 	}
 	if r.Steps[0].Detail != "signed by platform" || r.Steps[2].Detail != "strict, references resolved" ||
-		!strings.Contains(r.Steps[6].Detail, "configuration db (oci://ghcr.io/platform/postgresql:1.0.0), dependency postgresql") {
+		r.Steps[3].Name != "dockerfile" || !strings.Contains(r.Steps[7].Detail, "configuration db (oci://ghcr.io/platform/postgresql:1.0.0), dependency postgresql") {
 		t.Errorf("details: %+v", r.Steps)
 	}
 
 	// No signature step and the local validator: unknown, never done.
 	r, _ = mustFromPath(t, goldenPath(""), Options{}, override.Overrides{})
-	if r.Steps[0].Status != fleet.StepStatusUnknown || r.Steps[6].Status != fleet.StepStatusNotApplicable {
+	if r.Steps[0].Status != fleet.StepStatusUnknown || r.Steps[7].Status != fleet.StepStatusNotApplicable {
 		t.Errorf("steps: %+v", r.Steps)
 	}
 

@@ -20,11 +20,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -86,6 +88,16 @@ type Template struct {
 	// Validate validates the created contract over the files the folder will
 	// hold. Nil validates locally, with no resolver.
 	Validate func(ctx context.Context, c *contract.Contract, raw []byte, fsys fs.FS) []validation.Stage
+	// RunPlugins are the plugins the path names that the caller asked to run.
+	RunPlugins []string
+	// TrustConfigured says a template key was configured, so a plugin runs
+	// only when that key verified the path's signature.
+	TrustConfigured bool
+	// Run runs a plugin. Nil refuses every run.
+	Run func(ctx context.Context, name string, req plugin.GenerateRequest) (*plugin.GenerateResponse, error)
+	// Find resolves a plugin name to the binary Run executes. Nil is
+	// plugin.Find.
+	Find func(name string) (string, error)
 }
 
 // Inferred is a service this one was seen calling at runtime.
@@ -279,13 +291,18 @@ type planner struct {
 	deliveryPlanned bool
 }
 
-// file plans path: Add when it is not there, else Keep.
-func (p *planner) file(path, content string) {
+// file plans path: Add when it is not there, else Keep. A path already
+// planned keeps its first plan, so a later file never replaces it.
+func (p *planner) file(path, content string) string {
+	if slices.ContainsFunc(p.r.Files, func(f File) bool { return f.Path == path }) {
+		return Keep
+	}
 	action := Add
 	if _, err := os.Stat(filepath.Join(p.r.Dir, path)); err == nil {
 		action, content = Keep, ""
 	}
 	p.r.Files = append(p.r.Files, File{Path: path, Action: action, Content: content})
+	return action
 }
 
 // apply writes every Add and Append. It never touches a Keep.

@@ -19,6 +19,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -33,6 +34,8 @@ type InitFrom struct {
 	// Nil, or a config with no template key, leaves the signature unchecked.
 	Trust     *delivery.TrustConfig
 	Overrides override.Overrides
+	// RunPlugins are the plugins the path names that the caller asked to run.
+	RunPlugins []string
 }
 
 // localOrigin is the Unknown line of a service whose origin is a local path.
@@ -61,6 +64,12 @@ func (s *Service) InitFrom(ctx context.Context, opts InitOptions, from InitFrom)
 	}
 	t.Overrides = from.Overrides
 	t.Validate = s.templateValidator(absDir)
+	t.RunPlugins = from.RunPlugins
+	t.TrustConfigured = from.Trust != nil && from.Trust.HasTemplateKeys()
+	t.Find = plugin.Find
+	if s.PluginRunner != nil {
+		t.Run = s.PluginRunner.Run
+	}
 	opts.Template = t
 	r, err := s.Init(ctx, opts)
 	if r != nil && !strings.HasPrefix(t.Ref, contract.OCIScheme) {

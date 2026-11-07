@@ -445,3 +445,33 @@ func TestTemplateStrictValidation_UnresolvedRef(t *testing.T) {
 		t.Error("a refused creation wrote pacto.yaml")
 	}
 }
+
+// TestInitFromRunsPlugins: the plugins the caller names run through the
+// service's runner, resolved with plugin.Find, and never under a trust config
+// whose template key did not verify the path.
+func TestInitFromRunsPlugins(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "pacto-plugin-test"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	from := writeGoldenPath(t, "")
+	_ = os.WriteFile(filepath.Join(from, "pacto.yaml"), []byte(strings.Replace(goldenPathYAML, "template: {}", "template:\n    plugins:\n      - name: test", 1)), 0o644)
+	target := filepath.Join(t.TempDir(), "gift-cards")
+	svc := &Service{PluginRunner: &mockPluginRunner{}}
+	r, err := svc.InitFrom(t.Context(), InitOptions{Dir: target, Owner: "checkout"}, InitFrom{From: from, RunPlugins: []string{"test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := r.Steps[3]; s.Status != fleet.StepStatusDone || !strings.Contains(s.Detail, filepath.Join(bin, "pacto-plugin-test")) {
+		t.Errorf("plugin step: %+v", s)
+	}
+	if _, err := os.Stat(filepath.Join(target, "out.txt")); err != nil {
+		t.Error(err)
+	}
+	trust := &delivery.TrustConfig{Keys: []delivery.TrustedKey{{Role: delivery.RoleTemplate}}}
+	_, err = svc.InitFrom(t.Context(), InitOptions{Dir: filepath.Join(t.TempDir(), "x"), Owner: "checkout"}, InitFrom{From: from, Trust: trust, RunPlugins: []string{"test"}})
+	if err == nil || !strings.Contains(err.Error(), "signature a template key verified") {
+		t.Errorf("under trust: %v", err)
+	}
+}

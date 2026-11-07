@@ -1202,7 +1202,9 @@ $PACTO_DELIVERY_TRUST) names a template key, the path must be signed by one
 or nothing is created, and otherwise the signature is reported Unknown. The
 created contract is validated with its references resolved before anything is
 written, and the Status block says what was checked and what Pacto cannot
-tell yet.
+tell yet. Each plugin the path names is listed with the binary it resolves
+to; only the ones you name with --run-plugins run, never with --plan, and
+the files they return are added like the path's own.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
@@ -1247,6 +1249,7 @@ pacto init [dir...] [flags]
       --plan                     show what would be added and change nothing
       --registry string          where to publish, as host/path (default: read from the workload's image)
       --registry-secret string   with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
+      --run-plugins strings      run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs
       --set stringArray          set a contract value (e.g. --set service.version=2.0.0)
       --trust string             the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)
   -f, --values stringArray       values file to merge into the contract (can be repeated; last wins)
