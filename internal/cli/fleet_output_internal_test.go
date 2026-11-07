@@ -111,9 +111,6 @@ func TestPrintFleetStatus_HeaderReportsTotal(t *testing.T) {
 	}
 }
 
-// TestOfferingTextEdges covers what the CLI fixtures cannot reach cheaply: a
-// latest compatible version past the preview, truncated previews, a running
-// version, a full lifecycle and hidden consumers.
 // The offering text prints each provider's consume snippet, indented under it.
 func TestPrintOfferingText_ShowsSnippet(t *testing.T) {
 	var buf bytes.Buffer
@@ -126,6 +123,9 @@ func TestPrintOfferingText_ShowsSnippet(t *testing.T) {
 	}
 }
 
+// TestOfferingTextEdges covers what the CLI fixtures cannot reach cheaply: a
+// latest compatible version past the preview, truncated previews, a running
+// version, a full lifecycle and hidden consumers.
 func TestOfferingTextEdges(t *testing.T) {
 	inUse := true
 	rev := func(k string) fleet.EntityRef {

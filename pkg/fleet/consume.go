@@ -24,15 +24,15 @@ import (
 //   - a policy reference when it declares a policy, or ships the fixed-path
 //     policy/schema.json, and neither applies.
 //
-// A deprecated newest adds a comment saying so. It is nil when newest has no
-// OCI reference or nothing to consume.
+// A deprecated newest adds a comment saying so. It is nil when no OCI
+// repository is known for provider (see [consumeRepo]) or there is nothing to
+// consume.
 func consumeSnippet(snap *FleetSnapshot, provider *ServiceRecord, newest *ContractRevision) *ConsumeSnippet {
 	if newest == nil {
 		return nil
 	}
-	ref := cmp.Or(newest.ResolvedRef, newest.RequestedRef)
-	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
-	if repo == "" || strings.Contains(repo, "://") {
+	repo := consumeRepo(snap, provider, newest)
+	if repo == "" {
 		return nil
 	}
 	c := newest.Contract
@@ -63,6 +63,31 @@ func consumeSnippet(snap *FleetSnapshot, provider *ServiceRecord, newest *Contra
 	}
 	sn.YAML = b.String()
 	return sn
+}
+
+// consumeRepo is the OCI repository, without scheme or tag, consumers reference
+// provider by: the one newest was read from, else the one newest publishes its
+// bundle to, else the first, in order, that a consumer's resolved reference to
+// provider names (registry references only). A revision read from a local
+// directory has only the last two. It is "" when none is an OCI repository.
+func consumeRepo(snap *FleetSnapshot, provider *ServiceRecord, newest *ContractRevision) string {
+	var declared []string
+	for _, rel := range snap.Relationships {
+		if rel.Resolved && rel.ToService == provider.Key && strings.HasPrefix(rel.RequestedRef, contract.OCIScheme) {
+			declared = append(declared, rel.RequestedRef)
+		}
+	}
+	slices.Sort(declared)
+	refs := []string{cmp.Or(newest.ResolvedRef, newest.RequestedRef)}
+	if p := newest.Contract.Publish; p != nil && strings.HasPrefix(p.Bundle, contract.OCIScheme) {
+		refs = append(refs, p.Bundle)
+	}
+	for _, ref := range append(refs, declared...) {
+		if repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref)); repo != "" && !strings.Contains(repo, "://") {
+			return repo
+		}
+	}
+	return ""
 }
 
 // writeDeprecation writes a comment saying version of name is deprecated,

@@ -444,6 +444,34 @@ func TestConsumeSnippet_NoOCIRef(t *testing.T) {
 	}
 }
 
+// A revision read from a local directory takes the repository its contract
+// publishes to, else the one a consumer's reference names.
+func TestConsumeSnippet_LocalRevisionFallback(t *testing.T) {
+	local := func(c *contract.Contract) RawRevision {
+		raw := ociRev("ghcr.io/acme", c, nil)
+		raw.RequestedRef = "file:///src/" + c.Service.Name
+		return raw
+	}
+	pg := svc25("postgresql", "16.0.1", "postgresql")
+	pg.Workload = contract.WorkloadService
+	pg.Publish = &contract.Publish{Bundle: "oci://registry.acme.com/db/postgresql"}
+	if sn := snippetFor(t, local(pg)); sn == nil || sn.Ref != "oci://registry.acme.com/db/postgresql" {
+		t.Errorf("publish.bundle: snippet = %+v", sn)
+	}
+	pg.Publish = nil
+	jobs := func(name, ref string) RawRevision {
+		c := svc25(name, "1.0.0", "")
+		c.Dependencies = []contract.Dependency{{Name: "postgresql", Ref: ref, Required: true, Compatibility: "^16.0.0"}}
+		return local(c)
+	}
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
+		local(pg), jobs("jobs", "oci://ghcr.io/acme/postgresql"), jobs("api", "oci://ghcr.io/acme/postgresql:16.0.1"),
+	}})
+	if sn := offeringData(t, q, "postgresql").Providers.Items[0].Consume; sn == nil || sn.Ref != "oci://ghcr.io/acme/postgresql" {
+		t.Errorf("consumer reference: snippet = %+v", sn)
+	}
+}
+
 // The snippet comes from the newest revision that is not invalid.
 func TestConsumeSnippet_InvalidNewestRevisionIgnored(t *testing.T) {
 	bad := mustParse(t, invalidYAML)
