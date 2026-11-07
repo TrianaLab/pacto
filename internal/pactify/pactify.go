@@ -173,8 +173,11 @@ func Init(ctx context.Context, opts Options, writeFile func(string, []byte, os.F
 		return r, err
 	}
 	for i := range r.Steps {
-		if r.Steps[i].Step == fleet.StepContract {
-			r.Steps[i].Status, r.Steps[i].Detail = fleet.StepStatusDone, "written to "+r.Path
+		switch s := &r.Steps[i]; {
+		case s.Step == fleet.StepContract:
+			s.Status, s.Detail = fleet.StepStatusDone, "written to "+r.Path
+		case s.Step == fleet.StepDelivery && s.Status == fleet.StepStatusPlanned:
+			s.Status = fleet.StepStatusDone
 		}
 	}
 	return r, nil
@@ -225,6 +228,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	p.consumers()
 	if opts.Delivery {
 		p.delivery()
+		p.deliveryStep()
 	}
 	p.ignore()
 	return r, nil

@@ -53,7 +53,7 @@ func createTool() *mcpsdk.Tool {
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
 			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
 			"describe_only":                {Type: "boolean", Description: "With pactify: write a contract that only describes the service, with no publish section and no signing key. Use it when you are asked to describe or document a service; leave it off to also prepare pacto publish"},
-			"delivery":                     {Type: "boolean", Description: "With pactify: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization (needs the publish section, so not with describe_only)"},
+			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization (needs the publish section, so not with describe_only; with from, the golden path must publish manifests under publish.deploy)"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
 			"environments":                 {Type: "string", Description: "With delivery: JSON array of environments in promotion order (default [\"test\",\"prod\"])"},
 			"no_transparency_log":          {Type: "boolean", Description: "With pactify: write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)"},
@@ -63,7 +63,7 @@ func createTool() *mcpsdk.Tool {
 			"paths":                        {Type: "string", Description: "With pactify: JSON array of service folders, each planned like path and named after its folder (name is ignored); dry_run defaults to true"},
 			"cluster":                      {Type: "boolean", Description: "With pactify: draft a contract for every workload in the current kubeconfig context that no Pacto describes, into path/<namespace>/<name>, with the services it was seen calling pinned to the version seen running; dry_run defaults to true"},
 			"namespaces":                   {Type: "string", Description: "With cluster: JSON array of namespaces to read (default: every namespace)"},
-			"from":                         {Type: "string", Description: "A golden path to create the service from: an oci:// reference or a directory. Takes name, owner (required), domain, path, registry, values, set, run_plugins, describe_only and dry_run"},
+			"from":                         {Type: "string", Description: "A golden path to create the service from: an oci:// reference or a directory. Takes name, owner (required), domain, path, registry, values, set, run_plugins, describe_only, delivery and its options, and dry_run"},
 			"values":                       {Type: "string", Description: "With from: JSON object merged over the golden path's contract, such as {\"service\": {\"summary\": \"Gift card balances\"}}; a null removes a field"},
 			"set":                          {Type: "string", Description: "With from: JSON array of key=value strings applied after values, such as [\"service.summary=Gift card balances\"]"},
 			"run_plugins":                  {Type: "string", Description: "With from: JSON array of the plugins the golden path names to run, by name. Plan with dry_run first: its plugin steps list each plugin and the binary it runs. Nothing runs that is not named here"},
@@ -224,9 +224,11 @@ func createFromPath(ctx context.Context, args createArgs, init Initializer) (*mc
 			"change the path's contract with values or set", strings.Join(bad, ", "))
 	}
 	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Domain: args.Domain, Registry: args.Registry,
-		DescribeOnly: args.DescribeOnly, Plan: args.DryRun != nil && *args.DryRun, NoTransparencyLog: args.NoTransparencyLog}
+		DescribeOnly: args.DescribeOnly, Plan: args.DryRun != nil && *args.DryRun, NoTransparencyLog: args.NoTransparencyLog,
+		Delivery: args.Delivery, InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
 	req := FromRequest{Ref: args.From}
 	if err := unmarshalFields([]jsonField{
+		{"environments", args.Environments, &opts.Environments},
 		{"values", args.Values, &req.Values},
 		{"set", args.Set, &req.Set},
 		{"run_plugins", args.RunPlugins, &req.RunPlugins},
@@ -257,9 +259,7 @@ func fromConflicts(args createArgs) []string {
 		{"data_shared_across_instances", args.DataSharedAcrossInstances != nil},
 		{"data_loss_impact", args.DataLossImpact != ""}, {"config_properties", args.ConfigProperties != ""},
 		{"metadata", args.Metadata != ""}, {"pactify", args.Pactify}, {"paths", args.Paths != ""},
-		{"cluster", args.Cluster}, {"namespaces", args.Namespaces != ""}, {"delivery", args.Delivery},
-		{"environments", args.Environments != ""}, {"fleet_roots", args.FleetRoots != ""},
-		{"insecure_registry", args.InsecureRegistry}, {"registry_secret", args.RegistrySecret != ""},
+		{"cluster", args.Cluster}, {"namespaces", args.Namespaces != ""}, {"fleet_roots", args.FleetRoots != ""},
 	} {
 		if a.set {
 			bad = append(bad, a.name)

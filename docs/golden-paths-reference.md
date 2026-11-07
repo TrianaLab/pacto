@@ -72,6 +72,11 @@ fleet holds. Each step is `done` only on its signal:
 | `deployed` | the fleet observes a target | `unknown` |
 | `provisioning` | every provider reports `Ready` | `failed` on any `Failed`; `unknown` without reports; `not-applicable` when nothing provisions |
 
+The `delivery` step appears only in the step list `pacto init --from
+--delivery` and `pacto_create` with `delivery` return. It is `planned`, then
+`done`, when the Pacto resource and every Stage were planned. Otherwise it is
+`unknown` with the reason.
+
 ## Golden paths in a restricted view
 
 A namespace-scoped viewer sees a golden path that has no Kubernetes target,

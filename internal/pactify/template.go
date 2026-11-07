@@ -31,21 +31,21 @@ var dropped = []string{"service.summary", "service.lifecycle", "service.offering
 // .pactoignore.
 var notCopied = []string{"pacto.yaml", "pacto.lock", ignore.IgnoreFileName}
 
-// TemplateOptions refuses what creating from a golden path cannot do.
+// TemplateOptions refuses what creating from a golden path cannot do, and
+// delivery options that do not go together.
 func TemplateOptions(opts Options) error {
 	switch {
 	case opts.Template == nil:
 		return nil
 	case opts.Owner == "":
 		return errors.New("a service created from a golden path needs the team that owns it: pass --owner")
-	case opts.Delivery:
-		return errors.New("creating from a golden path writes the contract and the path's files only: drop --delivery and run pacto init --delivery once the service is published")
 	case len(opts.FleetRoots) > 0:
 		return errors.New("creating from a golden path reads no other services' contracts: drop --fleet")
 	case len(opts.Inferred) > 0:
 		return errors.New("creating from a golden path reads no running workload: drop --cluster")
 	}
-	return nil
+	_, err := environments(opts) // the delivery options, checked before the path is read
+	return err
 }
 
 // fromTemplate plans pacto.yaml and the path's files from the golden path:
@@ -299,6 +299,34 @@ func (p *planner) creationSteps(c *contract.Contract, plugins []fleet.CreationSt
 		{Step: fleet.StepDeployed, Status: fleet.StepStatusUnknown, Detail: "not observed at creation: Pacto has seen no target that runs the service"},
 		provisioningStep(c),
 	}...)
+}
+
+// deliveryStep reports the cluster pieces --delivery planned for a service
+// created from a golden path, before the published step: planned only when
+// the Pacto resource and every environment's Stage were, else unknown with
+// the reason.
+func (p *planner) deliveryStep() {
+	if p.opts.Template == nil {
+		return
+	}
+	var files []string
+	for _, f := range p.r.Files {
+		if strings.HasPrefix(f.Path, "delivery/") && f.Action == Keep {
+			files = append(files, f.Path+" (kept as it is)")
+		} else if strings.HasPrefix(f.Path, "delivery/") {
+			files = append(files, f.Path)
+		}
+	}
+	step := fleet.CreationStep{Step: fleet.StepDelivery, Status: fleet.StepStatusPlanned, Detail: "the Pacto resource and Stages: " + strings.Join(files, ", ")}
+	switch {
+	case !p.deliveryPlanned:
+		step.Status, step.Detail = fleet.StepStatusUnknown, "no cluster pieces: the golden path publishes no manifests for Flux to apply (publish.deploy)"
+	case len(files) < 1+len(p.envs):
+		step.Status, step.Detail = fleet.StepStatusUnknown, "the Pacto resource only: "+strings.Join(files, ", ")+
+			"; no Stage, since nothing deployed says which version runs: tag the image with the version you deploy and run pacto init --delivery again"
+	}
+	i := slices.IndexFunc(p.r.Steps, func(s fleet.CreationStep) bool { return s.Step == fleet.StepPublished })
+	p.r.Steps = slices.Insert(p.r.Steps, i, step)
 }
 
 // validationStep is done only when every reference was checked.

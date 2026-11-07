@@ -171,14 +171,15 @@ or schema file already there as it is, listed in `kept`.
 - `pacto_create` with `from` creates a service from a
   [golden path](golden-paths.md), like `pacto init --from`.
 - `from` is an `oci://` reference or a directory. `name` and `owner` are
-  required; `domain`, `path`, `registry`, `describe_only` and `dry_run` match
+  required; `domain`, `path`, `registry`, `describe_only`, `delivery`,
+  `environments`, `registry_secret`, `insecure_registry` and `dry_run` match
   the CLI flags.
 - `values` is a JSON object merged over the path's contract and `set` a JSON
   array of `key=value` overrides, like `--values` and `--set`.
 - `run_plugins` is a JSON array of plugin names, each one the path lists.
   Nothing else runs. A `dry_run` lists each plugin and the binary it runs.
 - `from` refuses the intent inputs, such as `interfaces`, and `pactify`,
-  `delivery` and the cluster inputs.
+  `fleet_roots` and the cluster inputs.
 - `from` serves stdio only. Over HTTP every caller would pull with the
   server's registry credentials, read its directories and write to its paths.
 - `pacto_fleet_entities` with `template: only` lists golden paths.

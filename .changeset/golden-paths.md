@@ -18,10 +18,13 @@ golden path: it resets the identity, applies `--values` and `--set`, records
 adds files. A path read from a registry is pulled by digest and, when the
 trust config (`--trust` or `$PACTO_DELIVERY_TRUST`) names a `role: template`
 key, must be signed by one; otherwise the signature step reads Unknown.
-`--run-plugins` runs only the plugins of the path you name. The step list says
-what was checked and what Pacto cannot tell yet. The MCP `pacto_create` tool
-gains `from`, `values`, `set`, `run_plugins` and `domain`; `from` serves stdio
-only. `pacto_edit` gains `template`.
+`--run-plugins` runs only the plugins of the path you name. `--delivery`, with
+`--env`, `--registry-secret` and `--insecure-registry`, plans the cluster pieces
+from the created contract when the path publishes manifests under
+`publish.deploy`. The step list says what was checked and what Pacto cannot
+tell yet. The MCP `pacto_create` tool gains `from`, `values`, `set`,
+`run_plugins` and `domain`, and takes `delivery` and its options with `from`;
+`from` serves stdio only. `pacto_edit` gains `template`.
 
 A blank `pacto init` now writes `--owner`, `--domain` and a publish section,
 and no placeholder readiness block. `pacto_create` without `pactify` refuses a

@@ -62,6 +62,19 @@ func TestCreateFromPassesInputs(t *testing.T) {
 	}
 }
 
+func TestCreateFromPassesDelivery(t *testing.T) {
+	f := &fakeInit{r: &pactify.Result{Service: "gift-cards"}}
+	if _, isErr := callFrom(t, f.init, map[string]any{"from": "./paths/http", "name": "a", "owner": "o", "dry_run": true,
+		"delivery": true, "environments": `["dev","prod"]`, "insecure_registry": true, "registry_secret": "creds"}); isErr {
+		t.Fatal("expected success")
+	}
+	want := pactify.Options{Name: "a", Owner: "o", Plan: true, Delivery: true, Environments: []string{"dev", "prod"},
+		InsecureRegistry: true, RegistrySecret: "creds"}
+	if !reflect.DeepEqual(f.opts, want) {
+		t.Errorf("opts = %+v, want %+v", f.opts, want)
+	}
+}
+
 func TestCreateFromRefusesIntentArgs(t *testing.T) {
 	f := &fakeInit{r: &pactify.Result{}}
 	for _, arg := range []map[string]any{
@@ -69,8 +82,7 @@ func TestCreateFromRefusesIntentArgs(t *testing.T) {
 		{"workload": "service"}, {"stores_data": true}, {"data_survives_restart": true},
 		{"data_shared_across_instances": true}, {"data_loss_impact": "low"}, {"config_properties": "[]"},
 		{"metadata": "{}"}, {"pactify": true}, {"paths": "[]"}, {"cluster": true}, {"namespaces": "[]"},
-		{"delivery": true}, {"environments": "[]"}, {"fleet_roots": "[]"}, {"insecure_registry": true},
-		{"registry_secret": "s"},
+		{"fleet_roots": "[]"},
 	} {
 		args := map[string]any{"from": "./path", "name": "a", "owner": "o"}
 		var name string

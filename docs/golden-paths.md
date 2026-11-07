@@ -130,12 +130,23 @@ writes anything. A configuration reference it cannot resolve fails with
 `CONFIG_REF_UNRESOLVED`, and values the provider's schema rejects fail with
 `CONFIG_VALUES_VALIDATION_FAILED`. It only adds files: a folder that already
 holds a `pacto.yaml` is refused and any other file there is left as it is.
-`--delivery` is refused with `--from`: run `pacto init --delivery` once the
-service is published.
 
 An agent creates a service the same way with `pacto_create` and `from`,
-`owner`, `domain`, `values`, `set`, `run_plugins` and `dry_run`. `from` works only when `pacto mcp` runs
-over stdio, beside the agent and under its own credentials.
+`owner`, `domain`, `values`, `set`, `run_plugins`, `delivery` and `dry_run`.
+`from` works only when `pacto mcp` runs over stdio, beside the agent and under
+its own credentials.
+
+## Plan its delivery
+
+`--delivery` also plans the cluster pieces from the new contract, as
+[`pacto init --delivery`](pactify.md#4-connect-the-service-to-your-cluster)
+does, with `--env`, `--registry-secret` and `--insecure-registry`. An agent
+passes `delivery` to `pacto_create`. It needs a path that publishes manifests
+under `publish.deploy`. Without it, the delivery step says `unknown` and names
+the missing field. The demo's `http-service` path publishes no manifests, so it
+plans none. A Stage also needs the version that runs: in a new folder, with no
+workload manifest, only `delivery/pacto.yaml` is planned and the step says why.
+Files already there are kept as they are.
 
 ## Trust
 
@@ -181,7 +192,8 @@ new service to start with.
 ## Follow the creation
 
 `pacto init --from` ends with the step list: signature, contract, validation,
-each plugin, publishing, the fleet, deployment and provisioning. A step is
+each plugin, delivery with `--delivery`, publishing, the fleet, deployment and
+provisioning. A step is
 `done` only when Pacto established it. Publishing, the fleet and deployment
 stay `unknown` at creation, since no source has observed the new service yet.
 

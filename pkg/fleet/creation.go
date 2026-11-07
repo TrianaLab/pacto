@@ -6,7 +6,7 @@ package fleet
 // and never persisted. A step is done only on evidence; whatever Pacto cannot
 // observe is unknown with the reason in Detail.
 type CreationStep struct {
-	Step string `json:"step" enum:"signature,contract,validation,plugin,published,fleet,deployed,provisioning"`
+	Step string `json:"step" enum:"signature,contract,validation,plugin,delivery,published,fleet,deployed,provisioning"`
 	// Name is the plugin's name for a plugin step.
 	Name   string `json:"name,omitempty"`
 	Status string `json:"status" enum:"done,planned,skipped,unknown,failed,not-applicable"`
@@ -19,6 +19,7 @@ const (
 	StepContract     = "contract"
 	StepValidation   = "validation"
 	StepPlugin       = "plugin"
+	StepDelivery     = "delivery"
 	StepPublished    = "published"
 	StepFleet        = "fleet"
 	StepDeployed     = "deployed"

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -177,14 +178,15 @@ func TestInitFromFlagChecks(t *testing.T) {
 		args []string
 		want string
 	}{
-		"values without from":   {[]string{"--set", "service.version=1.0.0"}, "go with --from"},
-		"trust without from":    {[]string{"--trust", "trust.yaml"}, "go with --from"},
-		"plugins without from":  {[]string{"--run-plugins", "dockerfile"}, "go with --from"},
-		"from with delivery":    {[]string{"--from", path, "--owner", "checkout", "--delivery"}, "drop --delivery"},
-		"from with folders":     {[]string{"a", "b", "--from", path}, "one service in one folder"},
-		"from with cluster":     {[]string{"--cluster", "--from", path}, "one service in one folder"},
-		"from without owner":    {[]string{t.TempDir(), "--from", path}, "--owner"},
-		"from with a bad trust": {[]string{t.TempDir(), "--from", path, "--owner", "checkout", "--trust", filepath.Join(path, "missing")}, "trust config"},
+		"values without from":           {[]string{"--set", "service.version=1.0.0"}, "go with --from"},
+		"trust without from":            {[]string{"--trust", "trust.yaml"}, "go with --from"},
+		"plugins without from":          {[]string{"--run-plugins", "dockerfile"}, "go with --from"},
+		"from with fleet":               {[]string{t.TempDir(), "--from", path, "--owner", "checkout", "--fleet", path}, "drop --fleet"},
+		"from, secret without delivery": {[]string{t.TempDir(), "--from", path, "--owner", "checkout", "--registry-secret", "creds"}, "needs delivery"},
+		"from with folders":             {[]string{"a", "b", "--from", path}, "one service in one folder"},
+		"from with cluster":             {[]string{"--cluster", "--from", path}, "one service in one folder"},
+		"from without owner":            {[]string{t.TempDir(), "--from", path}, "--owner"},
+		"from with a bad trust":         {[]string{t.TempDir(), "--from", path, "--owner", "checkout", "--trust", filepath.Join(path, "missing")}, "trust config"},
 	} {
 		if out, err := runInit(t, c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v\n%s", name, err, out)
@@ -207,6 +209,22 @@ func TestInitFromDirectory(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); !strings.Contains(string(data), "version: 0.2.0") {
 		t.Errorf("--set did not reach the contract:\n%s", data)
+	}
+}
+
+// TestInitFromWithDelivery: --delivery and its options go with --from; a path
+// that publishes no manifests plans no cluster pieces and the Status says why.
+func TestInitFromWithDelivery(t *testing.T) {
+	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	path := t.TempDir()
+	_ = os.WriteFile(filepath.Join(path, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: http-service\n  version: 1.0.0\n  template: {}\n"), 0o644)
+	dir := filepath.Join(t.TempDir(), "gift-cards")
+	out, err := runInit(t, dir, "--from", path, "--owner", "checkout", "--delivery", "--env", "qa,prod", "--registry-secret", "creds", "--insecure-registry", "--plan")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !regexp.MustCompile(`unknown +delivery +no cluster pieces`).MatchString(out) {
+		t.Errorf("no delivery step:\n%s", out)
 	}
 }
 

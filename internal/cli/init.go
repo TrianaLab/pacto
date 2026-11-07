@@ -79,7 +79,9 @@ created contract is validated with its references resolved before anything is
 written, and the Status block says what was checked and what Pacto cannot
 tell yet. Each plugin the path names is listed with the binary it resolves
 to; only the ones you name with --run-plugins run, never with --plan, and
-the files they return are added like the path's own.
+the files they return are added like the path's own. --delivery plans the
+cluster pieces from the created contract when the path publishes manifests
+under publish.deploy; otherwise the delivery step says why none were planned.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and

@@ -1844,7 +1844,7 @@ export interface components {
             /** @enum {string} */
             status: "done" | "planned" | "skipped" | "unknown" | "failed" | "not-applicable";
             /** @enum {string} */
-            step: "signature" | "contract" | "validation" | "plugin" | "published" | "fleet" | "deployed" | "provisioning";
+            step: "signature" | "contract" | "validation" | "plugin" | "delivery" | "published" | "fleet" | "deployed" | "provisioning";
         };
         "Fleet.DeclaredClaim": {
             compatibility?: string;

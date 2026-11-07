@@ -309,7 +309,7 @@ func TestTemplateRefusals(t *testing.T) {
 		{"not a template", goldenPath(plain), Options{}, "is not a golden path"},
 		{"no contract", fstest.MapFS{}, Options{}, "reading the golden path"},
 		{"unparsable", goldenPath("service: ["), Options{}, "reading the golden path"},
-		{"delivery", goldenPath(""), Options{Delivery: true}, "drop --delivery"},
+		{"delivery describe-only", goldenPath(""), Options{Delivery: true, DescribeOnly: true}, "drop one of the two"},
 		{"fleet", goldenPath(""), Options{FleetRoots: []string{"x"}}, "drop --fleet"},
 		{"cluster", goldenPath(""), Options{Inferred: []Inferred{{Name: "x"}}}, "drop --cluster"},
 		{"unreadable file", errFS{goldenPath("")}, Options{}, "reading docs/runbook.md from the golden path"},
@@ -418,6 +418,65 @@ func TestCreationStepsAtCreation(t *testing.T) {
 	r, _ = mustFromPath(t, goldenPath(""), Options{Template: &Template{Validate: notEnforced}}, override.Overrides{})
 	if v := r.Steps[2]; v.Status != fleet.StepStatusUnknown || !strings.HasSuffix(v.Detail, ": CONFIG_REF_NOT_ENFORCED, POLICY_REF_UNVERIFIED") {
 		t.Errorf("validation: %+v", v)
+	}
+}
+
+// deployPath is the golden path publishing manifests for Flux under
+// publish.deploy.
+var deployPath = strings.Replace(pathContract, "  sign:\n", "    - name: manifests\n      type: manifests\n      ref: oci://ghcr.io/platform/deploy/http-service\n"+
+	"      build:\n        command: [make, manifests]\n  deploy: manifests\n  sign:\n", 1)
+
+func deliveryStepOf(t *testing.T, r *Result) fleet.CreationStep {
+	t.Helper()
+	i := slices.IndexFunc(r.Steps, func(s fleet.CreationStep) bool { return s.Step == fleet.StepDelivery })
+	if i < 0 || r.Steps[i+1].Step != fleet.StepPublished {
+		t.Fatalf("no delivery step before published: %+v", r.Steps)
+	}
+	return r.Steps[i]
+}
+
+func TestTemplateDelivery(t *testing.T) {
+	// No publish.deploy: nothing planned, and the step says why.
+	r, _ := mustFromPath(t, goldenPath(""), Options{Delivery: true}, override.Overrides{})
+	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusUnknown || !strings.Contains(s.Detail, "publish.deploy") {
+		t.Errorf("no deploy: %+v", s)
+	}
+	wantLines(t, "unknown", r.Unknown, "publishes no manifests for Flux to apply")
+
+	// publish.deploy in a new folder: the Pacto resource only, no Stage.
+	r, _ = mustFromPath(t, goldenPath(deployPath), Options{Delivery: true}, override.Overrides{})
+	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusUnknown || !strings.Contains(s.Detail, "the Pacto resource only: delivery/pacto.yaml; no Stage") {
+		t.Errorf("no tag: %+v", s)
+	}
+	if !slices.ContainsFunc(r.Files, func(f File) bool {
+		return f.Path == "delivery/pacto.yaml" && strings.Contains(f.Content, "oci://registry.example/gift-cards")
+	}) {
+		t.Errorf("files: %+v", r.Files)
+	}
+
+	// A folder whose workload runs a version: every Stage is planned, a
+	// Stage already there is kept, and applying marks the step done.
+	dir := writeTree(t, filepath.Join(t.TempDir(), "gift-cards"), map[string]string{
+		"k8s/app.yaml":     "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: gift-cards}\nspec:\n  template:\n    spec:\n      containers: [{name: api, image: ghcr.io/acme/gift-cards:0.1.0}]\n",
+		"delivery/qa.yaml": "mine\n",
+	})
+	opts := Options{Dir: dir, Owner: "checkout", Delivery: true, Environments: []string{"qa", "prod"}, RegistrySecret: "creds",
+		Template: &Template{FS: goldenPath(deployPath), Ref: "oci://ghcr.io/platform/http-service:1.0.0", Digest: pathDigest, Find: notInstalled}}
+	r, err := Init(context.Background(), opts, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusDone || s.Detail != "the Pacto resource and Stages: delivery/pacto.yaml, delivery/qa.yaml (kept as it is), delivery/prod.yaml" {
+		t.Errorf("stages: %+v", s)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "delivery/qa.yaml")); string(b) != "mine\n" {
+		t.Errorf("overwrote delivery/qa.yaml: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "delivery/prod.yaml")); !strings.Contains(string(b), "name: creds") {
+		t.Errorf("prod stage: %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, ".pactoignore")); !strings.Contains(string(b), "delivery/") {
+		t.Errorf(".pactoignore: %s", b)
 	}
 }
 

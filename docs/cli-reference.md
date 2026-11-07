@@ -1207,7 +1207,9 @@ created contract is validated with its references resolved before anything is
 written, and the Status block says what was checked and what Pacto cannot
 tell yet. Each plugin the path names is listed with the binary it resolves
 to; only the ones you name with --run-plugins run, never with --plan, and
-the files they return are added like the path's own.
+the files they return are added like the path's own. --delivery plans the
+cluster pieces from the created contract when the path publishes manifests
+under publish.deploy; otherwise the delivery step says why none were planned.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
@@ -1266,7 +1268,7 @@ The folder's last part becomes `service.name`, which must match `^[a-z0-9]([a-z0
 
 All three files are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. If you delete a directory, also delete the section that references it, or validation fails with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
 
-`--from` creates one service from a [golden path](golden-paths.md), in a folder that holds no `pacto.yaml` yet, so it refuses `--cluster` and several folders. `--values`, `--set`, `--trust` and `--run-plugins` go with `--from`. `--values` files apply first, then `--set`; a `null` removes a field. `--trust` takes a trust config file or a bare PEM public key, which then verifies golden paths in every repository; a bare key in `$PACTO_DELIVERY_TRUST` verifies records only. Only `role: template` keys verify a golden path; see [Trust](golden-paths.md#trust). The path's `pacto.lock` is not copied: run `pacto lock` in the new folder to pin its references.
+`--from` creates one service from a [golden path](golden-paths.md), in a folder that holds no `pacto.yaml` yet, so it refuses `--cluster` and several folders. `--values`, `--set`, `--trust` and `--run-plugins` go with `--from`. `--values` files apply first, then `--set`; a `null` removes a field. `--trust` takes a trust config file or a bare PEM public key, which then verifies golden paths in every repository; a bare key in `$PACTO_DELIVERY_TRUST` verifies records only. Only `role: template` keys verify a golden path; see [Trust](golden-paths.md#trust). The path's `pacto.lock` is not copied: run `pacto lock` in the new folder to pin its references. `--delivery`, with `--env`, `--registry-secret` and `--insecure-registry`, plans the cluster pieces from the new contract when the path publishes manifests under `publish.deploy`; otherwise the delivery step says why none were planned.
 
 ---
 
