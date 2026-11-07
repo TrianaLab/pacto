@@ -31,9 +31,7 @@ test.describe('WASM demo — golden paths', () => {
     expect(await noSideScroll(page)).toBe(true);
   });
 
-  // Phase 13 adds the http-service golden path and gift-cards to the demo; until then
-  // these two stay skipped. Phase 13 removes the skip.
-  test.skip('the tab lists http-service and its page shows the plugins, the command and gift-cards', async ({ page }) => {
+  test('the tab lists http-service and its page shows the plugins, the command and gift-cards', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/#/fleet/golden-paths');
     await page.addStyleTag({ content: WIDE_FONT });
@@ -51,9 +49,14 @@ test.describe('WASM demo — golden paths', () => {
     await axeClean(page);
   });
 
-  test.skip('gift-cards shows where it was created from and its creation status', async ({ page }) => {
+  test('gift-cards shows where it was created from and its creation status', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto('/#/fleet/services?createdFrom=demo.pacto.local%2Fhttp-service');
+    // Through the path's own "Services created" count, so the filter carries the path's
+    // real key rather than one this spec guesses.
+    await page.goto('/#/fleet/golden-paths');
+    const row = page.getByTestId('golden-path-list').locator('tbody tr').filter({ hasText: 'http-service' });
+    await row.getByTestId('path-created').click({ timeout: T });
+    await expect(page).toHaveURL(/createdFrom=/);
     await page.getByTestId('service-list').locator('a.entity-link').filter({ hasText: 'gift-cards' }).click();
     const origin = page.getByTestId('service-origin');
     await expect(origin).toContainText('Created from', { timeout: T });

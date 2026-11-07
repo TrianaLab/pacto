@@ -1,7 +1,7 @@
 # Every beat of the guided demo arc, written once.
 #
 # A beat is ONE recorded command — the unit CI runs and asserts. The tour groups
-# them into seven user stories, so the mapping to the page is many-to-one and the
+# them into eight user stories, so the mapping to the page is many-to-one and the
 # two vocabularies are deliberate: renumbering a beat here is a mechanical change,
 # regrouping the stories is an editorial one, and neither should force the other.
 #
@@ -42,15 +42,21 @@ beat_args() {
     14-epoch)
         echo "diff examples/demo/bundles/shipping-rates/v1.1.0 examples/demo/bundles/shipping-rates/v2.0.0" ;;
     15) echo "impact examples/demo/bundles/inventory-service/v2.1.0 examples/demo/bundles/inventory-service/v3.0.0 --local examples/demo/bundles" ;;
+    16) echo "init gift-cards --from examples/demo/bundles/http-service/v1.0.0 --owner checkout --domain commerce --plan" ;;
+    17) echo "fleet entity service http-service --local examples/demo/bundles" ;;
     *)  echo "beats.sh: no such beat: $1" >&2; exit 1 ;;
   esac
 }
 
-# seed_demo_cache <cache-home> writes the provider beat 13 references into
-# Pacto's disk cache under <cache-home> (an XDG_CACHE_HOME), through the cache's
-# own writer and with no registry, so the beat resolves the configuration ref
-# offline. GOCACHE is kept because XDG_CACHE_HOME also moves it on Linux.
+# seed_demo_cache <cache-home> writes the providers beats 13 and 16 reference
+# into Pacto's disk cache under <cache-home> (an XDG_CACHE_HOME), through the
+# cache's own writer and with no registry, so their configuration and policy refs
+# resolve offline. GOCACHE is kept because XDG_CACHE_HOME also moves it on Linux.
 seed_demo_cache() {
-  GOCACHE="$(go env GOCACHE)" XDG_CACHE_HOME="$1" go run ./examples/demo/publishbundles --seed-cache \
-    examples/demo/bundles/platform-app-config/v1.0.1 ghcr.io/trianalab/pacto/platform-app-config:1.0.1
+  for seed in platform-app-config/v1.0.1:platform-app-config:1.0.1 \
+    postgresql/v16.1.0:postgresql:16.1.0 \
+    platform-http-policy/v1.0.1:platform-http-policy:1.0.1; do
+    GOCACHE="$(go env GOCACHE)" XDG_CACHE_HOME="$1" go run ./examples/demo/publishbundles --seed-cache \
+      "examples/demo/bundles/${seed%%:*}" "ghcr.io/trianalab/pacto/${seed#*:}" || return 1
+  done
 }

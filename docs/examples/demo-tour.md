@@ -6,7 +6,7 @@ search:
 
 # Guided tour
 
-This tour answers seven questions people ask about services they did not
+This tour answers eight questions people ask about services they did not
 build. Each answer uses one or two `pacto` commands on a fixed set of example
 contracts and explains the output. The tour covers contracts and the checks on
 them. Delivery has its own demos.
@@ -28,14 +28,13 @@ Paste every command below from the repository root.
 To drive a real stack, see the [Docker Compose demo](compose-demo.md). It
 needs neither a clone nor the CLI.
 
-The tour shows [runtime conformance](../integrations/kubernetes/runtime-conformance.md)
-(checking what a service really does on the network) as a recorded finding only:
-story 2 shows one the kernel saw. To watch it live, use the Compose demo or the
-node agent on a Kubernetes cluster.
+Story 2 shows a recorded [runtime conformance](../integrations/kubernetes/runtime-conformance.md)
+finding: what the kernel saw a service do on the network. To watch it live,
+use the Compose demo or the node agent on a Kubernetes cluster.
 
 ## The fleet
 
-Thirty-six services are in the snapshot. Nine carry the stories:
+Thirty-eight services are in the snapshot. Eleven carry the stories:
 
 | Service | Owner | Its part |
 |---------|-------|----------|
@@ -48,6 +47,8 @@ Thirty-six services are in the snapshot. Nine carry the stories:
 | `catalog-service` | catalog-team | an enum value added behind a `$ref` |
 | `shipping-rates` | logistics-team | a raised `compatibilityEpoch` |
 | `inventory-service` | catalog-team | stops promising a guarantee two consumers rely on |
+| `http-service` | platform | a golden path: the starting point for a new HTTP API |
+| `gift-cards` | checkout | a new service created from `http-service` |
 
 A target is one running deployment of a service. A readiness assessment is a
 dated list of claims in a contract, and a shadow consumer is a service seen
@@ -64,7 +65,7 @@ the service is deployed stays in its own files. The
 
 --8<-- "examples/demo/generated/_beat-01.md"
 
-Thirty-six services, each with its owner, how many contract revisions it has
+Thirty-eight services, each with its owner, how many contract revisions it has
 published and how many deployed targets are running it. `NotEvaluated` means
 Pacto knows no deployment of the service yet, so it has nothing to evaluate.
 
@@ -103,7 +104,7 @@ targets:
 
 --8<-- "examples/demo/generated/_beat-02.md"
 
-Five states in one screen. `Compliant` is a verdict backed by evidence,
+`Compliant` is a verdict backed by evidence,
 `NonCompliant` is a confirmed contradiction, `Unknown` is evidence that never
 arrived and `NotEvaluated` means nobody is deployed there to evaluate.
 `Invalid` means the newest contract fails validation; story 7 shows why.
@@ -129,8 +130,7 @@ check ran, so the verdict is a conclusion. Each finding names
 one exact contradiction. The contract declares the workload stateless and the
 observation found a persistent volume mounted. The contract declares an `http`
 interface and nothing listens on its port: `seen by k8s-observer+ebpf` says the
-node agent saw that in the kernel, and Kubernetes agreed. Each finding is one
-fact that disagrees with one declaration.
+node agent saw that in the kernel, and Kubernetes agreed.
 
 ## Story 3: Check a change before you ship it
 
@@ -142,8 +142,7 @@ Thirty-nine changes, one verdict and a non-zero exit so CI can gate on it. Two
 API paths removed, two event channels withdrawn, a required request field
 swapped for a differently-named one, two configuration keys becoming required.
 A capability dropped, an optional dependency became mandatory and one SBOM
-package version moved. Pacto found all of it by comparing one contract with
-another, with no running service. The
+package version moved. The
 [classification rules](../contract-reference/diff.md#change-classification-rules)
 are a published table.
 
@@ -153,8 +152,7 @@ The same service, one pair earlier, shows a release that breaks nobody:
 
 The result is `POTENTIAL_BREAKING`. A new endpoint, a new event channel and a
 new optional configuration property break nobody by themselves. Adding a
-property to a schema can still surprise a consumer that validates strictly. The
-third classification gives additive changes like these their own verdict.
+property to a schema can still surprise a consumer that validates strictly.
 
 ## Story 4: Find who a breaking change affects
 
@@ -169,8 +167,7 @@ the consumer's declared version range. The release gate is `unverified` and the
 command exits 2. The bundles say nothing about where anything runs, so Pacto
 cannot show a consumer is hit and does not call the change safe either.
 
-Contracts find only the consumers that declare the dependency. Add observed
-traffic:
+Add observed traffic:
 
 --8<-- "examples/demo/generated/_beat-08.md"
 
@@ -186,8 +183,8 @@ Then ask where the change actually lands:
 The consumer list is identical. The active targets are new, and the gate turns
 from `unverified` to `blocked`. Two deployed targets sit in its path:
 `orders-service`, one of the five consumers, and `payments-service` itself. The
-command exits 1. Story 3 refused a change for what it is. This command refuses
-it for where it lands.
+command exits 1. Story 3 refused a change for what it is, and this one for
+where it lands.
 
 ## Story 5: Compare declared and observed dependencies
 
@@ -214,8 +211,8 @@ pacto mcp examples/demo/pacto-dashboard --base-url http://127.0.0.1:8899
 
 Then open <http://127.0.0.1:8899/#/fleet>, and connect your MCP client to the
 second command. The dashboard is itself a Pacto bundle with a real OpenAPI
-contract, so the agent's tools are generated from the contract of the very
-server the human is looking at. The server also registers Pacto's own authoring
+contract, so the agent's tools come from the contract of the server the
+human sees. The server also registers Pacto's own authoring
 tools: `pacto_create` and `pacto_edit` write contract files to disk.
 
 Serve the demo's payments service, and Pacto drops its five mutating
@@ -225,8 +222,8 @@ operations, every `POST`, `PUT`, `PATCH` and `DELETE`, with a warning on stderr:
 pacto mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1
 ```
 
-The base URL is a dead address on purpose: Pacto registers and lists the
-tools and calls none of them.
+The base URL is a dead address: Pacto lists the tools and calls
+none of them.
 
 Add `--allow-writes` and both the warning and the restriction disappear.
 `--allow-writes` governs the interface tools only. To withhold the authoring
@@ -254,6 +251,22 @@ and the raised `compatibilityEpoch` says its meaning did.
 
 3.0.0 drops the dedupe window fulfillment-service requires, and its 5s timeout
 already refuses pricing-service, which requires 2s.
+
+## Story 8: Start a service from a golden path
+
+*Create a new service from a platform team's starting point.*
+
+--8<-- "examples/demo/generated/_beat-16.md"
+
+`--plan` writes nothing. A directory carries no signature, so that step is
+`unknown`, and publishing, the fleet and deployment stay `unknown` until a
+source observes them.
+
+--8<-- "examples/demo/generated/_beat-17.md"
+
+The path lists what it requires and its plugins, and links `gift-cards`
+through its declared origin. A golden path never counts as a
+running service or as a consumer.
 
 ## What's next
 

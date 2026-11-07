@@ -122,7 +122,11 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		State:       &fleet.SourceState{Status: fleet.SourcePartial},
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationSourcePartial, Source: "registry-mirror", Message: "tag listing truncated by the mirror"}},
 	})
-	unavailable := fleet.NewMemorySource("edge-cluster", fleet.SourceKindKubernetes, &fleet.Collection{
+	// The edge cluster's telemetry collector, not a Kubernetes source: an
+	// unavailable Kubernetes source would leave every target-less service's
+	// placement unknown, and the fleet then keeps the http-service golden path an
+	// ordinary service, so the Golden paths tab would stay empty.
+	unavailable := fleet.NewMemorySource("edge-cluster", "observation", &fleet.Collection{
 		State: &fleet.SourceState{
 			Status: fleet.SourceUnavailable,
 			Error:  &fleet.SourceError{Code: fleet.LimitationSourceUnavailable, Message: "edge cluster unreachable"},

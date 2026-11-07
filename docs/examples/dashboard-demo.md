@@ -17,14 +17,14 @@ The first visit downloads about 4.7 MB (19.3 MB unpacked). On a slow
 connection give it a moment: the loading strip counts the seconds, and the
 browser keeps a copy afterwards.
 
-![The demo's fleet overview: it answers "Is anything wrong?" for thirty-eight services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-light.png#only-light)
-![The demo's fleet overview: it answers "Is anything wrong?" for thirty-eight services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
+![The demo's fleet overview: it answers "Is anything wrong?" for thirty-nine services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-light.png#only-light)
+![The demo's fleet overview: it answers "Is anything wrong?" for thirty-nine services and says one data source is unavailable and one is partial](../assets/screenshots/dashboard-overview-dark.png#only-dark)
 
 ## What to look at
 
-- **Fleet overview**: thirty-eight made-up services and who calls whom: the
-  thirty-six of the [CLI tour](demo-tour.md) plus two from a partner registry,
-  a second domain. The page opens on its answer to **Is anything wrong?**
+- **Fleet overview**: thirty-nine made-up services and who calls whom: the
+  services of the [CLI tour](demo-tour.md) plus two from a partner registry,
+  a second domain. The tour's golden path is listed apart, under Golden paths. The page opens on its answer to **Is anything wrong?**
   and says some of the information is missing. Posture, ownership and data
   sources stay open below it. Pacto always reports what it could not see.
 - **One service's dependency graph**: `payments-service` has six published
