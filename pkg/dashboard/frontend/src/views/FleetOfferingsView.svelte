@@ -90,7 +90,7 @@
   {:else if noneDeclared}
     <div class="ov-empty" role="status">
       <h2 class="t-section-title">No contract declares a platform offering yet.</h2>
-      <p class="t-body-2">Set service.offering in a contract (pactoVersion 2.5) to list it here.</p>
+      <p class="t-body-2">Set service.offering in a contract (pactoVersion 2.4) to list it here.</p>
     </div>
   {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="offerings" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />

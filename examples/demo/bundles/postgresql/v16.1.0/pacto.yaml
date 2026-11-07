@@ -1,4 +1,4 @@
-pactoVersion: '2.6'
+pactoVersion: '2.4'
 service:
   name: postgresql
   version: 16.1.0
