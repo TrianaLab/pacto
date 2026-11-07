@@ -1,6 +1,7 @@
 package override
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -463,3 +464,40 @@ func TestApply_ValueFileNullStaysNull(t *testing.T) {
 		t.Fatalf("owner = %v, %v; want a null owner", v, ok)
 	}
 }
+
+// TestApplyInlineValues: inline maps sit between value files and --set, a
+// later --set never changes the caller's map and a map YAML cannot hold fails.
+func TestApplyInlineValues(t *testing.T) {
+	if (Overrides{Values: []map[string]any{{}}}).IsEmpty() {
+		t.Error("Overrides with Values should not be empty")
+	}
+	base := []byte("service:\n  name: svc\n  version: \"1.0.0\"\n")
+	valuesFile := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(valuesFile, []byte("service:\n  version: \"2.0.0\"\n  owner: files\n  domain: files\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inline := map[string]any{"service": map[string]any{"owner": "inline", "domain": "inline", "extra": map[string]any{"a": 1}}}
+	out, err := Apply(base, Overrides{
+		ValueFiles: []string{valuesFile},
+		Values:     []map[string]any{inline},
+		SetValues:  []string{"service.domain=set", "service.extra.a=2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := mustParseYAML(t, out)["service"].(map[string]any)
+	if svc["version"] != "2.0.0" || svc["owner"] != "inline" || svc["domain"] != "set" {
+		t.Errorf("precedence: %v", svc)
+	}
+	if inline["service"].(map[string]any)["extra"].(map[string]any)["a"] != 1 {
+		t.Errorf("the caller's map changed: %v", inline)
+	}
+	if _, err := Apply(base, Overrides{Values: []map[string]any{{"f": failingMarshaler{}}}}); err == nil || !strings.Contains(err.Error(), "inline values 1") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// failingMarshaler is a value YAML cannot encode.
+type failingMarshaler struct{}
+
+func (failingMarshaler) MarshalYAML() (any, error) { return nil, errors.New("no") }

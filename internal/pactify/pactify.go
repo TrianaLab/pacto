@@ -7,12 +7,16 @@
 // unless DescribeOnly, a publish section. With Delivery it also gets the
 // cluster pieces that ship it. Planning changes nothing. Applying only adds files and lines:
 // a file that is already there is the user's and is never rewritten, so
-// running it twice is safe.
+// running it twice is safe. With Template the folder gets a contract created
+// from a golden path: its identity reset, the caller's values applied, its
+// origin recorded and the result validated strictly before anything is
+// planned.
 package pactify
 
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,6 +24,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Options says which folder to pactify and what the caller already knows.
@@ -60,6 +66,26 @@ type Options struct {
 	// with a Version is written as an entry pinned to exactly that version;
 	// one without gets a placeholder range, like a dependency read from the env.
 	Inferred []Inferred
+	// Template creates the contract from a golden path. It needs Owner and
+	// refuses Delivery, FleetRoots and Inferred.
+	Template *Template
+}
+
+// Template is the golden path a service is created from, already read and,
+// when it came from a registry, checked by the caller.
+type Template struct {
+	// FS holds the path's files: its pacto.yaml and everything it copies.
+	FS fs.FS
+	// Ref and Digest are recorded as service.origin.
+	Ref, Digest string
+	// Signature is the signature step the caller established.
+	Signature fleet.CreationStep
+	// Overrides are the caller's values, applied before the path's template
+	// marker is removed.
+	Overrides override.Overrides
+	// Validate validates the created contract over the files the folder will
+	// hold. Nil validates locally, with no resolver.
+	Validate func(ctx context.Context, c *contract.Contract, raw []byte, fsys fs.FS) []validation.Stage
 }
 
 // Inferred is a service this one was seen calling at runtime.
@@ -95,7 +121,8 @@ type Result struct {
 	Dir     string `json:"dir"`
 	Path    string `json:"path"`
 	Service string `json:"service"`
-	// Mode is "blank" for a folder with no service in it, else "pactify".
+	// Mode is "template" for a contract created from a golden path, "blank"
+	// for a folder with no service in it, else "pactify".
 	Mode    string `json:"mode"`
 	Applied bool   `json:"applied"`
 	// Found is what was read from the folder, one line each.
@@ -107,11 +134,15 @@ type Result struct {
 	// Next is what a person still has to do.
 	Next  []string `json:"next"`
 	Files []File   `json:"files"`
+	// Steps say how far creating from a golden path got, and what Pacto
+	// cannot tell yet.
+	Steps []fleet.CreationStep `json:"steps,omitempty"`
 }
 
 const (
-	modeBlank   = "blank"
-	modePactify = "pactify"
+	modeBlank    = "blank"
+	modePactify  = "pactify"
+	modeTemplate = "template"
 )
 
 var (
@@ -126,7 +157,15 @@ func Init(ctx context.Context, opts Options, writeFile func(string, []byte, os.F
 	if err != nil || opts.Plan {
 		return r, err
 	}
-	return r, apply(r, writeFile)
+	if err := apply(r, writeFile); err != nil {
+		return r, err
+	}
+	for i := range r.Steps {
+		if r.Steps[i].Step == fleet.StepContract {
+			r.Steps[i].Status, r.Steps[i].Detail = fleet.StepStatusDone, "written to "+r.Path
+		}
+	}
+	return r, nil
 }
 
 func plan(ctx context.Context, opts Options) (*Result, error) {
@@ -136,6 +175,9 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	}
 	if dir == "" {
 		dir = "."
+	}
+	if err := templateOptions(opts); err != nil {
+		return nil, err
 	}
 	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
 		return nil, fmt.Errorf("%s is a file, not a folder", dir)
@@ -154,14 +196,17 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	}
 	r := &Result{Dir: dir, Path: filepath.Join(dir, "pacto.yaml"), Service: name, Mode: modeBlank,
 		Found: []string{}, Dependencies: []Finding{}, Consumers: []Finding{}, Unknown: []string{}, Next: []string{}, Files: []File{}}
-	if sc.dockerfile != "" || len(sc.manifests) > 0 {
+	switch {
+	case opts.Template != nil:
+		r.Mode = modeTemplate
+	case sc.dockerfile != "" || len(sc.manifests) > 0:
 		r.Mode = modePactify
 	}
 	p := &planner{r: r, sc: sc, opts: opts, envs: envs}
 	if err := p.readFleet(ctx); err != nil {
 		return nil, err
 	}
-	if err := p.contract(); err != nil {
+	if err := p.contract(ctx); err != nil {
 		return nil, err
 	}
 	p.transparencyLog()
@@ -229,6 +274,7 @@ type planner struct {
 	pub             *contract.Publish
 	snap            *fleet.FleetSnapshot // the contracts in FleetRoots, nil when none were given
 	schema          string               // the configuration schema written, "" when none
+	stages          []validation.Stage   // what validating a contract created from a golden path found
 	contractNew     bool
 	deliveryPlanned bool
 }

@@ -82,9 +82,12 @@ const blankSchema = `{
 // signKey is where a new contract's signing key lives.
 const signKey = "cosign.key"
 
-// contract plans pacto.yaml: kept when it is there, else blank or read from
-// the folder.
-func (p *planner) contract() error {
+// contract plans pacto.yaml: created from the golden path, else kept when it
+// is there, else blank or read from the folder.
+func (p *planner) contract(ctx context.Context) error {
+	if p.opts.Template != nil {
+		return p.fromTemplate(ctx)
+	}
 	if p.r.Mode == modePactify {
 		p.r.Dependencies = p.sc.dependencies(p.r.Service)
 	}

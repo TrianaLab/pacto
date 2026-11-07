@@ -1,6 +1,6 @@
 // Package override merges values into a contract's YAML from CLI flags. It
-// applies value files and --set key=value pairs with strict precedence
-// (base < files < --set), supporting nested and array-indexed paths while
+// applies value files, inline value maps and --set key=value pairs with strict
+// precedence (base < files < inline values < --set), supporting nested and array-indexed paths while
 // preserving the original YAML formatting.
 package override
 
@@ -16,17 +16,19 @@ import (
 
 // Overrides holds the override configuration from CLI flags.
 type Overrides struct {
-	ValueFiles []string // -f / --values file paths
-	SetValues  []string // --set key=value pairs
+	ValueFiles []string         // -f / --values file paths
+	Values     []map[string]any // inline value maps, such as the values an MCP caller passes
+	SetValues  []string         // --set key=value pairs
 }
 
 // IsEmpty returns true if no overrides are configured.
 func (o Overrides) IsEmpty() bool {
-	return len(o.ValueFiles) == 0 && len(o.SetValues) == 0
+	return len(o.ValueFiles) == 0 && len(o.Values) == 0 && len(o.SetValues) == 0
 }
 
 // Apply merges overrides into raw YAML data and returns the merged result.
-// Precedence (lowest to highest): base YAML < value files (in order) < --set values.
+// Precedence (lowest to highest): base YAML < value files (in order) < inline
+// values (in order) < --set values.
 func Apply(base []byte, overrides Overrides) ([]byte, error) {
 	if overrides.IsEmpty() {
 		return base, nil
@@ -53,6 +55,18 @@ func Apply(base []byte, overrides Overrides) ([]byte, error) {
 		if err := contract.DecodeYAML(data, &vals); err != nil {
 			return nil, fmt.Errorf("failed to parse values file %q: %w", f, err)
 		}
+		contract.DeepMerge(baseMap, vals)
+	}
+
+	// Apply inline values. A YAML round trip copies each map, so the caller's
+	// map is never changed by a later --set, and decodes it like a values file.
+	for i, v := range overrides.Values {
+		data, err := yaml.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read inline values %d: %w", i+1, err)
+		}
+		var vals map[string]any
+		_ = contract.DecodeYAML(data, &vals) // ponytail: yaml.Marshal output always decodes
 		contract.DeepMerge(baseMap, vals)
 	}
 
