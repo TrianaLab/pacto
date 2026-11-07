@@ -1,8 +1,11 @@
 package impact
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
@@ -52,7 +55,7 @@ func TestImmutableRef(t *testing.T) {
 
 	// The revision label comes from the record (service + version), not the key.
 	l := revisionRef(&fleet.ContractRevision{Key: "svc@d", Service: "svc", Version: "1.2.3", Digest: "d"})
-	if l == nil || l.Label != "svc 1.2.3" {
+	if l == nil || l.Label != "svc 1.2.3" || l.Version != "1.2.3" {
 		t.Errorf("revision link must be a record label: %+v", l)
 	}
 }
@@ -260,5 +263,125 @@ func TestBuildProduct_LimitationsCarryTheAnalysisTruncation(t *testing.T) {
 func TestMaxProductLimitationsDeprecatedAlias(t *testing.T) {
 	if MaxProductLimitations != fleet.MaxMetaLimitations {
 		t.Fatalf("MaxProductLimitations = %d, want %d", MaxProductLimitations, fleet.MaxMetaLimitations)
+	}
+}
+
+// Each consumer carries its declared range and whether it is one of the reasons
+// the gate blocks, using the gate's own predicate.
+func TestBuildProduct_CompatibilityAndBlocking(t *testing.T) {
+	snap := productSnapshot()
+	from, to := snap.Revisions["api@1"], snap.Revisions["api@2"]
+	res := &Result{
+		Classification: "BREAKING",
+		Consumers: []AffectedConsumer{
+			{Service: "ran", Direct: true, Compatibility: "^1.0.0", CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/k8s/ran"}},
+			{Service: "idle", Direct: true, Compatibility: "^1.0.0", CompatibilityVerdict: CompatibilityIncompatible},
+		},
+	}
+	items := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, res, 0, 0).Consumers.Items
+	if items[0].Service.Key != "idle" || items[0].Blocking || items[0].Compatibility != "^1.0.0" {
+		t.Errorf("untargeted consumer = %+v", items[0])
+	}
+	if items[1].Service.Key != "ran" || !items[1].Blocking {
+		t.Errorf("targeted incompatible consumer must block: %+v", items[1])
+	}
+	if active, _ := res.blockingConsumers(); len(active) != 1 || active[0] != "ran" {
+		t.Errorf("gate names %v, want [ran]", active)
+	}
+}
+
+// The product answer reports the analysis's completeness when it is lower than
+// the snapshot's: a truncated blast radius over a complete snapshot is partial.
+func TestBuildProduct_LowersCompleteness(t *testing.T) {
+	snap := productSnapshot()
+	rev := snap.Revisions["api@1"]
+	for _, tc := range []struct{ meta, res, want fleet.Completeness }{
+		{fleet.CompletenessComplete, fleet.CompletenessPartial, fleet.CompletenessPartial},
+		{fleet.CompletenessComplete, fleet.CompletenessEmpty, fleet.CompletenessEmpty},
+		{fleet.CompletenessPartial, fleet.CompletenessComplete, fleet.CompletenessPartial},
+		{fleet.CompletenessEmpty, fleet.CompletenessPartial, fleet.CompletenessEmpty},
+		{fleet.CompletenessComplete, "", fleet.CompletenessComplete},
+	} {
+		res := &Result{Completeness: tc.res, Limitations: []fleet.Limitation{{Code: "GRAPH_TRUNCATED"}}}
+		p := BuildProduct(fleet.ProductMeta{Completeness: tc.meta}, snap, rev.ServiceKey, rev, rev, res, 0, 0)
+		if p.Meta.Completeness != tc.want {
+			t.Errorf("meta %q, analysis %q: completeness = %q, want %q", tc.meta, tc.res, p.Meta.Completeness, tc.want)
+		}
+	}
+}
+
+// Highlights rank over EVERY consumer, so a blocking consumer that sorts last by
+// key leads them on every page; Direct counts across pages.
+func TestBuildProduct_HighlightsAcrossPages(t *testing.T) {
+	snap := productSnapshot()
+	from, to := snap.Revisions["api@1"], snap.Revisions["api@2"]
+	res := &Result{Classification: "BREAKING"}
+	for i := range 150 {
+		c := AffectedConsumer{Service: fmt.Sprintf("c%03d", i), Direct: i%2 == 0, CompatibilityVerdict: CompatibilityCompatible}
+		switch {
+		case i == 148:
+			c.Service, c.CompatibilityVerdict, c.Targets = "zz-blocks", CompatibilityIncompatible, []string{"prod/k8s/zz"}
+		case i == 10:
+			c.CompatibilityVerdict = CompatibilityIncompatible
+		case i == 12:
+			c.Unmet = []contract.Mismatch{{Guarantee: "delivery"}}
+		case i%6 == 0:
+			c.CompatibilityVerdict = CompatibilityUnknown
+		}
+		res.Consumers = append(res.Consumers, c)
+	}
+	for _, offset := range []int{0, 100} {
+		page := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, res, 100, offset).Consumers
+		h := page.Highlights
+		if len(h) != MaxHighlights || page.Direct != 75 {
+			t.Fatalf("offset %d: %d highlights, %d direct", offset, len(h), page.Direct)
+		}
+		got := [3]string{h[0].Service.Key, h[1].Service.Key, h[2].Service.Key}
+		if got != [3]string{"zz-blocks", "c010", "c012"} {
+			t.Errorf("offset %d: highlights lead with %v", offset, got)
+		}
+		if !h[0].Blocking || h[3].CompatibilityVerdict != CompatibilityUnknown || h[MaxHighlights-1].CompatibilityVerdict != CompatibilityUnknown {
+			t.Errorf("offset %d: ranking = %+v", offset, h)
+		}
+		for _, c := range h {
+			if !c.Direct {
+				t.Errorf("offset %d: transitive consumer %s highlighted", offset, c.Service.Key)
+			}
+		}
+	}
+	if h := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, &Result{}, 0, 0).Consumers.Highlights; h == nil {
+		t.Error("highlights must be an empty list, never null")
+	}
+}
+
+// A consumer the viewer may not read is counted, never named.
+func TestBuildProduct_HiddenUnderRestrict(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	dep := contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Compatibility: "^1.0.0"}
+	col := &fleet.Collection{
+		Revisions: []fleet.RawRevision{
+			{Bundle: mkBundle(auth)},
+			{Bundle: mkBundle(svcContract("seen", "1.0.0", contract.Owner{}, dep))},
+			{Bundle: mkBundle(svcContract("secret", "1.0.0", contract.Owner{}, dep))},
+		},
+		Targets: []fleet.RawTarget{
+			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "auth", Service: "auth-service", Compliance: fleet.StatusCompliant},
+			{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "seen", Service: "seen", Compliance: fleet.StatusCompliant},
+			{Scope: "vault", Kind: fleet.SourceKindKubernetes, Name: "secret", Service: "secret", Compliance: fleet.StatusCompliant},
+		},
+	}
+	full, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(full).Restrict(func(ns string) bool { return ns == "shop" })
+	snap := q.SnapshotForSerialization()
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
+	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+	svc := fleet.NewServiceKey("auth-service")
+	rev := &fleet.ContractRevision{Key: "auth@1", ServiceKey: svc, Service: "auth-service", Version: "1.0.0"}
+	page := BuildProduct(q.ProductMeta(), snap, svc, rev, rev, res, 0, 0).Consumers
+	if page.Hidden != 1 || page.Total != 1 || page.Items[0].Service.Label != "seen" {
+		t.Errorf("hidden %d, total %d, items %+v", page.Hidden, page.Total, page.Items)
 	}
 }

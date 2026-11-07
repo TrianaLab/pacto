@@ -3305,6 +3305,8 @@ export interface components {
             snapshotMatch: boolean;
         };
         ProductImpactConsumer: {
+            blocking?: boolean;
+            compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
             /** Format: int64 */
@@ -3324,6 +3326,11 @@ export interface components {
             byVerdict: components["schemas"]["Impact.TallyBucket"][] | null;
             /** Format: int64 */
             count: number;
+            /** Format: int64 */
+            direct: number;
+            /** Format: int64 */
+            hidden?: number;
+            highlights: components["schemas"]["ProductImpactConsumer"][] | null;
             items: components["schemas"]["ProductImpactConsumer"][] | null;
             /** Format: int64 */
             limit: number;

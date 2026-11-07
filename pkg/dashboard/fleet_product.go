@@ -269,7 +269,8 @@ type ProductImpactConsumer struct {
 // ProductImpactConsumersPage is a stable, offset-paged consumer answer.
 type ProductImpactConsumersPage struct {
 	impact.ConsumersPage
-	Items []ProductImpactConsumer `json:"items"`
+	Items      []ProductImpactConsumer `json:"items"`
+	Highlights []ProductImpactConsumer `json:"highlights"`
 }
 
 // ProductImpact is the navigable impact answer: [impact.Product] with a canonical
@@ -287,16 +288,19 @@ type ProductImpact struct {
 }
 
 func toProductImpact(p *impact.Product) *ProductImpact {
-	items := make([]ProductImpactConsumer, len(p.Consumers.Items))
-	for i, c := range p.Consumers.Items {
-		items[i] = ProductImpactConsumer{ProductConsumer: c, Service: productview.Ref(c.Service), Path: productview.Refs(c.Path)}
+	consumers := func(cs []impact.ProductConsumer) []ProductImpactConsumer {
+		out := make([]ProductImpactConsumer, len(cs))
+		for i, c := range cs {
+			out[i] = ProductImpactConsumer{ProductConsumer: c, Service: productview.Ref(c.Service), Path: productview.Refs(c.Path)}
+		}
+		return out
 	}
 	return &ProductImpact{
 		Product:       *p,
 		Service:       productview.Ref(p.Service),
 		OldRevision:   productview.RefPtr(p.OldRevision),
 		NewRevision:   productview.RefPtr(p.NewRevision),
-		Consumers:     ProductImpactConsumersPage{ConsumersPage: p.Consumers, Items: items},
+		Consumers:     ProductImpactConsumersPage{ConsumersPage: p.Consumers, Items: consumers(p.Consumers.Items), Highlights: consumers(p.Consumers.Highlights)},
 		Owners:        productview.RefPreview(p.Owners),
 		ActiveTargets: productview.RefPreview(p.ActiveTargets),
 	}

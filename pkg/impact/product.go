@@ -29,6 +29,8 @@ const (
 	// answer unbounded; both truncations are reported rather than silent.
 	MaxProductChanges   = 300
 	MaxChangeValueRunes = 400
+	// MaxHighlights bounds [ConsumersPage.Highlights].
+	MaxHighlights = 8
 )
 
 // ProductConsumer is an affected consumer with route-neutral references and a
@@ -48,6 +50,14 @@ type ProductConsumer struct {
 	// Unmet lists the guarantees the consumer requires that the new revision
 	// refuses, as [AffectedConsumer.Unmet] does.
 	Unmet []contract.Mismatch `json:"unmet,omitempty"`
+	// Compatibility is the version range the consumer declared for the changed
+	// service, as written. Empty when it declared none (an inferred or observed-only
+	// consumer).
+	Compatibility string `json:"compatibility,omitempty"`
+	// Blocking is true when this consumer is one of the reasons the release gate is
+	// blocked: the change is BREAKING, the consumer does not accept the new version
+	// or requires a guarantee it does not meet, and it runs on a known target.
+	Blocking bool `json:"blocking,omitempty"`
 }
 
 // TallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
@@ -75,6 +85,16 @@ type ConsumersPage struct {
 	// a guarantee they require unmet. They break whatever their verdict, which
 	// judges only the range.
 	Refused int `json:"refused"`
+	// Highlights are at most MaxHighlights direct consumers, ranked over every
+	// consumer (blocking, other incompatible or refused, unknown, compatible, then
+	// key). They are identical on every page, so a drawing of them never depends on
+	// which page of Items is loaded.
+	Highlights []ProductConsumer `json:"highlights"`
+	// Direct counts every direct consumer, not only this page's.
+	Direct int `json:"direct"`
+	// Hidden counts the direct consumers this viewer may not see. They are in
+	// neither Items nor Total, and are never named.
+	Hidden int `json:"hidden,omitempty"`
 }
 
 // ProductChange is one field-level semantic difference between the two revisions,
@@ -215,6 +235,8 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 			Owner:                c.Owner,
 			Note:                 c.Note,
 			Unmet:                slices.Clone(c.Unmet),
+			Compatibility:        c.Compatibility,
+			Blocking:             res.blocks(c),
 		})
 	}
 	// Deterministic order so paging is stable across identical requests.
@@ -223,6 +245,15 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 	owners := make([]fleet.EntityRef, 0, len(res.Owners))
 	for _, o := range res.Owners {
 		owners = append(owners, fleet.EntityRef{Kind: fleet.KindOwner, Key: o, Label: o})
+	}
+	hidden := 0
+	if s := snap.Services[svcKey]; s != nil {
+		hidden = s.HiddenDependents
+	}
+	// meta describes the snapshot; the analysis can know less than it (a truncated
+	// blast radius, a service missing from the fleet), and the answer must say so.
+	if r, ok := completenessRank[res.Completeness]; ok && r < completenessRank[meta.Completeness] {
+		meta.Completeness = res.Completeness
 	}
 	targets := make([]fleet.EntityRef, 0, len(res.ActiveTargets))
 	for _, tk := range res.ActiveTargets {
@@ -235,7 +266,7 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 		NewRevision:    revisionRef(toRev),
 		Classification: res.Classification,
 		Changes:        boundChanges(res),
-		Consumers:      pageConsumers(consumers, limit, offset),
+		Consumers:      pageConsumers(consumers, limit, offset, hidden),
 		Owners:         boundRefs(owners, MaxProductOwners),
 		ActiveTargets:  boundRefs(targets, MaxProductActiveTargets),
 		Limitations:    limitationsPreview(res),
@@ -244,25 +275,55 @@ func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey flee
 	}
 }
 
+// completenessRank orders completeness from least to most known.
+var completenessRank = map[fleet.Completeness]int{
+	fleet.CompletenessEmpty: 0, fleet.CompletenessPartial: 1, fleet.CompletenessComplete: 2,
+}
+
 // pageConsumers offset-pages a sorted consumer list with defaulted/capped limit
-// and a next-offset cursor.
-func pageConsumers(all []ProductConsumer, limit, offset int) ConsumersPage {
+// and a next-offset cursor. hidden is the count of direct consumers the viewer may
+// not see.
+func pageConsumers(all []ProductConsumer, limit, offset, hidden int) ConsumersPage {
 	pg := fleet.Paginate(all, limit, offset, DefaultProductConsumers, MaxProductConsumers)
 	// The two tallies cover EVERY consumer, not this page. A consumer chart drawn from
 	// a page reads exactly like a chart of the whole blast radius, so the complete
 	// distributions are computed here and the page carries them.
 	refused := 0
+	direct := make([]ProductConsumer, 0, len(all))
 	for i := range all {
 		if len(all[i].Unmet) > 0 {
 			refused++
 		}
+		if all[i].Direct {
+			direct = append(direct, all[i])
+		}
 	}
+	// all is sorted by key, so a stable sort by rank keeps key as the tiebreak.
+	sort.SliceStable(direct, func(i, j int) bool { return highlightRank(direct[i]) < highlightRank(direct[j]) })
 	return ConsumersPage{
-		Refused: refused,
-		Total:   len(all), Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
+		Refused: refused, Direct: len(direct), Hidden: hidden,
+		Highlights: direct[:min(len(direct), MaxHighlights)],
+		Total:      len(all), Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
 		Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
 		ByVerdict:    tallyConsumers(all, verdictOrder, func(c ProductConsumer) string { return c.CompatibilityVerdict }),
 		ByConfidence: tallyConsumers(all, confidenceOrder, func(c ProductConsumer) string { return c.Confidence }),
+	}
+}
+
+// highlightRank orders consumers worth drawing: blocking, other broken
+// (incompatible or refused), unknown, then compatible. Unknown sorts before
+// compatible so a cap hides the positive ones first. The dashboard's verdictOf
+// mirrors it.
+func highlightRank(c ProductConsumer) int {
+	switch {
+	case c.Blocking:
+		return 0
+	case len(c.Unmet) > 0 || c.CompatibilityVerdict == CompatibilityIncompatible:
+		return 1
+	case c.CompatibilityVerdict == CompatibilityCompatible:
+		return 3
+	default:
+		return 2
 	}
 }
 
@@ -406,7 +467,7 @@ func revisionRef(rev *fleet.ContractRevision) *fleet.EntityRef {
 	if rev.Version != "" {
 		label = rev.Service + " " + rev.Version
 	}
-	return &fleet.EntityRef{Kind: fleet.KindRevision, Key: string(rev.Key), Label: label, Secondary: rev.Digest, Domain: rev.Domain}
+	return &fleet.EntityRef{Kind: fleet.KindRevision, Key: string(rev.Key), Label: label, Version: rev.Version, Secondary: rev.Digest, Domain: rev.Domain}
 }
 
 // targetRef builds a route-neutral target reference whose label is the record's
