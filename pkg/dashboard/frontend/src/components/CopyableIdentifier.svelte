@@ -32,7 +32,7 @@
 
 {#if value}
   <span class="copyable" title={value}>
-    {#if !iconOnly}<code class="copyable-value"><span class="cv-head">{head}</span>{#if tail}<span class="cv-tail">{tail}</span>{/if}</code>{/if}
+    {#if !iconOnly}<code class="copyable-value"><bdi class="cv-bdi"><span class="cv-head">{head}</span>{#if tail}<span class="cv-tail">{tail}</span>{/if}</bdi></code>{/if}
     <button
       type="button"
       class="copyable-btn"
@@ -56,6 +56,7 @@
     padding: 1px 6px; border-radius: var(--radius-xs);
     white-space: nowrap;
   }
+  .cv-bdi { display: inline-flex; min-width: 0; }
   .cv-head { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .cv-tail { flex-shrink: 0; }
   .copyable-btn {

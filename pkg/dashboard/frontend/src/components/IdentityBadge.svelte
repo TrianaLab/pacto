@@ -8,7 +8,7 @@
   let { label = '', tone = 'neutral', title = '', describe = false } = $props();
 </script>
 
-<span class="tag tone-{tone}" {title}>{label}</span>{#if describe && title}<span class="visually-hidden">{title}</span>{/if}
+<span class="tag tone-{tone}" {title}><bdi>{label}</bdi></span>{#if describe && title}<span class="visually-hidden">{title}</span>{/if}
 
 <style>
   .tag {

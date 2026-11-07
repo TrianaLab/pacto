@@ -68,7 +68,7 @@
   {:else}
     <div class="who" data-testid="identity">
       <button type="button" class="who-trigger" popovertarget="navbar-identity" data-testid="identity-trigger" aria-label="Who you are: {label}">
-        <span class="who-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span><span class="who-name">{label}</span>
+        <span class="who-avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span><span class="who-name"><bdi>{label}</bdi></span>
       </button>
       <div id="navbar-identity" class="who-pop t-body-2" popover>{@render details()}</div>
     </div>

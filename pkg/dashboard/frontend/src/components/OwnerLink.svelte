@@ -16,7 +16,7 @@
       setFilter('owner', ownerKey(owner));
     }}
   >
-    {displayName}
+    <bdi>{displayName}</bdi>
   </a>
 {:else}
   <span class="text-dim">(unowned)</span>

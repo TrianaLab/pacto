@@ -4,4 +4,4 @@
   let { env = '' } = $props();
 </script>
 
-<span class="pl-env" class:is-unknown={!env} title={env || undefined}>{env || 'Environment unknown'}</span>
+<span class="pl-env" class:is-unknown={!env} title={env || undefined}>{#if env}<bdi>{env}</bdi>{:else}Environment unknown{/if}</span>
