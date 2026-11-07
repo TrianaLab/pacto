@@ -274,3 +274,26 @@ func TestCreationChecklistOnlyForCreatedServices(t *testing.T) {
 		t.Error("a created service has no creation checklist")
 	}
 }
+
+// TestGoldenPathDependencies: the generic Dependencies preview and the summary
+// of a golden path read its templateEdges and still add up.
+func TestGoldenPathDependencies(t *testing.T) {
+	q := buildDomainSnap(t, "oci", &Collection{Revisions: []RawRevision{
+		ociRev(acme, pluginPath(), pathFiles), postgres(), ociRev(acme, usesPostgres("orders", "1.0.0"), nil),
+	}})
+	view, err := q.GetService(string(NewServiceKeyDomain(acme, "http-service")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Dependencies) != 2 {
+		t.Errorf("golden path dependencies = %+v", view.Dependencies)
+	}
+	d := goldenDetail(t, q, "http-service")
+	labels := map[string]bool{}
+	for _, r := range d.Dependencies.Items {
+		labels[r.Label] = true
+	}
+	if !labels["postgresql"] || !labels["orders"] || d.Summary.DeclaredDependencies != 2 {
+		t.Errorf("dependencies preview = %+v, declared %d", d.Dependencies.Items, d.Summary.DeclaredDependencies)
+	}
+}

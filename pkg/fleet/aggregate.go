@@ -695,8 +695,8 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 	seen := map[string]bool{}
 	unresolved := map[string]bool{}
 	unsatisfied := map[string]bool{}
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
+	// templateEdges too, so a golden path's count matches its Dependencies list.
+	for rel := range q.snap.declaredEdges() {
 		// Dependencies only: range and resolution tallies are dependency semantics.
 		if rel.FromService != key || rel.Type != RelationshipDependency {
 			continue
@@ -704,7 +704,7 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 		if rel.Provenance == ProvenanceObserved {
 			continue
 		}
-		tallyDeclaredEdge(sum, rel, depKey(rel), seen, unresolved, unsatisfied)
+		tallyDeclaredEdge(sum, *rel, depKey(*rel), seen, unresolved, unsatisfied)
 	}
 	sum.ObservedNotDeclared = len(q.observedOnly(key))
 }

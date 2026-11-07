@@ -534,14 +534,15 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	for _, tk := range s.Targets {
 		view.Targets = append(view.Targets, cloneTarget(q.snap.Targets[tk]))
 	}
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
+	// A golden path's edges live in templateEdges, so its Dependencies still list
+	// what it uses.
+	for rel := range q.snap.declaredEdges() {
 		// Declared dependency edges only, matching this field's documented meaning
 		// (configuration references live in the contract's configurations);
 		// observed edges live in the separate observed adjacency index (and the
 		// graph's observed layer), so they never masquerade as declared intent here.
 		if rel.FromService == s.Key && rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared {
-			view.Dependencies = append(view.Dependencies, rel)
+			view.Dependencies = append(view.Dependencies, *rel)
 		}
 	}
 	// Dependents includes configuration-reference consumers (see [ConsumesEdge]).
