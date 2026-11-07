@@ -2489,6 +2489,7 @@ export interface components {
             summary?: string;
             /** Format: int64 */
             targetCount: number;
+            template?: boolean;
         };
         "Fleet.ServiceOrigin": {
             digest: string;
@@ -3516,6 +3517,8 @@ export interface components {
         ProductRef: {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            created?: number;
             domain?: string;
             environment?: string;
             explanation?: string;
@@ -3535,10 +3538,13 @@ export interface components {
             secondary?: string;
             /** Format: int64 */
             services?: number;
+            /** @enum {string} */
+            signature?: "verified" | "unverified" | "unsigned" | "unknown";
             status?: string;
             summary?: string;
             /** Format: int64 */
             targets?: number;
+            template?: boolean;
             version?: string;
         };
         ProductRefPreview: {

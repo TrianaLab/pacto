@@ -141,3 +141,31 @@ func (q *Query) deployedTemplateAttention() []AttentionItem {
 	}
 	return out
 }
+
+// createdCounts is, per golden path, how many services of the snapshot
+// declare an origin that resolves to it.
+func (q *Query) createdCounts() map[ServiceKey]int {
+	out := map[ServiceKey]int{}
+	for _, s := range q.snap.Services {
+		if s.Origin != nil && s.Origin.GoldenPath != "" {
+			out[s.Origin.GoldenPath]++
+		}
+	}
+	return out
+}
+
+// createdFrom reports whether the service k declares an origin that resolves
+// to the golden path path.
+func (q *Query) createdFrom(k, path ServiceKey) bool {
+	o := q.snap.Services[k].Origin
+	return o != nil && o.GoldenPath == path
+}
+
+// pathSignature is the signature status of the newest readable revision of
+// the golden path s, unknown when no source that read it checks signatures.
+func (q *Query) pathSignature(s *ServiceRecord) string {
+	if r := newestReadable(serviceRevisions(q.snap, s)); r != nil && r.Provenance != nil {
+		return r.Provenance.Signature.Status
+	}
+	return SignatureUnknown
+}

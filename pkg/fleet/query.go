@@ -180,6 +180,7 @@ type SearchFilter struct {
 	HasDependency  bool              // some revision declares a dependency
 	ReadyOnly      bool              // operationally ready (correlated to target when a target predicate is set)
 	NotReady       bool              // not operationally ready (correlated likewise)
+	Template       string            // TemplateOnly keeps only golden paths, TemplateExclude leaves them out
 	Limit          int               // 0 → DefaultSearchLimit, capped at MaxSearchLimit
 	Offset         int
 }
@@ -205,6 +206,8 @@ type ServiceHit struct {
 	TargetCount   int               `json:"targetCount"`
 	Sources       []string          `json:"sources,omitempty"`
 	Labels        map[string]string `json:"labels,omitempty"`
+	// Template marks a golden path (see ServiceRecord.Template).
+	Template bool `json:"template,omitempty"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -245,6 +248,7 @@ func validateSearchFilter(f SearchFilter) error {
 	return validateFields([]fieldCheck{
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"compliance", f.Compliance, "not a canonical status", ValidStatus},
+		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
 	})
 }
 
@@ -291,7 +295,7 @@ func hitFromService(s *ServiceRecord) ServiceHit {
 		Key: s.Key, Name: s.Name, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
 		Offering: s.Offering, Summary: s.Summary, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
-		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels),
+		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels), Template: s.Template,
 	}
 }
 
@@ -319,6 +323,7 @@ func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
 		f.BusinessDomain == "" || q.serviceInBusinessDomain(string(s.Key), f.BusinessDomain),
 		matchEq(f.Status, s.Status),
 		matchEq(f.Offering, s.Offering),
+		templateMatches(f.Template, s.Template),
 		matchSource(s, f.Source),
 		q.anyRevisionWorkload(s, f.Workload),
 		q.anyRevisionHasCapability(s, f.HasCapability),

@@ -129,6 +129,14 @@ type EntityRef struct {
 	// an OWNER reference's revisions claim. Both are set only on list answers.
 	Targets  int `json:"targets,omitempty"`
 	Services int `json:"services,omitempty"`
+	// Template marks a SERVICE reference that is a golden path (see
+	// ServiceRecord.Template). On list answers a golden path reference also
+	// carries Created, the services in this view created from it, and Signature,
+	// the signature status of its newest readable revision: checked against the
+	// signer its own contract declares, never against a trust config.
+	Template  bool   `json:"template,omitempty"`
+	Created   int    `json:"created,omitempty"`
+	Signature string `json:"signature,omitempty" enum:"verified,unverified,unsigned,unknown"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY
@@ -222,7 +230,7 @@ func serviceEntityRef(s *ServiceRecord) EntityRef {
 	return EntityRef{
 		Kind: KindService, Key: string(s.Key), Label: s.Name, Secondary: s.Domain,
 		Status: s.Status, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
-		Offering: s.Offering, Summary: s.Summary, OfferingProvenance: s.OfferingProvenance,
+		Offering: s.Offering, Summary: s.Summary, OfferingProvenance: s.OfferingProvenance, Template: s.Template,
 	}
 }
 

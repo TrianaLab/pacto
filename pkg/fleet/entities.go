@@ -61,7 +61,15 @@ type EntityFilter struct {
 	// Capability keeps the SERVICES any of whose read revisions declares a
 	// capability of this type (see [Query.serviceCapabilities]).
 	Capability string
-	Scope      string
+	// Template keeps only the golden path SERVICES (TemplateOnly) or leaves them
+	// out (TemplateExclude); every other kind stays under TemplateExclude and goes
+	// under TemplateOnly. Empty keeps every service, golden paths marked.
+	Template string
+	// CreatedFrom keeps the SERVICES whose declared origin resolves to this golden
+	// path service key. Only the key's syntax is checked: a hidden, absent or
+	// non-path key answers an empty list, so the answer never reveals a hidden path.
+	CreatedFrom string
+	Scope       string
 	// Status filters compliance-bearing entities (service/revision/target) by
 	// their canonical compliance status. Source health is a separate axis.
 	Status string
@@ -100,6 +108,35 @@ const (
 	// SortServices puts the owners with the most services first, then by name.
 	SortServices = "services"
 )
+
+// Template filter values (see [EntityFilter.Template] and [SearchFilter.Template]).
+const (
+	TemplateOnly    = "only"
+	TemplateExclude = "exclude"
+)
+
+// validTemplateFilter reports whether s is a template filter value.
+func validTemplateFilter(s string) bool { return s == TemplateOnly || s == TemplateExclude }
+
+// templateMatches reports whether an entity that is a golden path or not
+// passes the template filter.
+func templateMatches(filter string, goldenPath bool) bool {
+	switch filter {
+	case TemplateOnly:
+		return goldenPath
+	case TemplateExclude:
+		return !goldenPath
+	default:
+		return true
+	}
+}
+
+// validServiceKey reports whether s is a canonical service key: one that
+// round-trips through ParseServiceKey and names a service.
+func validServiceKey(s string) bool {
+	domain, name := ParseServiceKey(ServiceKey(s))
+	return name != "" && NewServiceKeyDomain(domain, name) == ServiceKey(s)
+}
 
 // EntityList is a bounded, deterministically ordered page of entity references.
 // Limit and Offset are the effective (defaulted and capped) page bounds;
@@ -221,6 +258,8 @@ func validateEntityFilter(f EntityFilter) error {
 		{"ownership", f.Ownership, "not an ownership state (consistent, conflicting, unowned)", validOwnershipFilter},
 		{"readiness", f.Readiness, "not a readiness state (passing, below-threshold, expired, not-declared)", validReadinessFilter},
 		{"consumes", f.Consumes, "not an offering slug", validBusinessDomain},
+		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
+		{"createdFrom", f.CreatedFrom, "not a service key", validServiceKey},
 	}); err != nil {
 		return err
 	}
@@ -273,6 +312,8 @@ func validateFilterCombos(f EntityFilter) error {
 		{"scope", f.Scope, []EntityKind{KindTarget}},
 		{"environment", f.Environment, []EntityKind{KindTarget}},
 		{"capability", f.Capability, []EntityKind{KindService}},
+		{"template", f.Template, []EntityKind{KindService}},
+		{"createdFrom", f.CreatedFrom, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain}},
 		{"offering", f.Offering, []EntityKind{KindService, KindOffering}},
@@ -309,8 +350,9 @@ func kindSet(kinds []EntityKind) map[EntityKind]bool {
 func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 	var refs []EntityRef
 	if want[KindService] {
+		created := q.createdCounts()
 		for _, s := range q.snap.Services {
-			refs = append(refs, q.serviceListRef(s))
+			refs = append(refs, q.serviceListRef(s, created[s.Key]))
 		}
 	}
 	if want[KindRevision] {
@@ -390,10 +432,14 @@ func (q *Query) offeringListRefs() []EntityRef {
 	return refs
 }
 
-// serviceListRef is a service row with its target count and owner summary.
-func (q *Query) serviceListRef(s *ServiceRecord) EntityRef {
+// serviceListRef is a service row with its target count and owner summary,
+// and on a golden path the services created from it and its signature.
+func (q *Query) serviceListRef(s *ServiceRecord, created int) EntityRef {
 	ref := serviceEntityRef(s)
 	ref.Targets = len(s.Targets)
+	if s.Template {
+		ref.Created, ref.Signature = created, q.pathSignature(s)
+	}
 	switch n, key := q.ownershipState(s); {
 	case n == 1 && key != "":
 		ref.Owner = ownerEntityRef(key).Label
@@ -465,7 +511,14 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
+		q.matchGoldenPath(r, f) &&
 		q.matchOrganization(r, f)
+}
+
+// matchGoldenPath applies the template and created-from filters.
+func (q *Query) matchGoldenPath(r EntityRef, f EntityFilter) bool {
+	return templateMatches(f.Template, r.Template) &&
+		(f.CreatedFrom == "" || r.Kind == KindService && q.createdFrom(ServiceKey(r.Key), ServiceKey(f.CreatedFrom)))
 }
 
 // matchOrganization applies the business-domain, offering and capability filters.
