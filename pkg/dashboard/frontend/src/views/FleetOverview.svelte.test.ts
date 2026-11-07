@@ -84,7 +84,8 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     const { target, component } = mountView();
     await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-golden-paths"]')).toBeTruthy());
     const tile = target.querySelector('[data-testid="overview-golden-paths"]') as HTMLAnchorElement;
-    expect(tile.getAttribute('href')).toBe('#/fleet/golden-paths');
+    // An invalid golden path is listed first, least healthy first.
+    expect(tile.getAttribute('href')).toBe('#/fleet/golden-paths?sort=health');
     expect(tile.textContent).toContain('2');
     expect(tile.textContent).toContain('Golden paths');
     expect(tile.textContent).toContain('1 with an invalid contract');

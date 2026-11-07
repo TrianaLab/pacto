@@ -289,7 +289,7 @@
         <a class="ov-viewall" href={fleetOwnersUrl()}>Browse owners</a>
       </div>
       {#if goldenPaths > 0}
-        <a class="ov-gp" href={fleetGoldenPathsUrl()} data-testid="overview-golden-paths">
+        <a class="ov-gp" href={fleetGoldenPathsUrl(invalidGoldenPaths > 0 ? { sort: 'health' } : {})} data-testid="overview-golden-paths">
           <span class="ov-gp-count t-metric">{formatCount(goldenPaths)}</span>
           <span class="ov-gp-label">Golden {goldenPaths === 1 ? 'path' : 'paths'}</span><span class="ov-gp-sub ov-gp-note">counted apart from services</span>
           {#if invalidGoldenPaths > 0}<span class="ov-gp-sub">{formatCount(invalidGoldenPaths)} with an invalid contract</span>{/if}

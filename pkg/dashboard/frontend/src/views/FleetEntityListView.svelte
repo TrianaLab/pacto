@@ -64,6 +64,9 @@
     scope: kind === 'target' && scope ? scope : undefined,
     readiness: readinessFilter || undefined,
     environment: environmentFilter || undefined,
+    // Unscoped, the revision list is the population the Overview counts, which
+    // leaves golden paths out; a golden path's own page still lists its revisions.
+    template: isRevisions && !service ? 'exclude' : undefined,
     offset: pageOffset || undefined,
     limit: pageLimit,
     sort: sort || undefined,

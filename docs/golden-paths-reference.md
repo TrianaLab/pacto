@@ -49,7 +49,7 @@ origin is labelled `declared`.
 
 | Parameter | Values | Effect |
 |-----------|--------|--------|
-| `template` (entities) | `only`, `exclude` | `only` keeps golden paths and, with no kinds, lists services only; `exclude` leaves them out. Absent lists every service and marks golden paths `template` |
+| `template` (entities) | `only`, `exclude` | `only` keeps golden paths and, with no kinds, lists services only; `exclude` leaves them and their revisions out. Absent lists every service and marks golden paths `template` |
 | `createdFrom` (entities; MCP `created_from`) | a service key | Keeps the services whose origin resolves to that golden path. A hidden, absent or non-path key answers an empty list |
 | `template` (search) | `only`, `exclude` | The same filter on search; the default keeps golden paths, each hit marked `template` |
 

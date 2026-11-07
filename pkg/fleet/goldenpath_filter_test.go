@@ -29,7 +29,7 @@ func TestEntityFilterTemplate(t *testing.T) {
 			t.Error("exclude kept the golden path")
 		}
 	}
-	if kinds[KindService] != 3 || kinds[KindOwner] == 0 || kinds[KindDomain] == 0 || kinds[KindRevision] != 4 {
+	if kinds[KindService] != 3 || kinds[KindOwner] == 0 || kinds[KindDomain] == 0 || kinds[KindRevision] != 3 {
 		t.Errorf("exclude kinds = %v", kinds)
 	}
 	q.snap.Revisions[q.snap.Services[path].Revisions[0]].Provenance = nil

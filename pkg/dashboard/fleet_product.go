@@ -103,7 +103,7 @@ type fleetEntitiesInput struct {
 	SourceHealth   string   `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
 	Source         string   `query:"source"`
 	Service        string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
-	Template       string   `query:"template" enum:"only,exclude" doc:"Golden path filter for service entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them out. Absent lists every service, golden paths marked template"`
+	Template       string   `query:"template" enum:"only,exclude" doc:"Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template"`
 	CreatedFrom    string   `query:"createdFrom" doc:"Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities). A hidden, absent or non-golden-path key answers an empty list"`
 	Sort           string   `query:"sort" enum:"name,health,services" doc:"Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key"`
 	Limit          int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`

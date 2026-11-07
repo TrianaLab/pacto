@@ -62,8 +62,9 @@ type EntityFilter struct {
 	// capability of this type (see [Query.serviceCapabilities]).
 	Capability string
 	// Template keeps only the golden path SERVICES (TemplateOnly) or leaves them
-	// out (TemplateExclude); every other kind stays under TemplateExclude and goes
-	// under TemplateOnly. Empty keeps every service, golden paths marked.
+	// and their revisions out (TemplateExclude); every other kind stays under
+	// TemplateExclude and goes under TemplateOnly. Empty keeps every service,
+	// golden paths marked.
 	Template string
 	// CreatedFrom keeps the SERVICES whose declared origin resolves to this golden
 	// path service key. Only the key's syntax is checked: a hidden, absent or
@@ -312,7 +313,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"scope", f.Scope, []EntityKind{KindTarget}},
 		{"environment", f.Environment, []EntityKind{KindTarget}},
 		{"capability", f.Capability, []EntityKind{KindService}},
-		{"template", f.Template, []EntityKind{KindService}},
+		{"template", f.Template, []EntityKind{KindService, KindRevision}},
 		{"createdFrom", f.CreatedFrom, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"businessDomain", f.BusinessDomain, []EntityKind{KindService, KindRevision, KindTarget, KindDomain}},
@@ -517,7 +518,13 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 
 // matchGoldenPath applies the template and created-from filters.
 func (q *Query) matchGoldenPath(r EntityRef, f EntityFilter) bool {
-	return templateMatches(f.Template, r.Template) &&
+	golden := r.Template
+	if f.Template == TemplateExclude && r.Kind == KindRevision {
+		// A golden path's revisions leave the population with it, so a revision
+		// list a population count links to lists what it counted.
+		golden = q.goldenPath(ServiceKey(r.ParentService))
+	}
+	return templateMatches(f.Template, golden) &&
 		(f.CreatedFrom == "" || r.Kind == KindService && q.createdFrom(ServiceKey(r.Key), ServiceKey(f.CreatedFrom)))
 }
 

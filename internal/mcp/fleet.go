@@ -423,7 +423,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"consumes":        {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
 			"ownership":       {Type: "string", Description: "How a service's revisions declare ownership", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned}},
 			"status":          {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
-			"template":        {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"template":        {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
 			"created_from":    {Type: "string", Description: "Services created from this golden path, by service key"},
 			"sort":            {Type: "string", Description: "Order: by name, least healthy first or owners with the most services first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices}},
 			"limit":           {Type: "integer", Description: "Maximum results (bounded)"},
