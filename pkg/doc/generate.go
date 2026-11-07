@@ -169,6 +169,7 @@ func writeSnapshotSummary(b *strings.Builder, d *contractview.ServiceDetails) {
 	if d.Lifecycle != nil {
 		rows = append(rows, [2]string{"Lifecycle", d.Lifecycle.String()})
 	}
+	rows = append(rows, goldenPathRows(d.Template, d.Origin)...)
 	if len(rows) > 0 {
 		fmt.Fprintln(b, "| Field | Value |")
 		fmt.Fprintln(b, "|-------|-------|")
@@ -177,6 +178,27 @@ func writeSnapshotSummary(b *strings.Builder, d *contractview.ServiceDetails) {
 		}
 		fmt.Fprintln(b)
 	}
+}
+
+// goldenPathRows are the summary rows of a 2.7 golden path marker and of a
+// declared origin.
+func goldenPathRows(t *contract.Template, o *contract.Origin) [][2]string {
+	var rows [][2]string
+	if t != nil {
+		names := make([]string, 0, len(t.Plugins))
+		for _, p := range t.Plugins {
+			names = append(names, p.Name)
+		}
+		value := "yes"
+		if len(names) > 0 {
+			value = strings.Join(names, ", ")
+		}
+		rows = append(rows, [2]string{"Golden path", value})
+	}
+	if o != nil {
+		rows = append(rows, [2]string{"Created from", o.Ref + " (declared)"})
+	}
+	return rows
 }
 
 // headingAnchor generates a markdown-compatible anchor from a heading string.

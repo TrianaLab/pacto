@@ -142,10 +142,15 @@ type Service struct {
 	Offering string         `json:"offering,omitempty"`
 	Summary  string         `json:"summary,omitempty"`
 	// Lifecycle is the service lifecycle (pactoVersion 2.4).
-	Lifecycle      *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
-	ContractStatus ContractStatus               `json:"contractStatus"`
-	Source         string                       `json:"source"`            // primary source: k8s, oci, local
-	Sources        []string                     `json:"sources,omitempty"` // all sources this service appears in
+	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	// Template marks the contract as a golden path (pactoVersion 2.4).
+	Template *contract.Template `json:"template,omitempty"`
+	// Origin is the golden path the service was created from (pactoVersion
+	// 2.4): declared provenance.
+	Origin         *contract.Origin `json:"origin,omitempty"`
+	ContractStatus ContractStatus   `json:"contractStatus"`
+	Source         string           `json:"source"`            // primary source: k8s, oci, local
+	Sources        []string         `json:"sources,omitempty"` // all sources this service appears in
 }
 
 // ServiceDetails contains all information for the service detail view.

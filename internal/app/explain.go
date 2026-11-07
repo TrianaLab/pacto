@@ -30,13 +30,18 @@ type ExplainResult struct {
 	Offering string         `json:"offering,omitempty"`
 	Summary  string         `json:"summary,omitempty"`
 	// Lifecycle is the service lifecycle (pactoVersion 2.4).
-	Lifecycle    *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
-	PactoVersion string                       `json:"pactoVersion"`
-	Workload     string                       `json:"workload,omitempty"`
-	State        *ExplainState                `json:"state,omitempty"`
-	Capabilities []ExplainCapability          `json:"capabilities,omitempty"`
-	Interfaces   []ExplainInterface           `json:"interfaces,omitempty"`
-	Dependencies []ExplainDependency          `json:"dependencies,omitempty"`
+	Lifecycle *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
+	// Template marks the contract as a golden path (pactoVersion 2.4).
+	Template *contract.Template `json:"template,omitempty"`
+	// Origin is the golden path the service was created from (pactoVersion
+	// 2.4): declared provenance.
+	Origin       *contract.Origin    `json:"origin,omitempty"`
+	PactoVersion string              `json:"pactoVersion"`
+	Workload     string              `json:"workload,omitempty"`
+	State        *ExplainState       `json:"state,omitempty"`
+	Capabilities []ExplainCapability `json:"capabilities,omitempty"`
+	Interfaces   []ExplainInterface  `json:"interfaces,omitempty"`
+	Dependencies []ExplainDependency `json:"dependencies,omitempty"`
 	// Configurations lists each configuration with the values it requests.
 	Configurations []ExplainConfiguration `json:"configurations,omitempty"`
 	// Environments lists each environment and the file holding its values.
@@ -197,6 +202,8 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		Offering:     c.Service.Offering,
 		Summary:      c.Service.Summary,
 		Lifecycle:    c.Service.Lifecycle,
+		Template:     c.Service.Template,
+		Origin:       c.Service.Origin,
 		PactoVersion: c.PactoVersion,
 		Workload:     c.Workload,
 		Environments: c.Environments,

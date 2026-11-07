@@ -31,6 +31,8 @@ func ServiceFromContract(c *contract.Contract, source string) Service {
 		Offering:       c.Service.Offering,
 		Summary:        c.Service.Summary,
 		Lifecycle:      c.Service.Lifecycle,
+		Template:       c.Service.Template,
+		Origin:         c.Service.Origin,
 		ContractStatus: StatusUnknown,
 		Source:         source,
 	}

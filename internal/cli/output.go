@@ -372,6 +372,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 		if result.Lifecycle != nil {
 			_, _ = fmt.Fprintf(w, "Lifecycle: %s\n", result.Lifecycle)
 		}
+		printExplainGoldenPath(w, result.Template, result.Origin)
 		_, _ = fmt.Fprintf(w, "Pacto Version: %s\n", result.PactoVersion)
 
 		if result.Workload != "" {
@@ -408,6 +409,25 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 
 		return nil
 	}, nil)
+}
+
+// printExplainGoldenPath prints the golden path marker and the declared
+// origin of a 2.7 contract.
+func printExplainGoldenPath(w io.Writer, t *contract.Template, o *contract.Origin) {
+	if t != nil {
+		line := "Golden path"
+		if len(t.Plugins) > 0 {
+			names := make([]string, 0, len(t.Plugins))
+			for _, p := range t.Plugins {
+				names = append(names, p.Name)
+			}
+			line += ": plugins " + strings.Join(names, ", ")
+		}
+		_, _ = fmt.Fprintln(w, line)
+	}
+	if o != nil {
+		_, _ = fmt.Fprintf(w, "Created from: %s (%s), declared\n", o.Ref, o.Digest)
+	}
 }
 
 // printReadiness renders the readiness summary, per-check table and revision

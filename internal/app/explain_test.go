@@ -295,6 +295,26 @@ func TestExplain_Lifecycle(t *testing.T) {
 	}
 }
 
+func TestExplain_TemplateAndOrigin(t *testing.T) {
+	dir := t.TempDir()
+	digest := "sha256:" + strings.Repeat("a", 64)
+	yaml := "pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  template:\n    plugins:\n      - name: dockerfile\n" +
+		"  origin:\n    ref: oci://ghcr.io/acme/http-service:1.0.0\n    digest: " + digest + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tpl := result.Template; tpl == nil || len(tpl.Plugins) != 1 || tpl.Plugins[0].Name != "dockerfile" {
+		t.Errorf("Template = %+v", tpl)
+	}
+	if o := result.Origin; o == nil || o.Ref != "oci://ghcr.io/acme/http-service:1.0.0" || o.Digest != digest {
+		t.Errorf("Origin = %+v", o)
+	}
+}
+
 // writeRequestBundle writes a 2.4 consumer whose configuration reference
 // requests values, with two environment files merged over them.
 func writeRequestBundle(t *testing.T, staging string) string {
