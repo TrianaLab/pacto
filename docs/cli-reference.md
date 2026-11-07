@@ -1157,29 +1157,32 @@ pacto impact <old> <new> [flags]
 Writes the contract for the service in dir (default: the current folder).
 
 An empty or new folder gets a blank contract with the bundle structure
-(interfaces/, configuration/). A folder that already holds a service gets a
-contract read from its Dockerfile and Kubernetes manifests, and a list of what
-Pacto found and what it could not tell (Unknown). The workload's environment,
-including the ConfigMaps it reads, becomes a configuration schema with each
-value as its default. A URL in it that names another service in the cluster
-becomes a dependency: with that service's contract in --fleet, its bundle and
-a range from its version; without it, a placeholder range that the comment
-above it and Unknown name. A readiness, liveness or startup probe becomes a
-health check.
+(interfaces/, configuration/) and the owner and domain you pass; with no
+--owner the owner is a commented placeholder that Unknown names. A folder that
+already holds a service gets a contract read from its Dockerfile and
+Kubernetes manifests, and a list of what Pacto found and what it could not
+tell (Unknown). The workload's environment, including the ConfigMaps it reads,
+becomes a configuration schema with each value as its default. A URL in it
+that names another service in the cluster becomes a dependency: with that
+service's contract in --fleet, its bundle and a range from its version;
+without it, a placeholder range that the comment above it and Unknown name. A
+readiness, liveness or startup probe becomes a health check.
 
-The contract also gets a publish section, for pacto publish. To describe the
-service and leave delivery out, pass --describe-only: the contract then has no
-publish section and needs no signing key. --delivery also writes the cluster
-pieces: the Pacto resource that checks the running service, and per
-environment a Stage with the Flux OCIRepository and Kustomization it applies
-through. Each Stage starts at observe: it plans every new version and moves
-nothing, and the OCIRepository stays pinned to the tag you deploy, so GitOps
-keeps applying what it did. The last environment's Stage also asks a person to
-approve every promote.
+Either contract also gets a publish section, for pacto publish, with its
+bundle under --registry (default: the workload's image registry, else the
+registry.example placeholder). To describe the service and leave delivery out,
+pass --describe-only: the contract then has no publish section and needs no
+signing key. --delivery also writes the cluster pieces: the Pacto resource
+that checks the running service, and per environment a Stage with the Flux
+OCIRepository and Kustomization it applies through. Each Stage starts at
+observe: it plans every new version and moves nothing, and the OCIRepository
+stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
+last environment's Stage also asks a person to approve every promote.
 
 --owner is the team's bare name, such as billing: usually the team label on
-the workload. An AI agent is a service too: its tools are an mcp interface,
-the model it calls is a dependency and its eval suite is a checks entry; see
+the workload. --domain is the business domain, such as payments. An AI agent
+is a service too: its tools are an mcp interface, the model it calls is a
+dependency and its eval suite is a checks entry; see
 https://pacto.run/latest/contract-reference/checks/#an-agent-is-a-service.
 
 Several folders are each pactified, with a summary at the end. --cluster
@@ -1201,6 +1204,7 @@ pacto init [dir...] [flags]
 
 ```
   pacto init my-service
+  pacto init my-service --owner billing --domain payments --registry ghcr.io/acme
   pacto init --plan
   pacto init --describe-only --owner billing
   pacto init --delivery --owner payments --fleet ../contracts
@@ -1216,6 +1220,7 @@ pacto init [dir...] [flags]
       --cluster                  draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
       --delivery                 also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
       --describe-only            write a contract that only describes the service: no publish section, so no signing key
+      --domain string            business domain, such as payments
       --env strings              environments for --delivery, in promotion order (default [test,prod])
       --fleet strings            folders of other services' contracts to find the services that use this one
   -h, --help                     help for init
@@ -1230,18 +1235,13 @@ pacto init [dir...] [flags]
       --registry-secret string   with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
 ```
 
-Scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`.
+In an empty folder it scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`. It also plans a `.pactoignore` that keeps the signing key out of the bundle.
 
-`<name>` is the service name: it becomes the directory *and* `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. `pacto init fleet/checkout-web` therefore scaffolds a bundle that fails validation: `service.name` gets the whole path and fails `SCHEMA_VIOLATION`. To scaffold inside a directory, `cd` there first and pass the bare name.
+The folder's last part becomes `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, so `pacto init fleet/checkout-web` writes a contract for `checkout-web` in `fleet/checkout-web`. Pass `--name` to choose another name.
 
-All three are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. If you delete a directory, also delete the section that references it, or validation fails with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
+`--owner` becomes `service.owner.team`; without it the owner is a commented placeholder and Unknown names it. `--domain` becomes `service.domain` and raises `pactoVersion` to `2.4`. The contract gets a publish section with `bundle: oci://<registry>/<name>` and `sign.key: cosign.key`: the registry is `--registry`, else the `registry.example` placeholder that Unknown names. `--describe-only` leaves the publish section out.
 
-!!! note "The scaffold fails `validate --readiness` on purpose"
-    Its two placeholder readiness claims are `not-done`, which scores 0 against the
-    scaffolded `minScore: 80` and fails with `READINESS_GATE_UNMET`. Plain
-    `pacto validate` passes, because the gate is opt-in. Fill the claims in as the
-    work lands. The placeholder is the starting position of a real assessment, so keep it
-    and update it.
+All three files are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. If you delete a directory, also delete the section that references it, or validation fails with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
 
 ---
 

@@ -34,6 +34,7 @@ func createTool() *mcpsdk.Tool {
 			"path":                         {Type: "string", Description: "Output directory (defaults to service name)"},
 			"version":                      {Type: "string", Description: "Service version (defaults to '0.1.0')"},
 			"owner":                        {Type: "string", Description: "The team that owns the service, as a bare team name such as 'billing': usually the team label on its workloads. With pactify it defaults to that label"},
+			"domain":                       {Type: "string", Description: "Business domain (service.domain), such as payments; raises pactoVersion to 2.4"},
 			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, visibility?}]"},
 			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). For a service your company runs with Pacto whose contract is not published yet, give ref as the OCI repository its contract will be published at and compatibility as the versions you accept: Pacto reports it as unresolved until it is published. A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref, and its compatibility stays Unknown"},
 			"workload":                     {Type: "string", Description: "Workload type", Enum: []string{"service", "job", "scheduled"}},
@@ -69,6 +70,7 @@ type createArgs struct {
 	Path                      string `json:"path"`
 	Version                   string `json:"version"`
 	Owner                     string `json:"owner"`
+	Domain                    string `json:"domain"`
 	Interfaces                string `json:"interfaces"`
 	Dependencies              string `json:"dependencies"`
 	Workload                  string `json:"workload"`
@@ -104,6 +106,7 @@ func createHandler() mcpsdk.ToolHandlerFor[createArgs, any] {
 			Path:                      args.Path,
 			Version:                   args.Version,
 			Owner:                     args.Owner,
+			Domain:                    args.Domain,
 			Workload:                  args.Workload,
 			StoresData:                args.StoresData,
 			DataSurvivesRestart:       args.DataSurvivesRestart,
@@ -137,7 +140,7 @@ func pactifyFolder(ctx context.Context, args createArgs) (*mcpsdk.CallToolResult
 	if args.DryRun != nil {
 		plan = *args.DryRun
 	}
-	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Registry: args.Registry,
+	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Domain: args.Domain, Registry: args.Registry,
 		Delivery: args.Delivery, DescribeOnly: args.DescribeOnly, Plan: plan, NoTransparencyLog: args.NoTransparencyLog,
 		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
 	var paths []string

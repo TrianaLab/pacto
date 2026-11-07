@@ -160,10 +160,14 @@ Catalog mode registers nothing else, so it cannot modify a contract. A root or a
 holding a service: it reads the Dockerfile and Kubernetes files and writes the
 contract. `describe_only: true` leaves out the publish section, for a request
 to describe a service. With `delivery: true` it also writes the
-cluster files. `registry`, `environments`, `fleet_roots`,
+cluster files. `domain`, `registry`, `environments`, `fleet_roots`,
 `no_transparency_log`, `insecure_registry` and `registry_secret` match the CLI
 flags, and `dry_run` plans without writing. See
 [Pactify a service](pactify.md).
+
+Without `pactify`, `pacto_create` refuses a folder that already holds
+`pacto.yaml` (change that contract with `pacto_edit`) and leaves any interface
+or schema file already there as it is, listed in `kept`.
 
 `pacto_create` and `pacto_edit` return `warnings` for a value that validates
 but is likely wrong, such as an owner written as `team/billing`.

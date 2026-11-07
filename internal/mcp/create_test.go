@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -1626,22 +1625,14 @@ interfaces:
 // TestEdit_PreservesDateScalars: Edit reads pacto.yaml into a generic map, where
 // yaml.v3 resolves an unquoted date to a time.Time. Every date scalar must come
 // back out of that round-trip exactly as written — a bare date stays a bare date
-// (a `pacto init` scaffold is otherwise unedittable) and an explicit timestamp
+// and an explicit timestamp
 // keeps its time instead of being truncated to a date.
 func TestEdit_PreservesDateScalars(t *testing.T) {
 	cases := []struct {
 		name           string
 		setup          func(*testing.T) string
-		wantDeployedAt any // nil for the scaffold, which carries no metadata timestamp
+		wantDeployedAt any
 	}{
-		{"pacto init scaffold", func(t *testing.T) string {
-			t.Chdir(t.TempDir())
-			res, err := app.NewService(nil, nil).Init(t.Context(), app.InitOptions{Name: "scaffolded"})
-			if err != nil {
-				t.Fatalf("init: %v", err)
-			}
-			return res.Dir
-		}, nil},
 		{"hand-written unquoted", func(t *testing.T) string {
 			return writeDatedBundle(t, "2099-12-31", "2099-01-01")
 		}, "2024-01-15T00:00:00Z"},
@@ -1924,7 +1915,7 @@ func TestWriteBundle_InterfaceErrors(t *testing.T) {
 		return oldMkdir(path, perm)
 	}
 
-	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
+	_, _, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
 		Interfaces: []InterfaceInput{
 			{Name: "api", Type: "openapi"},
@@ -1947,7 +1938,7 @@ func TestWriteBundle_ConfigError(t *testing.T) {
 		return oldMkdir(path, perm)
 	}
 
-	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
+	_, _, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
 		Interfaces: []InterfaceInput{
 			{Name: "api", Type: "openapi"},
@@ -2014,7 +2005,7 @@ func TestWriteBundle_InterfaceWriteError(t *testing.T) {
 		return oldWrite(path, data, perm)
 	}
 
-	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
+	_, _, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
 		Interfaces: []InterfaceInput{
 			{Name: "api", Type: "openapi"},
@@ -2035,7 +2026,7 @@ func TestWriteBundle_ConfigWriteError(t *testing.T) {
 		return oldWrite(path, data, perm)
 	}
 
-	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
+	_, _, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
 		Interfaces: []InterfaceInput{
 			{Name: "api", Type: "openapi"},
@@ -2132,7 +2123,7 @@ func TestWriteBundle_PactoWriteError(t *testing.T) {
 		return fmt.Errorf("pacto write failed")
 	}
 
-	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{Name: "test"})
+	_, _, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{Name: "test"})
 	if err == nil {
 		t.Error("expected error")
 	}
@@ -3079,5 +3070,69 @@ func TestCheck_OfferingSuggestion(t *testing.T) {
 	r := check(declared)
 	if has(r) || r.Summary.Offering != "postgresql" || r.Summary.Summary != "Primary database" {
 		t.Errorf("declared offering: %+v", r)
+	}
+}
+
+// TestCreateRefusesExistingContract: a folder that already holds pacto.yaml is
+// refused, in a dry run and a write alike, and nothing on disk changes.
+func TestCreateRefusesExistingContract(t *testing.T) {
+	dir := t.TempDir()
+	const old = "hand-written\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, dry := range []bool{true, false} {
+		_, err := Create(CreateInput{Name: "svc", Path: dir, DryRun: dry, Interfaces: []InterfaceInput{{Name: "api", Type: "openapi"}}})
+		if err == nil || !strings.Contains(err.Error(), "pacto.yaml already exists in "+dir+": change it with pacto_edit") {
+			t.Fatalf("dry run %v: %v", dry, err)
+		}
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); string(data) != old {
+		t.Fatalf("pacto.yaml changed: %s", data)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "interfaces")); err == nil {
+		t.Fatal("an interface file was written")
+	}
+}
+
+// TestCreateKeepsExistingInterfaceFile: an interface or schema file that is
+// already there is left as it is and listed in Kept.
+func TestCreateKeepsExistingInterfaceFile(t *testing.T) {
+	dir := t.TempDir()
+	api := filepath.Join(dir, "interfaces", "api.yaml")
+	if err := os.MkdirAll(filepath.Dir(api), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const mine = "openapi: 3.0.0\ninfo: {title: mine, version: 1.0.0}\npaths: {}\n"
+	if err := os.WriteFile(api, []byte(mine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Create(CreateInput{Name: "svc", Path: dir, Interfaces: []InterfaceInput{{Name: "api", Type: "openapi"}},
+		ConfigProperties: []ConfigProperty{{Name: "PORT"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(api); string(data) != mine {
+		t.Fatalf("api.yaml changed: %s", data)
+	}
+	if !slices.Equal(r.Kept, []string{api}) || r.FileCount != 2 {
+		t.Fatalf("kept %v, files %d", r.Kept, r.FileCount)
+	}
+}
+
+// TestCreateDomainRaisesVersion: a domain is written as service.domain at
+// pactoVersion 2.4.
+func TestCreateDomainRaisesVersion(t *testing.T) {
+	r, err := Create(CreateInput{Name: "svc", Path: filepath.Join(t.TempDir(), "svc"), Domain: "payments"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(r.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := contract.Parse(bytes.NewReader(data))
+	if err != nil || c.PactoVersion != "2.4" || c.Service.Domain != "payments" {
+		t.Fatalf("contract: %+v %v\n%s", c, err, data)
 	}
 }

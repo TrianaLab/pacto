@@ -147,3 +147,20 @@ func TestInitAcceptsTheCommandDeliveryPrints(t *testing.T) {
 		t.Fatalf("pacto init refused %v: %v", args, err)
 	}
 }
+
+// TestInitDomainFlag: --domain, --owner and --registry reach a blank contract.
+func TestInitDomainFlag(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "blank")
+	if out, err := runInit(t, dir, "--owner", "billing", "--domain", "payments", "--registry", "ghcr.io/acme"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{`pactoVersion: "2.4"`, "team: billing", "domain: payments", "bundle: oci://ghcr.io/acme/blank"} {
+		if !strings.Contains(string(data), s) {
+			t.Errorf("pacto.yaml lacks %q:\n%s", s, data)
+		}
+	}
+}

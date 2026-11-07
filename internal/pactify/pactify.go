@@ -1,5 +1,6 @@
 // Package pactify is what `pacto init` and the pacto_create MCP tool do to a
-// folder. An empty folder gets today's blank contract. A folder that already
+// folder. An empty folder gets a blank contract with the owner, domain and
+// registry the caller gave. A folder that already
 // holds a service gets a contract read from its Dockerfile and Kubernetes
 // manifests: its environment as a configuration schema, the services its
 // environment points at as dependencies, its probe as a health check and,
@@ -26,8 +27,10 @@ type Options struct {
 	// Dir is the folder. Empty means Name, and "." when Name is empty too.
 	Dir string
 	// Name is service.name. Empty means the workload's name, then the folder's.
-	Name     string
-	Owner    string
+	Name  string
+	Owner string
+	// Domain is service.domain, such as payments; it raises pactoVersion to 2.4.
+	Domain   string
 	Registry string
 	// Delivery also plans the Pacto resource, a Stage per environment and the
 	// Flux OCIRepository and Kustomization each one applies through.
