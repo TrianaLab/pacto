@@ -339,6 +339,7 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
       expect(text).toContain('Couldn’t compare these revisions');
       expect(text).toContain('unretrievable content');
     });
+    expect(target.querySelector('.iso-backdrop')).toBeFalsy();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -482,6 +483,7 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     expect(target.textContent).toContain('Ready to compare');
     expect(target.textContent).toContain('Compare revisions');
     expect(target.textContent).not.toContain('Pick two revisions');
+    expect(target.querySelector('.state-box.iso-backdrop')?.textContent).toContain('Ready to compare');
     unmount(component); document.body.removeChild(target);
   });
 

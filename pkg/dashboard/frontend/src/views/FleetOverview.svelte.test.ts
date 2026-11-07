@@ -15,6 +15,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
   return { ...actual, api: { fleetOverview: (...a: unknown[]) => overviewFn(...a) } };
 });
 
+import { ApiError } from '../lib/api.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import FleetOverview from './FleetOverview.svelte';
 
@@ -73,6 +74,16 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
       expect(target.textContent).toContain('Revision-match certainty');
     });
     expect(overviewFn).toHaveBeenCalledTimes(1); // consumes /api/fleet/overview, not the snapshot
+    expect(target.querySelector('.product-page > .page-hd.iso-backdrop')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('keeps the header plain while the overview is not ready', async () => {
+    // Once: the beforeEach returns the mock, so vitest calls it again as a teardown.
+    overviewFn.mockRejectedValueOnce(new ApiError(503, 'unavailable'));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.textContent).toContain('Can’t reach the Pacto backend'));
+    expect(target.querySelector('.iso-backdrop')).toBeFalsy();
     unmount(component); document.body.removeChild(target);
   });
 

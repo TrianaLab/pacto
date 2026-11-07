@@ -651,9 +651,9 @@
          actual next step (press the button) unsaid. Only ask for a selection when one
          is genuinely missing. -->
     {#if fromRevKey && toRevKey}
-      <EmptyState title="Ready to compare" message="Press Compare revisions." />
+      <EmptyState identity title="Ready to compare" message="Press Compare revisions." />
     {:else}
-      <EmptyState title="Pick two revisions" message="An earlier and a later one." />
+      <EmptyState identity title="Pick two revisions" message="An earlier and a later one." />
     {/if}
   {/if}
 {/if}

@@ -263,6 +263,24 @@ select {
 .state-box :is(h1, h2, h3) { color: var(--c-text-2); }
 .state-box p { max-width: 400px; line-height: var(--line-height); }
 
+/* The landing hero's plane: a 2:1 isometric grid (26.565deg is atan(1/2)) with an
+   accent glow, faded out by a radial mask. Decorative, on ::before so it is never in
+   the accessibility tree, behind the content (isolation keeps z-index: -1 inside the
+   box), and still: the backdrop is identity, not state, so it never moves. inset: 0
+   so it never bleeds past the content column on a narrow phone. axe reports text over
+   it as contrast "incomplete"; styles/isoContrast.test.ts is the check for that text. */
+.iso-backdrop { position: relative; isolation: isolate; }
+.iso-backdrop::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(40% 55% at var(--iso-at, 76% 55%), var(--c-iso-glow), transparent 70%),
+    repeating-linear-gradient(26.565deg, var(--c-iso-grid) 0 1px, transparent 1px 25px),
+    repeating-linear-gradient(-26.565deg, var(--c-iso-grid) 0 1px, transparent 1px 25px);
+  -webkit-mask: radial-gradient(60% 85% at var(--iso-at, 75% 50%), #000 20%, transparent 75%);
+  mask: radial-gradient(60% 85% at var(--iso-at, 75% 50%), #000 20%, transparent 75%);
+}
+.state-box.iso-backdrop { --iso-at: 50% 50%; }
+
 /* ─── Section heading ─── */
 .section {
   margin-bottom: var(--sp-6);

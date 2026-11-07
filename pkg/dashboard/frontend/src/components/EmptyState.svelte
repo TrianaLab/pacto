@@ -7,11 +7,13 @@
   // a real WCAG 1.3.1 heading-order failure on any route whose whole content was an
   // empty state. It defaults to 2 -- the common case, a page or workspace with nothing
   // to show -- and a caller nesting one INSIDE an h2 section passes 3.
+  // `identity` puts the isometric grid behind a truly idle state (nothing wrong, nothing
+  // missing). An error, a load or partial knowledge is not identity, so it never shows.
   // `rows` opts the loading variant into the shape of what is arriving: a divider list of
   // that many rows, sitting exactly where the real rows will. The centred four-row table
   // is what a list-shaped page used to show, and it moved every row down by a block the
   // moment the data landed. Default 0 keeps the table for callers that are not lists.
-  let { title = undefined, message = undefined, loading = false, error = null, onRetry = null, level = 2, rows = 0 } = $props();
+  let { title = undefined, message = undefined, loading = false, error = null, onRetry = null, level = 2, rows = 0, identity = false } = $props();
 
   // A message that only repeats the title ("Not found" / "not found") is said once.
   const same = (a, b) => !!a && !!b && String(a).trim().toLowerCase().replace(/[.!]$/, '') === String(b).trim().toLowerCase().replace(/[.!]$/, '');
@@ -24,7 +26,7 @@
   const skeletonRows = $derived(Math.min(Math.max(0, Math.trunc(rows)), 12));
 </script>
 
-<div class="state-box" class:is-error={error && !loading} class:is-loading={loading && skeletonRows > 0}>
+<div class="state-box" class:is-error={error && !loading} class:is-loading={loading && skeletonRows > 0} class:iso-backdrop={identity && !loading && !error}>
   {#if loading}
     {#if skeletonRows > 0}
       <!-- Decorative. The live text below is what a screen reader gets; a stack of empty

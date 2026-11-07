@@ -172,7 +172,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview' }]} />
-  <PageHeader title="Is anything wrong?" asOf={overview?.meta?.asOf} {revalidating} />
+  <PageHeader title="Is anything wrong?" asOf={overview?.meta?.asOf} {revalidating} backdrop={pageState.kind === 'ready'} />
 
   {#if pageState.kind !== 'ready'}
     <ProductEmptyState state={pageState} noun="operational data" onRetry={load} />

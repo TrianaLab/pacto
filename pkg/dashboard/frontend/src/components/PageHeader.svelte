@@ -55,6 +55,10 @@
     // A page turn in flight: the rows on screen are the page being left, so the line
     // says the next one is coming rather than that the data is being re-checked.
     paging = false,
+    // The landing hero's isometric grid behind the header (.iso-backdrop). Identity,
+    // so only a page whose answer is on screen passes it: a loading or failed page
+    // stays plain.
+    backdrop = false,
     children,
   } = $props();
 
@@ -67,7 +71,7 @@
   const age = $derived(revalidating ? '' : formatRelative(asOf));
 </script>
 
-<header class="page-hd">
+<header class="page-hd" class:iso-backdrop={backdrop}>
   {#if shownKind || eyebrow || context.length}
     <p class="page-hd-eyebrow t-label">
       {#if eyebrow}{eyebrow}{:else if shownKind}{kindLabel(shownKind)}{/if}
