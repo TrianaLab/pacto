@@ -392,3 +392,37 @@ func TestProductLists_DomainOfferingAndDocumentHrefs(t *testing.T) {
 		t.Errorf("inferred offerings = %+v", inf)
 	}
 }
+
+// TestToEntityDetail_GoldenPathHrefs: a golden path's requirements, unresolved
+// requirements and created services, and a declared origin's golden path and
+// revision, carry a canonical href; absent sections stay absent.
+func TestToEntityDetail_GoldenPathHrefs(t *testing.T) {
+	path := fleet.EntityRef{Kind: fleet.KindService, Key: "acme/http-service"}
+	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "acme/http-service@1"}
+	pg := fleet.EntityRef{Kind: fleet.KindService, Key: "acme/postgresql"}
+	d := ToEntityDetail(&fleet.EntityDetail{Entity: path, Service: &fleet.ServiceDetailData{
+		Template: &fleet.TemplateDetail{
+			Requirements:           fleet.OfferingUsesPreview{Total: 1, Count: 1, Items: []fleet.OfferingUse{{Consumer: path, Provider: pg}}},
+			UnresolvedRequirements: fleet.UnresolvedDependenciesPreview{Total: 1, Count: 1, Items: []fleet.UnresolvedDependency{{From: path, Ref: "cache"}}},
+			CreatedServices:        fleet.RefPreview{Total: 1, Count: 1, Items: []fleet.EntityRef{{Kind: fleet.KindService, Key: "acme/gift-cards"}}},
+		},
+		Origin: &fleet.OriginDetail{Ref: "oci://acme/http-service:1.0.0", GoldenPath: &path, Revision: &rev},
+	}})
+	tpl, o := d.Service.Template, d.Service.Origin
+	if r := tpl.Requirements.Items; len(r) != 1 || r[0].Provider.Href == "" || r[0].Consumer.Href == "" {
+		t.Errorf("requirements = %+v", r)
+	}
+	if u := tpl.UnresolvedRequirements.Items; len(u) != 1 || u[0].From.Href == "" {
+		t.Errorf("unresolved requirements = %+v", u)
+	}
+	if c := tpl.CreatedServices.Items; len(c) != 1 || c[0].Href == "" {
+		t.Errorf("created services = %+v", c)
+	}
+	if o.GoldenPath == nil || o.GoldenPath.Href == "" || o.Revision == nil || o.Revision.Href == "" || o.Ref == "" {
+		t.Errorf("origin = %+v", o)
+	}
+	plain := toProductServiceDetail(&fleet.ServiceDetailData{})
+	if plain.Template != nil || plain.Origin != nil {
+		t.Errorf("an ordinary service carries %+v, %+v", plain.Template, plain.Origin)
+	}
+}

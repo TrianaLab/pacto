@@ -1838,6 +1838,14 @@ export interface components {
             /** Format: int64 */
             required: number;
         };
+        "Fleet.CreationStep": {
+            detail?: string;
+            name?: string;
+            /** @enum {string} */
+            status: "done" | "planned" | "skipped" | "unknown" | "failed" | "not-applicable";
+            /** @enum {string} */
+            step: "signature" | "contract" | "validation" | "plugin" | "published" | "fleet" | "deployed" | "provisioning";
+        };
         "Fleet.DeclaredClaim": {
             compatibility?: string;
             guaranteeReason?: string;
@@ -2699,6 +2707,11 @@ export interface components {
             revision?: components["schemas"]["Fleet.ContractRevision"];
             target: components["schemas"]["Fleet.TargetRecord"];
         };
+        "Fleet.TemplateInstantiation": {
+            cli: string;
+            mcp: string;
+            ref: string;
+        };
         "Fleet.ToolSummary": {
             interface?: string;
             method: string;
@@ -3432,6 +3445,15 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductOriginDetail: {
+            digest: string;
+            goldenPath?: components["schemas"]["ProductRef"];
+            /** @enum {string} */
+            provenance: "declared";
+            reason?: string;
+            ref: string;
+            revision?: components["schemas"]["ProductRef"];
+        };
         ProductOverview: {
             attention: components["schemas"]["ProductAttentionPreview"];
             entryPoints: components["schemas"]["ProductEntryPoint"][] | null;
@@ -3629,6 +3651,7 @@ export interface components {
             capabilities: components["schemas"]["Fleet.StringsPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
+            creation?: components["schemas"]["Fleet.CreationStep"][] | null;
             currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];
             dependents: components["schemas"]["ProductRefPreview"];
@@ -3643,6 +3666,7 @@ export interface components {
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
+            origin?: components["schemas"]["ProductOriginDetail"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
             policies: components["schemas"]["ProductPoliciesPreview"];
@@ -3652,6 +3676,7 @@ export interface components {
             signatures: components["schemas"]["ProductRevisionSignaturesPreview"];
             sources: components["schemas"]["ProductRefPreview"];
             summary: components["schemas"]["Fleet.ServiceSummary"];
+            template?: components["schemas"]["ProductTemplateDetail"];
             unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
         };
         ProductSourceDetail: {
@@ -3698,6 +3723,20 @@ export interface components {
             source?: string;
             sources: components["schemas"]["Fleet.StringsPreview"];
             stale: boolean;
+        };
+        ProductTemplateDetail: {
+            createdServices: components["schemas"]["ProductRefPreview"];
+            /** Format: int64 */
+            hiddenCreatedServices?: number;
+            instantiate?: components["schemas"]["Fleet.TemplateInstantiation"];
+            instantiateReason?: string;
+            plugins: components["schemas"]["Contract.TemplatePlugin"][] | null;
+            /** @enum {string} */
+            provenance: "declared";
+            requirements: components["schemas"]["ProductOfferingUsesPreview"];
+            signature: components["schemas"]["Fleet.BundleSignature"];
+            signatureNote: string;
+            unresolvedRequirements: components["schemas"]["ProductUnresolvedDependenciesPreview"];
         };
         ProductUnresolvedDependenciesPreview: {
             /** Format: int64 */

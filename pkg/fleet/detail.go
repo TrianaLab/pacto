@@ -388,6 +388,62 @@ type ServiceDetailData struct {
 	Findings      AttributedFindingsPreview    `json:"findings"`
 	Evidence      EvidencePreview              `json:"evidence"`
 	Limitations   AttributedLimitationsPreview `json:"limitations"`
+	// Template is set when the service is a golden path: what it names and
+	// requires, the services created from it and how to create one.
+	Template *TemplateDetail `json:"template,omitempty"`
+	// Origin is the golden path the newest readable revision declares it was
+	// created from, as declared.
+	Origin *OriginDetail `json:"origin,omitempty"`
+	// Creation is the creation checklist derived for a service with an origin:
+	// each step is done only on evidence the fleet holds.
+	Creation []CreationStep `json:"creation,omitempty"`
+}
+
+// TemplateDetail is what a golden path offers to a person creating a service
+// from it, read from its newest readable revision.
+type TemplateDetail struct {
+	// Plugins are the generate plugins the golden path names, bounded by the
+	// schema's limit of 32.
+	Plugins []contract.TemplatePlugin `json:"plugins"`
+	// Requirements are the offerings and providers the golden path consumes:
+	// every resolved dependency and reference, a provider with no offering
+	// included. UnresolvedRequirements are those no service resolves.
+	Requirements           OfferingUsesPreview           `json:"requirements"`
+	UnresolvedRequirements UnresolvedDependenciesPreview `json:"unresolvedRequirements"`
+	// CreatedServices are the services whose origin resolves to the golden
+	// path; HiddenCreatedServices counts those the caller's permissions hide.
+	CreatedServices       RefPreview `json:"createdServices"`
+	HiddenCreatedServices int        `json:"hiddenCreatedServices,omitempty"`
+	// Signature is the newest revision's signature check. SignatureNote says
+	// what it proves: the signer is the one the golden path's own contract
+	// declares.
+	Signature     BundleSignature `json:"signature"`
+	SignatureNote string          `json:"signatureNote"`
+	// Instantiate is the command that creates a service from the exact bytes
+	// shown; nil when no digest-pinned reference exists, with InstantiateReason.
+	Instantiate       *TemplateInstantiation `json:"instantiate,omitempty"`
+	InstantiateReason string                 `json:"instantiateReason,omitempty"`
+	Provenance        string                 `json:"provenance" enum:"declared"`
+}
+
+// TemplateInstantiation is how to create a service from a golden path: the
+// pinned reference, the CLI command and the MCP call.
+type TemplateInstantiation struct {
+	Ref string `json:"ref"`
+	CLI string `json:"cli"`
+	MCP string `json:"mcp"`
+}
+
+// OriginDetail is the declared origin of a service: the golden path reference
+// and content digest its contract records, resolved to the golden path and
+// revision with that digest, or the Reason it does not resolve.
+type OriginDetail struct {
+	Ref        string     `json:"ref"`
+	Digest     string     `json:"digest"`
+	Provenance string     `json:"provenance" enum:"declared"`
+	GoldenPath *EntityRef `json:"goldenPath,omitempty"`
+	Revision   *EntityRef `json:"revision,omitempty"`
+	Reason     string     `json:"reason,omitempty"`
 }
 
 // RevisionDetailData is the revision-kind payload: parent service, immutable
@@ -817,6 +873,9 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Evidence:           evidencePreview(evidenceForTargets(view.Targets)),
 		Relationships:      rels,
 		Limitations:        serviceLimitations(nbLims, view.Targets),
+		Template:           q.templateDetail(s),
+		Origin:             q.originDetail(s),
+		Creation:           q.creationChecklist(s, view, consumed),
 	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
@@ -1103,11 +1162,18 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 	return p
 }
 
-// offeringUses is every service consuming a provider match accepts, from one
+// offeringUses is every service consuming an offering provider match accepts,
+// from one consumer when from is set, with provisioning (see offeringUsesIn).
+func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) ([]OfferingUse, []Limitation) {
+	return q.offeringUsesIn(q.snap.Relationships, func(p *ServiceRecord) bool { return p.Offering != "" && match(p) }, from, true)
+}
+
+// offeringUsesIn is every use in rels of a provider match accepts, from one
 // consumer when from is set: one row per consumer, provider and relationship
 // type, over every revision. Revisions that disagree on the range status make
-// it unknown. It also returns the provisioning conflicts the rows raise.
-func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) ([]OfferingUse, []Limitation) {
+// it unknown. With provisioning it joins what providers report and returns the
+// provisioning conflicts the rows raise.
+func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *ServiceRecord) bool, from ServiceKey, provisioning bool) ([]OfferingUse, []Limitation) {
 	type useKey struct {
 		consumer, provider ServiceKey
 		via                string
@@ -1117,13 +1183,13 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 	rels := map[useKey][]*Relationship{}
 	var uses []OfferingUse
 	var keys []useKey // keys[j] is the key of uses[j]
-	for i := range q.snap.Relationships {
-		rel := &q.snap.Relationships[i]
+	for i := range edges {
+		rel := &edges[i]
 		if !offeringRelationship(rel, from) {
 			continue
 		}
 		p := q.snap.Services[rel.ToService]
-		if p == nil || p.Offering == "" || !match(p) {
+		if p == nil || !match(p) {
 			continue
 		}
 		k := useKey{rel.FromService, rel.ToService, rel.Type}
@@ -1148,7 +1214,7 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 	var lims []Limitation
 	idx := q.provisioningIndex()
 	for j, k := range keys {
-		if k.via != RelationshipPolicyRef {
+		if provisioning && k.via != RelationshipPolicyRef {
 			var conflicts []Limitation
 			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)
 			lims = append(lims, conflicts...)

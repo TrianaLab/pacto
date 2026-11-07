@@ -354,6 +354,44 @@ type ProductServiceDetail struct {
 	Findings               ProductAttributedFindingsPreview     `json:"findings"`
 	Evidence               ProductEvidencePreview               `json:"evidence"`
 	Limitations            ProductAttributedLimitationsPreview  `json:"limitations"`
+	Template               *ProductTemplateDetail               `json:"template,omitempty"`
+	Origin                 *ProductOriginDetail                 `json:"origin,omitempty"`
+}
+
+// ProductTemplateDetail is a golden path detail whose requirements and created
+// services are navigable.
+type ProductTemplateDetail struct {
+	fleet.TemplateDetail
+	Requirements           ProductOfferingUsesPreview           `json:"requirements"`
+	UnresolvedRequirements ProductUnresolvedDependenciesPreview `json:"unresolvedRequirements"`
+	CreatedServices        ProductRefPreview                    `json:"createdServices"`
+}
+
+func productTemplateDetail(d *fleet.TemplateDetail) *ProductTemplateDetail {
+	if d == nil {
+		return nil
+	}
+	return &ProductTemplateDetail{
+		TemplateDetail:         *d,
+		Requirements:           productOfferingUses(d.Requirements),
+		UnresolvedRequirements: productUnresolvedDependencies(d.UnresolvedRequirements),
+		CreatedServices:        RefPreview(d.CreatedServices),
+	}
+}
+
+// ProductOriginDetail is a declared origin whose golden path and revision are
+// navigable.
+type ProductOriginDetail struct {
+	fleet.OriginDetail
+	GoldenPath *ProductRef `json:"goldenPath,omitempty"`
+	Revision   *ProductRef `json:"revision,omitempty"`
+}
+
+func productOriginDetail(d *fleet.OriginDetail) *ProductOriginDetail {
+	if d == nil {
+		return nil
+	}
+	return &ProductOriginDetail{OriginDetail: *d, GoldenPath: RefPtr(d.GoldenPath), Revision: RefPtr(d.Revision)}
 }
 
 func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
@@ -379,6 +417,8 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 		Findings:               productAttributedFindingsPreview(d.Findings),
 		Evidence:               productEvidencePreview(d.Evidence),
 		Limitations:            productAttributedLimitationsPreview(d.Limitations),
+		Template:               productTemplateDetail(d.Template),
+		Origin:                 productOriginDetail(d.Origin),
 	}
 }
 
