@@ -412,7 +412,7 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 }
 
 // printExplainGoldenPath prints the golden path marker and the declared
-// origin of a 2.7 contract.
+// origin of a 2.4 contract.
 func printExplainGoldenPath(w io.Writer, t *contract.Template, o *contract.Origin) {
 	if t != nil {
 		line := "Golden path"

@@ -181,7 +181,7 @@ func TestMCPCreateFromGoldenPath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(path, "interfaces"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(path, "pacto.yaml"), "pactoVersion: \"2.7\"\nservice:\n  name: http-service\n  version: 1.0.0\n"+
+	writeFile(t, filepath.Join(path, "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: http-service\n  version: 1.0.0\n"+
 		"  owner: {team: platform}\n  summary: An HTTP API\n  template:\n    plugins:\n      - {name: dockerfile, description: A Dockerfile}\n"+
 		"interfaces:\n  - {name: api, type: openapi, ref: interfaces/openapi.yaml}\n")
 	writeFile(t, filepath.Join(path, "interfaces", "openapi.yaml"), "openapi: 3.0.0\ninfo: {title: api, version: 1.0.0}\npaths: {}\n")

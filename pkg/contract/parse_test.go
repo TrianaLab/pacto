@@ -487,7 +487,7 @@ configurations: [{name: db, ref: "oci://r/pg:1.0.0", configuration: provisioning
 	if cfg := c.Configurations[0]; cfg.ProviderConfiguration != "provisioning" || cfg.Values["size"] != "small" {
 		t.Fatalf("configuration: %+v", cfg)
 	}
-	for _, v := range []string{"2.5", "2.6", "2.7"} {
+	for _, v := range []string{"2.5", "2.6"} {
 		_, err := contract.Parse(strings.NewReader("pactoVersion: \"" + v + "\"\nservice: {name: svc, version: 1.0.0}\n"))
 		if err == nil || !strings.Contains(err.Error(), "unsupported pactoVersion") {
 			t.Fatalf("%s: %v", v, err)

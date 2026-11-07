@@ -29,10 +29,10 @@ func pathContentHash(t *testing.T) string {
 	return d
 }
 
-// usesPostgres is a 2.7 contract that depends on postgresql and takes its db
+// usesPostgres is a 2.4 contract that depends on postgresql and takes its db
 // configuration from it.
 func usesPostgres(name, version string) *contract.Contract {
-	c := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: name, Version: version, Owner: contract.Owner{Team: name + "-team"}, Domain: "commerce"}}
+	c := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: version, Owner: contract.Owner{Team: name + "-team"}, Domain: "commerce"}}
 	c.Dependencies = []contract.Dependency{{Name: "postgresql", Ref: "oci://ghcr.io/acme/postgresql", Required: true, Compatibility: "^16.0.0"}}
 	c.Configurations = []contract.Configuration{{Name: "db", Ref: pgPin}}
 	return c
@@ -48,14 +48,14 @@ func templated(name, version string) *contract.Contract {
 
 // postgres is postgresql 16.1.0, which provides the postgresql offering.
 func postgres() RawRevision {
-	pg := svc25("postgresql", "16.1.0", "postgresql")
+	pg := svc24("postgresql", "16.1.0", "postgresql")
 	pg.Configurations = []contract.Configuration{{Name: "provisioning", Schema: "schema.json"}}
 	return ociRev(acme, pg, fstest.MapFS{"schema.json": {Data: []byte(`{"type":"object"}`)}})
 }
 
 // createdFrom is gift-cards 0.1.0, created from the golden path digest.
 func createdFrom(digest string) RawRevision {
-	c := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: "gift-cards", Version: "0.1.0", Owner: contract.Owner{Team: "checkout"},
+	c := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "gift-cards", Version: "0.1.0", Owner: contract.Owner{Team: "checkout"},
 		Origin: &contract.Origin{Ref: "oci://ghcr.io/acme/http-service:1.0.0", Digest: digest}}}
 	return ociRev(acme, c, nil)
 }
@@ -260,7 +260,7 @@ func TestDeployedTemplateStaysAService(t *testing.T) {
 
 func TestGoldenPathExcludedFromOverview(t *testing.T) {
 	bad := mustParse(t, invalidYAML)
-	bad.PactoVersion, bad.Service.Name, bad.Service.Version, bad.Service.Owner = "2.7", "bad-path", "2.0.0", contract.Owner{Team: "platform"}
+	bad.PactoVersion, bad.Service.Name, bad.Service.Version, bad.Service.Owner = "2.4", "bad-path", "2.0.0", contract.Owner{Team: "platform"}
 	bad.Service.Template = &contract.Template{}
 	invalidNewer := RawRevision{Bundle: &contract.Bundle{Contract: bad, RawYAML: []byte(invalidYAML), FS: fstest.MapFS{}}, Domain: acme, Digest: "sha256:bad"}
 	q := goldenFleet(t, ociRev(acme, templated("bad-path", "1.0.0"), nil), invalidNewer)

@@ -1027,7 +1027,7 @@ func TestImpactLeavesGoldenPathsOut(t *testing.T) {
 	medium := map[string]any{"size": "medium"}
 	dep := contract.Dependency{Name: "postgresql", Ref: "oci://x/postgresql", Compatibility: "^16.0.0"}
 	path := refConsumer("http-service", "", medium, true, dep)
-	path.Bundle.Contract.PactoVersion = "2.7"
+	path.Bundle.Contract.PactoVersion = "2.4"
 	path.Bundle.Contract.Service.Template = &contract.Template{}
 	pg := fleet.RawRevision{
 		Bundle: &contract.Bundle{Contract: pgContract("16.1.0", "provisioning", true), FS: pgSchema("small", "medium", "large")},

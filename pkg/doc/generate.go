@@ -180,7 +180,7 @@ func writeSnapshotSummary(b *strings.Builder, d *contractview.ServiceDetails) {
 	}
 }
 
-// goldenPathRows are the summary rows of a 2.7 golden path marker and of a
+// goldenPathRows are the summary rows of a 2.4 golden path marker and of a
 // declared origin.
 func goldenPathRows(t *contract.Template, o *contract.Origin) [][2]string {
 	var rows [][2]string

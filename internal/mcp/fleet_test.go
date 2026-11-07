@@ -725,12 +725,12 @@ func TestFleetOfferingToolsAnswerFromTheView(t *testing.T) {
 func goldenPathFleet(t *testing.T) *fleet.Query {
 	t.Helper()
 	digest := "sha256:" + strings.Repeat("a", 64)
-	pg := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: "postgresql", Version: "16.1.0", Offering: "postgresql"}}
+	pg := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "postgresql", Version: "16.1.0", Offering: "postgresql"}}
 	dep := []contract.Dependency{{Name: "postgresql", Ref: "oci://ghcr.io/acme/postgresql", Required: true, Compatibility: "^16.0.0"}}
-	path := &contract.Contract{PactoVersion: "2.7", Dependencies: dep,
+	path := &contract.Contract{PactoVersion: "2.4", Dependencies: dep,
 		Service: contract.Service{Name: "http-service", Version: "1.0.0", Template: &contract.Template{}}}
-	app := &contract.Contract{PactoVersion: "2.7", Dependencies: dep, Service: contract.Service{Name: "app", Version: "1.0.0"}}
-	created := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: "gift-cards", Version: "0.1.0",
+	app := &contract.Contract{PactoVersion: "2.4", Dependencies: dep, Service: contract.Service{Name: "app", Version: "1.0.0"}}
+	created := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "gift-cards", Version: "0.1.0",
 		Origin: &contract.Origin{Ref: "oci://ghcr.io/acme/http-service:1.0.0", Digest: digest}}}
 	src := fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{
 		Revisions: []fleet.RawRevision{

@@ -16,7 +16,7 @@ A golden path holds the contract and files every new service of its kind
 starts with:
 
 ```yaml
-pactoVersion: "2.7"
+pactoVersion: "2.4"
 service:
   name: http-service
   version: 1.0.0

@@ -20,7 +20,7 @@ import (
 const pathDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 // pathContract is a golden path that carries every value creation resets.
-const pathContract = `pactoVersion: "2.7"
+const pathContract = `pactoVersion: "2.4"
 service:
   name: http-service
   version: 1.0.0
@@ -148,13 +148,13 @@ func wantLines(t *testing.T, kind string, lines []string, want ...string) {
 func TestTemplateResetsIdentity(t *testing.T) {
 	r, c := mustFromPath(t, goldenPath(""), Options{Domain: "commerce"}, override.Overrides{})
 	s := c.Service
-	if r.Mode != modeTemplate || c.PactoVersion != "2.7" || s.Name != "gift-cards" || s.Version != "0.1.0" || s.Owner.Team != "checkout" || s.Domain != "commerce" {
+	if r.Mode != modeTemplate || c.PactoVersion != "2.4" || s.Name != "gift-cards" || s.Version != "0.1.0" || s.Owner.Team != "checkout" || s.Domain != "commerce" {
 		t.Fatalf("identity: %+v", c)
 	}
 	if s.Origin == nil || *s.Origin != (contract.Origin{Ref: "oci://ghcr.io/platform/http-service:1.0.0", Digest: pathDigest}) {
 		t.Fatalf("origin: %+v", s.Origin)
 	}
-	if text := file(t, r, "pacto.yaml").Content; !strings.HasPrefix(text, "pactoVersion: \"2.7\"\nservice:\n  name: gift-cards\n  version: 0.1.0\n  owner:\n") {
+	if text := file(t, r, "pacto.yaml").Content; !strings.HasPrefix(text, "pactoVersion: \"2.4\"\nservice:\n  name: gift-cards\n  version: 0.1.0\n  owner:\n") {
 		t.Errorf("order:\n%s", text)
 	}
 }

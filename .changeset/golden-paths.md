@@ -3,15 +3,14 @@
 "@pacto/k8s-module": minor
 ---
 
-Add `pactoVersion: "2.7"` with `service.template`, which marks a contract as a
-golden path and names the generate plugins it offers, and `service.origin`,
-which records the golden path a service was created from as declared
-provenance (`ref` and the path's content `digest`). Every 2.6 contract is
-valid under 2.7. A `"2.0"` to `"2.6"` contract that sets either field reports
-`NEEDS_PACTO_2_7`; a repeated plugin reports `DUPLICATE_TEMPLATE_PLUGIN` and an
-origin that is neither an `oci://` reference nor a directory reports
-`INVALID_ORIGIN_REF`. `pacto diff` classifies every change to either field as
-non-breaking.
+`service.template` (pactoVersion 2.4) marks a contract as a golden path and
+names the generate plugins it offers, and `service.origin` (pactoVersion 2.4)
+records the golden path a service was created from as declared provenance
+(`ref` and the path's content `digest`). A `"2.0"` to `"2.3"` contract that
+sets either field reports `NEEDS_PACTO_2_4`; a repeated plugin reports
+`DUPLICATE_TEMPLATE_PLUGIN` and an origin that is neither an `oci://` reference
+nor a directory reports `INVALID_ORIGIN_REF`. `pacto diff` classifies every
+change to either field as non-breaking.
 
 `pacto init <dir> --from <oci-ref|dir> --owner <team>` creates a service from a
 golden path: it resets the identity, applies `--values` and `--set`, records

@@ -23,7 +23,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
-const goldenPathYAML = `pactoVersion: "2.7"
+const goldenPathYAML = `pactoVersion: "2.4"
 service:
   name: http-service
   version: 1.0.0

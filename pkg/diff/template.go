@@ -7,7 +7,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
-// diffTemplate compares service.template (2.7). Marking or unmarking a golden
+// diffTemplate compares service.template (2.4). Marking or unmarking a golden
 // path and changing the plugins it names change nothing a consumer calls.
 func diffTemplate(o, n *contract.Template) []Change {
 	switch {
@@ -40,7 +40,7 @@ func pluginNames(t *contract.Template) []string {
 	return names
 }
 
-// diffOrigin compares service.origin (2.7), declared provenance only.
+// diffOrigin compares service.origin (2.4), declared provenance only.
 func diffOrigin(o, n *contract.Origin) []Change {
 	if o == nil && n == nil || o != nil && n != nil && *o == *n {
 		return nil

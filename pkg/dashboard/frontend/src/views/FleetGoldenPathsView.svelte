@@ -96,7 +96,7 @@
   {:else if noneDeclared}
     <div class="gp-empty" role="status" data-testid="golden-paths-empty">
       <h2 class="t-section-title">No golden paths yet: a golden path is a contract that declares service.template</h2>
-      <p class="t-body-2">Publish one to a registry Pacto reads (pactoVersion 2.7) to list it here. <a href={GUIDE} target="_blank" rel="noopener noreferrer">Create services from golden paths</a></p>
+      <p class="t-body-2">Publish one to a registry Pacto reads (pactoVersion 2.4) to list it here. <a href={GUIDE} target="_blank" rel="noopener noreferrer">Create services from golden paths</a></p>
     </div>
   {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="golden paths" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />

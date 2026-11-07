@@ -106,7 +106,7 @@ func TestCreateFromNotOfferedUnderView(t *testing.T) {
 func TestMCPInitMapsOverrides(t *testing.T) {
 	t.Setenv(trustEnv, "")
 	path := t.TempDir()
-	_ = os.WriteFile(filepath.Join(path, "pacto.yaml"), []byte("pactoVersion: \"2.7\"\nservice:\n  name: http-service\n  version: 1.0.0\n  template: {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(path, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: http-service\n  version: 1.0.0\n  template: {}\n"), 0o644)
 	svc := app.NewService(nil, nil)
 	opts := app.InitOptions{Dir: filepath.Join(t.TempDir(), "gift-cards"), Owner: "checkout", Plan: true}
 	r, err := mcpInit(svc, "")(context.Background(), opts, pactomcp.FromRequest{Ref: path,

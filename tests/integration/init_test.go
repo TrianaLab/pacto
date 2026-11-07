@@ -144,7 +144,7 @@ func writeGoldenPath(t *testing.T) string {
 	dir := filepath.Join(t.TempDir(), "http-service")
 	os.MkdirAll(filepath.Join(dir, "interfaces"), 0o755)
 	os.MkdirAll(filepath.Join(dir, "configuration"), 0o755)
-	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.7"
+	os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.4"
 service:
   name: http-service
   version: 1.0.0

@@ -196,7 +196,7 @@ func TestInitFromFlagChecks(t *testing.T) {
 func TestInitFromDirectory(t *testing.T) {
 	t.Setenv("PACTO_DELIVERY_TRUST", "")
 	path := t.TempDir()
-	_ = os.WriteFile(filepath.Join(path, "pacto.yaml"), []byte("pactoVersion: \"2.7\"\nservice:\n  name: http-service\n  version: 1.0.0\n  template: {}\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(path, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: http-service\n  version: 1.0.0\n  template: {}\n"), 0o644)
 	dir := filepath.Join(t.TempDir(), "gift-cards")
 	out, err := runInit(t, dir, "--from", path, "--owner", "checkout", "--set", "service.version=0.2.0")
 	if err != nil {

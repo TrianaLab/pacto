@@ -452,7 +452,7 @@ func TestConsumeSnippet_LocalRevisionFallback(t *testing.T) {
 		raw.RequestedRef = "file:///src/" + c.Service.Name
 		return raw
 	}
-	pg := svc25("postgresql", "16.0.1", "postgresql")
+	pg := svc24("postgresql", "16.0.1", "postgresql")
 	pg.Workload = contract.WorkloadService
 	pg.Publish = &contract.Publish{Bundle: "oci://registry.acme.com/db/postgresql"}
 	if sn := snippetFor(t, local(pg)); sn == nil || sn.Ref != "oci://registry.acme.com/db/postgresql" {
@@ -460,7 +460,7 @@ func TestConsumeSnippet_LocalRevisionFallback(t *testing.T) {
 	}
 	pg.Publish = nil
 	jobs := func(name, ref string) RawRevision {
-		c := svc25(name, "1.0.0", "")
+		c := svc24(name, "1.0.0", "")
 		c.Dependencies = []contract.Dependency{{Name: "postgresql", Ref: ref, Required: true, Compatibility: "^16.0.0"}}
 		return local(c)
 	}
@@ -913,7 +913,7 @@ func TestConsumeSnippet_EntriesMatchYAML(t *testing.T) {
 		if sn == nil {
 			t.Fatalf("%s: no snippet", name)
 		}
-		consumer := mustParse(t, "pactoVersion: \"2.6\"\nservice:\n  name: app\n  version: 1.0.0\n"+sn.YAML)
+		consumer := mustParse(t, "pactoVersion: \"2.4\"\nservice:\n  name: app\n  version: 1.0.0\n"+sn.YAML)
 		var cfgs []contract.Configuration
 		for _, e := range sn.Entries.Configurations {
 			cfgs = append(cfgs, e.Configuration)
@@ -931,13 +931,13 @@ func TestConsumeSnippet_EntriesMatchYAML(t *testing.T) {
 		}
 	}
 	check("both forms", snippetFor(t, ociRev("ghcr.io/trianalab/pacto", pgOffering(), fstest.MapFS{"configuration/schema.json": {Data: []byte(pgSchema)}})))
-	two := svc25("platform-app-config", "1.0.0", "shared-config")
+	two := svc24("platform-app-config", "1.0.0", "shared-config")
 	two.Configurations = []contract.Configuration{{Name: "app", Schema: "a.json", Required: true}, {Name: "extra", Schema: "a.json", Required: true}}
 	check("selectors", snippetFor(t, ociRev("ghcr.io/acme", two, nil)))
-	pol := svc25("platform-http-policy", "1.0.0", "shared-policy")
+	pol := svc24("platform-http-policy", "1.0.0", "shared-policy")
 	pol.Policies = []contract.Policy{{Name: "http", Schema: "policy/schema.json"}}
 	check("policy", snippetFor(t, ociRev("ghcr.io/acme", pol, nil)))
-	semverless := svc25("redis", "latest", "redis")
+	semverless := svc24("redis", "latest", "redis")
 	semverless.Workload = contract.WorkloadService
 	check("no range", snippetFor(t, ociRev("ghcr.io/acme", semverless, nil)))
 }

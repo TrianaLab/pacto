@@ -143,7 +143,7 @@ func TestEditTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := readContract(t, dir)
-	if c.PactoVersion != "2.7" || c.Service.Template == nil || !reflect.DeepEqual(c.Service.Template.Plugins, plugins) || !r.Summary.Template {
+	if c.PactoVersion != "2.4" || c.Service.Template == nil || !reflect.DeepEqual(c.Service.Template.Plugins, plugins) || !r.Summary.Template {
 		t.Fatalf("set: %+v %+v", c.PactoVersion, c.Service.Template)
 	}
 	// No plugins writes template: {}.
@@ -166,11 +166,11 @@ func TestEditTemplate(t *testing.T) {
 // TestEditTemplateTool: the tool takes template as JSON; origin has no setter.
 func TestEditTemplateTool(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.6\"\nservice:\n  name: http-service\n  version: 1.0.0\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.3\"\nservice:\n  name: http-service\n  version: 1.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	res := callToolOn(t, NewServer(Authoring{}, "test"), "pacto_edit", map[string]any{"path": dir, "template": `{"plugins":[{"name":"ci"}]}`})
-	if c := readContract(t, dir); res.IsError || c.Service.Template == nil || c.PactoVersion != "2.7" {
+	if c := readContract(t, dir); res.IsError || c.Service.Template == nil || c.PactoVersion != "2.4" {
 		t.Errorf("tool: %s", resultText(t, res))
 	}
 	if res := callToolOn(t, NewServer(Authoring{}, "test"), "pacto_edit", map[string]any{"path": dir, "origin": "{}"}); !res.IsError {

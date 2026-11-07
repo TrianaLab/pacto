@@ -27,7 +27,7 @@ Unknown
 
 Would add
   + pacto.yaml
-      pactoVersion: "2.7"
+      pactoVersion: "2.4"
       service:
         name: gift-cards
         version: 0.1.0
@@ -35,7 +35,7 @@ Would add
           team: checkout
         domain: commerce
         origin:
-          digest: sha256:c4729e2dec5851e0b9f8db46728870ceebb7706ec3894df350368b5cddfa05b3
+          digest: sha256:077937b6249c6a7e1e47d7affdc54e6d4c57c14f3e339e0092d43a12b2659649
           ref: ../examples/demo/bundles/http-service/v1.0.0
       capabilities:
         - type: health

@@ -9,18 +9,22 @@ dependencies and state are in
 
 ## `pactoVersion`
 
-The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"` or `"2.4"`. 2.1 adds
-[`publish`](publish.md), [`checks`](checks.md), external dependencies and the `mcp` interface type.
-2.2 adds the [interface lifecycle](#interface-lifecycle), an interface's
-[`compatibilityEpoch`](#compatibility-epoch), its [`guarantees`](#guarantees) and
-[`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
-2.3 adds [`environments`](environments.md).
-2.4 adds [`service.domain`](#business-domain),
-[`service.offering`](#platform-offering) and [`service.summary`](#summary), the
-[service lifecycle](#service-lifecycle), [`service.template`](#golden-path-template)
-and [`service.origin`](#service-origin), and `values` and a
-[`configuration`](configuration-and-policy.md#selecting-a-configuration) selector
-beside a configuration `ref`.
+The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"` or `"2.4"`.
+
+- 2.1 adds [`publish`](publish.md), [`checks`](checks.md), external
+  dependencies and the `mcp` interface type.
+- 2.2 adds the [interface lifecycle](#interface-lifecycle), an interface's
+  [`compatibilityEpoch`](#compatibility-epoch), its [`guarantees`](#guarantees) and
+  [`dependencies[].requires`](dependencies-and-state.md#required-guarantees).
+- 2.3 adds [`environments`](environments.md).
+- 2.4 adds [`service.domain`](#business-domain),
+  [`service.offering`](#platform-offering), [`service.summary`](#summary), the
+  [service lifecycle](#service-lifecycle),
+  [`service.template`](#golden-path-template) and
+  [`service.origin`](#service-origin), and `values` and a
+  [`configuration`](configuration-and-policy.md#selecting-a-configuration) selector
+  beside a configuration `ref`.
+
 Each version accepts every contract of the version before it.
 [Versions](../installation.md#versions) lists the Pacto core and operator
 releases each version needs.
@@ -159,7 +163,7 @@ contract that sets `lifecycle` reports `NEEDS_PACTO_2_4`.
 service:
 
 ```yaml
-pactoVersion: "2.7"
+pactoVersion: "2.4"
 service:
   name: http-service
   version: 1.0.0
@@ -191,7 +195,7 @@ service:
 `service.origin` records the golden path a service was created from:
 
 ```yaml
-pactoVersion: "2.7"
+pactoVersion: "2.4"
 service:
   name: gift-cards
   version: 0.1.0
@@ -199,7 +203,7 @@ service:
   domain: commerce
   origin:
     ref: oci://ghcr.io/trianalab/pacto/http-service:1.0.0
-    digest: sha256:c4729e2dec5851e0b9f8db46728870ceebb7706ec3894df350368b5cddfa05b3
+    digest: sha256:077937b6249c6a7e1e47d7affdc54e6d4c57c14f3e339e0092d43a12b2659649
 ```
 
 | Field | Type | Required | Constraints |
@@ -212,8 +216,8 @@ service:
 - A golden path derived from another golden path sets both fields.
 - Changes to either field are non-breaking
   ([change classification](diff.md#service-identity)).
-- A `"2.0"` to `"2.6"` contract that sets `template` or `origin` reports
-  `NEEDS_PACTO_2_7`.
+- A `"2.0"` to `"2.3"` contract that sets `template` or `origin` reports
+  `NEEDS_PACTO_2_4`.
 
 ### OwnerInfo
 

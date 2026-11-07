@@ -16,10 +16,10 @@ func writeGoldenPathFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	state := "state:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"
-	mustWrite(t, filepath.Join(root, "pg", "pacto.yaml"), "pactoVersion: \"2.7\"\nservice:\n  name: postgresql\n  version: \"16.1.0\"\n"+
+	mustWrite(t, filepath.Join(root, "pg", "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: postgresql\n  version: \"16.1.0\"\n"+
 		"  offering: postgresql\n  owner:\n    team: infra-data\nworkload: service\n"+state)
 	path := filepath.Join(root, "http-service")
-	mustWrite(t, filepath.Join(path, "pacto.yaml"), "pactoVersion: \"2.7\"\nservice:\n  name: http-service\n  version: \"1.0.0\"\n"+
+	mustWrite(t, filepath.Join(path, "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: http-service\n  version: \"1.0.0\"\n"+
 		"  owner:\n    team: platform\n  summary: An HTTP API with a PostgreSQL database\n"+
 		"  template:\n    plugins:\n      - name: dockerfile\n        description: A Dockerfile for a Go HTTP service\n"+
 		"dependencies:\n  - name: postgresql\n    ref: oci://ghcr.io/acme/postgresql\n    required: true\n    compatibility: ^16.0.0\n"+
@@ -28,10 +28,10 @@ func writeGoldenPathFixture(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, filepath.Join(root, "gift-cards", "pacto.yaml"), "pactoVersion: \"2.7\"\nservice:\n  name: gift-cards\n  version: \"0.1.0\"\n"+
+	mustWrite(t, filepath.Join(root, "gift-cards", "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: gift-cards\n  version: \"0.1.0\"\n"+
 		"  owner:\n    team: checkout\n  origin:\n    ref: oci://ghcr.io/acme/http-service:1.0.0\n    digest: \""+digest+"\"\n"+
 		"workload: service\n"+state)
-	mustWrite(t, filepath.Join(root, "billing", "pacto.yaml"), "pactoVersion: \"2.7\"\nservice:\n  name: billing\n  version: \"1.0.0\"\n"+
+	mustWrite(t, filepath.Join(root, "billing", "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: billing\n  version: \"1.0.0\"\n"+
 		"workload: service\n"+state)
 	return root
 }

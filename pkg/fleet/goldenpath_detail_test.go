@@ -178,7 +178,7 @@ func TestCreationChecklist(t *testing.T) {
 
 	// A local contract document, so the revision is validated: the step reads
 	// the snapshot record, never a detached copy.
-	doc := "pactoVersion: \"2.7\"\nservice:\n  name: gift-cards\n  version: 0.1.0\n  owner: {team: checkout}\n  origin: {ref: ../http-service, digest: \"sha256:" + strings.Repeat("0", 64) + "\"}\n"
+	doc := "pactoVersion: \"2.4\"\nservice:\n  name: gift-cards\n  version: 0.1.0\n  owner: {team: checkout}\n  origin: {ref: ../http-service, digest: \"sha256:" + strings.Repeat("0", 64) + "\"}\n"
 	local := &contract.Bundle{Contract: mustParse(t, doc), RawYAML: []byte(doc), FS: fstest.MapFS{}}
 	unresolved := goldenDetail(t, buildDomainSnap(t, "local", &Collection{Revisions: []RawRevision{
 		{Bundle: local, Domain: acme, RequestedRef: "file:///srv/gift-cards", Digest: "sha256:local"},

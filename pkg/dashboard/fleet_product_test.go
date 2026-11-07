@@ -414,8 +414,8 @@ func TestProductOwnerKey_IsAnExactFilterOverTheWire(t *testing.T) {
 func goldenPathDashboardQuery(t *testing.T) *fleet.Query {
 	t.Helper()
 	digest := validDigest("a")
-	path := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: "http-service", Version: "1.0.0", Template: &contract.Template{}}}
-	created := &contract.Contract{PactoVersion: "2.7", Service: contract.Service{Name: "gift-cards", Version: "0.1.0",
+	path := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "http-service", Version: "1.0.0", Template: &contract.Template{}}}
+	created := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "gift-cards", Version: "0.1.0",
 		Origin: &contract.Origin{Ref: "oci://ghcr.io/acme/http-service:1.0.0", Digest: digest}}}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
 		fleet.NewMemorySource("local", "local", &fleet.Collection{Revisions: []fleet.RawRevision{
