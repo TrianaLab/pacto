@@ -28,7 +28,7 @@ import (
 const (
 	providerRef    = "oci://ghcr.io/acme/pg:16.1.0"
 	providerSchema = `{"type":"object","required":["size"],"properties":{"size":{"enum":["small","large"]},"version":{"type":"string"}}}`
-	providerYAML   = `pactoVersion: "2.6"
+	providerYAML   = `pactoVersion: "2.4"
 service: {name: pg, version: 16.1.0}
 configurations:
   - {name: db, schema: configuration/schema.json, required: true}
@@ -123,22 +123,22 @@ func TestReconcileConfigRefValues(t *testing.T) {
 		wantWarning  string
 		wantNoErrors bool
 	}{
-		{name: "inline values the resolved schema accepts", raw: consumerYAML("2.6", "{size: small}"), resolver: resolved,
+		{name: "inline values the resolved schema accepts", raw: consumerYAML("2.4", "{size: small}"), resolver: resolved,
 			wantStatus: pactov1alpha1.ContractStatusReference, wantNoErrors: true},
-		{name: "inline values invalid", raw: consumerYAML("2.6", "{size: huge}"), resolver: resolved,
+		{name: "inline values invalid", raw: consumerYAML("2.4", "{size: huge}"), resolver: resolved,
 			wantStatus: pactov1alpha1.ContractStatusInvalid, wantError: "CONFIG_VALUES_VALIDATION_FAILED"},
-		{name: "override invalid", raw: consumerYAML("2.6", "{size: small}"), resolver: resolved,
+		{name: "override invalid", raw: consumerYAML("2.4", "{size: small}"), resolver: resolved,
 			overrides:  overrideOf("db", map[string]string{"size": "huge"}),
 			wantStatus: pactov1alpha1.ContractStatusInvalid, wantError: "CONFIG_VALUES_VALIDATION_FAILED"},
-		{name: "unresolved ref warns and the contract stays valid", raw: consumerYAML("2.6", "{size: huge}"),
+		{name: "unresolved ref warns and the contract stays valid", raw: consumerYAML("2.4", "{size: huge}"),
 			resolver:   refResolver{err: errors.New("registry unreachable")},
 			wantStatus: pactov1alpha1.ContractStatusReference, wantWarning: "CONFIG_REF_UNVERIFIED", wantNoErrors: true},
-		{name: "a loader that cannot resolve leaves the ref unverified", raw: consumerYAML("2.6", "{size: huge}"),
+		{name: "a loader that cannot resolve leaves the ref unverified", raw: consumerYAML("2.4", "{size: huge}"),
 			wantStatus: pactov1alpha1.ContractStatusReference, wantWarning: "CONFIG_REF_UNVERIFIED", wantNoErrors: true},
-		{name: "2.5 override on a ref configuration", raw: consumerYAML("2.5", ""), resolver: resolved,
+		{name: "2.3 override on a ref configuration", raw: consumerYAML("2.3", ""), resolver: resolved,
 			overrides:  overrideOf("db", map[string]string{"size": "small"}),
 			wantStatus: pactov1alpha1.ContractStatusInvalid,
-			wantError:  `override for configuration "db": it takes its schema by ref; values for it need pactoVersion "2.6"`},
+			wantError:  `override for configuration "db": it takes its schema by ref; values for it need pactoVersion "2.4"`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -166,7 +166,7 @@ func TestReconcileConfigRefValues(t *testing.T) {
 // The resolver is asked with spec.contractRef, its pull secret's credentials and their identity,
 // and a resolved ref configuration without values surfaces the provider schema's properties.
 func TestReconcileConfigRef_ResolverInputsAndStatus(t *testing.T) {
-	raw := consumerYAML("2.6", "")
+	raw := consumerYAML("2.4", "")
 	c, err := contract.Parse(strings.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func (r deadlineResolver) ResolveBundle(ctx context.Context, ref string) (*contr
 // Configuration-ref resolution runs under a deadline, so one Pacto cannot hold a reconcile worker.
 func TestReconcileConfigRef_ResolutionIsBounded(t *testing.T) {
 	unbounded := false
-	reconcileConsumer(t, consumerYAML("2.6", "{size: small}"), nil, deadlineResolver{refResolver{bundle: providerBundle(t)}, &unbounded})
+	reconcileConsumer(t, consumerYAML("2.4", "{size: small}"), nil, deadlineResolver{refResolver{bundle: providerBundle(t)}, &unbounded})
 	if unbounded {
 		t.Error("a configuration ref was resolved with no deadline")
 	}

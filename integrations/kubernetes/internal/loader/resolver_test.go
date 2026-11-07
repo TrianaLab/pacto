@@ -24,7 +24,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
-const providerYAML = `pactoVersion: "2.6"
+const providerYAML = `pactoVersion: "2.4"
 service: {name: pg, version: 16.1.0}
 configurations:
   - {name: db, schema: configuration/schema.json, required: true}
