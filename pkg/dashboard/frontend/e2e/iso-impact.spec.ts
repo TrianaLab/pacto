@@ -193,6 +193,35 @@ for (const theme of ['dark', 'light'] as const) {
       expect(running).toBe(0);
       const blocked = await page.getByText('Blocked', { exact: true }).count();
       await expect(page.locator(`${FIGURE} .ring`)).toHaveCount(blocked ? 1 : 0);
+      // Reduced motion collapses travel, never the rest state: the ring stays drawn at its
+      // resting opacity and nothing is left mid-transform.
+      const rest = await page.evaluate((sel) => Array.from(document.querySelectorAll(`${sel} .ring, ${sel} .stamp-in, ${sel} .c`))
+        .map((el) => { const cs = getComputedStyle(el); return { cls: el.getAttribute('class'), opacity: cs.opacity, transform: cs.transform }; }), FIGURE);
+      for (const r of rest) {
+        expect(r.transform, r.cls ?? '').toBe('none');
+        expect(Number(r.opacity), r.cls ?? '').toBeGreaterThan(0);
+      }
+    });
+
+    test('labels sit on the page ground their halo assumes', async ({ page }) => {
+      await analyse(page);
+      // The label halo strokes with --c-bg; it only hides wires if the figure's nearest
+      // painted ancestor is that same ground.
+      const { ground, page: pageBg } = await page.evaluate((sel) => {
+        let el: Element | null = document.querySelector(sel);
+        let bg = 'rgba(0, 0, 0, 0)';
+        while (el && (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent')) {
+          bg = getComputedStyle(el).backgroundColor;
+          el = el.parentElement;
+        }
+        const probe = document.createElement('div');
+        probe.style.backgroundColor = 'var(--c-bg)';
+        document.body.appendChild(probe);
+        const want = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return { ground: bg, page: want };
+      }, FIGURE);
+      expect(ground).toBe(pageBg);
     });
 
     test('twelve consumers with hostile 200-character identities stay bounded', async ({ page }) => {
