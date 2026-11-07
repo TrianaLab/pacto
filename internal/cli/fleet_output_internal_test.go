@@ -199,6 +199,9 @@ func TestPrintTemplateText_Branches(t *testing.T) {
 	if r := signatureReason(fleet.BundleSignature{Status: fleet.SignatureUnsigned}); r != "" {
 		t.Errorf("a check with no reason adds nothing, got %q", r)
 	}
+	if r := signatureReason(fleet.BundleSignature{Status: fleet.SignatureUnknown, Reason: "registry unreachable"}); r != ": registry unreachable" {
+		t.Errorf("a check with a reason names it, got %q", r)
+	}
 	b.Reset()
 	printTemplateText(&b, "x", &fleet.TemplateDetail{})
 	if !strings.Contains(b.String(), "Signature: not checked: no source that read it checks signatures\n") {
