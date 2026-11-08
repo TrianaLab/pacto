@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fitName, fitSiblings, elidable } from './elide.ts';
+import { fitName, fitSiblings, fitHead, elidable } from './elide.ts';
 
 const within = (n: number) => (s: string) => Array.from(s).length <= n;
 
@@ -13,11 +13,19 @@ describe('fitName (C6)', () => {
     expect(Array.from(out).length).toBeLessThanOrEqual(26);
   });
   it('keeps at least 4 characters of head and 5 of tail', () => {
-    const out = fitName('ab-cdefgh-ijklmnop-qrstuvwx-yz', within(20))!;
+    const out = fitName('ab-cdefgh-ijklmnop-qrstuvwx-yz', within(24))!;
     const [head, tail] = out.split('…');
     expect(head.length).toBeGreaterThanOrEqual(4);
-    expect(tail.length).toBeGreaterThanOrEqual(2);
+    expect(tail.length).toBeGreaterThanOrEqual(5);
     expect(out.startsWith('ab-')).toBe(true);
+  });
+  it('returns null rather than a fragment when no whole-segment cut fits', () => {
+    // A character cut would read `consumer-0-b…wes`: a head ending mid-word, a 3-character tail.
+    expect(fitName('consumer-0-backfill-feed-canary-consumer-wes', within(16))).toBeNull();
+    expect(fitName('consumer-0-backfill-feed-canary-consumer-wes', within(23))).toBe('consumer-…-consumer-wes');
+  });
+  it('keeps whole head segments and the last 8 characters of a long last segment', () => {
+    expect(fitName('ledger-feed-averyveryverylongsinglewordname', within(21))).toBe('ledger-feed-…wordname');
   });
   it('falls back to head characters and the last segment when no segment cut fits', () => {
     expect(fitName('averyveryverylongsinglewordname', within(14))).toBe('avery…wordname');
@@ -27,6 +35,14 @@ describe('fitName (C6)', () => {
     expect(elidable('payments-api')).toBe(false);
     expect(elidable('orders-‮reverse‬-sync-bridge')).toBe(false);
     expect(elidable('payments-service-eu')).toBe(true);
+  });
+});
+
+describe('fitHead (C6 last resort)', () => {
+  it('keeps the longest whole-segment head that fits', () => {
+    expect(fitHead('fraud-scoring-realtime-event', within(15))).toBe('fraud-scoring-…');
+    expect(fitHead('fraud-scoring-realtime-event', within(4))).toBeNull();
+    expect(fitHead('averyveryverylongsinglewordname', within(40))).toBeNull();
   });
 });
 

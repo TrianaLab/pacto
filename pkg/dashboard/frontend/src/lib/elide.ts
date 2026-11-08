@@ -34,7 +34,8 @@ function elisions(parts: string[], pin?: number): string[] {
 
 /**
  * fitName returns the longest elision of `name` that `fits`, the name itself when it
- * fits, or null when nothing readable does. With a pin (siblings that would read alike)
+ * fits, or null when nothing readable does (never a head cut mid-word or a tail under 5
+ * characters). With a pin (siblings that would read alike)
  * the distinguishing segment must start within the first 12 visible characters.
  */
 export function fitName(name: string, fits: (s: string) => boolean, pin?: number): string | null {
@@ -48,18 +49,43 @@ export function fitName(name: string, fits: (s: string) => boolean, pin?: number
   const c = elisions(parts, pin).filter(near).find(fits);
   if (c) return c;
   if (pin != null) return null;
-  // No whole-segment elision fits: keep the last segment (or its last 8 characters) and
-  // as much head as fits, never fewer than 3 characters of it.
+  // No whole-segment elision fits. A name whose last segment is a word of 16 characters
+  // or fewer has no other readable cut (a character cut would leave a fragment such as
+  // `consumer-0-b…wes`): null, and the caller folds it. Otherwise keep whole head
+  // segments (or, for a single word, at least 4 head characters) and the last segment's
+  // last 8 characters.
   const cp = Array.from(name), last = Array.from(parts[parts.length - 1]);
-  const tail = (last.length <= 16 ? last : last.slice(-8)).join('');
-  const head = cp.slice(0, cp.length - Array.from(tail).length);
+  if (last.length <= 16) return null;
+  const tail = last.slice(-8).join('');
+  if (parts.length > 1) {
+    for (let h = parts.length - 1; h >= 1; h--) {
+      const head = parts.slice(0, h).join('');
+      if (Array.from(head).length >= 4 && fits(head + '…' + tail)) return head + '…' + tail;
+    }
+    return null;
+  }
+  const head = cp.slice(0, cp.length - 8);
   let lo = 0, hi = head.length;
   while (lo < hi) {
     const m = (lo + hi + 1) >> 1;
     if (fits(head.slice(0, m).join('') + '…' + tail)) lo = m;
     else hi = m - 1;
   }
-  return lo >= 3 ? head.slice(0, lo).join('') + '…' + tail : null;
+  return lo >= 4 ? head.slice(0, lo).join('') + '…' + tail : null;
+}
+
+/**
+ * fitHead is the last resort for an identity that must be shown (a lane's only chip) and
+ * has no readable elision: its longest whole-segment head (at least 4 characters) and
+ * "…", so it still never ends mid-word. Null when not even that fits.
+ */
+export function fitHead(name: string, fits: (s: string) => boolean): string | null {
+  const parts = segsOf(name);
+  for (let h = parts.length - 1; h >= 1; h--) {
+    const head = parts.slice(0, h).join('');
+    if (Array.from(head).length >= 4 && fits(head + '…')) return head + '…';
+  }
+  return null;
 }
 
 /**
@@ -92,8 +118,10 @@ let ctx: CanvasRenderingContext2D | null | undefined;
  * fitIdents measures every `.fit` identity under root in its own computed font (canvas,
  * no layout thrash) and elides the ones that overflow their box. The full name is read
  * back from the nearest `[title]`, so a second pass starts from the whole name again.
+ * It returns the identities that overflow with no readable elision, for the caller to fold.
+ * A lane's only shown chip has nothing left to fold into, so it takes its whole-segment head.
  */
-export function fitIdents(root: Element): void {
+export function fitIdents(root: Element): HTMLElement[] {
   if (ctx === undefined) {
     try { ctx = document.createElement('canvas').getContext('2d'); } catch { ctx = null; }
   }
@@ -102,22 +130,29 @@ export function fitIdents(root: Element): void {
     const full = e.closest<HTMLElement>('[title]')?.title;
     if (full && e.textContent !== full) e.textContent = full;
   }
-  if (!ctx) return;
-  const c = ctx;
+  if (!ctx) return [];
+  const c = ctx, unfit: HTMLElement[] = [];
   const groups = new Map<Element, HTMLElement[]>();
   for (const e of els) {
     if (e.scrollWidth <= e.clientWidth + 0.5) continue;
     const g = e.closest('.lane-chips') ?? root;
     groups.set(g, [...(groups.get(g) ?? []), e]);
   }
-  for (const list of groups.values()) {
+  for (const [g, list] of groups) {
+    const lone = g.matches('.lane-chips') && [...g.children].filter((ch) => ch.getClientRects().length).length === 1;
     const names = list.map((e) => e.closest<HTMLElement>('[title]')?.title ?? e.textContent ?? '');
-    const res = fitSiblings(names, (name, s) => {
+    const fits = (name: string, s: string) => {
       const e = list[names.indexOf(name)];
       const cs = getComputedStyle(e);
       c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
       return c.measureText(s).width <= e.clientWidth - 2;
+    };
+    const res = fitSiblings(names, fits);
+    list.forEach((e, i) => {
+      const r = res[i] ?? (lone ? fitHead(names[i], (s) => fits(names[i], s)) : null);
+      if (r) e.textContent = r;
+      if (!res[i]) unfit.push(e);
     });
-    list.forEach((e, i) => { if (res[i]) e.textContent = res[i]; });
   }
+  return unfit;
 }

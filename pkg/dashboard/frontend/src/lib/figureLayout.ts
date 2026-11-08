@@ -41,14 +41,21 @@ export function layoutLanes(stage: Element, cap: number): void {
     const reserve = more && !more.hidden ? more.getBoundingClientRect().width + gap : 0;
     const room = Math.floor(list.clientWidth - reserve - pad);
     const cand = chips.filter((c) => !c.hidden);
-    const plan = planChips(cand.map((c) => c.getBoundingClientRect().width), room, cap, parseFloat(getComputedStyle(box).columnGap) || 0);
-    cand.forEach((c, i) => {
-      c.hidden = i >= plan.shown;
-      const b = bdi(c);
-      if (b) b.style.maxWidth = '100%';
-      if (i < plan.shown) c.style.maxWidth = `${plan.widths[i]}px`;
-    });
-    fitIdents(box);
+    const natural = cand.map((c) => c.getBoundingClientRect().width);
+    const cgap = parseFloat(getComputedStyle(box).columnGap) || 0;
+    // A chip with no readable elision (C6) folds: name one fewer and share the room again,
+    // down to the first chip, which is always named.
+    let plan = { shown: 0, widths: [] as number[] };
+    for (let k = cap; k >= 1; k = Math.min(k, plan.shown) - 1) {
+      plan = planChips(natural, room, k, cgap);
+      cand.forEach((c, i) => {
+        c.hidden = i >= plan.shown;
+        const b = bdi(c);
+        if (b) b.style.maxWidth = '100%';
+        c.style.maxWidth = i < plan.shown ? `${plan.widths[i]}px` : '';
+      });
+      if (!fitIdents(box).length || plan.shown <= 1) break;
+    }
     say(plan.shown);
   }
 }

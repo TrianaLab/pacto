@@ -169,10 +169,16 @@ for (const theme of ['dark', 'light'] as const) {
         more: l.querySelector('.lane-more')?.textContent ?? '',
         n: Number(l.querySelector('.lane-count b')?.textContent?.replace(/[^\d]/g, '') ?? 0),
         candidates: l.querySelectorAll('.chip').length,
+        // C6: an elided chip keeps a whole head segment and at least 5 tail characters (or
+        // none, the head alone, when a lane's only chip has no room for a tail).
+        cut: [...l.querySelectorAll('.chip bdi')].filter((b) => b.getClientRects().length && (b.textContent ?? '').includes('…'))
+          .map((b) => (b.textContent ?? '').split('…'))
+          .filter((p) => !/[-_./:]$/.test(p[0]) || [1, 2, 3, 4].includes([...p[p.length - 1]].length)).map((p) => p.join('…')),
       })));
       expect(lanes.reduce((a, l) => a + l.shown, 0), JSON.stringify(lanes)).toBeGreaterThanOrEqual(4);
       for (const l of lanes) {
         if (l.candidates) expect(l.shown, l.name).toBeGreaterThanOrEqual(1);
+        expect(l.cut, l.name).toEqual([]);
         expect(l.more, l.name).toBe(l.shown ? (l.n > l.shown ? `${(l.n - l.shown).toLocaleString('en-US')} more` : '') : `List all ${l.n.toLocaleString('en-US')}`);
       }
     });
