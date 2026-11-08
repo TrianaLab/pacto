@@ -155,6 +155,9 @@ type Result struct {
 	// and, when it is not clear, what to do next.
 	Gate       string `json:"gate" enum:"blocked,unverified,clear"`
 	GateReason string `json:"gateReason"`
+	// ConsumerTallies partition Consumers by outcome and rank their owners, so a
+	// reader states the blast radius from counts rather than by counting the list.
+	ConsumerTallies ConsumerTallies `json:"consumerTallies"`
 }
 
 // boundEnvelope applies the same cap fleet answers apply to the completeness
@@ -309,6 +312,7 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	res.boundEnvelope()
 	res.noteRangeOnlyMatches()
 	res.Gate, res.GateReason = res.gate()
+	res.tally()
 	return res
 }
 

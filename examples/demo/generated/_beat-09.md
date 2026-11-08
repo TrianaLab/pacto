@@ -15,6 +15,8 @@ Affected consumers (5):
   frontend                     transitive confidence=inferred     compat=unknown      owner=frontend-team
   orders-service               direct     confidence=corroborated compat=incompatible owner=commerce-team
   pacto-demo                   transitive confidence=inferred     compat=unknown      owner=platform-foundations
+By outcome: 2 incompatible, 3 unknown, 0 compatible
+Most affected owners: platform-foundations 2 (1 incompatible), commerce-team 1 (1 incompatible), frontend-team 1, platform-foundations-security 1
 Active targets (2): [production-eu/kubernetes-workload/commerce%2Forders-service production-eu/kubernetes-workload/payments%2Fpayments-service]
 Release gate: blocked
 breaking changes affect active consumers, which run on known targets and do not accept payments-service 2.0.1: orders-service

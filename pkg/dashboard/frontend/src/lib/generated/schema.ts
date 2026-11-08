@@ -2849,6 +2849,23 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Impact.ConsumerTallies": {
+            /** Format: int64 */
+            beyondRanking: number;
+            byOutcome: components["schemas"]["Impact.TallyBucket"][] | null;
+            byOwner: components["schemas"]["Impact.OwnerTally"][] | null;
+            /** Format: int64 */
+            noOwner: number;
+            /** Format: int64 */
+            owners: number;
+        };
+        "Impact.OwnerTally": {
+            /** Format: int64 */
+            consumers: number;
+            /** Format: int64 */
+            incompatible: number;
+            owner: string;
+        };
         "Impact.ProductChange": {
             classification: string;
             newTruncated?: boolean;
@@ -2866,6 +2883,7 @@ export interface components {
             breakingChanges?: components["schemas"]["Diff.Change"][] | null;
             classification: string;
             completeness: string;
+            consumerTallies: components["schemas"]["Impact.ConsumerTallies"];
             consumers: components["schemas"]["Impact.AffectedConsumer"][] | null;
             /** @enum {string} */
             gate: "blocked" | "unverified" | "clear";
@@ -3322,7 +3340,11 @@ export interface components {
             unmet?: components["schemas"]["Contract.Mismatch"][] | null;
         };
         ProductImpactConsumersPage: {
+            /** Format: int64 */
+            beyondRanking: number;
             byConfidence: components["schemas"]["Impact.TallyBucket"][] | null;
+            byOutcome: components["schemas"]["Impact.TallyBucket"][] | null;
+            byOwner: components["schemas"]["Impact.OwnerTally"][] | null;
             byVerdict: components["schemas"]["Impact.TallyBucket"][] | null;
             /** Format: int64 */
             count: number;
@@ -3337,7 +3359,11 @@ export interface components {
             /** Format: int64 */
             nextOffset?: number;
             /** Format: int64 */
+            noOwner: number;
+            /** Format: int64 */
             offset: number;
+            /** Format: int64 */
+            owners: number;
             /** Format: int64 */
             refused: number;
             /** Format: int64 */

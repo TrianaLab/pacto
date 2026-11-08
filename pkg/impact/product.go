@@ -95,6 +95,9 @@ type ConsumersPage struct {
 	// Hidden counts the direct consumers this viewer may not see. They are in
 	// neither Items nor Total, and are never named.
 	Hidden int `json:"hidden,omitempty"`
+	// ConsumerTallies (byOutcome, byOwner and the owners outside the ranking) cover
+	// EVERY consumer, like ByVerdict.
+	ConsumerTallies
 }
 
 // ProductChange is one field-level semantic difference between the two revisions,
@@ -305,8 +308,9 @@ func pageConsumers(all []ProductConsumer, limit, offset, hidden int) ConsumersPa
 		Highlights: direct[:min(len(direct), MaxHighlights)],
 		Total:      len(all), Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
 		Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
-		ByVerdict:    tallyConsumers(all, verdictOrder, func(c ProductConsumer) string { return c.CompatibilityVerdict }),
-		ByConfidence: tallyConsumers(all, confidenceOrder, func(c ProductConsumer) string { return c.Confidence }),
+		ByVerdict:       tallyConsumers(all, verdictOrder, func(c ProductConsumer) string { return c.CompatibilityVerdict }),
+		ByConfidence:    tallyConsumers(all, confidenceOrder, func(c ProductConsumer) string { return c.Confidence }),
+		ConsumerTallies: tallyProductConsumers(all),
 	}
 }
 
