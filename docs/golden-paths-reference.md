@@ -48,6 +48,12 @@ registry digest matches. An origin that matches no golden path, or more than
 one, keeps its `ref` and `digest` with a `reason` and links nowhere. Every
 origin is labelled `declared`.
 
+A service created from a directory records as `ref` the coordinate the path's
+`publish.bundle` and version name, which Pacto does not check against the
+registry. A path with no `publish.bundle` records a path relative to the new
+contract, or only the folder name when that path would climb above the home
+folder, so no host folder such as `/Users/<name>` is published.
+
 ## Filters
 
 | Parameter | Values | Effect |

@@ -120,13 +120,10 @@ policies, workload, state and capabilities. Pacto resets the identity:
 
 `--values` files, then `--set` entries, change any field before the identity is
 set; a `null` removes a field. `service.origin` records the path's reference
-and the content digest of its files. For a directory the reference is its
-published coordinate when its contract has one, which Pacto does not check
-against the registry, otherwise a path relative to the new contract, or only
-the folder name when that path would climb above your home folder. A
-directory may hold only regular files: a symlink is refused. YAML comments in the path are not kept. The path's
-`pacto.lock` is not copied: run `pacto lock` to pin the new service's
-references.
+and the content digest of its files; the
+[reference](golden-paths-reference.md#declared-origins) says what a directory
+records. A directory may hold only regular files. YAML comments are not kept,
+and the path's `pacto.lock` is not copied: run `pacto lock`.
 
 Pacto validates the result strictly, with every reference resolved, before it
 writes anything. A configuration reference it cannot resolve fails with
