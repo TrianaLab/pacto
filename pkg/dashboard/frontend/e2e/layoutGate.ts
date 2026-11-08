@@ -40,16 +40,21 @@ export function installScaleFixture(): void {
   };
   const ENTITY_KINDS = new Set(['service', 'revision', 'target', 'owner', 'domain', 'source', 'offering']);
   // Every entity reference carries its display label beside its key: lengthen the label,
-  // keep the key. Owner names printed beside a service are lengthened the same way.
-  const walk = (o: unknown): void => {
-    if (Array.isArray(o)) { o.forEach(walk); return; }
+  // keep the key. Owner names printed beside a service are lengthened the same way, and
+  // so are the context bits a reference shows beside its name (its domain, its parent
+  // service), except on a page's own entity, whose domain the page links by value.
+  const walk = (o: unknown, field = ''): void => {
+    if (Array.isArray(o)) { o.forEach((v) => walk(v)); return; }
     if (!o || typeof o !== 'object') return;
     const r = o as Record<string, unknown>;
     if (typeof r.label === 'string' && typeof r.key === 'string' && ENTITY_KINDS.has(String(r.kind))) {
       r.label = r.kind === 'revision' ? r.label : longName(r.label);
+      if (field !== 'entity') {
+        for (const k of ['businessDomain', 'parentService']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
+      }
     }
     if (typeof r.owner === 'string' && r.kind === 'service') r.owner = longName(r.owner);
-    for (const v of Object.values(r)) walk(v);
+    for (const [k, v] of Object.entries(r)) walk(v, k);
   };
   const split = (total: number, weights: number[]) => {
     const sum = weights.reduce((a, b) => a + b, 0) || 1;
@@ -268,10 +273,19 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
     // A text box is the nearest box that is not inline: runs inside one inline
     // formatting context are one sentence, not two boxes.
     const boxOf = new Map<Element, Element>();
+    // An atomic inline box (an inline-flex link, an inline-block badge) placed in running
+    // text is a word of that sentence too, spaced by the sentence's own word space; a
+    // flex or grid item is blockified and stays a box of its own.
+    const flows = (p: Element) => {
+      const d = getComputedStyle(p).display;
+      if (/^(inline|contents)$/.test(d)) return true;
+      if (!/^inline-/.test(d) || !p.parentElement) return false;
+      return !/(flex|grid)$/.test(getComputedStyle(p.parentElement).display);
+    };
     const textBox = (el: Element): Element => {
       if (boxOf.has(el)) return boxOf.get(el)!;
       let p: Element = el;
-      while (p.parentElement && /^(inline|contents)$/.test(getComputedStyle(p).display)) p = p.parentElement;
+      while (p.parentElement && flows(p)) p = p.parentElement;
       boxOf.set(el, p);
       return p;
     };
