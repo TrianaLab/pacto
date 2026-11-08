@@ -7,8 +7,9 @@ import { gateMode, installScaleFixture, layoutProblems } from './layoutGate';
 // the final frame forced, on the scale fixture. It fails on intersecting text, a box
 // spilling with visible overflow, text under 12.19px, ellipsized text with no title,
 // text cut with no ellipsis, an identity that is not an elision of its title, a lone
-// surrogate, horizontal page scroll, and the figure rules (marks, linked numbers, one
-// ring) once figures exist.
+// surrogate, horizontal page scroll, more than one err ring, and the figure rules once
+// figures exist: at most 20 marks, no mark over text, 8px between labels of different
+// groups, every number a filter link or data-nofilter.
 //
 // PENDING names subtrees a later phase rewrites. Each entry is deleted by that phase;
 // nothing else is excluded.

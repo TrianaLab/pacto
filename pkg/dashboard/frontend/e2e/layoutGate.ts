@@ -276,6 +276,15 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
           const ix = Math.min(a.r, b.r) - Math.max(a.l, b.l);
           const iy = Math.min(a.b, b.b) - Math.max(a.t, b.t);
           if (ix > 1 && iy > 1) out.push(`text overlaps text: ${say(a.el)} x ${say(b.el)}`);
+          else if (iy > 4) {
+            // Inside a figure, two labels of different groups on one line keep 8px apart.
+            const fa = a.el.closest('[data-fig]');
+            const group = '.lane, .station, .hub, .fig-aside';
+            if (fa && fa === b.el.closest('[data-fig]') && a.el.closest(group) !== b.el.closest(group)) {
+              const gap = Math.max(a.l, b.l) - Math.min(a.r, b.r);
+              if (gap < 7.5 && gap > -1) out.push(`a ${gap.toFixed(1)}px gap, under 8px, in a figure: ${say(a.el)} / ${say(b.el)}`);
+            }
+          }
         }
       }
     }
@@ -326,6 +335,13 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
       if (skipped(f)) continue;
       const marks = [...f.querySelectorAll('.mk')].filter((m) => m.getClientRects().length);
       if (marks.length > 20) out.push(`${say(f)} draws ${marks.length} marks, more than 20`);
+      // A mark never covers text (a "+N" count chip is itself the mark).
+      const words = boxes.filter((x) => f.contains(x.el) && !x.el.closest('.mk, .on-mark'));
+      for (const m of marks) {
+        const r = m.getBoundingClientRect();
+        const hit = words.find((x) => Math.min(x.r, r.right) - Math.max(x.l, r.left) > 1 && Math.min(x.b, r.bottom) - Math.max(x.t, r.top) > 1);
+        if (hit) out.push(`a mark covers text in a figure: ${say(hit.el)}`);
+      }
       for (const n of f.querySelectorAll('.lane, .station, .fig-aside')) {
         const tw = document.createTreeWalker(n, NodeFilter.SHOW_TEXT);
         for (let t = tw.nextNode(); t; t = tw.nextNode()) {
