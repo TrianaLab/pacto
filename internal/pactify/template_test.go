@@ -456,18 +456,15 @@ func TestTemplateDelivery(t *testing.T) {
 	}
 
 	// A folder whose workload runs a version: every Stage is planned, a
-	// Stage already there is kept, and applying marks the step done.
-	dir := writeTree(t, filepath.Join(t.TempDir(), "gift-cards"), map[string]string{
-		"k8s/app.yaml":     "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: gift-cards}\nspec:\n  template:\n    spec:\n      containers: [{name: api, image: ghcr.io/acme/gift-cards:0.1.0}]\n",
-		"delivery/qa.yaml": "mine\n",
-	})
-	opts := Options{Dir: dir, Owner: "checkout", Delivery: true, Environments: []string{"qa", "prod"}, RegistrySecret: "creds",
-		Template: &Template{FS: goldenPath(deployPath), Ref: "oci://ghcr.io/platform/http-service:1.0.0", Digest: pathDigest, Find: notInstalled}}
+	// Stage already there is kept and left unchecked, so applying leaves the
+	// step unknown rather than done.
+	dir, opts := taggedFolder(t, "delivery/qa.yaml")
 	r, err := Init(context.Background(), opts, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusDone || s.Detail != "the Pacto resource and Stages: delivery/pacto.yaml, delivery/qa.yaml (kept as it is), delivery/prod.yaml" {
+	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusUnknown || s.Detail != "the Pacto resource and Stages: delivery/pacto.yaml, delivery/prod.yaml; "+
+		"delivery files already exist and were kept; Pacto did not write or check them: delivery/qa.yaml" {
 		t.Errorf("stages: %+v", s)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "delivery/qa.yaml")); string(b) != "mine\n" {
@@ -478,6 +475,43 @@ func TestTemplateDelivery(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, ".pactoignore")); !strings.Contains(string(b), "delivery/") {
 		t.Errorf(".pactoignore: %s", b)
+	}
+
+}
+
+// taggedFolder is a folder whose workload runs a version, holding the
+// delivery files named, and the --delivery options for qa and prod.
+func taggedFolder(t *testing.T, delivery ...string) (string, Options) {
+	t.Helper()
+	files := map[string]string{"k8s/app.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: gift-cards}\nspec:\n  template:\n    spec:\n      containers: [{name: api, image: ghcr.io/acme/gift-cards:0.1.0}]\n"}
+	for _, f := range delivery {
+		files[f] = "mine\n"
+	}
+	dir := writeTree(t, filepath.Join(t.TempDir(), "gift-cards"), files)
+	return dir, Options{Dir: dir, Owner: "checkout", Delivery: true, Environments: []string{"qa", "prod"}, RegistrySecret: "creds",
+		Template: &Template{FS: goldenPath(deployPath), Ref: "oci://ghcr.io/platform/http-service:1.0.0", Digest: pathDigest, Find: notInstalled}}
+}
+
+// TestTemplateDeliveryKept: the delivery step is done only for files this
+// run wrote. Delivery files already there are kept and never checked, so
+// the step stays unknown and says so.
+func TestTemplateDeliveryKept(t *testing.T) {
+	_, opts := taggedFolder(t, "delivery/pacto.yaml", "delivery/qa.yaml", "delivery/prod.yaml")
+	r, err := Init(context.Background(), opts, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusUnknown || s.Detail != "delivery files already exist and were kept; "+
+		"Pacto did not write or check them: delivery/pacto.yaml, delivery/qa.yaml, delivery/prod.yaml" {
+		t.Errorf("all kept: %+v", s)
+	}
+
+	_, opts = taggedFolder(t)
+	if r, err = Init(context.Background(), opts, os.WriteFile); err != nil {
+		t.Fatal(err)
+	}
+	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusDone || s.Detail != "the Pacto resource and Stages: delivery/pacto.yaml, delivery/qa.yaml, delivery/prod.yaml" {
+		t.Errorf("all added: %+v", s)
 	}
 }
 

@@ -336,26 +336,37 @@ func (p *planner) creationSteps(c *contract.Contract, plugins []fleet.CreationSt
 // deliveryStep reports the cluster pieces --delivery planned for a service
 // created from a golden path, before the published step: planned only when
 // the Pacto resource and every environment's Stage were, else unknown with
-// the reason.
+// the reason. A delivery file already on disk is kept, never written or
+// checked, so it leaves the step unknown: only files this run adds count.
 func (p *planner) deliveryStep() {
 	if p.opts.Template == nil {
 		return
 	}
-	var files []string
+	var files, added, kept []string
 	for _, f := range p.r.Files {
-		if strings.HasPrefix(f.Path, "delivery/") && f.Action == Keep {
+		switch {
+		case !strings.HasPrefix(f.Path, "delivery/"):
+			continue
+		case f.Action == Keep:
+			kept = append(kept, f.Path)
 			files = append(files, f.Path+" (kept as it is)")
-		} else if strings.HasPrefix(f.Path, "delivery/") {
+		default:
+			added = append(added, f.Path)
 			files = append(files, f.Path)
 		}
 	}
-	step := fleet.CreationStep{Step: fleet.StepDelivery, Status: fleet.StepStatusPlanned, Detail: "the Pacto resource and Stages: " + strings.Join(files, ", ")}
+	step := fleet.CreationStep{Step: fleet.StepDelivery, Status: fleet.StepStatusPlanned, Detail: "the Pacto resource and Stages: " + strings.Join(added, ", ")}
 	switch {
 	case !p.deliveryPlanned:
 		step.Status, step.Detail = fleet.StepStatusUnknown, "no cluster pieces: the golden path publishes no manifests for Flux to apply (publish.deploy)"
 	case len(files) < 1+len(p.envs):
 		step.Status, step.Detail = fleet.StepStatusUnknown, "the Pacto resource only: "+strings.Join(files, ", ")+
 			"; no Stage, since nothing deployed says which version runs: tag the image with the version you deploy and run pacto init --delivery again"
+	case len(kept) > 0:
+		step.Status, step.Detail = fleet.StepStatusUnknown, "delivery files already exist and were kept; Pacto did not write or check them: "+strings.Join(kept, ", ")
+		if len(added) > 0 {
+			step.Detail = "the Pacto resource and Stages: " + strings.Join(added, ", ") + "; " + step.Detail
+		}
 	}
 	i := slices.IndexFunc(p.r.Steps, func(s fleet.CreationStep) bool { return s.Step == fleet.StepPublished })
 	p.r.Steps = slices.Insert(p.r.Steps, i, step)
