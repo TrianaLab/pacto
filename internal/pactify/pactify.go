@@ -224,22 +224,27 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	if err := p.contract(ctx); err != nil {
 		return nil, err
 	}
+	if err := p.finish(ctx); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// finish plans what follows the contract, then refuses a plan whose files
+// cannot all be written and validates a contract created from a golden path
+// over everything planned.
+func (p *planner) finish(ctx context.Context) error {
 	p.transparencyLog()
 	p.consumers()
-	if opts.Delivery {
+	if p.opts.Delivery {
 		p.delivery()
 		p.deliveryStep()
 	}
 	p.ignore()
-	if err := p.conflicts(); err != nil {
-		return nil, err
+	if err := p.conflicts(); err != nil || p.r.Mode != modeTemplate {
+		return err
 	}
-	if r.Mode == modeTemplate {
-		if err := p.validateTemplate(ctx); err != nil {
-			return nil, err
-		}
-	}
-	return r, nil
+	return p.validateTemplate(ctx)
 }
 
 // environments checks the delivery options and returns the environments,
