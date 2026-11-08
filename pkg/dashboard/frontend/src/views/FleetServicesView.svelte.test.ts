@@ -209,6 +209,8 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     await vi.waitFor(() => expect(rows(target).length).toBe(2));
 
     // The posture column draws the compliance tally; its rows carry count and share.
+    // The figure loads lazily, so under a busy test run it can land after the rows.
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="posture-figure"]')).toBeTruthy());
     const fig = target.querySelector('[data-testid="posture-figure"]') as HTMLElement;
     expect(Array.from(fig.querySelectorAll('.prow')).filter((r) => r.querySelector('.prow-n b')?.textContent !== '0').map((r) => [
       r.querySelector('.prow-l')?.textContent, r.querySelector('.prow-n')?.textContent,
