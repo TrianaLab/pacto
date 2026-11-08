@@ -174,7 +174,7 @@ describe('EnvFleetFigure', () => {
     expect(target.querySelector('.envc .qglyph.unk')).toBeTruthy();
     expect(target.querySelector('.queue-h')?.textContent).toBe('3 Stages, named like test');
     expect(target.querySelector('figcaption')?.textContent).toContain('5 Stages in 2 environments: 1 failed, 0 waiting for a person and 1 frozen.');
-    expect(target.querySelector('.fig-aside')?.textContent).toContain('Partial: namespaces you cannot list are not counted');
+    expect(target.querySelector('figcaption')?.textContent).toContain('Namespaces you cannot list are not counted.');
     expect(target.querySelector('figure svg text')).toBeNull();
     unmount(c);
   });

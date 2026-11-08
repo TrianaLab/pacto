@@ -59,7 +59,7 @@ export function historyModel(t: Timeline, { source, live }: { source: 'records' 
   const ticks = { first: tickLabel(t.start, t.end), mid: buckets[6] ? tickLabel(buckets[6].start, t.end) : '', last: end };
   const window = `${tickLabel(t.start, t.end)} to ${end}`;
   const caption = [
-    `${formatCount(t.totals.failed)} failed and ${formatCount(t.totals.held)} held for a person, of ${countOf(total, 'change')} between ${window} UTC.`,
+    `${formatCount(t.totals.failed)} failed and ${formatCount(t.totals.held)} held for a person, of ${countOf(total, 'change')} from ${window} UTC.`,
     source === 'cluster' ? 'Counted from the changes still in the cluster, which cannot show a missing record: open one Stage to read its signed records.'
       : source === 'status' ? 'Read from the changes still in the cluster: this Stage keeps no signed records, so a missing record cannot be shown.'
       : gaps.length ? `The record is missing in ${countOf(gaps.length, 'slice')}, ${countOf(t.totals.missing, 'record')} in all.` : 'No record is missing in this window.',

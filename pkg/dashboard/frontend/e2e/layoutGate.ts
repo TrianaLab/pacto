@@ -11,7 +11,8 @@ import { expect, type Page } from '@playwright/test';
 // Playwright's interception never sees a wasm-served fetch). It turns the 38-service
 // demo into the population the spec's figures must survive: 5,000 services, 300 owners,
 // 300 domains, 50 sources, 1,284 consumers (412 direct, 8 highlights, 3 hidden,
-// partial), 25 providers, 60 delivery environments waiting in the inbox, and
+// partial), 25 providers, 60 delivery environments (waiting in the inbox and counted
+// by state), a history timeline and autonomy levels in the thousands, and
 // identities of 60 to 200 characters including an emoji and a right-to-left override.
 // Keys and hrefs never change, so every link still lands.
 
@@ -133,6 +134,28 @@ export function installScaleFixture(): void {
         const environment = longName(`prod-${i}`);
         return { environment, errored: (i * 37) % 1300, held: (i * 53) % 900, frozen: i % 4, upstream: i ? [longName(`prod-${i - 1}`)] : [] };
       });
+    }
+    // The environments figure at fleet scale: 60 environments with long names and a
+    // declared chain through them, Stages in the thousands; the board stays the engine's.
+    if (route === '/api/delivery/environments') {
+      const counts = doc.counts as Record<string, unknown> | undefined;
+      if (counts) {
+        counts.byEnvironment = Array.from({ length: 60 }, (_, i) => ({
+          environment: longName(`prod-${i}`), tier: 'prod', stages: 900, failed: (i * 37) % 120, frozen: i % 4, autoHold: i % 3, waiting: (i * 53) % 90,
+          unverified: 40, empty: 2, verified: 900 - 40 - 2 - ((i * 37) % 120) - (i % 4) - (i % 3) - ((i * 53) % 90),
+          upstream: i ? [longName(`prod-${i - 1}`)] : [],
+        }));
+      }
+    }
+    if (route === '/api/delivery/history') {
+      const tl = doc.timeline as { buckets: Record<string, number>[]; totals: Record<string, number> } | undefined;
+      if (tl) {
+        tl.buckets.forEach((b, i) => { b.released = 1200 + i * 37; b.failed = (i * 13) % 40; b.held = (i * 7) % 25; b.other = 300; });
+        for (const k of ['released', 'failed', 'held', 'other']) tl.totals[k] = tl.buckets.reduce((n, b) => n + b[k], 0);
+      }
+    }
+    if (route === '/api/delivery/autonomy') {
+      doc.byLevel = [{ level: 'observe', stages: 1200 }, { level: 'advise', stages: 2300 }, { level: 'auto-nonbreaking', stages: 1100 }, { level: 'autonomous', stages: 380 }, { level: '', stages: 20 }];
     }
     if (method === 'POST' && route === '/api/fleet/impact') {
       const cs = doc.consumers as Record<string, unknown>;

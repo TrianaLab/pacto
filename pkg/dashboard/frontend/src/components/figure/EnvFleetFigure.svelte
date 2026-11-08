@@ -8,7 +8,9 @@
   import { fleetEnvModel } from '../../lib/envFigure.ts';
   import { GLYPH_PATH } from '../../lib/figure.ts';
   import { formatCount, countOf } from '../../lib/format.ts';
+  import { elidable } from '../../lib/elide.ts';
 
+  // No aside: seven stations need the figure's whole width, so their counts keep one line.
   /** @type {{ byEnvironment: NonNullable<import('../../lib/api.ts').DeliveryEnvironments['counts']['byEnvironment']>, href: (state: string, env: string) => string, partial?: boolean, asOf?: string }} */
   let { byEnvironment, href, partial = false, asOf = '' } = $props();
   const m = $derived(fleetEnvModel(byEnvironment));
@@ -23,7 +25,7 @@
         <li class="pst station">
           <Station a="e{i}" m="e{i}" {w} />
           <div class="pst-l">
-            <b class="pst-name"><bdi>{s.label}</bdi></b>
+            {#if s.env}<b class="pst-name id" title={s.label}><bdi class:fit={elidable(s.label)}>{s.label}</bdi></b>{:else}<b class="pst-name">{s.label}</b>{/if}
             <span class="queue-h">{countOf(s.stages, 'Stage')}{#if s.tier}, named like {s.tier}{/if}</span>
             <span class="sbar" aria-hidden="true">{#each s.counts as c (c.s.key)}<i class="t-{c.s.tone}" class:hatch={c.s.hatch} style:flex-grow={c.n}></i>{/each}</span>
             <ul class="envc">
@@ -40,13 +42,5 @@
       {/each}
     </ol>
   {/snippet}
-  {#snippet aside()}
-    <dl class="facts">
-      <dt>Stages</dt><dd><span data-nofilter>{formatCount(m.stages)}</span> in <span data-nofilter>{formatCount(byEnvironment.length)}</span> environments</dd>
-      <dt>Order</dt><dd>The upstream each Stage declares; a tier is only what a name says</dd>
-      <dt>Coverage</dt><dd><span class="badge wrap" class:badge-neutral={partial}>{partial ? 'Partial: namespaces you cannot list are not counted' : 'Every namespace you can list'}</span></dd>
-      {#if asOf}<dt>As of</dt><dd>{asOf}</dd>{/if}
-    </dl>
-  {/snippet}
-  {#snippet caption()}{m.caption}{' '}<span class="fig-ref">{m.figRef}</span>{/snippet}
+  {#snippet caption()}{m.caption}{#if partial}{' '}Namespaces you cannot list are not counted.{/if}{' '}The order is the upstream each Stage declares; a tier is only what a name says.{#if asOf}{' '}As of {asOf}.{/if}{' '}<span class="fig-ref">{m.figRef}</span>{/snippet}
 </Figure>

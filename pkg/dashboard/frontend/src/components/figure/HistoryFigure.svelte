@@ -5,7 +5,7 @@
   // and a dashed axis with ⊗ under a column whose record is missing (never a hatch:
   // the hatch is "unknown, accepted"). Ambient: no narration.
   import Figure from './Figure.svelte';
-  import { historyModel, TL_KINDS, TL_HEIGHT } from '../../lib/historyFigure.ts';
+  import { historyModel, tickLabel, TL_KINDS, TL_HEIGHT } from '../../lib/historyFigure.ts';
   import { formatCount } from '../../lib/format.ts';
 
   /** @type {{ timeline: import('../../lib/generated/schema.ts').components['schemas']['Delivery.HistoryTimeline'], href: (since: string, until: string) => string, source: 'records' | 'status' | 'cluster', live: boolean, question?: string }} */
@@ -13,14 +13,15 @@
   const m = $derived(historyModel(timeline, { source, live }));
 </script>
 
-<Figure id="hist" testid="history-figure" {question} alt={m.alt} compact={true}>
+<Figure id="hist" testid="history-figure" {question} alt={m.alt} compact={true} rowMin={768}>
   {#snippet stage()}
     <div class="tl-wrap">
       <ol class="tl" style:--tl-h="{TL_HEIGHT}px">
         {#each m.columns as c (c.i)}
           <li class="tl-c" class:gap={c.missing > 0}>
+            <span class="tl-t" aria-hidden="true">{tickLabel(c.start, timeline.end)}</span>
             {#if c.n}<a class="tl-n" href={href(c.start, c.end)}>{formatCount(c.n)}</a>{:else}<span class="tl-n" data-nofilter>0</span>{/if}
-            <span class="tl-bar mk" data-m="tl{c.i}" aria-hidden="true">{#each c.segs as s (s.k.key)}<i class="t-{s.k.tone}" class:hatch={s.k.hatch} style:height="{s.h}px"></i>{/each}</span>
+            <span class="tl-bar mk" data-m="tl{c.i}" aria-hidden="true">{#each c.segs as s (s.k.key)}<i class="t-{s.k.tone}" class:hatch={s.k.hatch} style:--s={s.h / TL_HEIGHT}></i>{/each}</span>
             <span class="tl-ax" aria-hidden="true">{#if c.missing}<svg class="tl-x" width="14" height="14" viewBox="-7 -7 14 14" focusable="false"><circle r="5.5" /><path d="M-2.5 -2.5 L2.5 2.5 M2.5 -2.5 L-2.5 2.5" /></svg>{/if}</span>
           </li>
         {/each}

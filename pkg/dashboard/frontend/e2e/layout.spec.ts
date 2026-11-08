@@ -71,6 +71,7 @@ const ROUTES: Route[] = [
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   { name: 'delivery inbox', list: true, hash: '#/delivery/inbox' },
   { name: 'delivery environments', list: true, hash: '#/delivery/environments' },
+  { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },
   { name: 'delivery history', list: true, hash: '#/delivery/history' },
   { name: 'delivery stage history', hash: '#/delivery/history?namespace=prod&stage=payments' },
   { name: 'delivery autonomy', list: true, hash: '#/delivery/autonomy' },

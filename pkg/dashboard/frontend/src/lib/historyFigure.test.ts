@@ -32,7 +32,7 @@ describe('historyModel', () => {
     expect(m.columns[0].missing).toBe(2);
     expect(m.gapWords).toEqual(['2 records between yesterday 14:04 and yesterday 16:04']);
     expect(m.ticks).toEqual({ first: 'yesterday 14:04', mid: '02:04', last: 'now, 14:04' });
-    expect(m.caption).toBe('1 failed and 2 held for a person, of 45 changes between yesterday 14:04 to now, 14:04 UTC. The record is missing in 1 slice, 2 records in all.');
+    expect(m.caption).toBe('1 failed and 2 held for a person, of 45 changes from yesterday 14:04 to now, 14:04 UTC. The record is missing in 1 slice, 2 records in all.');
     expect(TL_KINDS.find((k) => k.key === 'acceptedUnknown')).toMatchObject({ tone: 'neutral', hatch: true });
   });
 

@@ -237,6 +237,10 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 /* A folded chip or an empty list link is gone, whatever display its class sets. */
 .fig [hidden] { display: none !important; }
 
+/* An identity under a station: one line, measured elision (C6) in its own box. */
+.fig .id { display: block; min-width: 0; max-width: 100%; }
+.fig .id bdi { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
 /* Environments (SPEC 7, 21): the fleet stations' share bar and counts, and one service's
    own promotion graph (columns are links from an entry; a fork stacks in one column). */
 .sbar { display: flex; gap: 1px; height: 10px; border-radius: 2px; overflow: hidden; background: var(--c-surface-inset); box-shadow: inset 0 0 0 1px var(--c-border); }
@@ -258,7 +262,7 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .pg-run .stamp { font-size: var(--text-xs); padding: 2px 6px; }
 .fig[data-w="col"] .pgraph { grid-template-columns: minmax(0, 1fr); }
 .fig[data-w="col"] .pg-st, .fig[data-w="col"] .pg-src { grid-column: 1 !important; grid-row: auto !important; grid-template-columns: 96px minmax(0, 1fr); justify-items: start; text-align: left; }
-.fig[data-w="col"] .pg-src { grid-template-columns: 28px minmax(0, 1fr); }
+.fig[data-w="col"] .pg-src > .nd { justify-self: center; }
 .fig[data-w="col"] .pg-l, .fig[data-w="col"] .pg-run { justify-items: start; justify-content: flex-start; }
 
 /* History Timeline (SPEC 7): twelve equal columns, worst on top, a count over each; a
@@ -270,7 +274,7 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 a.tl-n { color: var(--c-accent); text-decoration: none; font-weight: 600; }
 a.tl-n:hover { text-decoration: underline; }
 .tl-bar { display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; width: min(100%, 28px); height: var(--tl-h); }
-.tl-bar i { display: block; flex: none; background: var(--tone); border-radius: 1px; }
+.tl-bar i { display: block; flex: none; height: calc(var(--s) * var(--tl-h)); background: var(--tone); border-radius: 1px; }
 .tl-bar i.hatch, .keyl .sw.hatch { background: var(--c-hatch), var(--c-surface); box-shadow: inset 0 0 0 1px var(--c-neutral); }
 .tl-ax { display: grid; place-items: center; width: 100%; height: 16px; border-top: 2px solid var(--fig-line-strong); }
 .tl-c.gap .tl-ax { border-top-style: dashed; border-top-color: var(--c-neutral); }
@@ -286,7 +290,16 @@ a.tl-n:hover { text-decoration: underline; }
 .gapk circle { fill: var(--c-surface); stroke: var(--c-neutral); stroke-width: 1.5; }
 .gapk path:last-child { stroke: var(--c-text); stroke-width: 1.5; fill: none; }
 .tl-gaps { margin: 0; }
-.fig[data-w="col"] .tl { gap: 2px; }
+.tl-t { display: none; }
+/* S1 (r3): where a column would get too narrow for its count, the timeline turns
+   vertical: one row per slice, its start time, its count and a horizontal bar. */
+.fig[data-w="col"] .tl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.fig[data-w="col"] .tl-c { grid-template-columns: 7.5rem 4rem minmax(0, 1fr) 16px; justify-items: start; align-items: center; gap: var(--sp-2); }
+.fig[data-w="col"] .tl-t { display: block; font-size: var(--text-xs); color: var(--c-text-3); }
+.fig[data-w="col"] .tl-bar { flex-direction: row; justify-content: flex-start; width: 100%; height: 10px; }
+.fig[data-w="col"] .tl-bar i { height: 100%; width: calc(var(--s) * 100%); }
+.fig[data-w="col"] .tl-ax { grid-column: 4; grid-row: 1; width: 16px; height: 16px; border-top: 0; }
+.fig[data-w="col"] .tl-axis { display: none; }
 
 /* Autonomy (SPEC 7, S9): same-size cards, one per level, a count bar on one scale. */
 .lad { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: var(--sp-4); margin: 0; padding: 0; list-style: none; }
@@ -308,12 +321,14 @@ a.tl-n:hover { text-decoration: underline; }
 
 /* Publish (SPEC 7): Build, Signature, Registry in 64px slots with labels on one
    baseline, then the two lanes that partition the services. */
-.pub { display: grid; grid-template-columns: repeat(3, minmax(6rem, 9rem)) minmax(0, 1fr); align-items: end; gap: var(--sp-5) var(--sp-6); padding-bottom: var(--sp-6); }
+.pub { display: grid; grid-template-columns: repeat(3, minmax(6rem, 11rem)) minmax(0, 1fr); align-items: end; gap: var(--sp-6) var(--sp-8); }
+.pnode.seal .nd { margin-bottom: 28px; }
 .pnode { display: grid; justify-items: center; gap: 4px; min-width: 0; text-align: center; font-size: var(--text-sm); line-height: 1.4; }
 .pnode .nd { margin-top: var(--sp-2); }
-.pub-lanes { align-self: center; }
+.pub-lanes { grid-column: 1 / -1; padding-left: var(--sp-6); }
 .fig:not([data-w="wide"]) .pub { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.fig:not([data-w="wide"]) .pub-lanes { grid-column: 1 / -1; }
-.fig[data-w="col"] .pub { grid-template-columns: minmax(0, 1fr); padding-bottom: 0; }
+.fig[data-w="col"] .pub { grid-template-columns: minmax(0, 1fr); }
+.fig[data-w="col"] .pnode.seal .nd { margin-bottom: 0; }
+.fig[data-w="col"] .pub-lanes { padding-left: 0; }
 .fig[data-w="col"] .pnode { grid-template-columns: 40px minmax(0, 1fr); justify-items: start; text-align: left; }
 .fig[data-w="col"] .pnode .nd { grid-row: 1 / span 2; grid-column: 1; margin: 0; }
