@@ -93,7 +93,7 @@
   // count on this page.
   const goldenPaths = $derived(s.goldenPaths || 0);
   const invalidGoldenPaths = $derived(s.invalidGoldenPaths || 0);
-  const isEmptyFleet = $derived(!!overview && totalServices === 0);
+  const isEmptyFleet = $derived(!!overview && totalServices === 0 && goldenPaths === 0);
   // All-clear needs complete knowledge, zero attention AND a populated fleet.
   const canAllClear = $derived(!!overview && totalServices > 0 && allClearAllowed(knowledge, attentionTotal));
   // "All clear" is a claim about the attention BACKLOG. "Every operational target is

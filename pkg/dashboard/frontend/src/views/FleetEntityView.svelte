@@ -7,6 +7,7 @@
   import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, hashForHref } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
   import { postureAnswer, revisionAnswer } from '../lib/answers.ts';
+  import { currentEntity } from '../lib/currentEntity.svelte.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -79,6 +80,12 @@
   const trail = $derived(
     detail ? fleetEntityBreadcrumbs(detail) : [{ label: 'Overview', href: fleetOverviewUrl() }, { label: kindLabel(kind) }],
   );
+
+  // The nav lights Golden paths on a golden path's page, like the trail above.
+  $effect(() => {
+    currentEntity.template = !!detail?.entity?.template;
+    return () => { currentEntity.template = false; };
+  });
 
   // The service this entity belongs to, for impact/compare actions.
   const svcKey = $derived(

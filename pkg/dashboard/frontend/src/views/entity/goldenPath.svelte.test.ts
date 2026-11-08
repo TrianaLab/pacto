@@ -127,6 +127,33 @@ describe('ServiceEntity: a golden path', () => {
     done();
   });
 
+  it('counts the requirements on services the viewer may not see', async () => {
+    const t = template({ requirements: preview([]), unresolvedRequirements: preview([]), hiddenRequirements: 1 });
+    const { target, done } = await render(detail(PATH, 'http-service', { template: t }, { template: true }));
+    const req = target.querySelector('[data-testid="golden-path-requirements"]')!;
+    expect(req.textContent).toContain('1 requirement on services you may not see.');
+    expect(req.textContent).not.toContain('It consumes no offering.');
+    done();
+  });
+
+  it('says a local folder command copies what the folder holds when it runs', async () => {
+    const t = template({ instantiate: { ref: '/paths/http-service', cli: 'pacto init <name> --from /paths/http-service --owner <team>', mcp: 'x' } });
+    const { target, done } = await render(detail(PATH, 'http-service', { template: t }, { template: true }));
+    const create = target.querySelector('[data-testid="golden-path-create"]')!;
+    expect(create.textContent).toContain('names a local folder');
+    expect(create.textContent).not.toContain('by digest');
+    done();
+  });
+
+  it('links no drift row of a golden path to an attention list it never appears in', async () => {
+    const summary = { targets: 0, revisions: 1, declaredDependencies: 1, unresolvedDeclared: 1, unsatisfiedRanges: 1 };
+    const { target, done } = await render(detail(PATH, 'http-service', { template: template(), summary }, { template: true }));
+    const drift = target.querySelector('.se-drift')!;
+    expect(drift.textContent).toContain('Unresolved declarations');
+    expect(Array.from(drift.querySelectorAll('a')).map((a) => a.getAttribute('href')).filter((h) => h?.includes('attention'))).toEqual([]);
+    done();
+  });
+
   it('shows nothing of the sort on an ordinary service', async () => {
     const { target, done } = await render(detail('ghcr.io/acme/payments', 'payments'));
     expect(target.querySelector('[data-testid="golden-path"]')).toBeNull();

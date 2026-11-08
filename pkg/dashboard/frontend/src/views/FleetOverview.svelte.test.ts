@@ -175,6 +175,18 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('a fleet holding only golden paths never says nothing has reported a contract', async () => {
+    const ov = emptyOverview(false);
+    ov.summary.goldenPaths = 3;
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
+    expect(target.querySelector('.empty-fleet')).toBeFalsy();
+    expect(target.textContent || '').not.toMatch(/no services tracked/i);
+    expect(target.querySelector('.ov-gp-count')?.textContent).toBe('3');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('case 2: incomplete knowledge + zero services never claims health', async () => {
     overviewFn.mockResolvedValue(emptyOverview(true));
     const { target, component } = mountView();

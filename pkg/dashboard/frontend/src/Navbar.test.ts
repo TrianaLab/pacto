@@ -188,6 +188,16 @@ describe('Navbar — capability gating', () => {
 });
 
 describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
+  it('lights Golden paths, not Services, on a golden path page', async () => {
+    const { currentEntity } = await import('./lib/currentEntity.svelte.ts');
+    currentEntity.template = true;
+    try {
+      expect(activeLabel('fleet-entity', 'service')).toBe('Golden paths');
+    } finally {
+      currentEntity.template = false;
+    }
+  });
+
   // Every entity page shares one view id, so without the kind the nav lit "Services"
   // while the trail underneath read "Overview > Data sources > edge-cluster".
   function activeLabel(view: string, entityKind = ''): string | null {

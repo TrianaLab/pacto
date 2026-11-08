@@ -108,8 +108,10 @@
     { k: 'Declared and observed', v: sum.reconciledMatched ?? 0, tone: 'ok' },
     { k: 'Declared, not observed', v: sum.declaredNotObserved ?? 0, tone: 'warn', href: graphHref },
     { k: 'Observed, not declared', v: sum.observedNotDeclared ?? 0, tone: 'warn', href: graphHref },
-    { k: 'Unresolved declarations', v: sum.unresolvedDeclared ?? 0, tone: 'warn', href: attentionUrl('unresolved') },
-    { k: 'Outside accepted range', v: sum.unsatisfiedRanges ?? 0, tone: 'warn', href: attentionUrl('out-of-range') },
+    // A golden path raises no attention item, so its rows link nowhere: its
+    // Requirements section lists them.
+    { k: 'Unresolved declarations', v: sum.unresolvedDeclared ?? 0, tone: 'warn', href: d.template ? undefined : attentionUrl('unresolved') },
+    { k: 'Outside accepted range', v: sum.unsatisfiedRanges ?? 0, tone: 'warn', href: d.template ? undefined : attentionUrl('out-of-range') },
     { k: 'Cannot be observed', v: sum.insufficientEvidence ?? 0, tone: '', href: graphHref },
   ].filter((x) => x.v > 0));
 
@@ -143,6 +145,7 @@
   };
   const stepStatus = (st) => STEP_STATUS[st] ?? ['Unknown', 'warn'];
   const hiddenCreated = $derived(gp?.hiddenCreatedServices ?? 0);
+  const hiddenReqs = $derived(gp?.hiddenRequirements ?? 0);
 </script>
 
 <div class="svc-entity">
@@ -283,7 +286,11 @@
           </div>
           <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long digest-pinned command scrolls sideways; focus lets a keyboard reader scroll it) -->
           <pre class="se-snippet" tabindex="0"><code>{gp.instantiate.mcp}</code></pre>
-          <p class="se-note">The command names the exact bytes shown here by digest. Set a trust config with --trust or PACTO_DELIVERY_TRUST to check the signature at creation.</p>
+          {#if gp.instantiate.ref?.includes('@sha256:')}
+            <p class="se-note">The command names the exact bytes shown here by digest. Set a trust config with --trust or PACTO_DELIVERY_TRUST to check the signature at creation.</p>
+          {:else}
+            <p class="se-note">The command names a local folder: it copies the files the folder holds when it runs, which may differ from the ones shown here.</p>
+          {/if}
         {:else}
           <p class="se-none">{gp.instantiateReason || 'No command is available.'}</p>
         {/if}
@@ -337,9 +344,10 @@
             {/each}
           </ul>
           {#if gp.requirements?.truncated}<p class="se-note">+{(gp.requirements.total ?? 0) - (gp.requirements.count ?? 0)} more</p>{/if}
-        {:else}
+        {:else if !hiddenReqs}
           <p class="se-none">It consumes no offering.</p>
         {/if}
+        {#if hiddenReqs}<p class="se-hidden t-body-2">{hiddenReqs === 1 ? '1 requirement' : `${hiddenReqs} requirements`} on services you may not see.</p>{/if}
       </div>
     </section>
 
