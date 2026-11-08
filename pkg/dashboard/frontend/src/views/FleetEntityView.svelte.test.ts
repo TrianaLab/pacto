@@ -665,7 +665,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     detailFn.mockResolvedValue({
       meta, entity: ref('source', 'edge-cluster'),
       source: {
-        kind: 'kubernetes', health: 'unavailable', revisionCount: 0, targetCount: 0,
+        kind: 'observation', health: 'unavailable', revisionCount: 0, targetCount: 0,
         contributed: { services: 0, revisions: 0, targets: 0 },
         error: { code: 'SOURCE_UNAVAILABLE', message: 'edge cluster unreachable' },
         entities: { total: 0, count: 0, truncated: false, items: [] },
@@ -724,7 +724,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     detailFn.mockResolvedValue({
       meta, entity: ref('source', 'edge-cluster'), status: 'unavailable',
       source: {
-        kind: 'kubernetes', health: 'unavailable', revisionCount: 0, targetCount: 0,
+        kind: 'observation', health: 'unavailable', revisionCount: 0, targetCount: 0,
         entities: { total: 0, count: 0, truncated: false, items: [] },
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },
