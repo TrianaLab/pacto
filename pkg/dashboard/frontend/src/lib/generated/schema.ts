@@ -1616,6 +1616,55 @@ export interface components {
             title: string;
             truncated?: boolean;
         };
+        EnvironmentCount: {
+            /**
+             * Format: int64
+             * @description Stages on auto-hold, and neither failed nor frozen
+             */
+            autoHold: number;
+            /** @description The environment is on a cycle of candidates.upstreamStage links, so it is placed by name */
+            cycle?: boolean;
+            /**
+             * Format: int64
+             * @description Stages that run nothing yet
+             */
+            empty: number;
+            environment: string;
+            /**
+             * Format: int64
+             * @description Stages whose running digest failed
+             */
+            failed: number;
+            /** Format: int64 */
+            frozen: number;
+            /**
+             * Format: int64
+             * @description Stages in this environment; the state counts sum to it
+             */
+            stages: number;
+            /**
+             * @description Inferred from the name only (named like prod); never a promotion order
+             * @enum {string}
+             */
+            tier?: "dev" | "test" | "prod";
+            /**
+             * Format: int64
+             * @description Stages whose running digest is not verified here, and in no state above
+             */
+            unverified: number;
+            /** @description Environments whose Stages feed a Stage here, directly or through others, as candidates.upstreamStage declares */
+            upstream: string[] | null;
+            /**
+             * Format: int64
+             * @description Stages whose running digest is verified here, and in no state above
+             */
+            verified: number;
+            /**
+             * Format: int64
+             * @description Stages with a change waiting for a person, and in no state above
+             */
+            waiting: number;
+        };
         EnvironmentRow: {
             /** @description What the caller's class may ask for here: promote, unfreeze */
             actions: string[] | null;
@@ -1649,6 +1698,8 @@ export interface components {
             /** @description On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed */
             shadow?: components["schemas"]["ShadowDecision"][] | null;
             stage: string;
+            /** @description Where the Stage's candidates come from, as its spec declares; on the board's rows only */
+            upstream?: components["schemas"]["Upstream"];
             /** @description The running digest passed its verify gates here */
             verified: boolean;
             /** @description The version its contract declares, when the artifact could be read */
@@ -1658,11 +1709,11 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
-            /** @description Failed, frozen and waiting Stages over every page, after q, environment and tier */
+            /** @description Failed, frozen and waiting Stages over every page, after q, environment, tier and state; byEnvironment before environment, tier and state */
             counts: components["schemas"]["StageCounts"];
-            /** @description Every environment of the services that match q, over every page, ordered the way changes travel: dev, test, prod, then the rest */
+            /** @description Every environment of the services that match q, over every page, in the promotion order the Stages declare (candidates.upstreamStage), then by name */
             environmentNames: string[] | null;
-            /** @description dev, test or prod for each environment whose name says which; an environment it cannot tell is left out */
+            /** @description dev, test or prod for each environment whose name says which, inferred from the name only; an environment it cannot tell is left out */
             environmentTiers: {
                 [key: string]: string;
             };
@@ -1670,6 +1721,8 @@ export interface components {
             environments: components["schemas"]["EnvironmentRow"][] | null;
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
+            /** @description With service: that service's promotion graph, from its Stages' declared upstreams */
+            promotion?: components["schemas"]["PromotionGraph"];
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
@@ -3841,6 +3894,32 @@ export interface components {
              */
             untyped: number;
         };
+        PromotionEdge: {
+            /** @description The upstream Stage, namespace/name */
+            from: string;
+            /** @description The Stage it feeds, namespace/name */
+            to: string;
+        };
+        PromotionGraph: {
+            /** @description From a Stage to a Stage of the same service it feeds, as candidates.upstreamStage declares */
+            edges: components["schemas"]["PromotionEdge"][] | null;
+            /** @description The service's Stages, each after every Stage that feeds it; a cycle is placed by name and marked */
+            nodes: components["schemas"]["PromotionNode"][] | null;
+        };
+        PromotionNode: {
+            /** @description The Stage is on a cycle of upstream links, so the graph gives it no place */
+            cycle?: boolean;
+            environment: string;
+            /**
+             * Format: int64
+             * @description Links from the nearest Stage nothing in this graph feeds: 0 is an entry, 1 is fed by an entry
+             */
+            level: number;
+            namespace: string;
+            stage: string;
+            /** @description Where the Stage's candidates come from */
+            upstream: components["schemas"]["Upstream"];
+        };
         ProposeOutputBody: {
             operation: components["schemas"]["Delivery.OperationObject"];
             plan: components["schemas"]["Delivery.Plan"];
@@ -4173,6 +4252,8 @@ export interface components {
             type: string;
         };
         StageCounts: {
+            /** @description Every environment of the services that match q and service, over every page, with its Stages counted by state; in the promotion order the Stages declare, then by name */
+            byEnvironment: components["schemas"]["EnvironmentCount"][] | null;
             /**
              * Format: int64
              * @description Stages whose running digest failed
@@ -4593,8 +4674,10 @@ export interface operations {
                 q?: string;
                 /** @description Keep only the services with a Stage in this environment, and only those Stages */
                 environment?: string;
-                /** @description Keep only the services with a Stage in an environment of this tier, and only those Stages */
+                /** @description Keep only the services with a Stage in an environment whose name says this tier (inferred from the name, never an order), and only those Stages */
                 tier?: "dev" | "test" | "prod";
+                /** @description Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages */
+                state?: "failed" | "frozen" | "autohold" | "waiting" | "unverified" | "empty" | "verified";
                 /** @description Keep only the Stages of the service with exactly this name */
                 service?: string;
                 /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */

@@ -47,11 +47,15 @@ func promotionOrder(stages []delivery.StageObject) (order []string, upstream map
 			cycle[env] = true
 		}
 	}
-	// Kahn's order: each round takes the first environment by name whose
-	// feeders are all placed. When none is free, every one left is on a
-	// cycle or fed by one, so the first by name on a cycle goes next: an
-	// environment fed by a cycle still comes after it.
-	left := sortedNames(envs)
+	return kahn(sortedNames(envs), feeds, cycle), upstream, cycle
+}
+
+// kahn orders left (already in name order) so each name comes after every
+// name that feeds it. Each round takes the first name whose feeders are all
+// placed. When none is free, every one left is on a cycle or fed by one, so
+// the first on a cycle goes next: a name fed by a cycle still comes after it.
+func kahn(left []string, feeds map[string]map[string]bool, cycle map[string]bool) []string {
+	order := []string{}
 	placed := map[string]bool{}
 	for len(left) > 0 {
 		i := slices.IndexFunc(left, func(e string) bool {
@@ -69,7 +73,7 @@ func promotionOrder(stages []delivery.StageObject) (order []string, upstream map
 		order = append(order, left[i])
 		left = slices.Delete(left, i, i+1)
 	}
-	return order, upstream, cycle
+	return order
 }
 
 // closure is every environment that feeds env, directly or through others,
@@ -198,4 +202,181 @@ func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject) 
 		return &Upstream{Kind: "artifact", Repository: c.OCIRepositoryRef.Name}
 	}
 	return &Upstream{Kind: "none"}
+}
+
+// upstreamListed is upstreamOf from the Stages already listed, so a board of
+// many rows reads no Stage twice. An upstream Stage not in the list is
+// missing when the list is complete, and unreadable when it is not: it may
+// sit in a namespace the caller cannot list.
+func upstreamListed(st *delivery.StageObject, byStage map[string]*delivery.StageObject, complete bool) *Upstream {
+	c := st.Spec.Candidates
+	if c.UpstreamStage == nil {
+		return upstreamOf(context.Background(), nil, st)
+	}
+	u := &Upstream{Kind: "stage", Namespace: cmp.Or(c.UpstreamStage.Namespace, st.Metadata.Namespace), Stage: c.UpstreamStage.Name}
+	switch up := byStage[u.Namespace+"/"+u.Stage]; {
+	case up != nil:
+		u.Environment = up.Spec.Environment
+	case complete:
+		u.Problem = "missing"
+	default:
+		u.Problem = "unreadable"
+	}
+	return u
+}
+
+// Stage states (B2), worst first: a Stage is counted in the first that holds,
+// so the counts of an environment sum to its Stages.
+var stageStates = []string{"failed", "frozen", "autohold", "waiting", "unverified", "empty", "verified"}
+
+// stageState is the one state st is counted in; held counts the held
+// operations by namespace/Stage.
+func stageState(st delivery.StageObject, held map[string]int) string {
+	ss := st.Status
+	switch {
+	case slices.Contains(ss.FailedDigests, ss.Pointer):
+		return "failed"
+	case ss.Frozen:
+		return "frozen"
+	case ss.AutoHold:
+		return "autohold"
+	case held[st.Metadata.Namespace+"/"+st.Metadata.Name] > 0:
+		return "waiting"
+	case ss.Pointer == "":
+		return "empty"
+	case !slices.Contains(ss.Verified, ss.Pointer):
+		return "unverified"
+	}
+	return "verified"
+}
+
+// EnvironmentCount is how the Stages of one environment stand, over every
+// page of the board (B2).
+type EnvironmentCount struct {
+	Environment string   `json:"environment"`
+	Tier        string   `json:"tier,omitempty" enum:"dev,test,prod" doc:"Inferred from the name only (named like prod); never a promotion order"`
+	Stages      int      `json:"stages" doc:"Stages in this environment; the state counts sum to it"`
+	Failed      int      `json:"failed" doc:"Stages whose running digest failed"`
+	Frozen      int      `json:"frozen"`
+	AutoHold    int      `json:"autoHold" doc:"Stages on auto-hold, and neither failed nor frozen"`
+	Waiting     int      `json:"waiting" doc:"Stages with a change waiting for a person, and in no state above"`
+	Unverified  int      `json:"unverified" doc:"Stages whose running digest is not verified here, and in no state above"`
+	Empty       int      `json:"empty" doc:"Stages that run nothing yet"`
+	Verified    int      `json:"verified" doc:"Stages whose running digest is verified here, and in no state above"`
+	Upstream    []string `json:"upstream" doc:"Environments whose Stages feed a Stage here, directly or through others, as candidates.upstreamStage declares"`
+	Cycle       bool     `json:"cycle,omitempty" doc:"The environment is on a cycle of candidates.upstreamStage links, so it is placed by name"`
+}
+
+// countByEnvironment counts stages by environment and state, in the
+// promotion order the Stages declare.
+func countByEnvironment(stages []delivery.StageObject, held map[string]int) []EnvironmentCount {
+	counts := map[string]*EnvironmentCount{}
+	for _, st := range stages {
+		env := st.Spec.Environment
+		c := counts[env]
+		if c == nil {
+			c = &EnvironmentCount{Environment: env, Tier: envTier(env), Upstream: []string{}}
+			counts[env] = c
+		}
+		c.Stages++
+		switch stageState(st, held) {
+		case "failed":
+			c.Failed++
+		case "frozen":
+			c.Frozen++
+		case "autohold":
+			c.AutoHold++
+		case "waiting":
+			c.Waiting++
+		case "unverified":
+			c.Unverified++
+		case "empty":
+			c.Empty++
+		default:
+			c.Verified++
+		}
+	}
+	order, upstream, cycle := promotionOrder(stages)
+	out := []EnvironmentCount{}
+	for _, env := range order {
+		c := counts[env]
+		if up := upstream[env]; up != nil {
+			c.Upstream = up
+		}
+		c.Cycle = cycle[env]
+		out = append(out, *c)
+	}
+	return out
+}
+
+// PromotionGraph is one service's own promotion path: its Stages and the
+// upstream links between them, as each Stage's spec.candidates declares
+// (SPEC 21). Different services can have different chains, forks or skips.
+type PromotionGraph struct {
+	Nodes []PromotionNode `json:"nodes" doc:"The service's Stages, each after every Stage that feeds it; a cycle is placed by name and marked"`
+	Edges []PromotionEdge `json:"edges" doc:"From a Stage to a Stage of the same service it feeds, as candidates.upstreamStage declares"`
+}
+
+// PromotionNode is one Stage of a promotion graph.
+type PromotionNode struct {
+	Namespace   string   `json:"namespace"`
+	Stage       string   `json:"stage"`
+	Environment string   `json:"environment"`
+	Level       int      `json:"level" doc:"Links from the nearest Stage nothing in this graph feeds: 0 is an entry, 1 is fed by an entry"`
+	Upstream    Upstream `json:"upstream" doc:"Where the Stage's candidates come from"`
+	Cycle       bool     `json:"cycle,omitempty" doc:"The Stage is on a cycle of upstream links, so the graph gives it no place"`
+}
+
+// PromotionEdge links two Stages by namespace/name.
+type PromotionEdge struct {
+	From string `json:"from" doc:"The upstream Stage, namespace/name"`
+	To   string `json:"to" doc:"The Stage it feeds, namespace/name"`
+}
+
+// promotionGraph is the graph of one service's stages; byStage holds every
+// listed Stage, so an upstream outside the service still says where it is.
+func promotionGraph(stages []delivery.StageObject, byStage map[string]*delivery.StageObject, complete bool) *PromotionGraph {
+	g := &PromotionGraph{Nodes: []PromotionNode{}, Edges: []PromotionEdge{}}
+	key := func(st *delivery.StageObject) string { return st.Metadata.Namespace + "/" + st.Metadata.Name }
+	nodes := map[string]PromotionNode{}
+	feeds := map[string]map[string]bool{}
+	var keys []string
+	for i := range stages {
+		st := &stages[i]
+		k := key(st)
+		n := PromotionNode{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment, Upstream: *upstreamListed(st, byStage, complete)}
+		nodes[k], keys = n, append(keys, k)
+	}
+	for _, k := range keys {
+		if u := nodes[k].Upstream; u.Kind == "stage" && u.Problem == "" {
+			if f := u.Namespace + "/" + u.Stage; f != k {
+				if _, ok := nodes[f]; ok {
+					feeds[k] = map[string]bool{f: true}
+					g.Edges = append(g.Edges, PromotionEdge{From: f, To: k})
+				}
+			}
+		}
+	}
+	cycle := map[string]bool{}
+	for _, k := range keys {
+		if _, on := closure(k, feeds); on {
+			cycle[k] = true
+		}
+	}
+	slices.SortFunc(keys, func(a, b string) int {
+		return cmp.Or(fleet.NaturalCompare(nodes[a].Environment, nodes[b].Environment), cmp.Compare(a, b))
+	})
+	level := map[string]int{}
+	for _, k := range kahn(keys, feeds, cycle) {
+		n := nodes[k]
+		for f := range feeds[k] {
+			if l, placed := level[f]; placed {
+				n.Level = l + 1
+			}
+		}
+		n.Cycle, level[k] = cycle[k], n.Level
+		g.Nodes = append(g.Nodes, n)
+	}
+	slices.SortFunc(g.Edges, func(a, b PromotionEdge) int { return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To)) })
+	return g
 }

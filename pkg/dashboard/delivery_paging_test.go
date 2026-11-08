@@ -26,13 +26,17 @@ func TestPageOf(t *testing.T) {
 	expect(t, len(items) == 5 && p.Limit == maxPage, "a limit is capped: %+v", p)
 }
 
-func TestSortEnvironments(t *testing.T) {
-	envs := []string{"prod-us", "env-10", "staging", "env-2", "test", "Development", "prod-eu", "preprod", "env-02", "a1b", "a1"}
-	sortEnvironments(envs)
-	expect(t, strings.Join(envs, ",") == "Development,test,staging,preprod,prod-eu,prod-us,a1,a1b,env-02,env-2,env-10", "the way changes travel: %v", envs)
-	_, tier := envRank("PROD")
-	_, none := envRank("books")
-	expect(t, tier == "prod" && none == "", "tiers: %q %q", tier, none)
+// Names give a tier label only; with no declared upstream they order by name,
+// numbers in number order, never prod after test because of the words (SPEC 21).
+func TestEnvironmentColumnsNeverOrderByTier(t *testing.T) {
+	var stages []delivery.StageObject
+	for _, e := range []string{"prod-us", "env-10", "staging", "env-2", "test", "Development", "prod-eu", "preprod", "env-02", "a1b", "a1"} {
+		stages = append(stages, stage(e, "x", "x", delivery.StageStatus{}))
+	}
+	envs, tiers := environmentColumns(stages)
+	expect(t, strings.Join(envs, ",") == "Development,a1,a1b,env-02,env-2,env-10,preprod,prod-eu,prod-us,staging,test", "name order: %v", envs)
+	expect(t, tiers["preprod"] == "test" && tiers["Development"] == "dev" && tiers["a1"] == "", "inferred tiers: %v", tiers)
+	expect(t, envTier("PROD") == "prod" && envTier("books") == "", "tiers by name")
 }
 
 func TestMatches(t *testing.T) {
@@ -83,6 +87,12 @@ func TestUndoneBy(t *testing.T) {
 
 func page(v any) map[string]any { return v.(map[string]any) }
 
+// needs is a board answer's failed, frozen and waiting counts.
+func needs(envs map[string]any) string {
+	c := page(envs["counts"])
+	return fmt.Sprint(c["failed"], c["frozen"], c["waiting"])
+}
+
 // The environments board pages services on the server, keeps every column on
 // every page and filters with q, environment and tier.
 func TestDeliveryEnvironmentsPage(t *testing.T) {
@@ -94,11 +104,11 @@ func TestDeliveryEnvironmentsPage(t *testing.T) {
 	expect(t, p["total"] == float64(3) && p["offset"] == float64(1) && p["nextOffset"] == float64(2), "services are paged: %v", p)
 	rows := envs["environments"].([]any)
 	expect(t, len(rows) == 1 && page(rows[0])["service"] == "orphan", "only the page's Stages: %v", rows)
-	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "prod,books,other", "every column on every page, prod before names it cannot place: %v", envs["environmentNames"])
-	expect(t, fmt.Sprint(envs["counts"]) == "map[failed:0 frozen:3 waiting:1]", "the counts are over every page: %v", envs["counts"])
+	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "books,other,prod", "every column on every page, by name when no Stage declares an upstream: %v", envs["environmentNames"])
+	expect(t, needs(envs) == "0 3 1", "the counts are over every page: %v", envs["counts"])
 	f.stages[1].Status.Pointer = dNext // ledger runs the digest that failed there
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?limit=1", nil)
-	expect(t, fmt.Sprint(envs["counts"]) == "map[failed:1 frozen:3 waiting:1]", "a Stage running a failed digest counts as failed: %v", envs["counts"])
+	expect(t, needs(envs) == "1 3 1", "a Stage running a failed digest counts as failed: %v", envs["counts"])
 	f.stages[1].Status.Pointer = ""
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?q=LED", nil)
 	expect(t, len(envs["environments"].([]any)) == 1 && strings.Join(toStrings(envs["environmentNames"]), ",") == "books", "q filters services: %v", envs)
@@ -107,7 +117,7 @@ func TestDeliveryEnvironmentsPage(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?environment=other", nil)
 	rows = envs["environments"].([]any)
 	expect(t, len(rows) == 1 && page(rows[0])["service"] == "orphan" && page(envs["page"])["total"] == float64(1), "only services with a Stage there: %v", envs)
-	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "prod,books,other", "the columns to pick from stay: %v", envs["environmentNames"])
+	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "books,other,prod", "the columns to pick from stay: %v", envs["environmentNames"])
 	expect(t, fmt.Sprint(envs["environmentTiers"]) == "map[prod:prod]", "the tiers names say: %v", envs["environmentTiers"])
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?tier=prod", nil)
 	rows = envs["environments"].([]any)

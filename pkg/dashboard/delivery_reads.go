@@ -15,7 +15,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
-	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
@@ -349,25 +348,26 @@ func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObjec
 
 // EnvironmentRow is one Stage: one service in one environment.
 type EnvironmentRow struct {
-	Namespace        string   `json:"namespace"`
-	Stage            string   `json:"stage"`
-	Service          string   `json:"service"`
-	Domain           string   `json:"domain,omitempty" doc:"The registry domain the Stage names for its service; empty when it names none"`
-	Environment      string   `json:"environment"`
-	Pointer          string   `json:"pointer,omitempty" doc:"The digest the environment runs"`
-	Version          string   `json:"version,omitempty" doc:"The version its contract declares, when the artifact could be read"`
-	Verified         bool     `json:"verified" doc:"The running digest passed its verify gates here"`
-	Failed           bool     `json:"failed" doc:"The running digest failed here"`
-	Frozen           bool     `json:"frozen"`
-	FrozenReason     string   `json:"frozenReason,omitempty"`
-	AutoHold         bool     `json:"autoHold"`
-	Held             int      `json:"held" doc:"Operations on this Stage waiting for a person"`
-	Candidate        string   `json:"candidate,omitempty" doc:"The newest eligible candidate"`
-	CandidateVersion string   `json:"candidateVersion,omitempty" doc:"The version the candidate's contract declares, when the artifact could be read"`
-	Ready            string   `json:"ready,omitempty" doc:"The Ready condition: True, or False with the reason the Stage cannot promote"`
-	ReadyMessage     string   `json:"readyMessage,omitempty" doc:"Why the Stage cannot promote, in words, when Ready is not True"`
-	Actions          []string `json:"actions" doc:"What the caller's class may ask for here: promote, unfreeze"`
-	Level            string   `json:"level,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
+	Namespace        string    `json:"namespace"`
+	Stage            string    `json:"stage"`
+	Service          string    `json:"service"`
+	Domain           string    `json:"domain,omitempty" doc:"The registry domain the Stage names for its service; empty when it names none"`
+	Environment      string    `json:"environment"`
+	Pointer          string    `json:"pointer,omitempty" doc:"The digest the environment runs"`
+	Version          string    `json:"version,omitempty" doc:"The version its contract declares, when the artifact could be read"`
+	Verified         bool      `json:"verified" doc:"The running digest passed its verify gates here"`
+	Failed           bool      `json:"failed" doc:"The running digest failed here"`
+	Frozen           bool      `json:"frozen"`
+	FrozenReason     string    `json:"frozenReason,omitempty"`
+	AutoHold         bool      `json:"autoHold"`
+	Held             int       `json:"held" doc:"Operations on this Stage waiting for a person"`
+	Candidate        string    `json:"candidate,omitempty" doc:"The newest eligible candidate"`
+	CandidateVersion string    `json:"candidateVersion,omitempty" doc:"The version the candidate's contract declares, when the artifact could be read"`
+	Ready            string    `json:"ready,omitempty" doc:"The Ready condition: True, or False with the reason the Stage cannot promote"`
+	ReadyMessage     string    `json:"readyMessage,omitempty" doc:"Why the Stage cannot promote, in words, when Ready is not True"`
+	Actions          []string  `json:"actions" doc:"What the caller's class may ask for here: promote, unfreeze"`
+	Level            string    `json:"level,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
+	Upstream         *Upstream `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, as its spec declares; on the board's rows only"`
 	// Shadow is set on an observe Stage only: newest first.
 	Shadow []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
 }
@@ -426,38 +426,29 @@ const environmentsPage = 25
 type environmentsInput struct {
 	PageQuery
 	Environment string `query:"environment" doc:"Keep only the services with a Stage in this environment, and only those Stages"`
-	Tier        string `query:"tier" enum:"dev,test,prod" doc:"Keep only the services with a Stage in an environment of this tier, and only those Stages"`
+	Tier        string `query:"tier" enum:"dev,test,prod" doc:"Keep only the services with a Stage in an environment whose name says this tier (inferred from the name, never an order), and only those Stages"`
+	State       string `query:"state" enum:"failed,frozen,autohold,waiting,unverified,empty,verified" doc:"Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages"`
 	Service     string `query:"service" doc:"Keep only the Stages of the service with exactly this name"`
 	Domain      string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
 }
 
-// envOrder is the way changes travel, matched as name prefixes: each entry's
-// tier, in order. ponytail: a name heuristic; an upstream-Stage chain would
-// order environments that share no known prefix.
-var envOrder = []struct{ prefix, tier string }{
+// envTiers are name prefixes and the tier a name like it is inferred to be.
+// A tier is a label inferred from the name, never a promotion order: the
+// order comes from the Stages' declared upstreams (SPEC 21).
+var envTiers = []struct{ prefix, tier string }{
 	{"dev", "dev"}, {"sandbox", "dev"}, {"test", "test"}, {"qa", "test"}, {"stag", "test"},
 	{"perf", "test"}, {"uat", "test"}, {"preprod", "test"}, {"prod", "prod"},
 }
 
-// envRank is where an environment sits in envOrder and its tier; a name no
-// prefix matches comes last with no tier, so it is never guessed.
-func envRank(env string) (int, string) {
-	for i, o := range envOrder {
+// envTier is the tier an environment's name says; "" when no prefix matches,
+// so it is never guessed.
+func envTier(env string) string {
+	for _, o := range envTiers {
 		if strings.HasPrefix(strings.ToLower(env), o.prefix) {
-			return i, o.tier
+			return o.tier
 		}
 	}
-	return len(envOrder), ""
-}
-
-// sortEnvironments orders names the way changes travel, then the rest with
-// numbers in number order (env-2 before env-10).
-func sortEnvironments(envs []string) {
-	slices.SortFunc(envs, func(a, b string) int {
-		ra, _ := envRank(a)
-		rb, _ := envRank(b)
-		return cmp.Or(cmp.Compare(ra, rb), fleet.NaturalCompare(a, b), cmp.Compare(a, b))
-	})
+	return ""
 }
 
 type environmentsOutput struct {
@@ -468,11 +459,13 @@ type environmentsOutput struct {
 		Page Page `json:"page" doc:"Which services this page holds; offset and limit count services"`
 		// EnvironmentNames are the board's columns on every page, so paging
 		// never moves a column.
-		EnvironmentNames []string `json:"environmentNames" doc:"Every environment of the services that match q, over every page, ordered the way changes travel: dev, test, prod, then the rest"`
+		EnvironmentNames []string `json:"environmentNames" doc:"Every environment of the services that match q, over every page, in the promotion order the Stages declare (candidates.upstreamStage), then by name"`
 		// EnvironmentTiers names the tier of each environment whose name says it.
-		EnvironmentTiers map[string]string `json:"environmentTiers" doc:"dev, test or prod for each environment whose name says which; an environment it cannot tell is left out"`
+		EnvironmentTiers map[string]string `json:"environmentTiers" doc:"dev, test or prod for each environment whose name says which, inferred from the name only; an environment it cannot tell is left out"`
 		// Counts are over every page, so the page's summary is never one page's.
-		Counts StageCounts `json:"counts" doc:"Failed, frozen and waiting Stages over every page, after q, environment and tier"`
+		Counts StageCounts `json:"counts" doc:"Failed, frozen and waiting Stages over every page, after q, environment, tier and state; byEnvironment before environment, tier and state"`
+		// Promotion is the service's own path, only with service.
+		Promotion *PromotionGraph `json:"promotion,omitempty" doc:"With service: that service's promotion graph, from its Stages' declared upstreams"`
 	}
 }
 
@@ -481,6 +474,9 @@ type StageCounts struct {
 	Failed  int `json:"failed" doc:"Stages whose running digest failed"`
 	Frozen  int `json:"frozen"`
 	Waiting int `json:"waiting" doc:"Stages with a change waiting for a person"`
+	// ByEnvironment is the fleet figure's tally (B2): environment and tier
+	// pick from it, so they never narrow it.
+	ByEnvironment []EnvironmentCount `json:"byEnvironment" doc:"Every environment of the services that match q and service, over every page, with its Stages counted by state; in the promotion order the Stages declare, then by name"`
 }
 
 func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput) (*environmentsOutput, error) {
@@ -502,20 +498,27 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 			held[o.Metadata.Namespace+"/"+o.Spec.Stage]++
 		}
 	}
+	byStage := stagesByName(stages)
+	complete := l.Completeness == "complete"
 	stages = filter(stages, func(st delivery.StageObject) bool {
 		return matches(in.Q, st.Spec.Service.Name) && delivery.OfService(st, in.Service, in.Domain)
 	})
 	out := &environmentsOutput{}
 	out.Body.Listing, out.Body.Environments = l, []EnvironmentRow{}
 	out.Body.EnvironmentNames, out.Body.EnvironmentTiers = environmentColumns(stages)
-	// The environment and tier filters narrow the rows, not the columns a
-	// person picks from: a service with no Stage there is left out.
+	byEnv := countByEnvironment(stages, held)
+	if in.Service != "" {
+		out.Body.Promotion = promotionGraph(stages, byStage, complete)
+	}
+	// The environment, tier and state filters narrow the rows, not the
+	// columns a person picks from: a service with no Stage there is left out.
 	stages = filter(stages, func(st delivery.StageObject) bool {
-		_, tier := envRank(st.Spec.Environment)
-		return (in.Environment == "" || st.Spec.Environment == in.Environment) && (in.Tier == "" || tier == in.Tier)
+		return (in.Environment == "" || st.Spec.Environment == in.Environment) && (in.Tier == "" || envTier(st.Spec.Environment) == in.Tier) &&
+			(in.State == "" || stageState(st, held) == in.State)
 	})
 	var services []string
 	services, out.Body.Counts = countStages(stages, held)
+	out.Body.Counts.ByEnvironment = byEnv
 	var page []string
 	page, out.Body.Page = pageOf(slices.Compact(services), in.Offset, in.Limit, environmentsPage)
 	var shown []delivery.StageObject
@@ -531,7 +534,9 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	teams := map[string]string{}
 	vers := versionsAll(ctx, api, nil, teams, on...)
 	for _, st := range shown {
-		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers, teams))
+		row := environmentRow(st, held, caller, vers, teams)
+		row.Upstream = upstreamListed(&st, byStage, complete)
+		out.Body.Environments = append(out.Body.Environments, row)
 	}
 	mayRaise(ctx, api, out.Body.Environments)
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
@@ -560,19 +565,16 @@ func countStages(stages []delivery.StageObject, held map[string]int) ([]string, 
 	return services, c
 }
 
-// environmentColumns is the board's columns for stages, ordered the way
-// changes travel, and the tier of each environment whose name says it.
+// environmentColumns is the board's columns for stages, in the promotion
+// order the Stages declare, and the tier each environment's name says.
 func environmentColumns(stages []delivery.StageObject) ([]string, map[string]string) {
-	envs, tiers := []string{}, map[string]string{}
+	tiers := map[string]string{}
 	for _, st := range stages {
-		envs = append(envs, st.Spec.Environment)
-		if _, tier := envRank(st.Spec.Environment); tier != "" {
+		if tier := envTier(st.Spec.Environment); tier != "" {
 			tiers[st.Spec.Environment] = tier
 		}
 	}
-	slices.Sort(envs)
-	envs = slices.Compact(envs)
-	sortEnvironments(envs)
+	envs, _, _ := promotionOrder(stages)
 	return envs, tiers
 }
 
