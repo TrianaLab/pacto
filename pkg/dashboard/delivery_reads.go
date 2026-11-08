@@ -204,6 +204,9 @@ type inboxInput struct {
 	Errored int    `query:"errored" minimum:"0" doc:"Where the page of Errored changes starts"`
 	Limit   int    `query:"limit" minimum:"0" maximum:"200" doc:"How many of each section per page; 0 means 25"`
 	Q       string `query:"q" doc:"Keep only what names this text (namespace, Stage, service or change), ignoring case"`
+	// Environment narrows the three lists, never byEnvironment: the figure
+	// that links to it stays whole.
+	Environment string `query:"environment" doc:"Keep only what waits to enter this environment: items on Stages whose spec.environment is this"`
 }
 
 type inboxOutput struct {
@@ -216,6 +219,9 @@ type inboxOutput struct {
 		FrozenPage  Page             `json:"frozenPage"`
 		Errored     []InboxItem      `json:"errored" doc:"Errored operations of the caller's services whose Stage is still frozen"`
 		ErroredPage Page             `json:"erroredPage"`
+		// ByEnvironment is over every page and before environment, so paging
+		// or narrowing the lists never changes it.
+		ByEnvironment []InboxEnvironment `json:"byEnvironment" doc:"What waits to enter each environment, over every page after q (environment does not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits"`
 	}
 }
 
@@ -247,6 +253,12 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	out := &inboxOutput{}
 	b := &out.Body
 	b.Listing = l
+	byStage := stagesByName(stages)
+	b.ByEnvironment = inboxByEnvironment(stages, held, errored, frozenStages)
+	if in.Environment != "" {
+		held, errored = inEnvironment(held, byStage, in.Environment), inEnvironment(errored, byStage, in.Environment)
+		frozenStages = slices.DeleteFunc(frozenStages, func(st delivery.StageObject) bool { return st.Spec.Environment != in.Environment })
+	}
 	// Only the page is described and drawn: an artifact read per held item
 	// and per frozen Stage is the expensive part.
 	b.Held, b.HeldPage = pageOf(held, in.Held, in.Limit, inboxPage)
@@ -255,7 +267,6 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 			b.HeldShared++
 		}
 	}
-	byStage := stagesByName(stages)
 	var page []delivery.StageObject
 	page, b.FrozenPage = pageOf(frozenStages, in.Frozen, in.Limit, inboxPage)
 	// Every artifact the page names is read in one go.

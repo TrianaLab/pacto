@@ -2932,6 +2932,27 @@ export interface components {
             /** @description Canonical revision key of the new revision */
             toRevisionKey: string;
         };
+        InboxEnvironment: {
+            /** @description The environment the Stages deliver to; empty for held changes on a Stage the caller cannot read */
+            environment: string;
+            /**
+             * Format: int64
+             * @description Errored changes on Stages in this environment that are still frozen
+             */
+            errored: number;
+            /**
+             * Format: int64
+             * @description Frozen Stages in this environment
+             */
+            frozen: number;
+            /**
+             * Format: int64
+             * @description Held changes on Stages in this environment
+             */
+            held: number;
+            /** @description Environments whose Stages feed a Stage here, directly or through others, as candidates.upstreamStage declares */
+            upstream: string[] | null;
+        };
         InboxItem: {
             /** @description The services that made a person necessary */
             consumers?: string[] | null;
@@ -2956,6 +2977,8 @@ export interface components {
         };
         InboxOutputBody: {
             asOf: string;
+            /** @description What waits to enter each environment, over every page after q (environment does not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits */
+            byEnvironment: components["schemas"]["InboxEnvironment"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Errored operations of the caller's services whose Stage is still frozen */
@@ -3103,6 +3126,8 @@ export interface components {
             };
             /** @description The rollback that undid this change, read from its Stage's history */
             undoneBy?: components["schemas"]["Delivery.HistoryEntry"];
+            /** @description Where the Stage's candidates come from, from its spec; absent when the Stage could not be read */
+            upstream?: components["schemas"]["Upstream"];
             /** @description The version each digest named here carries, when its artifact could be read */
             versions?: {
                 [key: string]: string;
@@ -4203,6 +4228,28 @@ export interface components {
                 [key: string]: string;
             };
         };
+        Upstream: {
+            /** @description kind stage: the upstream Stage's environment, when it could be read */
+            environment?: string;
+            /**
+             * @description stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository; none: the Stage declares no source, so it never promotes
+             * @enum {string}
+             */
+            kind: "stage" | "records" | "artifact" | "none";
+            /** @description kind stage: the upstream Stage's namespace */
+            namespace?: string;
+            /**
+             * @description kind stage: why the upstream Stage could not be read
+             * @enum {string}
+             */
+            problem?: "missing" | "unreadable";
+            /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
+            repository?: string;
+            /** @description kind stage: the upstream Stage's name */
+            stage?: string;
+            /** @description kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name> */
+            stream?: string;
+        };
         "V2.ErrorDetail": {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
             location?: string;
@@ -4726,6 +4773,8 @@ export interface operations {
                 limit?: number;
                 /** @description Keep only what names this text (namespace, Stage, service or change), ignoring case */
                 q?: string;
+                /** @description Keep only what waits to enter this environment: items on Stages whose spec.environment is this */
+                environment?: string;
             };
             header?: never;
             path?: never;

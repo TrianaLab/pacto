@@ -96,6 +96,10 @@ func TestDeliveryEnvironmentsPage(t *testing.T) {
 	expect(t, len(rows) == 1 && page(rows[0])["service"] == "orphan", "only the page's Stages: %v", rows)
 	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "prod,books,other", "every column on every page, prod before names it cannot place: %v", envs["environmentNames"])
 	expect(t, fmt.Sprint(envs["counts"]) == "map[failed:0 frozen:3 waiting:1]", "the counts are over every page: %v", envs["counts"])
+	f.stages[1].Status.Pointer = dNext // ledger runs the digest that failed there
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?limit=1", nil)
+	expect(t, fmt.Sprint(envs["counts"]) == "map[failed:1 frozen:3 waiting:1]", "a Stage running a failed digest counts as failed: %v", envs["counts"])
+	f.stages[1].Status.Pointer = ""
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?q=LED", nil)
 	expect(t, len(envs["environments"].([]any)) == 1 && strings.Join(toStrings(envs["environmentNames"]), ",") == "books", "q filters services: %v", envs)
 

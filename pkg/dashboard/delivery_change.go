@@ -27,6 +27,7 @@ type operationOutput struct {
 		// change, in seconds; zero or absent when the Stage asks no fresh login.
 		DecisionFreshness int                    `json:"decisionFreshness,omitempty" doc:"How old a login may be to decide, in seconds (delivery.DecisionFreshnessFor the Stage's status.authFreshness); absent when any signed-in session decides"`
 		UndoneBy          *delivery.HistoryEntry `json:"undoneBy,omitempty" doc:"The rollback that undid this change, read from its Stage's history"`
+		Upstream          *Upstream              `json:"upstream,omitempty" doc:"Where the Stage's candidates come from, from its spec; absent when the Stage could not be read"`
 		Labels
 	}
 }
@@ -57,6 +58,7 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage)
 	if err == nil {
 		out.Body.Level, published = ladderOf(*stage).Level, stage.Status.AuthFreshness
+		out.Body.Upstream = upstreamOf(ctx, api, stage)
 	} else {
 		stage = nil
 	}
