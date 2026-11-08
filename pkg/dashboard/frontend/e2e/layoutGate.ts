@@ -11,8 +11,9 @@ import { expect, type Page } from '@playwright/test';
 // Playwright's interception never sees a wasm-served fetch). It turns the 38-service
 // demo into the population the spec's figures must survive: 5,000 services, 300 owners,
 // 300 domains, 50 sources, 1,284 consumers (412 direct, 8 highlights, 3 hidden,
-// partial), 25 providers, and identities of 60 to 200 characters including an emoji and
-// a right-to-left override. Keys and hrefs never change, so every link still lands.
+// partial), 25 providers, 60 delivery environments waiting in the inbox, and
+// identities of 60 to 200 characters including an emoji and a right-to-left override.
+// Keys and hrefs never change, so every link still lands.
 
 /** Installs the scale fixture. Pass to `page.addInitScript` before the first load. */
 export function installScaleFixture(): void {
@@ -123,6 +124,15 @@ export function installScaleFixture(): void {
         }));
         prov.total = 25; prov.count = prov.items.length; prov.truncated = true;
       }
+    }
+    // The inbox figure at fleet scale: 60 environments with long names, a declared chain
+    // through some of them and counts in the thousands. Only the figure's tallies change;
+    // the lists stay the engine's, and the figure caps itself at seven stations.
+    if (route === '/api/delivery/inbox') {
+      doc.byEnvironment = Array.from({ length: 60 }, (_, i) => {
+        const environment = longName(`prod-${i}`);
+        return { environment, errored: (i * 37) % 1300, held: (i * 53) % 900, frozen: i % 4, upstream: i ? [longName(`prod-${i - 1}`)] : [] };
+      });
     }
     if (method === 'POST' && route === '/api/fleet/impact') {
       const cs = doc.consumers as Record<string, unknown>;

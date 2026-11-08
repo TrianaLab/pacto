@@ -80,7 +80,8 @@ function installDelivery(persona: Persona): void {
     if (signedOut()) return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to use this dashboard' });
     if (route === '/api/delivery/caller') return caller ? json(200, { ...caller, requireOwnerTeam: false }) : json(503, { status: 503, code: 'ClusterUnreachable', detail: 'no caller' });
     if (route === '/api/delivery/inbox') {
-      return json(200, { ...listing, held: decided() || !caller?.groups.includes('team-checkout') ? [] : [{
+      const waits = !decided() && !!caller?.groups.includes('team-checkout');
+      return json(200, { ...listing, byEnvironment: waits ? [{ environment: 'prod', held: 1, errored: 0, frozen: 0, upstream: ['test'] }] : [], held: !waits ? [] : [{
         namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, phase: 'Held',
         question: plan.question, decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'], order: plan.order }], frozen: [], errored: [] });
     }
@@ -245,6 +246,8 @@ test.describe('Delivery views', () => {
     await expect(page.getByTestId('identity')).toContainText('Signed in as carol');
     await expect(page.getByTestId('identity')).not.toContainText('https://idp#carol');
     await expect(page.getByTestId('identity').locator('.copyable')).toHaveAttribute('title', 'https://idp#carol');
+    // The figure over every page: one station, its held queue linked to the narrowed list.
+    await expect(page.getByTestId('inbox-figure').getByRole('link', { name: '1 held' })).toHaveAttribute('href', '#/delivery/inbox?environment=prod');
     await audit(page, 'inbox');
 
     const link = held.getByRole('link', { name: /^Promote on prod\/payments-prod/ });
@@ -257,6 +260,8 @@ test.describe('Delivery views', () => {
     await expect(page.getByTestId('change-checks')).toHaveAttribute('open', '');
     await expect(page.getByTestId('predicted-verdicts')).toBeVisible();
     await expect(page.getByTestId('actual-verdicts')).toHaveCount(0);
+    // Held before it applies: the token rests on the gate, which holds it.
+    await expect(page.getByTestId('change-figure').locator('[data-tok="4"] .tok')).toHaveCount(1);
     await audit(page, 'change detail');
   });
 
