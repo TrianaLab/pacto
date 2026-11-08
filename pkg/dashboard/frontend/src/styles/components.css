@@ -64,12 +64,14 @@
 .badge-definition { background: var(--c-neutral-bg); color: var(--c-text-2); }
 .badge-definition .badge-dot { background: var(--c-text-3); }
 
-/* C7: a badge, chip or pill never shrinks below its content. The container wraps or
-   its column gets a min-width instead. A badge holds a word or two, never a sentence. */
-.badge, .pill {
+/* C7: a badge, chip or pill never shrinks below its content, in a table cell too. The
+   container wraps or its column gets a min-width instead. C10: a sentence never sits in
+   a nowrap badge; it uses .badge.wrap. */
+.badge:not(.wrap), .pill {
   flex-shrink: 0;
   min-width: max-content;
 }
+.badge.wrap { white-space: normal; overflow-wrap: break-word; min-width: 0; }
 
 /* The grey hatch (unknown, partial, hidden) on any HTML mark, with its solid edge. */
 .hatch {
@@ -88,37 +90,6 @@
   background: var(--c-neutral-bg);
   color: var(--c-text-3);
   transition: background var(--transition);
-}
-
-/* Pills/badges are nowrap by default, which is right inline. But inside a
-   fixed-layout table cell a long tag (e.g. a "backup-recovery" category) can't
-   shrink and — with the cell's overflow:visible — bleeds into the next column.
-   Inside any table cell, cap tags to the column and wrap (breaking a long word
-   if needed) so they can never overlap a neighbouring cell.
-
-   `break-word`, NOT `anywhere`: the two break identically once a word genuinely
-   exceeds the column, but `anywhere` also lets the word stop counting toward
-   min-content, so auto table layout is free to squeeze the column down to a
-   single character. That is how a "incompatible" verdict rendered as
-   "incompatibl"/"e" the moment the neighbouring headers grew -- a break with
-   room to spare, in a column the layout could have widened. */
-td .pill,
-td .badge {
-  min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: break-word;
-}
-
-/* Status badges are short, fixed labels (Compliant, Warning, Non-Compliant, …).
-   The wrap rule above is for long free-form tags (e.g. category names) and would
-   otherwise let a cramped table column break a status word mid-character
-   ("Complian"/"t"). Keep status badges intact. */
-td .badge.status-badge {
-  min-width: max-content;
-  max-width: none;
-  white-space: nowrap;
-  overflow-wrap: normal;
 }
 
 /* ─── Button ─── */
