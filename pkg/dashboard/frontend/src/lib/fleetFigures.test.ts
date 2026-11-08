@@ -44,7 +44,7 @@ describe('rankModel', () => {
     expect(m.lanes[4]).toMatchObject({ hatch: true, href: '#/s?g=' });
     expect(m.lanes[0].note?.text).toBe('7% of their 297 services');
     // The highest rate among groups large enough to say anything.
-    expect(m.rate).toEqual({ label: 'b', text: '75% of 12 services' });
+    expect(m.rate).toEqual({ label: 'b', text: '75% of 12 services', scope: '4 owners' });
     expect(m.wires).toHaveLength(5);
   });
   it('ranks domains with their own tails', () => {
@@ -183,7 +183,7 @@ describe('explainers', () => {
   });
   it('draws one edge per wire style into one service, never in a status tone', () => {
     const m = edgeModel();
-    expect(m.wires.map((w) => w.style)).toEqual(['obs', 'proj', 'stale', 'broken']);
+    expect(m.wires.map((w) => w.style)).toEqual(['obs', 'proj', 'stale']);
     expect(m.wires.every((w) => w.tone === 'neutral' && w.to === 'gh')).toBe(true);
   });
 });

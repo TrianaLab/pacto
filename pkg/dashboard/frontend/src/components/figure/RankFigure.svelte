@@ -10,7 +10,7 @@
   import HubNode from './HubNode.svelte';
   import Lane from './Lane.svelte';
   import ProvenanceStrip from './ProvenanceStrip.svelte';
-  import { rankModel } from '../../lib/fleetFigures.ts';
+  import { rankModel, RATE_MIN_SERVICES } from '../../lib/fleetFigures.ts';
   import { formatCount, countOf } from '../../lib/format.ts';
 
   /** @type {{ kind: 'owner' | 'domain', aggregate: import('../../lib/fleetFigures.ts').RankAggregate | null, hrefs: import('../../lib/fleetFigures.ts').RankHrefs, meta?: import('../../lib/provenance.ts').MetaLike | null }} */
@@ -38,7 +38,7 @@
     </div>
   {/snippet}
   {#snippet caption()}
-    Ranked by count, so large {m.word}s rank high.{#if m.rate}{' '}The highest rate is <bdi>{m.rate.label}</bdi>: {m.rate.text}; sort the table by Rate to see the rest.{/if}
+    Ranked by count, so large {m.word}s rank high.{#if m.rate}{' '}Among the {m.rate.scope} with the most non-compliant services, the highest rate in {m.word === 'owner' ? 'an' : 'a'} {m.word} of at least {RATE_MIN_SERVICES} services is <bdi>{m.rate.label}</bdi>: {m.rate.text}. Sort the table by Rate to compare every {m.word}.{/if}
     <ProvenanceStrip {meta} />
   {/snippet}
 </Figure>

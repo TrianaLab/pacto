@@ -118,7 +118,9 @@ export function rankModel(kind: 'owner' | 'domain', agg: RankAggregate | null | 
   }
   lanes.push(...tails);
   const rated = rows.filter((r) => r.size >= RATE_MIN_SERVICES).sort((a, b) => b.n / b.size - a.n / a.size || a.label.localeCompare(b.label))[0];
-  const rate = rated ? { label: rated.label, text: `${sharePct(rated.n, rated.size)} of ${countOf(rated.size, 'service')}` } : null;
+  // ponytail: the rate is scoped to the ranked rows the backend sends (top by count), and
+  // the caption says so; a backend rate ranking would let it name the fleet-wide highest.
+  const rate = rated ? { label: rated.label, text: `${sharePct(rated.n, rated.size)} of ${countOf(rated.size, 'service')}`, scope: countOf(rows.length, word) } : null;
   const wires: WireDef[] = lanes.map((l, k) => ({ id: `wr${k}`, from: 'hub', to: `ln-${k}`, style: 'obs', tone: 'neutral', col: { from: 'hub-n', fs: 'b', ts: 'l' } }));
   const alt = `${countOf(total, 'non-compliant service')} of ${formatCount(services)}: ${lanes.map((l) => `${l.label} ${formatCount(l.n)}`).join(', ')}.`;
   return { total, services, lanes, rate, wires, alt, word };

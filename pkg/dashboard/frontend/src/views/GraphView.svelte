@@ -635,7 +635,7 @@
                   ><span class={it.cls} aria-hidden="true"></span> {it.label}</button>
                 {/each}
               {/each}
-              <span class="t-meta lg-hint">Solid: observed. Dashed: projected or not yet observed. Dotted: cannot be verified. Select an entry to hide it.</span>
+              <span class="t-meta lg-hint">Solid: observed. Dashed: expected but not observed, a Runs link or a configuration reference. Dotted: insufficient evidence. Select an entry to hide it.</span>
             </div>
 
             <!-- Accessible text alternative: the same nodes and edges as

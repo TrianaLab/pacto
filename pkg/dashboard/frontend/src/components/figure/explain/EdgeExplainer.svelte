@@ -1,6 +1,6 @@
 <script>
-  // "How does an edge read in the graph?" (SPEC 17, r4): four consumers wired into one
-  // service, one per wire style, so the legend can be read against drawn edges before
+  // "How does an edge read in the graph?" (SPEC 17, r4): three consumers wired into one
+  // service, one per dependency-edge style, so the legend can be read against drawn edges before
   // the canvas. An explainer: neutral and accent only, no data from the fleet. Static.
   import Figure from '../Figure.svelte';
   import Node from '../Node.svelte';
@@ -21,8 +21,8 @@
           </li>
         {/each}
       </ul>
-      <div class="evfig-h"><HubNode kind="service" a="gh" /><span class="evfig-hl"><b>A service</b><span class="t-meta">and four consumers</span></span></div>
+      <div class="evfig-h"><HubNode kind="service" a="gh" /><span class="evfig-hl"><b>A service</b><span class="t-meta">and three consumers</span></span></div>
     </div>
   {/snippet}
-  {#snippet caption()}This explains the edge styles; it shows no data from your fleet. The canvas below draws the whole graph with the same styles.{/snippet}
+  {#snippet caption()}This explains how a dependency edge reads; it shows no data from your fleet. On the canvas below, color adds the reconciliation state and a bar at the arrow marks a refused guarantee. Runs and configuration reference links are dashed too.{/snippet}
 </Figure>

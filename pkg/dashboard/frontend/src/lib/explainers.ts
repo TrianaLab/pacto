@@ -31,23 +31,25 @@ export function knowsModel() {
   return { stations, wires, steps, alt: 'Sources feed a snapshot; the snapshot holds evidence; verdicts are decided from evidence.' };
 }
 
-/** The four wire styles of SPEC 2.1, in the graph legend's order. */
+/**
+ * The three dependency-edge styles the graph canvas draws (lib/graph.ts), labelled as its
+ * legend labels them. The canvas has no stale or missing edge, so neither appears here.
+ */
 export const EDGE_STYLES: { style: WireStyle; label: string; sub: string }[] = [
   { style: 'obs', label: 'Observed', sub: 'a target reported the call' },
-  { style: 'proj', label: 'Projected', sub: 'the contract declares it; nothing reported it yet' },
-  { style: 'stale', label: 'Stale', sub: 'last reported too long ago' },
-  { style: 'broken', label: 'Missing', sub: 'its source is unavailable' },
+  { style: 'proj', label: 'Expected, not observed', sub: 'the contract declares it; nothing reported it yet' },
+  { style: 'stale', label: 'Insufficient evidence', sub: 'declared, with nothing to check it against' },
 ];
 
 /**
  * edgeModel is "How does an edge read in the graph?" above the graph canvas (SPEC 17,
- * r4): four consumers wired into one service, one per wire style. Static.
+ * r4): three consumers wired into one service, one per dependency-edge style. Static.
  */
 export function edgeModel() {
   const wires: WireDef[] = EDGE_STYLES.map((e, k) => ({ id: `wg${k}`, from: `g${k}`, fs: 'r', to: 'gh', ts: 'l', when: ['wide', 'mid', 'narrow'], style: e.style, tone: 'neutral' }));
   return {
     rows: EDGE_STYLES.map((e, k) => ({ ...e, a: `g${k}` })),
     wires,
-    alt: 'Four edges into one service: observed (solid), projected (dashed), stale (dotted) and missing (broken with a cross).',
+    alt: 'Three edges into one service: observed (solid), expected but not observed (dashed) and insufficient evidence (dotted).',
   };
 }

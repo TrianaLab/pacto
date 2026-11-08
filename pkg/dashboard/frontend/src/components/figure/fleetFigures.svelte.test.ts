@@ -48,7 +48,7 @@ describe('RankFigure', () => {
     expect(t.querySelector('.lane .mbar i')?.classList.contains('t-err')).toBe(true);
     expect(Array.from(t.querySelectorAll('.lane-more')).map((a) => a.getAttribute('href'))).toEqual(['#/s?o=team:a', '#/s?o=']);
     expect(t.querySelector('a.lane-note')?.getAttribute('href')).toBe('#/owners?sort=nonCompliant');
-    expect(t.querySelector('figcaption')?.textContent).toContain('The highest rate is a: 30% of 20 services; sort the table by Rate to see the rest.');
+    expect(t.querySelector('figcaption')?.textContent).toContain('Among the 1 owner with the most non-compliant services, the highest rate in an owner of at least 10 services is a: 30% of 20 services. Sort the table by Rate to compare every owner.');
   });
 });
 
@@ -111,10 +111,10 @@ describe('explainers (How this works)', () => {
     expect(t.innerHTML).not.toMatch(/\bt-(ok|warn|err)\b/);
     expect(t.querySelector('figcaption')?.textContent).toContain('It shows no data from your fleet.');
   });
-  it('draws four edges into one service, one per wire style, with no data', async () => {
+  it('draws the canvas dependency-edge styles into one service, labelled as the legend labels them, with no data', async () => {
     const t = render(EdgeExplainer, {});
     await settle();
-    expect(Array.from(t.querySelectorAll('.evfig-t b')).map((b) => b.textContent)).toEqual(['Observed', 'Projected', 'Stale', 'Missing']);
+    expect(Array.from(t.querySelectorAll('.evfig-t b')).map((b) => b.textContent)).toEqual(['Observed', 'Expected, not observed', 'Insufficient evidence']);
     expect(t.querySelectorAll('.fig-ctl')).toHaveLength(0);
     expect(t.innerHTML).not.toMatch(/\bt-(ok|warn|err)\b/);
   });
