@@ -86,7 +86,9 @@ export function installScaleFixture(): void {
     const q = new URLSearchParams(query);
     const meta = doc.meta as Record<string, unknown> | undefined;
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
-    if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !q.get('businessDomain') && !q.get('service')) {
+    // A list narrowed to one domain, service or offering's consumers keeps the engine's
+    // total: the fixture leaves the tallies that link to it (an offering's phases) alone.
+    if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !q.get('businessDomain') && !q.get('service') && !q.get('consumes')) {
       const total = LIST_TOTAL[q.get('kinds') || ''];
       if (total) {
         page(doc, total);
