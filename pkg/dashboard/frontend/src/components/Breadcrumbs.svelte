@@ -7,9 +7,9 @@
     {#each trail as crumb, i}
       {#if i > 0}<span class="bc-sep" aria-hidden="true">›</span>{/if}
       {#if crumb.href && i < trail.length - 1}
-        <a href={crumb.href} class="bc-link" title={crumb.label}>{crumb.label}</a>
+        <a href={crumb.href} class="bc-link" title={crumb.label}><bdi>{crumb.label}</bdi></a>
       {:else}
-        <span class="bc-current" aria-current="page" title={crumb.label}>{crumb.label}</span>
+        <span class="bc-current" aria-current="page" title={crumb.label}><bdi>{crumb.label}</bdi></span>
       {/if}
     {/each}
   </nav>

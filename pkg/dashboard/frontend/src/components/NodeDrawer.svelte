@@ -16,7 +16,7 @@
   <aside class="drawer" data-motion aria-label="Service details for {data.name}">
     <div class="drawer-head">
       <div class="drawer-title">
-        <span class="drawer-name">{data.name}</span>
+        <span class="drawer-name"><bdi>{data.name}</bdi></span>
         {#if data.external}
           <span class="badge">external</span>
         {:else}

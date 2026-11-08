@@ -350,12 +350,12 @@
             <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
               <summary>
                 <span class="disclosure-caret" data-motion aria-hidden="true"></span>
-                <h3 id={`shadow-${r.namespace}-${r.stage}`} class="ev-shadow-title">{r.service} in {r.environment}</h3>
+                <h3 id={`shadow-${r.namespace}-${r.stage}`} class="ev-shadow-title"><bdi>{r.service}</bdi> in <bdi>{r.environment}</bdi></h3>
                 <span class="t-meta">{countOf(r.shadow.length, 'candidate')}</span>
               </summary>
               <div class="ev-scroll">
                 <table class="ev-table">
-                  <caption class="visually-hidden">What Pacto would have done with each candidate on {r.service} in {r.environment}, newest first</caption>
+                  <caption class="visually-hidden">What Pacto would have done with each candidate on <bdi>{r.service}</bdi> in <bdi>{r.environment}</bdi>, newest first</caption>
                   <thead><tr><th scope="col">Candidate</th><th scope="col">Pacto would have</th><th scope="col">Seen in source</th><th scope="col">Verification</th></tr></thead>
                   <tbody>
                     {#each r.shadow as sh (sh.candidate + (sh.intentDigest ?? ''))}

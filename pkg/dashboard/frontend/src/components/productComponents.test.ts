@@ -11,6 +11,10 @@ import EntityLink from './EntityLink.svelte';
 // @ts-expect-error
 import EntityIdentity from './EntityIdentity.svelte';
 // @ts-expect-error
+import Breadcrumbs from './Breadcrumbs.svelte';
+// @ts-expect-error
+import NodeDrawer from './NodeDrawer.svelte';
+// @ts-expect-error
 import ProductEmptyState from './ProductEmptyState.svelte';
 // @ts-expect-error
 import SourceHealth from './SourceHealth.svelte';
@@ -512,5 +516,17 @@ describe('identity renderers isolate the name', () => {
     const bdi = target.querySelector('.ei-label bdi');
     expect(bdi?.textContent).toBe(label);
     expect(target.querySelectorAll('.ei-context bdi').length).toBeGreaterThan(0);
+  });
+
+  it('wraps every breadcrumb label in <bdi>', () => {
+    const label = 'svc‮gnp.exe';
+    comp = mount(Breadcrumbs, { target, props: { trail: [{ label: 'Services', href: '#/services' }, { label }] } });
+    expect([...target.querySelectorAll('bdi')].map((b) => b.textContent)).toEqual(['Services', label]);
+  });
+
+  it('wraps the graph drawer name in <bdi>', () => {
+    const name = 'svc‮gnp.exe';
+    comp = mount(NodeDrawer, { target, props: { data: { name, external: true, dependencies: [], dependents: [] } } });
+    expect(target.querySelector('.drawer-name bdi')?.textContent).toBe(name);
   });
 });
