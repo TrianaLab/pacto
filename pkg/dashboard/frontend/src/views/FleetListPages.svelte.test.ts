@@ -260,7 +260,7 @@ describe('FleetOwnersView (G)', () => {
     await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
     // The owner question carries the search and the offset; the ownership question does not.
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], text: 'team', offset: 25 }));
-    expect(entitiesFn).toHaveBeenCalledWith({ kinds: ['service'], limit: 1 });
+    expect(entitiesFn).toHaveBeenCalledWith({ kinds: ['service'], template: 'exclude', limit: 1 });
     expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
     unmount(component); document.body.removeChild(target);
   });

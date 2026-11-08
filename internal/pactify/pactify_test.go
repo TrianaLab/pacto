@@ -743,11 +743,14 @@ func TestOfflineSigningAndPlainHTTP(t *testing.T) {
 		t.Fatalf("second run: %+v %v", again, err)
 	}
 
-	for _, d := range []string{t.TempDir(), writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: p, version: 1.0.0}\npublish: {bundle: oci://r.example/p, sign: {key: k}}\n"})} {
-		r, err := Init(context.Background(), Options{Dir: d, Name: "p", NoTransparencyLog: true, Plan: true}, os.WriteFile)
-		if err != nil || !hasLine(r.Next, "add transparencyLog: false under publish.sign") {
-			t.Fatalf("a contract init did not write: %+v %v", r, err)
-		}
+	d := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: p, version: 1.0.0}\npublish: {bundle: oci://r.example/p, sign: {key: k}}\n"})
+	if r, err := Init(context.Background(), Options{Dir: d, Name: "p", NoTransparencyLog: true, Plan: true}, os.WriteFile); err != nil || !hasLine(r.Next, "add transparencyLog: false under publish.sign") {
+		t.Fatalf("a contract init did not write: %+v %v", r, err)
+	}
+	// A blank contract says it itself.
+	if r, err := Init(context.Background(), Options{Dir: t.TempDir(), Name: "p", NoTransparencyLog: true, Plan: true}, os.WriteFile); err != nil ||
+		hasLine(r.Next, "transparencyLog") || !strings.Contains(file(t, r, "pacto.yaml").Content, "    transparencyLog: false\n") {
+		t.Fatalf("blank: %+v %v", r, err)
 	}
 	if _, err := Init(context.Background(), Options{Dir: fraudDir(t), InsecureRegistry: true, Plan: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "needs delivery") {
 		t.Fatalf("insecure without delivery: %v", err)
@@ -788,6 +791,7 @@ func TestRefusals(t *testing.T) {
 	}{
 		{"a file", Options{Dir: filepath.Join(notDir, "f")}, "is a file"},
 		{"unreadable", Options{Dir: locked, Name: "x"}, "reading"},
+		{"unreadable .pactoignore", Options{Dir: writeTree(t, t.TempDir(), map[string]string{".pactoignore/x": ""}), Name: "x"}, ".pactoignore: "},
 		{"bad name", Options{Dir: t.TempDir(), Name: "Bad_Name"}, "not a valid service name"},
 		{"bad environment", Options{Dir: t.TempDir(), Name: "x", Environments: []string{"Prod"}}, "not a valid namespace name"},
 		{"bad owner", Options{Dir: fraudDir(t), Owner: "the risk team"}, "is not valid"},
@@ -807,14 +811,21 @@ func TestApplyFailures(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	// A file where a folder must go.
+	// A file where a folder must go is refused before anything is written.
 	dir := writeTree(t, fraudDir(t), map[string]string{"delivery": "a file"})
-	if _, err := Init(context.Background(), Options{Dir: dir, Delivery: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "failed to create directory") {
+	if _, err := Init(context.Background(), Options{Dir: dir, Delivery: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "delivery is a file in") {
 		t.Fatalf("mkdir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
+		t.Fatal("a refused plan wrote pacto.yaml")
+	}
+	r := &Result{Dir: dir, Files: []File{{Path: "delivery/x.yaml", Action: Add}}}
+	if err := apply(r, os.WriteFile); err == nil || !strings.Contains(err.Error(), "failed to create directory") {
+		t.Fatalf("apply mkdir: %v", err)
 	}
 
 	// The file to append to went away between plan and apply.
-	r := &Result{Dir: t.TempDir(), Files: []File{{Path: ".pactoignore", Action: Append, Content: "x\n"}}}
+	r = &Result{Dir: t.TempDir(), Files: []File{{Path: ".pactoignore", Action: Append, Content: "x\n"}}}
 	if err := apply(r, os.WriteFile); err == nil {
 		t.Fatal("appending to a missing file was not an error")
 	}
@@ -1184,5 +1195,119 @@ func TestOnlyClusterFilesAreManifests(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// planBlank plans a blank contract in a new folder named svc.
+func planBlank(t *testing.T, opts Options) (*Result, *contract.Contract) {
+	t.Helper()
+	opts.Dir, opts.Plan = filepath.Join(t.TempDir(), "svc"), true
+	r, err := Init(context.Background(), opts, os.WriteFile)
+	if err != nil || r.Mode != modeBlank {
+		t.Fatalf("plan: %+v %v", r, err)
+	}
+	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r, c
+}
+
+// TestBlankHonoursOwnerDomainRegistry: a blank contract carries the owner,
+// domain and registry it was given, and keeps the signing key out of the
+// bundle.
+func TestBlankHonoursOwnerDomainRegistry(t *testing.T) {
+	r, c := planBlank(t, Options{Owner: "billing", Domain: "payments", Registry: "oci://ghcr.io/acme/"})
+	if c.PactoVersion != "2.4" || c.Service.Owner.Team != "billing" || c.Service.Domain != "payments" {
+		t.Fatalf("contract: %+v", c)
+	}
+	if c.Publish == nil || c.Publish.Bundle != "oci://ghcr.io/acme/svc" || c.Publish.Sign == nil || c.Publish.Sign.Key != signKey {
+		t.Fatalf("publish: %+v", c.Publish)
+	}
+	if f := file(t, r, ".pactoignore"); f.Action != Add || f.Content != signKey+"\n" {
+		t.Fatalf(".pactoignore: %+v", f)
+	}
+	if hasLine(r.Unknown, "owner") || hasLine(r.Unknown, "registry") {
+		t.Fatalf("unknown: %v", r.Unknown)
+	}
+	text := file(t, r, "pacto.yaml").Content
+	for _, s := range []string{"dri:", "contacts:", "readiness", "metadata"} {
+		if strings.Contains(text, s) {
+			t.Errorf("pacto.yaml holds %q:\n%s", s, text)
+		}
+	}
+}
+
+// TestBlankWithoutOwnerIsUnknown: with no owner or registry the contract says
+// so in a comment and a placeholder, both named in Unknown.
+func TestBlankWithoutOwnerIsUnknown(t *testing.T) {
+	r, c := planBlank(t, Options{})
+	if c.PactoVersion != "2.1" || c.Service.Owner.Team != "" || c.Service.Domain != "" || c.Publish.Bundle != "oci://registry.example/svc" {
+		t.Fatalf("contract: %+v", c)
+	}
+	if !strings.Contains(file(t, r, "pacto.yaml").Content, "  # owner:\n") ||
+		!hasLine(r.Unknown, "owner: no team was given; pass --owner") || !hasLine(r.Unknown, "registry: no --registry was given") {
+		t.Fatalf("unknown: %v", r.Unknown)
+	}
+}
+
+// TestBlankDescribeOnlyHasNoPublish: describe-only writes no publish section,
+// so no signing key and no .pactoignore.
+func TestBlankDescribeOnlyHasNoPublish(t *testing.T) {
+	r, c := planBlank(t, Options{DescribeOnly: true, Registry: "ghcr.io/acme"})
+	if c.Publish != nil || slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == ".pactoignore" }) || hasLine(r.Unknown, "registry") {
+		t.Fatalf("plan: %+v", r)
+	}
+}
+
+// TestBlankIsValid: every option combination writes a contract that
+// validates, and transparencyLog: false lands under publish.sign.
+func TestBlankIsValid(t *testing.T) {
+	for _, owner := range []string{"", "billing"} {
+		for _, domain := range []string{"", "payments"} {
+			for _, registry := range []string{"", "ghcr.io/acme"} {
+				for _, describe := range []bool{false, true} {
+					for _, noTLog := range []bool{false, true} {
+						if describe && noTLog {
+							continue
+						}
+						r, c := planBlank(t, Options{Owner: owner, Domain: domain, Registry: registry, DescribeOnly: describe, NoTransparencyLog: noTLog})
+						files := map[string]string{}
+						for _, f := range r.Files {
+							files[f.Path] = f.Content
+						}
+						if err := validate(files["pacto.yaml"], files); err != nil {
+							t.Errorf("%q %q %q %v %v: %v", owner, domain, registry, describe, noTLog, err)
+						}
+						if noTLog && (c.Publish.Sign.TransparencyLog == nil || *c.Publish.Sign.TransparencyLog) {
+							t.Errorf("transparencyLog: %+v", c.Publish.Sign)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestBlankInvalidDomainFails: a domain the schema refuses fails before
+// anything is planned.
+func TestBlankInvalidDomainFails(t *testing.T) {
+	_, err := Init(context.Background(), Options{Dir: filepath.Join(t.TempDir(), "svc"), Domain: "Not A Domain", Plan: true}, os.WriteFile)
+	if err == nil || !strings.Contains(err.Error(), "is not valid") {
+		t.Fatalf("err: %v", err)
+	}
+}
+
+// TestPactifiedWritesDomain: a contract read from the folder carries the
+// domain it was given at pactoVersion 2.4.
+func TestPactifiedWritesDomain(t *testing.T) {
+	dir := writeTree(t, filepath.Join(t.TempDir(), "checkout"), map[string]string{"Dockerfile": "FROM alpine:3.20\n"})
+	r, err := Init(context.Background(), Options{Dir: dir, Domain: "payments", Plan: true}, os.WriteFile)
+	if err != nil || r.Mode != modePactify {
+		t.Fatalf("plan: %+v %v", r, err)
+	}
+	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
+	if err != nil || c.PactoVersion != "2.4" || c.Service.Domain != "payments" {
+		t.Fatalf("contract: %+v %v", c, err)
 	}
 }

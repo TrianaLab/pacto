@@ -58,8 +58,8 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 // tools. writes registers propose and cancel; the command layer passes true
 // only when the caller is not a human identity, so a person's credentials in an
 // agent's hands propose nothing through this server.
-func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Validator) *mcpsdk.Server {
-	server := newServer(version, baseInstructions+"\n\n"+deliveryInstructions, validate)
+func NewDeliveryServer(version string, api DeliveryAPI, writes bool, a Authoring) *mcpsdk.Server {
+	server := newServer(version, baseInstructions+"\n\n"+deliveryInstructions, a)
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "pacto_delivery_operation_types",
 		Description: "List the operation types you may propose, with their facet and who may raise them, or with type set " +

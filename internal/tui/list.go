@@ -24,6 +24,9 @@ const (
 	minNameWidth   = 24
 )
 
+// goldenPathLabel marks a service row that is a golden path.
+const goldenPathLabel = "golden path"
+
 // listScreen is the home screen: a health banner over a kind-filtered table,
 // with a live detail pane beside it. Whatever row is highlighted is both what
 // the pane describes and the argument every verb receives.
@@ -170,9 +173,13 @@ func (l *listScreen) load(c *Context, f fleet.EntityFilter) {
 func (l *listScreen) rows(c *Context) []table.Row {
 	rows := make([]table.Row, 0, len(l.entities))
 	for _, e := range l.entities {
+		name := safeText(e.Label)
+		if e.Template {
+			name += " " + faintStyle.Render(goldenPathLabel)
+		}
 		rows = append(rows, table.Row{
 			safeText(string(e.Kind)),
-			safeText(e.Label),
+			name,
 			statusBadge(c, e.Status),
 			safeText(e.Secondary),
 		})
@@ -367,9 +374,13 @@ func (l *listScreen) paneBody(c *Context, w int) string {
 	if !ok {
 		return faintStyle.Render("Nothing highlighted.")
 	}
+	kind := string(ref.Kind)
+	if ref.Template {
+		kind = goldenPathLabel
+	}
 	lines := []string{
 		focusStyle.Render(trunc(ref.Label, w)),
-		faintStyle.Render(string(ref.Kind)),
+		faintStyle.Render(kind),
 	}
 	if ref.Status != "" {
 		lines = append(lines, "", statusBadge(c, ref.Status))

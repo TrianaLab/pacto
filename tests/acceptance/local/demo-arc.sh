@@ -43,7 +43,7 @@ go build -o "$BIN" "$ROOT/cmd/pacto"
 
 echo "== beat 1: the fleet exists =="
 OUT="$("$BIN" $(beat_args 1))" || fail "beat 1: fleet search failed"
-assert_contains "$OUT" "36 of 36 service(s):" "every demo service is in the snapshot"
+assert_contains "$OUT" "38 of 38 service(s):" "every demo service is in the snapshot"
 assert_contains "$OUT" "payments-service" "the service the arc changes is present"
 
 echo "== beat 2: five states at once =="
@@ -225,5 +225,23 @@ rc=0; OUT="$("$BIN" $(beat_args 15))" || rc=$?
 [ "$rc" -eq 2 ] || fail "beat 15: impact should exit 2 (unverified), got $rc"
 assert_contains "$OUT" "refused: fulfillment-service requires stock-events dedupeWindow >= 5m from inventory-service, which offers nothing" "the dropped guarantee is named"
 assert_contains "$OUT" "refused: pricing-service requires stock-v2 timeout <= 2s from inventory-service, which offers 5s" "a weaker guarantee refuses too"
+
+echo "== beat 16: plan a service from a golden path =="
+# The configuration and policy refs the path names resolve from the cache beat 13
+# seeded, with every connection refused. --plan writes nothing.
+OUT="$(XDG_CACHE_HOME="$WORK/cache" HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 NO_PROXY= no_proxy= \
+  "$BIN" $(beat_args 16) 2>&1)" || { echo "$OUT"; fail "beat 16: init --from --plan failed"; }
+assert_contains "$OUT" "unknown  signature              a directory carries no signature" "a directory's signature is unknown, never verified"
+assert_contains "$OUT" "done     validation             strict, references resolved" "the planned contract is validated strictly"
+assert_contains "$OUT" "unknown  published" "publishing is not observed at creation"
+assert_contains "$OUT" "+ pacto.yaml" "the plan adds the contract"
+[ ! -e gift-cards ] || fail "beat 16: --plan wrote gift-cards/"
+pass "--plan writes nothing"
+
+echo "== beat 17: the golden path and the services created from it =="
+OUT="$("$BIN" $(beat_args 17))" || fail "beat 17: fleet entity failed"
+assert_contains "$OUT" "Golden path: An HTTP API on the platform runtime" "the golden path block is shown"
+assert_contains "$OUT" "Created services:" "the services created from it are listed"
+assert_contains "$OUT" "  gift-cards" "gift-cards is one of them"
 
 echo "== demo-arc acceptance PASSED =="

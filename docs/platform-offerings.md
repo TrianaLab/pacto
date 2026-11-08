@@ -49,6 +49,12 @@ separately, inferred suggestions (`inferredOfferings`). A suggestion is an
 external or unresolved dependency whose name exactly matches an offering or a
 provider's name, ignoring case. Suggestions are never counted as consumption.
 
+A [golden path](golden-paths.md) never consumes: the offerings its contract
+reaches are the requirements of the services created from it. Its detail lists
+them as requirements with the same entries a consumer's `consumedOfferings`
+carries, and the `consumes` filter and the offering's consumer list leave the
+path out. See the [golden paths reference](golden-paths-reference.md).
+
 ## Consume snippet
 
 Each provider carries a consume snippet to add to a contract, built from its
@@ -61,11 +67,19 @@ newest readable revision, the one the offering page shows as current:
   `compatibility` to fill in;
 - a `configurations` entry per required configuration, with `ref` pinned to
   the current version, a `configuration` selector when the provider declares
-  more than one and a `values` skeleton of the schema's required properties;
+  more than one and a `values` skeleton of the schema's required properties.
+  Each property gets the first candidate the schema accepts: its default, its
+  first enum value, the minimum of a number or the empty value of its type. A
+  property no candidate satisfies is left out of `values`, written as a
+  comment line such as `# storageGi: required integer, set a value` and named
+  in `missingValues`;
 - a `policies` entry named after the provider when the provider declares a
   policy or ships `policy/schema.json`, and neither entry above applies.
 
-The dependency `ref` is the provider's registry repository without a tag or
+The snippet carries the same entries twice: as YAML in `yaml` and as
+structured contract entries in `entries` (`dependency`, `configurations` and
+`policy`), so an agent can add them without parsing YAML. The dependency `ref`
+is the provider's registry repository without a tag or
 digest. A deprecated current revision adds a comment saying so. A provider
 that is not published to a registry has no snippet.
 

@@ -256,6 +256,9 @@ Controller arguments derived from values
 - --dashboard-token-login
 {{- end }}
 {{- end }}
+{{- with .Values.dashboard.repositories }}
+- --dashboard-repositories={{ join "," . }}
+{{- end }}
 {{- with .Values.dashboard.delivery }}
 {{- with (.namespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled)) }}
 - --dashboard-delivery-namespace={{ . }}

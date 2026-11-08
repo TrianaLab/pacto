@@ -674,7 +674,7 @@ func TestExtractTar_FileExceedsMaxSize(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	// Create a file that exceeds the per-file size limit.
-	bigData := make([]byte, maxFileSize+1)
+	bigData := make([]byte, MaxFileSize+1)
 	if err := tw.WriteHeader(&tar.Header{
 		Name: "huge.bin",
 		Size: int64(len(bigData)),
@@ -702,9 +702,9 @@ func TestExtractTar_TotalSizeExceeded(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	// Create enough files to exceed the total size limit.
-	// Each file is just under the per-file limit but together they exceed maxTotalSize.
-	fileSize := maxFileSize
-	numFiles := (maxTotalSize / fileSize) + 1
+	// Each file is just under the per-file limit but together they exceed MaxTotalSize.
+	fileSize := MaxFileSize
+	numFiles := (MaxTotalSize / fileSize) + 1
 	data := make([]byte, fileSize)
 	for i := 0; i < numFiles; i++ {
 		if err := tw.WriteHeader(&tar.Header{
@@ -1280,5 +1280,71 @@ func TestBundleDigest(t *testing.T) {
 	broken.FS = fstest.MapFS{"pacto.yaml": &fstest.MapFile{Mode: fs.ModeSymlink}}
 	if _, err := BundleDigest(broken); err == nil {
 		t.Fatal("an unreadable bundle has no digest")
+	}
+}
+
+// trailingLayer is a v1.Layer whose uncompressed stream is a valid tar
+// followed by tail, like a registry reader that checks the digest at EOF.
+type trailingLayer struct {
+	v1.Layer
+	tail io.Reader
+}
+
+func (l *trailingLayer) Uncompressed() (io.ReadCloser, error) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	doc := []byte("pactoVersion: \"2.0\"\nservice:\n  name: x\n  version: 1.0.0\n")
+	_ = tw.WriteHeader(&tar.Header{Name: "pacto.yaml", Typeflag: tar.TypeReg, Size: int64(len(doc)), Mode: 0o644})
+	_, _ = tw.Write(doc)
+	_ = tw.Close()
+	return io.NopCloser(io.MultiReader(&buf, l.tail)), nil
+}
+
+type trailingImage struct {
+	v1.Image
+	layer v1.Layer
+}
+
+func (i *trailingImage) Layers() ([]v1.Layer, error) { return []v1.Layer{i.layer}, nil }
+
+type failAtEOF struct{}
+
+func (failAtEOF) Read([]byte) (int, error) { return 0, fmt.Errorf("digest mismatch") }
+
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
+
+// TestImageToBundle_ReadsLayerToEOF pins that the layer is read past the tar's
+// end-of-archive blocks, so the registry reader's digest check at EOF runs
+// and bytes that do not match the signed manifest are refused.
+func TestImageToBundle_ReadsLayerToEOF(t *testing.T) {
+	if _, err := imageToBundle(&trailingImage{layer: &trailingLayer{tail: bytes.NewReader(make([]byte, 8192))}}); err != nil {
+		t.Fatalf("a layer that reads to EOF cleanly is a bundle: %v", err)
+	}
+	for name, tail := range map[string]io.Reader{
+		"digest checked at EOF": io.MultiReader(bytes.NewReader(make([]byte, 8192)), failAtEOF{}),
+		"unbounded padding":     zeros{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := imageToBundle(&trailingImage{layer: &trailingLayer{tail: tail}}); err == nil {
+				t.Fatal("expected the layer's trailing bytes to be read and refused")
+			}
+		})
+	}
+}
+
+// TestExtractTar_RejectsInvalidNames pins that an absolute name or one with
+// an empty component is refused: in a MapFS either makes fs.WalkDir loop.
+func TestExtractTar_RejectsInvalidNames(t *testing.T) {
+	for _, n := range []string{"/etc/x", "a//b", "a/./b"} {
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
+		_ = tw.WriteHeader(&tar.Header{Name: n, Typeflag: tar.TypeReg, Size: 1, Mode: 0o644})
+		_, _ = tw.Write([]byte("x"))
+		_ = tw.Close()
+		if _, err := extractTar(&buf); err == nil || !strings.Contains(err.Error(), "invalid path") {
+			t.Errorf("%s: expected an invalid path error, got %v", n, err)
+		}
 	}
 }

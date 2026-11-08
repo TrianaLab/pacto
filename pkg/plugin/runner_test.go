@@ -402,3 +402,25 @@ func TestSubprocessRunner_Run_PluginInvalidJSON(t *testing.T) {
 		t.Fatalf("expected 'invalid output' in error, got: %v", err)
 	}
 }
+
+// TestFindPlugin_RefusesPathNames pins that a plugin name cannot climb out of
+// the plugin directory: filepath.Join cleans "pacto-plugin-../../x" into any
+// path, so a golden path naming such a plugin would run an arbitrary binary.
+func TestFindPlugin_RefusesPathNames(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(home, "x")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".config", "pacto", "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("PATH", "")
+	for _, name := range []string{"../../../x", "a/b", "..", ""} {
+		if path, err := findPlugin(name); err == nil || !strings.Contains(err.Error(), "is not valid") {
+			t.Errorf("findPlugin(%q) = %q, %v; want a not-valid error", name, path, err)
+		}
+	}
+}

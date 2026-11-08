@@ -853,3 +853,61 @@ func TestServiceFields24(t *testing.T) {
 		}
 	}
 }
+
+// TestServiceTemplate24: 2.4 takes service.template and service.origin.
+func TestServiceTemplate24(t *testing.T) {
+	doc := func(field string, value any) map[string]any {
+		svc := map[string]any{"name": "svc", "version": "1.0.0"}
+		if field != "" {
+			svc[field] = value
+		}
+		return map[string]any{"pactoVersion": "2.4", "service": svc}
+	}
+	plugins := []any{
+		map[string]any{"name": "dockerfile", "description": "A Dockerfile for a Go HTTP service"},
+		map[string]any{"name": "github-actions", "description": "A CI workflow", "options": map[string]any{"go-version": "1.27"}},
+	}
+	origin := map[string]any{"ref": "oci://ghcr.io/acme/paths/http-service:1.0.0", "digest": "sha256:" + strings.Repeat("a", 64)}
+	for name, d := range map[string]map[string]any{
+		"minimal":        doc("", nil),
+		"empty template": doc("template", map[string]any{}),
+		"template":       doc("template", map[string]any{"plugins": plugins}),
+		"origin":         doc("origin", origin),
+	} {
+		if r := ValidateStructural(d); !r.IsValid() {
+			t.Fatalf("2.4 %s: %v", name, r.Errors)
+		}
+	}
+	for name, d := range map[string]map[string]any{
+		"no plugins":       doc("template", map[string]any{"plugins": []any{}}),
+		"origin no digest": doc("origin", map[string]any{"ref": "oci://ghcr.io/acme/paths/http-service:1.0.0"}),
+		"short digest":     doc("origin", map[string]any{"ref": "../paths/x", "digest": "sha256:abc"}),
+	} {
+		if r := ValidateStructural(d); r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
+			t.Errorf("2.4 %s: %v", name, r.Errors)
+		}
+	}
+}
+
+// TestNeeds24Template: service.template and service.origin in an older contract are
+// each told to set pactoVersion 2.4 and the caller's data is left alone.
+func TestNeeds24Template(t *testing.T) {
+	for _, version := range []string{"2.0", "2.1", "2.2", "2.3"} {
+		svc := map[string]any{"name": "svc", "version": "1.0.0", "template": map[string]any{},
+			"origin": map[string]any{"ref": "../paths/x", "digest": "sha256:" + strings.Repeat("a", 64)}}
+		data := map[string]any{"pactoVersion": version, "service": svc}
+		var got []string
+		for _, e := range ValidateStructural(data).Errors {
+			got = append(got, e.Code+" "+e.Path)
+		}
+		slices.Sort(got)
+		if want := []string{"NEEDS_PACTO_2_4 service.origin", "NEEDS_PACTO_2_4 service.template"}; !slices.Equal(got, want) {
+			t.Fatalf("%s: got %v, want %v", version, got, want)
+		}
+		_, tmpl := svc["template"]
+		_, origin := svc["origin"]
+		if !tmpl || !origin {
+			t.Fatal("the caller's data was changed")
+		}
+	}
+}

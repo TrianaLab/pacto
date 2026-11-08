@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -36,8 +37,9 @@ type TrustedKey struct {
 	// without it a self-signed certificate could name any identity and issuer.
 	TrustedRoot string `json:"trustedRoot,omitempty" yaml:"trustedRoot,omitempty"`
 	// Streams are path.Match patterns over stream ids
-	// (<cluster>/<namespace>/<stage>), such as "*/prod/*". Empty means every
-	// stream.
+	// (<cluster>/<namespace>/<stage>), such as "*/prod/*"; for a template key,
+	// path.Match patterns over the bundle repository, such as
+	// "ghcr.io/acme/paths/*". Empty means every stream or repository.
 	Streams []string `json:"streams,omitempty" yaml:"streams,omitempty"`
 	// UntilSeq and UntilRecord revoke the key: UntilRecord is the id of the
 	// last record it signed on the stream and UntilSeq that record's seq. It
@@ -48,9 +50,10 @@ type TrustedKey struct {
 	// streams gets one entry per stream.
 	UntilSeq    int64  `json:"untilSeq,omitempty" yaml:"untilSeq,omitempty"`
 	UntilRecord string `json:"untilRecord,omitempty" yaml:"untilRecord,omitempty"`
-	// Role is what the key signs: records when empty, or the answers of an
-	// eval runner ("runner"). A runner key never verifies a record, and a
-	// recorder key never verifies a runner's answer.
+	// Role is what the key signs: records when empty, the answers of an eval
+	// runner ("runner") or golden paths ("template"). A key of one role never
+	// verifies what another role signs, so a recorder key never verifies a
+	// golden path and a template key never verifies a record.
 	Role string `json:"role,omitempty" yaml:"role,omitempty"`
 	// Providers are, on a runner key, the gate providers (a Stage check's
 	// provider) whose Pass or Fail a runner must have signed: record verify
@@ -60,8 +63,14 @@ type TrustedKey struct {
 	Providers []string `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
 
-// RoleRunner is the role of a key that signs eval runners' answers.
-const RoleRunner = "runner"
+// Key roles beside the record keys (an empty role).
+const (
+	// RoleRunner is the role of a key that signs eval runners' answers.
+	RoleRunner = "runner"
+	// RoleTemplate is the role of a key that signs golden paths, the bundles
+	// pacto init --from creates a service from.
+	RoleTemplate = "template"
+)
 
 // HistoryOnly is the error of a record that only a revoked key signs, at or
 // below the seq it was revoked after: the record is history only if Until,
@@ -107,8 +116,14 @@ func (t TrustConfig) Digest() string {
 func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, error)) (Verifier, error) {
 	var entries recordKeys
 	for i, k := range t.Keys {
-		if k.Role != "" && k.Role != RoleRunner {
-			return nil, fmt.Errorf("trust config key %d (%s): role %q is not empty or %s", i, k.Name, k.Role, RoleRunner)
+		if k.Role != "" && k.Role != RoleRunner && k.Role != RoleTemplate {
+			return nil, fmt.Errorf("trust config key %d (%s): role %q is not empty, %s or %s", i, k.Name, k.Role, RoleRunner, RoleTemplate)
+		}
+		if k.Role == RoleTemplate { // checked here, used by TemplateKeys
+			if err := checkTemplateKey(k, open); err != nil {
+				return nil, fmt.Errorf("trust config key %d (%s): %w", i, k.Name, err)
+			}
+			continue
 		}
 		if k.Role == RoleRunner { // checked here, used by Runners
 			if _, err := RunnersOf([]TrustedKey{k}, open); err != nil {
@@ -186,6 +201,39 @@ func (t TrustConfig) For(stream string) (TrustedKey, bool) {
 		}
 	}
 	return TrustedKey{}, false
+}
+
+// checkTemplateKey refuses a template key that names what only record and
+// runner keys have: revoking a golden path signer is removing its entry.
+func checkTemplateKey(k TrustedKey, open func(TrustedKey) (func(bundle []byte) error, error)) error {
+	if k.UntilSeq != 0 || k.UntilRecord != "" || len(k.Providers) > 0 {
+		return errors.New("a template key takes no untilSeq, untilRecord or providers: remove the entry to stop trusting its signer")
+	}
+	for _, p := range k.Streams {
+		if _, err := path.Match(p, ""); err != nil {
+			return fmt.Errorf("repository pattern %q: %w", p, err)
+		}
+	}
+	_, err := open(k)
+	return err
+}
+
+// TemplateKeys are the template keys that may sign golden paths in repo, a
+// bundle repository such as ghcr.io/acme/paths/http-service.
+func (t TrustConfig) TemplateKeys(repo string) []TrustedKey {
+	var keys []TrustedKey
+	for _, k := range t.Keys {
+		if k.Role == RoleTemplate && covers(k.Streams, repo) {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+// HasTemplateKeys reports whether the config names any template key. One
+// that names none says nothing about golden paths.
+func (t TrustConfig) HasTemplateKeys() bool {
+	return slices.ContainsFunc(t.Keys, func(k TrustedKey) bool { return k.Role == RoleTemplate })
 }
 
 // RunnerVerifier checks an eval runner's signed answer and names the runner

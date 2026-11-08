@@ -452,6 +452,15 @@
             "type": "string"
           }
         },
+        "repositories": {
+          "type": "array",
+          "description": "oci:// references the dashboard reads beside the contracts it discovers from Pacto resources, such as golden paths, which are never deployed.",
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "pattern": "^oci://"
+          }
+        },
         "auth": {
           "type": "object",
           "additionalProperties": false,

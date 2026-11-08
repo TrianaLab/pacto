@@ -1,6 +1,6 @@
 /** Breadcrumb trails derived from view state. Pure — unit-testable. */
 import {
-  graphUrl, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetEntityUrl, hashForHref,
+  graphUrl, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl, fleetEntityUrl, hashForHref,
 } from './router';
 
 export interface Crumb {
@@ -16,7 +16,7 @@ export function graphBreadcrumbs(f: { group: string; focus: string }): Crumb[] {
 }
 
 // A minimal structural view of a product entity ref (never the whole DTO type).
-interface RefLike { kind?: string; key?: string; label?: string; href?: string; businessDomain?: string }
+interface RefLike { kind?: string; key?: string; label?: string; href?: string; businessDomain?: string; template?: boolean }
 
 // crumb builds a Crumb from a canonical product ref, linking to its authoritative
 // backend href. Parent identity is ALWAYS taken from a canonical ref, never inferred
@@ -45,6 +45,8 @@ export function fleetEntityBreadcrumbs(detail: any): Crumb[] {
     case 'service': {
       // A service in a business domain sits under it; one with none sits under Services.
       const leaf = { label: e.label || e.key || 'service' };
+      // A golden path sits under the Golden paths list, where it is listed.
+      if (e.template) return [root, { label: 'Golden paths', href: fleetGoldenPathsUrl() }, leaf];
       const bd = e.businessDomain;
       return bd ? [root, domains, { label: bd, href: fleetEntityUrl('domain', bd) }, leaf] : [root, services, leaf];
     }

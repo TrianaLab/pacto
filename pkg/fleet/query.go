@@ -180,6 +180,7 @@ type SearchFilter struct {
 	HasDependency  bool              // some revision declares a dependency
 	ReadyOnly      bool              // operationally ready (correlated to target when a target predicate is set)
 	NotReady       bool              // not operationally ready (correlated likewise)
+	Template       string            // TemplateOnly keeps only golden paths, TemplateExclude leaves them out
 	Limit          int               // 0 → DefaultSearchLimit, capped at MaxSearchLimit
 	Offset         int
 }
@@ -205,6 +206,8 @@ type ServiceHit struct {
 	TargetCount   int               `json:"targetCount"`
 	Sources       []string          `json:"sources,omitempty"`
 	Labels        map[string]string `json:"labels,omitempty"`
+	// Template marks a golden path (see ServiceRecord.Template).
+	Template bool `json:"template,omitempty"`
 }
 
 // SearchResult is a bounded page of service hits.
@@ -245,6 +248,7 @@ func validateSearchFilter(f SearchFilter) error {
 	return validateFields([]fieldCheck{
 		{"status", f.Status, "not a canonical status", ValidStatus},
 		{"compliance", f.Compliance, "not a canonical status", ValidStatus},
+		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
 	})
 }
 
@@ -291,7 +295,7 @@ func hitFromService(s *ServiceRecord) ServiceHit {
 		Key: s.Key, Name: s.Name, Domain: s.Domain, BusinessDomain: s.BusinessDomain, BusinessDomainUnknown: s.BusinessDomainUnknown,
 		Offering: s.Offering, Summary: s.Summary, Owner: cloneOwner(s.Owner), Status: s.Status,
 		RevisionCount: len(s.Revisions), TargetCount: len(s.Targets),
-		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels),
+		Sources: append([]string(nil), s.Sources...), Labels: cloneStringMap(s.Labels), Template: s.Template,
 	}
 }
 
@@ -319,6 +323,7 @@ func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
 		f.BusinessDomain == "" || q.serviceInBusinessDomain(string(s.Key), f.BusinessDomain),
 		matchEq(f.Status, s.Status),
 		matchEq(f.Offering, s.Offering),
+		templateMatches(f.Template, s.Template),
 		matchSource(s, f.Source),
 		q.anyRevisionWorkload(s, f.Workload),
 		q.anyRevisionHasCapability(s, f.HasCapability),
@@ -529,14 +534,15 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	for _, tk := range s.Targets {
 		view.Targets = append(view.Targets, cloneTarget(q.snap.Targets[tk]))
 	}
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
+	// A golden path's edges live in templateEdges, so its Dependencies still list
+	// what it uses.
+	for rel := range q.snap.declaredEdges() {
 		// Declared dependency edges only, matching this field's documented meaning
 		// (configuration references live in the contract's configurations);
 		// observed edges live in the separate observed adjacency index (and the
 		// graph's observed layer), so they never masquerade as declared intent here.
 		if rel.FromService == s.Key && rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared {
-			view.Dependencies = append(view.Dependencies, rel)
+			view.Dependencies = append(view.Dependencies, *rel)
 		}
 	}
 	// Dependents includes configuration-reference consumers (see [ConsumesEdge]).
@@ -913,7 +919,9 @@ type StatusQuery struct {
 	// Undeclared reports runtime calls no contract declares and callers with no
 	// contract.
 	Undeclared bool
-	Limit      int
+	// GoldenPathDeployed reports running services that declare service.template.
+	GoldenPathDeployed bool
+	Limit              int
 }
 
 // StatusItem is one attention-worthy finding.
@@ -952,6 +960,7 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		categoryOutOfRange:   sq.UnsatisfiedRanges,
 		categoryUndeclared:   sq.Undeclared,
 		categoryUnowned:      sq.Unowned,
+		categoryGoldenPath:   sq.GoldenPathDeployed,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".

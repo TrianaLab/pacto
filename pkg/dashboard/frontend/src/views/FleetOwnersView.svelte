@@ -86,7 +86,7 @@
   // machine, so the summary loads, errors, and goes stale in exactly the language the
   // rest of the product uses -- and a failure here never takes the usable owner roster
   // down with it.
-  const ownershipLoader = createProductLoader(() => api.fleetEntities({ kinds: ['service'], limit: 1 }));
+  const ownershipLoader = createProductLoader(() => api.fleetEntities({ kinds: ['service'], template: 'exclude', limit: 1 }));
   $effect(() => { ownershipLoader.sync(`ownership@@${refreshTick}`, 'ownership'); });
   onDestroy(() => ownershipLoader.destroy());
   function loadOwnership() { ownershipLoader.refresh(); }

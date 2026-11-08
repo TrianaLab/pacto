@@ -43,6 +43,16 @@ which satisfy it, and `pacto fleet entities --consumes <offering>` lists the
 services that consume it. `pacto fleet entity offering <slug>` shows each
 consumer's [provisioning status](platform-offerings.md#provisioning-status).
 
+[Golden paths](golden-paths.md) have their own filters:
+
+- `pacto fleet entities --template` lists golden paths, and
+  `--template=exclude` leaves them out;
+- `pacto fleet entities --created-from <key>` lists the services created from
+  one golden path;
+- `pacto fleet search --template` filters a search the same way;
+- the MCP tools take `template` and `created_from`, and the dashboard lists
+  golden paths on its Golden paths tab.
+
 ```bash
 $ pacto fleet search --local ./contracts --oci ghcr.io/acme/unreachable-pacto:1.0.0
 1 of 1 service(s):
@@ -91,13 +101,13 @@ pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""
 ```
 
 The second command needs a clone and a paste from the repository root; it opens
-on 36 services and 4 operational targets. The third needs nothing on disk:
+on 37 services, a golden path and 4 operational targets. The third needs nothing on disk:
 `--root` follows the published contract's dependency declarations and pulls 12 of
-the demo's 36 services out of `ghcr.io`, and `--local ""` switches off the default
+the demo's 38 services out of `ghcr.io`, and `--local ""` switches off the default
 directory scan. A registry has no record of where anything runs, so every
 service reads `NotEvaluated` until you add the `--target-state` fixture.
 
-![pacto tui on the demo fixture: the Services tab lists 36 services, with payments-service selected and compliant](assets/screenshots/tui-services.png)
+![pacto tui on the demo fixture: the Services tab lists 38 services, with payments-service selected and compliant](assets/screenshots/tui-services.png)
 
 ### Keys
 

@@ -213,6 +213,7 @@ nav:
       - Ask questions about your organization: ask-your-organization.md
       - Investigate a problem with Mira: investigate-a-problem.md
       - Provision infrastructure through contracts: provision-infrastructure.md
+      - Create a service from a golden path: golden-paths.md
       - Example contracts: examples/index.md
       - Composition patterns: patterns/index.md
       - CI with GitHub Actions: github-actions.md
@@ -229,6 +230,7 @@ nav:
       - Ladder reference: autonomy-reference.md
       - Operational graph reference: operational-graph-reference.md
       - Platform offerings reference: platform-offerings.md
+      - Golden paths reference: golden-paths-reference.md
       - MCP reference: mcp-reference.md
       - Publish reference: publishing.md
       - Dashboard reference:

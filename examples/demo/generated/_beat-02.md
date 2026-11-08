@@ -5,7 +5,7 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
 ```
 
 ```console
-36 of 36 service(s):
+38 of 38 service(s):
   analytics-pipeline           NotEvaluated owner=data-platform  domain=-            offering=-            revs=2 targets=0
   api-gateway                  NotEvaluated owner=platform-foundations domain=-            offering=-            revs=3 targets=0
   audit-log                    NotEvaluated owner=platform-foundations-security domain=-            offering=-            revs=1 targets=0
@@ -20,6 +20,8 @@ pacto fleet search --local examples/demo/bundles --target-state examples/demo/fl
   fraud-service                Compliant    owner=payments-team  domain=payments     offering=-            revs=2 targets=1
   frontend                     NotEvaluated owner=frontend-team  domain=-            offering=-            revs=1 targets=0
   fulfillment-service          NotEvaluated owner=logistics-team domain=fulfillment  offering=-            revs=3 targets=0
+  gift-cards                   NotEvaluated owner=checkout       domain=commerce     offering=-            revs=1 targets=0
+  http-service                 NotEvaluated owner=platform       domain=-            offering=-            revs=1 targets=0 golden path
   inventory-service            NotEvaluated owner=catalog-team   domain=fulfillment  offering=-            revs=4 targets=0
   loyalty-service              NotEvaluated owner=growth-team    domain=-            offering=-            revs=2 targets=0
   notification-worker          NotEvaluated owner=commerce-team  domain=-            offering=-            revs=1 targets=0

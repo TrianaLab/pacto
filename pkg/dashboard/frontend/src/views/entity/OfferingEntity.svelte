@@ -76,7 +76,8 @@
                 <span class="oe-caption">Add this to your contract to consume {key} from {self}.</span>
                 <CopyableIdentifier value={p.consume.yaml} label="consume snippet" iconOnly />
               </div>
-              <pre class="consume-snippet"><code>{p.consume.yaml}</code></pre>
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long snippet scrolls sideways; focus lets a keyboard reader scroll it) -->
+              <pre class="consume-snippet" tabindex="0"><code>{p.consume.yaml}</code></pre>
             {:else}
               <span class="oe-note">Publish this provider to a registry to get a snippet.</span>
             {/if}

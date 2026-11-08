@@ -19,8 +19,8 @@ const publishInstructions = "pacto_publish_plan shows what publishing a contract
 
 // NewPublishServer builds a server with the authoring tools and the two
 // publish tools.
-func NewPublishServer(version string, run PublishFunc, validate Validator) *mcpsdk.Server {
-	server := newServer(version, baseInstructions+"\n\n"+publishInstructions, validate)
+func NewPublishServer(version string, run PublishFunc, a Authoring) *mcpsdk.Server {
+	server := newServer(version, baseInstructions+"\n\n"+publishInstructions, a)
 	schema := inputSchema(map[string]property{
 		"path":     {Type: "string", Description: "Contract directory (default: the server's working directory)"},
 		"revision": {Type: "string", Description: "Source revision to stamp (default: the git commit of path, whose checkout must have no uncommitted changes)"},

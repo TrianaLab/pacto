@@ -2,7 +2,10 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/client-go/dynamic"
@@ -27,13 +30,17 @@ func createTool() *mcpsdk.Tool {
 			"and returns what it found, the dependencies and consumers found, what is Unknown and what to do next. " +
 			"The contract gets a publish section for pacto publish unless describe_only is set: " +
 			"set describe_only when you are asked to describe or document a service. " +
-			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema.",
+			"It only adds files; dry_run plans and writes nothing. For an AI agent, see pacto_schema. " +
+			"With from it creates the service from a golden path like `pacto init --from` (over stdio only): " +
+			"golden paths are listed by pacto mcp --fleet (pacto_fleet_entities template=only) or pacto fleet entities --template. " +
+			"The result lists each step, such as the signature check and the plugins the path names; a step Pacto cannot confirm says unknown.",
 		InputSchema: inputSchema(map[string]property{
 			"name":                         {Type: "string", Description: "Service name (DNS-compatible, e.g. 'payment-api')"},
 			"description":                  {Type: "string", Description: "Natural-language description; infers interfaces and workload only, never state (set stores_data and friends explicitly)"},
 			"path":                         {Type: "string", Description: "Output directory (defaults to service name)"},
 			"version":                      {Type: "string", Description: "Service version (defaults to '0.1.0')"},
 			"owner":                        {Type: "string", Description: "The team that owns the service, as a bare team name such as 'billing': usually the team label on its workloads. With pactify it defaults to that label"},
+			"domain":                       {Type: "string", Description: "Business domain (service.domain), such as payments; raises pactoVersion to 2.4"},
 			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, visibility?}]"},
 			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). For a service your company runs with Pacto whose contract is not published yet, give ref as the OCI repository its contract will be published at and compatibility as the versions you accept: Pacto reports it as unresolved until it is published. A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref, and its compatibility stays Unknown"},
 			"workload":                     {Type: "string", Description: "Workload type", Enum: []string{"service", "job", "scheduled"}},
@@ -46,7 +53,7 @@ func createTool() *mcpsdk.Tool {
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
 			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
 			"describe_only":                {Type: "boolean", Description: "With pactify: write a contract that only describes the service, with no publish section and no signing key. Use it when you are asked to describe or document a service; leave it off to also prepare pacto publish"},
-			"delivery":                     {Type: "boolean", Description: "With pactify: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization (needs the publish section, so not with describe_only)"},
+			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization (needs the publish section, so not with describe_only; with from, the golden path must publish manifests under publish.deploy)"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
 			"environments":                 {Type: "string", Description: "With delivery: JSON array of environments in promotion order (default [\"test\",\"prod\"])"},
 			"no_transparency_log":          {Type: "boolean", Description: "With pactify: write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)"},
@@ -56,6 +63,10 @@ func createTool() *mcpsdk.Tool {
 			"paths":                        {Type: "string", Description: "With pactify: JSON array of service folders, each planned like path and named after its folder (name is ignored); dry_run defaults to true"},
 			"cluster":                      {Type: "boolean", Description: "With pactify: draft a contract for every workload in the current kubeconfig context that no Pacto describes, into path/<namespace>/<name>, with the services it was seen calling pinned to the version seen running; dry_run defaults to true"},
 			"namespaces":                   {Type: "string", Description: "With cluster: JSON array of namespaces to read (default: every namespace)"},
+			"from":                         {Type: "string", Description: "A golden path to create the service from: an oci:// reference or a directory. Takes name, owner (required), domain, path, registry, values, set, run_plugins, describe_only, delivery and its options, and dry_run"},
+			"values":                       {Type: "string", Description: "With from: JSON object merged over the golden path's contract, such as {\"service\": {\"summary\": \"Gift card balances\"}}; a null removes a field"},
+			"set":                          {Type: "string", Description: "With from: JSON array of key=value strings applied after values, such as [\"service.summary=Gift card balances\"]"},
+			"run_plugins":                  {Type: "string", Description: "With from: JSON array of the plugins the golden path names to run, by name. Plan with dry_run first: its plugin steps list each plugin and the binary it runs. Nothing runs that is not named here"},
 		}, []string{"name"}),
 	}
 }
@@ -69,6 +80,7 @@ type createArgs struct {
 	Path                      string `json:"path"`
 	Version                   string `json:"version"`
 	Owner                     string `json:"owner"`
+	Domain                    string `json:"domain"`
 	Interfaces                string `json:"interfaces"`
 	Dependencies              string `json:"dependencies"`
 	Workload                  string `json:"workload"`
@@ -91,10 +103,20 @@ type createArgs struct {
 	Paths                     string `json:"paths"`
 	Cluster                   bool   `json:"cluster"`
 	Namespaces                string `json:"namespaces"`
+	From                      string `json:"from"`
+	Values                    string `json:"values"`
+	Set                       string `json:"set"`
+	RunPlugins                string `json:"run_plugins"`
 }
 
-func createHandler() mcpsdk.ToolHandlerFor[createArgs, any] {
+func createHandler(init Initializer) mcpsdk.ToolHandlerFor[createArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args createArgs) (*mcpsdk.CallToolResult, any, error) {
+		if args.From != "" {
+			return createFromPath(ctx, args, init)
+		}
+		if args.Values != "" || args.Set != "" || args.RunPlugins != "" {
+			return nil, nil, errors.New("values, set and run_plugins go with from")
+		}
 		if args.Pactify {
 			return pactifyFolder(ctx, args)
 		}
@@ -104,6 +126,7 @@ func createHandler() mcpsdk.ToolHandlerFor[createArgs, any] {
 			Path:                      args.Path,
 			Version:                   args.Version,
 			Owner:                     args.Owner,
+			Domain:                    args.Domain,
 			Workload:                  args.Workload,
 			StoresData:                args.StoresData,
 			DataSurvivesRestart:       args.DataSurvivesRestart,
@@ -137,7 +160,7 @@ func pactifyFolder(ctx context.Context, args createArgs) (*mcpsdk.CallToolResult
 	if args.DryRun != nil {
 		plan = *args.DryRun
 	}
-	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Registry: args.Registry,
+	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Domain: args.Domain, Registry: args.Registry,
 		Delivery: args.Delivery, DescribeOnly: args.DescribeOnly, Plan: plan, NoTransparencyLog: args.NoTransparencyLog,
 		InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
 	var paths []string
@@ -185,6 +208,66 @@ func pactifyFolder(ctx context.Context, args createArgs) (*mcpsdk.CallToolResult
 	return res, nil, nil
 }
 
+// errFromOverHTTP refuses pacto_create from on a server with no Initializer:
+// the command layer passes none over HTTP.
+var errFromOverHTTP = errors.New("creating from a golden path serves stdio only: over HTTP every caller would pull with this " +
+	"process's registry credentials; run pacto mcp over stdio beside the agent")
+
+// createFromPath is pacto_create with from: `pacto init --from` for an agent.
+// A nil init refuses before anything is read, pulled or written.
+func createFromPath(ctx context.Context, args createArgs, init Initializer) (*mcpsdk.CallToolResult, any, error) {
+	if init == nil {
+		return nil, nil, errFromOverHTTP
+	}
+	if bad := fromConflicts(args); len(bad) > 0 {
+		return nil, nil, fmt.Errorf("from creates the service from a golden path, so it does not take %s: "+
+			"change the path's contract with values or set", strings.Join(bad, ", "))
+	}
+	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Domain: args.Domain, Registry: args.Registry,
+		DescribeOnly: args.DescribeOnly, Plan: args.DryRun != nil && *args.DryRun, NoTransparencyLog: args.NoTransparencyLog,
+		Delivery: args.Delivery, InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
+	req := FromRequest{Ref: args.From}
+	if err := unmarshalFields([]jsonField{
+		{"environments", args.Environments, &opts.Environments},
+		{"values", args.Values, &req.Values},
+		{"set", args.Set, &req.Set},
+		{"run_plugins", args.RunPlugins, &req.RunPlugins},
+	}); err != nil {
+		return nil, nil, err
+	}
+	r, err := init(ctx, opts, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	res, err := jsonResult(r)
+	return res, nil, err
+}
+
+// fromConflicts names the arguments sent with from that it does not take:
+// the intent arguments describe a new contract, and the pactify ones read a
+// folder or a cluster.
+func fromConflicts(args createArgs) []string {
+	var bad []string
+	for _, a := range []struct {
+		name string
+		set  bool
+	}{
+		{"description", args.Description != ""}, {"version", args.Version != ""},
+		{"interfaces", args.Interfaces != ""}, {"dependencies", args.Dependencies != ""},
+		{"workload", args.Workload != ""}, {"stores_data", args.StoresData != nil},
+		{"data_survives_restart", args.DataSurvivesRestart != nil},
+		{"data_shared_across_instances", args.DataSharedAcrossInstances != nil},
+		{"data_loss_impact", args.DataLossImpact != ""}, {"config_properties", args.ConfigProperties != ""},
+		{"metadata", args.Metadata != ""}, {"pactify", args.Pactify}, {"paths", args.Paths != ""},
+		{"cluster", args.Cluster}, {"namespaces", args.Namespaces != ""}, {"fleet_roots", args.FleetRoots != ""},
+	} {
+		if a.set {
+			bad = append(bad, a.name)
+		}
+	}
+	return bad
+}
+
 // newDynamic is the cluster client the cluster argument reads with.
 var newDynamic = k8sclient.NewDynamic
 
@@ -195,7 +278,7 @@ func editTool() *mcpsdk.Tool {
 		Name: "pacto_edit",
 		Description: "Edits an existing Pacto contract. Supports adding/removing interfaces, " +
 			"dependencies and configuration references, environments and their values, the service lifecycle, " +
-			"workload and state semantics, metadata and more. " +
+			"the golden path template, workload and state semantics, metadata and more. " +
 			"Validates the result before writing; when the edit adds configuration references or environments or sets environment values, " +
 			"the edited bundle must pass the same check as pacto_check, so values are checked against the referenced contract's configuration schema, " +
 			"and a reference the service depends on (values for it, a 2.4 contract or a ranged dependency on the same repository) that cannot be resolved fails the edit; any other unresolvable reference is a warning. Nothing is written unless the check passes; then every file is written together. Supports dry_run mode. " +
@@ -216,6 +299,7 @@ func editTool() *mcpsdk.Tool {
 			"add_environments":             {Type: "string", Description: "JSON array of environments to add: [{name, file?}]. file defaults to environments/<name>.yaml and is created holding {} when it does not exist. Values an existing file already holds are checked like set_environment_values before anything is written. Raises pactoVersion to 2.3"},
 			"set_environment_values":       {Type: "string", Description: "JSON array of values to merge into environment files: [{environment, configuration, values}]. The environment and configuration must be declared, by the contract or this edit. Objects merge key by key and a null removes its key. The merged values are checked against the configuration's schema, a referenced contract's included, before anything is written"},
 			"lifecycle":                    {Type: "string", Description: "JSON object that sets service.lifecycle: {deprecated, sunset?, successor?}, dates as YYYY-MM-DD and successor as an absolute URL such as the oci:// reference of the service that replaces this one; {clear: true} removes it. Setting it raises pactoVersion to 2.4, which checks configuration refs strictly: a ref that cannot be resolved then fails the edit"},
+			"template":                     {Type: "string", Description: "JSON object that sets service.template, which makes the contract a golden path other services are created from: {plugins?: [{name, description?, options?}]}, each plugin a generate plugin the path offers to run; {clear: true} removes it. Setting it raises pactoVersion to 2.4, which checks configuration refs strictly. service.origin has no setter: only pacto_create from and pacto init --from write it"},
 			"add_policy_refs":              {Type: "string", Description: "JSON array of policy references to add: [{name?, ref}]"},
 			"remove_dependencies":          {Type: "string", Description: "JSON array of dependency refs to remove: [\"ref1\", \"ref2\"]; an external dependency with no ref is removed by name"},
 			"workload":                     {Type: "string", Description: "New workload type", Enum: []string{"service", "job", "scheduled"}},
@@ -246,6 +330,7 @@ type editArgs struct {
 	AddEnvironments           string  `json:"add_environments"`
 	SetEnvironmentValues      string  `json:"set_environment_values"`
 	Lifecycle                 string  `json:"lifecycle"`
+	Template                  string  `json:"template"`
 	AddPolicyRefs             string  `json:"add_policy_refs"`
 	AddInterfaces             string  `json:"add_interfaces"`
 	RemoveInterfaces          string  `json:"remove_interfaces"`
@@ -290,6 +375,7 @@ func editHandler(validate Validator) mcpsdk.ToolHandlerFor[editArgs, any] {
 			{"add_environments", args.AddEnvironments, &input.AddEnvironments},
 			{"set_environment_values", args.SetEnvironmentValues, &input.SetEnvironmentValues},
 			{"lifecycle", args.Lifecycle, &input.Lifecycle},
+			{"template", args.Template, &input.Template},
 			{"add_policy_refs", args.AddPolicyRefs, &input.AddPolicyRefs},
 			{"add_config_properties", args.AddConfigProperties, &input.AddConfigProperties},
 			{"set_metadata", args.SetMetadata, &input.SetMetadata},

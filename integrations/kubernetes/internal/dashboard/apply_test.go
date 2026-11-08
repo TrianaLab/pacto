@@ -340,6 +340,36 @@ func TestDeploymentAC_InsecureRegistries(t *testing.T) {
 	}
 }
 
+// The dashboard takes PACTO_DASHBOARD_REPO entries raw (only its arguments get
+// oci:// stripped), so the operator trims the scheme before joining.
+func TestDeploymentRepositoriesEnv(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		repos []string
+		want  string
+		set   bool
+	}{
+		{"configured", []string{"oci://ghcr.io/acme/paths/http-service", "ghcr.io/acme/paths/worker"},
+			"ghcr.io/acme/paths/http-service,ghcr.io/acme/paths/worker", true},
+		{"unset", nil, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", Repositories: tc.repos}
+			deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+			var got string
+			var set bool
+			for _, env := range deploy.Spec.Template.Spec.Containers[0].Env {
+				if *env.Name == "PACTO_DASHBOARD_REPO" {
+					got, set = *env.Value, true
+				}
+			}
+			if got != tc.want || set != tc.set {
+				t.Errorf("PACTO_DASHBOARD_REPO=%q (set %v), want %q (set %v)", got, set, tc.want, tc.set)
+			}
+		})
+	}
+}
+
 func TestServiceAC_WithOwnerRef(t *testing.T) {
 	cfg := Config{
 		Enabled:   true,

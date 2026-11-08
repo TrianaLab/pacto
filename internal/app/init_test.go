@@ -46,7 +46,7 @@ func TestInit_Success(t *testing.T) {
 	defer func() { _ = os.Chdir(orig) }()
 
 	svc := NewService(nil, nil)
-	result, err := svc.Init(context.Background(), InitOptions{Name: "my-svc"})
+	result, err := svc.Init(context.Background(), InitOptions{Name: "my-svc", Owner: "billing"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -164,36 +164,6 @@ func TestInit_WriteFileErrors(t *testing.T) {
 	}
 }
 
-func assertScaffoldOwner(t *testing.T, o contract.Owner) {
-	t.Helper()
-	if o.IsEmpty() {
-		t.Fatal("expected object owner to be present")
-	}
-	if o.Team == "" {
-		t.Error("expected owner.team to be non-empty")
-	}
-	if o.DRI == "" {
-		t.Error("expected owner.dri to be non-empty")
-	}
-	if len(o.Contacts) == 0 {
-		t.Error("expected owner.contacts to be non-empty")
-	}
-}
-
-func assertScaffoldReadiness(t *testing.T, r *contract.Readiness) {
-	t.Helper()
-	if r == nil {
-		t.Fatal("expected readiness to be present")
-	}
-	minScoreOK := r.MinScore != nil && *r.MinScore > 0
-	expiresOK := r.Expires != ""
-	historyOK := len(r.History) > 0
-	checksOK := len(r.Claims) > 0
-	if !minScoreOK || !expiresOK || !historyOK || !checksOK {
-		t.Errorf("readiness incomplete: minScore>0=%v expires=%v history=%v claims=%v", minScoreOK, expiresOK, historyOK, checksOK)
-	}
-}
-
 func TestInit_ScaffoldValidates(t *testing.T) {
 	orig, _ := os.Getwd()
 	dir := t.TempDir()
@@ -203,7 +173,7 @@ func TestInit_ScaffoldValidates(t *testing.T) {
 	defer func() { _ = os.Chdir(orig) }()
 
 	svc := NewService(nil, nil)
-	result, err := svc.Init(context.Background(), InitOptions{Name: "my-svc"})
+	result, err := svc.Init(context.Background(), InitOptions{Name: "my-svc", Owner: "billing"})
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
@@ -218,12 +188,12 @@ func TestInit_ScaffoldValidates(t *testing.T) {
 		t.Fatalf("failed to parse scaffolded contract: %v", err)
 	}
 
-	if c.PactoVersion != "2.0" {
-		t.Errorf("expected pactoVersion 2.0, got %s", c.PactoVersion)
+	if c.PactoVersion != "2.1" {
+		t.Errorf("expected pactoVersion 2.1, got %s", c.PactoVersion)
 	}
-
-	assertScaffoldOwner(t, c.Service.Owner)
-	assertScaffoldReadiness(t, c.Readiness)
+	if c.Service.Owner.Team != "billing" || c.Readiness != nil || c.Publish == nil {
+		t.Errorf("owner %+v, readiness %+v, publish %+v", c.Service.Owner, c.Readiness, c.Publish)
+	}
 
 	if validationResult := validation.ValidateStructuralRaw(content); !validationResult.IsValid() {
 		t.Errorf("scaffolded contract failed validation: %v", validationResult.Errors)

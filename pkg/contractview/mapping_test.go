@@ -996,6 +996,15 @@ func TestServiceDetailsFromBundle_LifecycleAndSelector(t *testing.T) {
 	}
 }
 
+func TestServiceFromContract_TemplateOrigin(t *testing.T) {
+	tpl := &contract.Template{Plugins: []contract.TemplatePlugin{{Name: "dockerfile"}}}
+	o := &contract.Origin{Ref: "oci://r/http-service:1.0.0", Digest: "sha256:abc"}
+	s := ServiceFromContract(&contract.Contract{Service: contract.Service{Name: "svc", Template: tpl, Origin: o}}, "local")
+	if s.Template != tpl || s.Origin != o {
+		t.Errorf("template %+v, origin %+v", s.Template, s.Origin)
+	}
+}
+
 type pgRefResolver struct{ b *contract.Bundle }
 
 func (r pgRefResolver) ResolveBundle(context.Context, string) (*contract.Bundle, error) {

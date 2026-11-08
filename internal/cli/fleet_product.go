@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
@@ -47,6 +48,8 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
 	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned)")
 	f.String("status", "", "canonical compliance status")
+	addTemplateFlag(f)
+	f.String("created-from", "", "services created from this golden path, by key")
 	f.String("sort", "", "order: name, health (least healthy first) or services (owners with the most services first)")
 	f.Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultEntityLimit, fleet.MaxEntityLimit))
 	f.Int("offset", 0, "result offset for paging")
@@ -104,6 +107,8 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	kinds := fleet.ProductKinds()
 	if k := get("kind"); k != "" {
 		kinds = []string{k}
+	} else if get("template") == fleet.TemplateOnly {
+		kinds = []string{string(fleet.KindService)}
 	}
 	var ks []fleet.EntityKind
 	for _, k := range kinds {
@@ -112,8 +117,15 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	return fleet.EntityFilter{
 		Text: text, Kinds: ks, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
 		Offering: get("offering"), Consumes: get("consumes"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
-		Limit: limit, Offset: offset,
+		Template: get("template"), CreatedFrom: get("created-from"), Limit: limit, Offset: offset,
 	}
+}
+
+// addTemplateFlag adds --template: bare it keeps only golden paths, and
+// --template=exclude leaves them out.
+func addTemplateFlag(f *pflag.FlagSet) {
+	f.String("template", "", "golden paths only, or exclude to leave them out")
+	f.Lookup("template").NoOptDefVal = fleet.TemplateOnly
 }
 
 func newFleetEntityCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
@@ -220,7 +232,11 @@ func printFleetEntities(cmd *cobra.Command, res *fleet.EntityList, format string
 		w := cmd.OutOrStdout()
 		_, _ = fmt.Fprintf(w, "%d of %d entit(ies):\n", res.Count, res.Total)
 		for _, e := range res.Entities {
-			_, _ = fmt.Fprintf(w, "  %-9s %-28s %-32s %s\n", e.Kind, e.Label, e.Key, orDash(e.Status))
+			kind := string(e.Kind)
+			if e.Template {
+				kind = "golden path"
+			}
+			_, _ = fmt.Fprintf(w, "  %-11s %-28s %-32s %s\n", kind, e.Label, e.Key, orDash(e.Status))
 		}
 		warnProductPartial(cmd, res.Meta)
 		return nil
@@ -236,6 +252,8 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 		}
 		if res.Service != nil {
 			printOfferingUses(w, "Offerings used:", res.Service.ConsumedOfferings)
+			printTemplateText(w, res.Entity.Summary, res.Service.Template)
+			printOriginText(w, res.Service.Origin, res.Service.Creation)
 		}
 		_, _ = fmt.Fprintln(w, "Run with --output-format json for the full detail")
 		warnProductPartial(cmd, res.Meta)
@@ -341,11 +359,96 @@ func printOfferingText(w io.Writer, o *fleet.OfferingDetailData) {
 			versions = append(versions, orDash(v.Version)+versionNotes(v))
 		}
 		_, _ = fmt.Fprintf(w, "    versions: %s\n", orDash(strings.Join(versions, "; ")))
+		if p.Consume != nil {
+			_, _ = fmt.Fprintf(w, "    To consume %s:\n", p.Service.Label)
+			for line := range strings.Lines(p.Consume.YAML) {
+				_, _ = fmt.Fprint(w, "      "+line)
+			}
+		}
 	}
 	printOfferingUses(w, "Consumers:", o.Consumers)
 	if o.HiddenConsumers > 0 {
 		_, _ = fmt.Fprintf(w, "%d consumers you may not see\n", o.HiddenConsumers)
 	}
+}
+
+// printTemplateText renders a golden path: what it is for, its signature,
+// the plugins it names, what it requires, the services created from it and
+// how to create one.
+func printTemplateText(w io.Writer, summary string, t *fleet.TemplateDetail) {
+	if t == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "Golden path: %s\n", orDash(summary))
+	if t.Signature == nil {
+		_, _ = fmt.Fprintln(w, "Signature: not checked: no source that read it checks signatures")
+	} else {
+		_, _ = fmt.Fprintf(w, "Signature: %s%s\n  %s\n", t.Signature.Status, signatureReason(*t.Signature), t.SignatureNote)
+	}
+	if len(t.Plugins) > 0 {
+		_, _ = fmt.Fprintln(w, "Plugins:")
+		for _, p := range t.Plugins {
+			_, _ = fmt.Fprintf(w, "  %s: %s\n", p.Name, orDash(p.Description))
+		}
+	}
+	printOfferingUses(w, "Requirements:", t.Requirements)
+	if t.UnresolvedRequirements.Total > 0 {
+		_, _ = fmt.Fprintln(w, "Unresolved requirements:")
+		for _, u := range t.UnresolvedRequirements.Items {
+			_, _ = fmt.Fprintf(w, "  %s: %s\n", u.Ref, orDash(u.Reason))
+		}
+	}
+	if t.HiddenRequirements > 0 {
+		_, _ = fmt.Fprintf(w, "Hidden requirements: %d on services you may not see\n", t.HiddenRequirements)
+	}
+	if t.CreatedServices.Total > 0 || t.HiddenCreatedServices > 0 {
+		_, _ = fmt.Fprintln(w, "Created services:")
+		for _, c := range t.CreatedServices.Items {
+			_, _ = fmt.Fprintf(w, "  %s\n", c.Label)
+		}
+		if t.CreatedServices.Truncated {
+			_, _ = fmt.Fprintf(w, "  %d more\n", t.CreatedServices.Total-t.CreatedServices.Count)
+		}
+		if t.HiddenCreatedServices > 0 {
+			_, _ = fmt.Fprintf(w, "  %d created services you may not see\n", t.HiddenCreatedServices)
+		}
+	}
+	if t.Instantiate != nil {
+		_, _ = fmt.Fprintf(w, "Create a service: %s\n", t.Instantiate.CLI)
+	} else {
+		_, _ = fmt.Fprintf(w, "Create a service: %s\n", t.InstantiateReason)
+	}
+}
+
+// signatureReason is what follows a signature status: the signer when it
+// verified, else the reason when the check gives one.
+func signatureReason(s fleet.BundleSignature) string {
+	if s.Status == fleet.SignatureVerified {
+		return ", signed by " + s.Signer
+	}
+	if s.Reason == "" {
+		return ""
+	}
+	return ": " + s.Reason
+}
+
+// printOriginText renders a service's declared origin, what it resolves to
+// and its creation checklist.
+func printOriginText(w io.Writer, o *fleet.OriginDetail, steps []fleet.CreationStep) {
+	if o == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "Created from: %s (%s), %s\n", o.Ref, o.Digest, o.Provenance)
+	if o.GoldenPath != nil {
+		label := o.GoldenPath.Label
+		if o.Revision != nil {
+			label = o.Revision.Label
+		}
+		_, _ = fmt.Fprintf(w, "  golden path: %s\n", label)
+	} else {
+		_, _ = fmt.Fprintf(w, "  golden path: %s\n", orDash(o.Reason))
+	}
+	printCreationSteps(w, "Creation:", steps)
 }
 
 // printOfferingUses renders offering uses with their range, the provider's

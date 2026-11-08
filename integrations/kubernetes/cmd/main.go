@@ -91,6 +91,7 @@ type options struct {
 	dashboardMiraURL       string
 	dashboardDeliveryNS    string
 	dashboardDeliveryTrust dashboard.KeyRef
+	dashboardRepositories  []string
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -175,6 +176,13 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"so History reads signed records.")
 	fs.StringVar(&o.dashboardDeliveryTrust.Key, "dashboard-delivery-trust-key", "trust.yaml",
 		"Key of the trust config in that ConfigMap.")
+	fs.Func("dashboard-repositories",
+		"Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto "+
+			"resources, such as golden paths, which are never deployed.",
+		func(v string) error {
+			o.dashboardRepositories = append(o.dashboardRepositories, strings.Split(v, ",")...)
+			return nil
+		})
 	fs.StringVar(&o.dashboardAuth.ClientID, "dashboard-oidc-client-id", "", "The dashboard's OpenID Connect client id.")
 	fs.StringVar(&o.dashboardAuth.RedirectURL, "dashboard-oidc-redirect-url", "",
 		"The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it.")
@@ -525,6 +533,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		DeliveryNamespace:  o.dashboardDeliveryNS,
 		MiraURL:            o.dashboardMiraURL,
 		DeliveryTrust:      o.dashboardDeliveryTrust,
+		Repositories:       o.dashboardRepositories,
 	}
 	if o.dashboardExtraScopes != "" {
 		dashCfg.Auth.ExtraScopes = strings.Split(o.dashboardExtraScopes, ",")

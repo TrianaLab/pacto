@@ -1,9 +1,10 @@
 <script>
-  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl, fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl, fleetDomainsUrl, fleetOfferingsUrl } from './lib/router.ts';
+  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl, fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import { prefersReducedMotion } from './lib/motion.ts';
   import SourceDot from './components/SourceDot.svelte';
   import IdentityBar from './components/IdentityBar.svelte';
+  import { currentEntity } from './lib/currentEntity.svelte.ts';
 
   let {
     services = [], sourcesInfo = [], capabilities = null, version = '', discovering = false, view = 'list',
@@ -62,6 +63,8 @@
       { label: 'Owners', href: fleetOwnersUrl(), views: ['fleet-owners'], kinds: ['owner'], cap: 'fleet' },
       { label: 'Domains', href: fleetDomainsUrl(), views: ['fleet-domains'], kinds: ['domain'], cap: 'fleet' },
       { label: 'Offerings', href: fleetOfferingsUrl(), views: ['fleet-offerings'], kinds: ['offering'], cap: 'fleet' },
+      // A golden path's entity page is a service page, lit here like its breadcrumb.
+      { label: 'Golden paths', href: fleetGoldenPathsUrl(), views: ['fleet-golden-paths'], kinds: ['golden-path'], cap: 'fleet' },
       // Sentence case, like its three siblings and like the H1 and breadcrumb on the
       // page it opens. Title Case here made one tab in four look like a different kind
       // of destination and made the tab read as a different name from its own page.
@@ -84,7 +87,8 @@
       : item.confirmed ? capabilities?.[item.cap] === true
       : !item.cap || capabilities === null || capabilities[item.cap])),
   );
-  const isActive = (item) => (view === 'fleet-entity' ? (item.kinds || []).includes(entityKind) : item.views.includes(view));
+  const pageKind = $derived(entityKind === 'service' && currentEntity.template ? 'golden-path' : entityKind);
+  const isActive = (item) => (view === 'fleet-entity' ? (item.kinds || []).includes(pageKind) : item.views.includes(view));
 
   // The Pacto brand/logo is the application HOME affordance. On a Fleet-capable host it
   // goes to the canonical Operational Overview (fleetOverviewUrl, never a hardcoded
@@ -469,7 +473,7 @@
   }
 
   /* ─── Tight ─── */
-  /* With nine tabs the roomy bar needs about 1,520px. Below that it sheds the version
+  /* With ten tabs the roomy bar needs about 1,640px. Below that it sheds the version
      tag and some padding before it gives up the tabs. Where it still does not fit, the
      tabs scroll inside the bar (see .navbar-nav). */
   @media (max-width: 1440px) {

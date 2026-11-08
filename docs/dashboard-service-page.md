@@ -65,6 +65,30 @@ the service they show and link back to every service. The dashboard API filters
 Stages the same way with the `service` and `domain` parameters of
 `/api/delivery/environments` and `/api/delivery/history`.
 
+## Golden paths and created services
+
+The page of a [golden path](golden-paths.md) adds a **Golden path** section:
+
+- **Create a service from it** holds a copyable CLI command and MCP call that
+  name the path's newest revision by digest when a registry served it, or its
+  folder when it was read from local files, or says why no command is
+  available;
+- **Signature** shows the path's signature check. Verified names the signer
+  the path's own contract declares, which no trust config checked;
+- **Plugins** lists the generate plugins the path names;
+- **Requirements** lists the offerings and references the path asks for, each
+  reference that does not resolve and how many are on services you may not
+  see;
+- **Services created from it** lists the services whose declared origin
+  matches the path by content digest, and counts those you may not see.
+
+A service created from a golden path shows a **Created from** fact labelled
+declared: its contract records the origin, and Pacto did not observe the
+creation. It links to the golden path and its revision, or shows the recorded
+`ref` with the reason it matches no golden path. The **Creation status**
+section lists the [creation checklist](golden-paths-reference.md#creation-checklist),
+derived from what Pacto observes now.
+
 ## Readiness, policies and configuration
 
 The readiness bar tallies every known revision as passing, below its own

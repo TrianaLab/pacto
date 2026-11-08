@@ -494,3 +494,31 @@ configurations: [{name: db, ref: "oci://r/pg:1.0.0", configuration: provisioning
 		}
 	}
 }
+
+func TestParse_Version24Template(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader("pactoVersion: \"2.4\"\nservice: {name: svc, version: 1.0.0, template: {}}\n"))
+	if err != nil || c.PactoVersion != "2.4" || c.Service.Template == nil || c.Service.Template.Plugins != nil {
+		t.Fatalf("2.4 empty template: %+v %v", c, err)
+	}
+	c, err = contract.Parse(strings.NewReader(`pactoVersion: "2.4"
+service:
+  name: svc
+  version: 1.0.0
+  template:
+    plugins:
+      - name: github-actions
+        description: A CI workflow
+        options: {go-version: "1.27"}
+  origin: {ref: "oci://ghcr.io/acme/paths/http-service:1.0.0", digest: "sha256:abc"}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := c.Service.Template.Plugins
+	if len(p) != 1 || p[0].Name != "github-actions" || p[0].Description != "A CI workflow" || p[0].Options["go-version"] != "1.27" {
+		t.Fatalf("template: %+v", c.Service.Template)
+	}
+	if o := c.Service.Origin; o == nil || o.Ref != "oci://ghcr.io/acme/paths/http-service:1.0.0" || o.Digest != "sha256:abc" {
+		t.Fatalf("origin: %+v", c.Service.Origin)
+	}
+}

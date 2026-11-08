@@ -1097,6 +1097,10 @@ export interface components {
             provider: string;
             required: string;
         };
+        "Contract.Origin": {
+            digest: string;
+            ref: string;
+        };
         "Contract.Owner": {
             contacts?: components["schemas"]["Contract.OwnerContact"][] | null;
             dri?: string;
@@ -1182,14 +1186,26 @@ export interface components {
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             name: string;
             offering?: string;
+            origin?: components["schemas"]["Contract.Origin"];
             owner?: components["schemas"]["Contract.Owner"];
             summary?: string;
+            template?: components["schemas"]["Contract.Template"];
             version: string;
         };
         "Contract.State": {
             dataCriticality: string;
             persistence: components["schemas"]["Contract.Persistence"];
             type: string;
+        };
+        "Contract.Template": {
+            plugins?: components["schemas"]["Contract.TemplatePlugin"][] | null;
+        };
+        "Contract.TemplatePlugin": {
+            description?: string;
+            name: string;
+            options?: {
+                [key: string]: string;
+            };
         };
         ContractShare: {
             /**
@@ -1753,10 +1769,27 @@ export interface components {
             /** Format: int64 */
             warning: number;
         };
+        "Fleet.ConsumeConfiguration": {
+            configuration?: string;
+            missingValues?: string[] | null;
+            name: string;
+            ref?: string;
+            required: boolean;
+            schema?: string;
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        "Fleet.ConsumeEntries": {
+            configurations?: components["schemas"]["Fleet.ConsumeConfiguration"][] | null;
+            dependency?: components["schemas"]["Contract.Dependency"];
+            policy?: components["schemas"]["Contract.Policy"];
+        };
         "Fleet.ConsumeSnippet": {
             compatibility?: string;
             configuration: boolean;
             dependency: boolean;
+            entries: components["schemas"]["Fleet.ConsumeEntries"];
             policy: boolean;
             ref: string;
             yaml: string;
@@ -1804,6 +1837,14 @@ export interface components {
             evaluated: number;
             /** Format: int64 */
             required: number;
+        };
+        "Fleet.CreationStep": {
+            detail?: string;
+            name?: string;
+            /** @enum {string} */
+            status: "done" | "planned" | "skipped" | "unknown" | "failed" | "not-applicable";
+            /** @enum {string} */
+            step: "signature" | "contract" | "validation" | "plugin" | "delivery" | "published" | "fleet" | "deployed" | "provisioning";
         };
         "Fleet.DeclaredClaim": {
             compatibility?: string;
@@ -2113,7 +2154,11 @@ export interface components {
             /** Format: int64 */
             exactTargetLinks: number;
             /** Format: int64 */
+            goldenPaths: number;
+            /** Format: int64 */
             inferredTargetLinks: number;
+            /** Format: int64 */
+            invalidGoldenPaths: number;
             /** Format: int64 */
             invalidRevisions: number;
             /** Format: int64 */
@@ -2452,11 +2497,21 @@ export interface components {
             summary?: string;
             /** Format: int64 */
             targetCount: number;
+            template?: boolean;
+        };
+        "Fleet.ServiceOrigin": {
+            digest: string;
+            goldenPath?: string;
+            reason?: string;
+            ref: string;
+            revision?: string;
         };
         "Fleet.ServiceRecord": {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
             domain?: string;
+            /** Format: int64 */
+            hiddenCreated?: number;
             /** Format: int64 */
             hiddenDependencies?: number;
             /** Format: int64 */
@@ -2469,12 +2524,14 @@ export interface components {
             offering?: string;
             /** @enum {string} */
             offeringProvenance?: "declared" | "observed";
+            origin?: components["schemas"]["Fleet.ServiceOrigin"];
             owner?: components["schemas"]["Contract.Owner"];
             revisions?: string[] | null;
             sources?: string[] | null;
             status?: string;
             summary?: string;
             targets?: string[] | null;
+            template?: boolean;
         };
         "Fleet.ServiceSummary": {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
@@ -2649,6 +2706,11 @@ export interface components {
             meta: components["schemas"]["Fleet.Meta"];
             revision?: components["schemas"]["Fleet.ContractRevision"];
             target: components["schemas"]["Fleet.TargetRecord"];
+        };
+        "Fleet.TemplateInstantiation": {
+            cli: string;
+            mcp: string;
+            ref: string;
         };
         "Fleet.ToolSummary": {
             interface?: string;
@@ -3054,7 +3116,7 @@ export interface components {
         };
         ProductAttentionItem: {
             /** @enum {string} */
-            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "undeclared" | "unowned";
+            category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved" | "out-of-range" | "undeclared" | "golden-path" | "unowned";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
@@ -3383,6 +3445,15 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductOriginDetail: {
+            digest: string;
+            goldenPath?: components["schemas"]["ProductRef"];
+            /** @enum {string} */
+            provenance: "declared";
+            reason?: string;
+            ref: string;
+            revision?: components["schemas"]["ProductRef"];
+        };
         ProductOverview: {
             attention: components["schemas"]["ProductAttentionPreview"];
             entryPoints: components["schemas"]["ProductEntryPoint"][] | null;
@@ -3468,6 +3539,8 @@ export interface components {
         ProductRef: {
             businessDomain?: string;
             businessDomainUnknown?: boolean;
+            /** Format: int64 */
+            created?: number;
             domain?: string;
             environment?: string;
             explanation?: string;
@@ -3487,10 +3560,13 @@ export interface components {
             secondary?: string;
             /** Format: int64 */
             services?: number;
+            /** @enum {string} */
+            signature?: "verified" | "unverified" | "unsigned" | "unknown" | "not-checked";
             status?: string;
             summary?: string;
             /** Format: int64 */
             targets?: number;
+            template?: boolean;
             version?: string;
         };
         ProductRefPreview: {
@@ -3575,6 +3651,7 @@ export interface components {
             capabilities: components["schemas"]["Fleet.StringsPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
+            creation?: components["schemas"]["Fleet.CreationStep"][] | null;
             currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];
             dependents: components["schemas"]["ProductRefPreview"];
@@ -3589,6 +3666,7 @@ export interface components {
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
+            origin?: components["schemas"]["ProductOriginDetail"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
             policies: components["schemas"]["ProductPoliciesPreview"];
@@ -3598,6 +3676,7 @@ export interface components {
             signatures: components["schemas"]["ProductRevisionSignaturesPreview"];
             sources: components["schemas"]["ProductRefPreview"];
             summary: components["schemas"]["Fleet.ServiceSummary"];
+            template?: components["schemas"]["ProductTemplateDetail"];
             unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
         };
         ProductSourceDetail: {
@@ -3644,6 +3723,22 @@ export interface components {
             source?: string;
             sources: components["schemas"]["Fleet.StringsPreview"];
             stale: boolean;
+        };
+        ProductTemplateDetail: {
+            createdServices: components["schemas"]["ProductRefPreview"];
+            /** Format: int64 */
+            hiddenCreatedServices?: number;
+            /** Format: int64 */
+            hiddenRequirements?: number;
+            instantiate?: components["schemas"]["Fleet.TemplateInstantiation"];
+            instantiateReason?: string;
+            plugins: components["schemas"]["Contract.TemplatePlugin"][] | null;
+            /** @enum {string} */
+            provenance: "declared";
+            requirements: components["schemas"]["ProductOfferingUsesPreview"];
+            signature?: components["schemas"]["Fleet.BundleSignature"];
+            signatureNote: string;
+            unresolvedRequirements: components["schemas"]["ProductUnresolvedDependenciesPreview"];
         };
         ProductUnresolvedDependenciesPreview: {
             /** Format: int64 */
@@ -3894,6 +3989,7 @@ export interface components {
             namespace?: string;
             observedRuntime?: components["schemas"]["ObservedRuntime"];
             offering?: string;
+            origin?: components["schemas"]["Contract.Origin"];
             owner?: components["schemas"]["Contract.Owner"];
             policies?: components["schemas"]["PolicyInfo"][] | null;
             readiness?: components["schemas"]["ReadinessInfo"];
@@ -3906,6 +4002,7 @@ export interface components {
             stages?: components["schemas"]["Fleet.ValidationStage"][] | null;
             state?: components["schemas"]["StateInfo"];
             summary?: string;
+            template?: components["schemas"]["Contract.Template"];
             tools?: components["schemas"]["CapabilityTool"][] | null;
             validation?: components["schemas"]["ValidationInfo"];
             version: string;
@@ -3936,11 +4033,13 @@ export interface components {
             name: string;
             namespace?: string;
             offering?: string;
+            origin?: components["schemas"]["Contract.Origin"];
             owner?: components["schemas"]["Contract.Owner"];
             readiness?: components["schemas"]["ReadinessInfo"];
             source: string;
             sources?: string[] | null;
             summary?: string;
+            template?: components["schemas"]["Contract.Template"];
             topInsight?: string;
             updateAvailable?: boolean;
             version: string;
@@ -5397,6 +5496,10 @@ export interface operations {
                 source?: string;
                 /** @description Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service) */
                 service?: string;
+                /** @description Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template */
+                template?: "only" | "exclude";
+                /** @description Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities). A hidden, absent or non-golden-path key answers an empty list */
+                createdFrom?: string;
                 /** @description Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key */
                 sort?: "name" | "health" | "services";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
@@ -5682,6 +5785,8 @@ export interface operations {
                 /** @description Compliance status filter */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
                 source?: string;
+                /** @description Golden path filter: only keeps the golden paths, exclude leaves them out; absent lists every service, golden paths marked template */
+                template?: "only" | "exclude";
                 limit?: number;
                 offset?: number;
             };

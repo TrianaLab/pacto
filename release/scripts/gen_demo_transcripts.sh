@@ -32,9 +32,9 @@ go build -o "$BIN" ./cmd/pacto
 # differently from a cold one. An empty cache and a proxy that refuses every
 # connection make both sides fail the same way on every run and every machine.
 # The fixture's dependencies are siblings in examples/demo/bundles or nothing.
-# The one exception is beat 13's provider, seeded into that cache from the
-# committed fixture by Pacto's own cache writer, so its configuration ref
-# resolves offline and the same way every time.
+# The exceptions are the providers beats 13 and 16 reference, seeded into that
+# cache from the committed fixture by Pacto's own cache writer, so their
+# configuration and policy refs resolve offline and the same way every time.
 export XDG_CACHE_HOME="$WORK/cache"
 seed_demo_cache "$XDG_CACHE_HOME"
 export HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9
@@ -75,5 +75,7 @@ emit _beat-10.md 10
 emit _beat-13.md 13
 emit _beat-14.md 14 14-epoch
 emit _beat-15.md 15
+emit _beat-16.md 16
+emit _beat-17.md 17
 
 echo "==> wrote $(ls "$OUT" | wc -l | tr -d ' ') transcripts to $OUT"

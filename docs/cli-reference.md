@@ -836,18 +836,20 @@ pacto fleet entities [text] [flags]
 **Flags:**
 
 ```
-      --business-domain string   exact business domain, (none) for none or (unknown) for unknown
-      --consumes string          services that depend on or reference a provider of this platform offering
-  -h, --help                     help for entities
-      --kind string              entity kind (service, owner, domain, offering; empty lists all four)
-      --limit int                maximum results (0 = 100, capped at 500)
-      --offering string          services that provide this platform offering, and the offering itself
-      --offset int               result offset for paging
-      --owner string             free-text owner search over team, DRI and contacts
-      --owner-key string         exact owner key, such as team:platform or dri:alice
-      --ownership string         how a service's revisions declare ownership (consistent, conflicting, unowned)
-      --sort string              order: name, health (least healthy first) or services (owners with the most services first)
-      --status string            canonical compliance status
+      --business-domain string     exact business domain, (none) for none or (unknown) for unknown
+      --consumes string            services that depend on or reference a provider of this platform offering
+      --created-from string        services created from this golden path, by key
+  -h, --help                       help for entities
+      --kind string                entity kind (service, owner, domain, offering; empty lists all four)
+      --limit int                  maximum results (0 = 100, capped at 500)
+      --offering string            services that provide this platform offering, and the offering itself
+      --offset int                 result offset for paging
+      --owner string               free-text owner search over team, DRI and contacts
+      --owner-key string           exact owner key, such as team:platform or dri:alice
+      --ownership string           how a service's revisions declare ownership (consistent, conflicting, unowned)
+      --sort string                order: name, health (least healthy first) or services (owners with the most services first)
+      --status string              canonical compliance status
+      --template string[="only"]   golden paths only, or exclude to leave them out
 ```
 
 ### `pacto fleet entity`
@@ -963,22 +965,23 @@ pacto fleet search [text] [flags]
 **Flags:**
 
 ```
-      --business-domain string   filter by business domain, (none) for none or (unknown) for unknown
-      --compliance string        filter to services with a target of this compliance
-      --has-capability           only services declaring a capability
-      --has-dependency           only services declaring a dependency
-  -h, --help                     help for search
-      --label stringArray        filter by label key=value (repeatable)
-      --limit int                maximum results (0 = 100, capped at 500)
-      --not-ready                only services whose readiness gate does not pass (below minScore, expired or undeclared)
-      --offering string          filter by the platform offering a service provides (service.offering)
-      --offset int               result offset for paging
-      --owner string             filter by owner (team, DRI or contact)
-      --ready                    only services whose readiness gate passes (score >= minScore, not expired)
-      --scope string             correlate to a target with this scope
-      --source string            filter by observing source
-      --status string            filter by aggregate status (Compliant, Invalid, NonCompliant, NotEvaluated, Reference, Unknown, Warning)
-      --workload string          filter by workload (service, job, scheduled)
+      --business-domain string     filter by business domain, (none) for none or (unknown) for unknown
+      --compliance string          filter to services with a target of this compliance
+      --has-capability             only services declaring a capability
+      --has-dependency             only services declaring a dependency
+  -h, --help                       help for search
+      --label stringArray          filter by label key=value (repeatable)
+      --limit int                  maximum results (0 = 100, capped at 500)
+      --not-ready                  only services whose readiness gate does not pass (below minScore, expired or undeclared)
+      --offering string            filter by the platform offering a service provides (service.offering)
+      --offset int                 result offset for paging
+      --owner string               filter by owner (team, DRI or contact)
+      --ready                      only services whose readiness gate passes (score >= minScore, not expired)
+      --scope string               correlate to a target with this scope
+      --source string              filter by observing source
+      --status string              filter by aggregate status (Compliant, Invalid, NonCompliant, NotEvaluated, Reference, Unknown, Warning)
+      --template string[="only"]   golden paths only, or exclude to leave them out
+      --workload string            filter by workload (service, job, scheduled)
 ```
 
 ### `pacto fleet snapshot`
@@ -1006,18 +1009,19 @@ pacto fleet status [flags]
 **Flags:**
 
 ```
-  -h, --help                 help for status
-      --invalid              report structurally invalid contracts
-      --limit int            maximum results (0 = 200)
-      --missing-readiness    report revisions without a readiness assessment
-      --needs-attention      report every attention category
-      --non-compliant        report non-compliant targets
-      --stale                report targets with stale evidence
-      --undeclared           report runtime calls no contract declares and callers with no contract
-      --unknown              report targets with unknown compliance
-      --unowned              report services with no declared owner
-      --unresolved-deps      report unresolved declared dependencies
-      --unsatisfied-ranges   report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
+      --golden-path-deployed   report running services that declare service.template (GOLDEN_PATH_DEPLOYED)
+  -h, --help                   help for status
+      --invalid                report structurally invalid contracts
+      --limit int              maximum results (0 = 200)
+      --missing-readiness      report revisions without a readiness assessment
+      --needs-attention        report every attention category
+      --non-compliant          report non-compliant targets
+      --stale                  report targets with stale evidence
+      --undeclared             report runtime calls no contract declares and callers with no contract
+      --unknown                report targets with unknown compliance
+      --unowned                report services with no declared owner
+      --unresolved-deps        report unresolved declared dependencies
+      --unsatisfied-ranges     report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
 ```
 
 ### `pacto fleet versions`
@@ -1157,29 +1161,32 @@ pacto impact <old> <new> [flags]
 Writes the contract for the service in dir (default: the current folder).
 
 An empty or new folder gets a blank contract with the bundle structure
-(interfaces/, configuration/). A folder that already holds a service gets a
-contract read from its Dockerfile and Kubernetes manifests, and a list of what
-Pacto found and what it could not tell (Unknown). The workload's environment,
-including the ConfigMaps it reads, becomes a configuration schema with each
-value as its default. A URL in it that names another service in the cluster
-becomes a dependency: with that service's contract in --fleet, its bundle and
-a range from its version; without it, a placeholder range that the comment
-above it and Unknown name. A readiness, liveness or startup probe becomes a
-health check.
+(interfaces/, configuration/) and the owner and domain you pass; with no
+--owner the owner is a commented placeholder that Unknown names. A folder that
+already holds a service gets a contract read from its Dockerfile and
+Kubernetes manifests, and a list of what Pacto found and what it could not
+tell (Unknown). The workload's environment, including the ConfigMaps it reads,
+becomes a configuration schema with each value as its default. A URL in it
+that names another service in the cluster becomes a dependency: with that
+service's contract in --fleet, its bundle and a range from its version;
+without it, a placeholder range that the comment above it and Unknown name. A
+readiness, liveness or startup probe becomes a health check.
 
-The contract also gets a publish section, for pacto publish. To describe the
-service and leave delivery out, pass --describe-only: the contract then has no
-publish section and needs no signing key. --delivery also writes the cluster
-pieces: the Pacto resource that checks the running service, and per
-environment a Stage with the Flux OCIRepository and Kustomization it applies
-through. Each Stage starts at observe: it plans every new version and moves
-nothing, and the OCIRepository stays pinned to the tag you deploy, so GitOps
-keeps applying what it did. The last environment's Stage also asks a person to
-approve every promote.
+Either contract also gets a publish section, for pacto publish, with its
+bundle under --registry (default: the workload's image registry, else the
+registry.example placeholder). To describe the service and leave delivery out,
+pass --describe-only: the contract then has no publish section and needs no
+signing key. --delivery also writes the cluster pieces: the Pacto resource
+that checks the running service, and per environment a Stage with the Flux
+OCIRepository and Kustomization it applies through. Each Stage starts at
+observe: it plans every new version and moves nothing, and the OCIRepository
+stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
+last environment's Stage also asks a person to approve every promote.
 
 --owner is the team's bare name, such as billing: usually the team label on
-the workload. An AI agent is a service too: its tools are an mcp interface,
-the model it calls is a dependency and its eval suite is a checks entry; see
+the workload. --domain is the business domain, such as payments. An AI agent
+is a service too: its tools are an mcp interface, the model it calls is a
+dependency and its eval suite is a checks entry; see
 https://pacto.run/latest/contract-reference/checks/#an-agent-is-a-service.
 
 Several folders are each pactified, with a summary at the end. --cluster
@@ -1188,6 +1195,22 @@ describes yet, in &lt;out&gt;/&lt;namespace&gt;/&lt;name&gt;: its manifests are 
 cluster, and the services its pods were seen calling become dependencies
 pinned to the version seen running, for you to widen. Drafts are only
 written, never published, and a draft that is not valid fails the command.
+
+With --from the service is created from a golden path: an oci:// reference or
+a directory whose contract declares service.template. The path's contract is
+copied with its identity reset: the name, version 0.1.0, --owner (required)
+and --domain, with --values and --set applied over any field and
+service.origin recording the path it came from. A path read from a registry
+is pulled by digest; when the trust config (--trust, else
+$PACTO_DELIVERY_TRUST) names a template key, the path must be signed by one
+or nothing is created, and otherwise the signature is reported Unknown. The
+created contract is validated with its references resolved before anything is
+written, and the Status block says what was checked and what Pacto cannot
+tell yet. Each plugin the path names is listed with the binary it resolves
+to; only the ones you name with --run-plugins run, never with --plan, and
+the files they return are added like the path's own. --delivery plans the
+cluster pieces from the created contract when the path publishes manifests
+under publish.deploy; otherwise the delivery step says why none were planned.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
@@ -1201,6 +1224,7 @@ pacto init [dir...] [flags]
 
 ```
   pacto init my-service
+  pacto init my-service --owner billing --domain payments --registry ghcr.io/acme
   pacto init --plan
   pacto init --describe-only --owner billing
   pacto init --delivery --owner payments --fleet ../contracts
@@ -1208,6 +1232,7 @@ pacto init [dir...] [flags]
   pacto init --delivery --registry-secret registry-creds
   pacto init services/checkout services/payments --plan
   pacto init --cluster --namespace shop --out drafts
+  pacto init gift-cards --from oci://ghcr.io/acme/paths/http-service:1.0.0 --owner checkout --domain commerce
 ```
 
 **Flags:**
@@ -1216,8 +1241,10 @@ pacto init [dir...] [flags]
       --cluster                  draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
       --delivery                 also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
       --describe-only            write a contract that only describes the service: no publish section, so no signing key
+      --domain string            business domain, such as payments
       --env strings              environments for --delivery, in promotion order (default [test,prod])
       --fleet strings            folders of other services' contracts to find the services that use this one
+      --from string              a golden path to create the service from: an oci:// reference or a directory
   -h, --help                     help for init
       --insecure-registry        with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
       --name string              service name (default: the workload's name, then the folder's)
@@ -1228,20 +1255,21 @@ pacto init [dir...] [flags]
       --plan                     show what would be added and change nothing
       --registry string          where to publish, as host/path (default: read from the workload's image)
       --registry-secret string   with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
+      --run-plugins strings      run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs
+      --set stringArray          set a contract value (e.g. --set service.version=2.0.0)
+      --trust string             the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)
+  -f, --values stringArray       values file to merge into the contract (can be repeated; last wins)
 ```
 
-Scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`.
+In an empty folder it scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`. It also plans a `.pactoignore` that keeps the signing key out of the bundle.
 
-`<name>` is the service name: it becomes the directory *and* `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. `pacto init fleet/checkout-web` therefore scaffolds a bundle that fails validation: `service.name` gets the whole path and fails `SCHEMA_VIOLATION`. To scaffold inside a directory, `cd` there first and pass the bare name.
+The folder's last part becomes `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, so `pacto init fleet/checkout-web` writes a contract for `checkout-web` in `fleet/checkout-web`. Pass `--name` to choose another name.
 
-All three are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. If you delete a directory, also delete the section that references it, or validation fails with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
+`--owner` becomes `service.owner.team`; without it the owner is a commented placeholder and Unknown names it. `--domain` becomes `service.domain` and raises `pactoVersion` to `2.4`. The contract gets a publish section with `bundle: oci://<registry>/<name>` and `sign.key: cosign.key`: the registry is `--registry`, else the `registry.example` placeholder that Unknown names. `--describe-only` leaves the publish section out.
 
-!!! note "The scaffold fails `validate --readiness` on purpose"
-    Its two placeholder readiness claims are `not-done`, which scores 0 against the
-    scaffolded `minScore: 80` and fails with `READINESS_GATE_UNMET`. Plain
-    `pacto validate` passes, because the gate is opt-in. Fill the claims in as the
-    work lands. The placeholder is the starting position of a real assessment, so keep it
-    and update it.
+All three files are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. If you delete a directory, also delete the section that references it, or validation fails with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
+
+`--from` creates one service from a [golden path](golden-paths.md), in a folder that holds no `pacto.yaml` yet, so it refuses `--cluster` and several folders. `--values`, `--set`, `--trust` and `--run-plugins` go with `--from`. `--values` files apply first, then `--set`; a `null` removes a field. `--trust` takes a trust config file or a bare PEM public key, which then verifies golden paths in every repository; a bare key in `$PACTO_DELIVERY_TRUST` verifies records only. Only `role: template` keys verify a golden path; see [Trust](golden-paths.md#trust). The path's `pacto.lock` is not copied: run `pacto lock` in the new folder to pin its references. `--delivery`, with `--env`, `--registry-secret` and `--insecure-registry`, plans the cluster pieces from the new contract when the path publishes manifests under `publish.deploy`; otherwise the delivery step says why none were planned.
 
 ---
 
@@ -1403,7 +1431,7 @@ pacto mcp [bundle-ref] [flags]
       --dashboard-url string          with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there
       --delivery                      expose the Pacto delivery tools over the ambient cluster
       --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
-      --delivery-trust string         in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+      --delivery-trust string         the trust config delivery records (in --delivery mode) and the golden paths pacto_create creates from are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string      with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string     with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
@@ -1433,8 +1461,8 @@ The **default** server exposes the four authoring tools below. A bundle referenc
 
 | Tool | Description |
 |------|-------------|
-| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |
-| `pacto_edit` | Edit an existing contract: add or remove interfaces, dependencies and configuration references, add environments and set their values, set the service lifecycle, change runtime, update metadata. Checks values against a referenced contract's schema before writing. Supports dry run. |
+| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics), or with `from` from a golden path (stdio only). Supports dry run. |
+| `pacto_edit` | Edit an existing contract: add or remove interfaces, dependencies and configuration references, add environments and set their values, set the service lifecycle or the golden path template, change runtime, update metadata. Checks values against a referenced contract's schema before writing. Supports dry run. |
 | `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 
@@ -1461,12 +1489,12 @@ The arguments each fleet query tool takes. Arguments are optional unless marked:
 
 | Tool | Arguments |
 |------|-----------|
-| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit`, `offset` |
+| `pacto_fleet_search` | `text`, `owner`, `business_domain`, `offering`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `template` (`only` keeps golden paths, `exclude` leaves them out), `limit`, `offset` |
 | `pacto_fleet_get` | `service` (a logical service) **or** `target` (an operational target by key or name) |
 | `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
-| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`, `unowned`, `undeclared`; plus `limit`. No category, including empty input, reports every category |
+| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `unsatisfied_ranges`, `missing_readiness`, `unowned`, `undeclared`, `golden_path_deployed`; plus `limit`. No category, including empty input, reports every category |
 | `pacto_fleet_explain` | `subject` (**required**): a service name or a target key or name |
-| `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `ownership`, `status`, `sort`, `limit`, `offset` |
+| `pacto_fleet_entities` | `text`, `kind` (`service`, `owner`, `domain` or `offering`; empty lists all four), `owner`, `owner_key`, `business_domain`, `offering`, `consumes` (services that depend on or reference a provider of this offering), `template` (`only` lists golden paths, `exclude` leaves them out), `created_from` (the services created from this golden path, by service key), `ownership`, `status`, `sort`, `limit`, `offset` |
 | `pacto_fleet_entity` | `kind` and `key` (**both required**): a service, revision, target, owner, source, business domain or offering |
 | `pacto_fleet_attention` | `category`, `severity`, `owner`, `owner_key`, `business_domain`, `service`, `limit`, `offset` |
 | `pacto_fleet_neighborhood` | `service` (**required**): a service name or key, then `direction` (`dependencies`, `dependents` or `both`, the default), `depth`, `views` (comma-separated `expected`, `observed` and `differences`; empty means `expected,observed`) and `max_nodes` |

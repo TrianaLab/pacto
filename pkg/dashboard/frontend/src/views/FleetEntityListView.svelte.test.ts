@@ -118,6 +118,19 @@ describe('FleetEntityListView', () => {
     unmount(component);
   });
 
+  it('leaves golden paths out of the unscoped revision list, as the Overview counts do', async () => {
+    entitiesFn.mockResolvedValue(listResp([], { total: 0 }));
+    const { component } = mountView({ kind: 'revision', readiness: 'passing' });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
+    expect(entitiesFn.mock.calls[0][0].template).toBe('exclude');
+    unmount(component);
+    entitiesFn.mockClear();
+    const scoped = mountView({ kind: 'revision', service: 'domain-a/http-service' });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
+    expect(entitiesFn.mock.calls[0][0].template).toBeUndefined();
+    unmount(scoped.component);
+  });
+
   it('does not send a scope filter on the revision list, where it has no meaning', async () => {
     entitiesFn.mockResolvedValue(listResp([], { total: 0 }));
     const { component } = mountView({ kind: 'revision', scope: 'prod' });

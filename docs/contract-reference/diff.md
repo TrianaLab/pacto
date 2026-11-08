@@ -34,6 +34,12 @@ A change that matches no specific rule below defaults to **POTENTIAL_BREAKING**.
 | `service.lifecycle.sunset` | Modified, earlier | POTENTIAL_BREAKING |
 | `service.lifecycle.sunset` | Modified, later | NON_BREAKING |
 | `service.lifecycle.successor` | Added / Modified / Removed | NON_BREAKING |
+| `service.template` | Added | NON_BREAKING |
+| `service.template` | Removed | NON_BREAKING |
+| `service.template.plugins` | Modified | NON_BREAKING |
+| `service.origin` | Added | NON_BREAKING |
+| `service.origin` | Modified | NON_BREAKING |
+| `service.origin` | Removed | NON_BREAKING |
 
 The owner block is compared field by field, so changing a `dri` or adding a
 contact while the `team` is unchanged reports that specific change. Contacts are

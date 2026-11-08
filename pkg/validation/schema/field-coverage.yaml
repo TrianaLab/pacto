@@ -207,6 +207,139 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle.successor/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/service.lifecycle.successor/invalid
       e2e: []
+  service.template:
+    meaning: Marks the contract as a golden path that pacto init --from copies into a new service; pactoVersion 2.4 only.
+    runtime: static-only
+    evidence: 'none: Pacto reads it at creation and in the fleet'
+    rule: 'schema: object, may be empty'
+    outcomes: SCHEMA_VIOLATION; NEEDS_PACTO_2_4 under 2.0 to 2.3
+    limitations: a self-declared marker; the fleet treats a service that runs in a target as a service
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds24Template
+      - pkg/contract/parse_test.go:TestParse_Version24Template
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template/needs-2.4
+      e2e: []
+  service.template.plugins:
+    meaning: Generate plugins the golden path offers to run when a service is created from it.
+    runtime: static-only
+    evidence: 'none: Pacto reads it at creation and in the fleet'
+    rule: 'schema: 1 to 32 items'
+    outcomes: SCHEMA_VIOLATION
+    limitations: plugins run only when the person creating the service names them
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestServiceTemplate24
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins/invalid-max
+      e2e: []
+  service.template.plugins[]:
+    meaning: One plugin entry.
+    runtime: static-only
+    evidence: 'none: Pacto reads it at creation and in the fleet'
+    rule: 'schema: object with name'
+    outcomes: SCHEMA_VIOLATION when not an object
+    limitations: a plugin is never fetched or installed
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_Version24Template
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins[]/invalid
+      e2e: []
+  service.template.plugins[].name:
+    meaning: The plugin name; Pacto runs the pacto-plugin-<name> binary it finds.
+    runtime: static-only
+    evidence: 'none: Pacto reads it at creation and in the fleet'
+    rule: 'schema: slug pattern, at most 63 characters; cross-field: unique in the list'
+    outcomes: SCHEMA_VIOLATION; DUPLICATE_TEMPLATE_PLUGIN
+    limitations: the binary is found on the machine that creates the service
+    tests:
+      unit:
+      - pkg/validation/template_test.go:TestValidateTemplate
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins[].name/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins[].name/duplicate
+      e2e: []
+  service.template.plugins[].description:
+    meaning: What the plugin adds, in one line.
+    runtime: static-only
+    evidence: 'none: Pacto reads it at creation and in the fleet'
+    rule: 'schema: 1 to 200 characters without control characters'
+    outcomes: SCHEMA_VIOLATION
+    limitations: shown to the person creating the service
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_Version24Template
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins[].description/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins[].description/invalid
+      e2e: []
+  service.template.plugins[].options:
+    meaning: Options passed to the plugin.
+    runtime: static-only
+    evidence: 'none: Pacto reads it at creation and in the fleet'
+    rule: 'schema: at most 32 string values of up to 1024 characters'
+    outcomes: SCHEMA_VIOLATION
+    limitations: the plugin interprets them
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_Version24Template
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins[].options/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.template.plugins[].options/invalid
+      e2e: []
+  service.origin:
+    meaning: The golden path the service was created from; declared provenance, pactoVersion 2.4 only.
+    runtime: static-only
+    evidence: 'none: Pacto reads it at creation and in the fleet'
+    rule: 'schema: object with ref and digest'
+    outcomes: SCHEMA_VIOLATION; NEEDS_PACTO_2_4 under 2.0 to 2.3
+    limitations: Pacto records it at creation as declared provenance and does not attest it
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestNeeds24Template
+      - pkg/contract/parse_test.go:TestParse_Version24Template
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin/needs-2.4
+      e2e: []
+  service.origin.ref:
+    meaning: The oci:// reference or directory the service was created from.
+    runtime: static-only
+    evidence: 'none: Pacto reads it at creation and in the fleet'
+    rule: 'schema: 1 to 512 characters without control characters; cross-field: an oci:// reference or a directory path'
+    outcomes: SCHEMA_VIOLATION; INVALID_ORIGIN_REF
+    limitations: a directory path resolves only on the machine that holds it
+    tests:
+      unit:
+      - pkg/validation/template_test.go:TestValidateOrigin
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.ref/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.ref/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.ref/invalid-empty-oci
+      e2e: []
+  service.origin.digest:
+    meaning: The content digest of the golden path bundle, as pacto.lock records it.
+    runtime: static-only
+    evidence: 'none: Pacto reads it at creation and in the fleet'
+    rule: 'schema: sha256 followed by 64 lowercase hex characters'
+    outcomes: SCHEMA_VIOLATION
+    limitations: the fleet links the service to the golden path revision with the same content digest
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestServiceTemplate24
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.digest/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.origin.digest/invalid
+      e2e: []
   service.owner:
     meaning: Who owns the service.
     runtime: static-only

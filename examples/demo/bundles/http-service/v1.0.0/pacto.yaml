@@ -1,0 +1,49 @@
+pactoVersion: '2.4'
+service:
+  name: http-service
+  version: 1.0.0
+  owner:
+    team: platform
+  summary: An HTTP API on the platform runtime with a PostgreSQL database and the HTTP baseline policy
+  template:
+    plugins:
+    - name: dockerfile
+      description: A Dockerfile for a Go HTTP service
+    - name: github-actions
+      description: A CI workflow that validates and publishes the contract
+      options:
+        go-version: '1.27'
+interfaces:
+- name: api
+  type: openapi
+  ref: interfaces/openapi.yaml
+  visibility: internal
+dependencies:
+- name: postgresql
+  ref: oci://ghcr.io/trianalab/pacto/postgresql
+  required: true
+  compatibility: ^16.0.0
+configurations:
+- name: database
+  ref: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+  configuration: provisioning
+  required: true
+  values:
+    size: small
+    storageGi: 20
+policies:
+- name: http-standards
+  ref: oci://ghcr.io/trianalab/pacto/platform-http-policy:1.0.1
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+- type: health
+- type: metrics
+metadata:
+  tier: domain
+  criticality: medium

@@ -29,11 +29,9 @@ invocation registers.
     tool such as `createRefund`, which moves money. Build allow-lists by hand
     from the tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
     `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
-    `pacto_edit` write contract files. Generated service tools carry no `pacto_`
-    prefix and reach a live service. They are read-only only when the server
-    was started without `--allow-writes`; otherwise treat every unprefixed tool
-    as able to change the live service. A bundle cannot
-    claim a `pacto_` name.
+    `pacto_edit` write contract files. Under `--allow-writes`, treat every
+    generated tool (no `pacto_` prefix) as able to change the live service. A
+    bundle cannot claim a `pacto_` name.
 
 ### Fleet query safety
 
@@ -92,6 +90,7 @@ Every mode except `--root` carries these four.
 - `add_environments` declares environments and creates each missing file holding `{}`. It raises `pactoVersion` to 2.3.
 - `set_environment_values` merges values into environment files. Objects merge key by key and a `null` removes its key.
 - `lifecycle` sets `service.lifecycle` (`deprecated`, `sunset`, `successor`), and `{"clear": true}` removes it. Setting it raises `pactoVersion` to 2.4.
+- `template` sets [`service.template`](contract-reference/sections.md#golden-path-template), which makes the contract a golden path: `{"plugins": [...]}` replaces it, an empty `plugins` list writes `template: {}` and `{"clear": true}` removes it. Either raises `pactoVersion` to 2.4. No input sets `service.origin`: only creation from a golden path writes it.
 
 **Value edits are checked first.** Adding configuration references or environments, or setting environment values, writes only after `pacto_check` passes.
 
@@ -107,9 +106,7 @@ Every mode except `--root` carries these four.
 | `worker`, `consumer`, `processor` | a `job` workload |
 | `cron`, `scheduled`, `periodic`, `batch` | a `scheduled` workload (wins over `job`) |
 
-The match is a keyword heuristic: "no HTTP" still matches `HTTP`.
-
-State is never inferred: naming `postgres` declares a database dependency and leaves the service stateless.
+The match is a keyword heuristic: "no HTTP" still matches `HTTP`. State is never inferred: naming `postgres` declares a database dependency and leaves the service stateless.
 
 ## Bundle capabilities
 
@@ -133,7 +130,7 @@ Each operation becomes a tool named by its `operationId` (or `<method>_<path>`).
 | `http` `bearer` (and `oauth2` / `openIdConnect`) | `Authorization: Bearer <value>` |
 | `http` `basic` | `Authorization: Basic <value>` (supply pre-encoded `user:pass`) |
 
-**`pacto_skill`.** Bundles may ship domain knowledge as `skills/*.md`. The `pacto_skill` tool lists them and returns their content.
+**`pacto_skill`** lists a bundle's `skills/*.md` files and returns their content.
 
 **What a session freezes.** Bundle mode and `--root` resolve their inputs once at startup; restart to pick up changes. Two exceptions: `pacto_skill` reads from disk on every call, and the authoring tools act on whatever is on disk.
 
@@ -150,7 +147,7 @@ pacto mcp \
 
 `--root` is repeatable and takes a local bundle directory or an `oci://` reference. It never crawls a registry, guesses repository names or reads a catalog file.
 
-The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource carries the schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root, resolved or not and why. The closure resource carries every deduplicated revision with its content identity, rank and retained paths; every dependency edge, resolved or not; and every conflict and cycle found.
+The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource carries the schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root, resolved or not and why. The closure resource carries every deduplicated revision (content identity, rank and retained paths), every dependency edge and every conflict and cycle.
 
 Catalog mode registers nothing else, so it cannot modify a contract. A root or a dependency that could not be resolved stays visible with a category such as `NOT_FOUND`, `AUTH_FAILED` or `UNAVAILABLE` in place of the raw registry error, and the whole answer is marked `partial`. Under `partial`, a revision missing from the answer is *unknown*.
 
@@ -160,10 +157,32 @@ Catalog mode registers nothing else, so it cannot modify a contract. A root or a
 holding a service: it reads the Dockerfile and Kubernetes files and writes the
 contract. `describe_only: true` leaves out the publish section, for a request
 to describe a service. With `delivery: true` it also writes the
-cluster files. `registry`, `environments`, `fleet_roots`,
+cluster files. `domain`, `registry`, `environments`, `fleet_roots`,
 `no_transparency_log`, `insecure_registry` and `registry_secret` match the CLI
 flags, and `dry_run` plans without writing. See
 [Pactify a service](pactify.md).
+
+Without `pactify`, `pacto_create` refuses a folder that already holds
+`pacto.yaml` (change that contract with `pacto_edit`) and leaves any interface
+or schema file already there as it is, listed in `kept`.
+
+## Create a service from a golden path
+
+- `pacto_create` with `from` creates a service from a
+  [golden path](golden-paths.md), like `pacto init --from`.
+- `from` is an `oci://` reference or a directory. `name` and `owner` are
+  required; `domain`, `path`, `registry`, `describe_only`, `delivery`,
+  `environments`, `registry_secret`, `insecure_registry` and `dry_run` match
+  the CLI flags.
+- `values` is a JSON object merged over the path's contract and `set` a JSON
+  array of `key=value` overrides, like `--values` and `--set`.
+- `run_plugins` is a JSON array of plugin names, each one the path lists.
+  Nothing else runs. A `dry_run` lists each plugin and the binary it runs.
+- `from` refuses the intent inputs, such as `interfaces`, and `pactify`,
+  `fleet_roots` and the cluster inputs.
+- `from` serves stdio only. Over HTTP every caller would pull with the
+  server's registry credentials, read its directories and write to its paths.
+- `pacto_fleet_entities` with `template: only` lists golden paths.
 
 `pacto_create` and `pacto_edit` return `warnings` for a value that validates
 but is likely wrong, such as an owner written as `team/billing`.

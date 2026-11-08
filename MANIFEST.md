@@ -119,9 +119,9 @@ in priority order: when two conflict, the earlier one wins.
 ## Agents take the same path
 
 An agent, like any automation, reaches its goal by whatever path is open to
-it. A golden path it can skip protects little. Pacto gives agents building
-blocks that it checks and, with the recorder on, records. Those blocks are the
-only way Pacto makes a change.
+it. Pacto gives agents building blocks that it checks and, with the recorder
+on, records. An agent creates a service through the same checked building
+blocks as a person. Those blocks are the only way Pacto makes a change.
 
 Every change Pacto makes goes through the same checks for its type and the
 same admission policies, whether a person, a CI job or an agent over MCP asks

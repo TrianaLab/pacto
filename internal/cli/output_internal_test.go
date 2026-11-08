@@ -441,6 +441,16 @@ func TestPrintGraphResult_WithDepsAndCyclesAndConflicts(t *testing.T) {
 	}
 }
 
+func TestPrintExplainResult_GoldenPathWithoutPlugins(t *testing.T) {
+	cmd, buf := testCmd()
+	if err := printExplainResult(cmd, &app.ExplainResult{Name: "svc", Version: "1.0.0", Template: &contract.Template{}}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "\nGolden path\n") || strings.Contains(out, "Created from") {
+		t.Errorf("expected a bare golden path line, got %q", out)
+	}
+}
+
 func TestPrintExplainResult_Full(t *testing.T) {
 	cmd, buf := testCmd()
 	result := &app.ExplainResult{
@@ -451,6 +461,8 @@ func TestPrintExplainResult_Full(t *testing.T) {
 		Offering:     "postgres",
 		Summary:      "Managed Postgres",
 		Lifecycle:    &contract.InterfaceLifecycle{Deprecated: "2026-01-01"},
+		Template:     &contract.Template{Plugins: []contract.TemplatePlugin{{Name: "dockerfile"}, {Name: "github-actions"}}},
+		Origin:       &contract.Origin{Ref: "oci://ghcr.io/acme/http-service:1.0.0", Digest: "sha256:abc"},
 		PactoVersion: "2.0",
 		Workload:     "service",
 		State: &app.ExplainState{
@@ -495,6 +507,9 @@ func TestPrintExplainResult_Full(t *testing.T) {
 	}
 	if !strings.Contains(out, "Owner: team/platform\nDomain: platform\nOffering: postgres\nSummary: Managed Postgres\nLifecycle: deprecated 2026-01-01\n") {
 		t.Errorf("expected owner, domain, offering and summary, got %q", out)
+	}
+	if !strings.Contains(out, "Golden path: plugins dockerfile, github-actions\nCreated from: oci://ghcr.io/acme/http-service:1.0.0 (sha256:abc), declared\n") {
+		t.Errorf("expected golden path and origin lines, got %q", out)
 	}
 	if !strings.Contains(out, "openapi.yaml") {
 		t.Errorf("expected ref, got %q", out)

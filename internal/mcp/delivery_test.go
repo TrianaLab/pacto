@@ -139,8 +139,8 @@ func deliveryToolNames(t *testing.T, server *mcpsdk.Server) []string {
 // TestDeliveryToolsWritesOnlyForAgents: a human identity gets the read-only
 // tools; an agent identity gets propose and cancel too; nobody gets approve.
 func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
-	read := strings.Join(deliveryToolNames(t, NewDeliveryServer("v", &stubDelivery{}, false, nil)), ",")
-	write := strings.Join(deliveryToolNames(t, NewDeliveryServer("v", &stubDelivery{}, true, nil)), ",")
+	read := strings.Join(deliveryToolNames(t, NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})), ",")
+	write := strings.Join(deliveryToolNames(t, NewDeliveryServer("v", &stubDelivery{}, true, Authoring{})), ",")
 	if strings.Contains(read, "propose") || strings.Contains(read, "cancel") || !strings.Contains(read, "pacto_delivery_operation_plan") {
 		t.Fatalf("human tools: %s", read)
 	}
@@ -167,7 +167,7 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 }
 
 func TestDeliveryToolCalls(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, true, nil)
+	server := NewDeliveryServer("v", &stubDelivery{}, true, Authoring{})
 	var types []delivery.OperationType
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_types", map[string]any{}), &types)
 	if len(types) != len(delivery.Types()) {
@@ -188,7 +188,7 @@ func TestDeliveryToolCalls(t *testing.T) {
 
 func TestDeliveryPlanToolCalls(t *testing.T) {
 	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}, Next: []string{"held"}}}
-	server := NewDeliveryServer("v", api, true, nil)
+	server := NewDeliveryServer("v", api, true, Authoring{})
 	var plan delivery.PlanAnswer
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_plan", map[string]any{
 		"namespace": "prod", "stage": "s", "to": "3.0.0", "on_behalf_of": "alice"}), &plan)
@@ -214,7 +214,7 @@ func TestDeliveryPlanToolCalls(t *testing.T) {
 }
 
 func TestDeliveryCandidatesToolCall(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, true, nil)
+	server := NewDeliveryServer("v", &stubDelivery{}, true, Authoring{})
 	var c delivery.CandidateVersions
 	decode(t, callToolOn(t, server, "pacto_delivery_candidates", map[string]any{"namespace": "prod", "stage": "s"}), &c)
 	if c.Stage != "s" || len(c.Versions) != 1 || c.Versions[0].Version != "3.0.0" {
@@ -223,7 +223,7 @@ func TestDeliveryCandidatesToolCall(t *testing.T) {
 }
 
 func TestDeliveryRecordToolCalls(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{}, false, nil)
+	server := NewDeliveryServer("v", &stubDelivery{}, false, Authoring{})
 	var b delivery.Blame
 	decode(t, callToolOn(t, server, "pacto_delivery_blame", map[string]any{"namespace": "prod", "stage": "s", "digest": "sha256:d"}), &b)
 	if b.Stage.Name != "s" || b.Digest != "sha256:d" {
@@ -254,7 +254,7 @@ func TestDeliveryRecordToolCalls(t *testing.T) {
 
 func TestDeliveryWriteToolCalls(t *testing.T) {
 	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}}
-	server := NewDeliveryServer("v", api, true, nil)
+	server := NewDeliveryServer("v", api, true, Authoring{})
 	api.op = &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "p1"}}
 	var proposed struct {
 		Operation delivery.OperationObject `json:"operation"`
@@ -280,7 +280,7 @@ func TestDeliveryWriteToolCalls(t *testing.T) {
 
 func TestDeliveryToolErrors(t *testing.T) {
 	api := &stubDelivery{plan: delivery.PlanAnswer{Plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}}
-	server := NewDeliveryServer("v", api, true, nil)
+	server := NewDeliveryServer("v", api, true, Authoring{})
 	api.op, api.err = nil, errors.New("PlanStale: moved")
 	res := callToolOn(t, server, "pacto_delivery_operation_propose", map[string]any{"namespace": "prod", "stage": "s"})
 	if !res.IsError || !strings.Contains(resultText(t, res), "PlanStale") || !strings.Contains(resultText(t, res), "sha256:i") {
@@ -314,7 +314,7 @@ func TestDeliveryToolErrors(t *testing.T) {
 }
 
 func TestDeliveryFleetToolErrors(t *testing.T) {
-	server := NewDeliveryServer("v", &stubDelivery{err: errors.New("forbidden")}, false, nil)
+	server := NewDeliveryServer("v", &stubDelivery{err: errors.New("forbidden")}, false, Authoring{})
 	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_record_verify"} {
 		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod"}); !res.IsError {
 			t.Fatalf("%s of every Stage must surface the error", tool)
@@ -327,7 +327,7 @@ func TestDeliveryFleetToolErrors(t *testing.T) {
 // walk and makes no sense with one Stage.
 func TestDeliveryHistoryWindowAndService(t *testing.T) {
 	api := &stubDelivery{}
-	server := NewDeliveryServer("v", api, false, nil)
+	server := NewDeliveryServer("v", api, false, Authoring{})
 	names := func(es []delivery.HistoryEntry) string {
 		var out []string
 		for _, e := range es {

@@ -218,6 +218,7 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("has-capability", false, "only services declaring a capability")
 	cmd.Flags().Bool("has-dependency", false, "only services declaring a dependency")
 	cmd.Flags().String("scope", "", "correlate to a target with this scope")
+	addTemplateFlag(cmd.Flags())
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultSearchLimit, fleet.MaxSearchLimit))
 	cmd.Flags().Int("offset", 0, "result offset for paging")
 
@@ -242,6 +243,7 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	source, _ := cmd.Flags().GetString("source")
 	workload, _ := cmd.Flags().GetString("workload")
 	scope, _ := cmd.Flags().GetString("scope")
+	template, _ := cmd.Flags().GetString("template")
 	labels, _ := cmd.Flags().GetStringArray("label")
 	ready, _ := cmd.Flags().GetBool("ready")
 	notReady, _ := cmd.Flags().GetBool("not-ready")
@@ -252,7 +254,7 @@ func searchFilterFromCmd(cmd *cobra.Command, text string) fleet.SearchFilter {
 	return fleet.SearchFilter{
 		Text: text, Owner: owner, BusinessDomain: businessDomain, Offering: offering, Labels: parseLabels(labels), Scope: scope, Status: status,
 		Compliance: compliance, Source: source, Workload: workload,
-		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady,
+		HasCapability: hasCap, HasDependency: hasDep, ReadyOnly: ready, NotReady: notReady, Template: template,
 		Limit: limit, Offset: offset,
 	}
 }
@@ -384,6 +386,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("unsatisfied-ranges", false, "report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)")
 	cmd.Flags().Bool("unowned", false, "report services with no declared owner")
 	cmd.Flags().Bool("undeclared", false, "report runtime calls no contract declares and callers with no contract")
+	cmd.Flags().Bool("golden-path-deployed", false, "report running services that declare service.template (GOLDEN_PATH_DEPLOYED)")
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d)", fleet.DefaultStatusLimit))
 	return cmd
 }
@@ -397,7 +400,8 @@ func statusQueryFromCmd(cmd *cobra.Command) fleet.StatusQuery {
 		NeedsAttention: get("needs-attention"), NonCompliant: get("non-compliant"),
 		Unknown: get("unknown"), Invalid: get("invalid"), StaleEvidence: get("stale"),
 		MissingReadiness: get("missing-readiness"), UnresolvedDeps: get("unresolved-deps"),
-		UnsatisfiedRanges: get("unsatisfied-ranges"), Unowned: get("unowned"), Undeclared: get("undeclared"), Limit: limit,
+		UnsatisfiedRanges: get("unsatisfied-ranges"), Unowned: get("unowned"), Undeclared: get("undeclared"),
+		GoldenPathDeployed: get("golden-path-deployed"), Limit: limit,
 	}
 }
 

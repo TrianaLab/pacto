@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewServer(t *testing.T) {
-	server := NewServer(nil, "1.0.0")
+	server := NewServer(Authoring{}, "1.0.0")
 	if server == nil {
 		t.Fatal("expected non-nil server")
 	}

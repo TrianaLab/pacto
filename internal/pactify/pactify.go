@@ -1,24 +1,33 @@
 // Package pactify is what `pacto init` and the pacto_create MCP tool do to a
-// folder. An empty folder gets today's blank contract. A folder that already
+// folder. An empty folder gets a blank contract with the owner, domain and
+// registry the caller gave. A folder that already
 // holds a service gets a contract read from its Dockerfile and Kubernetes
 // manifests: its environment as a configuration schema, the services its
 // environment points at as dependencies, its probe as a health check and,
 // unless DescribeOnly, a publish section. With Delivery it also gets the
 // cluster pieces that ship it. Planning changes nothing. Applying only adds files and lines:
 // a file that is already there is the user's and is never rewritten, so
-// running it twice is safe.
+// running it twice is safe. With Template the folder gets a contract created
+// from a golden path: its identity reset, the caller's values applied, its
+// origin recorded and the result validated strictly before anything is
+// planned.
 package pactify
 
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Options says which folder to pactify and what the caller already knows.
@@ -26,8 +35,10 @@ type Options struct {
 	// Dir is the folder. Empty means Name, and "." when Name is empty too.
 	Dir string
 	// Name is service.name. Empty means the workload's name, then the folder's.
-	Name     string
-	Owner    string
+	Name  string
+	Owner string
+	// Domain is service.domain, such as payments; it raises pactoVersion to 2.4.
+	Domain   string
 	Registry string
 	// Delivery also plans the Pacto resource, a Stage per environment and the
 	// Flux OCIRepository and Kustomization each one applies through.
@@ -57,6 +68,36 @@ type Options struct {
 	// with a Version is written as an entry pinned to exactly that version;
 	// one without gets a placeholder range, like a dependency read from the env.
 	Inferred []Inferred
+	// Template creates the contract from a golden path. It needs Owner and
+	// refuses Delivery, FleetRoots and Inferred.
+	Template *Template
+}
+
+// Template is the golden path a service is created from, already read and,
+// when it came from a registry, checked by the caller.
+type Template struct {
+	// FS holds the path's files: its pacto.yaml and everything it copies.
+	FS fs.FS
+	// Ref and Digest are recorded as service.origin.
+	Ref, Digest string
+	// Signature is the signature step the caller established.
+	Signature fleet.CreationStep
+	// Overrides are the caller's values, applied before the path's template
+	// marker is removed.
+	Overrides override.Overrides
+	// Validate validates the created contract over the files the folder will
+	// hold. Nil validates locally, with no resolver.
+	Validate func(ctx context.Context, c *contract.Contract, raw []byte, fsys fs.FS) []validation.Stage
+	// RunPlugins are the plugins the path names that the caller asked to run.
+	RunPlugins []string
+	// TrustConfigured says a template key was configured, so a plugin runs
+	// only when that key verified the path's signature.
+	TrustConfigured bool
+	// Run runs a plugin. Nil refuses every run.
+	Run func(ctx context.Context, name string, req plugin.GenerateRequest) (*plugin.GenerateResponse, error)
+	// Find resolves a plugin name to the binary Run executes. Nil is
+	// plugin.Find.
+	Find func(name string) (string, error)
 }
 
 // Inferred is a service this one was seen calling at runtime.
@@ -92,7 +133,8 @@ type Result struct {
 	Dir     string `json:"dir"`
 	Path    string `json:"path"`
 	Service string `json:"service"`
-	// Mode is "blank" for a folder with no service in it, else "pactify".
+	// Mode is "template" for a contract created from a golden path, "blank"
+	// for a folder with no service in it, else "pactify".
 	Mode    string `json:"mode"`
 	Applied bool   `json:"applied"`
 	// Found is what was read from the folder, one line each.
@@ -104,11 +146,15 @@ type Result struct {
 	// Next is what a person still has to do.
 	Next  []string `json:"next"`
 	Files []File   `json:"files"`
+	// Steps say how far creating from a golden path got, and what Pacto
+	// cannot tell yet.
+	Steps []fleet.CreationStep `json:"steps,omitempty"`
 }
 
 const (
-	modeBlank   = "blank"
-	modePactify = "pactify"
+	modeBlank    = "blank"
+	modePactify  = "pactify"
+	modeTemplate = "template"
 )
 
 var (
@@ -123,7 +169,18 @@ func Init(ctx context.Context, opts Options, writeFile func(string, []byte, os.F
 	if err != nil || opts.Plan {
 		return r, err
 	}
-	return r, apply(r, writeFile)
+	if err := apply(r, writeFile); err != nil {
+		return r, err
+	}
+	for i := range r.Steps {
+		switch s := &r.Steps[i]; {
+		case s.Step == fleet.StepContract:
+			s.Status, s.Detail = fleet.StepStatusDone, "written to "+r.Path
+		case s.Step == fleet.StepDelivery && s.Status == fleet.StepStatusPlanned:
+			s.Status = fleet.StepStatusDone
+		}
+	}
+	return r, nil
 }
 
 func plan(ctx context.Context, opts Options) (*Result, error) {
@@ -133,6 +190,9 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	}
 	if dir == "" {
 		dir = "."
+	}
+	if err := TemplateOptions(opts); err != nil {
+		return nil, err
 	}
 	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
 		return nil, fmt.Errorf("%s is a file, not a folder", dir)
@@ -151,23 +211,40 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	}
 	r := &Result{Dir: dir, Path: filepath.Join(dir, "pacto.yaml"), Service: name, Mode: modeBlank,
 		Found: []string{}, Dependencies: []Finding{}, Consumers: []Finding{}, Unknown: []string{}, Next: []string{}, Files: []File{}}
-	if sc.dockerfile != "" || len(sc.manifests) > 0 {
+	switch {
+	case opts.Template != nil:
+		r.Mode = modeTemplate
+	case sc.dockerfile != "" || len(sc.manifests) > 0:
 		r.Mode = modePactify
 	}
 	p := &planner{r: r, sc: sc, opts: opts, envs: envs}
 	if err := p.readFleet(ctx); err != nil {
 		return nil, err
 	}
-	if err := p.contract(); err != nil {
+	if err := p.contract(ctx); err != nil {
 		return nil, err
 	}
+	if err := p.finish(ctx); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// finish plans what follows the contract, then refuses a plan whose files
+// cannot all be written and validates a contract created from a golden path
+// over everything planned.
+func (p *planner) finish(ctx context.Context) error {
 	p.transparencyLog()
 	p.consumers()
-	if opts.Delivery {
+	if p.opts.Delivery {
 		p.delivery()
+		p.deliveryStep()
 	}
 	p.ignore()
-	return r, nil
+	if err := p.conflicts(); err != nil || p.r.Mode != modeTemplate {
+		return err
+	}
+	return p.validateTemplate(ctx)
 }
 
 // environments checks the delivery options and returns the environments,
@@ -226,17 +303,48 @@ type planner struct {
 	pub             *contract.Publish
 	snap            *fleet.FleetSnapshot // the contracts in FleetRoots, nil when none were given
 	schema          string               // the configuration schema written, "" when none
+	stages          []validation.Stage   // what validating a contract created from a golden path found
 	contractNew     bool
 	deliveryPlanned bool
 }
 
-// file plans path: Add when it is not there, else Keep.
-func (p *planner) file(path, content string) {
+// file plans path: Add when it is not there, else Keep. A path already
+// planned keeps its first plan, so a later file never replaces it. Paths are
+// compared ignoring case, since on a case-insensitive filesystem Pacto.yaml
+// written after pacto.yaml would replace it.
+func (p *planner) file(path, content string) string {
+	if slices.ContainsFunc(p.r.Files, func(f File) bool { return strings.EqualFold(f.Path, path) }) {
+		return Keep
+	}
 	action := Add
 	if _, err := os.Stat(filepath.Join(p.r.Dir, path)); err == nil {
 		action, content = Keep, ""
 	}
 	p.r.Files = append(p.r.Files, File{Path: path, Action: action, Content: content})
+	return action
+}
+
+// conflicts refuses a plan whose files cannot all be written, before anything
+// is: a file planned where another is planned as its folder, or a file under
+// a name the folder already holds as a file. Apply would stop half way.
+func (p *planner) conflicts() error {
+	for _, f := range p.r.Files {
+		prefix := strings.ToLower(f.Path) + "/"
+		for _, g := range p.r.Files {
+			if strings.HasPrefix(strings.ToLower(g.Path), prefix) {
+				return fmt.Errorf("%s is planned both as a file and as the folder of %s", f.Path, g.Path)
+			}
+		}
+		if f.Action != Add {
+			continue
+		}
+		for d := filepath.Dir(f.Path); d != "."; d = filepath.Dir(d) {
+			if info, err := os.Stat(filepath.Join(p.r.Dir, d)); err == nil && !info.IsDir() {
+				return fmt.Errorf("%s cannot be written: %s is a file in %s", f.Path, d, p.r.Dir)
+			}
+		}
+	}
+	return nil
 }
 
 // apply writes every Add and Append. It never touches a Keep.

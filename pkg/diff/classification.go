@@ -51,6 +51,15 @@ var rules = map[classificationKey]Classification{
 	{"service.lifecycle.successor", Modified}:  NonBreaking,
 	{"service.lifecycle.successor", Removed}:   NonBreaking,
 
+	// Golden path marker and declared origin (2.4): neither changes anything
+	// a consumer calls.
+	{"service.template", Added}:            NonBreaking,
+	{"service.template", Removed}:          NonBreaking,
+	{"service.template.plugins", Modified}: NonBreaking,
+	{"service.origin", Added}:              NonBreaking,
+	{"service.origin", Modified}:           NonBreaking,
+	{"service.origin", Removed}:            NonBreaking,
+
 	// Workload (top-level in v2)
 	{"workload", Modified}: Breaking,
 	{"workload", Added}:    NonBreaking,

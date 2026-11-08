@@ -1,0 +1,21 @@
+lockVersion: 3
+pacto:
+  version: 4.4.2
+root:
+  name: gift-cards
+  version: 0.1.0
+dependencies:
+- name: postgresql
+  source: oci
+  ref: oci://ghcr.io/trianalab/pacto/postgresql
+  constraint: ^16.0.0
+  version: 16.1.0
+  digest: sha256:b2586dfe62501774a0cfd8e4949f31f0e9128c56cefb1f0cbc402d0802034832
+references:
+- kind: config
+  name: database
+  source: oci
+  ref: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+  version: 16.1.0
+  digest: sha256:b2586dfe62501774a0cfd8e4949f31f0e9128c56cefb1f0cbc402d0802034832
+  contentHash: sha256:26ddcb148de91dce514e3f74d41670c4a19c0fc72b005cef07261977ae4ac3d2

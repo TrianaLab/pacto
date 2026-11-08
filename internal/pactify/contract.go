@@ -25,19 +25,8 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
-const blankContract = `pactoVersion: "2.0"
-
-service:
-  name: %s
-  version: 0.1.0
-  owner:
-    team: my-team
-    dri: my.handle
-    contacts:
-      - type: email
-        value: my-team@example.com
-        purpose: ownership
-
+// blankBody is the blank contract below service and above publish.
+const blankBody = `
 interfaces:
   - name: api
     type: openapi
@@ -67,33 +56,6 @@ state:
 capabilities:
   - type: health
   - type: metrics
-
-readiness:
-  minScore: 80
-  expires: 2099-12-31
-  partialCredit: 0.5
-  history:
-    - date: 2099-01-01
-      version: 0.1.0
-      author: my.handle
-      description: Initial readiness assessment
-  claims:
-    - id: runbook
-      type: document
-      category: documentation
-      status: not-done
-      evidence: docs/runbook.md
-      weight: 40
-    - id: security-review
-      type: ticket
-      category: security
-      status: not-done
-      evidence: SEC-0000
-      weight: 60
-
-metadata:
-  team: my-team
-  tier: standard
 `
 
 const blankOpenAPI = `openapi: "3.0.0"
@@ -120,9 +82,12 @@ const blankSchema = `{
 // signKey is where a new contract's signing key lives.
 const signKey = "cosign.key"
 
-// contract plans pacto.yaml: kept when it is there, else blank or read from
-// the folder.
-func (p *planner) contract() error {
+// contract plans pacto.yaml: created from the golden path, else kept when it
+// is there, else blank or read from the folder.
+func (p *planner) contract(ctx context.Context) error {
+	if p.opts.Template != nil {
+		return p.fromTemplate(ctx)
+	}
 	if p.r.Mode == modePactify {
 		p.r.Dependencies = p.sc.dependencies(p.r.Service)
 	}
@@ -141,9 +106,14 @@ func (p *planner) contract() error {
 			"or add the chart under publish.artifacts as a chart", c, p.r.Service, c)
 	}
 	if p.r.Mode == modeBlank {
-		p.file("pacto.yaml", fmt.Sprintf(blankContract, p.r.Service))
-		p.file("interfaces/openapi.yaml", fmt.Sprintf(blankOpenAPI, p.r.Service))
-		p.file("configuration/schema.json", blankSchema)
+		openapi := fmt.Sprintf(blankOpenAPI, p.r.Service)
+		text := p.blank()
+		if err := validate(text, map[string]string{"interfaces/openapi.yaml": openapi, configSchema: blankSchema}); err != nil {
+			return fmt.Errorf("the contract pacto init would write is not valid: %w", err)
+		}
+		p.file("pacto.yaml", text)
+		p.file("interfaces/openapi.yaml", openapi)
+		p.file(configSchema, blankSchema)
 		return nil
 	}
 	p.contractNew = true
@@ -165,9 +135,67 @@ func (p *planner) contract() error {
 	return nil
 }
 
+// blank writes the contract of a folder with no service in it: the owner,
+// domain and registry the caller gave, and placeholders named in Unknown.
+func (p *planner) blank() string {
+	name := p.r.Service
+	var b strings.Builder
+	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: 0.1.0\n", p.pactoVersion(), yq(name))
+	p.owner(&b, p.opts.Owner, "no team was given")
+	p.domain(&b)
+	b.WriteString(blankBody)
+	if p.opts.DescribeOnly {
+		return b.String()
+	}
+	registry := strings.Trim(strings.TrimPrefix(p.opts.Registry, "oci://"), "/")
+	if registry == "" {
+		registry = "registry.example"
+		p.unknown("registry: no --registry was given, so registry.example is a placeholder; pass --registry")
+	}
+	b.WriteString("\n")
+	p.publish(&b, registry, registry, "")
+	p.publishOnlyNext()
+	return b.String()
+}
+
+// pactoVersion is the lowest version that holds what init writes: 2.4 for a
+// domain, else 2.1 for publish.
+func (p *planner) pactoVersion() string {
+	if p.opts.Domain != "" {
+		return "2.4"
+	}
+	return "2.1"
+}
+
+// owner writes service.owner, or a commented one and an Unknown line saying
+// why there is none.
+func (p *planner) owner(b *strings.Builder, team, why string) {
+	if team == "" {
+		fmt.Fprintf(b, "  # owner:\n  #   team: <the team that owns %s>\n", p.r.Service)
+		p.unknown("owner: %s; pass --owner", why)
+		return
+	}
+	fmt.Fprintf(b, "  owner:\n    team: %s\n", yq(team))
+	if hint := OwnerHint(team); hint != "" {
+		p.next("%s", hint)
+	}
+}
+
+// domain writes service.domain when the caller gave one.
+func (p *planner) domain(b *strings.Builder) {
+	if p.opts.Domain != "" {
+		fmt.Fprintf(b, "  domain: %s\n", yq(p.opts.Domain))
+	}
+}
+
+// publishOnlyNext points a contract that only describes the service at
+// --describe-only.
+func (p *planner) publishOnlyNext() {
+	p.next("the publish section is for pacto publish only: for a contract that only describes %s, run pacto init --describe-only instead (describe_only: true with pacto_create)", p.r.Service)
+}
+
 // transparencyLog says, when transparencyLog: false was asked for, that a
-// contract init did not write (the user's own, or a blank one) does not
-// carry it.
+// contract init did not write (the user's own) does not carry it.
 func (p *planner) transparencyLog() {
 	if !p.opts.NoTransparencyLog {
 		return
@@ -277,21 +305,14 @@ func (p *planner) pactified() string {
 		next = "validate it: pacto validate"
 	}
 	fmt.Fprintf(&b, "# Written by pacto init from %s.\n# Check it, then %s\n", files, next)
-	fmt.Fprintf(&b, "pactoVersion: \"2.1\"\nservice:\n  name: %s\n  version: %s\n", yq(name), yq(version))
+	fmt.Fprintf(&b, "pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n", p.pactoVersion(), yq(name), yq(version))
 	team := p.opts.Owner
 	if team == "" && w.team != "" {
 		team = w.team
 		p.found("owner team %s, from the team label in %s", team, w.file)
 	}
-	if team != "" {
-		fmt.Fprintf(&b, "  owner:\n    team: %s\n", yq(team))
-		if hint := OwnerHint(team); hint != "" {
-			p.next("%s", hint)
-		}
-	} else {
-		fmt.Fprintf(&b, "  # owner:\n  #   team: <the team that owns %s>\n", name)
-		p.unknown("owner: no team label says who owns %s; pass --owner", name)
-	}
+	p.owner(&b, team, "no team label says who owns "+name)
+	p.domain(&b)
 	if kind, ok := workloadKinds[w.kind]; ok {
 		fmt.Fprintf(&b, "workload: %s\n", kind)
 	} else {
@@ -321,7 +342,7 @@ func (p *planner) pactified() string {
 		return b.String()
 	}
 	p.publish(&b, bundles, registry, imgRepo)
-	p.next("the publish section is for pacto publish only: for a contract that only describes %s, run pacto init --describe-only instead (describe_only: true with pacto_create)", name)
+	p.publishOnlyNext()
 	for _, f := range sc.secrets {
 		p.next("%s holds a Secret's values, so it is left out of the published manifests, which anyone who can pull them reads; "+
 			"supply it another way (a SealedSecret, an ExternalSecret or SOPS) and move any other objects in it to their own file", f)
@@ -497,7 +518,9 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 		p.pub.Deploy = "manifests"
 		b.WriteString("  deploy: manifests\n")
 	}
-	b.WriteString("  artifacts:\n")
+	if sc.dockerfile != "" || len(sc.manifests) > 0 {
+		b.WriteString("  artifacts:\n")
+	}
 	pin := imgRepo
 	if df := sc.dockerfile; df != "" {
 		if imgRepo == "" || hubLibrary(imgRepo) {
@@ -710,7 +733,10 @@ func (p *planner) ignore() {
 	if len(need) == 0 {
 		return
 	}
-	data, err := os.ReadFile(filepath.Join(p.r.Dir, ".pactoignore"))
+	// A plugin may already have planned one; its lines are kept and the
+	// missing ones added to it.
+	i := slices.IndexFunc(p.r.Files, func(f File) bool { return strings.EqualFold(f.Path, ".pactoignore") })
+	data, planned, err := p.currentIgnore(i)
 	if err != nil {
 		p.file(".pactoignore", strings.Join(need, "\n")+"\n")
 		return
@@ -722,11 +748,31 @@ func (p *planner) ignore() {
 			missing = append(missing, n)
 		}
 	}
-	if len(missing) == 0 {
-		p.r.Files = append(p.r.Files, File{Path: ".pactoignore", Action: Keep})
+	f := File{Path: ".pactoignore", Action: Keep}
+	switch {
+	case planned:
+		f = p.r.Files[i]
+		if len(missing) > 0 {
+			f.Content = strings.TrimSuffix(f.Content, "\n") + "\n" + strings.Join(missing, "\n") + "\n"
+		}
+	case len(missing) > 0:
+		f = File{Path: ".pactoignore", Action: Append, Content: strings.Join(missing, "\n") + "\n"}
+	}
+	if i >= 0 {
+		p.r.Files[i] = f
 		return
 	}
-	p.r.Files = append(p.r.Files, File{Path: ".pactoignore", Action: Append, Content: strings.Join(missing, "\n") + "\n"})
+	p.r.Files = append(p.r.Files, f)
+}
+
+// currentIgnore is the .pactoignore planned at i when it is added, else the
+// one in the folder, and whether it was the planned one.
+func (p *planner) currentIgnore(i int) ([]byte, bool, error) {
+	if i >= 0 && p.r.Files[i].Action == Add {
+		return []byte(p.r.Files[i].Content), true, nil
+	}
+	data, err := os.ReadFile(filepath.Join(p.r.Dir, ".pactoignore"))
+	return data, false, err
 }
 
 var (

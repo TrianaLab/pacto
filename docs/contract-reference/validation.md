@@ -35,7 +35,7 @@ instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field. A `"2.0"` or
 `pactoVersion: "2.2"`. A `"2.0"`, `"2.1"` or `"2.2"` contract that declares
 `environments` reports `NEEDS_PACTO_2_3`: set `pactoVersion: "2.3"`. A `"2.0"`
 to `"2.3"` contract that sets `service.domain`, `service.offering`,
-`service.summary` or `service.lifecycle`, or puts `values` or a `configuration`
+`service.summary`, `service.lifecycle`, `service.template` or `service.origin`, or puts `values` or a `configuration`
 selector beside a configuration `ref`, reports `NEEDS_PACTO_2_4`: set
 `pactoVersion: "2.4"`.
 
@@ -56,6 +56,8 @@ Validates semantic references and consistency:
 | `interfaces[].lifecycle.successor` names another interface or is an absolute URL | `INTERFACE_SUCCESSOR_UNKNOWN` |
 | `service.lifecycle` dates are strict `YYYY-MM-DD` and `sunset` is not before `deprecated` | `INVALID_SERVICE_LIFECYCLE` |
 | `service.lifecycle.successor` is an absolute URL | `SERVICE_SUCCESSOR_INVALID` |
+| `service.template.plugins[].name` values are unique | `DUPLICATE_TEMPLATE_PLUGIN` |
+| `service.origin.ref` is a valid `oci://` reference or a directory path | `INVALID_ORIGIN_REF` |
 | Configuration names are unique | `DUPLICATE_CONFIGURATION_NAME` |
 | Policy names are unique | `DUPLICATE_POLICY_NAME` |
 | Dependency names are unique | `DUPLICATE_DEPENDENCY_NAME` |

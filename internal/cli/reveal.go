@@ -5,11 +5,13 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/pactify"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // revealStagger is the pause between revealed lines: ~300ms in total.
@@ -105,11 +107,15 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 		}
 		return out
 	}
-	if r.Mode == "pactify" {
+	switch r.Mode {
+	case "pactify":
 		section("Found", r.Found)
 		section("Depends on", findings(r.Dependencies))
 		section("Used by", findings(r.Consumers))
+	case "template":
+		section("Found", r.Found)
 	}
+	printCreationSteps(w, "\nStatus", r.Steps)
 	section("Unknown", r.Unknown)
 	section("Next", r.Next)
 	var kept []string
@@ -119,6 +125,24 @@ func printInitFindings(w io.Writer, r *app.InitResult) {
 		}
 	}
 	section("Already there, left as it is", kept)
+}
+
+// printCreationSteps prints how far creating from a golden path got under
+// title, one line per step: its status, the step and what it rests on.
+func printCreationSteps(w io.Writer, title string, steps []fleet.CreationStep) {
+	if len(steps) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, title)
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	for _, s := range steps {
+		step := s.Step
+		if s.Name != "" {
+			step += " " + s.Name
+		}
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\n", s.Status, step, s.Detail)
+	}
+	_ = tw.Flush()
 }
 
 // revealInit prints lines[0] as-is (header), then lines[1:] each as scaffolded

@@ -102,6 +102,7 @@ def scope() -> list[str]:
          root Markdown a reader meets on GitHub, and release/README.md, which
          is contributor documentation that left the site.
     Out: docs/superpowers/ (gitignored working notes, never published),
+         docs/demo/ (the gitignored WASM demo build, third-party files included),
          release/units/*/CHANGELOG.md (shipped records, never rewritten), and
          anything generated -- docs/cli-reference.md and the per-integration
          generated/ trees are drift-gated by docs_check.py against their real
@@ -115,7 +116,8 @@ def scope() -> list[str]:
     files = set()
     for p in glob.glob(os.path.join(REPO_ROOT, "docs", "**", "*.md"), recursive=True):
         rel = os.path.relpath(p, REPO_ROOT)
-        if not rel.startswith("docs" + os.sep + "superpowers" + os.sep) and not is_generated(rel):
+        ignored = rel.startswith(("docs" + os.sep + "superpowers" + os.sep, "docs" + os.sep + "demo" + os.sep))
+        if not ignored and not is_generated(rel):
             files.add(rel)
     for d in integration_docs_dirs():
         for p in glob.glob(os.path.join(d, "*.md")):

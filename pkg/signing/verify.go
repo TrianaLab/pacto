@@ -96,7 +96,7 @@ func TrustVerifier(t delivery.TrustConfig) (delivery.Verifier, error) {
 // OpenKey is the check of a bundle against one trusted key or keyless
 // identity: what a trust config and delivery.NewGates turn keys into.
 func OpenKey(k delivery.TrustedKey) (func([]byte) error, error) {
-	p, err := policyOf(k)
+	p, err := PolicyOf(k)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,8 @@ func WithoutSCT(trustedRoot string) bool {
 	return err == nil && len(tr.CTLogs()) == 0
 }
 
-func policyOf(k delivery.TrustedKey) (Policy, error) {
+// PolicyOf is the verification policy of one trusted key or keyless identity.
+func PolicyOf(k delivery.TrustedKey) (Policy, error) {
 	switch {
 	case k.PublicKey != "" && k.Identity == "" && k.Issuer == "" && k.TrustedRoot == "":
 		pub, err := cryptoutils.UnmarshalPEMToPublicKey([]byte(k.PublicKey))

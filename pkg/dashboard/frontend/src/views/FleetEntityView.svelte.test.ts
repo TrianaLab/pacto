@@ -200,6 +200,23 @@ describe('FleetEntityView — background refresh preserves the page (A)', () => 
     return { target, component };
   }
 
+  it('tells the nav a golden path page is open, and stops telling it when the page closes', async () => {
+    // The Navbar lights Golden paths from currentEntity.template; this view is what sets it.
+    const { currentEntity } = await import('../lib/currentEntity.svelte.ts');
+    const d = svc();
+    d.entity.template = true;
+    detailFn.mockResolvedValueOnce(d);
+    const { target, component } = await mountLive({ kind: 'service', entityKey: 'domain-a/payments', refreshTick: 0 });
+    await vi.waitFor(() => expect(currentEntity.template).toBe(true));
+    unmount(component); document.body.removeChild(target);
+    expect(currentEntity.template).toBe(false);
+
+    detailFn.mockResolvedValueOnce(svc());
+    const plain = await mountLive({ kind: 'service', entityKey: 'domain-a/payments', refreshTick: 0 });
+    expect(currentEntity.template).toBe(false);
+    unmount(plain.component); document.body.removeChild(plain.target);
+  });
+
   it('keeps the entity body rendered while a same-entity refresh is in flight', async () => {
     detailFn.mockResolvedValueOnce(svc());
     const props = reactiveProps({ kind: 'service', entityKey: 'domain-a/payments', refreshTick: 0 });
@@ -665,7 +682,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     detailFn.mockResolvedValue({
       meta, entity: ref('source', 'edge-cluster'),
       source: {
-        kind: 'kubernetes', health: 'unavailable', revisionCount: 0, targetCount: 0,
+        kind: 'observation', health: 'unavailable', revisionCount: 0, targetCount: 0,
         contributed: { services: 0, revisions: 0, targets: 0 },
         error: { code: 'SOURCE_UNAVAILABLE', message: 'edge cluster unreachable' },
         entities: { total: 0, count: 0, truncated: false, items: [] },
@@ -724,7 +741,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     detailFn.mockResolvedValue({
       meta, entity: ref('source', 'edge-cluster'), status: 'unavailable',
       source: {
-        kind: 'kubernetes', health: 'unavailable', revisionCount: 0, targetCount: 0,
+        kind: 'observation', health: 'unavailable', revisionCount: 0, targetCount: 0,
         entities: { total: 0, count: 0, truncated: false, items: [] },
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },

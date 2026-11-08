@@ -1,7 +1,7 @@
 /** Pure command-list builder for the ⌘K palette. No runes — unit-testable. */
 import {
   serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl,
-  fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl, fleetDomainsUrl, fleetOfferingsUrl,
+  fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl,
   fleetAttentionUrl, fleetChangesUrl, fleetEntityListUrl,
   deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl,
 } from './router';
@@ -43,6 +43,7 @@ const FLEET_VIEWS: Command[] = [
   { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
   { kind: 'view', label: 'Domains', href: fleetDomainsUrl(), keywords: ['business domain'] },
   { kind: 'view', label: 'Platform offerings', href: fleetOfferingsUrl(), keywords: ['offering', 'platform', 'provider'] },
+  { kind: 'view', label: 'Golden paths', href: fleetGoldenPathsUrl(), keywords: ['template', 'golden path', 'create'] },
   { kind: 'view', label: 'Operational graph', href: fleetUrl() },
   // "Compare revisions" is the ACTION this workspace performs, not a second place to go:
   // as its own row it listed the identical href twice, which is the same "two buttons,

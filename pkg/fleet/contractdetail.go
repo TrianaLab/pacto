@@ -256,7 +256,7 @@ func refSchemaFile(snap *FleetSnapshot, rev *ContractRevision, name string) (*Co
 // configRefTarget is the revision the configuration ref name declared by from
 // resolves to, "" when its edge does not resolve.
 func configRefTarget(snap *FleetSnapshot, from RevisionKey, name string) RevisionKey {
-	for _, rel := range snap.Relationships {
+	for rel := range snap.declaredEdges() {
 		if rel.FromRevision == from && rel.Type == RelationshipConfigRef && rel.To == name && rel.Resolved {
 			return rel.ResolvedRevision
 		}

@@ -46,7 +46,8 @@ index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base
   revisions plus five sources, so the demo shows a real estate rather than a clean
   one. A registry (what was declared), a cluster collector (what is running), a
   telemetry collector that corroborates two of those targets and contributes the
-  observed call edges, a partial registry mirror and an unreachable edge cluster.
+  observed call edges, a partial registry mirror and the unreachable telemetry
+  collector of an edge cluster.
   Between them the targets cover three compliance verdicts (Compliant,
   NonCompliant and Unknown), exact and inferred revision matches alongside targets
   with nothing to match against, fresh / stale / never-observed evidence, one

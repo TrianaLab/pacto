@@ -216,9 +216,10 @@ test.describe('WASM demo — an owner name is either an identity or a search', (
 });
 
 test.describe('WASM demo — an owner label is not an owner identity', () => {
-  /** The aggregate the Owners page itself reads, straight from the backend. */
+  /** The aggregate the Owners page itself reads, straight from the backend: golden paths
+   *  are left out, as the page leaves them out. */
   const ownership = (page: Page) => page.evaluate(async () => {
-    const r = await (await fetch('/api/fleet/entities?kinds=service&limit=1')).json();
+    const r = await (await fetch('/api/fleet/entities?kinds=service&template=exclude&limit=1')).json();
     return r.aggregate as {
       services: number;
       ownership: { consistent: number; conflicting: number; unowned: number };

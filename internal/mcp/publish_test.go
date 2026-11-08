@@ -19,7 +19,7 @@ func TestPublishTools(t *testing.T) {
 		}
 		return res, err
 	}
-	server := NewPublishServer("v", run, nil)
+	server := NewPublishServer("v", run, Authoring{})
 	args := map[string]any{"path": "svc", "revision": "r"}
 	res = &publish.Result{Plan: publish.Plan{Service: "payments", Ready: true, Missing: 2}, Actions: []string{"pushed"}}
 	var p publish.Plan

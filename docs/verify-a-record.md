@@ -233,6 +233,28 @@ publishing team for that address, as for the anchor. Check it there with the
 from the registry. See
 [Publish a version](publishing.md#signing) for the signing settings.
 
+## Check who signed a golden path
+
+A golden path's signer has its own role in the trust config, `role: template`,
+so a recorder key never verifies a golden path and a template key never
+verifies a record or a runner's answer:
+
+```yaml
+keys:
+  - name: recorder
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      ...
+  - name: platform-paths
+    role: template
+    streams: ["ghcr.io/acme/paths/*"]
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      ...
+```
+
+See [Trust](golden-paths.md#trust) for how `pacto init --from` uses it.
+
 ## Known limits
 
 - Someone who controls both the registry and the cluster can delete the

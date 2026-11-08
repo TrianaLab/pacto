@@ -64,8 +64,8 @@ func TestDashboardHrefs(t *testing.T) {
 		{Service: "checkout", Domain: "acme"},
 		{Service: "k8s:prod/Deployment/cron", Uncontracted: true},
 	}}, nil, nil)
-	linked := NewFleetServer("test", staticFleet(q), nil, FleetOptions{DashboardURL: "https://dash.example/", Impact: provide})
-	plain := NewFleetServer("test", staticFleet(q), nil, FleetOptions{Impact: provide})
+	linked := NewFleetServer("test", staticFleet(q), Authoring{}, FleetOptions{DashboardURL: "https://dash.example/", Impact: provide})
+	plain := NewFleetServer("test", staticFleet(q), Authoring{}, FleetOptions{Impact: provide})
 	for _, c := range calls {
 		text := resultText(t, callToolOn(t, linked, c.tool, c.args))
 		for _, w := range c.want {
@@ -122,7 +122,7 @@ func TestDashboardHrefsUnderView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		return q.Restrict(func(ns string) bool { return ns == "shop" }), nil
 	}
-	server := NewFleetServer("test", staticFleet(fleet.NewQuery(snap)), nil, FleetOptions{View: view, DashboardURL: "https://dash.example/"})
+	server := NewFleetServer("test", staticFleet(fleet.NewQuery(snap)), Authoring{}, FleetOptions{View: view, DashboardURL: "https://dash.example/"})
 	for _, c := range []struct {
 		tool string
 		args map[string]any

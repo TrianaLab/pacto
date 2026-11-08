@@ -104,7 +104,7 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 func TestCheckTool_UsesTheWiredValidator(t *testing.T) {
 	dir := bundleWithPolicyRef(t)
 	r := &pullCounter{err: errors.New("registry unreachable")}
-	res := callToolOn(t, NewServer(r.validator(), "test"), "pacto_check", map[string]any{"path": dir})
+	res := callToolOn(t, NewServer(Authoring{Validate: r.validator()}, "test"), "pacto_check", map[string]any{"path": dir})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", resultText(t, res))
 	}

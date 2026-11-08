@@ -149,7 +149,7 @@ describe('Navbar — primary destinations (product IA)', () => {
   // sources has its own control and readiness is a cut of the revision inventory.
   it('a fleet host has the primary destinations, in order', () => {
     expect(navLabels({ fleet: true, impact: true }))
-      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Operational graph', 'Change analysis']);
+      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Operational graph', 'Change analysis']);
   });
 
   it('does not promote readiness, compare or data sources to a tab', () => {
@@ -188,6 +188,16 @@ describe('Navbar — capability gating', () => {
 });
 
 describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
+  it('lights Golden paths, not Services, on a golden path page', async () => {
+    const { currentEntity } = await import('./lib/currentEntity.svelte.ts');
+    currentEntity.template = true;
+    try {
+      expect(activeLabel('fleet-entity', 'service')).toBe('Golden paths');
+    } finally {
+      currentEntity.template = false;
+    }
+  });
+
   // Every entity page shares one view id, so without the kind the nav lit "Services"
   // while the trail underneath read "Overview > Data sources > edge-cluster".
   function activeLabel(view: string, entityKind = ''): string | null {
@@ -222,6 +232,7 @@ describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
     ['fleet-owners', 'Owners'],
     ['fleet-domains', 'Domains'],
     ['fleet-offerings', 'Offerings'],
+    ['fleet-golden-paths', 'Golden paths'],
     ['fleet-sources', 'Overview'],
     ['fleet-attention', 'Needs attention'],
     ['fleet', 'Operational graph'],

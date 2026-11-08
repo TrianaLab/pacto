@@ -206,7 +206,7 @@ func remoteDeliveryFor(cmd *cobra.Command, svc *app.Service, version string, d d
 		records: d.newRecordRepo, trust: trust,
 		policyNS: policyNS, claims: claimsFlags(flagString(cmd)),
 		build: func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server {
-			return pactomcp.NewDeliveryServer(version, api, writes, svc.ValidationReport)
+			return pactomcp.NewDeliveryServer(version, api, writes, pactomcp.Authoring{Validate: svc.ValidationReport})
 		}}
 	s.perRequest = rd.middleware
 	return nil

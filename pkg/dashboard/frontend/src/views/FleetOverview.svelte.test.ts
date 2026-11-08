@@ -76,6 +76,30 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('counts golden paths apart from services and links to the Golden paths tab', async () => {
+    const o = baseOverview(false);
+    o.summary.goldenPaths = 2;
+    o.summary.invalidGoldenPaths = 1;
+    overviewFn.mockResolvedValue(o);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="overview-golden-paths"]')).toBeTruthy());
+    const tile = target.querySelector('[data-testid="overview-golden-paths"]') as HTMLAnchorElement;
+    // An invalid golden path is listed first, least healthy first.
+    expect(tile.getAttribute('href')).toBe('#/fleet/golden-paths?sort=health');
+    expect(tile.textContent).toContain('2');
+    expect(tile.textContent).toContain('Golden paths');
+    expect(tile.textContent).toContain('1 with an invalid contract');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows no golden path tile when there is none', async () => {
+    overviewFn.mockResolvedValue(baseOverview(false));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.textContent).toContain('Is anything wrong?'));
+    expect(target.querySelector('[data-testid="overview-golden-paths"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('scenario 2: partial source + zero attention NEVER shows "All clear"', async () => {
     overviewFn.mockResolvedValue(baseOverview(true));
     const { target, component } = mountView();
@@ -148,6 +172,18 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     expect(text).not.toMatch(/every operational target is compliant/i);
     expect(target.querySelector('.empty-fleet')).toBeTruthy();
     expect(text).toMatch(/no services tracked/i);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('a fleet holding only golden paths never says nothing has reported a contract', async () => {
+    const ov = emptyOverview(false);
+    ov.summary.goldenPaths = 3;
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
+    expect(target.querySelector('.empty-fleet')).toBeFalsy();
+    expect(target.textContent || '').not.toMatch(/no services tracked/i);
+    expect(target.querySelector('.ov-gp-count')?.textContent).toBe('3');
     unmount(component); document.body.removeChild(target);
   });
 

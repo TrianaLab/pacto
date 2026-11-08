@@ -15,7 +15,7 @@ import (
 // callTool calls the named authoring tool with no policy resolver wired.
 func callTool(t *testing.T, toolName string, args map[string]any) *mcpsdk.CallToolResult {
 	t.Helper()
-	return callToolOn(t, NewServer(nil, "test"), toolName, args)
+	return callToolOn(t, NewServer(Authoring{}, "test"), toolName, args)
 }
 
 // callToolOn connects an MCP client to server and calls the named tool. Going

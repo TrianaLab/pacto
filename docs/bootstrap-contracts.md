@@ -20,8 +20,8 @@ jq -r '.results[] | [.service, .mode, (.unknown | length)] | @tsv' plan.json
 
 ```text
 checkout  pactify  2
-ledger    blank    1
-notifier  blank    0
+ledger    blank    3
+notifier  blank    2
 payments  pactify  2
 ```
 
@@ -80,10 +80,12 @@ publish the chart itself, add it under `publish.artifacts` as a `chart`
 ([Publish](contract-reference/publish.md)).
 
 **Compose files.** Init does not read `compose.yaml`. A Compose-only folder
-gets the blank template. The blank template writes `pactoVersion: "2.0"` and
-no `publish` section, so `pacto publish` refuses it until you set
-`pactoVersion: "2.1"` and add `publish`
-([Publish](contract-reference/publish.md)).
+gets the blank template. The blank template writes a publish section with
+`bundle: oci://<registry>/<name>` and `sign.key: cosign.key`. Pass `--registry`
+to set the registry, or replace the `registry.example` placeholder that
+`unknown` names before you run `pacto publish`
+([Publish](contract-reference/publish.md)). Pass `--describe-only` to leave the
+publish section out.
 
 ## 3. Write the contracts
 

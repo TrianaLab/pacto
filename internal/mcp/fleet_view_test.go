@@ -51,7 +51,7 @@ func TestViewedFleetTools(t *testing.T) {
 		got = snap
 		return &impact.Result{}, nil
 	}
-	server := NewFleetServer("test", staticFleet(q), nil, FleetOptions{Impact: provide, View: view})
+	server := NewFleetServer("test", staticFleet(q), Authoring{}, FleetOptions{Impact: provide, View: view})
 	callToolOn(t, server, "pacto_impact", map[string]any{"old_ref": "a", "new_ref": "b"})
 	if got != empty.SnapshotForSerialization() {
 		t.Error("impact must analyse over the caller's view")
@@ -75,7 +75,7 @@ func TestImpactUsesTheCurrentSnapshot(t *testing.T) {
 	same := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) { return q, nil }
 	for _, view := range []FleetView{nil, same} {
 		got = nil
-		callToolOn(t, NewFleetServer("test", staticFleet(q), nil, FleetOptions{Impact: provide, View: view}), "pacto_impact", map[string]any{"old_ref": "a", "new_ref": "b"})
+		callToolOn(t, NewFleetServer("test", staticFleet(q), Authoring{}, FleetOptions{Impact: provide, View: view}), "pacto_impact", map[string]any{"old_ref": "a", "new_ref": "b"})
 		if got != q.SnapshotForSerialization() {
 			t.Errorf("view %v: impact analysed over %p, want the source's snapshot %p", view != nil, got, q.SnapshotForSerialization())
 		}
@@ -128,7 +128,7 @@ func TestNewFleetToolsAnswerFromTheView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		return q.Restrict(func(ns string) bool { return ns != "secretns" }), nil
 	}
-	server := NewFleetServer("test", staticFleet(q), nil, FleetOptions{View: view})
+	server := NewFleetServer("test", staticFleet(q), Authoring{}, FleetOptions{View: view})
 	calls := []struct {
 		tool string
 		args map[string]any
@@ -180,7 +180,7 @@ func TestNeighborhoodToolAnswersFromTheView(t *testing.T) {
 	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		return q.Restrict(func(ns string) bool { return ns != "" && ns != "secretns" }), nil
 	}
-	server := NewFleetServer("test", staticFleet(q), nil, FleetOptions{View: view})
+	server := NewFleetServer("test", staticFleet(q), Authoring{}, FleetOptions{View: view})
 	for _, dir := range []string{"dependents", "both"} {
 		res := callToolOn(t, server, "pacto_fleet_neighborhood", map[string]any{"service": "web", "direction": dir, "depth": 3})
 		text := resultText(t, res)
@@ -196,5 +196,22 @@ func TestNeighborhoodToolAnswersFromTheView(t *testing.T) {
 				t.Errorf("%s: focus hiddenDependents = %d, want vaultsvc, spy and legacy-batch", dir, n.HiddenDependents)
 			}
 		}
+	}
+}
+
+// TestFleetEntitiesTemplateFromTheView: under a restricted view the golden
+// path stays listed, and created_from names only the visible services created
+// from it.
+func TestFleetEntitiesTemplateFromTheView(t *testing.T) {
+	view := func(_ context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		return q.Restrict(func(ns string) bool { return ns != "shop" }), nil
+	}
+	server := NewFleetServer("test", staticFleet(goldenPathFleet(t)), Authoring{}, FleetOptions{View: view})
+	if got := listedKeys(t, callToolOn(t, server, "pacto_fleet_entities", map[string]any{"template": "only"})); !slices.Equal(got, []string{"service/http-service"}) {
+		t.Errorf("template=only under the view = %v", got)
+	}
+	text := resultText(t, callToolOn(t, server, "pacto_fleet_entities", map[string]any{"kind": "service"}))
+	if strings.Contains(text, `"app"`) {
+		t.Errorf("the view names a hidden service:\n%s", text)
 	}
 }

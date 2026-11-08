@@ -52,7 +52,7 @@ func NewTargetStateFileSource(id, path string) *TargetStateFileSource {
 func (s *TargetStateFileSource) ID() string { return s.id }
 
 // Kind implements [fleet.Source].
-func (s *TargetStateFileSource) Kind() string { return "target-state" }
+func (s *TargetStateFileSource) Kind() string { return fleet.SourceKindTargetState }
 
 // Collect reads, strictly decodes, and validates the fixture. A missing or
 // structurally invalid file (unknown fields, wrong schema version, unparseable)

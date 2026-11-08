@@ -87,6 +87,33 @@ func TestGenerate_DepsReadinessSbomLockDocs(t *testing.T) {
 	}
 }
 
+func TestGenerate_GoldenPathRows(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		svc  contractview.Service
+		want string
+	}{
+		{"plugins", contractview.Service{Name: "http-service", Version: "1.0.0",
+			Template: &contract.Template{Plugins: []contract.TemplatePlugin{{Name: "dockerfile"}, {Name: "github-actions"}}}},
+			"| **Golden path** | `dockerfile, github-actions` |"},
+		{"no plugins", contractview.Service{Name: "http-service", Version: "1.0.0", Template: &contract.Template{}},
+			"| **Golden path** | `yes` |"},
+		{"origin", contractview.Service{Name: "gift-cards", Version: "0.1.0",
+			Origin: &contract.Origin{Ref: "oci://ghcr.io/acme/http-service:1.0.0", Digest: "sha256:abc"}},
+			"| **Created from** | `oci://ghcr.io/acme/http-service:1.0.0 (declared)` |"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			md, err := Generate(&contractview.ServiceDetails{Service: tc.svc}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(md, tc.want) {
+				t.Errorf("missing %q\n%s", tc.want, md)
+			}
+		})
+	}
+}
+
 // ── Comprehensive snapshot (no graph) ──────────────────────────────────
 
 func fullSnapshot() *contractview.ServiceDetails {

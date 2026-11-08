@@ -27,10 +27,10 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 Run this from an empty directory and stay there through step 5; step 6 moves inside `my-service`.
 
 ```bash
-pacto init my-service
+pacto init my-service --owner orders
 ```
 
-This writes three files: `pacto.yaml` (the contract), `interfaces/openapi.yaml` (a placeholder API spec) and `configuration/schema.json` (a placeholder config schema). The argument is the folder to write into, and its last part becomes `service.name`, so `pacto init fleet/checkout` writes a contract for `checkout` in `fleet/checkout`. Run `pacto init` in a folder that already holds a service and it reads the Dockerfile and Kubernetes files instead: see [Pactify a service](pactify.md).
+This writes four files: `pacto.yaml` (the contract), `interfaces/openapi.yaml` (a placeholder API spec), `configuration/schema.json` (a placeholder config schema) and `.pactoignore` (which keeps a signing key out of the bundle). `--owner` names the team that owns the service. The argument is the folder to write into, and its last part becomes `service.name`, so `pacto init fleet/checkout` writes a contract for `checkout` in `fleet/checkout`. Run `pacto init` in a folder that already holds a service and it reads the Dockerfile and Kubernetes files instead: see [Pactify a service](pactify.md).
 
 Edit `my-service/pacto.yaml` and set `service.version: 1.0.0`. Then replace `my-service/interfaces/openapi.yaml` with an API that has required response fields:
 
@@ -151,8 +151,8 @@ Classification: BREAKING
 Breaking changes: 2
 Potentially breaking changes: 0
 Affected consumers (2):
-  checkout                     direct     confidence=contractual  compat=incompatible owner=my-team
-  reporting                    direct     confidence=contractual  compat=compatible   owner=my-team
+  checkout                     direct     confidence=contractual  compat=incompatible owner=orders
+  reporting                    direct     confidence=contractual  compat=compatible   owner=orders
     note: the range >=1.0.0 has no upper bound, so compatible only means the range >=1.0.0 accepts 2.0.0; this change is BREAKING, so check that reporting does not use what it removes or changes
 Release gate: unverified
 unverified: the change is BREAKING and 2 consumers depend on my-service, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
@@ -162,7 +162,7 @@ unverified: the change is BREAKING and 2 consumers depend on my-service, but non
 
 The exit code is 2: the gate is `unverified`. The bundles say nothing about where the consumers run, so Pacto neither blocks the change nor calls it safe. [Release gate and exit status](impact.md#release-gate-and-exit-status) explains the three outcomes.
 
-`owner=my-team` is the placeholder team `pacto init` wrote. `confidence=contractual`
+`owner=orders` is the team you passed to `pacto init`. `confidence=contractual`
 means the answer comes from the declared ranges alone, without a runtime
 observation of the call. `direct` means each consumer declares `my-service` itself.
 
@@ -206,6 +206,7 @@ For a real registry like GHCR, you need `pacto login` with a personal access tok
 | Goal | Guide |
 |------|-------|
 | Let Pacto check every release of a real service | [Pactify a service](pactify.md) |
+| Start a service from your platform team's golden path | [Create a service from a golden path](golden-paths.md) |
 | Put it in your repository | [Put it in your repository](ci.md) |
 | Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | See contracts for real services | [Examples](examples/index.md) |

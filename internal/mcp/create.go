@@ -49,6 +49,8 @@ type CreateInput struct {
 	Description string
 	Version     string
 	Owner       string
+	// Domain sets service.domain and raises pactoVersion to 2.4.
+	Domain string
 
 	Interfaces   []InterfaceInput
 	Dependencies []DependencyInput
@@ -125,6 +127,13 @@ type LifecycleInput struct {
 	Clear      bool   `json:"clear,omitempty"`
 }
 
+// TemplateInput sets service.template, which marks the contract as a golden
+// path, or removes it when Clear is set.
+type TemplateInput struct {
+	Plugins []contract.TemplatePlugin `json:"plugins,omitempty"`
+	Clear   bool                      `json:"clear,omitempty"`
+}
+
 // PolicyRefInput describes a policy reference to add. Name defaults to the
 // last segment of the ref's repository.
 type PolicyRefInput struct {
@@ -145,6 +154,9 @@ type CreateResult struct {
 	Summary   ContractSummary `json:"summary"`
 	Derived   []string        `json:"derived"`
 	FileCount int             `json:"fileCount"`
+	// Kept are the interface and schema files that were already there and
+	// were left as they are.
+	Kept []string `json:"kept,omitempty"`
 	// Warnings are what the contract says that is valid but likely wrong.
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -177,6 +189,9 @@ type EditInput struct {
 	// Lifecycle sets or clears service.lifecycle and raises an older
 	// pactoVersion to 2.4.
 	Lifecycle *LifecycleInput
+	// Template sets or clears service.template and raises an older
+	// pactoVersion to 2.4. service.origin has no setter: only creation writes it.
+	Template *TemplateInput
 
 	Workload                  *string
 	StoresData                *bool
@@ -227,6 +242,10 @@ type ContractSummary struct {
 	Workload     string            `json:"workload,omitempty"`
 	StateType    string            `json:"stateType,omitempty"`
 	Sections     map[string]string `json:"sections"`
+	// Template says the contract is a golden path; Origin is the golden path
+	// it was created from, as it declares.
+	Template bool             `json:"template,omitempty"`
+	Origin   *contract.Origin `json:"origin,omitempty"`
 }
 
 // ValidationItem represents a single validation error or warning.
@@ -342,6 +361,9 @@ func (o fileOps) create(input CreateInput) (*CreateResult, error) {
 	if dir == "" {
 		dir = input.Name
 	}
+	if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
+		return nil, fmt.Errorf("pacto.yaml already exists in %s: change it with pacto_edit", dir)
+	}
 
 	// Apply description inference (explicit inputs override)
 	hints := inferFromDescription(input.Description)
@@ -375,7 +397,7 @@ func (o fileOps) create(input CreateInput) (*CreateResult, error) {
 	}
 
 	// Write files
-	fileCount, err := o.writeBundle(dir, yamlBytes, input)
+	fileCount, kept, err := o.writeBundle(dir, yamlBytes, input)
 	if err != nil {
 		return nil, err
 	}
@@ -385,6 +407,7 @@ func (o fileOps) create(input CreateInput) (*CreateResult, error) {
 		Summary:   summarizeContract(c),
 		Derived:   derived,
 		FileCount: fileCount,
+		Kept:      kept,
 		Warnings:  ownerWarnings(input.Owner),
 	}, nil
 }
@@ -471,6 +494,11 @@ func buildCreateMap(input CreateInput) map[string]any {
 
 	if len(input.Metadata) > 0 {
 		m["metadata"] = input.Metadata
+	}
+
+	if input.Domain != "" {
+		svc["domain"] = input.Domain
+		raiseVersion(m, "2.4")
 	}
 
 	return m
@@ -798,7 +826,21 @@ func applyServiceEdits(m map[string]any, input EditInput) []string {
 	if input.Lifecycle != nil {
 		changes = append(changes, setLifecycle(m, svc, *input.Lifecycle)...)
 	}
+	if input.Template != nil {
+		changes = append(changes, setTemplate(m, svc, *input.Template)...)
+	}
 	return changes
+}
+
+// setTemplate sets service.template, raising an older pactoVersion to 2.4, or
+// removes it when in.Clear is set. No plugins writes template: {}.
+func setTemplate(m, svc map[string]any, in TemplateInput) []string {
+	if in.Clear {
+		delete(svc, "template")
+		return []string{"removed service template"}
+	}
+	svc["template"] = contract.Template{Plugins: in.Plugins}
+	return append(raiseVersion(m, "2.4"), fmt.Sprintf("set service template with %d plugins", len(in.Plugins)))
 }
 
 // setLifecycle sets service.lifecycle, raising an older pactoVersion to 2.4,
@@ -1531,49 +1573,47 @@ func (o fileOps) buildBundleFSForValidation(dir string, yamlBytes []byte, c *con
 
 // --- File writing ---
 
-func (o fileOps) writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
+// writeBundle writes pacto.yaml and the interface and schema files it names.
+// An interface or schema file that is already there is left as it is and
+// returned in kept.
+func (o fileOps) writeBundle(dir string, yamlBytes []byte, input CreateInput) (fileCount int, kept []string, err error) {
 	if err := o.mkdirAll(dir, 0755); err != nil {
-		return 0, fmt.Errorf("failed to create directory %s: %w", dir, err)
+		return 0, nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
-
-	fileCount := 0
 
 	// Write pacto.yaml
 	pactoPath := filepath.Join(dir, "pacto.yaml")
 	if err := o.atomicWriteFile(pactoPath, yamlBytes, 0644); err != nil {
-		return 0, fmt.Errorf("failed to write %s: %w", pactoPath, err)
+		return 0, nil, fmt.Errorf("failed to write %s: %w", pactoPath, err)
 	}
 	fileCount++
 
-	// Scaffold interface spec files
+	type scaffold struct {
+		path string
+		data []byte
+	}
+	var files []scaffold
 	for _, iface := range input.Interfaces {
-		ifaceDir := filepath.Join(dir, "interfaces")
-		if err := o.mkdirAll(ifaceDir, 0755); err != nil {
-			return fileCount, fmt.Errorf("failed to create %s: %w", ifaceDir, err)
-		}
-		ifacePath := filepath.Join(ifaceDir, iface.Name+".yaml")
-		stub := scaffoldInterfaceStub(input.Name, iface)
-		if err := o.atomicWriteFile(ifacePath, stub, 0644); err != nil {
-			return fileCount, fmt.Errorf("failed to write %s: %w", ifacePath, err)
-		}
-		fileCount++
+		files = append(files, scaffold{filepath.Join(dir, "interfaces", iface.Name+".yaml"), scaffoldInterfaceStub(input.Name, iface)})
 	}
-
-	// Scaffold config schema if needed
 	if len(input.ConfigProperties) > 0 {
-		configDir := filepath.Join(dir, "configuration")
-		if err := o.mkdirAll(configDir, 0755); err != nil {
-			return fileCount, fmt.Errorf("failed to create %s: %w", configDir, err)
+		files = append(files, scaffold{filepath.Join(dir, "configuration", "schema.json"), generateConfigSchema(input.ConfigProperties)})
+	}
+	for _, f := range files {
+		path := f.path
+		if _, err := os.Stat(path); err == nil {
+			kept = append(kept, path)
+			continue
 		}
-		schemaPath := filepath.Join(configDir, "schema.json")
-		schema := generateConfigSchema(input.ConfigProperties)
-		if err := o.atomicWriteFile(schemaPath, schema, 0644); err != nil {
-			return fileCount, fmt.Errorf("failed to write %s: %w", schemaPath, err)
+		if err := o.mkdirAll(filepath.Dir(path), 0755); err != nil {
+			return fileCount, kept, fmt.Errorf("failed to create %s: %w", filepath.Dir(path), err)
+		}
+		if err := o.atomicWriteFile(path, f.data, 0644); err != nil {
+			return fileCount, kept, fmt.Errorf("failed to write %s: %w", path, err)
 		}
 		fileCount++
 	}
-
-	return fileCount, nil
+	return fileCount, kept, nil
 }
 
 func (o fileOps) scaffoldNewInterfaceFiles(dir string, interfaces []InterfaceInput) error {
@@ -1750,6 +1790,8 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 		Summary:  c.Service.Summary,
 		Workload: c.Workload,
 		Sections: assessSections(c),
+		Template: c.Service.Template != nil,
+		Origin:   c.Service.Origin,
 	}
 
 	if c.State != nil {

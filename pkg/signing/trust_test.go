@@ -154,3 +154,20 @@ func TestRunnerSignsItsVerdict(t *testing.T) {
 		}
 	}
 }
+
+// TestPolicyOf: a public key becomes a keyed policy and an identity with its
+// trusted root a keyless one; anything else is refused.
+func TestPolicyOf(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	pem, _ := delivery.PublicKeyPEM(pub)
+	if p, err := PolicyOf(delivery.TrustedKey{PublicKey: pem}); err != nil || p.Key == nil || p.Identity != "" {
+		t.Fatalf("keyed: %+v %v", p, err)
+	}
+	ss := testutil.New(t)
+	if p, err := PolicyOf(delivery.TrustedKey{Identity: "ci@acme", Issuer: "https://issuer", TrustedRoot: string(ss.RootJSON)}); err != nil || p.Identity != "ci@acme" || p.Root == nil {
+		t.Fatalf("keyless: %+v %v", p, err)
+	}
+	if _, err := PolicyOf(delivery.TrustedKey{}); err == nil {
+		t.Fatal("an empty key built a policy")
+	}
+}

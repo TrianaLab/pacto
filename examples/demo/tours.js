@@ -178,8 +178,15 @@
     hash: "#/fleet/services/inventory-service",
     target: "#sec-observed-traffic-and-differences"
   }, {
+    // Also only something to read: the row says what the path gives and how many
+    // services were created from it.
+    title: "Where do new services start?",
+    text: "http-service is a golden path, a platform team's starting point for a new HTTP API: gift-cards was created from it, and the fleet never counts the path as a running service.",
+    hash: "#/fleet/golden-paths",
+    target: '[data-testid="golden-path-list"] tbody tr'
+  }, {
     title: "Recap",
-    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, who it reaches and what a provider promises, all from contracts and observations.",
+    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, who it reaches, what a provider promises and where new services start, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];

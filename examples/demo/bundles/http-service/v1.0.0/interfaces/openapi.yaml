@@ -1,0 +1,13 @@
+openapi: 3.1.0
+info:
+  title: HTTP service
+  version: 1.0.0
+  description: The starting API of a service created from the http-service golden path. Replace it with your own operations.
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Report that the service is up
+      responses:
+        '200':
+          description: The service is up

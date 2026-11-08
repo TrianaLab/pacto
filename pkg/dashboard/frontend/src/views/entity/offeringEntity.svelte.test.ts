@@ -94,6 +94,8 @@ describe('offering page', () => {
     const { target, done } = await render(detail({ providers: preview([provider('platform-app-config')]) }));
     const c = target.querySelector('[data-testid="consume"]') as HTMLElement;
     expect(c.querySelector('pre.consume-snippet code')?.textContent).toBe(YAML);
+    // It scrolls sideways, so a keyboard reader can focus it.
+    expect(c.querySelector('pre.consume-snippet')?.getAttribute('tabindex')).toBe('0');
     expect(text(c)).toContain('Add this to your contract to consume shared-config from platform-app-config.');
     const btn = c.querySelector('button') as HTMLButtonElement;
     expect(btn.getAttribute('aria-label')).toBe('Copy consume snippet');

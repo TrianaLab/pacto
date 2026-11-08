@@ -21,6 +21,14 @@ import (
 // cluster. The dashboard's /api/sources pills use the same name.
 const SourceKindKubernetes = "kubernetes"
 
+// SourceKindEvidenceHTTP and SourceKindTargetState are the Kinds of the
+// sources that report operational targets outside Kubernetes: the Evidence
+// Server and a target state file.
+const (
+	SourceKindEvidenceHTTP = "evidence-http"
+	SourceKindTargetState  = "target-state"
+)
+
 // SourceKindMira is the Kind of a source reading the service map of a Mira
 // trace store. It labels the source only; pkg/fleet never branches on it.
 const SourceKindMira = "mira"

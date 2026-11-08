@@ -188,6 +188,15 @@ func imageToBundle(img v1.Image) (*contract.Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract layer: %w", err)
 	}
+	// The registry layer reader checks the blob's digest and size only when a
+	// read reaches EOF, and the tar reader stops at the end-of-archive blocks.
+	// Read the rest, bounded, so bytes that do not match the digest the
+	// manifest names fail here instead of being trusted.
+	if n, err := io.Copy(io.Discard, io.LimitReader(rc, MaxTotalSize+1)); err != nil {
+		return nil, fmt.Errorf("failed to read layer: %w", err)
+	} else if n > MaxTotalSize {
+		return nil, fmt.Errorf("layer exceeds maximum total size of %d bytes", MaxTotalSize)
+	}
 	return bundleFromFS(fsys)
 }
 
@@ -205,23 +214,12 @@ func bundleFromFS(fsys fs.FS) (*contract.Bundle, error) {
 	return &contract.Bundle{Contract: c, RawYAML: rawYAML, FS: fsys}, nil
 }
 
+// The limits a bundle is read with, here and from a local golden path.
 const (
-	maxFileSize  = 10 << 20 // 10 MB per file
-	maxTotalSize = 50 << 20 // 50 MB total
+	MaxFileSize  = 10 << 20 // 10 MB per file
+	MaxTotalSize = 50 << 20 // 50 MB total
 	maxEntries   = 10000    // max number of tar entries (bounds many-tiny-files bombs)
 )
-
-// hasDotDotComponent reports whether any path component is "..", i.e. a real
-// traversal. Unlike a substring check it does not reject legitimate names that
-// merely contain ".." (e.g. "my..file.yaml").
-func hasDotDotComponent(name string) bool {
-	for _, part := range strings.Split(name, "/") {
-		if part == ".." {
-			return true
-		}
-	}
-	return false
-}
 
 // extractTar reads a tar stream and returns an in-memory FS.
 func extractTar(r io.Reader) (fs.FS, error) {
@@ -244,11 +242,13 @@ func extractTar(r io.Reader) (fs.FS, error) {
 			return nil, fmt.Errorf("tar has too many entries (>%d)", maxEntries)
 		}
 
-		name := filepath.ToSlash(strings.TrimPrefix(header.Name, "./"))
+		name := strings.TrimSuffix(filepath.ToSlash(strings.TrimPrefix(header.Name, "./")), "/")
 		if name == "" || name == "." {
 			continue
 		}
-		if hasDotDotComponent(name) {
+		// fs.ValidPath rejects "..", absolute names and empty components, any of
+		// which makes a walk of the extracted FS loop or escape.
+		if !fs.ValidPath(name) {
 			return nil, fmt.Errorf("invalid path in tar: %s", header.Name)
 		}
 
@@ -262,17 +262,17 @@ func extractTar(r io.Reader) (fs.FS, error) {
 			return nil, fmt.Errorf("unsupported tar entry type %q for %s", string(header.Typeflag), name)
 		}
 
-		data, err := io.ReadAll(io.LimitReader(tr, maxFileSize+1))
+		data, err := io.ReadAll(io.LimitReader(tr, MaxFileSize+1))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read %s: %w", name, err)
 		}
-		if int64(len(data)) > maxFileSize {
-			return nil, fmt.Errorf("file %s exceeds maximum size of %d bytes", name, maxFileSize)
+		if int64(len(data)) > MaxFileSize {
+			return nil, fmt.Errorf("file %s exceeds maximum size of %d bytes", name, MaxFileSize)
 		}
 
 		totalSize += int64(len(data))
-		if totalSize > maxTotalSize {
-			return nil, fmt.Errorf("extracted bundle exceeds maximum total size of %d bytes", maxTotalSize)
+		if totalSize > MaxTotalSize {
+			return nil, fmt.Errorf("extracted bundle exceeds maximum total size of %d bytes", MaxTotalSize)
 		}
 
 		memFS[name] = &fstest.MapFile{Data: data, Mode: 0644}

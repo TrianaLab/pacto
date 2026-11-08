@@ -1,0 +1,44 @@
+pactoVersion: "2.4"
+service:
+  name: gift-cards
+  version: 0.1.0
+  owner:
+    team: checkout
+  domain: commerce
+  origin:
+    digest: sha256:077937b6249c6a7e1e47d7affdc54e6d4c57c14f3e339e0092d43a12b2659649
+    ref: oci://ghcr.io/trianalab/pacto/http-service:1.0.0
+capabilities:
+  - type: health
+  - type: metrics
+configurations:
+  - configuration: provisioning
+    name: database
+    ref: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
+    required: true
+    values:
+      size: small
+      storageGi: 20
+dependencies:
+  - compatibility: ^16.0.0
+    name: postgresql
+    ref: oci://ghcr.io/trianalab/pacto/postgresql
+    required: true
+interfaces:
+  - name: api
+    ref: interfaces/openapi.yaml
+    type: openapi
+    visibility: internal
+metadata:
+  criticality: medium
+  tier: domain
+policies:
+  - name: http-standards
+    ref: oci://ghcr.io/trianalab/pacto/platform-http-policy:1.0.1
+state:
+  dataCriticality: low
+  persistence:
+    durability: ephemeral
+    scope: local
+  type: stateless
+workload: service

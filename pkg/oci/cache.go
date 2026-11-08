@@ -279,6 +279,11 @@ func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bu
 	return nil, CachedRef{}, legNone
 }
 
+// Uncached is the store c wraps, with no cache in front of it. Its one use is a
+// pull whose digest is then verified: a digest-pinned disk entry is served
+// without being rehashed, so it is never tied to the digest a signature names.
+func (c *CachedStore) Uncached() BundleStore { return c.inner }
+
 // Pull returns the bundle for ref, checking the in-memory cache, then the disk
 // cache (skipped when DisableCache is active), then the wrapped store. Registry
 // pulls are stored in memory and persisted to disk for future lookups.

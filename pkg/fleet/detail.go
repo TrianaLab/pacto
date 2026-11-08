@@ -388,6 +388,66 @@ type ServiceDetailData struct {
 	Findings      AttributedFindingsPreview    `json:"findings"`
 	Evidence      EvidencePreview              `json:"evidence"`
 	Limitations   AttributedLimitationsPreview `json:"limitations"`
+	// Template is set when the service is a golden path: what it names and
+	// requires, the services created from it and how to create one.
+	Template *TemplateDetail `json:"template,omitempty"`
+	// Origin is the golden path the newest readable revision declares it was
+	// created from, as declared.
+	Origin *OriginDetail `json:"origin,omitempty"`
+	// Creation is the creation checklist derived for a service with an origin:
+	// each step is done only on evidence the fleet holds.
+	Creation []CreationStep `json:"creation,omitempty"`
+}
+
+// TemplateDetail is what a golden path offers to a person creating a service
+// from it, read from its newest readable revision.
+type TemplateDetail struct {
+	// Plugins are the generate plugins the golden path names, bounded by the
+	// schema's limit of 32.
+	Plugins []contract.TemplatePlugin `json:"plugins"`
+	// Requirements are the offerings and providers the golden path consumes:
+	// every resolved dependency and reference, a provider with no offering
+	// included. UnresolvedRequirements are those no service resolves.
+	Requirements           OfferingUsesPreview           `json:"requirements"`
+	UnresolvedRequirements UnresolvedDependenciesPreview `json:"unresolvedRequirements"`
+	// HiddenRequirements counts the services the golden path requires that
+	// the caller's permissions hide, never naming them.
+	HiddenRequirements int `json:"hiddenRequirements,omitempty"`
+	// CreatedServices are the services whose origin resolves to the golden
+	// path; HiddenCreatedServices counts those the caller's permissions hide.
+	CreatedServices       RefPreview `json:"createdServices"`
+	HiddenCreatedServices int        `json:"hiddenCreatedServices,omitempty"`
+	// Signature is the newest revision's signature check, nil when no source
+	// that read it checks signatures (not checked). SignatureNote says what a
+	// check proves: the signer is the one the golden path's own contract
+	// declares.
+	Signature     *BundleSignature `json:"signature,omitempty"`
+	SignatureNote string           `json:"signatureNote"`
+	// Instantiate is the command that creates a service from the exact bytes
+	// shown; nil when no digest-pinned reference exists, with InstantiateReason.
+	Instantiate       *TemplateInstantiation `json:"instantiate,omitempty"`
+	InstantiateReason string                 `json:"instantiateReason,omitempty"`
+	Provenance        string                 `json:"provenance" enum:"declared"`
+}
+
+// TemplateInstantiation is how to create a service from a golden path: the
+// pinned reference, the CLI command and the MCP call.
+type TemplateInstantiation struct {
+	Ref string `json:"ref"`
+	CLI string `json:"cli"`
+	MCP string `json:"mcp"`
+}
+
+// OriginDetail is the declared origin of a service: the golden path reference
+// and content digest its contract records, resolved to the golden path and
+// revision with that digest, or the Reason it does not resolve.
+type OriginDetail struct {
+	Ref        string     `json:"ref"`
+	Digest     string     `json:"digest"`
+	Provenance string     `json:"provenance" enum:"declared"`
+	GoldenPath *EntityRef `json:"goldenPath,omitempty"`
+	Revision   *EntityRef `json:"revision,omitempty"`
+	Reason     string     `json:"reason,omitempty"`
 }
 
 // RevisionDetailData is the revision-kind payload: parent service, immutable
@@ -576,16 +636,35 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 	return OfferingUsesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
-// ConsumeSnippet is the contract YAML a service adds to consume a provider of a
-// platform offering, rendered once so every surface shows the same text.
-// Dependency, Configuration and Policy say which blocks YAML holds.
+// ConsumeSnippet is what a service adds to its contract to consume a provider
+// of a platform offering: the contract entries, and the YAML rendered from them
+// once so every surface shows the same text. Dependency, Configuration and
+// Policy say which blocks YAML holds.
 type ConsumeSnippet struct {
-	Ref           string `json:"ref"`
-	Compatibility string `json:"compatibility,omitempty"`
-	Dependency    bool   `json:"dependency"`
-	Configuration bool   `json:"configuration"`
-	Policy        bool   `json:"policy"`
-	YAML          string `json:"yaml"`
+	Ref           string         `json:"ref"`
+	Compatibility string         `json:"compatibility,omitempty"`
+	Dependency    bool           `json:"dependency"`
+	Configuration bool           `json:"configuration"`
+	Policy        bool           `json:"policy"`
+	Entries       ConsumeEntries `json:"entries"`
+	YAML          string         `json:"yaml"`
+}
+
+// ConsumeEntries are the contract entries of a consume snippet, one field per
+// block its YAML holds.
+type ConsumeEntries struct {
+	Dependency     *contract.Dependency   `json:"dependency,omitempty"`
+	Configurations []ConsumeConfiguration `json:"configurations,omitempty"`
+	Policy         *contract.Policy       `json:"policy,omitempty"`
+}
+
+// ConsumeConfiguration is a configuration entry of a consume snippet.
+// MissingValues names the required properties of the provider's schema that
+// no candidate value satisfies: the consumer sets them before the entry
+// validates.
+type ConsumeConfiguration struct {
+	contract.Configuration
+	MissingValues []string `json:"missingValues,omitempty"`
 }
 
 // InferredOffering suggests the offering an external or unresolved dependency
@@ -798,6 +877,9 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Evidence:           evidencePreview(evidenceForTargets(view.Targets)),
 		Relationships:      rels,
 		Limitations:        serviceLimitations(nbLims, view.Targets),
+		Template:           q.templateDetail(s),
+		Origin:             q.originDetail(s),
+		Creation:           q.creationChecklist(s, view, consumed),
 	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
@@ -912,9 +994,16 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	// The comparison is IDENTITY ([contract.Owner.IsKey]), never the free-text owner
 	// search: this page IS one canonical owner, and a substring rule would hand
 	// `team-a` the estate of `team-a-platform`.
+	// The golden paths of the owner are no part of the estate; they only keep
+	// the page of an owner who publishes nothing else.
 	claimed := map[ServiceKey]bool{}
+	paths := 0
 	for _, r := range q.snap.Revisions {
-		if r.Owner.IsKey(key) {
+		switch {
+		case !r.Owner.IsKey(key):
+		case q.goldenPath(r.ServiceKey):
+			paths++
+		default:
 			claimed[r.ServiceKey] = true
 			revisions = append(revisions, revisionEntityRef(r))
 			// Read validity from the authoritative snapshot record: revisionStatus knows
@@ -936,7 +1025,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 			}
 		}
 	}
-	if len(services) == 0 && len(revisions) == 0 {
+	if len(services) == 0 && len(revisions) == 0 && paths == 0 {
 		return nil, &NotFoundError{Kind: "owner", ID: key}
 	}
 	sum.Services, sum.Revisions, sum.Targets = len(services), len(revisions), len(deployments)
@@ -969,8 +1058,14 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 	var sum OwnerSummary
 	var ownership OwnershipTally
 	owners := map[string]bool{}
+	paths := 0
 	for _, s := range q.snap.Services {
 		if key == "" || s.BusinessDomain != key {
+			continue
+		}
+		// A golden path is no part of the estate; it only keeps the page.
+		if s.Template {
+			paths++
 			continue
 		}
 		services = append(services, serviceEntityRef(s))
@@ -990,7 +1085,7 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 			sum.addTarget(t)
 		}
 	}
-	if len(services) == 0 {
+	if len(services) == 0 && paths == 0 {
 		return nil, &NotFoundError{Kind: "domain", ID: key}
 	}
 	ownerRefs := make([]EntityRef, 0, len(owners))
@@ -1071,11 +1166,18 @@ func (q *Query) offeringProvider(s *ServiceRecord) OfferingProvider {
 	return p
 }
 
-// offeringUses is every service consuming a provider match accepts, from one
+// offeringUses is every service consuming an offering provider match accepts,
+// from one consumer when from is set, with provisioning (see offeringUsesIn).
+func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) ([]OfferingUse, []Limitation) {
+	return q.offeringUsesIn(q.snap.Relationships, func(p *ServiceRecord) bool { return p.Offering != "" && match(p) }, from, true)
+}
+
+// offeringUsesIn is every use in rels of a provider match accepts, from one
 // consumer when from is set: one row per consumer, provider and relationship
 // type, over every revision. Revisions that disagree on the range status make
-// it unknown. It also returns the provisioning conflicts the rows raise.
-func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from ServiceKey) ([]OfferingUse, []Limitation) {
+// it unknown. With provisioning it joins what providers report and returns the
+// provisioning conflicts the rows raise.
+func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *ServiceRecord) bool, from ServiceKey, provisioning bool) ([]OfferingUse, []Limitation) {
 	type useKey struct {
 		consumer, provider ServiceKey
 		via                string
@@ -1085,13 +1187,13 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 	rels := map[useKey][]*Relationship{}
 	var uses []OfferingUse
 	var keys []useKey // keys[j] is the key of uses[j]
-	for i := range q.snap.Relationships {
-		rel := &q.snap.Relationships[i]
+	for i := range edges {
+		rel := &edges[i]
 		if !offeringRelationship(rel, from) {
 			continue
 		}
 		p := q.snap.Services[rel.ToService]
-		if p == nil || p.Offering == "" || !match(p) {
+		if p == nil || !match(p) {
 			continue
 		}
 		k := useKey{rel.FromService, rel.ToService, rel.Type}
@@ -1116,7 +1218,7 @@ func (q *Query) offeringUses(match func(provider *ServiceRecord) bool, from Serv
 	var lims []Limitation
 	idx := q.provisioningIndex()
 	for j, k := range keys {
-		if k.via != RelationshipPolicyRef {
+		if provisioning && k.via != RelationshipPolicyRef {
 			var conflicts []Limitation
 			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)
 			lims = append(lims, conflicts...)
@@ -1350,14 +1452,15 @@ func lessRevisionChrono(a, b *ContractRevision) bool {
 // ObservationScope + ServiceCorroboration instead.
 func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 	var out []NeighborhoodEdge
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
+	// A golden path's edges are templateEdges: its revision page still shows
+	// what it uses.
+	for rel := range q.snap.declaredEdges() {
 		// A resolved reference whose service left the snapshot is reported by
 		// revisionRefResolutions; it has no node to draw an edge to.
-		if !ConsumesEdge(rel) || rel.FromRevision != revKey || q.snap.Services[rel.ToService] == nil {
+		if !ConsumesEdge(*rel) || rel.FromRevision != revKey || q.snap.Services[rel.ToService] == nil {
 			continue
 		}
-		out = append(out, dependencyEdge(q.serviceRef(rel.FromService), q.serviceRef(rel.ToService), rel))
+		out = append(out, dependencyEdge(q.serviceRef(rel.FromService), q.serviceRef(rel.ToService), *rel))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].To.Key != out[j].To.Key {
@@ -1378,8 +1481,7 @@ func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 // resolve to different destinations. This only reads that verdict back.
 func (q *Query) revisionRefResolutions(revKey RevisionKey) (cfg, pol map[string]*RefResolution) {
 	cfg, pol = map[string]*RefResolution{}, map[string]*RefResolution{}
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
+	for rel := range q.snap.declaredEdges() {
 		if rel.FromRevision != revKey {
 			continue
 		}

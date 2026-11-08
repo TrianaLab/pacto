@@ -11,7 +11,7 @@ const (
 	CodeNeedsPacto21                 Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
 	CodeNeedsPacto22                 Code = "NEEDS_PACTO_2_2" // an older contract uses an interface lifecycle, compatibilityEpoch or guarantees, or dependency requires
 	CodeNeedsPacto23                 Code = "NEEDS_PACTO_2_3" // an older contract declares environments
-	CodeNeedsPacto24                 Code = "NEEDS_PACTO_2_4" // an older contract declares service.domain, service.offering, service.summary or service.lifecycle, or values or a configuration selector beside a configuration ref
+	CodeNeedsPacto24                 Code = "NEEDS_PACTO_2_4" // an older contract declares service.domain, service.offering, service.summary, service.lifecycle, service.template or service.origin, or values or a configuration selector beside a configuration ref
 	CodeSchemaError                  Code = "SCHEMA_ERROR"
 	CodeSchemaViolation              Code = "SCHEMA_VIOLATION"
 	CodeYamlParseError               Code = "YAML_PARSE_ERROR"
@@ -24,6 +24,8 @@ const (
 	CodeDuplicateConfigurationName   Code = "DUPLICATE_CONFIGURATION_NAME"
 	CodeDuplicatePolicyName          Code = "DUPLICATE_POLICY_NAME"
 	CodeDuplicateDependencyName      Code = "DUPLICATE_DEPENDENCY_NAME"
+	CodeDuplicateTemplatePlugin      Code = "DUPLICATE_TEMPLATE_PLUGIN"
+	CodeInvalidOriginRef             Code = "INVALID_ORIGIN_REF"
 	CodeEmptyCompatibility           Code = "EMPTY_COMPATIBILITY"
 	CodeInvalidCompatibility         Code = "INVALID_COMPATIBILITY"
 	CodeValuesWithoutSchema          Code = "VALUES_WITHOUT_SCHEMA"
@@ -118,6 +120,8 @@ var registry = map[Code]codeMeta{
 	CodeDuplicateConfigurationName:   {CategoryDuplicateName, SeverityError},
 	CodeDuplicatePolicyName:          {CategoryDuplicateName, SeverityError},
 	CodeDuplicateDependencyName:      {CategoryDuplicateName, SeverityError},
+	CodeDuplicateTemplatePlugin:      {CategoryDuplicateName, SeverityError},
+	CodeInvalidOriginRef:             {CategoryInvalidReference, SeverityError},
 	CodeEmptyCompatibility:           {CategoryInvalidDependency, SeverityError},
 	CodeInvalidCompatibility:         {CategoryInvalidDependency, SeverityError},
 	CodeValuesWithoutSchema:          {CategoryMissingConfiguration, SeverityError},

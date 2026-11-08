@@ -4,7 +4,7 @@ import {
   readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
-  legacyRedirectTarget, replaceHash, fleetEntityListUrl,
+  legacyRedirectTarget, replaceHash, fleetEntityListUrl, fleetGoldenPathsUrl,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -728,5 +728,21 @@ describe('scoped inventory lists (/fleet/revisions, /fleet/targets)', () => {
       view: 'fleet-entity-list',
       params: { kind: 'revision', service: 'domain-a/payments', text: 'v2', offset: '50' },
     });
+  });
+});
+
+describe('golden paths routes', () => {
+  it('parses the Golden paths list with its search, order and page', () => {
+    expect(parseHash('#/fleet/golden-paths')).toEqual({ view: 'fleet-golden-paths', params: {} });
+    expect(parseHash(fleetGoldenPathsUrl({ text: 'http', sort: 'health', offset: 25 }))).toEqual({
+      view: 'fleet-golden-paths', params: { text: 'http', sort: 'health', offset: '25' },
+    });
+    expect(fleetGoldenPathsUrl()).toBe('#/fleet/golden-paths');
+  });
+
+  it('keeps the services created from a golden path in the Services list URL', () => {
+    const url = fleetServicesUrl({ createdFrom: 'ghcr.io/acme/http-service' });
+    expect(url).toBe('#/fleet/services?createdFrom=ghcr.io%2Facme%2Fhttp-service');
+    expect(parseHash(url)).toEqual({ view: 'fleet-services', params: { createdFrom: 'ghcr.io/acme/http-service' } });
   });
 });
