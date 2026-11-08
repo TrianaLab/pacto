@@ -14,7 +14,7 @@
   const own = $derived(!!sa && name === sa[2]);
 </script>
 
-{#if own}<span title={user}><bdi>{sa[1]}/{sa[2]}</bdi></span>{:else}<span class="person"><bdi>{@html breakableIdentifierHtml(name)}</bdi>{#if user && name !== user}{' '}<span class="person-id"><CopyableIdentifier value={user} label="username" iconOnly /></span>{/if}</span>{/if}
+{#if own}<span title={user}><bdi data-format="account">{sa[1]}/{sa[2]}</bdi></span>{:else}<span class="person"><bdi>{@html breakableIdentifierHtml(name)}</bdi>{#if user && name !== user}{' '}<span class="person-id"><CopyableIdentifier value={user} label="username" iconOnly /></span>{/if}</span>{/if}
 
 <style>
   .person { overflow-wrap: break-word; }

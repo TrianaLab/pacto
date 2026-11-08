@@ -32,7 +32,7 @@
 
 {#if value}
   <span class="copyable" title={value}>
-    {#if !iconOnly}<code class="copyable-value"><bdi class="cv-bdi"><span class="cv-head">{head}</span>{#if tail}<span class="cv-tail">{tail}</span>{/if}</bdi></code>{/if}
+    {#if !iconOnly}<code class="copyable-value"><bdi class="cv-bdi" data-format={display && display !== value ? "short" : undefined}><span class="cv-head">{head}</span>{#if tail}<span class="cv-tail">{tail}</span>{/if}</bdi></code>{/if}
     <button
       type="button"
       class="copyable-btn"

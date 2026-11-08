@@ -35,7 +35,7 @@
   {#if showStatus}<span class="ei-status"><EntityStatusBadge kind={ref.kind} status={ref.status} /></span>{/if}
   {#if context.length}
     <span class="ei-context">
-      {#each context as bit, i}{#if i > 0}<span class="ei-dot" aria-hidden="true">·</span>{/if}<span title={display(bit) === bit ? undefined : bit}><bdi>{display(bit)}</bdi></span>{/each}
+      {#each context as bit, i}{#if i > 0}<span class="ei-dot" aria-hidden="true">·</span>{/if}<span title={display(bit) === bit ? undefined : bit}><bdi data-format={display(bit) === bit ? undefined : "short"}>{display(bit)}</bdi></span>{/each}
     </span>
   {/if}
 </span>
