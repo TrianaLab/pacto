@@ -188,6 +188,8 @@ Breaking changes: 2
 Potentially breaking changes: 0
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
+By outcome: 1 incompatible, 0 unknown, 0 compatible
+Most affected owners: frontend 1 (1 incompatible)
 Release gate: unverified
 unverified: the change is BREAKING and 1 consumer depends on api, but none is shown to be both incompatible and running. Review each consumer, and add a source that knows where services run (for example --target-state) to tell deployed impact apart
 $ echo $?
@@ -205,6 +207,8 @@ Breaking changes: 2
 Potentially breaking changes: 0
 Affected consumers (1):
   web                          direct     confidence=contractual  compat=incompatible owner=frontend
+By outcome: 1 incompatible, 0 unknown, 0 compatible
+Most affected owners: frontend 1 (1 incompatible)
 Active targets (1): [production/kubernetes-workload/shop%2Fweb]
 Release gate: blocked
 breaking changes affect active consumers, which run on known targets and do not accept api 2.0.0: web
