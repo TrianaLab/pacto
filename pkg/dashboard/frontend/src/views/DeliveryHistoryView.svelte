@@ -31,8 +31,9 @@
   // and name): its newest change, how it ended, how many changes it has and a
   // link to them.
   // since and until (RFC 3339) keep the changes that ran in that window; the
-  // server keeps those with no time and those still in flight.
-  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', since = '', until = '', refreshTick = 0, miraURL = '' } = $props();
+  // server keeps those with no time and those still in flight. timed (a timeline
+  // column's link) keeps only the changes timed inside, so the list is the count.
+  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', since = '', until = '', timed = '', refreshTick = 0, miraURL = '' } = $props();
 
   const one = $derived(!!(namespace && stage));
   // The exact service filter narrows every Stage; one Stage is already one.
@@ -40,14 +41,16 @@
   const dom = $derived(svc ? domain : '');
   const loader = createProductLoader(() => api.deliveryHistory(namespace, stage, {
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
-    service: svc || undefined, domain: dom || undefined, since: since || undefined, until: until || undefined,
+    service: svc || undefined, domain: dom || undefined, since: since || undefined, until: until || undefined, timed: timed ? true : undefined,
   }));
-  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}@@${since}/${until}`);
+  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}@@${since}/${until}`);
+  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}`);
   // The window in words, when there is one.
-  const windowText = $derived(since && until ? `between ${timeLabel(since)} and ${timeLabel(until)}`
+  const windowText = $derived(timed && (since || until) ? `with a time${since ? ` at or after ${timeLabel(since)}` : ''}${since && until ? ' and' : ''}${until ? ` before ${timeLabel(until)}` : ''}`
+    : since && until ? `between ${timeLabel(since)} and ${timeLabel(until)}`
     : since ? `at or after ${timeLabel(since)}` : until ? `at or before ${timeLabel(until)}` : '');
+  const tm = $derived(timed ? '1' : undefined);
   $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
@@ -56,7 +59,7 @@
   const histories = $derived(data?.histories ?? []);
   // One Stage pages its changes; every Stage pages the Stages.
   const page = $derived(one ? histories[0]?.entriesPage : data?.page);
-  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
+  const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom, since, until, timed: tm, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
   const version = (d) => versionLabel(d, data?.versions);
   // A level change moves between levels, named as Autonomy names them.
   const side = (en, d) => (en.type === AUTONOMY_TYPE ? (d ? levelLabel(d) : '') : version(d));
@@ -107,7 +110,9 @@
   // Stages the changes still in the cluster, which cannot see a missing record.
   const timeline = $derived(one ? histories[0]?.timeline : data?.timeline);
   const tlSource = $derived(!one ? 'cluster' : histories[0]?.source === 'records' ? 'records' : 'status');
-  const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: u });
+  // A column opens the changes it counts (T3): those timed in its slice. The last
+  // column of a window that ends now is left open, so a change at the end stays in it.
+  const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: !until && u === timeline?.end ? undefined : u, timed: '1' });
   const figQuestion = $derived(`What happened ${since || until ? 'in this window' : 'in the last 24 hours'}${one ? ' on this Stage' : ''}, and where is the record missing?`);
 
   const ABOUT = 'Where the recorder runs, history is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story.';
@@ -209,11 +214,11 @@
   </PageHeader>
   <DeliveryNav current="delivery-history" />
   {#if stage}<p class="t-body-2"><a class="hv-link" href={deliveryHistoryUrl()}>Show every Stage</a></p>{/if}
-  <DeliveryServiceFilter service={svc} domain={dom} clear={deliveryHistoryUrl({ q, since, until })} />
+  <DeliveryServiceFilter service={svc} domain={dom} clear={deliveryHistoryUrl({ q, since, until, timed: tm })} />
   {#if windowText}
     <p class="t-body-2" data-testid="history-window">Changes {windowText}. <a href={deliveryHistoryUrl({ namespace, stage, q, service: svc, domain: dom })}>Show all changes</a></p>
   {/if}
-  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v, service: svc, domain: dom, since, until })} testid="history-filter"
+  <ListFilter value={q} href={(v) => deliveryHistoryUrl({ namespace, stage, q: v, service: svc, domain: dom, since, until, timed: tm })} testid="history-filter"
     label={one ? 'Filter changes by person, change, outcome or reason' : 'Filter Stages by name or service'}
     placeholder={one ? 'Person, change, outcome or reason' : 'Stage or service'} />
 
@@ -245,7 +250,7 @@
                   <span class="hv-group-name">{h.namespace}</span>{#if groupSource[h.namespace]}<span class="t-meta hv-group-source">{groupSource[h.namespace]}</span>{/if}
                 </th></tr>
               {/if}
-              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name, since, until })}
+              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name, since, until, timed: tm })}
               {@const issues = (h.problemCount ?? 0) + (h.unreadableCount ?? 0)}
               {@const total = h.entriesPage?.total ?? h.entries?.length ?? 0}
               <tr data-testid="history-stage-row" data-stage={`${h.namespace}/${h.stage.name}`}>

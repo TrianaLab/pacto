@@ -22,6 +22,14 @@ describe('fleetEnvModel', () => {
     expect(ENV_STATES.map((s) => s.tone)).toEqual(['err', 'warn', 'warn', 'frost', 'neutral', 'neutral', 'ok']);
   });
 
+  it('names a feeder that is not the left neighbour, so no declared link goes unsaid', () => {
+    const m = fleetEnvModel([env('test', { verified: 1 }), env('prod', { verified: 1 }, ['test']), env('prod-eu', { verified: 1 }, ['test']), env('prod-us', { verified: 1 }, ['test', 'prod-eu'])]);
+    expect(m.wires.map((w) => [w.from, w.to])).toEqual([['e0-r', 'e1-l'], ['e2-r', 'e3-l']]);
+    expect(m.stations.map((s) => s.fedBy)).toEqual([[], [], ['test'], ['test']]);
+    expect(m.figRef).toContain('A station fed by any other environment names it.');
+    expect(m.alt).toContain('prod-eu, fed by test: 1 verified');
+  });
+
   it('caps the stations at any fleet size, keeps the worst and folds the rest (S2)', () => {
     for (const n of [1, 8, 40, 400]) {
       const all = Array.from({ length: n }, (_, i) => env(`env-${i}`, { failed: i % 9, verified: 3 }, i ? [`env-${i - 1}`] : []));
@@ -99,6 +107,8 @@ describe('promotionModel', () => {
     expect(m.stations.map((s) => s.source?.kind)).toEqual(['unknown', 'unknown', 'records', 'stage']);
     expect(m.stations[0].source!.sub).toBe('the Stage declares no candidates, so it never promotes');
     expect(m.stations[1].source!.sub).toBe('the Stage x/gone does not exist');
+    const away = promotionModel('svc', { nodes: [node('qa', 0, { kind: 'stage', namespace: 'x', stage: 'away', problem: 'outOfScope' })], edges: [] }, []);
+    expect(away.stations[0].source).toMatchObject({ kind: 'unknown', label: 'Upstream out of scope', sub: 'the Stage x/away is in a namespace this dashboard does not show' });
     expect(m.stations[3].source).toMatchObject({ label: 'test', sub: 'the Stage o/other, of another service' });
     expect(m.wires.map((w) => w.to)).toEqual(['s2-l', 's3-l']);
     expect(m.caption).toContain('prod and qa have no source Pacto can follow, drawn hatched');

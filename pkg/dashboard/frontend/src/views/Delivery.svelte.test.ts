@@ -1432,6 +1432,27 @@ describe('history and published', () => {
     r.destroy();
   });
 
+  it("opens a timeline column on the changes it counts, timed inside its slice (T3)", async () => {
+    const z = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, released: 0, other: 0 };
+    const at = (h: number) => `2026-11-08T${String(h).padStart(2, '0')}:00:00Z`;
+    const buckets = Array.from({ length: 12 }, (_, i) => ({ start: at(i * 2), end: i === 11 ? '2026-11-09T00:00:00Z' : at(i * 2 + 2), ...z, other: 1 }));
+    const timeline = { start: at(0), end: '2026-11-09T00:00:00Z', buckets, totals: { ...z, other: 12 } };
+    const h = { namespace: 'prod', stage: { name: 'pay', pointer: D1 }, source: 'records', verified: true, completeness: 'complete', entries: [], entriesPage: { total: 0, offset: 0, limit: 50 }, timeline };
+    fns.history.mockResolvedValue({ ...listing, histories: [h] });
+    let r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    const cols = [...r.target.querySelectorAll('a.tl-n')].map((a) => a.getAttribute('href'));
+    expect(cols[0]).toBe('#/delivery/history?namespace=prod&stage=pay&since=2026-11-08T00%3A00%3A00Z&until=2026-11-08T02%3A00%3A00Z&timed=1');
+    // The window ends now, so its last column stays open at the end.
+    expect(cols[11]).toBe('#/delivery/history?namespace=prod&stage=pay&since=2026-11-08T22%3A00%3A00Z&timed=1');
+    r.destroy();
+    r = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', since: at(2), until: at(4), timed: '1' });
+    await settle();
+    expect(fns.history).toHaveBeenLastCalledWith('prod', 'pay', expect.objectContaining({ since: at(2), until: at(4), timed: true }));
+    expect(text(r.target.querySelector('[data-testid="history-window"]') as HTMLElement)).toContain('Changes with a time at or after 2026-11-08 02:00 UTC and before 2026-11-08 04:00 UTC.');
+    r.destroy();
+  });
+
   it('says an open-ended window in words', async () => {
     fns.history.mockResolvedValue({ ...listing, histories: [] });
     let r = render(DeliveryHistoryView, { since: '2026-11-02T00:00:00Z' });

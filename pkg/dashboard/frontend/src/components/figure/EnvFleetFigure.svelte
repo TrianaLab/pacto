@@ -12,6 +12,7 @@
   import { GLYPH_PATH } from '../../lib/figure.ts';
   import { formatCount, countOf } from '../../lib/format.ts';
   import { elidable } from '../../lib/elide.ts';
+  import { andList } from '../../lib/delivery.ts';
 
   // No aside: seven stations need the figure's whole width, so their counts keep one line.
   /** @type {{ byEnvironment: NonNullable<import('../../lib/api.ts').DeliveryEnvironments['counts']['byEnvironment']>, href: (state: string, env: string, except?: string[]) => string, partial?: boolean, asOf?: string }} */
@@ -30,6 +31,7 @@
           <div class="pst-l">
             {#if s.env}<b class="pst-name id" title={s.label}><bdi class:fit={elidable(s.label)}>{s.label}</bdi></b>{:else}<a class="pst-name" href={href('', '', s.except)}>{s.label}</a>{/if}
             <span class="queue-h"><a href={href('', s.env, s.except)}>{countOf(s.stages, 'Stage')}</a>{#if s.tier}, named like {s.tier}{/if}</span>
+            {#if s.fedBy.length}<span class="queue-h pst-fed">fed by <bdi class="id">{andList(s.fedBy, 3)}</bdi></span>{/if}
             <span class="sbar-row"><span class="sbar" aria-hidden="true">{#each s.counts as c (c.s.key)}<i class="t-{c.s.tone}" class:hatch={c.s.hatch} style:flex-grow={c.n}></i>{/each}</span>{#if partial}{@render cap()}{/if}</span>
             <ul class="envc">
               {#each s.counts as c (c.s.key)}

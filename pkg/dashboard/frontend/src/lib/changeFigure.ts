@@ -135,7 +135,7 @@ function origin(d: DeliveryOperation, here: string, toV: string, fromV: string):
   const v = toV || 'the candidate';
   switch (u.kind) {
     case 'stage':
-      if (u.problem) return unknown('from', `${u.namespace}/${u.stage}`, u.problem === 'missing' ? 'the upstream Stage does not exist' : 'the upstream Stage cannot be read', 'square');
+      if (u.problem) return unknown('from', `${u.namespace}/${u.stage}`, u.problem === 'missing' ? 'the upstream Stage does not exist' : u.problem === 'outOfScope' ? 'the upstream Stage is in a namespace this dashboard does not show' : 'the upstream Stage cannot be read', 'square');
       return { ...before, label: u.environment || `${u.namespace}/${u.stage}`, sub: `${v} verified here` };
     case 'records': return { ...before, label: 'Another cluster', sub: `${v} verified there, read from its signed records` };
     case 'artifact': return { ...before, label: 'New artifacts', sub: `${v} published` };

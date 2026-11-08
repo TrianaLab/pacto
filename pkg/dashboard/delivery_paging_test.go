@@ -319,6 +319,12 @@ func TestDeliveryHistoryWindow(t *testing.T) {
 	expect(t, strings.Join(ops, ",") == "flight,inside,timeless" && page(one["entriesPage"])["total"] == float64(3),
 		"in-window, in-flight and timeless changes, newest first: %v %v", ops, one["entriesPage"])
 	expect(t, strings.Contains(one["note"].(string), "only changes between"), "the note says the list is windowed: %v", one["note"])
+	// timed keeps what a timeline column counts: only a change timed inside.
+	_, h = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&timed=true"+window, nil)
+	one = page(h["histories"].([]any)[0])
+	expect(t, len(one["entries"].([]any)) == 1 && page(one["entries"].([]any)[0])["operation"] == "inside" && page(one["entriesPage"])["total"] == float64(1),
+		"a slice holds only the change timed inside: %v", one)
+	expect(t, page(one["timeline"])["totals"].(map[string]any)["other"] == float64(1), "its count is its list: %v", one["timeline"])
 	_, h = call(t, http.MethodGet, base+"/api/delivery/history?until=2026-11-03T00:00:00Z", nil)
 	first := page(h["histories"].([]any)[0])
 	expect(t, page(first["entries"].([]any)[0])["operation"] == "flight" && page(first["entriesPage"])["total"] == float64(4),

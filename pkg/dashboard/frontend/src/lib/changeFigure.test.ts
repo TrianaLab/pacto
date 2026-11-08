@@ -89,6 +89,7 @@ describe('changeModel stations (G3)', () => {
     expect(origin({ kind: 'artifact' })).toBe('New artifacts|neutral|2.0.1 published');
     expect(origin({ kind: 'none' })).toBe('No source|neutral/hatch|the Stage declares no candidates');
     expect(origin({ kind: 'stage', namespace: 'test', stage: 'gone', problem: 'missing' })).toBe('test/gone|neutral/hatch|the upstream Stage does not exist');
+    expect(origin({ kind: 'stage', namespace: 'test', stage: 'away', problem: 'outOfScope' })).toBe('test/away|neutral/hatch|the upstream Stage is in a namespace this dashboard does not show');
     expect(origin(undefined)).toBe('prod/payments|neutral|2.0.0 runs here');
     expect(origin({ kind: 'stage' }, 'delivery.pacto.trianalab.io/rollback')).toBe('prod/payments|neutral|2.0.0 runs here');
   });

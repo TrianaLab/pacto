@@ -185,7 +185,7 @@ type Upstream struct {
 	Namespace   string `json:"namespace,omitempty" doc:"kind stage: the upstream Stage's namespace"`
 	Stage       string `json:"stage,omitempty" doc:"kind stage: the upstream Stage's name"`
 	Environment string `json:"environment,omitempty" doc:"kind stage: the upstream Stage's environment, when it could be read"`
-	Problem     string `json:"problem,omitempty" enum:"missing,unreadable" doc:"kind stage: why the upstream Stage could not be read"`
+	Problem     string `json:"problem,omitempty" enum:"missing,unreadable,outOfScope" doc:"kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows"`
 	Stream      string `json:"stream,omitempty" doc:"kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name>"`
 	Repository  string `json:"repository,omitempty" doc:"kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name"`
 	Trust       string `json:"trust,omitempty" enum:"trusted,untrusted,unreadable,unknown" doc:"kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet"`
@@ -238,9 +238,10 @@ func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject) 
 
 // upstreamListed is upstreamOf from the Stages already listed, so a board of
 // many rows reads no Stage twice. An upstream Stage not in the list is
-// missing when the list is complete, and unreadable when it is not: it may
-// sit in a namespace the caller cannot list.
-func upstreamListed(st *delivery.StageObject, byStage map[string]*delivery.StageObject, complete bool) *Upstream {
+// missing only when the listing read its namespace in full. Outside the
+// dashboard's namespace it is out of scope; else it is unreadable: it may sit
+// in a namespace the caller cannot list.
+func upstreamListed(st *delivery.StageObject, byStage map[string]*delivery.StageObject, l Listing) *Upstream {
 	c := st.Spec.Candidates
 	if c.UpstreamStage == nil {
 		return upstreamOf(context.Background(), nil, st)
@@ -249,8 +250,10 @@ func upstreamListed(st *delivery.StageObject, byStage map[string]*delivery.Stage
 	switch up := byStage[u.Namespace+"/"+u.Stage]; {
 	case up != nil:
 		u.Environment = up.Spec.Environment
-	case complete:
+	case l.read(u.Namespace):
 		u.Problem = "missing"
+	case l.scope != "" && u.Namespace != l.scope:
+		u.Problem = "outOfScope"
 	default:
 		u.Problem = "unreadable"
 	}
@@ -400,7 +403,7 @@ type PromotionEdge struct {
 
 // promotionGraph is the graph of one service's stages; byStage holds every
 // listed Stage, so an upstream outside the service still says where it is.
-func promotionGraph(stages []delivery.StageObject, byStage map[string]*delivery.StageObject, complete bool) *PromotionGraph {
+func promotionGraph(stages []delivery.StageObject, byStage map[string]*delivery.StageObject, l Listing) *PromotionGraph {
 	g := &PromotionGraph{Nodes: []PromotionNode{}, Edges: []PromotionEdge{}}
 	key := func(st *delivery.StageObject) string { return st.Metadata.Namespace + "/" + st.Metadata.Name }
 	nodes := map[string]PromotionNode{}
@@ -409,7 +412,7 @@ func promotionGraph(stages []delivery.StageObject, byStage map[string]*delivery.
 	for i := range stages {
 		st := &stages[i]
 		k := key(st)
-		n := PromotionNode{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment, Upstream: *upstreamListed(st, byStage, complete)}
+		n := PromotionNode{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment, Upstream: *upstreamListed(st, byStage, l)}
 		nodes[k], keys = n, append(keys, k)
 	}
 	for _, k := range keys {

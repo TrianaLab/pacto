@@ -26,7 +26,17 @@ type Listing struct {
 	AsOf         string   `json:"asOf"`
 	Completeness string   `json:"completeness" enum:"complete,partial"`
 	Unreadable   []string `json:"unreadable,omitempty" doc:"Namespaces the caller may not list, or * when the namespaces could not be known"`
+
+	// everywhere is set when every namespace was listed at once; else listed
+	// names the namespaces read in full. scope is the dashboard's namespace.
+	everywhere bool
+	listed     []string
+	scope      string
 }
+
+// read says whether the listing read namespace ns in full, so a Stage of ns
+// it does not hold does not exist.
+func (l Listing) read(ns string) bool { return l.everywhere || slices.Contains(l.listed, ns) }
 
 func forbidden(err error) bool {
 	var de *DeliveryError
@@ -41,7 +51,7 @@ func forbidden(err error) bool {
 // ponytail: a list per request with the caller's token, polled by the UI;
 // add a per-session informer if list load shows on the apiserver.
 func (s *Server) lists(ctx context.Context, api DeliveryAPI, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
-	l := Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}
+	l := Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete", scope: s.opts.DeliveryNamespace}
 	namespaces := []string{s.opts.DeliveryNamespace}
 	if namespaces[0] == "" {
 		// Both at once: for a new person each waits on a permission check.
@@ -57,6 +67,7 @@ func (s *Server) lists(ctx context.Context, api DeliveryAPI, withOps bool) ([]de
 			err = oerr
 		}
 		if err == nil {
+			l.everywhere = true
 			return stages, ops, l, nil
 		}
 		if !forbidden(err) {
@@ -110,7 +121,7 @@ func listEach(ctx context.Context, api DeliveryAPI, namespaces []string, l Listi
 		case err != nil:
 			return nil, nil, l, err
 		default:
-			stages, ops = append(stages, sts[i]...), append(ops, oss[i]...)
+			stages, ops, l.listed = append(stages, sts[i]...), append(ops, oss[i]...), append(l.listed, ns)
 		}
 	}
 	return stages, ops, l, nil
@@ -516,7 +527,6 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 		}
 	}
 	byStage := stagesByName(stages)
-	complete := l.Completeness == "complete"
 	stages = filter(stages, func(st delivery.StageObject) bool {
 		return matches(in.Q, st.Spec.Service.Name) && delivery.OfService(st, in.Service, in.Domain)
 	})
@@ -525,7 +535,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	out.Body.EnvironmentNames, out.Body.EnvironmentTiers = environmentColumns(stages)
 	byEnv := countByEnvironment(stages, held)
 	if in.Service != "" {
-		out.Body.Promotion = promotionGraph(stages, byStage, complete)
+		out.Body.Promotion = promotionGraph(stages, byStage, l)
 		out.Body.Promotion.Last = lastPromotion(out.Body.Promotion, ops)
 	}
 	stages = filter(stages, func(st delivery.StageObject) bool { return in.keeps(st, held) })
@@ -548,7 +558,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	vers := versionsAll(ctx, api, nil, teams, on...)
 	for _, st := range shown {
 		row := environmentRow(st, held, caller, vers, teams)
-		row.Upstream = upstreamListed(&st, byStage, complete)
+		row.Upstream = upstreamListed(&st, byStage, l)
 		out.Body.Environments = append(out.Body.Environments, row)
 	}
 	mayRaise(ctx, api, out.Body.Environments)
@@ -770,6 +780,7 @@ type historyInput struct {
 	Domain    string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
 	Since     string `query:"since" doc:"RFC 3339 time: keep only changes that ran at or after it. A change with no time, or still in flight, is kept"`
 	Until     string `query:"until" doc:"RFC 3339 time: keep only changes that started at or before it. A change with no time is kept"`
+	Timed     bool   `query:"timed" doc:"With since or until: keep only the changes whose own time (finished, else applied, else since when waiting) is at or after since and before until, as a timeline column counts them. A change with no time, or one that only overlaps the window, is left out"`
 	// With a Stage, the page is of its changes; without, of Stages, each
 	// with its newest changes.
 	PageQuery
@@ -877,7 +888,11 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		if errs[i] != nil {
 			return nil, errs[i]
 		}
-		h := new(delivery.WindowEntries(*hs[i], since, until))
+		window := delivery.WindowEntries
+		if in.Timed {
+			window = delivery.SliceEntries
+		}
+		h := new(window(*hs[i], since, until))
 		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h, ProblemCount: len(h.Problems), UnreadableCount: len(h.Unreadable)}
 		entries := slices.Clone(h.Entries)
 		slices.Reverse(entries) // newest first: what a reader looks for is the latest change

@@ -268,7 +268,7 @@ function parseFleet(path: string, query: string): Route {
 }
 
 // The URL state of a delivery list: which Stage, which page and the filter.
-const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'state', 'signed', 'since', 'until', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain'];
+const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'state', 'signed', 'since', 'until', 'timed', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain'];
 
 function parseDelivery(path: string, query: string): Route {
   const rest = path.slice('delivery'.length).replace(/^\//, '');

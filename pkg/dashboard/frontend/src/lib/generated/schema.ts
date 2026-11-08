@@ -4458,10 +4458,10 @@ export interface components {
             /** @description kind stage: the upstream Stage's namespace */
             namespace?: string;
             /**
-             * @description kind stage: why the upstream Stage could not be read
+             * @description kind stage: why the upstream Stage could not be read; outOfScope when it sits outside the namespace the dashboard shows
              * @enum {string}
              */
-            problem?: "missing" | "unreadable";
+            problem?: "missing" | "unreadable" | "outOfScope";
             /** @description kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name */
             repository?: string;
             /** @description kind stage: the upstream Stage's name */
@@ -4912,6 +4912,8 @@ export interface operations {
                 since?: string;
                 /** @description RFC 3339 time: keep only changes that started at or before it. A change with no time is kept */
                 until?: string;
+                /** @description With since or until: keep only the changes whose own time (finished, else applied, else since when waiting) is at or after since and before until, as a timeline column counts them. A change with no time, or one that only overlaps the window, is left out */
+                timed?: boolean;
                 /** @description Where the page starts. Past the end answers the last page */
                 offset?: number;
                 /** @description How many per page; 0 means the list's default */

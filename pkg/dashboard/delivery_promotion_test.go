@@ -223,7 +223,7 @@ func TestPromotionGraph(t *testing.T) {
 	remote.Spec.Candidates.UpstreamRecords = &delivery.RemoteStage{Repository: "r", Stream: "c/n/s"}
 	stages := []delivery.StageObject{node("prod-us", "staging", "svc"), node("staging", "dev", "svc"), node("prod-eu", "staging", "svc"), dev,
 		remote, node("lonely", "", ""), node("orphan", "nowhere", "svc"), node("a", "b", "svc"), node("b", "a", "svc")}
-	g := promotionGraph(stages, stagesByName(stages), true)
+	g := promotionGraph(stages, stagesByName(stages), Listing{everywhere: true})
 	var got []string
 	for _, n := range g.Nodes {
 		s := fmt.Sprintf("%s@%d:%s", n.Environment, n.Level, n.Upstream.Kind)
@@ -239,11 +239,14 @@ func TestPromotionGraph(t *testing.T) {
 	expect(t, strings.Join(got, " ") == want, "nodes:\n%s\nwant\n%s", strings.Join(got, " "), want)
 	expect(t, fmt.Sprint(g.Edges) == "[{a/svc b/svc} {b/svc a/svc} {dev/svc staging/svc} {staging/svc prod-eu/svc} {staging/svc prod-us/svc}]", "edges: %v", g.Edges)
 	// An upstream the caller may not list is unreadable, not missing.
-	g = promotionGraph([]delivery.StageObject{node("prod", "hidden", "svc")}, nil, false)
+	g = promotionGraph([]delivery.StageObject{node("prod", "hidden", "svc")}, nil, Listing{listed: []string{"prod"}})
 	expect(t, g.Nodes[0].Upstream.Problem == "unreadable", "partial: %+v", g.Nodes[0])
+	// One outside the dashboard's namespace is out of scope, never missing.
+	g = promotionGraph([]delivery.StageObject{node("prod", "test", "svc")}, nil, Listing{listed: []string{"prod"}, scope: "prod"})
+	expect(t, g.Nodes[0].Upstream.Problem == "outOfScope", "scoped: %+v", g.Nodes[0])
 	// An upstream of another service names its environment but draws no edge.
 	other := fed("test", "other", "", "")
-	g = promotionGraph([]delivery.StageObject{node("prod", "test", "other")}, stagesByName([]delivery.StageObject{other}), true)
+	g = promotionGraph([]delivery.StageObject{node("prod", "test", "other")}, stagesByName([]delivery.StageObject{other}), Listing{everywhere: true})
 	expect(t, g.Nodes[0].Upstream.Environment == "test" && len(g.Edges) == 0, "outside the graph: %+v", g)
 }
 

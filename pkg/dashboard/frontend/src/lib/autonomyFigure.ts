@@ -16,10 +16,10 @@ type Level = NonNullable<DeliveryAutonomy['byLevel']>[number];
 export const DEFAULT_LEVEL = 'observe';
 
 const SAYS: Record<string, string> = {
-  observe: 'GitOps promotes every change; Pacto plans it and moves nothing',
-  advise: 'Pacto proposes; a person promotes every change',
-  'auto-nonbreaking': 'Non-breaking changes promote alone (top); breaking ones wait for a person (bottom)',
-  autonomous: 'Every change the gate clears promotes alone',
+  observe: 'GitOps promotes every change; Pacto plans it and moves nothing.',
+  advise: 'Pacto proposes; a person promotes every change.',
+  'auto-nonbreaking': 'Non-breaking changes promote alone (top); breaking ones wait for a person (bottom).',
+  autonomous: 'Every change the gate clears promotes alone.',
 };
 
 export function autonomyModel(byLevel: Level[], promotions: { count: number; of: number; untyped: number }) {

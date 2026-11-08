@@ -6,7 +6,8 @@
  * declare (counts.byEnvironment, never the names), each with its Stages counted by
  * state on one share bar and a count list that links to the board filtered by state and
  * environment (T3). An arrow joins two neighbouring stations only when the Stages of the
- * second are fed by the first: across services there is no one order.
+ * second are fed by the first: across services there is no one order. A station fed by
+ * an environment further back names it in words, so no declared link goes unsaid.
  *
  * The service figure answers "Where is X on its way to production?" from that service's
  * own promotion graph: a staircase for a chain, a fork for a branch, a source marker for
@@ -56,6 +57,8 @@ export interface EnvStation {
   tier: string;
   stages: number;
   counts: { s: (typeof ENV_STATES)[number]; n: number }[];
+  /** The environments feeding it that no arrow draws: any but its left neighbour. */
+  fedBy: string[];
 }
 
 export function fleetEnvModel(byEnv: Counts[]) {
@@ -69,9 +72,12 @@ export function fleetEnvModel(byEnv: Counts[]) {
     envs = envs.filter((e) => keep.has(e));
   }
   const counted = (cs: Counts[]) => ENV_STATES.map((s) => ({ s, n: cs.reduce((n, e) => n + Number(e[s.field] ?? 0), 0) })).filter((c) => c.n);
-  const stations: EnvStation[] = envs.map((e) => ({ key: e.environment, label: e.environment, env: e.environment, tier: e.tier ?? '', stages: e.stages, counts: counted([e]) }));
+  const stations: EnvStation[] = envs.map((e, i) => ({
+    key: e.environment, label: e.environment, env: e.environment, tier: e.tier ?? '', stages: e.stages, counts: counted([e]),
+    fedBy: (e.upstream ?? []).filter((u) => u !== envs[i - 1]?.environment),
+  }));
   if (rest.length) {
-    stations.push({ key: '+', label: countOf(rest.length, 'more environment'), env: '', except: envs.map((e) => e.environment), tier: '', stages: rest.reduce((n, e) => n + e.stages, 0), counts: counted(rest) });
+    stations.push({ key: '+', label: countOf(rest.length, 'more environment'), env: '', except: envs.map((e) => e.environment), tier: '', stages: rest.reduce((n, e) => n + e.stages, 0), counts: counted(rest), fedBy: [] });
   }
   const fed = (i: number) => i + 1 < envs.length && (envs[i + 1].upstream ?? []).includes(envs[i].environment);
   const wires: WireDef[] = stations.slice(1).flatMap((_, i) => fed(i) ? [{
@@ -87,9 +93,10 @@ export function fleetEnvModel(byEnv: Counts[]) {
   ].filter(Boolean).join(' ');
   return {
     stations, wires, caption, stages,
-    figRef: [wires.length ? 'An arrow joins two environments when the Stages of the second are fed by the first.' : '',
+    figRef: [wires.length ? 'An arrow joins two neighbouring environments when the Stages of the second are fed by the first.' : '',
+      stations.some((s) => s.fedBy.length) ? 'A station fed by any other environment names it.' : '',
       'Stations are drawn the same size; the bars give the Stages in each state.'].filter(Boolean).join(' '),
-    alt: stations.map((s) => `${s.label}: ${s.counts.map((c) => `${c.n} ${c.s.word}`).join(', ') || 'no Stages'}`).join('; '),
+    alt: stations.map((s) => `${s.label}${s.fedBy.length ? `, fed by ${andList(s.fedBy, 3)}` : ''}: ${s.counts.map((c) => `${c.n} ${c.s.word}`).join(', ') || 'no Stages'}`).join('; '),
   };
 }
 
@@ -135,6 +142,7 @@ function sourceOf(n: GNode, fedInGraph: boolean, ownStage = false): PromoSource 
       return { kind: 'records', label: 'Another cluster', sub: u.trust === 'trusted' ? 'verified there, read from its signed records' : 'verified there; the promoter has not said yet whether it trusts the records' };
     case 'stage':
       if (u.problem === 'missing') return { kind: 'unknown', label: 'Missing upstream', sub: `the Stage ${u.namespace}/${u.stage} does not exist` };
+      if (u.problem === 'outOfScope') return { kind: 'unknown', label: 'Upstream out of scope', sub: `the Stage ${u.namespace}/${u.stage} is in a namespace this dashboard does not show` };
       if (u.problem === 'unreadable') return { kind: 'unknown', label: 'Unreadable upstream', sub: `the Stage ${u.namespace}/${u.stage} cannot be read` };
       return { kind: 'stage', label: u.environment || `${u.namespace}/${u.stage}`, sub: `the Stage ${u.namespace}/${u.stage}${ownStage ? '' : ', of another service'}` };
   }

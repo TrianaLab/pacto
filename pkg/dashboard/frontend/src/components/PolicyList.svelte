@@ -11,7 +11,7 @@
 <!-- The shared table rules: fixed columns so a long reference can no longer squeeze
      Name to one word per line or push Target off the card. -->
 <table class="data-table">
-  <colgroup><col style="width:26%" /><col style="width:12%" /><col /><col style="width:22%" /></colgroup>
+  <colgroup><col style="width:26%" /><col style="width:11ch" /><col /><col style="width:22%" /></colgroup>
   <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Definition</th><th scope="col">Target</th></tr></thead>
   <tbody>
     {#each items as p, pi (`${p.name}:${pi}`)}
