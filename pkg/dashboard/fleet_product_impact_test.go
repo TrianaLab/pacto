@@ -79,7 +79,7 @@ func impactWithRes(t *testing.T, q *fleet.Query, res *impact.Result, limit, offs
 		t.Fatal(err)
 	}
 	rev := v.Revisions[0]
-	return toProductImpact(impact.BuildProduct(q.ProductMeta(), snap, rev.ServiceKey, rev, rev, res, limit, offset))
+	return toProductImpact(impact.BuildProductOutcome(q.ProductMeta(), snap, rev.ServiceKey, rev, rev, res, limit, offset, ""))
 }
 
 // adversarialImpactResult builds an impact result whose every list is above its

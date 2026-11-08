@@ -223,15 +223,14 @@ func mutableRefDescription(rev *fleet.ContractRevision) string {
 // up in the snapshot so identities are exact and labels come from records) and
 // bounds every list. SnapshotMatch is true because the caller analyzed only the
 // immutable content [ImmutableRef] returned, over this snapshot.
+//
+// Deprecated: use [BuildProductOutcome] with an empty outcome.
 func BuildProduct(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *Result, limit, offset int) *Product {
 	return BuildProductOutcome(meta, snap, svcKey, fromRev, toRev, res, limit, offset, "")
 }
 
-// IsOutcome reports whether s names a consumer outcome a page can be filtered to.
-func IsOutcome(s string) bool { return slices.Contains(outcomeOrder, s) }
-
 // BuildProductOutcome is [BuildProduct] with the consumer page filtered to one
-// outcome (see [IsOutcome]); "" pages over every consumer. The tallies, the
+// outcome (one of the Outcome constants); "" pages over every consumer. The tallies, the
 // highlights and Total always cover every consumer, so a drawing made from them is
 // the same whichever filter the table below it shows.
 func BuildProductOutcome(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *Result, limit, offset int, outcome string) *Product {
@@ -301,15 +300,10 @@ var completenessRank = map[fleet.Completeness]int{
 	fleet.CompletenessEmpty: 0, fleet.CompletenessPartial: 1, fleet.CompletenessComplete: 2,
 }
 
-// pageConsumers offset-pages a sorted consumer list with defaulted/capped limit
-// and a next-offset cursor. hidden is the count of direct consumers the viewer may
-// not see.
-func pageConsumers(all []ProductConsumer, limit, offset, hidden int) ConsumersPage {
-	return pageConsumersOutcome(all, limit, offset, hidden, "")
-}
-
-// pageConsumersOutcome is pageConsumers over the consumers of one outcome ("" for
-// all). all must be sorted by key.
+// pageConsumersOutcome offset-pages a sorted consumer list over the consumers of
+// one outcome ("" for all), with defaulted/capped limit and a next-offset cursor.
+// hidden is the count of direct consumers the viewer may not see. all must be
+// sorted by key.
 func pageConsumersOutcome(all []ProductConsumer, limit, offset, hidden int, outcome string) ConsumersPage {
 	// The two tallies cover EVERY consumer, not this page. A consumer chart drawn from
 	// a page reads exactly like a chart of the whole blast radius, so the complete

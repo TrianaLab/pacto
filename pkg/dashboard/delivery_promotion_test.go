@@ -168,7 +168,9 @@ func TestEnvironmentsCountByEnvironment(t *testing.T) {
 		for _, e := range page(envs["counts"])["byEnvironment"].([]any) {
 			c := page(e)
 			out = append(out, fmt.Sprintf("%v:%v", c["environment"], c["stages"]))
-			for _, k := range stageStates {
+			// Stage states (B2), worst first: a Stage is counted in the first that
+			// holds, so the counts of an environment sum to its Stages.
+			for _, k := range []string{"failed", "frozen", "autohold", "waiting", "unverified", "empty", "verified"} {
 				key := map[string]string{"autohold": "autoHold"}[k]
 				if key == "" {
 					key = k

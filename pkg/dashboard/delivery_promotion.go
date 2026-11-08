@@ -260,10 +260,6 @@ func upstreamListed(st *delivery.StageObject, byStage map[string]*delivery.Stage
 	return u
 }
 
-// Stage states (B2), worst first: a Stage is counted in the first that holds,
-// so the counts of an environment sum to its Stages.
-var stageStates = []string{"failed", "frozen", "autohold", "waiting", "unverified", "empty", "verified"}
-
 // stageState is the one state st is counted in; held counts the held
 // operations by namespace/Stage.
 func stageState(st delivery.StageObject, held map[string]int) string {

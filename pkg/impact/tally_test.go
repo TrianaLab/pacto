@@ -100,7 +100,7 @@ func TestResultAndProductCarryTheSameTallies(t *testing.T) {
 	for _, c := range res.Consumers {
 		pc = append(pc, ProductConsumer{CompatibilityVerdict: c.CompatibilityVerdict, Owner: c.Owner, Unmet: c.Unmet})
 	}
-	page := pageConsumers(pc, 10, 0, 0)
+	page := pageConsumersOutcome(pc, 10, 0, 0, "")
 	if !reflect.DeepEqual(page.ConsumerTallies, res.ConsumerTallies) {
 		t.Fatalf("product %+v != result %+v", page.ConsumerTallies, res.ConsumerTallies)
 	}

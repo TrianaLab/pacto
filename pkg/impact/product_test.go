@@ -442,9 +442,6 @@ func TestBuildProduct_OutcomeOrder(t *testing.T) {
 	if got := consumerKeys(all.Items); !slices.Equal(got, want) || all.Matching != 7 || all.Outcome != "" {
 		t.Errorf("order = %v (matching %d), want %v", got, all.Matching, want)
 	}
-	if !IsOutcome(OutcomeUnclassified) || IsOutcome("refused") || IsOutcome("") {
-		t.Error("IsOutcome accepts exactly the four outcomes")
-	}
 }
 
 // A filtered page keeps one outcome and says how many match, while every tally still
