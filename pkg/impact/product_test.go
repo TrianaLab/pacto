@@ -410,13 +410,10 @@ func TestBuildProduct_HiddenUnderRestrict(t *testing.T) {
 	}
 }
 
-// The table lists consumers as the figure reads them: by outcome, the highlighted
-// ones first within each, then by key. A filtered page keeps one outcome and says how
-// many match, while every tally still covers every consumer.
-func TestBuildProduct_OutcomeOrderAndFilter(t *testing.T) {
-	snap := productSnapshot()
-	from, to := snap.Revisions["api@1"], snap.Revisions["api@2"]
-	res := &Result{Classification: "BREAKING", Consumers: []AffectedConsumer{
+// outcomeFixture is one consumer of each kind the consumers page orders: two
+// highlighted (direct), a refused one, an unknown verdict and an unrecognized one.
+func outcomeFixture() *Result {
+	return &Result{Classification: "BREAKING", Consumers: []AffectedConsumer{
 		{Service: "a-ok", CompatibilityVerdict: CompatibilityCompatible},
 		{Service: "b-ok-hl", Direct: true, CompatibilityVerdict: CompatibilityCompatible},
 		{Service: "c-unk", CompatibilityVerdict: CompatibilityUnknown},
@@ -425,28 +422,46 @@ func TestBuildProduct_OutcomeOrderAndFilter(t *testing.T) {
 		{Service: "f-bad", CompatibilityVerdict: CompatibilityIncompatible},
 		{Service: "g-bad-hl", Direct: true, CompatibilityVerdict: CompatibilityIncompatible},
 	}}
-	keys := func(items []ProductConsumer) []string {
-		out := make([]string, 0, len(items))
-		for _, c := range items {
-			out = append(out, c.Service.Key)
-		}
-		return out
+}
+
+func consumerKeys(items []ProductConsumer) []string {
+	out := make([]string, 0, len(items))
+	for _, c := range items {
+		out = append(out, c.Service.Key)
 	}
-	all := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, res, 0, 0).Consumers
+	return out
+}
+
+// The table lists consumers as the figure reads them: by outcome, the highlighted
+// ones first within each, then by key.
+func TestBuildProduct_OutcomeOrder(t *testing.T) {
+	snap := productSnapshot()
+	from, to := snap.Revisions["api@1"], snap.Revisions["api@2"]
+	all := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, outcomeFixture(), 0, 0).Consumers
 	want := []string{"g-bad-hl", "d-refused", "f-bad", "c-unk", "b-ok-hl", "a-ok", "e-novel"}
-	if got := keys(all.Items); !slices.Equal(got, want) || all.Matching != 7 || all.Outcome != "" {
+	if got := consumerKeys(all.Items); !slices.Equal(got, want) || all.Matching != 7 || all.Outcome != "" {
 		t.Errorf("order = %v (matching %d), want %v", got, all.Matching, want)
-	}
-	inc := BuildProductOutcome(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, res, 2, 0, OutcomeIncompatible).Consumers
-	if got := keys(inc.Items); !slices.Equal(got, []string{"g-bad-hl", "d-refused"}) || inc.Matching != 3 || inc.Total != 7 ||
-		inc.Outcome != OutcomeIncompatible || inc.NextOffset == nil || *inc.NextOffset != 2 {
-		t.Errorf("incompatible page = %v, matching %d, total %d, next %v", got, inc.Matching, inc.Total, inc.NextOffset)
-	}
-	if !reflect.DeepEqual(inc.ConsumerTallies, all.ConsumerTallies) || len(inc.Highlights) != len(all.Highlights) {
-		t.Errorf("a filter changed the tallies: %+v vs %+v", inc.ConsumerTallies, all.ConsumerTallies)
 	}
 	if !IsOutcome(OutcomeUnclassified) || IsOutcome("refused") || IsOutcome("") {
 		t.Error("IsOutcome accepts exactly the four outcomes")
+	}
+}
+
+// A filtered page keeps one outcome and says how many match, while every tally still
+// covers every consumer.
+func TestBuildProduct_OutcomeFilter(t *testing.T) {
+	snap := productSnapshot()
+	from, to := snap.Revisions["api@1"], snap.Revisions["api@2"]
+	all := BuildProduct(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, outcomeFixture(), 0, 0).Consumers
+	inc := BuildProductOutcome(fleet.ProductMeta{}, snap, from.ServiceKey, from, to, outcomeFixture(), 2, 0, OutcomeIncompatible).Consumers
+	if got := consumerKeys(inc.Items); !slices.Equal(got, []string{"g-bad-hl", "d-refused"}) || inc.Matching != 3 || inc.Total != 7 || inc.Outcome != OutcomeIncompatible {
+		t.Errorf("incompatible page = %v, matching %d, total %d", got, inc.Matching, inc.Total)
+	}
+	if inc.NextOffset == nil || *inc.NextOffset != 2 {
+		t.Errorf("next offset = %v, want 2", inc.NextOffset)
+	}
+	if !reflect.DeepEqual(inc.ConsumerTallies, all.ConsumerTallies) || len(inc.Highlights) != len(all.Highlights) {
+		t.Errorf("a filter changed the tallies: %+v vs %+v", inc.ConsumerTallies, all.ConsumerTallies)
 	}
 }
 
