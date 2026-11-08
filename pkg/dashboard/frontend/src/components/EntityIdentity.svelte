@@ -51,7 +51,7 @@
     font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .ei-label { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
-  .ei-context { font-size: var(--text-xs); color: var(--c-text-3); display: inline-flex; gap: var(--sp-1); flex-wrap: wrap; min-width: 0; overflow-wrap: anywhere; }
+  .ei-context { font-size: var(--text-xs); color: var(--c-text-3); display: inline-flex; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; overflow-wrap: anywhere; }
   .ei-dot { color: var(--c-text-3); }
   .ei-key { margin-top: var(--sp-1); }
 </style>

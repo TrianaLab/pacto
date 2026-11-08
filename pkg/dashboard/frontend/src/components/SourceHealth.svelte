@@ -53,7 +53,7 @@
   .source-health { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
   .sh-none { color: var(--c-text-3); font-size: var(--text-sm); }
   .sh-chip {
-    display: inline-flex; align-items: center; gap: var(--sp-1);
+    display: inline-flex; align-items: center; gap: var(--sp-2);
     padding: 2px 8px; border-radius: var(--radius-sm); text-decoration: none;
     font-size: var(--text-xs); color: var(--c-text-2);
     border: 1px solid var(--c-border); background: var(--c-surface);

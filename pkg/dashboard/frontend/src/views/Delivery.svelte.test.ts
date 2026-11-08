@@ -113,7 +113,7 @@ describe('inbox', () => {
     // Frozen Stages and stuck changes fold behind their count, each a one-line row.
     const frozenSection = target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
     expect(frozenSection.open).toBe(false);
-    expect(text(frozenSection.querySelector('summary') as HTMLElement).trim()).toBe('▸Frozen Stages 1');
+    expect(text(frozenSection.querySelector('summary') as HTMLElement).trim()).toBe('Frozen Stages 1');
     expect(text(target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement).trim()).toBe('payments in prod Errored');
     expect(text(frozenSection)).toContain('Nothing moves in these until a person unfreezes them.');
     expect((target.querySelector('[data-testid="inbox-errored-section"]') as HTMLDetailsElement).open).toBe(false);
@@ -1196,7 +1196,7 @@ describe('history and published', () => {
     // Both lists fold behind a warn count, so the changes come first.
     const problems = target.querySelector('[data-testid="history-problems"]') as HTMLDetailsElement;
     expect(problems.open).toBe(false);
-    expect(text(problems.querySelector('summary') as HTMLElement)).toBe('▸2 record problems');
+    expect(text(problems.querySelector('summary') as HTMLElement)).toBe('2 record problems');
     expect(target.querySelector('[data-testid="history-unreadable"]')?.textContent).toContain('not trusted here');
     // Ids are short inline; the full one is on hover and copied on a click.
     const ids = [...target.querySelectorAll('[data-testid^="history-"] button.dt-id')];

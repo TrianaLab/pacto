@@ -167,7 +167,7 @@
                   <li class="au-blocker">
                     <details class="disclosure">
                       <summary class="au-row">
-                        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+                        <span class="disclosure-caret" data-motion aria-hidden="true"></span>
                         <!-- Plain text, not a link: a link inside a summary is a control inside a control. The link is in the detail. -->
                         {#if b.subject}<code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>{:else}<span class="au-subject cell-clip">{b.stages?.length ? `${countOf(b.stages.length, 'Stage')}` : 'Every Stage'}</span>{/if}
                         <span class="t-meta au-count">{#if !b.subject}{:else if b.stages?.length}{countOf(b.stages.length, 'Stage')}{:else}No Stage{/if}</span>

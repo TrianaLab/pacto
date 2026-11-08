@@ -244,7 +244,7 @@
       </select>
     </label>
     <details class="av-advanced disclosure">
-      <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Advanced filters</summary>
+      <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Advanced filters</summary>
       <div class="av-adv-grid">
         <label class="av-field">
           <span>Status</span>

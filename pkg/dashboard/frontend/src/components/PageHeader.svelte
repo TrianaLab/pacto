@@ -75,7 +75,7 @@
   {#if shownKind || eyebrow || context.length}
     <p class="page-hd-eyebrow t-label">
       {#if eyebrow}{eyebrow}{:else if shownKind}{kindLabel(shownKind)}{/if}
-      {#each context as bit}<span class="page-hd-dot" aria-hidden="true">·</span><span class="page-hd-ctx" title={abbreviateDigests(bit) === bit ? undefined : bit}>{abbreviateDigests(bit)}</span>{/each}
+      {#each context as bit}<span class="page-hd-dot" aria-hidden="true">·</span><span class="page-hd-ctx" title={abbreviateDigests(bit) === bit ? undefined : bit}><bdi data-format={abbreviateDigests(bit) === bit ? undefined : "short"}>{abbreviateDigests(bit)}</bdi></span>{/each}
     </p>
   {/if}
 
@@ -111,7 +111,7 @@
      section: the header owns a generous bottom gap and nothing
      else on the page is allowed to sit that far apart. */
   .page-hd { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-  .page-hd-eyebrow { margin: 0; display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+  .page-hd-eyebrow { margin: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .page-hd-dot { color: var(--c-text-3); }
   .page-hd-ctx { text-transform: none; letter-spacing: normal; overflow-wrap: anywhere; }
   .page-hd-title-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }

@@ -9,7 +9,7 @@
 </script>
 
 <details class="disclosure fold" {open} data-testid={testid || undefined} aria-labelledby={labelledby || undefined}>
-  <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><svelte:element this={`h${level}`} class="fold-title" id={id || undefined}>{title}</svelte:element>{#if meta}<span class="t-meta fold-meta">{meta}</span>{/if}</summary>
+  <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><svelte:element this={`h${level}`} class="fold-title" id={id || undefined}>{title}</svelte:element>{#if meta}<span class="t-meta fold-meta">{meta}</span>{/if}</summary>
   <div class="fold-body">{@render children?.()}</div>
 </details>
 

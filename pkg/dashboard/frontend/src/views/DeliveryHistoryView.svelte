@@ -284,13 +284,13 @@
             {/if}
             {#if (h.problems ?? []).length}
               <details class="disclosure hv-chip hv-chip-warn" data-testid="history-problems">
-                <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>{countOf(h.problems.length, 'record problem')}</summary>
+                <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{countOf(h.problems.length, 'record problem')}</summary>
                 <div class="hv-notes"><CappedList items={h.problems} max={5}>{#snippet item(p)}<DigestText text={p} {known} />{/snippet}</CappedList></div>
               </details>
             {/if}
             {#if (h.unreadable ?? []).length}
               <details class="disclosure hv-chip" data-testid="history-unreadable">
-                <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>{formatCount(h.unreadable.length)} not read or verified</summary>
+                <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{formatCount(h.unreadable.length)} not read or verified</summary>
                 <div class="hv-notes"><CappedList items={h.unreadable} max={5}>{#snippet item(u)}<DigestText text={u} {known} />{/snippet}</CappedList></div>
               </details>
             {/if}

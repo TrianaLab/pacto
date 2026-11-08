@@ -172,7 +172,7 @@
            stable handle a test has on this disclosure, exactly as for the software
            inventory and the graph's text alternative. -->
       <details class="ev-ident disclosure" data-testid="entity-identifier">
-        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Identifier</summary>
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Identifier</summary>
         <div class="ev-key">
           <span class="ev-key-label">Canonical key</span>
           <CopyableIdentifier value={detail.entity.key} />

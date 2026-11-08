@@ -31,7 +31,7 @@
   <p class="rn-head"><strong>{headline}</strong></p>
   {#if known}
     <details class="disclosure rn-more">
-      <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Details</summary>
+      <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Details</summary>
       <p class="rn-detail t-body-2">{detail}</p>
     </details>
   {:else}

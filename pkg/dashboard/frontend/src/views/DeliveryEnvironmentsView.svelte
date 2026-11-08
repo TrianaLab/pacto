@@ -349,7 +349,7 @@
           {#each observingCap.slice(observing) as r (r.namespace + '/' + r.stage)}
             <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
               <summary>
-                <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+                <span class="disclosure-caret" data-motion aria-hidden="true"></span>
                 <h3 id={`shadow-${r.namespace}-${r.stage}`} class="ev-shadow-title">{r.service} in {r.environment}</h3>
                 <span class="t-meta">{countOf(r.shadow.length, 'candidate')}</span>
               </summary>

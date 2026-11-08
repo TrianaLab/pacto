@@ -393,7 +393,7 @@
            is native. -->
       <details class="disclosure sv-inv-more">
         <summary>
-          <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+          <span class="disclosure-caret" data-motion aria-hidden="true"></span>
           <span>Per-owner breakdown</span>
           <span class="sv-more-count t-meta">{distinctOwners} named {distinctOwners === 1 ? 'owner' : 'owners'}</span>
         </summary>

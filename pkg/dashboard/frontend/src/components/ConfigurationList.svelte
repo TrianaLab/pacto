@@ -30,7 +30,7 @@
              scope they came for. -->
         <details class="cl-ops disclosure">
           <summary>
-            <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+            <span class="disclosure-caret" data-motion aria-hidden="true"></span>
             {formatCount(c.values.count)}{c.values.truncated && typeof c.values.total === 'number' ? ` of ${formatCount(c.values.total)}` : ''} {c.values.count === 1 && !c.values.truncated ? 'value' : 'values'}
           </summary>
           <table class="kv-table kv-table--mono">

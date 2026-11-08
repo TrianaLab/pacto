@@ -182,7 +182,7 @@
            and links to all of them, so the page keeps one pager. -->
       {#if frozen.length && whole !== 'errored'}
         <details class="disclosure dl-more" open={whole === 'frozen'} data-testid="inbox-frozen-section">
-          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-frozen" class="dl-more-title">Frozen Stages</h2> <span class="t-meta dl-count">{formatCount(frozenTotal)}</span></summary>
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 id="inbox-frozen" class="dl-more-title">Frozen Stages</h2> <span class="t-meta dl-count">{formatCount(frozenTotal)}</span></summary>
           <p class="t-body-2 dl-note">Nothing moves in these until a person unfreezes them.</p>
           <ul class="pl-list" data-testid="inbox-frozen">
             {#each frozenRows as row, i (row.namespace + '/' + row.stage)}
@@ -203,7 +203,7 @@
 
       {#if errored.length && whole !== 'frozen'}
         <details class="disclosure dl-more" open={whole === 'errored'} data-testid="inbox-errored-section">
-          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-errored" class="dl-more-title">Changes that could not finish</h2> <span class="t-meta dl-count">{formatCount(erroredTotal)}</span></summary>
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 id="inbox-errored" class="dl-more-title">Changes that could not finish</h2> <span class="t-meta dl-count">{formatCount(erroredTotal)}</span></summary>
           <p class="t-body-2 dl-note">Each Stage stays frozen until a person looks at it.</p>
           <ul class="pl-list" data-testid="inbox-errored">
             {#each erroredRows as it, i (it.namespace + '/' + it.name)}

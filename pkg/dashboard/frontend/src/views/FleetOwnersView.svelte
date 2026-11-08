@@ -171,7 +171,7 @@
       />
       <details class="disclosure ow-sum-more">
         <summary>
-          <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+          <span class="disclosure-caret" data-motion aria-hidden="true"></span>
           <span>Per-owner breakdown</span>
           <!-- The number names the population it counts: every canonical owner these
                services declare, disputed ones included — not the rows below, which

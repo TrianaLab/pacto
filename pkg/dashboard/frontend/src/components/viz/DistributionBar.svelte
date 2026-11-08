@@ -246,7 +246,7 @@
     background: var(--c-surface-inset);
   }
   /* The 2px gap is a boundary, not decoration: two adjacent segments of similar tone
-     (Unknown beside Warning, both amber) read as one wide slice without it, and the
+     (Warning beside Error, two warm fills) read as one wide slice without it, and the
      reader counts three buckets on a four-bucket bar. */
   .dist-bar {
     display: flex; gap: 2px; width: 100%; height: 24px; border-radius: var(--radius-xs);

@@ -279,7 +279,7 @@ describe('GraphView — product Operational Graph', () => {
     // Missing data and the cut answer share ONE line above the canvas, folded.
     expect(qa(target, '[data-testid="graph-notice"]')).toHaveLength(1);
     expect((q(target, '[data-testid="graph-notice"]') as HTMLDetailsElement).open).toBe(false);
-    expect(q(target, '[data-testid="graph-notice"] summary')?.textContent).toBe('▸Some data is missing · 3 of 210 entities shown');
+    expect(q(target, '[data-testid="graph-notice"] summary')?.textContent).toBe('Some data is missing · 3 of 210 entities shown');
 
     (q(target, '[data-testid="graph-show-more"]') as HTMLButtonElement).click();
     expect(location.hash).toContain('maxNodes=100');

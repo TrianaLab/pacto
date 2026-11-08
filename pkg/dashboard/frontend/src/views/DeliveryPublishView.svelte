@@ -101,7 +101,7 @@
       <!-- Open when a refusal is the page's answer, so the answer is on screen. -->
       <details class="disclosure pv-fold" open={!!(refused.recorded && refusedTotal)}>
         <summary>
-          <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+          <span class="disclosure-caret" data-motion aria-hidden="true"></span>
           <h2 id="pv-refused" class="t-section-title">Refused publishes</h2>
           <span class="badge {refused.recorded && refusedTotal ? 'badge-err' : 'badge-neutral'}" data-testid="refused-chip">{refused.recorded ? formatCount(refusedTotal) : 'Not recorded'}</span>
         </summary>
@@ -206,7 +206,6 @@
   .pv-contract { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; max-width: 100%; }
   .pv-envs { margin-left: auto; }
   .pv-refused { display: flex; flex-direction: column; gap: var(--sp-2); }
-  .pv-fold > summary { gap: var(--sp-2); }
   .pv-fold > summary h2 { margin: 0; }
   .pv-fold-body { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
   .pv-fold-body > p { margin: 0; }

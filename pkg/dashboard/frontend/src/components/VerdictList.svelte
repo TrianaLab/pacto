@@ -37,7 +37,7 @@
         {/if}
         {#if (v.citation && Object.keys(v.citation).length) || v.rerun}
           <details class="vl-more disclosure">
-            <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Proof</summary>
+            <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Proof</summary>
             {#if v.citation && Object.keys(v.citation).length}
               <dl class="vl-cite t-body-2">
                 {#each Object.entries(v.citation).filter(([k]) => !SHOWN.has(k)) as [k, val] (k)}

@@ -515,7 +515,7 @@
     <!-- WHAT CHANGED: the field-level diff of the two contracts, breaking first. A
          statement about the contracts, not about what runs. -->
     <details class="ca-fold disclosure" id="sec-what-changed" data-testid="changes-what-changed">
-      <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>What changed</h2>
+      <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2>What changed</h2>
         <span class="ca-fold-meta" data-testid="changes-counts">{#if changes.total === 0}No differences{:else}{changes.breaking} breaking · {changes.potential} potentially breaking · {changes.nonBreaking} non-breaking{/if}</span>
       </summary>
       <div class="ca-fold-body">
@@ -544,7 +544,7 @@
          are different claims with different evidence. -->
     <div class="ca-folds" id="sec-what-it-affects" data-testid="changes-what-it-affects">
       <details class="ca-fold disclosure" id="sec-affected-consumers" data-testid="changes-consumers">
-        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>Affected consumers</h2>
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2>Affected consumers</h2>
           <span class="ca-fold-meta">{consumerMeta}</span>
         </summary>
         <div class="ca-fold-body">
@@ -615,7 +615,7 @@
       </details>
 
       <details class="ca-fold disclosure" data-testid="changes-owners-targets">
-        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>Owners and targets</h2>
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2>Owners and targets</h2>
           <span class="ca-fold-meta">{countOf(owners.total, 'owner')} · {countOf(activeTargets.total, 'target')}</span>
         </summary>
         <div class="ca-fold-body meta-lists">
@@ -630,7 +630,7 @@
 
       {#if limitations.count > 0}
         <details class="ca-fold disclosure" data-testid="changes-limitations">
-          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>Incomplete evidence</h2>
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2>Incomplete evidence</h2>
             <span class="ca-fold-meta">{formatCount(limitations.total)}</span>
           </summary>
           <div class="ca-fold-body">
@@ -690,7 +690,6 @@
   .impact-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
   .ca-stack { border-top: 1px solid var(--c-border); }
   .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }
-  .ca-fold > summary { gap: var(--sp-2); }
   .ca-fold > summary h2 { margin: 0; }
   .ca-fold-meta { margin-left: auto; color: var(--c-text-3); font-size: var(--text-sm); }
   .ca-fold-body { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-2) 0 var(--sp-3); }

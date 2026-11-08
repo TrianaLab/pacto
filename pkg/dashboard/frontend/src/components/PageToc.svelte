@@ -191,7 +191,7 @@
            (Enter/Space, which the browser delivers here as a click) counts the same as a
            tap. On <details> it would be a mouse listener on a non-interactive element. -->
       <summary class="toc-summary" onclick={() => { touched = true; }}>
-        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+        <span class="disclosure-caret" data-motion aria-hidden="true"></span>
         <span class="toc-title t-label">{label}</span>
         <span class="toc-count t-meta">{formatCount(entries.length)}</span>
       </summary>

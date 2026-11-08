@@ -553,7 +553,7 @@
       {/if}
       {#if noticeParts.length}
       <details class="gv-notice disclosure" data-testid="graph-notice">
-        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>{noticeParts.join(' · ')}</summary>
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{noticeParts.join(' · ')}</summary>
         <div class="gv-notice-body">
       <KnowledgeBanner {knowledge} noun="neighborhood" testid="graph-knowledge-caveat" />
       {#if showTruncated}
@@ -641,7 +641,7 @@
                  screens for different readers. -->
             <p class="gv-summary" aria-live="polite" data-testid="graph-summary">{graphSummary}</p>
             <details class="gv-textalt disclosure" data-testid="graph-textalt">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Relationships (text)</summary>
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Relationships (text)</summary>
               <ul class="gv-nodes" aria-label="Graph nodes">
                 {#each shown.nodes as n (n.ref.key)}
                   <li>
@@ -684,7 +684,7 @@
           {#if (shown.unresolvedDependencies?.count ?? 0) > 0}
             <!-- A secondary list: a count that opens, not a block that pushes the page down. -->
             <details class="gv-unresolved disclosure" data-testid="graph-unresolved">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Dependencies outside the graph</h2> <span class="gv-chip">{formatCount(shown.unresolvedDependencies.total)}</span></summary>
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 class="gv-fold-title">Dependencies outside the graph</h2> <span class="gv-chip">{formatCount(shown.unresolvedDependencies.total)}</span></summary>
               <p class="t-meta">Declared, with no known service to draw. External ones are delivered outside Pacto; unresolved ones match nothing Pacto knows.</p>
               <CappedList items={shown.unresolvedDependencies.items} max={8} label="Dependencies outside the graph" testid="graph-unresolved-list">
                 {#snippet item(u)}{#if u.external}<IdentityBadge label="external" />{' '}{/if}<EntityLink ref={u.from} showStatus={false} />{' '}declares {u.external ? 'external ' : ''}<code>{u.requestedRef || u.ref}</code>{#if u.reason}{': '}{u.reason}{/if}{/snippet}
@@ -695,7 +695,7 @@
 
           {#if (shown.limitations?.count ?? 0) > 0}
             <details class="gv-limitations disclosure" data-testid="graph-limitations">
-              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 class="gv-fold-title">Limitations</h2> <span class="gv-chip">{formatCount(shown.limitations.total ?? shown.limitations.count)}</span></summary>
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 class="gv-fold-title">Limitations</h2> <span class="gv-chip">{formatCount(shown.limitations.total ?? shown.limitations.count)}</span></summary>
               <LimitationsList items={shown.limitations.items} />
             </details>
           {/if}
@@ -748,7 +748,7 @@
               {/if}
               {#if (selected.edge.declaredClaims?.count ?? 0) > 0}
                 <details class="gv-claims disclosure">
-                  <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><span class="gv-k">Declared by</span> <span class="t-meta">{#if selected.edge.declaredClaims.truncated}{formatCount(selected.edge.declaredClaims.count)} of {formatCount(selected.edge.declaredClaims.total)}{:else}{formatCount(selected.edge.declaredClaims.count)}{/if}</span></summary>
+                  <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><span class="gv-k">Declared by</span> <span class="t-meta">{#if selected.edge.declaredClaims.truncated}{formatCount(selected.edge.declaredClaims.count)} of {formatCount(selected.edge.declaredClaims.total)}{:else}{formatCount(selected.edge.declaredClaims.count)}{/if}</span></summary>
                   <ul>
                     {#each selected.edge.declaredClaims.items.slice(0, claimsShown) as c, i (i)}
                       <!-- Through the shared abbreviator, like every other surface that
