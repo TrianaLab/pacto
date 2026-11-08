@@ -88,3 +88,57 @@ func sumBuckets(bs []TimelineBucket) TimelineCounts {
 	}
 	return sum
 }
+
+// A window of decades cuts its slices without overflowing, and one longer
+// than time.Duration holds still counts every line in it.
+func TestTimelineLongWindow(t *testing.T) {
+	end := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	for _, start := range []time.Time{time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), {}} {
+		entries := []HistoryEntry{{Finished: start.Format(time.RFC3339)}, {Finished: end.Format(time.RFC3339)}}
+		tl := Timeline(entries, start, end)
+		if tl.Buckets[0].Other != 1 || tl.Buckets[TimelineBuckets-1].Other != 1 || tl.Totals.Other != 2 {
+			t.Errorf("from %s: %+v", start, tl.Buckets)
+		}
+	}
+	tl := Timeline(nil, time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), end)
+	if tl.Buckets[0].Start != tl.Start || tl.Buckets[TimelineBuckets-1].End != tl.End {
+		t.Errorf("the slices cover the window: %+v", tl.Buckets)
+	}
+}
+
+// A slice keeps what a timeline column counts, so the column's count is the
+// length of its list: no change without a time and none that only overlaps.
+func TestSliceEntries(t *testing.T) {
+	tm := func(h int) time.Time { return time.Date(2026, 11, 5, h, 0, 0, 0, time.UTC) }
+	at := func(h int) string { return tm(h).Format(time.RFC3339) }
+	h := History{Note: "n", Entries: []HistoryEntry{
+		{Operation: "overlaps", Applied: at(7), Finished: at(13)},
+		{Operation: "finished-in", Applied: at(7), Finished: at(9)},
+		{Operation: "applied-in", Applied: at(10)},
+		{Operation: "waits-in", Since: at(8)},
+		{Operation: "at-until", Finished: at(12)},
+		{Operation: "timeless"},
+		{Operation: "unparseable", Finished: "later"},
+	}}
+	for _, c := range []struct {
+		since, until time.Time
+		want, note   string
+	}{
+		{tm(8), tm(12), "[finished-in applied-in waits-in]", "n; only changes with a time at or after 2026-11-05T08:00:00Z and before 2026-11-05T12:00:00Z are listed"},
+		{tm(10), time.Time{}, "[overlaps applied-in at-until]", "n; only changes with a time at or after 2026-11-05T10:00:00Z are listed"},
+		{time.Time{}, tm(9), "[waits-in]", "n; only changes with a time before 2026-11-05T09:00:00Z are listed"},
+		{time.Time{}, time.Time{}, "[overlaps finished-in applied-in waits-in at-until]", "n; only changes with a time are listed"},
+	} {
+		got := SliceEntries(h, c.since, c.until)
+		var names []string
+		for _, e := range got.Entries {
+			names = append(names, e.Operation)
+		}
+		if fmt.Sprint(names) != c.want || got.Note != c.note {
+			t.Errorf("%s..%s: %v %q", c.since, c.until, names, got.Note)
+		}
+	}
+	if len(h.Entries) != 7 || h.Note != "n" {
+		t.Fatalf("the input history was mutated: %+v", h)
+	}
+}
