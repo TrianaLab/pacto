@@ -54,6 +54,7 @@
 .fig .t-accent { --tone: var(--c-accent); }
 .fig .t-neutral { --tone: var(--fig-line-strong); }
 .fig .t-frost { --tone: var(--c-info); }
+.fig .t-info { --tone: var(--c-info); }
 
 /* Node: a flat pin with one glyph (C15). */
 .nd { display: inline-grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; }
@@ -347,3 +348,61 @@ a.tl-n:hover { text-decoration: underline; }
 .fig[data-w="col"] .pnode { grid-row: auto; grid-template-rows: none; grid-template-columns: 40px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; }
 .fig[data-w="col"] .pub { row-gap: var(--sp-4); }
 .fig[data-w="col"] .pslot { grid-row: 1 / span 2; grid-column: 1; height: auto; margin: 0; }
+
+/* HubNode: a flat rounded square, accent for the subject, neutral for a population. */
+.hub { display: inline-grid; place-items: center; width: 44px; height: 44px; flex: none; }
+.hub svg { display: block; overflow: visible; }
+.hub .hub-f { fill: color-mix(in srgb, var(--tone) 14%, var(--c-iso-face)); stroke: var(--tone); stroke-width: 1.5; }
+.hub .hub-g { fill: none; stroke: var(--tone); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+@media (forced-colors: active) { .hub .hub-f, .hub .hub-g { stroke: CanvasText; } }
+
+/* Stack and rows (revisions): layers left, one row per layer right, wired corner to row. */
+.stackfig { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 0 var(--sp-8); min-width: 0; }
+.stackfig-s { min-width: 0; }
+.stack-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); min-width: 0; font-size: var(--text-sm); line-height: 1.4; }
+.stack-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-2); min-width: 0; }
+.stack-row .id { display: block; flex: 0 1 auto; max-width: 100%; }
+.fig[data-w="col"] .stackfig { grid-template-columns: 110px minmax(0, 1fr); gap: 0 var(--sp-5); }
+
+/* Target: the plinth wired to the revision it runs. */
+.tgtfig { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 0 var(--sp-8); min-width: 0; }
+.tgtfig-p { display: grid; justify-items: center; gap: var(--sp-2); }
+.tgtfig-r { display: grid; gap: 2px; justify-self: start; min-width: 0; max-width: 100%; font-size: var(--text-sm); line-height: 1.4; }
+.fig[data-w="col"] .tgtfig { grid-template-columns: minmax(0, 1fr); row-gap: var(--sp-6); justify-items: center; }
+.fig[data-w="col"] .tgtfig-r { justify-self: center; text-align: center; }
+
+/* Source: one source node wired to the snapshot hub. */
+.srcfig { display: grid; grid-template-columns: minmax(0, max-content) minmax(var(--sp-8), 8rem) max-content; align-items: center; justify-content: start; min-width: 0; }
+.srcfig-s { display: grid; grid-template-columns: minmax(0, 1fr) 28px; grid-template-rows: auto auto; column-gap: var(--sp-3); align-items: center; min-width: 0; font-size: var(--text-sm); line-height: 1.4; }
+.srcfig-s > .nd { grid-column: 2; grid-row: 1 / span 2; }
+.srcfig-s > .t-meta { grid-column: 1; overflow-wrap: anywhere; }
+.srcfig-h { grid-column: 3; display: flex; align-items: center; gap: var(--sp-3); }
+.srcfig-hl { display: grid; gap: 2px; font-size: var(--text-sm); line-height: 1.4; }
+.fig[data-w="col"] .srcfig { grid-template-columns: minmax(0, 1fr); row-gap: var(--sp-6); }
+.fig[data-w="col"] .srcfig-h { grid-column: 1; }
+
+/* Offering: providers fan into the hub, the hub leads the phase track (Failed under
+   Provisioning, Not reported under the track). Vertical under rowMin. */
+.ofig {
+  display: grid; min-width: 0; align-items: start; gap: var(--sp-6) var(--sp-4);
+  grid-template-columns: minmax(6rem, 9rem) repeat(4, minmax(0, 1fr));
+  grid-template-areas: "prov prov prov prov prov" "hub requested provisioning ready deleting" ". . failed chips chips" ". unknown unknown unknown unknown";
+}
+.ofig-prov { grid-area: prov; list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-6); min-width: 0; font-size: var(--text-sm); }
+.ofig-prov li { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; max-width: 19rem; }
+.ofig-prov .id { min-width: 0; }
+.cnt { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 6px; flex: none; border: 1.5px solid var(--fig-line-strong); border-radius: 8px; font-size: var(--text-xs); font-weight: 600; color: var(--c-text-2); background: var(--c-surface); }
+.ofig-hub { grid-area: hub; display: grid; justify-items: start; gap: var(--sp-2); min-width: 0; }
+.ofig-hl { display: grid; gap: 2px; min-width: 0; max-width: 100%; font-size: var(--text-sm); line-height: 1.4; }
+.ph { display: grid; justify-items: center; align-content: start; gap: var(--sp-2); min-width: 0; text-align: center; }
+.ph-requested { grid-area: requested; } .ph-provisioning { grid-area: provisioning; } .ph-ready { grid-area: ready; } .ph-deleting { grid-area: deleting; } .ph-failed { grid-area: failed; }
+.ph-l { display: grid; gap: 2px; justify-items: center; min-width: 0; max-width: 100%; font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.ph-chips { grid-area: chips; display: flex; flex-wrap: wrap; align-items: center; align-content: start; gap: var(--sp-2); min-width: 0; padding-top: 6px; }
+.ph-chips .badge.chip bdi { max-width: 100%; }
+.ph-unknown { grid-area: unknown; grid-template-columns: 28px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; font-size: var(--text-sm); }
+.fig[data-w="col"] .ofig { grid-template-columns: minmax(0, 1fr); grid-template-areas: "prov" "hub" "requested" "provisioning" "ready" "deleting" "failed" "chips" "unknown"; }
+.fig[data-w="col"] .ofig-prov { flex-direction: column; }
+.fig[data-w="col"] .ofig-hub { grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: var(--sp-3); }
+.fig[data-w="col"] .ph { grid-template-columns: 40px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; }
+.fig[data-w="col"] .ph-l { justify-items: start; }
+.anc { display: block; width: 1px; height: 1px; }

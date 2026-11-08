@@ -98,6 +98,9 @@ const STAGE: Record<string, { word: string; tone: Tone }> = {
 };
 const STAGE_NAME: Record<string, string> = { structural: 'Structure', 'cross-field': 'Cross-field', policy: 'Policy', 'configuration-refs': 'Configuration references', environments: 'Environments' };
 
+/** stageName is how a validation stage is named on every surface. */
+export const stageName = (name: string): string => STAGE_NAME[name] ?? name;
+
 /** stageBadge names one validation stage and how it ended. A skip from a stage that ran
  *  but could not check everything (unverified) is "not verified", apart from "not run". */
 export function stageBadge(st: { name: string; status: string; reason?: string; unverified?: boolean }): { label: string; tone: Tone; title: string } {

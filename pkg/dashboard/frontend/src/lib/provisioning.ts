@@ -14,6 +14,17 @@ export function phaseTone(phase: string | undefined): 'ok' | 'err' | 'info' | 'n
   }
 }
 
+/** The glyph of a provisioning phase (S6): drawn as geometry beside its badge. */
+export function phaseGlyph(phase: string | undefined): 'ok' | 'err' | 'progress' | 'none' | 'unknown' {
+  switch (phase) {
+    case 'Ready': return 'ok';
+    case 'Failed': return 'err';
+    case 'Requested': case 'Provisioning': return 'progress';
+    case 'Deleting': return 'none';
+    default: return 'unknown';
+  }
+}
+
 /** The short badge text: the environment and entry it is about, then the phase. */
 export function phaseBadgeLabel(st: ProvisioningStatus): string {
   const where = [st.environment, st.entry].filter(Boolean).join(' ');

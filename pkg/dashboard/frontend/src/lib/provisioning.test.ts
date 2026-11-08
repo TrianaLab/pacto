@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { phaseBadgeLabel, phaseTone, phaseLabel, provisioningTitle, type ProvisioningStatus } from './provisioning.ts';
+import { phaseBadgeLabel, phaseGlyph, phaseTone, phaseLabel, provisioningTitle, type ProvisioningStatus } from './provisioning.ts';
 
 const NOW = Date.parse('2026-11-06T12:00:00Z');
 const st = (extra: Partial<ProvisioningStatus>): ProvisioningStatus => ({ phase: 'Unknown', provenance: 'observed', verified: false, ...extra });
@@ -8,6 +8,12 @@ describe('phaseTone', () => {
   it.each([
     ['Ready', 'ok'], ['Failed', 'err'], ['Requested', 'info'], ['Provisioning', 'info'], ['Deleting', 'info'], ['Unknown', 'neutral'], [undefined, 'neutral'],
   ])('%s is %s', (phase, tone) => expect(phaseTone(phase)).toBe(tone));
+});
+
+describe('phaseGlyph', () => {
+  it.each([
+    ['Ready', 'ok'], ['Failed', 'err'], ['Requested', 'progress'], ['Provisioning', 'progress'], ['Deleting', 'none'], ['Unknown', 'unknown'], [undefined, 'unknown'],
+  ])('%s is %s', (phase, glyph) => expect(phaseGlyph(phase)).toBe(glyph));
 });
 
 describe('phaseBadgeLabel', () => {

@@ -21,7 +21,8 @@
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ProvisioningBadges from '../../components/ProvisioningBadges.svelte';
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
-  import { readinessSegments, signatureSegments, signatureState, segmentTotal, READINESS_STATES } from '../../lib/distributions.ts';
+  import ServiceRevisionsFigure from '../../components/figure/ServiceRevisionsFigure.svelte';
+  import { readinessSegments, signatureSegments, signatureState, segmentTotal, complianceSegments, READINESS_STATES } from '../../lib/distributions.ts';
   import { dropService, inService } from '../../lib/identityContext.ts';
   import { api } from '../../lib/api.ts';
   import { miraServiceLink } from '../../lib/delivery.ts';
@@ -461,6 +462,10 @@
     </PreviewSection>
   </div>
 
+  {#if (d.revisions?.total ?? 0) > 0}
+    <ServiceRevisionsFigure revisions={d.revisions} currentKey={d.currentRevision?.key ?? ''} {self} allHref={allRevisionsHref} />
+  {/if}
+
   <div class="se-wrap" data-testid="service-delivery">
     <ServiceDelivery service={self} domain={detail.entity?.domain ?? ''} state={deliveryState} {refreshTick} />
   </div>
@@ -519,6 +524,11 @@
     </div>
 
     <PreviewSection title="Dependents" help="Services that declare this one." total={d.dependents?.total ?? 0} count={d.dependents?.count ?? 0} truncated={d.dependents?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependents, false) || 'Nothing depends on this service.'}>
+      {#if (d.dependents?.total ?? 0) > 1}
+        <!-- B4: the dependents' compliance over every visible dependent, never the
+             preview; hidden ones are counted in the line below and never here. -->
+        <DistributionBar title="Compliance of dependents" level={4} segments={complianceSegments(d.dependentsStatus)} total={d.dependents.total} />
+      {/if}
       <EntityRefList items={d.dependents?.items ?? []} showStatus={false} />
       {#if d.hiddenDependents}<p class="se-hidden t-body-2" data-testid="hidden-dependents">{hidden(d.hiddenDependents, true)}</p>{/if}
     </PreviewSection>

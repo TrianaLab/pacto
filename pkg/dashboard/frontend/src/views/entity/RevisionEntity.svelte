@@ -23,6 +23,7 @@
   import { joinAnd } from '../../lib/answers.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import { fleetEntityListUrl } from '../../lib/router.ts';
+  import RevisionFigures from '../../components/figure/RevisionFigures.svelte';
 
   // The revision page: an IMMUTABLE version of the service contract, not a deployment,
   // and the CONTRACT INSPECTOR -- the one place a user reads what this exact revision
@@ -135,6 +136,8 @@
       </div>
     {/if}
   </section>
+
+  <RevisionFigures {stages} revision={d} self={detail.entity?.key ?? ''} service={d.service?.label ?? ''} {historyHref} />
 
   {#if id.digest || id.resolvedRef || id.requestedRef}
     <!-- The immutable content identity, in full and still copyable, one click away. Three rows of 71-character hex were the second thing on the

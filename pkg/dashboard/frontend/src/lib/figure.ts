@@ -26,16 +26,35 @@ export const ringPath = (cx: number, cy: number, hw: number) => slab(cx, cy, hw 
  * leaves it. The height includes the bottom layer's side, so nothing spills its cell.
  */
 export const MAX_STACK_LAYERS = 5;
-export function stackGeometry(layers: number, w = 150) {
+export function stackGeometry(layers: number, w = 150, plinth = false) {
   const n = Math.max(1, Math.min(MAX_STACK_LAYERS, layers));
   const hw = 52, t = 9, gap = 24, cx = w / 2, top = 36;
-  const H = top + (n - 1) * gap + hw / 2 + t + 12;
+  const H = top + (n - 1) * gap + hw / 2 + t + (plinth ? 36 : 12);
+  // The plinth carries the earlier revisions the stack folds: a wider, thinner base.
+  const py = top + (n - 1) * gap + 30;
   return {
     W: w, H,
     layers: Array.from({ length: n }, (_, k) => {
       const y = top + k * gap;
       return { y, paths: slab(cx, y, hw, t), anchor: { x: cx + hw, y: y + t / 2 } };
     }),
+    plinth: plinth ? { paths: slab(cx, py, hw + 14, 6), anchor: { x: cx + hw + 14, y: py + 3 } } : null,
+  };
+}
+
+/**
+ * plinthGeometry is a target on its place (SPEC 3, Plinth): `count` slabs (1 to 3, one
+ * per thing that runs there) on a wider base. The anchor is the top slab's right corner.
+ */
+export function plinthGeometry(count: number, w = 150) {
+  const n = Math.max(1, Math.min(3, count));
+  const cx = w / 2, hw = 40, t = 12, gap = 18, top = 28;
+  const by = top + (n - 1) * gap + 30;
+  return {
+    W: w, H: by + 34,
+    base: slab(cx, by, 64, 8),
+    slabs: Array.from({ length: n }, (_, k) => slab(cx, top + k * gap, hw, t)),
+    anchor: { x: cx + hw, y: top + t / 2 },
   };
 }
 
@@ -140,7 +159,7 @@ export function arrowHead(a: Pt, fs: Side, b: Pt, ts: Side, len = 7, half = 4): 
 /** SPEC 2.1: observed solid, projected dashed, stale dotted, missing broken. */
 export type WireStyle = 'obs' | 'proj' | 'stale' | 'broken';
 /** frost is frozen (SPEC 2.2 r4): its own fill on the info tone, never the unknown hatch. */
-export type FigTone = 'err' | 'warn' | 'ok' | 'accent' | 'neutral' | 'frost';
+export type FigTone = 'err' | 'warn' | 'ok' | 'accent' | 'neutral' | 'frost' | 'info';
 
 export interface WireDef {
   id: string;
@@ -169,6 +188,10 @@ export const GLYPH_PATH = {
   unknown: 'M-2.5 -1.7 C-2.5 -4.6 2.6 -4.6 2.6 -1.7 C2.6 0 0 0.3 0 2.1 M0 4.3 V4.4',
   held: 'M-1.9 -3.4 V3.4 M1.9 -3.4 V3.4',
   none: 'M-3.4 0 H3.4',
+  // A small box: a service that provides an offering (an empty square read as a checkbox).
+  provider: 'M-4 -2 L0 -4 L4 -2 L4 2.5 L0 4.5 L-4 2.5 L-4 -2 L0 0 L4 -2 M0 0 V4.5',
+  // Three dots: in progress (a request a provider is working on).
+  progress: 'M-3.6 0 V0.1 M0 0 V0.1 M3.6 0 V0.1',
   // A six-armed flake: frozen, which is information, never a failure.
   frozen: 'M0 -4.4 V4.4 M-3.8 -2.2 L3.8 2.2 M-3.8 2.2 L3.8 -2.2',
   // An eye struck through: names hidden by the reader's access (Ghost), so it never
@@ -191,6 +214,7 @@ export const KIND_GLYPH = {
   'golden-path': 'M4 20 C8 20 8 12 12 12 C16 12 16 4 20 4 M17 4 H20 V7',
   source: 'M12 20 V12 M12 12 A3 3 0 1 0 12 6 A3 3 0 1 0 12 12 Z M6 4 A9 9 0 0 0 6 14 M18 4 A9 9 0 0 1 18 14',
   environment: 'M3 18 H21 M5 18 V10 L12 6 L19 10 V18 M10 18 V13 H14 V18',
+  snapshot: 'M4 8 H20 V19 H4 Z M9 8 L10.5 5 H13.5 L15 8 M12 16.5 A3 3 0 1 0 12 10.5 A3 3 0 1 0 12 16.5 Z',
 } as const;
 export type KindGlyph = keyof typeof KIND_GLYPH;
 

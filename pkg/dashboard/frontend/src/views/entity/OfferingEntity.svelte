@@ -13,6 +13,7 @@
   import PolicyList from '../../components/PolicyList.svelte';
   import OfferingVersions from '../../components/OfferingVersions.svelte';
   import ProvisioningBadges from '../../components/ProvisioningBadges.svelte';
+  import OfferingFigure from '../../components/figure/OfferingFigure.svelte';
 
   // The platform-offering page: every service whose contract declares this
   // service.offering, with what a consumer needs to choose one (owner, versions,
@@ -31,6 +32,7 @@
 </script>
 
 <div class="offering-entity">
+  <OfferingFigure offering={key} {providers} {consumers} hidden={hiddenConsumers} providersHref={fleetServicesUrl({ offering: key })} />
   <PreviewSection title="Providers" total={providers.total ?? 0} count={providers.count ?? 0} truncated={providers.truncated}
     viewAllHref={fleetServicesUrl({ offering: key })} viewAllLabel="View all providers" empty="No service provides this offering."
     help="Services whose contract declares this platform offering.">

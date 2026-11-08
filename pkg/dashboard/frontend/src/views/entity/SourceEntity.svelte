@@ -5,6 +5,7 @@
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import LimitationsSection from '../../components/LimitationsSection.svelte';
+  import SourceFigure from '../../components/figure/SourceFigure.svelte';
 
   // The data source page: a product inspector, in the order the questions get asked.
   //
@@ -39,6 +40,7 @@
 </script>
 
 <div class="source-entity">
+  <SourceFigure source={d} name={detail.entity?.label ?? detail.entity?.key ?? ''} asOf={detail.meta?.asOf ? formatDate(detail.meta.asOf) : ''} />
   <section class="se-what" id="sec-this-data-source" data-toc="This data source" aria-labelledby="se-what-h">
     <div class="se-head">
       <h2 id="se-what-h" class="t-section-title">This data source</h2>

@@ -753,18 +753,19 @@ describe('figures', () => {
     }
   });
 
-  it('requires the layers an iso primitive stacks', () => {
-    for (const name of ['Stack.svelte']) {
+  it('requires the layers or count an iso primitive stacks', () => {
+    for (const [name, prop] of [['Stack.svelte', 'layers'], ['Plinth.svelte', 'count']]) {
       const body = figFiles.find((f) => f.rel === `components/figure/${name}`)!.body;
-      expect(body, name).toMatch(/let \{ layers \} = \$props\(\)/);
+      expect(body, name).toMatch(new RegExp(`let \\{ ${prop}[,} ]`));
+      expect(body, name).toMatch(new RegExp(`\\{ ${prop}: [^?]`));
     }
   });
 
   // S10 and G4: a mark that stands for many members is never toned by its worst one.
-  it('lets a station take only neutral or accent', () => {
-    for (const name of ['Station.svelte']) {
+  it('lets a station or a hub take only neutral or accent', () => {
+    for (const name of ['Station.svelte', 'HubNode.svelte']) {
       const body = figFiles.find((f) => f.rel === `components/figure/${name}`)!.body;
-      expect(body, name).toMatch(/tone\?: 'neutral' \| 'accent'/);
+      expect(body, name).toMatch(/tone\?: 'neutral' \| 'accent'|tone\?: 'accent' \| 'neutral'/);
     }
   });
 
