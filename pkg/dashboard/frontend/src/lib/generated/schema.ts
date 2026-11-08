@@ -877,6 +877,8 @@ export interface components {
             blockers: components["schemas"]["AutonomyBlocker"][] | null;
             /** @description Which blockers this page holds, grouped by kind */
             blockersPage: components["schemas"]["Page"];
+            /** @description Stages at each level, over every page after q: observe, advise, auto-nonbreaking, autonomous, then those that report none */
+            byLevel: components["schemas"]["LevelCount"][] | null;
             /**
              * Format: int64
              * @description Stages, over every page, Pacto proposes a next level for
@@ -3159,6 +3161,12 @@ export interface components {
             type: string;
             visibility?: string;
         };
+        LevelCount: {
+            /** @description observe, advise, auto-nonbreaking or autonomous; empty for Stages that report no level */
+            level: string;
+            /** Format: int64 */
+            stages: number;
+        };
         "Lock.Entry": {
             constraint?: string;
             contentHash?: string;
@@ -4029,6 +4037,27 @@ export interface components {
             /** @description The version the publish asked for */
             version: string;
         };
+        PublishedCounts: {
+            /** @description Up to 4 of those services, by name */
+            firstUnsigned: string[] | null;
+            /** Format: int64 */
+            signed: number;
+            /**
+             * Format: int64
+             * @description Versions Flux never verified a signature on: who built them cannot be traced
+             */
+            unsigned: number;
+            /**
+             * Format: int64
+             * @description Services with at least one unsigned version
+             */
+            unsignedServices: number;
+            /**
+             * Format: int64
+             * @description Distinct digests per service the Stages know
+             */
+            versions: number;
+        };
         PublishedOnStages: {
             environment: string;
             failed: boolean;
@@ -4041,6 +4070,8 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
+            /** @description Over every page after q, before signed */
+            counts: components["schemas"]["PublishedCounts"];
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
             services: components["schemas"]["PublishedService"][] | null;
@@ -5418,6 +5449,8 @@ export interface operations {
                 limit?: number;
                 /** @description Keep only what contains this text, ignoring case */
                 q?: string;
+                /** @description Keep only the services with a version that is (yes) or is not (no) signed, and only those versions */
+                signed?: "yes" | "no";
             };
             header?: never;
             path?: never;

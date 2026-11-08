@@ -358,3 +358,30 @@ func TestDeliveryHistoryTimeline(t *testing.T) {
 	tot = page(page(one["timeline"])["totals"])
 	expect(t, h["timeline"] == nil && tot["missing"] == float64(1) && tot["released"] == float64(1), "one Stage's timeline is its own, before q: %v", one["timeline"])
 }
+
+// Publish: the counts are over every page; signed narrows the list, never
+// the counts.
+func TestPublishedCountsAndSignedFilter(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?limit=1", nil)
+	want := "map[firstUnsigned:[ledger] signed:2 unsigned:1 unsignedServices:1 versions:3]"
+	expect(t, fmt.Sprint(pub["counts"]) == want, "payments' two published digests are signed, ledger's failed one is not: %v", pub["counts"])
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=no", nil)
+	svcs := pub["services"].([]any)
+	expect(t, len(svcs) == 1 && page(svcs[0])["service"] == "ledger" && fmt.Sprint(pub["counts"]) == want, "only unsigned versions: %v", svcs)
+	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=yes", nil)
+	svcs = pub["services"].([]any)
+	expect(t, len(svcs) == 1 && len(page(svcs[0])["versions"].([]any)) == 2, "only signed versions: %v", svcs)
+}
+
+// Autonomy: Stages per level over every page, every level present, a level
+// the ladder does not know counted as none reported.
+func TestAutonomyCountsByLevel(t *testing.T) {
+	rows := []AutonomyStage{{Level: "advise"}, {Level: "advise"}, {Level: "autonomous"}, {Level: "warp"}, {}}
+	expect(t, fmt.Sprint(countByLevel(rows)) == "[{observe 0} {advise 2} {auto-nonbreaking 0} {autonomous 1} { 2}]", "%v", countByLevel(rows))
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, au := call(t, http.MethodGet, base+"/api/delivery/autonomy?limit=1", nil)
+	expect(t, len(au["byLevel"].([]any)) == 5, "every level: %v", au["byLevel"])
+}

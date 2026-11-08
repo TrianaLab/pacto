@@ -610,6 +610,7 @@ const publishedPage = 10
 
 type publishedInput struct {
 	PageQuery
+	Signed string `query:"signed" enum:"yes,no" doc:"Keep only the services with a version that is (yes) or is not (no) signed, and only those versions"`
 }
 
 type publishedOutput struct {
@@ -617,7 +618,17 @@ type publishedOutput struct {
 		Listing
 		Services []PublishedService `json:"services"`
 		Page     Page               `json:"page" doc:"Which services this page holds; offset and limit count services"`
+		Counts   PublishedCounts    `json:"counts" doc:"Over every page after q, before signed"`
 	}
+}
+
+// PublishedCounts is how many of the versions the Stages know are signed.
+type PublishedCounts struct {
+	Versions         int      `json:"versions" doc:"Distinct digests per service the Stages know"`
+	Signed           int      `json:"signed"`
+	Unsigned         int      `json:"unsigned" doc:"Versions Flux never verified a signature on: who built them cannot be traced"`
+	UnsignedServices int      `json:"unsignedServices" doc:"Services with at least one unsigned version"`
+	FirstUnsigned    []string `json:"firstUnsigned" doc:"Up to 4 of those services, by name"`
 }
 
 // deliveryPublished reads the versions from what the Stages remember:
@@ -636,8 +647,17 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	// First where each digest stands, which costs nothing; then only the
 	// page's artifacts are read.
 	byService, readFrom := publishedDigests(stages, in.Q)
-	names := slices.Sorted(maps.Keys(byService))
 	out := &publishedOutput{}
+	out.Body.Counts = countPublished(byService)
+	if in.Signed != "" {
+		for svc, vs := range byService {
+			maps.DeleteFunc(vs, func(_ string, v *PublishedVersion) bool { return v.Signed != (in.Signed == "yes") })
+			if len(vs) == 0 {
+				delete(byService, svc)
+			}
+		}
+	}
+	names := slices.Sorted(maps.Keys(byService))
 	out.Body.Listing, out.Body.Services = l, []PublishedService{}
 	names, out.Body.Page = pageOf(names, in.Offset, in.Limit, publishedPage)
 	var page []*PublishedVersion
@@ -661,6 +681,29 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 		out.Body.Services = append(out.Body.Services, ps)
 	}
 	return out, nil
+}
+
+// countPublished counts the versions of byService by whether they are signed.
+func countPublished(byService map[string]map[string]*PublishedVersion) PublishedCounts {
+	c := PublishedCounts{FirstUnsigned: []string{}}
+	for _, svc := range slices.Sorted(maps.Keys(byService)) {
+		unsigned := 0
+		for _, v := range byService[svc] {
+			c.Versions++
+			if !v.Signed {
+				unsigned++
+			}
+		}
+		c.Unsigned += unsigned
+		if unsigned > 0 {
+			c.UnsignedServices++
+			if len(c.FirstUnsigned) < 4 {
+				c.FirstUnsigned = append(c.FirstUnsigned, svc)
+			}
+		}
+	}
+	c.Signed = c.Versions - c.Unsigned
+	return c
 }
 
 // publishedDigests groups every digest the Stages of services matching q
