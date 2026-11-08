@@ -56,6 +56,11 @@ type EntityFilter struct {
 	// Consumes keeps the SERVICES with a declared, resolved use of a provider of
 	// this platform offering: a dependency or a configuration or policy reference.
 	Consumes string
+	// Phase narrows Consumes to the consumers with a provisioning status of
+	// the offering in this phase, bucketed as [PhaseTally] counts it
+	// (requested, provisioning, ready, failed, deleting, unknown). It needs
+	// Consumes.
+	Phase string
 	// Environment is the exact environment a target runs in (TargetRecord.Environment).
 	Environment string
 	// Capability keeps the SERVICES any of whose read revisions declares a
@@ -170,6 +175,9 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	want := kindSet(f.Kinds)
 	refs := q.candidateRefs(want)
 	consumers := q.offeringConsumers(f.Consumes)
+	if f.Phase != "" {
+		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase)
+	}
 
 	filtered := refs[:0:0]
 	for _, r := range refs {
@@ -261,8 +269,12 @@ func validateEntityFilter(f EntityFilter) error {
 		{"consumes", f.Consumes, "not an offering slug", validBusinessDomain},
 		{"template", f.Template, "not a template filter (only, exclude)", validTemplateFilter},
 		{"createdFrom", f.CreatedFrom, "not a service key", validServiceKey},
+		{"phase", f.Phase, "not a provisioning phase (requested, provisioning, ready, failed, deleting, unknown)", validPhaseBucket},
 	}); err != nil {
 		return err
+	}
+	if f.Phase != "" && f.Consumes == "" {
+		return &InvalidQueryError{Field: "phase", Value: f.Phase, Reason: "needs consumes: a phase narrows the consumers of one offering"}
 	}
 	for _, k := range f.Kinds {
 		if !validEntityKind(k) {
@@ -549,6 +561,23 @@ func (q *Query) offeringConsumers(offering string) map[ServiceKey]bool {
 		rel := &q.snap.Relationships[i]
 		if p := q.snap.Services[rel.ToService]; offeringRelationship(rel, "") && p != nil && p.Offering == offering {
 			out[rel.FromService] = true
+		}
+	}
+	return out
+}
+
+// offeringConsumersInPhase is the consumers of offering with at least one
+// provisioning status in phase, by the same bucketing [PhaseTally] counts, so
+// the list a phase count links to names exactly the consumers behind it.
+// ponytail: recomputes every use per call; index by offering if it shows in profiles.
+func (q *Query) offeringConsumersInPhase(offering, phase string) map[ServiceKey]bool {
+	uses, _ := q.offeringUses(func(p *ServiceRecord) bool { return p.Offering == offering }, "")
+	out := map[ServiceKey]bool{}
+	for _, u := range uses {
+		for _, st := range u.Provisioning {
+			if phaseBucket(st.Phase) == phase {
+				out[ServiceKey(u.Consumer.Key)] = true
+			}
 		}
 	}
 	return out

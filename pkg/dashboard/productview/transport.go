@@ -492,6 +492,7 @@ type ProductRevisionDetail struct {
 	Dependencies    ProductRelationshipsPreview  `json:"dependencies"`
 	ExactTargets    ProductRefPreview            `json:"exactTargets"`
 	InferredTargets ProductRefPreview            `json:"inferredTargets"`
+	EvidenceSources ProductRefPreview            `json:"evidenceSources"`
 	Previous        *ProductRef                  `json:"previous,omitempty"`
 	Next            *ProductRef                  `json:"next,omitempty"`
 	Ownership       *ProductOwnership            `json:"ownership,omitempty"`
@@ -506,6 +507,7 @@ func toProductRevisionDetail(d *fleet.RevisionDetailData) *ProductRevisionDetail
 		Dependencies:       productRelationshipsPreview(d.Dependencies),
 		ExactTargets:       RefPreview(d.ExactTargets),
 		InferredTargets:    RefPreview(d.InferredTargets),
+		EvidenceSources:    RefPreview(d.EvidenceSources),
 		Previous:           RefPtr(d.Previous),
 		Next:               RefPtr(d.Next),
 		Ownership:          productOwnership(d.Ownership),

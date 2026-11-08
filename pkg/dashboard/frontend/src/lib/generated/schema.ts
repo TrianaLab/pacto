@@ -3847,9 +3847,12 @@ export interface components {
         ProductRevisionDetail: {
             capabilities: components["schemas"]["Fleet.CapabilitiesPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
+            current?: boolean;
             dependencies: components["schemas"]["ProductRelationshipsPreview"];
             docs: components["schemas"]["Fleet.DocsPreview"];
             environments: components["schemas"]["Fleet.EnvironmentsPreview"];
+            evidenceSourceCounts: components["schemas"]["Fleet.SourceCounts"];
+            evidenceSources: components["schemas"]["ProductRefPreview"];
             exactTargets: components["schemas"]["ProductRefPreview"];
             identity: components["schemas"]["Fleet.RevisionIdentity"];
             inferredTargets: components["schemas"]["ProductRefPreview"];
@@ -3861,11 +3864,17 @@ export interface components {
             ownership?: components["schemas"]["ProductOwnership"];
             pactoVersion?: string;
             policies: components["schemas"]["ProductPoliciesPreview"];
+            /** Format: int64 */
+            position: number;
             previous?: components["schemas"]["ProductRef"];
             provenance: components["schemas"]["Fleet.RevisionProvenance"];
             readiness?: components["schemas"]["Fleet.ProductReadiness"];
+            /** Format: int64 */
+            revisions: number;
             sbom?: components["schemas"]["Fleet.SBOMSummary"];
             service: components["schemas"]["ProductRef"];
+            /** Format: int64 */
+            serviceTargets: number;
             skills: components["schemas"]["Fleet.StringsPreview"];
             stages: components["schemas"]["Fleet.ValidationStage"][] | null;
             state?: components["schemas"]["Fleet.StateSummary"];
@@ -5838,6 +5847,8 @@ export interface operations {
                 offering?: string;
                 /** @description Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities) */
                 consumes?: string;
+                /** @description With consumes: keeps the consumers with a provisioning status of that offering in this phase (unknown: no phase a provider reported can be trusted) */
+                phase?: "requested" | "provisioning" | "ready" | "failed" | "deleting" | "unknown";
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";

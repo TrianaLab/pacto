@@ -96,6 +96,7 @@ type fleetEntitiesInput struct {
 	Capability     string   `query:"capability" doc:"Capability key a service's revisions declare (service entities): health, metrics or, for an extension, its namespaced ref such as acme.io/cost"`
 	Offering       string   `query:"offering" doc:"Exact platform offering (service.offering) a service provides (service and offering entities)"`
 	Consumes       string   `query:"consumes" doc:"Platform offering (service.offering) slug: keeps the services with a declared, resolved dependency or configuration reference to a provider of it (service entities)"`
+	Phase          string   `query:"phase" enum:"requested,provisioning,ready,failed,deleting,unknown" doc:"With consumes: keeps the consumers with a provisioning status of that offering in this phase (unknown: no phase a provider reported can be trusted)"`
 	Scope          string   `query:"scope"`
 	Status         string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
 	Ownership      string   `query:"ownership" enum:"consistent,conflicting,unowned" doc:"Declared-ownership filter for service entities"`
@@ -123,7 +124,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
-		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes,
+		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
 		Ownership: in.Ownership, Readiness: in.Readiness,
 		Service: in.Service, Template: in.Template, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,

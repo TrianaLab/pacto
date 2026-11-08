@@ -424,6 +424,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"business_domain": {Type: "string", Description: "Exact business domain, " + fleet.NoBusinessDomain + " for none or " + fleet.UnknownBusinessDomain + " for unknown"},
 			"offering":        {Type: "string", Description: "Services that provide this platform offering, and the offering itself"},
 			"consumes":        {Type: "string", Description: "Services that depend on or reference a provider of this platform offering"},
+			"phase":           {Type: "string", Description: "With consumes: only the consumers with a provisioning status of that offering in this phase", Enum: fleet.PhaseBuckets()},
 			"ownership":       {Type: "string", Description: "How a service's revisions declare ownership", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned}},
 			"status":          {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":        {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
@@ -443,6 +444,7 @@ type fleetEntitiesArgs struct {
 	BusinessDomain string `json:"business_domain"`
 	Offering       string `json:"offering"`
 	Consumes       string `json:"consumes"`
+	Phase          string `json:"phase"`
 	Ownership      string `json:"ownership"`
 	Status         string `json:"status"`
 	Template       string `json:"template"`
@@ -466,7 +468,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 		}
 		return productResult(link, productview.ToEntityList)(q.Entities(fleet.EntityFilter{
 			Text: a.Text, Kinds: ks, Owner: a.Owner, OwnerKey: a.OwnerKey, BusinessDomain: a.BusinessDomain,
-			Offering: a.Offering, Consumes: a.Consumes, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
+			Offering: a.Offering, Consumes: a.Consumes, Phase: a.Phase, Ownership: a.Ownership, Status: a.Status, Sort: a.Sort, Limit: a.Limit, Offset: a.Offset,
 			Template: a.Template, CreatedFrom: a.CreatedFrom,
 		}))
 	}
@@ -485,7 +487,8 @@ func fleetEntityTool() *mcpsdk.Tool {
 			"and 'creation', a checklist derived from what sources show: each step is unknown until a source " +
 			"shows otherwise. Tallies cover every visible item, never the preview: an " +
 			"offering's consumers carry 'range' and 'phases' and name up to 3 'failed' consumers; a service carries " +
-			"'dependentsStatus'. Hidden services are only counted, in the hidden fields. Read-only.",
+			"'dependentsStatus'; a revision carries its 'position' of 'revisions' (newest first), 'current', " +
+			"'serviceTargets' and 'evidenceSources' with 'evidenceSourceCounts'. Hidden services are only counted, in the hidden fields. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"kind": {Type: "string", Description: "Entity kind", Enum: fleet.EntityKinds()},
 			"key":  {Type: "string", Description: "Entity key, as pacto_fleet_entities or pacto_fleet_search reports it"},

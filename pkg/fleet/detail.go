@@ -491,14 +491,32 @@ type RevisionDetailData struct {
 	// snapshot limitations, which distinguish the two).
 	SBOM *SBOMSummary `json:"sbom,omitempty"`
 	// Metadata is the contract's declared free-form metadata, bounded at Build.
-	Metadata        RuntimePreview     `json:"metadata"`
-	ExactTargets    RefPreview         `json:"exactTargets"`
-	InferredTargets RefPreview         `json:"inferredTargets"`
-	Previous        *EntityRef         `json:"previous,omitempty"`
-	Next            *EntityRef         `json:"next,omitempty"`
-	Ownership       *OwnershipInfo     `json:"ownership,omitempty"`
-	Limitations     LimitationsPreview `json:"limitations"`
+	Metadata        RuntimePreview `json:"metadata"`
+	ExactTargets    RefPreview     `json:"exactTargets"`
+	InferredTargets RefPreview     `json:"inferredTargets"`
+	Previous        *EntityRef     `json:"previous,omitempty"`
+	Next            *EntityRef     `json:"next,omitempty"`
+	// Position is this revision's place among its service's Revisions, newest
+	// first (1 is the newest), in the order Previous and Next walk. Current
+	// says it is the service's current revision: the newest one a target runs,
+	// else the newest known (ServiceDetailData.CurrentRevision).
+	Position  int  `json:"position"`
+	Revisions int  `json:"revisions"`
+	Current   bool `json:"current,omitempty"`
+	// ServiceTargets counts every visible target of the service, so the exact
+	// and inferred targets read as this revision's share of them.
+	ServiceTargets int `json:"serviceTargets"`
+	// EvidenceSources names up to MaxEvidenceSources of the sources that
+	// contributed this revision or a target linked to it, least healthy first;
+	// EvidenceSourceCounts tallies every one of them by health.
+	EvidenceSources      RefPreview         `json:"evidenceSources"`
+	EvidenceSourceCounts SourceCounts       `json:"evidenceSourceCounts"`
+	Ownership            *OwnershipInfo     `json:"ownership,omitempty"`
+	Limitations          LimitationsPreview `json:"limitations"`
 }
+
+// MaxEvidenceSources bounds RevisionDetailData.EvidenceSources.
+const MaxEvidenceSources = 3
 
 // TargetDetailData is the target-kind payload: the logical service and linked
 // revision, the exact/inferred/ambiguous/unresolved link state, compliance,
@@ -703,21 +721,50 @@ func offeringUsesPreview(uses []OfferingUse) OfferingUsesPreview {
 }
 
 func (t *PhaseTally) add(phase string) {
-	switch evidence.ProvisionPhase(phase) {
-	case evidence.PhaseRequested:
+	switch phaseBucket(phase) {
+	case PhaseBucketRequested:
 		t.Requested++
-	case evidence.PhaseProvisioning:
+	case PhaseBucketProvisioning:
 		t.Provisioning++
-	case evidence.PhaseReady:
+	case PhaseBucketReady:
 		t.Ready++
-	case evidence.PhaseFailed:
+	case PhaseBucketFailed:
 		t.Failed++
-	case evidence.PhaseDeleting:
+	case PhaseBucketDeleting:
 		t.Deleting++
 	default:
 		t.Unknown++
 	}
 }
+
+// Provisioning phase buckets: the [PhaseTally] fields, and the values the
+// entity Phase filter takes.
+const (
+	PhaseBucketRequested    = "requested"
+	PhaseBucketProvisioning = "provisioning"
+	PhaseBucketReady        = "ready"
+	PhaseBucketFailed       = "failed"
+	PhaseBucketDeleting     = "deleting"
+	PhaseBucketUnknown      = "unknown"
+)
+
+// PhaseBuckets lists the provisioning phase buckets in track order.
+func PhaseBuckets() []string {
+	return []string{PhaseBucketRequested, PhaseBucketProvisioning, PhaseBucketReady, PhaseBucketFailed, PhaseBucketDeleting, PhaseBucketUnknown}
+}
+
+// phaseBucket is the bucket a reported phase counts in: a phase Pacto does
+// not know, or none, is unknown.
+func phaseBucket(phase string) string {
+	switch p := evidence.ProvisionPhase(phase); p {
+	case evidence.PhaseRequested, evidence.PhaseProvisioning, evidence.PhaseReady, evidence.PhaseFailed, evidence.PhaseDeleting:
+		return strings.ToLower(string(p))
+	default:
+		return PhaseBucketUnknown
+	}
+}
+
+func validPhaseBucket(s string) bool { return slices.Contains(PhaseBuckets(), s) }
 
 // ConsumeSnippet is what a service adds to its contract to consume a provider
 // of a platform offering: the contract entries, and the YAML rendered from them
@@ -978,37 +1025,46 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	}
 	exact, inferred := q.targetsForRevision(rev.Key)
 	prev, next := q.siblingRevisions(rev)
+	place := q.revisionPlace(rev)
+	evidenceRefs, evidenceCounts := q.revisionEvidenceSources(rev)
+	shownEvidence, nEvidence, moreEvidence := boundSlice(evidenceRefs, MaxEvidenceSources)
 	cfgRefs, polRefs := q.revisionRefResolutions(rev.Key)
 	cfgs, pols := withSchemaContent(q.snap, rev, withConfigResolutions(rev.configurations, cfgRefs), policiesPreview(rev.Contract.Policies, polRefs))
 	data := &RevisionDetailData{
-		Configurations:  cfgs,
-		Policies:        pols,
-		Service:         q.serviceRef(rev.ServiceKey),
-		Version:         rev.Version,
-		PactoVersion:    rev.PactoVersion,
-		Lifecycle:       rev.Contract.Service.Lifecycle,
-		Identity:        revisionIdentity(rev.Digest, rev.RequestedRef, rev.ResolvedRef),
-		Provenance:      revisionProvenance(rev),
-		Valid:           rev.Valid,
-		Readiness:       productReadiness(rev.Readiness),
-		Validation:      findingsPreview(rev.Validation),
-		Stages:          append([]ValidationStage{}, rev.Stages...),
-		Environments:    environmentsPreview(rev.Environments),
-		Capabilities:    capabilitiesPreview(rev.Contract.Capabilities),
-		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
-		Workload:        rev.Contract.Workload,
-		State:           stateSummary(rev.Contract.State),
-		Dependencies:    relationshipsPreview(q.revisionEdges(rev.Key)),
-		Tools:           toolsPreview(rev.Tools),
-		Skills:          stringsPreview(rev.Skills),
-		Docs:            docsPreview(rev.Docs),
-		SBOM:            rev.SBOM,
-		Metadata:        rev.Metadata,
-		ExactTargets:    refPreview(exact),
-		InferredTargets: refPreview(inferred),
-		Previous:        prev,
-		Next:            next,
-		Ownership:       revisionOwnership(rev),
+		Configurations:       cfgs,
+		Policies:             pols,
+		Service:              q.serviceRef(rev.ServiceKey),
+		Version:              rev.Version,
+		PactoVersion:         rev.PactoVersion,
+		Lifecycle:            rev.Contract.Service.Lifecycle,
+		Identity:             revisionIdentity(rev.Digest, rev.RequestedRef, rev.ResolvedRef),
+		Provenance:           revisionProvenance(rev),
+		Valid:                rev.Valid,
+		Readiness:            productReadiness(rev.Readiness),
+		Validation:           findingsPreview(rev.Validation),
+		Stages:               append([]ValidationStage{}, rev.Stages...),
+		Environments:         environmentsPreview(rev.Environments),
+		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities),
+		Interfaces:           interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
+		Workload:             rev.Contract.Workload,
+		State:                stateSummary(rev.Contract.State),
+		Dependencies:         relationshipsPreview(q.revisionEdges(rev.Key)),
+		Tools:                toolsPreview(rev.Tools),
+		Skills:               stringsPreview(rev.Skills),
+		Docs:                 docsPreview(rev.Docs),
+		SBOM:                 rev.SBOM,
+		Metadata:             rev.Metadata,
+		ExactTargets:         refPreview(exact),
+		InferredTargets:      refPreview(inferred),
+		Previous:             prev,
+		Next:                 next,
+		Position:             place.position,
+		Revisions:            place.revisions,
+		Current:              place.current,
+		ServiceTargets:       place.targets,
+		EvidenceSources:      RefPreview{Total: nEvidence, Count: len(shownEvidence), Truncated: moreEvidence, Items: shownEvidence},
+		EvidenceSourceCounts: evidenceCounts,
+		Ownership:            revisionOwnership(rev),
 	}
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
@@ -1490,6 +1546,80 @@ func (q *Query) siblingRevisions(rev *ContractRevision) (prev, next *EntityRef) 
 		break
 	}
 	return prev, next
+}
+
+// revisionPlace is where rev stands in its service: its position newest
+// first among the service's revisions, how many there are, whether it is the
+// current one (see [newestInUse]) and how many targets the service runs.
+type revisionPlacement struct {
+	position, revisions, targets int
+	current                      bool
+}
+
+func (q *Query) revisionPlace(rev *ContractRevision) revisionPlacement {
+	var p revisionPlacement
+	inUse := map[RevisionKey]bool{}
+	for _, t := range q.snap.Targets {
+		if t.ServiceKey == rev.ServiceKey {
+			p.targets++
+			inUse[t.ContractRevision] = true
+		}
+	}
+	var all, active []*ContractRevision
+	for _, r := range q.snap.Revisions {
+		if r.ServiceKey != rev.ServiceKey {
+			continue
+		}
+		all = append(all, r)
+		if inUse[r.Key] {
+			active = append(active, r)
+		}
+		if lessRevisionChrono(rev, r) {
+			p.position++
+		}
+	}
+	p.position++
+	p.revisions = len(all)
+	p.current = newestInUse(active, all) == rev
+	return p
+}
+
+// revisionEvidenceSources is every source that contributed rev or a target
+// linked to it, least healthy first then by id, and their tally by health.
+func (q *Query) revisionEvidenceSources(rev *ContractRevision) ([]EntityRef, SourceCounts) {
+	ids := map[string]bool{}
+	add := func(primary string, all []string) {
+		for _, id := range append([]string{primary}, all...) {
+			if id != "" {
+				ids[id] = true
+			}
+		}
+	}
+	add(rev.Source, rev.Sources)
+	for _, t := range q.snap.Targets {
+		if t.ContractRevision == rev.Key {
+			add(t.Source, t.Sources)
+		}
+	}
+	states := make([]SourceState, 0, len(ids))
+	for _, st := range q.snap.Sources {
+		if ids[st.ID] {
+			states = append(states, st)
+			delete(ids, st.ID)
+		}
+	}
+	// A source the snapshot no longer reports on has no known health.
+	for id := range ids {
+		states = append(states, SourceState{ID: id})
+	}
+	slices.SortFunc(states, func(a, b SourceState) int {
+		return cmp.Or(cmp.Compare(sourceHealthRank(a.Status), sourceHealthRank(b.Status)), cmp.Compare(a.ID, b.ID))
+	})
+	refs := make([]EntityRef, 0, len(states))
+	for _, st := range states {
+		refs = append(refs, sourceEntityRef(st))
+	}
+	return refs, sourceCounts(states)
 }
 
 // newestReadable is the newest readable revision of revs in revision

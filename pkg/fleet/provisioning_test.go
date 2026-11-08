@@ -409,3 +409,40 @@ func TestProvisioningForWithoutReports(t *testing.T) {
 		}
 	}
 }
+
+// The phase filter lists exactly the consumers a phase count stands for: the
+// same bucketing as the tally, and only with consumes.
+func TestEntitiesConsumesPhase(t *testing.T) {
+	q := NewQuery(provisioningSnap(t, 0, ordersFleet(), []RawProvisioning{report()}))
+	keys := func(phase string) []string {
+		t.Helper()
+		l, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindService}, Consumes: "postgresql", Phase: phase})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range l.Entities {
+			out = append(out, e.Label)
+		}
+		return out
+	}
+	if got := keys(PhaseBucketReady); !slices.Equal(got, []string{"orders"}) {
+		t.Errorf("ready consumers = %v, want orders", got)
+	}
+	if got := keys(PhaseBucketFailed); len(got) != 0 {
+		t.Errorf("failed consumers = %v, want none", got)
+	}
+	for _, f := range []EntityFilter{
+		{Kinds: []EntityKind{KindService}, Consumes: "postgresql", Phase: "Ready"},
+		{Kinds: []EntityKind{KindService}, Phase: PhaseBucketReady},
+	} {
+		if _, err := q.Entities(f); err == nil {
+			t.Errorf("%+v is an invalid query", f)
+		}
+	}
+	for phase, want := range map[string]string{"Requested": "requested", "Provisioning": "provisioning", "Ready": "ready", "Failed": "failed", "Deleting": "deleting", "Unknown": "unknown", "": "unknown", "weird": "unknown"} {
+		if got := phaseBucket(phase); got != want {
+			t.Errorf("phaseBucket(%q) = %q, want %q", phase, got, want)
+		}
+	}
+}

@@ -46,6 +46,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
 	f.String("offering", "", "services that provide this platform offering, and the offering itself")
 	f.String("consumes", "", "services that depend on or reference a provider of this platform offering")
+	f.String("phase", "", "with --consumes: only the consumers with a provisioning status of that offering in this phase")
 	f.String("ownership", "", "how a service's revisions declare ownership (consistent, conflicting, unowned)")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
@@ -56,6 +57,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("kind", staticCompletions(fleet.ProductKinds()...))
 	_ = cmd.RegisterFlagCompletionFunc("ownership", staticCompletions(fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned))
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
+	_ = cmd.RegisterFlagCompletionFunc("phase", staticCompletions(fleet.PhaseBuckets()...))
 	_ = cmd.RegisterFlagCompletionFunc("sort", staticCompletions(fleet.SortName, fleet.SortHealth, fleet.SortServices))
 	return cmd
 }
@@ -116,7 +118,7 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	}
 	return fleet.EntityFilter{
 		Text: text, Kinds: ks, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
-		Offering: get("offering"), Consumes: get("consumes"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
+		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Ownership: get("ownership"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), CreatedFrom: get("created-from"), Limit: limit, Offset: offset,
 	}
 }
@@ -255,6 +257,9 @@ func printFleetEntity(cmd *cobra.Command, res *fleet.EntityDetail, format string
 			printTemplateText(w, res.Entity.Summary, res.Service.Template)
 			printOriginText(w, res.Service.Origin, res.Service.Creation)
 			printDependents(w, res.Service)
+		}
+		if res.Revision != nil {
+			printRevisionPlace(w, res.Revision)
 		}
 		_, _ = fmt.Fprintln(w, "Run with --output-format json for the full detail")
 		warnProductPartial(cmd, res.Meta)
@@ -485,6 +490,20 @@ func printOfferingUses(w io.Writer, title string, uses fleet.OfferingUsesPreview
 		_, _ = fmt.Fprintf(w, "  provisioning requests: %d requested, %d provisioning, %d ready, %d failed, %d deleting, %d not reported\n",
 			p.Requested, p.Provisioning, p.Ready, p.Failed, p.Deleting, p.Unknown)
 	}
+}
+
+// printRevisionPlace renders where a revision stands in its service, how many
+// of the service's targets run it and which sources report about it.
+func printRevisionPlace(w io.Writer, r *fleet.RevisionDetailData) {
+	current := ""
+	if r.Current {
+		current = ", current"
+	}
+	_, _ = fmt.Fprintf(w, "Position: %d of %d revisions, newest first%s\n", r.Position, r.Revisions, current)
+	_, _ = fmt.Fprintf(w, "Targets: %d of the service's %d run this revision (%d exact, %d inferred)\n",
+		r.ExactTargets.Total+r.InferredTargets.Total, r.ServiceTargets, r.ExactTargets.Total, r.InferredTargets.Total)
+	c := r.EvidenceSourceCounts
+	_, _ = fmt.Fprintf(w, "Evidence sources: %d (%d available, %d partial, %d stale, %d unavailable)\n", c.Total, c.Available, c.Partial, c.Stale, c.Unavailable)
 }
 
 // printDependents renders how many services depend on this one, by status,

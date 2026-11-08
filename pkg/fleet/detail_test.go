@@ -757,3 +757,41 @@ func TestOfferingUsesPreviewTallies(t *testing.T) {
 		t.Errorf("failed = %+v, want the first 3 of 4 by key", p.Failed)
 	}
 }
+
+// A revision knows its place in its service, its share of the service's
+// targets and the sources behind it, least healthy first.
+func TestRevisionPlaceAndEvidence(t *testing.T) {
+	rev := func(v string) *ContractRevision {
+		return &ContractRevision{Key: RevisionKey("s@" + v), ServiceKey: "s", Version: v, Source: "oci"}
+	}
+	r1, r2, r3 := rev("1.0.0"), rev("2.0.0"), rev("3.0.0")
+	r2.Sources = []string{"oci", "files"}
+	snap := &FleetSnapshot{
+		Revisions: map[RevisionKey]*ContractRevision{r1.Key: r1, r2.Key: r2, r3.Key: r3, "o@1": {Key: "o@1", ServiceKey: "o", Version: "1.0.0"}},
+		Targets: map[TargetKey]*TargetRecord{
+			"t1": {ServiceKey: "s", ContractRevision: r2.Key, Source: "k8s", Sources: []string{"gone"}},
+			"t2": {ServiceKey: "s", ContractRevision: r1.Key},
+			"t3": {ServiceKey: "o"},
+		},
+		Sources: []SourceState{{ID: "oci", Status: SourceAvailable}, {ID: "files", Status: SourceStale}, {ID: "k8s", Status: SourceUnavailable}, {ID: "other", Status: SourceUnavailable}},
+	}
+	q := NewQuery(snap)
+	// The newest a target runs is current, though a newer one exists.
+	if p := q.revisionPlace(r2); p != (revisionPlacement{position: 2, revisions: 3, targets: 2, current: true}) {
+		t.Errorf("place of 2.0.0 = %+v", p)
+	}
+	if p := q.revisionPlace(r3); p.position != 1 || p.current {
+		t.Errorf("place of 3.0.0 = %+v, want newest and not current", p)
+	}
+	refs, counts := q.revisionEvidenceSources(r2)
+	var ids []string
+	for _, r := range refs {
+		ids = append(ids, r.Key)
+	}
+	if want := []string{"k8s", "files", "gone", "oci"}; !slices.Equal(ids, want) {
+		t.Errorf("evidence sources = %v, want %v", ids, want)
+	}
+	if want := (SourceCounts{Total: 4, Available: 1, Stale: 1, Unavailable: 1}); counts != want {
+		t.Errorf("evidence counts = %+v, want %+v", counts, want)
+	}
+}

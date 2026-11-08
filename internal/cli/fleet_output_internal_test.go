@@ -243,3 +243,31 @@ func TestPrintTallies(t *testing.T) {
 		t.Errorf("dependents text = %q, want %q", buf.String(), want)
 	}
 }
+
+func TestPrintRevisionPlace(t *testing.T) {
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	rev := &fleet.RevisionDetailData{
+		Position: 1, Revisions: 4, Current: true, ServiceTargets: 11,
+		ExactTargets: fleet.RefPreview{Total: 6}, InferredTargets: fleet.RefPreview{Total: 2},
+		EvidenceSourceCounts: fleet.SourceCounts{Total: 3, Available: 2, Stale: 1},
+	}
+	if err := printFleetEntity(cmd, &fleet.EntityDetail{Entity: fleet.EntityRef{Kind: fleet.KindRevision}, Revision: rev}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Position: 1 of 4 revisions, newest first, current\n",
+		"Targets: 8 of the service's 11 run this revision (6 exact, 2 inferred)\n",
+		"Evidence sources: 3 (2 available, 0 partial, 1 stale, 0 unavailable)\n",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("revision text lacks %q:\n%s", want, buf.String())
+		}
+	}
+	buf.Reset()
+	printRevisionPlace(&buf, &fleet.RevisionDetailData{Position: 2, Revisions: 4})
+	if !strings.Contains(buf.String(), "Position: 2 of 4 revisions, newest first\n") {
+		t.Errorf("a revision that is not current says so: %q", buf.String())
+	}
+}
