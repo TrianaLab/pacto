@@ -12,6 +12,8 @@ import EnvFleetFigure from './EnvFleetFigure.svelte';
 import PromotionFigure from './PromotionFigure.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import HistoryFigure from './HistoryFigure.svelte';
+// @ts-expect-error — Svelte component has no declaration file
+import AutonomyFigure from './AutonomyFigure.svelte';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 type Any = any;
@@ -227,5 +229,20 @@ describe('HistoryFigure', () => {
     await settle();
     expect(cl.target.querySelectorAll('.tl-x')).toHaveLength(0);
     expect(cl.target.querySelector('.keyl')?.textContent).toContain("shown on one Stage's history");
+  });
+});
+
+describe('AutonomyFigure', () => {
+  it('draws same-size cards, one mark each, and keeps not recorded apart from automatic', async () => {
+    const byLevel = [{ level: 'observe', stages: 1 }, { level: 'advise', stages: 4 }, { level: 'auto-nonbreaking', stages: 2 }, { level: 'autonomous', stages: 0 }, { level: '', stages: 1 }];
+    const { target, c } = render(AutonomyFigure, { byLevel, promotions: { count: 1, of: 3, untyped: 1 } }, false);
+    await settle();
+    expect(target.querySelectorAll('.aflow.mk')).toHaveLength(4);
+    expect([...target.querySelectorAll('.aflow')].map((s) => s.getAttribute('width'))).toEqual(['168', '168', '168', '168']);
+    expect([...target.querySelectorAll('.lv-t')].map((b) => b.textContent)).toEqual(['Observe', 'Advise', 'Auto non-breaking', 'Autonomous']);
+    expect([...target.querySelectorAll('.keyl b')].map((b) => b.textContent)).toEqual(['2', '1', '1']);
+    expect(target.querySelector('.lad-note')?.textContent).toContain('1 Stage reports no level.');
+    expect(target.querySelector('figure svg text')).toBeNull();
+    unmount(c);
   });
 });

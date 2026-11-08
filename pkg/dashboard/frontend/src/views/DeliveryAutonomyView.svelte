@@ -18,6 +18,7 @@
   import ProposePanel from '../components/ProposePanel.svelte';
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import HelpTip from '../components/HelpTip.svelte';
+  import AutonomyFigure from '../components/figure/AutonomyFigure.svelte';
 
   // How far each Stage runs on its own, what Pacto proposes next and what
   // stands in the way. The page only reads: a level moves through a proposed
@@ -114,6 +115,7 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
+    {#if data.byLevel?.some((l) => l.stages)}<AutonomyFigure byLevel={data.byLevel} {promotions} />{/if}
 
     <dl class="au-metrics">
       <div class="au-metric" data-testid="autonomy-contracted">
