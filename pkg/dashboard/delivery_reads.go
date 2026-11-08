@@ -206,6 +206,9 @@ type inboxInput struct {
 	// Environment narrows the three lists, never byEnvironment: the figure
 	// that links to it stays whole.
 	Environment string `query:"environment" doc:"Keep only what waits to enter this environment: items on Stages whose spec.environment is this"`
+	// Except is the figure's folded station: every environment but the ones
+	// it draws, so its counts open a list of exactly what they count.
+	Except []string `query:"except,explode" doc:"Leave out what waits to enter these environments (repeat the parameter); an empty value names held changes on Stages the caller cannot read. Like environment, it never narrows byEnvironment"`
 }
 
 type inboxOutput struct {
@@ -257,6 +260,10 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	if in.Environment != "" {
 		held, errored = inEnvironment(held, byStage, in.Environment), inEnvironment(errored, byStage, in.Environment)
 		frozenStages = slices.DeleteFunc(frozenStages, func(st delivery.StageObject) bool { return st.Spec.Environment != in.Environment })
+	}
+	if len(in.Except) > 0 {
+		held, errored = outsideEnvironments(held, byStage, in.Except), outsideEnvironments(errored, byStage, in.Except)
+		frozenStages = slices.DeleteFunc(frozenStages, func(st delivery.StageObject) bool { return slices.Contains(in.Except, st.Spec.Environment) })
 	}
 	// Only the page is described and drawn: an artifact read per held item
 	// and per frozen Stage is the expensive part.
@@ -425,11 +432,12 @@ const environmentsPage = 25
 
 type environmentsInput struct {
 	PageQuery
-	Environment string `query:"environment" doc:"Keep only the services with a Stage in this environment, and only those Stages"`
-	Tier        string `query:"tier" enum:"dev,test,prod" doc:"Keep only the services with a Stage in an environment whose name says this tier (inferred from the name, never an order), and only those Stages"`
-	State       string `query:"state" enum:"failed,frozen,autohold,waiting,unverified,empty,verified" doc:"Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages"`
-	Service     string `query:"service" doc:"Keep only the Stages of the service with exactly this name"`
-	Domain      string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+	Environment string   `query:"environment" doc:"Keep only the services with a Stage in this environment, and only those Stages"`
+	Tier        string   `query:"tier" enum:"dev,test,prod" doc:"Keep only the services with a Stage in an environment whose name says this tier (inferred from the name, never an order), and only those Stages"`
+	State       string   `query:"state" enum:"failed,frozen,autohold,waiting,unverified,empty,verified" doc:"Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages"`
+	Service     string   `query:"service" doc:"Keep only the Stages of the service with exactly this name"`
+	Domain      string   `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
+	Except      []string `query:"except,explode" doc:"Leave out the Stages in these environments (repeat the parameter), and the services left with none: the figure's folded station lists every environment but the ones it draws"`
 }
 
 // envTiers are name prefixes and the tier a name like it is inferred to be.
@@ -483,7 +491,8 @@ type StageCounts struct {
 // not the columns a person picks from: a service with no Stage there is left
 // out.
 func (in *environmentsInput) keeps(st delivery.StageObject, held map[string]int) bool {
-	return (in.Environment == "" || st.Spec.Environment == in.Environment) && (in.Tier == "" || envTier(st.Spec.Environment) == in.Tier) &&
+	return (in.Environment == "" || st.Spec.Environment == in.Environment) && !slices.Contains(in.Except, st.Spec.Environment) &&
+		(in.Tier == "" || envTier(st.Spec.Environment) == in.Tier) &&
 		(in.State == "" || stageState(st, held) == in.State)
 }
 
@@ -517,6 +526,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	byEnv := countByEnvironment(stages, held)
 	if in.Service != "" {
 		out.Body.Promotion = promotionGraph(stages, byStage, complete)
+		out.Body.Promotion.Last = lastPromotion(out.Body.Promotion, ops)
 	}
 	stages = filter(stages, func(st delivery.StageObject) bool { return in.keeps(st, held) })
 	var services []string

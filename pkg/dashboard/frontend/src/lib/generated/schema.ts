@@ -3161,6 +3161,18 @@ export interface components {
             type: string;
             visibility?: string;
         };
+        LastPromotion: {
+            /** @description The digest it promoted */
+            digest: string;
+            /** @description When it concluded, RFC 3339 */
+            finished: string;
+            /** @description The Stage of this graph that offered the version, namespace/name; empty when the promoted Stage is an entry */
+            from?: string;
+            /** @description When the promote started, RFC 3339 */
+            started?: string;
+            /** @description The Stage it promoted, namespace/name */
+            to: string;
+        };
         LevelCount: {
             /** @description observe, advise, auto-nonbreaking or autonomous; empty for Stages that report no level */
             level: string;
@@ -3994,6 +4006,8 @@ export interface components {
         PromotionGraph: {
             /** @description From a Stage to a Stage of the same service it feeds, as candidates.upstreamStage declares */
             edges: components["schemas"]["PromotionEdge"][] | null;
+            /** @description The newest promote of these Stages that succeeded, with its recorded times; absent when none did */
+            last?: components["schemas"]["LastPromotion"];
             /** @description The service's Stages, each after every Stage that feeds it; a cycle is placed by name and marked */
             nodes: components["schemas"]["PromotionNode"][] | null;
         };
@@ -4454,6 +4468,11 @@ export interface components {
             stage?: string;
             /** @description kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name> */
             stream?: string;
+            /**
+             * @description kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet
+             * @enum {string}
+             */
+            trust?: "trusted" | "untrusted" | "unreadable" | "unknown";
         };
         "V2.ErrorDetail": {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -4565,6 +4584,8 @@ export interface operations {
                 q?: string;
                 /** @description Where the page of blockers starts; limit and q apply to it too */
                 blockers?: number;
+                /** @description Keep only the Stages at this level; none keeps those that report no level the ladder knows. It narrows the Stages, never byLevel or the blockers */
+                level?: "observe" | "advise" | "auto-nonbreaking" | "autonomous" | "none";
             };
             header?: never;
             path?: never;
@@ -4802,6 +4823,8 @@ export interface operations {
                 service?: string;
                 /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
                 domain?: string;
+                /** @description Leave out the Stages in these environments (repeat the parameter), and the services left with none: the figure's folded station lists every environment but the ones it draws */
+                except?: string[] | null;
             };
             header?: never;
             path?: never;
@@ -4982,6 +5005,8 @@ export interface operations {
                 q?: string;
                 /** @description Keep only what waits to enter this environment: items on Stages whose spec.environment is this */
                 environment?: string;
+                /** @description Leave out what waits to enter these environments (repeat the parameter); an empty value names held changes on Stages the caller cannot read. Like environment, it never narrows byEnvironment */
+                except?: string[] | null;
             };
             header?: never;
             path?: never;

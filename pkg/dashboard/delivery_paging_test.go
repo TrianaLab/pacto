@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -384,4 +385,13 @@ func TestAutonomyCountsByLevel(t *testing.T) {
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, au := call(t, http.MethodGet, base+"/api/delivery/autonomy?limit=1", nil)
 	expect(t, len(au["byLevel"].([]any)) == 5, "every level: %v", au["byLevel"])
+	// level opens exactly the Stages a card counts, and never narrows the tally.
+	for _, l := range au["byLevel"].([]any) {
+		lv := cmp.Or(page(l)["level"].(string), "none")
+		_, got := call(t, http.MethodGet, base+"/api/delivery/autonomy?level="+lv, nil)
+		expect(t, page(got["page"])["total"] == page(l)["stages"] && fmt.Sprint(got["byLevel"]) == fmt.Sprint(au["byLevel"]),
+			"%s: %v of %v", lv, got["page"], l)
+	}
+	code, _ := call(t, http.MethodGet, base+"/api/delivery/autonomy?level=warp", nil)
+	expect(t, code == http.StatusUnprocessableEntity, "an unknown level is refused: %d", code)
 }

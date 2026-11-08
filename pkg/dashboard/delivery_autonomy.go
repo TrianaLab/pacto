@@ -139,6 +139,8 @@ const autonomyPage = 25
 type autonomyInput struct {
 	PageQuery
 	Blockers int `query:"blockers" minimum:"0" doc:"Where the page of blockers starts; limit and q apply to it too"`
+	// Level is the figure's card: its count opens the Stages it counts.
+	Level string `query:"level" enum:"observe,advise,auto-nonbreaking,autonomous,none" doc:"Keep only the Stages at this level; none keeps those that report no level the ladder knows. It narrows the Stages, never byLevel or the blockers"`
 }
 
 type autonomyOutput struct {
@@ -174,13 +176,22 @@ func countByLevel(rows []AutonomyStage) []LevelCount {
 		out[i].Level = l
 	}
 	for _, r := range rows {
-		i := slices.Index(ladderLevels, r.Level)
-		if i < 0 {
-			i = len(ladderLevels) - 1
+		i := len(ladderLevels) - 1
+		if l := levelOf(r); l != "none" {
+			i = slices.Index(ladderLevels, l)
 		}
 		out[i].Stages++
 	}
 	return out
+}
+
+// levelOf is the level filter a row answers to: its level, or none when the
+// ladder does not know it, so the filter lists exactly what countByLevel counts.
+func levelOf(r AutonomyStage) string {
+	if r.Level == "" || !slices.Contains(ladderLevels, r.Level) {
+		return "none"
+	}
+	return r.Level
 }
 
 func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*autonomyOutput, error) {
@@ -208,6 +219,9 @@ func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*auto
 		return matches(in.Q, append([]string{x.Kind, x.Subject}, x.Stages...)...)
 	})
 	b.ByLevel = countByLevel(rows)
+	if in.Level != "" {
+		rows = filter(rows, func(r AutonomyStage) bool { return levelOf(r) == in.Level })
+	}
 	b.Stages, b.Page = pageOf(rows, in.Offset, in.Limit, autonomyPage)
 	for _, r := range rows {
 		if r.Proposal != nil && r.Proposal.Level != "" {

@@ -167,6 +167,18 @@ func inEnvironment(items []InboxItem, byStage map[string]*delivery.StageObject, 
 	})
 }
 
+// outsideEnvironments drops the items waiting to enter one of except; an item
+// on a Stage the caller cannot read waits to enter "".
+func outsideEnvironments(items []InboxItem, byStage map[string]*delivery.StageObject, except []string) []InboxItem {
+	return slices.DeleteFunc(items, func(it InboxItem) bool {
+		env := ""
+		if st := byStage[it.Namespace+"/"+it.Stage]; st != nil {
+			env = st.Spec.Environment
+		}
+		return slices.Contains(except, env)
+	})
+}
+
 // Upstream is where a Stage's candidates come from, as its spec declares.
 type Upstream struct {
 	Kind        string `json:"kind" enum:"stage,records,artifact,none" doc:"stage: another Stage in this cluster; records: a Stage in another cluster, read from its signed records; artifact: new artifacts of an OCIRepository; none: the Stage declares no source, so it never promotes"`
@@ -176,6 +188,26 @@ type Upstream struct {
 	Problem     string `json:"problem,omitempty" enum:"missing,unreadable" doc:"kind stage: why the upstream Stage could not be read"`
 	Stream      string `json:"stream,omitempty" doc:"kind records: the upstream Stage's stream id, <clusterID>/<namespace>/<name>"`
 	Repository  string `json:"repository,omitempty" doc:"kind records: the upstream recorder's streams repository; kind artifact: the OCIRepository's name"`
+	Trust       string `json:"trust,omitempty" enum:"trusted,untrusted,unreadable,unknown" doc:"kind records: whether the promoter trusts that record stream, from the Stage's Ready condition. trusted: it reads and verifies the records; untrusted: it trusts no key for the records of other clusters, so the Stage never promotes; unreadable: the records cannot be read or verified; unknown: the promoter has not said yet"`
+}
+
+// recordsTrust is whether the promoter trusts st's upstream record stream, as
+// its Ready condition says: the promoter sets UpstreamUntrusted when it holds
+// no upstream key and UpstreamUnreadable when the records fail to verify.
+func recordsTrust(st *delivery.StageObject) string {
+	i := slices.IndexFunc(st.Status.Conditions, func(c delivery.Condition) bool { return c.Type == "Ready" })
+	switch {
+	case i < 0:
+		return "unknown"
+	case st.Status.Conditions[i].Reason == "UpstreamUntrusted":
+		return "untrusted"
+	case st.Status.Conditions[i].Reason == "UpstreamUnreadable":
+		return "unreadable"
+	case st.Status.Conditions[i].Status == "True":
+		return "trusted"
+	}
+	// Not Ready for another reason (its applier): the records were not judged.
+	return "unknown"
 }
 
 // upstreamOf reads where st's candidates come from; an upstream Stage is
@@ -197,7 +229,7 @@ func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject) 
 		}
 		return u
 	case c.UpstreamRecords != nil:
-		return &Upstream{Kind: "records", Stream: c.UpstreamRecords.Stream, Repository: c.UpstreamRecords.Repository}
+		return &Upstream{Kind: "records", Stream: c.UpstreamRecords.Stream, Repository: c.UpstreamRecords.Repository, Trust: recordsTrust(st)}
 	case c.OCIRepositoryRef != nil:
 		return &Upstream{Kind: "artifact", Repository: c.OCIRepositoryRef.Name}
 	}
@@ -315,6 +347,39 @@ func countByEnvironment(stages []delivery.StageObject, held map[string]int) []En
 type PromotionGraph struct {
 	Nodes []PromotionNode `json:"nodes" doc:"The service's Stages, each after every Stage that feeds it; a cycle is placed by name and marked"`
 	Edges []PromotionEdge `json:"edges" doc:"From a Stage to a Stage of the same service it feeds, as candidates.upstreamStage declares"`
+	Last  *LastPromotion  `json:"last,omitempty" doc:"The newest promote of these Stages that succeeded, with its recorded times; absent when none did"`
+}
+
+// LastPromotion is the newest succeeded promote on a service's Stages.
+type LastPromotion struct {
+	To       string `json:"to" doc:"The Stage it promoted, namespace/name"`
+	From     string `json:"from,omitempty" doc:"The Stage of this graph that offered the version, namespace/name; empty when the promoted Stage is an entry"`
+	Digest   string `json:"digest" doc:"The digest it promoted"`
+	Started  string `json:"started,omitempty" doc:"When the promote started, RFC 3339"`
+	Finished string `json:"finished" doc:"When it concluded, RFC 3339"`
+}
+
+// lastPromotion is the newest succeeded promote among ops on g's Stages, by
+// its recorded finish time; nil when none succeeded.
+func lastPromotion(g *PromotionGraph, ops []delivery.OperationObject) *LastPromotion {
+	in := map[string]bool{}
+	for _, n := range g.Nodes {
+		in[n.Namespace+"/"+n.Stage] = true
+	}
+	feeder := map[string]string{}
+	for _, e := range g.Edges {
+		feeder[e.To] = e.From
+	}
+	var last *LastPromotion
+	for _, o := range ops {
+		k := o.Metadata.Namespace + "/" + o.Spec.Stage
+		t := o.Status.Times
+		if !in[k] || o.Spec.Type != delivery.TypePromote || o.Status.Outcome != delivery.Succeeded || t.Finished == "" || (last != nil && t.Finished <= last.Finished) {
+			continue
+		}
+		last = &LastPromotion{To: k, From: feeder[k], Digest: cmp.Or(o.Status.Pointer.After, o.Spec.Params.To), Started: t.Started, Finished: t.Finished}
+	}
+	return last
 }
 
 // PromotionNode is one Stage of a promotion graph.

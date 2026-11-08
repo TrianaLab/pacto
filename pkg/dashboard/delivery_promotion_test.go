@@ -91,6 +91,14 @@ func TestInboxCountsWhatWaitsPerEnvironment(t *testing.T) {
 	expect(t, len(inbox["held"].([]any)) == 0 && len(inbox["errored"].([]any)) == 1 && len(inbox["frozen"].([]any)) == 1,
 		"only what waits to enter other: %v", inbox)
 	expect(t, inbox["heldPage"].(map[string]any)["total"] == float64(0), "the held total follows the filter: %v", inbox["heldPage"])
+	// except leaves out the environments a figure draws, so a folded station's
+	// counts open exactly what they count; an empty value names the unreadable.
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?except=other&except=", nil)
+	expect(t, fmt.Sprint(inbox["byEnvironment"]) == want, "except keeps the tallies whole: %v", inbox["byEnvironment"])
+	expect(t, inbox["heldPage"].(map[string]any)["total"] == float64(3) && len(inbox["errored"].([]any)) == 0 && len(inbox["frozen"].([]any)) == 0,
+		"only what waits to enter prod: %v", inbox)
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?except=prod", nil)
+	expect(t, inbox["heldPage"].(map[string]any)["total"] == float64(1), "the held change on an unreadable Stage stays: %v", inbox["heldPage"])
 }
 
 func TestUpstreamOfReadsTheDeclaredSource(t *testing.T) {
@@ -103,18 +111,39 @@ func TestUpstreamOfReadsTheDeclaredSource(t *testing.T) {
 		return fmt.Sprintf("%+v", *upstreamOf(context.Background(), f, &st))
 	}
 	cases := map[string]string{
-		at(delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "test", Name: "pay"}}):          "{Kind:stage Namespace:test Stage:pay Environment:staging Problem: Stream: Repository:}",
-		at(delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "gone"}}):                            "{Kind:stage Namespace:prod Stage:gone Environment: Problem:missing Stream: Repository:}",
-		at(delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: "r/s", Stream: "c/n/s"}}): "{Kind:records Namespace: Stage: Environment: Problem: Stream:c/n/s Repository:r/s}",
-		at(delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "pay-candidates"}}):               "{Kind:artifact Namespace: Stage: Environment: Problem: Stream: Repository:pay-candidates}",
-		at(delivery.Candidates{}): "{Kind:none Namespace: Stage: Environment: Problem: Stream: Repository:}",
+		at(delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "test", Name: "pay"}}):          "{Kind:stage Namespace:test Stage:pay Environment:staging Problem: Stream: Repository: Trust:}",
+		at(delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "gone"}}):                            "{Kind:stage Namespace:prod Stage:gone Environment: Problem:missing Stream: Repository: Trust:}",
+		at(delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: "r/s", Stream: "c/n/s"}}): "{Kind:records Namespace: Stage: Environment: Problem: Stream:c/n/s Repository:r/s Trust:unknown}",
+		at(delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "pay-candidates"}}):               "{Kind:artifact Namespace: Stage: Environment: Problem: Stream: Repository:pay-candidates Trust:}",
+		at(delivery.Candidates{}): "{Kind:none Namespace: Stage: Environment: Problem: Stream: Repository: Trust:}",
 	}
 	f.stageErr = errors.New("boom")
-	cases[at(delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "test", Name: "pay"}})] = "{Kind:stage Namespace:test Stage:pay Environment: Problem:unreadable Stream: Repository:}"
+	cases[at(delivery.Candidates{UpstreamStage: &delivery.StageRef{Namespace: "test", Name: "pay"}})] = "{Kind:stage Namespace:test Stage:pay Environment: Problem:unreadable Stream: Repository: Trust:}"
 	for got, want := range cases {
 		if got != want {
 			t.Errorf("got %s, want %s", got, want)
 		}
+	}
+}
+
+// SPEC 21 rule 1: whether the promoter trusts an upstream record stream is
+// read from the Stage's Ready condition.
+func TestRecordsTrustReadsTheReadyCondition(t *testing.T) {
+	cases := map[string][]delivery.Condition{
+		"unknown":    nil,
+		"trusted":    {{Type: "RecordStoreReady", Status: "False"}, {Type: "Ready", Status: "True", Reason: "Ready"}},
+		"untrusted":  {{Type: "Ready", Status: "False", Reason: "UpstreamUntrusted"}},
+		"unreadable": {{Type: "Ready", Status: "False", Reason: "UpstreamUnreadable"}},
+	}
+	for want, conds := range cases {
+		st := stage("prod", "pay", "pay", delivery.StageStatus{Conditions: conds})
+		if got := recordsTrust(&st); got != want {
+			t.Errorf("%v: got %s, want %s", conds, got, want)
+		}
+	}
+	st := stage("prod", "pay", "pay", delivery.StageStatus{Conditions: []delivery.Condition{{Type: "Ready", Status: "False", Reason: "ApplierNotFound"}}})
+	if got := recordsTrust(&st); got != "unknown" {
+		t.Errorf("a Stage not Ready for its applier never judged the records: got %s", got)
 	}
 }
 
@@ -159,6 +188,12 @@ func TestEnvironmentsCountByEnvironment(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?state=unverified", nil)
 	rows = envs["environments"].([]any)
 	expect(t, len(rows) == 1 && page(rows[0])["stage"] == "ledger", "a Stage counts in one state only: %v", rows)
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?except=test&except=books", nil)
+	rows = envs["environments"].([]any)
+	expect(t, len(rows) == 2 && tally(envs) == want, "except narrows the rows to the other environments, not the tally: %v", rows)
+	for _, r := range rows {
+		expect(t, page(r)["environment"] != "test" && page(r)["environment"] != "books", "no Stage of a left-out environment: %v", r)
+	}
 	code, _ := call(t, http.MethodGet, base+"/api/delivery/environments?state=nope", nil)
 	expect(t, code == http.StatusUnprocessableEntity, "an unknown state is refused: %d", code)
 	// Rows say where their candidates come from.
@@ -210,4 +245,33 @@ func TestPromotionGraph(t *testing.T) {
 	other := fed("test", "other", "", "")
 	g = promotionGraph([]delivery.StageObject{node("prod", "test", "other")}, stagesByName([]delivery.StageObject{other}), true)
 	expect(t, g.Nodes[0].Upstream.Environment == "test" && len(g.Edges) == 0, "outside the graph: %+v", g)
+}
+
+// The newest succeeded promote on a service's Stages, with the Stage that
+// offered it, for the figure's arc and its real times.
+func TestLastPromotionIsTheNewestSucceeded(t *testing.T) {
+	g := &PromotionGraph{Nodes: []PromotionNode{{Namespace: "test", Stage: "pay"}, {Namespace: "prod", Stage: "pay"}},
+		Edges: []PromotionEdge{{From: "test/pay", To: "prod/pay"}}}
+	done := func(ns, name, finished string, out delivery.Outcome) delivery.OperationObject {
+		o := operation(ns, name, "pay", delivery.OperationStatus{Outcome: out, Times: delivery.Times{Started: "2026-11-08T10:00:00Z", Finished: finished}})
+		return o
+	}
+	expect(t, lastPromotion(g, nil) == nil, "none succeeded")
+	other := done("prod", "u", "2026-11-08T13:00:00Z", delivery.Succeeded)
+	other.Spec.Type = "delivery.pacto.trianalab.io/unfreeze"
+	stray := done("books", "s", "2026-11-08T14:00:00Z", delivery.Succeeded)
+	ops := []delivery.OperationObject{
+		done("test", "a", "2026-11-08T11:00:00Z", delivery.Succeeded),
+		done("prod", "b", "2026-11-08T12:00:00Z", delivery.Succeeded),
+		done("prod", "c", "2026-11-08T12:30:00Z", delivery.Failed),
+		done("prod", "d", "", delivery.Succeeded),
+		done("test", "e", "2026-11-08T11:30:00Z", delivery.Succeeded),
+		other, stray,
+	}
+	got := lastPromotion(g, ops)
+	want := LastPromotion{To: "prod/pay", From: "test/pay", Digest: dNext, Started: "2026-11-08T10:00:00Z", Finished: "2026-11-08T12:00:00Z"}
+	expect(t, got != nil && *got == want, "%+v", got)
+	ops[1].Status.Pointer.After = dRun
+	expect(t, lastPromotion(g, ops).Digest == dRun, "the pointer it moved wins over the requested digest")
+	expect(t, lastPromotion(g, ops[:1]).From == "", "an entry has no feeder")
 }
