@@ -260,3 +260,30 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .fig[data-w="col"] .pg-st, .fig[data-w="col"] .pg-src { grid-column: 1 !important; grid-row: auto !important; grid-template-columns: 96px minmax(0, 1fr); justify-items: start; text-align: left; }
 .fig[data-w="col"] .pg-src { grid-template-columns: 28px minmax(0, 1fr); }
 .fig[data-w="col"] .pg-l, .fig[data-w="col"] .pg-run { justify-items: start; justify-content: flex-start; }
+
+/* History Timeline (SPEC 7): twelve equal columns, worst on top, a count over each; a
+   column whose record is missing gets a dashed axis and ⊗, never a hatch. */
+.tl-wrap { display: grid; gap: 6px; min-width: 0; }
+.tl { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; align-items: end; margin: 0; padding: 0; list-style: none; }
+.tl-c { display: grid; justify-items: center; gap: 4px; min-width: 0; }
+.tl-n { font-size: var(--text-xs); font-variant-numeric: tabular-nums; color: var(--c-text-2); }
+a.tl-n { color: var(--c-accent); text-decoration: none; font-weight: 600; }
+a.tl-n:hover { text-decoration: underline; }
+.tl-bar { display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; width: min(100%, 28px); height: var(--tl-h); }
+.tl-bar i { display: block; flex: none; background: var(--tone); border-radius: 1px; }
+.tl-bar i.hatch, .keyl .sw.hatch { background: var(--c-hatch), var(--c-surface); box-shadow: inset 0 0 0 1px var(--c-neutral); }
+.tl-ax { display: grid; place-items: center; width: 100%; height: 16px; border-top: 2px solid var(--fig-line-strong); }
+.tl-c.gap .tl-ax { border-top-style: dashed; border-top-color: var(--c-neutral); }
+.tl-x circle { fill: var(--c-surface); stroke: var(--c-neutral); stroke-width: 1.5; }
+.tl-x path { fill: none; stroke: var(--c-text); stroke-width: 1.5; stroke-linecap: round; }
+.tl-axis { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px var(--sp-3); }
+.fig:not([data-w="wide"]) .tl-mid { display: none; }
+.keyl { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.keyl li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: var(--sp-2); }
+.keyl .sw { display: block; width: 14px; height: 10px; border-radius: 2px; background: var(--tone); }
+.keyl b { font-variant-numeric: tabular-nums; }
+.gapk path:first-child { stroke: var(--c-neutral); stroke-width: 2; stroke-dasharray: 3 2; fill: none; }
+.gapk circle { fill: var(--c-surface); stroke: var(--c-neutral); stroke-width: 1.5; }
+.gapk path:last-child { stroke: var(--c-text); stroke-width: 1.5; fill: none; }
+.tl-gaps { margin: 0; }
+.fig[data-w="col"] .tl { gap: 2px; }

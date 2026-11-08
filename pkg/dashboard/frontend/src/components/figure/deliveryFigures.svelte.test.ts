@@ -10,6 +10,8 @@ import Station from './Station.svelte';
 import EnvFleetFigure from './EnvFleetFigure.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import PromotionFigure from './PromotionFigure.svelte';
+// @ts-expect-error — Svelte component has no declaration file
+import HistoryFigure from './HistoryFigure.svelte';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 type Any = any;
@@ -201,5 +203,29 @@ describe('PromotionFigure', () => {
     expect(target.textContent).toContain('not on this page of the board');
     expect(target.querySelector('figure svg text')).toBeNull();
     unmount(c);
+  });
+});
+
+describe('HistoryFigure', () => {
+  const zero = { missing: 0, failed: 0, held: 0, acceptedUnknown: 0, released: 0, other: 0 };
+  const buckets = Array.from({ length: 12 }, (_, i) => ({ start: `2026-11-08T${String(i * 2).padStart(2, '0')}:00:00Z`, end: `2026-11-08T${String(i * 2 + 1).padStart(2, '0')}:59:00Z`, ...zero,
+    ...(i === 3 ? { missing: 1, failed: 2 } : i === 5 ? { released: 3 } : {}) }));
+  const timeline = { start: buckets[0].start, end: '2026-11-08T23:59:00Z', buckets, totals: { ...zero, missing: 1, failed: 2, released: 3 }, untimed: 0 };
+  const href = (s: string, u: string) => `#/delivery/history?since=${s}&until=${u}`;
+
+  it('draws twelve columns, one mark each, links each count to its slice and marks a missing record with ⊗', async () => {
+    const { target, c } = render(HistoryFigure, { timeline, href, source: 'records', live: true }, false);
+    await settle();
+    expect(target.querySelectorAll('.tl-bar.mk')).toHaveLength(12);
+    expect([...target.querySelectorAll('a.tl-n')].map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['2', href(buckets[3].start, buckets[3].end)], ['3', href(buckets[5].start, buckets[5].end)]]);
+    expect(target.querySelectorAll('.tl-n[data-nofilter]')).toHaveLength(10);
+    expect(target.querySelectorAll('.tl-c.gap .tl-x')).toHaveLength(1);
+    expect(target.querySelector('.tl-gaps')?.textContent).toBe('Missing: one record between 06:00 and 07:59.');
+    expect(target.querySelector('figure svg text')).toBeNull();
+    unmount(c);
+    const cl = render(HistoryFigure, { timeline, href, source: 'cluster', live: true }, false);
+    await settle();
+    expect(cl.target.querySelectorAll('.tl-x')).toHaveLength(0);
+    expect(cl.target.querySelector('.keyl')?.textContent).toContain("shown on one Stage's history");
   });
 });

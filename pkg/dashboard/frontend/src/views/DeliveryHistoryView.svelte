@@ -22,6 +22,7 @@
   import DeliveryLead from '../components/DeliveryLead.svelte';
   import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
   import HelpTip from '../components/HelpTip.svelte';
+  import HistoryFigure from '../components/figure/HistoryFigure.svelte';
 
   // What happened on each Stage: from its signed records where the recorder
   // runs, otherwise from the changes still in the cluster. Every history says
@@ -101,6 +102,13 @@
   const autonomy = $derived(autonomyOf(histories.flatMap((h) => h.entries ?? [])));
   const partial = $derived(histories.some((h) => h.completeness !== 'complete'));
   const more = $derived(histories.some((h) => (h.entriesPage?.total ?? 0) > (h.entries ?? []).length));
+
+  // The figure's tally (B7): one Stage's own timeline from its history, or across
+  // Stages the changes still in the cluster, which cannot see a missing record.
+  const timeline = $derived(one ? histories[0]?.timeline : data?.timeline);
+  const tlSource = $derived(!one ? 'cluster' : histories[0]?.source === 'records' ? 'records' : 'status');
+  const sliceHref = (s, u) => deliveryHistoryUrl({ namespace, stage, service: svc, domain: dom, since: s, until: u });
+  const figQuestion = $derived(`What happened ${since || until ? 'in this window' : 'in the last 24 hours'}${one ? ' on this Stage' : ''}, and where is the record missing?`);
 
   const ABOUT = 'Where the recorder runs, history is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story.';
   // The page's answer. Every Stage: what needs a look on this page. One Stage:
@@ -215,6 +223,7 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
+    {#if timeline}<HistoryFigure {timeline} href={sliceHref} source={tlSource} live={!until} question={figQuestion} />{/if}
     {#if one && autonomy?.total}
       <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
         <strong>{formatCount(autonomy.noPerson)} of {countOf(autonomy.total, 'promotion')} needed no person</strong>{#if autonomy.onlyUnknown}; {formatCount(autonomy.onlyUnknown)} waited only on an Unknown check (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how to fix</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}
