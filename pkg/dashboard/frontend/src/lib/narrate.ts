@@ -70,12 +70,26 @@ export function claimAutoplay(key: string): boolean {
 const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
 
 /**
- * play runs the steps over the marks under `stage` and the wires in `wires`. It returns
- * the animations it started (none in jsdom, which has no Element.animate).
+ * A token that walks (SPEC 6.2 r3): the element `sel` and, per step, the slot it stands
+ * in during that step; the last slot is where it rests, which is where it is rendered.
  */
-export function play(stage: Element, wires: Element | null, steps: Step[], id: string): Animation[] {
+export interface TokenWalk { sel: string; slots: string[] }
+
+/** tokenOffsets places the token in each slot as a translation from where it rests. */
+export function tokenOffsets(slots: { left: number; top: number }[]): string[] {
+  const end = slots[slots.length - 1];
+  return slots.map((r) => (r === end ? 'none' : `translate(${Math.round(r.left - end.left)}px, ${Math.round(r.top - end.top)}px)`));
+}
+
+/**
+ * play runs the steps over the marks under `stage` and the wires in `wires`. It returns
+ * the animations it started (none in jsdom, which has no Element.animate). A rail walk
+ * (`walk`) may take one step per station reached (A1b); its token travels them in one
+ * animation, one keyframe per step.
+ */
+export function play(stage: Element, wires: Element | null, steps: Step[], id: string, { walk = false, token = null as TokenWalk | null } = {}): Animation[] {
   if (typeof Element === 'undefined' || !Element.prototype.animate) return [];
-  const { at } = timeline(steps);
+  const { at, total } = timeline(steps, { walk });
   const out: Animation[] = [];
   const opts = (delay: number, d: number, fill: FillMode = 'backwards', easing = EASE) =>
     ({ duration: dur(d), delay: dur(delay), fill, easing, id: `narr:${id}` });
@@ -91,6 +105,13 @@ export function play(stage: Element, wires: Element | null, steps: Step[], id: s
       out.push(p.animate([{ strokeDashoffset: 18, opacity: 1 }, { strokeDashoffset: -L, opacity: 1 }], opts(at[i], s.dur, 'none', 'linear')));
     }
   });
+  const tok = token && stage.querySelector(token.sel);
+  const slots = token ? token.slots.map((sel) => stage.querySelector(sel)) : [];
+  if (tok && slots.length > 1 && slots.every(Boolean) && total) {
+    const moves = tokenOffsets(slots.map((el) => el!.getBoundingClientRect()));
+    const kf = moves.map((transform, j) => ({ transform, offset: j === moves.length - 1 ? 1 : at[j] / total }));
+    out.push(tok.animate(kf, opts(0, total, 'backwards', 'linear')));
+  }
   return out;
 }
 

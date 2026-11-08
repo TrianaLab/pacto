@@ -46,6 +46,7 @@
 .fig .t-ok { --tone: var(--c-ok); }
 .fig .t-accent { --tone: var(--c-accent); }
 .fig .t-neutral { --tone: var(--fig-line-strong); }
+.fig .t-frost { --tone: var(--c-info); }
 
 /* Node: a flat pin with one glyph (C15). */
 .nd { display: inline-grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; }
@@ -56,6 +57,9 @@
 .nd.unk .f { fill: url(#fig-hatch); stroke: var(--c-neutral); }
 .nd.unk .fc { fill: var(--c-iso-face); stroke: none; }
 .nd.unk .gp { stroke: var(--c-text); }
+/* Frost (SPEC 2.2 r4): frozen has its own fill, small diamonds on the info tone. */
+.nd.t-frost .f { fill: url(#fig-frost); }
+.nd.t-frost .gp { stroke: var(--c-text); }
 
 /* Slabs (iso): the Stack's layers. Sides mix the tone into a neutral side. */
 .slab { --tone: var(--c-accent); }
@@ -138,6 +142,57 @@ a.lane-count:hover b, .lane-more:hover { text-decoration: underline; }
 .fig[data-w="col"] .impact { grid-template-columns: 28px minmax(0, 1fr); grid-template-areas: "name name" "stack stack" "split ." ". lanes"; row-gap: var(--sp-3); }
 .fig[data-w="col"] .stackcell { grid-template-columns: 110px minmax(0, 1fr); align-items: center; }
 
+/* Rail: stations in causal order, one column each (S1 r3: vertical when a station
+   would get under 150px, which Figure decides with rowMin). */
+.rail { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: var(--sp-2); margin: 0; padding: 0; list-style: none; }
+.rl-st { display: grid; justify-items: center; align-content: start; gap: var(--sp-2); min-width: 0; text-align: center; }
+.rl-slot { display: grid; place-items: end center; width: 48px; height: 44px; }
+.rl-l { display: grid; gap: 2px; justify-items: center; min-width: 0; max-width: 100%; font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.rl-l .t-meta { overflow-wrap: anywhere; }
+.rl-off > .nd { opacity: 0.75; }
+.badge.here { font-weight: 600; white-space: normal; }
+.fig[data-w="col"] .rail { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+.fig[data-w="col"] .rl-st { grid-template-columns: 48px 40px minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; gap: var(--sp-3); }
+.fig[data-w="col"] .rail:not(.has-tok) .rl-st { grid-template-columns: 40px minmax(0, 1fr); }
+.fig[data-w="col"] .rl-slot { place-items: center end; height: 40px; }
+.fig[data-w="col"] .rl-l { justify-items: start; }
+
+/* Token: "the change is here", a callout in the change's tone (never a slab). Its notch
+   points down at the station in a row and right at it in the vertical layout. */
+.tok { display: block; width: 48px; height: 38px; pointer-events: none; }
+.tok svg { display: block; overflow: visible; }
+.tok .tok-b { fill: var(--c-surface); stroke: var(--tone); stroke-width: 2; stroke-linejoin: round; }
+.tok .tok-g { fill: none; stroke: var(--tone); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tok .tok-r { display: none; }
+.fig[data-w="col"] .tok .tok-d { display: none; }
+.fig[data-w="col"] .tok .tok-r { display: inline; }
+
+/* Station: a flat neutral bar (S10), never toned by what waits in it. */
+.stn { display: block; flex: none; overflow: visible; }
+.stn rect { fill: color-mix(in srgb, var(--c-neutral) 10%, var(--c-iso-face)); stroke: var(--fig-line-strong); stroke-width: 1.5; }
+.stn.t-accent rect { fill: color-mix(in srgb, var(--c-accent) 12%, var(--c-iso-face)); stroke: var(--c-accent); }
+
+/* Inbox pipeline: equal stations, a dashed queue under each, bars on one shared scale. */
+.pipe { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: var(--sp-4); margin: 0; padding: 0; list-style: none; }
+.pst { display: grid; justify-items: center; align-content: start; gap: var(--sp-2); min-width: 0; }
+.pst-l { display: grid; gap: 6px; width: 100%; min-width: 0; font-size: var(--text-sm); line-height: 1.4; }
+.pst-name { text-align: center; overflow-wrap: anywhere; }
+.queue { display: grid; gap: 6px; border: 1px dashed var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-2) 10px; min-width: 0; }
+.queue-h { font-size: var(--text-xs); color: var(--c-text-3); overflow-wrap: anywhere; }
+.qrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); min-width: 0; color: var(--c-text); text-decoration: none; }
+a.qrow b { color: var(--c-accent); }
+a.qrow:hover .qn { text-decoration: underline; }
+.qn { white-space: nowrap; }
+.qglyph { flex: none; overflow: visible; }
+.qglyph circle { fill: color-mix(in srgb, var(--tone) 18%, var(--c-surface)); stroke: var(--tone); stroke-width: 1.5; }
+.qglyph path { fill: none; stroke: var(--tone); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.qbar { flex: 1 1 40px; min-width: 40px; display: block; height: 10px; border-radius: 2px; background: var(--c-surface-inset); box-shadow: inset 0 0 0 1px var(--c-border); overflow: hidden; }
+.qbar i { display: block; height: 100%; background: var(--tone); }
+.qbar i.t-frost { background: var(--c-frost), var(--c-surface); box-shadow: inset 0 0 0 1px var(--c-info); }
+.fig[data-w="col"] .pipe { grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
+.fig[data-w="col"] .pst { grid-template-columns: 96px minmax(0, 1fr); justify-items: start; }
+.fig[data-w="col"] .pst-name { text-align: left; }
+
 /* Glyph: a kind, never a state, so it takes the text colour. */
 .kind-glyph { flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .kind-glyph--sm { width: var(--fig-glyph-sm); height: var(--fig-glyph-sm); }
@@ -165,7 +220,7 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .snap-id.match { color: var(--c-ok); border-color: var(--c-ok-border); }
 
 @media (forced-colors: active) {
-  .fig .w, .nd .f, .nd .gp, .slab .edge { stroke: CanvasText; }
+  .fig .w, .nd .f, .nd .gp, .slab .edge, .stn rect, .tok .tok-b, .qglyph circle { stroke: CanvasText; }
   .nd .f, .mbar i { forced-color-adjust: none; }
 }
 

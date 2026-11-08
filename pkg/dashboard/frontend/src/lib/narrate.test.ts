@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { timeline, sessionKey, claimAutoplay, play, finalMode, resolve, NARRATE, finishNarrations } from './narrate.ts';
+import { timeline, sessionKey, claimAutoplay, play, finalMode, resolve, NARRATE, finishNarrations, tokenOffsets } from './narrate.ts';
 
 const step = (dur: number, cap = 's') => ({ cap, dur });
 
@@ -51,6 +51,20 @@ describe('play', () => {
     } finally {
       Element.prototype.animate = real;
     }
+  });
+  it('walks a token through its slots in one animation, resting where it is rendered', () => {
+    const stage = document.createElement('div');
+    stage.innerHTML = '<span data-tok="0"></span><span data-tok="1"><span class="tok"></span></span><span data-m="a"></span>';
+    const steps = Array.from({ length: 6 }, (_, i) => ({ cap: `s${i}`, dur: 120, hold: 30, show: i ? [] : ['[data-m="a"]'] }));
+    const token = { sel: '.tok', slots: steps.map((_, i) => `[data-tok="${Math.min(i, 1)}"]`) };
+    expect(() => play(stage, null, steps, 'x')).toThrow(/over 5/);
+    const anims = play(stage, null, steps, 'x', { walk: true, token });
+    expect(anims).toHaveLength(2);
+    expect(play(stage, null, steps, 'x', { walk: true, token: { sel: '.none', slots: token.slots } })).toHaveLength(1);
+  });
+  it('places a token in each slot relative to where it rests', () => {
+    const rest = { left: 300, top: 10 };
+    expect(tokenOffsets([{ left: 100, top: 10 }, { left: 200.4, top: 30 }, rest])).toEqual(['translate(-200px, 0px)', 'translate(-100px, 20px)', 'none']);
   });
   it('resolves wires by id and marks by selector', () => {
     const stage = document.createElement('div');

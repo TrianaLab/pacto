@@ -760,6 +760,14 @@ describe('figures', () => {
     }
   });
 
+  // S10 and G4: a mark that stands for many members is never toned by its worst one.
+  it('lets a station take only neutral or accent', () => {
+    for (const name of ['Station.svelte']) {
+      const body = figFiles.find((f) => f.rel === `components/figure/${name}`)!.body;
+      expect(body, name).toMatch(/tone\?: 'neutral' \| 'accent'/);
+    }
+  });
+
   it('keeps explainers to neutral and accent', () => {
     const explain = figFiles.filter((f) => f.rel.startsWith('components/figure/explain/'));
     for (const f of explain) expect(f.body, f.rel).not.toMatch(/--c-(ok|warn|err)\b|\bt-(ok|warn|err)\b/);

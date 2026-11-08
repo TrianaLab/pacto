@@ -139,7 +139,8 @@ export function arrowHead(a: Pt, fs: Side, b: Pt, ts: Side, len = 7, half = 4): 
 
 /** SPEC 2.1: observed solid, projected dashed, stale dotted, missing broken. */
 export type WireStyle = 'obs' | 'proj' | 'stale' | 'broken';
-export type FigTone = 'err' | 'warn' | 'ok' | 'accent' | 'neutral';
+/** frost is frozen (SPEC 2.2 r4): its own fill on the info tone, never the unknown hatch. */
+export type FigTone = 'err' | 'warn' | 'ok' | 'accent' | 'neutral' | 'frost';
 
 export interface WireDef {
   id: string;
@@ -168,6 +169,8 @@ export const GLYPH_PATH = {
   unknown: 'M-2.5 -1.7 C-2.5 -4.6 2.6 -4.6 2.6 -1.7 C2.6 0 0 0.3 0 2.1 M0 4.3 V4.4',
   held: 'M-1.9 -3.4 V3.4 M1.9 -3.4 V3.4',
   none: 'M-3.4 0 H3.4',
+  // A six-armed flake: frozen, which is information, never a failure.
+  frozen: 'M0 -4.4 V4.4 M-3.8 -2.2 L3.8 2.2 M-3.8 2.2 L3.8 -2.2',
   // An eye struck through: names hidden by the reader's access (Ghost), so it never
   // reads as the "?" of an unknown verdict.
   hidden: 'M-4.2 0 C-2.2 -3 2.2 -3 4.2 0 C2.2 3 -2.2 3 -4.2 0 M-3.4 3.4 L3.4 -3.4',

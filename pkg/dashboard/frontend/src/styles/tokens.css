@@ -248,6 +248,9 @@
      never reads as the flat grey of a benign neutral bucket; the element that wears it
      also draws a solid 1px --c-neutral edge, which carries the contrast. */
   --c-hatch: repeating-linear-gradient(135deg, var(--c-neutral) 0 3px, transparent 3px 6px);
+  /* Frost: frozen, and nothing else (SPEC 2.2 r4). Small diamonds on the info tone, so
+     it never reads as the unknown hatch; its wearer also draws a solid info edge. */
+  --c-frost: repeating-linear-gradient(45deg, var(--c-info) 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, var(--c-info) 0 1.5px, transparent 1.5px 5px);
   --c-iso-face: #141b2d;
   --c-iso-side: #1b2340;
   --c-iso-side-2: #121933;

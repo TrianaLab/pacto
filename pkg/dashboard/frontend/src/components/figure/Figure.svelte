@@ -15,12 +15,15 @@
   import { widthClass, CHIP_CAP } from '../../lib/figure.ts';
   import { layoutLanes, wirePaths } from '../../lib/figureLayout.ts';
   import { fitIdents } from '../../lib/elide.ts';
-  import { play, resolve, claimAutoplay, finalMode, sessionKey } from '../../lib/narrate.ts';
+  import { play, resolve, claimAutoplay, finalMode, sessionKey, tokenOffsets } from '../../lib/narrate.ts';
   import { prefersReducedMotion } from '../../lib/motion.ts';
   import Wire from './Wire.svelte';
 
-  /** @type {{ id: string, question: string, kind?: 'data' | 'explain', alt?: string, wires?: import('../../lib/figure.ts').WireDef[], steps?: import('../../lib/narrate.ts').Step[], autoplay?: boolean, autoKey?: unknown, testid?: string, stage: import('svelte').Snippet, aside?: import('svelte').Snippet | null, foot?: import('svelte').Snippet | null, caption: import('svelte').Snippet }} */
-  let { id, question, kind = 'data', alt = '', wires = [], steps = [], autoplay = false, autoKey = null, testid = undefined, stage, aside = null, foot = null, caption } = $props();
+  // A rail walk (`walk`) takes one step per station reached (A1b) and may carry a token
+  // that travels them (`token`). `rowMin` is the width under which a row of steps turns
+  // vertical (S1 r3, data-minw): each step keeps at least 150px.
+  /** @type {{ id: string, question: string, kind?: 'data' | 'explain', alt?: string, wires?: import('../../lib/figure.ts').WireDef[], steps?: import('../../lib/narrate.ts').Step[], walk?: boolean, token?: import('../../lib/narrate.ts').TokenWalk | null, rowMin?: number, autoplay?: boolean, autoKey?: unknown, testid?: string, stage: import('svelte').Snippet, aside?: import('svelte').Snippet | null, foot?: import('svelte').Snippet | null, caption: import('svelte').Snippet }} */
+  let { id, question, kind = 'data', alt = '', wires = [], steps = [], walk = false, token = null, rowMin = 0, autoplay = false, autoKey = null, testid = undefined, stage, aside = null, foot = null, caption } = $props();
 
   /** @type {HTMLElement} */ let el;
   /** @type {HTMLElement} */ let stageEl;
@@ -38,7 +41,7 @@
 
   async function layout() {
     if (!el?.isConnected) return;
-    w = widthClass(el.clientWidth);
+    w = el.clientWidth < rowMin ? 'col' : widthClass(el.clientWidth);
     await tick();
     if (!stageEl?.isConnected) return;
     layoutLanes(stageEl, CHIP_CAP[w]);
@@ -69,7 +72,7 @@
     if (finalMode()) return;
     for (const a of anims) a.cancel();
     ring(false);
-    anims = play(stageEl, svgEl, steps, id);
+    anims = play(stageEl, svgEl, steps, id, { walk, token });
     if (!anims.length) { done(); return; }
     narration = 'playing';
     const mine = anims;
@@ -85,6 +88,15 @@
     steps.forEach((s, i) => {
       for (const sel of s.show ?? []) for (const t of resolve(stageEl, svgEl, sel)) t.classList.toggle('nar-hid', i >= k);
     });
+    const tok = token && stageEl.querySelector(token.sel);
+    const slots = token ? token.slots.map((sel) => stageEl.querySelector(sel)) : [];
+    if (tok instanceof HTMLElement || tok instanceof SVGElement) {
+      // At its last step the token is where it is rendered: no style left behind, so the
+      // final step is the final frame's DOM (G2).
+      const at = slots.every(Boolean) ? tokenOffsets(slots.map((x) => x.getBoundingClientRect()))[k - 1] : 'none';
+      if (at && at !== 'none') tok.style.transform = at;
+      else { tok.style.removeProperty('transform'); if (!tok.getAttribute('style')) tok.removeAttribute('style'); }
+    }
     ring(k === steps.length);
   }
 

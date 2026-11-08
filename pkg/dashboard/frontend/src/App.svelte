@@ -291,11 +291,13 @@
   });
 </script>
 
-<!-- The figures' one hatch pattern (SPEC 3.1): unknown, partial and hidden marks fill
-     with it; their solid neutral edge carries the contrast. -->
+<!-- The figures' hatch pattern (SPEC 3.1): unknown, partial and hidden marks fill with
+     it; their solid neutral edge carries the contrast. Frost (SPEC 2.2) is frozen only. -->
 <svg class="fig-defs" width="0" height="0" aria-hidden="true" focusable="false">
   <defs><pattern id="fig-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-    <rect width="6" height="6" fill="var(--c-iso-face)" /><line x1="1.5" y1="0" x2="1.5" y2="6" stroke="var(--c-neutral)" stroke-width="3" /></pattern></defs>
+    <rect width="6" height="6" fill="var(--c-iso-face)" /><line x1="1.5" y1="0" x2="1.5" y2="6" stroke="var(--c-neutral)" stroke-width="3" /></pattern>
+    <pattern id="fig-frost" width="5" height="5" patternUnits="userSpaceOnUse">
+    <rect width="5" height="5" fill="var(--c-iso-face)" /><path d="M2.5 0.8 L4.2 2.5 L2.5 4.2 L0.8 2.5 Z" fill="var(--c-info)" /></pattern></defs>
 </svg>
 {#if auth.loaded && !gated}
 <Navbar
