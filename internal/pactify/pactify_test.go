@@ -791,6 +791,7 @@ func TestRefusals(t *testing.T) {
 	}{
 		{"a file", Options{Dir: filepath.Join(notDir, "f")}, "is a file"},
 		{"unreadable", Options{Dir: locked, Name: "x"}, "reading"},
+		{"unreadable .pactoignore", Options{Dir: writeTree(t, t.TempDir(), map[string]string{".pactoignore/x": ""}), Name: "x"}, ".pactoignore: "},
 		{"bad name", Options{Dir: t.TempDir(), Name: "Bad_Name"}, "not a valid service name"},
 		{"bad environment", Options{Dir: t.TempDir(), Name: "x", Environments: []string{"Prod"}}, "not a valid namespace name"},
 		{"bad owner", Options{Dir: fraudDir(t), Owner: "the risk team"}, "is not valid"},
