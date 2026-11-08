@@ -148,7 +148,8 @@ test.describe('Every product visualization is named, textual and keyboard-operab
 
   test('a legend drill-down is reachable and activated by keyboard alone', async ({ page }) => {
     await open(page, '#/fleet');
-    const link = page.locator('main figure.dist .dist-item a').first();
+    // The posture bands' legends; the trust figure's aside bar above them lists services.
+    const link = page.locator('main .page-toc-main figure.dist .dist-item a').first();
     await expect(link).toBeVisible();
     const href = await link.getAttribute('href');
     expect(href).toContain('attention');

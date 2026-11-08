@@ -9,10 +9,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
 
-const { overviewFn } = vi.hoisted(() => ({ overviewFn: vi.fn() }));
+const { overviewFn, entitiesFn } = vi.hoisted(() => ({ overviewFn: vi.fn(), entitiesFn: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
-  return { ...actual, api: { fleetOverview: (...a: unknown[]) => overviewFn(...a) } };
+  // The trust figure's aside asks the service tally separately; it never answers
+  // unless a test says so.
+  return { ...actual, api: { fleetOverview: (...a: unknown[]) => overviewFn(...a), fleetEntities: (...a: unknown[]) => entitiesFn(...a) ?? new Promise(() => {}) } };
 });
 
 import { ApiError } from '../lib/api.ts';
@@ -64,7 +66,32 @@ function mountView() {
 }
 
 describe('FleetOverview — operational landing (scenarios 1-5)', () => {
-  beforeEach(() => overviewFn.mockReset());
+  beforeEach(() => { overviewFn.mockReset(); entitiesFn.mockReset(); });
+
+  it('answers the trust figure with one compliance bar whose legend lists each bucket, and explains how Pacto knows on request', async () => {
+    overviewFn.mockResolvedValue(baseOverview(true));
+    entitiesFn.mockResolvedValue({ meta: baseOverview(true).meta, total: 3, count: 0, entities: [], aggregate: { services: 3, serviceCompliance: { compliant: 2, nonCompliant: 1 } } });
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="trust-figure"] .fig-aside .dist-title')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], limit: 1 }));
+    const aside = target.querySelector('[data-testid="trust-figure"] .fig-aside') as HTMLElement;
+    expect(aside.querySelector('.dist-title')?.textContent).toBe('What the snapshot says about 3 services');
+    const hrefs = Array.from(aside.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(expect.arrayContaining(['#/fleet/services?status=NonCompliant', '#/fleet/services', '#/fleet/revisions', '#/fleet/targets']));
+    // Where the numbers came from: the provenance strip, partial in words.
+    expect(target.querySelector('[data-testid="trust-figure"] [data-testid="provenance"]')?.textContent)
+      .toContain('Partial: 1 of 7 sources unavailable, 1 partial');
+    expect(target.querySelector('[data-testid="knows-explainer"]')).toBeNull();
+    const toggle = target.querySelector('[data-testid="knows-toggle"]') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    toggle.click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="knows-explainer"]')).toBeTruthy());
+    const ex = target.querySelector('[data-testid="knows-explainer"]') as HTMLElement;
+    expect(ex.querySelector('.fig-q')?.textContent).toBe('How does Pacto know?');
+    expect(ex.querySelector('.fig-kind')?.textContent).toBe('How this works');
+    expect(toggle.textContent).toBe('Hide how Pacto knows');
+    unmount(component); document.body.removeChild(target);
+  });
 
   it('scenario 1: loads the product overview and renders the summary', async () => {
     overviewFn.mockResolvedValue(baseOverview(false));

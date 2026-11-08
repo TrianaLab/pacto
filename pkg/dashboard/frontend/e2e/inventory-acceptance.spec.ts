@@ -200,7 +200,7 @@ test('Owners: the ownership picture is the whole fleet, whatever the roster unde
   // cannot be allowed to redraw what "this fleet's ownership" means.
   // One owner's own name -- taken from the row's href, because the visible label carries
   // the entity kind in front of it. A term guaranteed to select fewer rows than the roster.
-  const href = (await page.getByTestId('owner-list').locator('li a').first().getAttribute('href'))!;
+  const href = (await page.getByTestId('owner-list').locator('tbody a.entity-link').first().getAttribute('href'))!;
   const term = decodeURIComponent(href.split('/').pop()!);
   await page.evaluate((t: string) => { location.hash = `/fleet/owners?text=${encodeURIComponent(t)}`; }, term);
   await expect.poll(() => pagerTotal(page, '[data-testid="owner-range"]'), { timeout: 30_000 }).toBeLessThan(roster);

@@ -25,7 +25,8 @@
   // /api/fleet/entities?kinds=source via the SDK facade, with a search box and a
   // health filter (the backend sourceHealth query param), all kept in the URL. Rows
   // navigate to the rich source page.
-  let { text = '', sourceHealth = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  // `sourceKind` narrows to one adapter kind: the list a figure's kind tally opens.
+  let { text = '', sourceHealth = '', sourceKind = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const HEALTH_OPTIONS = ['available', 'partial', 'stale', 'unavailable'];
@@ -33,7 +34,7 @@
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   // Least healthy first by default: the sources worth a look are the broken ones.
   const order = $derived(sort || 'health');
-  const anyFilter = $derived(!!(text || sourceHealth));
+  const anyFilter = $derived(!!(text || sourceHealth || sourceKind));
 
   // Seeded once; the effect below keeps it in step with the URL.
   let textDraft = $state(untrack(() => text));
@@ -44,12 +45,12 @@
 
   // One reusable, race-safe loader: dedupes the initial load and
   // guards against a stale response overwriting a newer route/filter/refresh.
-  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['source'], text: text || undefined, sourceHealth: sourceHealth || undefined, offset: pageOffset || undefined, limit: pageLimit, sort: order }));
+  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['source'], text: text || undefined, sourceHealth: sourceHealth || undefined, sourceKind: sourceKind || undefined, offset: pageOffset || undefined, limit: pageLimit, sort: order }));
   // queryIdentity is the QUESTION (search + health filter + page); refreshTick only
   // re-asks it. Rows are retained across a re-ask and never across a different question.
-  const queryIdentity = $derived(`${text}@@${sourceHealth}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${sourceHealth}@@${sourceKind}@@${pageOffset}@@${pageLimit}@@${order}`);
   // listIdentity is the same question without its page: a page turn keeps the rows.
-  const listIdentity = $derived(`${text}@@${sourceHealth}@@${order}`);
+  const listIdentity = $derived(`${text}@@${sourceHealth}@@${sourceKind}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -84,7 +85,7 @@
 
   function urlWith(patch, off = 0, lim = pageLimit) {
     return fleetSourcesUrl({
-      text: patch.text ?? text, sourceHealth: patch.sourceHealth ?? sourceHealth, offset: off,
+      text: patch.text ?? text, sourceHealth: patch.sourceHealth ?? sourceHealth, sourceKind: patch.sourceKind ?? sourceKind, offset: off,
       limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
     });
   }
@@ -93,6 +94,7 @@
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
     sourceHealth ? { key: 'sourceHealth', label: 'Health', value: sourceHealthLabel(sourceHealth) } : null,
+    sourceKind ? { key: 'sourceKind', label: 'Kind', value: sourceKind } : null,
   ].filter(Boolean));
   function removeChip(key) { location.hash = urlWith({ [key]: '' }); }
 </script>
@@ -112,8 +114,8 @@
   />
 
   {#if tallyParts.length}
-    <LazyView load={loadTrustFigure} mode="sources" counts={list?.meta?.sourceCounts} {worst} asOf={list?.meta?.asOf ? formatDate(list.meta.asOf) : ''}
-      stateHref={(st) => urlWith({ sourceHealth: st })}>
+    <LazyView load={loadTrustFigure} mode="sources" counts={list?.meta?.sourceCounts} meta={list?.meta} {worst} asOf={list?.meta?.asOf ? formatDate(list.meta.asOf) : ''}
+      stateHref={(st, kind) => urlWith({ text: '', sourceHealth: st, sourceKind: kind ?? '' })}>
       {#snippet aside()}
           <p class="lv-tally t-body-2" data-testid="source-tally">
             Across every data source:

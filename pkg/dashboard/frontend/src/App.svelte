@@ -23,7 +23,6 @@
   import OwnersView from './views/OwnersView.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
-  import FleetOwnersView from './views/FleetOwnersView.svelte';
   import FleetOfferingsView from './views/FleetOfferingsView.svelte';
   import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
@@ -50,6 +49,7 @@
   // The two least visited fleet lists, loaded on first use to keep the first download in budget.
   const loadFleetSourcesView = once(() => import('./views/FleetSourcesView.svelte'));
   const loadFleetDomainsView = once(() => import('./views/FleetDomainsView.svelte'));
+  const loadFleetOwnersView = once(() => import('./views/FleetOwnersView.svelte'));
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -443,12 +443,12 @@
       {refreshTick}
     />
   {:else if route.view === 'fleet-owners'}
-    <FleetOwnersView text={route.params.text || ''} offset={route.params.offset || ''}
-      limit={route.params.limit || ''}
+    <LazyView load={loadFleetOwnersView} text={route.params.text || ''} offset={route.params.offset || ''}
+      limit={route.params.limit || ''} hasNonCompliant={route.params.hasNonCompliant || ''} businessDomain={route.params.businessDomain || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-domains'}
     <LazyView load={loadFleetDomainsView} text={route.params.text || ''} offset={route.params.offset || ''}
-      limit={route.params.limit || ''}
+      limit={route.params.limit || ''} hasNonCompliant={route.params.hasNonCompliant || ''} ownerKey={route.params.ownerKey || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-offerings'}
     <FleetOfferingsView text={route.params.text || ''} offset={route.params.offset || ''}
@@ -462,6 +462,7 @@
     <LazyView load={loadFleetSourcesView}
       text={route.params.text || ''}
       sourceHealth={route.params.sourceHealth || ''}
+      sourceKind={route.params.sourceKind || ''}
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}

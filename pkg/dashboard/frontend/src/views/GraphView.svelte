@@ -18,6 +18,7 @@
   import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetChangesUrl, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import EdgeExplainer from '../components/figure/explain/EdgeExplainer.svelte';
   import CappedList from '../components/CappedList.svelte';
   import { createEntitySuggest } from '../lib/entitySuggest.svelte.ts';
   import EntityLink from '../components/EntityLink.svelte';
@@ -450,6 +451,9 @@
           <p class="disco-ph-sub">Its graph shows up here.</p>
         </div>
       {/if}
+
+      <!-- The wire vocabulary drawn on four edges, before the canvas uses it (SPEC 17). -->
+      <EdgeExplainer />
 
       <!-- One line, not two panels: the way in from a problem, and the layer definitions
            one (i) away instead of a card of prose the reader passes on every visit. -->

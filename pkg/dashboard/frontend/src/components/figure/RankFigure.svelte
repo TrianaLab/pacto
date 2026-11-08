@@ -9,11 +9,12 @@
   import Figure from './Figure.svelte';
   import HubNode from './HubNode.svelte';
   import Lane from './Lane.svelte';
+  import ProvenanceStrip from './ProvenanceStrip.svelte';
   import { rankModel } from '../../lib/fleetFigures.ts';
   import { formatCount, countOf } from '../../lib/format.ts';
 
-  /** @type {{ kind: 'owner' | 'domain', aggregate: import('../../lib/fleetFigures.ts').RankAggregate | null, hrefs: import('../../lib/fleetFigures.ts').RankHrefs }} */
-  let { kind, aggregate, hrefs } = $props();
+  /** @type {{ kind: 'owner' | 'domain', aggregate: import('../../lib/fleetFigures.ts').RankAggregate | null, hrefs: import('../../lib/fleetFigures.ts').RankHrefs, meta?: import('../../lib/provenance.ts').MetaLike | null }} */
+  let { kind, aggregate, hrefs, meta = null } = $props();
   const m = $derived(rankModel(kind, aggregate, hrefs));
 </script>
 
@@ -37,6 +38,7 @@
     </div>
   {/snippet}
   {#snippet caption()}
-    Ranked by count, so large {m.word}s rank high.{#if m.rate}{' '}The highest rate is <bdi>{m.rate.label}</bdi>: {m.rate.text}.{/if}
+    Ranked by count, so large {m.word}s rank high.{#if m.rate}{' '}The highest rate is <bdi>{m.rate.label}</bdi>: {m.rate.text}; sort the table by Rate to see the rest.{/if}
+    <ProvenanceStrip {meta} />
   {/snippet}
 </Figure>

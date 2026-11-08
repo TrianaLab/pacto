@@ -133,6 +133,8 @@ describe('GraphView — product Operational Graph', () => {
     // The resting discovery state shows an unmistakable "graph renders after you focus"
     // affordance, not an empty page and never the whole fleet.
     expect(q(target, '[data-testid="graph-discovery-placeholder"]')).toBeTruthy();
+    // Before any canvas, the wire vocabulary is drawn on four edges into one service.
+    expect(q(target, '[data-testid="edge-explainer"] .fig-q')?.textContent).toBe('How does an edge read in the graph?');
     expect(neighborhoodFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });

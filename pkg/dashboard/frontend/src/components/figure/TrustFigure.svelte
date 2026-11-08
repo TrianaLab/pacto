@@ -10,13 +10,14 @@
   import Node from './Node.svelte';
   import HubNode from './HubNode.svelte';
   import Bus from './Bus.svelte';
+  import ProvenanceStrip from './ProvenanceStrip.svelte';
   import { trustModel, sourcesModel, SOURCE_STATE } from '../../lib/fleetFigures.ts';
   import { formatCount } from '../../lib/format.ts';
   import { hashForHref } from '../../lib/router.ts';
   import { elidable } from '../../lib/elide.ts';
 
-  /** @type {{ mode: 'overview' | 'sources', counts: import('../../lib/fleetFigures.ts').SourceCountsLike | null, worst?: import('../../lib/fleetFigures.ts').NamedSource[], asOf?: string, stateHref: (state: string) => string, aside?: import('svelte').Snippet | null }} */
-  let { mode, counts, worst = [], asOf = '', stateHref, aside = null } = $props();
+  /** @type {{ mode: 'overview' | 'sources', counts: import('../../lib/fleetFigures.ts').SourceCountsLike | null, worst?: import('../../lib/fleetFigures.ts').NamedSource[], asOf?: string, meta?: import('../../lib/provenance.ts').MetaLike | null, stateHref: (state: string, kind?: string) => string, aside?: import('svelte').Snippet | null }} */
+  let { mode, counts, worst = [], asOf = '', meta = null, stateHref, aside = null } = $props();
   const ov = $derived(trustModel(counts));
   const sm = $derived(sourcesModel(worst, counts));
   const m = $derived(mode === 'overview' ? ov : sm);
@@ -48,7 +49,9 @@
                 </span>
               {:else}
                 <span class="src-t">
-                  <a href={stateHref(r.st)}>{sm.tallyLabel(r)}</a>
+                  <!-- A kind tally lists that kind's current sources; the kinds folded
+                       together have no one list, so that row is not a link. -->
+                  {#if r.kind === ''}<span data-nofilter>{sm.tallyLabel(r)}</span>{:else}<a href={stateHref(r.st, r.kind)}>{sm.tallyLabel(r)}</a>{/if}
                   <span class="t-meta">{r.st === 'available' ? 'all current' : 'not named here'}</span>
                 </span>
               {/if}
@@ -67,5 +70,6 @@
   {#snippet caption()}
     {m.partial ? 'Knowledge is partial, so a missing result means unknown, never compliant.' : 'Every source is current, so the snapshot is complete.'}
     {' '}<span class="fig-ref">Solid wire: reported. Dotted: stale or partial. Broken: unavailable.</span>
+    <ProvenanceStrip {meta} />
   {/snippet}
 </Figure>

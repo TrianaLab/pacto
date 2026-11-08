@@ -34,7 +34,7 @@
 </script>
 
 <div class="owner-entity">
-  {#if owner}<ScopedPostureFigure filter={{ ownerKey: owner }} question="How compliant are the services this team owns?" scope="this team owns" />{/if}
+  {#if owner}<ScopedPostureFigure filter={{ ownerKey: owner }} />{/if}
   <section class="oe-posture" id="sec-operational-summary" data-toc="Operational summary" aria-labelledby="oe-posture-h">
     <h2 id="oe-posture-h" class="t-section-title">Operational summary</h2>
     <p class="oe-lead t-body-2">
@@ -42,9 +42,11 @@
       {sum.revisions ?? 0} {(sum.revisions ?? 0) === 1 ? 'revision' : 'revisions'}{(sum.invalidRevisions ?? 0) > 0 ? ` (${sum.invalidRevisions} invalid)` : ''} ·
       {sum.targets ?? 0} operational {(sum.targets ?? 0) === 1 ? 'target' : 'targets'}
     </p>
+    <!-- Service compliance is the figure above (one carrier per fact, L3). -->
     <PostureBars
       summary={sum}
       {attentionUrl}
+      compliance={false}
       empty="Nothing running has been seen for these services yet."
     />
   </section>

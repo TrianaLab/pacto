@@ -250,7 +250,7 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'owners' || rest === 'sources' || rest === 'domains' || rest === 'offerings' || rest === 'golden-paths') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['text', 'sourceHealth', 'offset', 'limit', 'sort']) {
+    for (const k of ['text', 'sourceHealth', 'sourceKind', 'hasNonCompliant', 'businessDomain', 'ownerKey', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -482,17 +482,24 @@ export function fleetServicesUrl(opts: {
 
 // fleetOwnersUrl / fleetSourcesUrl build the product owner/source list routes,
 // preserving the search text, the source-health filter and the page offset.
-export function fleetOwnersUrl(opts: { text?: string } & ListPaging = {}): string {
+// `hasNonCompliant` keeps the owners or domains with a non-compliant service; an
+// owner list narrows to a business domain and a domain list to an owner key, the
+// lists an owner or domain page's "N more" opens.
+export function fleetOwnersUrl(opts: { text?: string; hasNonCompliant?: boolean; businessDomain?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
+  if (opts.hasNonCompliant) qs.set('hasNonCompliant', '1');
+  if (opts.businessDomain) qs.set('businessDomain', opts.businessDomain);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/owners?${str}` : '#/fleet/owners';
 }
 
-export function fleetDomainsUrl(opts: { text?: string } & ListPaging = {}): string {
+export function fleetDomainsUrl(opts: { text?: string; hasNonCompliant?: boolean; ownerKey?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
+  if (opts.hasNonCompliant) qs.set('hasNonCompliant', '1');
+  if (opts.ownerKey) qs.set('ownerKey', opts.ownerKey);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/domains?${str}` : '#/fleet/domains';
@@ -516,10 +523,11 @@ export function fleetGoldenPathsUrl(opts: { text?: string } & ListPaging = {}): 
   return str ? `#/fleet/golden-paths?${str}` : '#/fleet/golden-paths';
 }
 
-export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string } & ListPaging = {}): string {
+export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; sourceKind?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.sourceHealth) qs.set('sourceHealth', opts.sourceHealth);
+  if (opts.sourceKind) qs.set('sourceKind', opts.sourceKind);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/sources?${str}` : '#/fleet/sources';

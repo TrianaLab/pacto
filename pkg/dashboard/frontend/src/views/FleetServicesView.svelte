@@ -28,6 +28,7 @@
   import { formatDate } from '../lib/dateFormat.ts';
   import LazyView from '../components/LazyView.svelte';
   import { loadPostureFigure } from '../lib/lazyFigures.ts';
+  import { provenance } from '../lib/provenance.ts';
 
   // The product Services list. It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
@@ -224,6 +225,10 @@
   // question the reader was actually asking. It is gone rather than demoted -- keeping
   // both would put two compliance bars with different denominators on one screen.
   const agg = $derived(list?.aggregate ?? null);
+  // No identified owner: unowned, disputed or owned by contacts alone, which is what
+  // ownership=unidentified lists; the Evidence fact is the provenance in words.
+  const unidentified = $derived((agg?.ownership?.unowned ?? 0) + (agg?.ownership?.conflicting ?? 0) + (agg?.unidentifiedOwnership ?? 0));
+  const evidence = $derived(provenance(list?.meta));
   const matched = $derived(agg?.matched ?? 0);
   const scopeNote = $derived(anyFilter
     ? `All ${formatCount(matched)} matching ${matched === 1 ? 'service' : 'services'}, across every page.`
@@ -373,12 +378,15 @@
   {/if}
 
   {#if state.kind === 'ready' && matched > 0}
-    <LazyView load={loadPostureFigure} question="How many services are compliant, and how many can Pacto not tell?" segments={complianceOfMatch} total={matched}
+    <LazyView load={loadPostureFigure} question="How many services are compliant, and how many can Pacto not tell?" segments={complianceOfMatch} total={matched} meta={list?.meta}
       scope={anyFilter ? `${formatCount(matched)} matching services` : `All ${formatCount(matched)} services`} compact={true}>
       {#snippet aside()}
         <dl class="facts">
           <dt>Services</dt><dd><span data-nofilter>{formatCount(matched)}</span>{anyFilter ? ' matching these filters' : ' in the snapshot'}</dd>
-          <dt>No declared owner</dt><dd>{#if agg?.ownership?.unowned}<a href={urlWith({ ownership: 'unowned' })}>{formatCount(agg.ownership.unowned)}</a>{:else}<span data-nofilter>0</span>{/if}</dd>
+          <!-- Every service with no single canonical owner: unowned, disputed or owned by
+               contacts alone, the population ownership=unidentified lists. -->
+          <dt>No identified owner</dt><dd>{#if unidentified}<a href={urlWith({ ownership: 'unidentified' })}>{formatCount(unidentified)}</a>{:else}<span data-nofilter>0</span>{/if}</dd>
+          <dt>Evidence</dt><dd><span class="badge wrap" class:badge-neutral={evidence.partial}>{evidence.text}</span></dd>
           {#if list?.meta?.asOf}<dt>As of</dt><dd>{formatDate(list.meta.asOf)}</dd>{/if}
         </dl>
       {/snippet}

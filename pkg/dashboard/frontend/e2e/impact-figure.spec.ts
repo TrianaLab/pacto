@@ -116,7 +116,9 @@ for (const theme of ['dark', 'light'] as const) {
       await expect(page.locator(`${FIGURE} svg[role="img"]`)).toBeAttached({ timeout: 30_000 });
       await page.evaluate(() => { location.hash = '#/fleet'; });
       await expect(page.locator(FIGURE)).toHaveCount(0);
-      expect(await anyNarration(page)).toBe(0);
+      // The impact story is gone with its page; the overview it lands on may tell its
+      // own (the trust figure, when a source is unavailable), which is a new story.
+      expect(await page.evaluate(() => document.getAnimations().filter((a) => a.id === 'narr:impact').length)).toBe(0);
     });
 
     // G2 (r5): a figure waiting for autoplay shows its final frame and holds no paused

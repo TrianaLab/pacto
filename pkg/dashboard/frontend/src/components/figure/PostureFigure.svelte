@@ -5,16 +5,17 @@
   // no narration. Unknown is the grey hatch and is never counted as compliant.
   import Figure from './Figure.svelte';
   import PostureColumn from './PostureColumn.svelte';
+  import ProvenanceStrip from './ProvenanceStrip.svelte';
   import { postureColumn } from '../../lib/fleetFigures.ts';
   import { formatCount } from '../../lib/format.ts';
 
-  /** @type {{ id?: string, question: string, segments: import('../../lib/distributions.ts').Segment[], total: number, scope: string, compact?: boolean, testid?: string, aside?: import('svelte').Snippet | null }} */
-  let { id = 'posture', question, segments, total, scope, compact = false, testid = 'posture-figure', aside = null } = $props();
+  /** @type {{ id?: string, question: string, segments: import('../../lib/distributions.ts').Segment[], total: number, scope: string, compact?: boolean, testid?: string, meta?: import('../../lib/provenance.ts').MetaLike | null, aside?: import('svelte').Snippet | null }} */
+  let { id = 'posture', question, segments, total, scope, compact = false, testid = 'posture-figure', meta = null, aside = null } = $props();
   const wires = $derived(postureColumn(segments, total).wires);
   const said = $derived(segments.filter((s) => s.value).map((s) => `${formatCount(s.value)} ${s.label.toLowerCase()}`).join(', '));
 </script>
 
 <Figure {id} {testid} {question} {compact} {wires} {aside} alt={`${scope}: ${said || 'none'}, of ${formatCount(total)}.`}>
   {#snippet stage()}<PostureColumn {segments} {total} />{/snippet}
-  {#snippet caption()}{scope}: {said || 'none'}. Unknown means no evidence; it is never counted as compliant.{/snippet}
+  {#snippet caption()}{scope}: {said || 'none'}. Unknown means no evidence; it is never counted as compliant.<ProvenanceStrip {meta} />{/snippet}
 </Figure>

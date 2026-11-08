@@ -1,14 +1,15 @@
 <script>
-  import { onMount, untrack } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { sourceHealthTally, splitEntryPoints, businessDomainLabel, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl } from '../lib/router.ts';
-  import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
+  import { ownershipSegments, ownershipHrefs, readinessSegments, complianceSegments, statusHrefs } from '../lib/distributions.ts';
+  import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { formatDateTime, formatDate } from '../lib/dateFormat.ts';
   import LazyView from '../components/LazyView.svelte';
-  import { loadTrustFigure } from '../lib/lazyFigures.ts';
+  import { loadTrustFigure, loadKnowsExplainer } from '../lib/lazyFigures.ts';
   import { joinAnd, problemPhrase } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -39,6 +40,8 @@
   let { refreshTick = 0 } = $props();
 
   let overview = $state(null);
+  // The "How does Pacto know?" explainer opens on request: it explains, it reports nothing.
+  let showKnows = $state(false);
   let loading = $state(true);
   let error = $state(null);
   let lastTick = untrack(() => refreshTick); // the tick this page last loaded for
@@ -63,6 +66,16 @@
       load();
     }
   });
+
+  // The trust figure's aside: what the snapshot says about the services, one bar whose
+  // legend items list each bucket (L3: the bar is the one carrier). The overview
+  // counts targets, so the service tally is the entities aggregate, a second
+  // question with its own request; a failure costs only the bar.
+  const svcLoader = createProductLoader(() => api.fleetEntities({ kinds: ['service'], limit: 1 }));
+  $effect(() => { svcLoader.sync(`svc@@${refreshTick}`, 'svc'); });
+  onDestroy(() => svcLoader.destroy());
+  const svcAgg = $derived(svcLoader.data?.aggregate ?? null);
+  const svcCompliance = $derived(complianceSegments(svcAgg?.serviceCompliance, statusHrefs((status) => fleetServicesUrl({ status }))));
 
   const knowledge = $derived(snapshotKnowledge(overview?.meta));
   const attentionTotal = $derived(overview?.attention?.total ?? 0);
@@ -206,16 +219,25 @@
   </div>
   <!-- How sure the answer above is: every count on this page is bounded by which
        sources answered. The figure counts sources by state; Data sources below names them. -->
-  <LazyView load={loadTrustFigure} mode="overview" counts={overview.meta?.sourceCounts} asOf={overview.meta?.asOf ? formatDate(overview.meta.asOf) : ''}
+  <LazyView load={loadTrustFigure} mode="overview" counts={overview.meta?.sourceCounts} meta={overview.meta} asOf={overview.meta?.asOf ? formatDate(overview.meta.asOf) : ''}
     stateHref={(st) => fleetSourcesUrl({ sourceHealth: st })}>
     {#snippet aside()}
+      {#if svcAgg}
+        <!-- The bar's in-segment counts repeat its legend, whose items are the links. -->
+        <div data-nofilter><DistributionBar title="What the snapshot says about {formatCount(svcAgg.services ?? 0)} {svcAgg.services === 1 ? 'service' : 'services'}" level={2}
+          segments={svcCompliance} total={svcAgg.services ?? 0} emptyLabel="No services are tracked yet." /></div>
+      {/if}
       <dl class="facts">
-        <dt>Services</dt><dd><span data-nofilter>{formatCount(totalServices)}</span></dd>
-        <dt>Revisions</dt><dd><span data-nofilter>{formatCount(totalRevisions)}</span></dd>
-        <dt>Targets</dt><dd><span data-nofilter>{formatCount(totalTargets)}</span></dd>
+        <dt>Services</dt><dd><a href={fleetServicesUrl()}>{formatCount(totalServices)}</a></dd>
+        <dt>Revisions</dt><dd><a href={fleetEntityListUrl('revision')}>{formatCount(totalRevisions)}</a></dd>
+        <dt>Targets</dt><dd><a href={fleetEntityListUrl('target')}>{formatCount(totalTargets)}</a></dd>
       </dl>
     {/snippet}
   </LazyView>
+  <div class="ov-knows">
+    <button type="button" class="btn btn-sm" aria-expanded={showKnows} aria-controls="ov-knows" onclick={() => (showKnows = !showKnows)} data-testid="knows-toggle">{showKnows ? 'Hide' : 'Show'} how Pacto knows</button>
+  </div>
+  <div id="ov-knows">{#if showKnows}<LazyView load={loadKnowsExplainer} />{/if}</div>
   <div class="page-toc-layout">
     <PageToc />
     <div class="page-toc-main">
@@ -380,6 +402,7 @@
 </div>
 
 <style>
+  .ov-knows { display: flex; justify-content: flex-end; }
   .band, .ov-section { display: flex; flex-direction: column; gap: var(--sp-3); }
   /* A band is a question, so it is separated by space and a hairline rather than by a
      card: three nested boxes on a page already inside a shell is chrome, not structure. */

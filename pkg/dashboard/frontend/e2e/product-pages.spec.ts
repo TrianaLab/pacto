@@ -125,7 +125,7 @@ test.describe('WASM demo — product pages', () => {
     // Exact: the ownership summary's own heading starts with "Ownership", which a
     // substring name match reads as this page's title too.
     await expect(page.getByRole('heading', { name: 'Owners', exact: true })).toBeVisible({ timeout: T });
-    const owner = page.locator('.lv-item a.entity-link').first();
+    const owner = page.locator('[data-testid="owner-list"] a.entity-link').first();
     await expect(owner).toBeVisible({ timeout: T });
     await owner.click();
     await expect(page).toHaveURL(/#\/fleet\/owners\//);
