@@ -21,6 +21,7 @@
   import RefusalNotice from '../components/RefusalNotice.svelte';
   import Fold from '../components/Fold.svelte';
   import HelpTip from '../components/HelpTip.svelte';
+  import ChangeFigure from '../components/figure/ChangeFigure.svelte';
 
   // One change. It leads with where it stands and, while held, the decision;
   // the affected services, the checks with their proof and the details (facts,
@@ -186,6 +187,8 @@
         {#if blocked}<p>{versionLabel(after, data?.versions)} is blocked on {namespace}/{e.spec.stage}: it failed its checks here, so Pacto never promotes it here again.</p>{/if}
       </div>
     {/if}
+
+    <ChangeFigure {data} {namespace} />
 
     {#if cancelled}
       <p class="t-body-2" role="status" tabindex="-1" bind:this={doneMsg}>Cancelled. Nothing changed.</p>
