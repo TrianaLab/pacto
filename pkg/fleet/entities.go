@@ -638,7 +638,6 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 		matchEntityText(r, f.Text) &&
 		(f.Owner == "" || q.entityOwnedBy(r, f.Owner)) &&
 		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey, x)) &&
-		(!f.HasNonCompliant || r.NonCompliant > 0) &&
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness)) &&
@@ -658,9 +657,11 @@ func (q *Query) matchGoldenPath(r EntityRef, f EntityFilter) bool {
 		(f.CreatedFrom == "" || r.Kind == KindService && q.createdFrom(ServiceKey(r.Key), ServiceKey(f.CreatedFrom)))
 }
 
-// matchOrganization applies the business-domain, offering and capability filters.
+// matchOrganization applies the business-domain, offering, capability and
+// has-non-compliant filters.
 func (q *Query) matchOrganization(r EntityRef, f EntityFilter, x crossKind) bool {
-	return (f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain, x)) &&
+	return (!f.HasNonCompliant || r.NonCompliant > 0) &&
+		(f.BusinessDomain == "" || q.matchBusinessDomain(r, f.BusinessDomain, x)) &&
 		(f.Offering == "" || (r.Kind == KindService || r.Kind == KindOffering) && r.Offering == f.Offering) &&
 		(f.Capability == "" || (r.Kind == KindService && slices.Contains(q.serviceCapabilities(q.snap.Services[ServiceKey(r.Key)]), f.Capability)))
 }
