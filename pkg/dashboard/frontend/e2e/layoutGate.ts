@@ -265,6 +265,16 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
     }
     const seen = new Set<string>();
     const idx = new Map(boxes.map((b, i) => [b, i]));
+    // A text box is the nearest box that is not inline: runs inside one inline
+    // formatting context are one sentence, not two boxes.
+    const boxOf = new Map<Element, Element>();
+    const textBox = (el: Element): Element => {
+      if (boxOf.has(el)) return boxOf.get(el)!;
+      let p: Element = el;
+      while (p.parentElement && /^(inline|contents)$/.test(getComputedStyle(p).display)) p = p.parentElement;
+      boxOf.set(el, p);
+      return p;
+    };
     for (const list of rows.values()) {
       for (let i = 0; i < list.length; i++) {
         for (let j = i + 1; j < list.length; j++) {
@@ -276,14 +286,10 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
           const ix = Math.min(a.r, b.r) - Math.max(a.l, b.l);
           const iy = Math.min(a.b, b.b) - Math.max(a.t, b.t);
           if (ix > 1 && iy > 1) out.push(`text overlaps text: ${say(a.el)} x ${say(b.el)}`);
-          else if (iy > 4) {
-            // Inside a figure, two labels of different groups on one line keep 8px apart.
-            const fa = a.el.closest('[data-fig]');
-            const group = '.lane, .station, .hub, .fig-aside';
-            if (fa && fa === b.el.closest('[data-fig]') && a.el.closest(group) !== b.el.closest(group)) {
-              const gap = Math.max(a.l, b.l) - Math.min(a.r, b.r);
-              if (gap < 7.5 && gap > -1) out.push(`a ${gap.toFixed(1)}px gap, under 8px, in a figure: ${say(a.el)} / ${say(b.el)}`);
-            }
+          else if (iy > 4 && textBox(a.el) !== textBox(b.el)) {
+            // C4: two text boxes side by side on one line keep a clear 8px gap.
+            const gap = Math.max(a.l, b.l) - Math.min(a.r, b.r);
+            if (gap < 7.5 && gap > -1) out.push(`a ${gap.toFixed(1)}px gap, under 8px, between text boxes: ${say(a.el)} / ${say(b.el)}`);
           }
         }
       }
@@ -319,13 +325,21 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
     // A bdi marked data-format is a deliberate rendering (a short digest, an account
     // as namespace/name), not a cut name.
     for (const bdi of root.querySelectorAll('bdi:not([data-format])')) {
-      if (skipped(bdi)) continue;
-      // The title that holds an identity's full value sits on the element around it.
-      const owner = bdi.parentElement;
-      if (!owner || !owner.title) continue;
-      const t = bdi.textContent ?? '', title = owner.title;
+      if (skipped(bdi) || hiddenByA11y(bdi)) continue;
+      const t = bdi.textContent ?? '';
       const parts = t.split('…');
-      const ok = title.includes(t) || (parts.length > 1 && title.startsWith(parts[0]) && title.endsWith(parts[parts.length - 1]));
+      const elided = parts.length > 1;
+      // The title that holds an identity's full value sits on an element around it. A
+      // title on a box that also holds other words speaks for the identity only when the
+      // identity is elided; otherwise it may describe the whole box.
+      const owner = bdi.closest('[title]') as HTMLElement | null;
+      const own = !!owner && (owner.textContent ?? '').trim() === t.trim();
+      if (!owner || (!own && !elided)) {
+        if (elided) out.push(`elided identity "${t.slice(0, 40)}" has no title with its full value`);
+        continue;
+      }
+      const title = owner.title;
+      const ok = title.includes(t) || (elided && title.startsWith(parts[0]) && title.endsWith(parts[parts.length - 1]));
       if (!ok) out.push(`identity "${t.slice(0, 40)}" is not an elision of its title "${title.slice(0, 40)}"`);
     }
 
@@ -352,10 +366,73 @@ export async function layoutProblems(page: Page, skip: string[] = []): Promise<s
       }
     }
 
-    // One err ring per page at most (the alarm, or a figure's single ring).
-    const rings = [...root.querySelectorAll('.is-alarm, .ring, [data-ring]')].filter((el) => !skipped(el) && el.getClientRects().length);
-    if (rings.length > 1) out.push(`${rings.length} err rings on one page, more than 1`);
+    // One err ring per page at most (the alarm, or a figure's single ring). A ring is
+    // any element (or its ::before / ::after) whose outer box-shadow is drawn in the
+    // err colour, whatever its class, plus the ring classes themselves.
+    // Colours come back as rgb()/rgba(), or as color(srgb …) when a color-mix() is
+    // involved; both reduce to "r, g, b" in 0..255.
+    const rgbOf = (str: string): string => {
+      const m = str.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+      if (m) return [m[1], m[2], m[3]].map((v) => Math.round(Number(v))).join(', ');
+      const c = str.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+      return c ? [c[1], c[2], c[3]].map((v) => Math.round(Number(v) * 255)).join(', ') : '';
+    };
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--c-err)';
+    document.body.appendChild(probe);
+    const errRgb = rgbOf(getComputedStyle(probe).color);
+    probe.remove();
+    const errRing = (shadow: string) => !!errRgb && shadow !== 'none' && shadow.split(/,(?![^(]*\))/)
+      .some((one) => !/\binset\b/.test(one) && rgbOf(one) === errRgb);
+    const rings = [...root.querySelectorAll('*')].filter((el) =>
+      (el.matches('.is-alarm, .ring, [data-ring]') || [null, '::before', '::after'].some((pe) => errRing(getComputedStyle(el, pe).boxShadow)))
+      && !skipped(el) && el.getClientRects().length > 0 && !hiddenByA11y(el));
+    if (rings.length > 1) out.push(`${rings.length} err rings on one page, more than 1: ${rings.slice(0, 3).map(say).join(', ')}`);
 
     return [...new Set(out)];
   }, skip);
+}
+
+/**
+ * sweepOverflow checks horizontal overflow at every 20px from 760 to 1440 (SPEC 19):
+ * a layout clean at 1024 and 1280 spilled at 840 to 900, 1040 to 1100 and 1140 to
+ * 1160. Only overflow is checked here; the full gate runs at the fixed widths.
+ */
+export async function sweepOverflow(page: Page, skip: string[] = []): Promise<string[]> {
+  const out: string[] = [];
+  for (let w = 760; w <= 1440; w += 20) {
+    await page.setViewportSize({ width: w, height: 900 });
+    await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
+    const found = await page.evaluate((skipSel) => {
+      const doc = document.documentElement;
+      const msgs: string[] = [];
+      if (doc.scrollWidth > doc.clientWidth + 1) msgs.push(`the page scrolls sideways by ${doc.scrollWidth - doc.clientWidth}px`);
+      // html and body clip sideways (overflow-x: clip), so a spill never scrolls the
+      // page: it is cut silently. Look for any box that runs past the main column and
+      // is not inside a box of its own that scrolls or clips.
+      const main = document.querySelector('main');
+      if (main) {
+        const edge = Math.min(main.getBoundingClientRect().right, doc.clientWidth);
+        const contained = (el: Element) => {
+          for (let p = el.parentElement; p && p !== main; p = p.parentElement) {
+            if (getComputedStyle(p).overflowX !== 'visible') return true;
+          }
+          return false;
+        };
+        for (const el of main.querySelectorAll('*')) {
+          if (skipSel.some((s) => el.closest(s))) continue;
+          const r = el.getBoundingClientRect();
+          if (!r.width || r.right <= edge + 1) continue;
+          const cs = getComputedStyle(el);
+          if (cs.position === 'fixed' || cs.visibility === 'hidden' || cs.display === 'none' || contained(el)) continue;
+          const t = (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 32);
+          msgs.push(`<${el.tagName.toLowerCase()}> "${t}" runs ${Math.round(r.right - edge)}px past the main column`);
+          break;
+        }
+      }
+      return msgs;
+    }, skip);
+    for (const m of found) out.push(`${w}px: ${m}`);
+  }
+  return out;
 }

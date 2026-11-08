@@ -1,15 +1,18 @@
 import { test, expect, type Page } from '@playwright/test';
 import { appReady, settle } from './ready';
-import { gateMode, installScaleFixture, layoutProblems } from './layoutGate';
+import { gateMode, installScaleFixture, layoutProblems, sweepOverflow } from './layoutGate';
 
 // G1, the transversal layout gate (SPEC section 12): every route, at 390, 760, 1024 and
 // 1280px, in both themes, with Verdana forced (CI renders DejaVu, wider than Inter),
-// the final frame forced, on the scale fixture. It fails on intersecting text, a box
-// spilling with visible overflow, text under 12.19px, ellipsized text with no title,
-// text cut with no ellipsis, an identity that is not an elision of its title, a lone
-// surrogate, horizontal page scroll, more than one err ring, and the figure rules once
-// figures exist: at most 20 marks, no mark over text, 8px between labels of different
-// groups, every number a filter link or data-nofilter.
+// the final frame forced, on the scale fixture. It fails on intersecting text, two text
+// boxes closer than 8px on one line, a box spilling with visible overflow, text under
+// 12.19px, ellipsized text with no title, text cut with no ellipsis, an identity that
+// is not an elision of its title (or an elided one with no title), a lone surrogate,
+// horizontal page scroll, more than one element carrying an err box-shadow ring, and
+// the figure rules once figures exist: at most 20 marks, no mark over text, every
+// number a filter link or data-nofilter. Then it sweeps every 20px from 760 to 1440 for
+// horizontal overflow (SPEC 19), since a layout clean at the fixed widths spilled
+// between them.
 //
 // PENDING names subtrees a later phase rewrites. Each entry is deleted by that phase;
 // nothing else is excluded.
@@ -110,16 +113,38 @@ for (const theme of ['dark', 'light'] as const) {
           await settle(page);
           for (const p of await layoutProblems(page, PENDING)) problems.push(`${w}px: ${p}`);
         }
+        problems.push(...await sweepOverflow(page, PENDING));
         expect(problems, `${r.name} (${theme})`).toEqual([]);
       });
     }
   });
 }
 
-// R1: a URL naming something the snapshot does not hold renders not found, never data
-// computed for it.
-test('an entity the snapshot does not hold renders not found', async ({ page }) => {
+// R1: a URL naming something the snapshot does not hold renders the not-found state,
+// never data computed for it: no neighbours, no previous or next, no counts.
+async function rendersNotFound(page: Page) {
+  await expect(page.getByRole('heading', { name: 'Not found', exact: true })).toBeVisible({ timeout: 20_000 });
+  const main = page.locator('main');
+  await expect(main.getByRole('link', { name: /^(Previous|Next)\b/ })).toHaveCount(0);
+  await expect(main.locator('.dist, [data-fig], table')).toHaveCount(0);
+}
+
+test('a service the snapshot does not hold renders not found', async ({ page }) => {
   await appReady(page);
   await page.goto('/#/fleet/services/no-such-service-in-this-snapshot');
-  await expect(page.getByText(/not found|does not exist|no service/i).first()).toBeVisible({ timeout: 20_000 });
+  await rendersNotFound(page);
+});
+
+// The spec's case: a revision of a real service that the service never had. The key is
+// a real revision's, with its content digest swapped for one no bundle has.
+test('a revision the service never had renders not found', async ({ page }) => {
+  await appReady(page);
+  await page.goto('/#/fleet/revisions?service=payments-service');
+  const a = page.locator('main a[href*="/fleet/revisions/"]').first();
+  await expect(a).toBeVisible({ timeout: 20_000 });
+  const key = decodeURIComponent((await a.getAttribute('href'))!.replace(/^.*\/fleet\/revisions\//, ''));
+  expect(key, 'a revision key is service@content').toContain('@');
+  const ghost = `${key.slice(0, key.lastIndexOf('@'))}@sha256:${'0'.repeat(64)}`;
+  await page.goto(`/#/fleet/revisions/${encodeURIComponent(ghost)}`);
+  await rendersNotFound(page);
 });
