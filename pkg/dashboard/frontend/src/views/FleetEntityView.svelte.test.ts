@@ -200,6 +200,23 @@ describe('FleetEntityView — background refresh preserves the page (A)', () => 
     return { target, component };
   }
 
+  it('tells the nav a golden path page is open, and stops telling it when the page closes', async () => {
+    // The Navbar lights Golden paths from currentEntity.template; this view is what sets it.
+    const { currentEntity } = await import('../lib/currentEntity.svelte.ts');
+    const d = svc();
+    d.entity.template = true;
+    detailFn.mockResolvedValueOnce(d);
+    const { target, component } = await mountLive({ kind: 'service', entityKey: 'domain-a/payments', refreshTick: 0 });
+    await vi.waitFor(() => expect(currentEntity.template).toBe(true));
+    unmount(component); document.body.removeChild(target);
+    expect(currentEntity.template).toBe(false);
+
+    detailFn.mockResolvedValueOnce(svc());
+    const plain = await mountLive({ kind: 'service', entityKey: 'domain-a/payments', refreshTick: 0 });
+    expect(currentEntity.template).toBe(false);
+    unmount(plain.component); document.body.removeChild(plain.target);
+  });
+
   it('keeps the entity body rendered while a same-entity refresh is in flight', async () => {
     detailFn.mockResolvedValueOnce(svc());
     const props = reactiveProps({ kind: 'service', entityKey: 'domain-a/payments', refreshTick: 0 });
