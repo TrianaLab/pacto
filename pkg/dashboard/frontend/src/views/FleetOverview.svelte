@@ -7,7 +7,8 @@
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl, fleetDomainsUrl, fleetEntityUrl, fleetGoldenPathsUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDateTime, formatDate } from '../lib/dateFormat.ts';
-  import TrustFigure from '../components/figure/TrustFigure.svelte';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadTrustFigure } from '../lib/lazyFigures.ts';
   import { joinAnd, problemPhrase } from '../lib/answers.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -205,7 +206,7 @@
   </div>
   <!-- How sure the answer above is: every count on this page is bounded by which
        sources answered. The figure counts sources by state; Data sources below names them. -->
-  <TrustFigure mode="overview" counts={overview.meta?.sourceCounts} asOf={overview.meta?.asOf ? formatDate(overview.meta.asOf) : ''}
+  <LazyView load={loadTrustFigure} mode="overview" counts={overview.meta?.sourceCounts} asOf={overview.meta?.asOf ? formatDate(overview.meta.asOf) : ''}
     stateHref={(st) => fleetSourcesUrl({ sourceHealth: st })}>
     {#snippet aside()}
       <dl class="facts">
@@ -214,7 +215,7 @@
         <dt>Targets</dt><dd><span data-nofilter>{formatCount(totalTargets)}</span></dd>
       </dl>
     {/snippet}
-  </TrustFigure>
+  </LazyView>
   <div class="page-toc-layout">
     <PageToc />
     <div class="page-toc-main">

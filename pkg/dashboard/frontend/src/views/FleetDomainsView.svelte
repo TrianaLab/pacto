@@ -17,7 +17,8 @@
   import { businessDomainLabel, NO_DOMAIN, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
-  import RankFigure from '../components/figure/RankFigure.svelte';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadRankFigure } from '../lib/lazyFigures.ts';
 
   // The business-domain list: /api/fleet/entities?kinds=domain, with search, order and
   // paging in the URL. The services whose domain is unknown (businessDomain=(unknown))
@@ -100,7 +101,7 @@
   />
 
   {#if (agg?.serviceCompliance?.nonCompliant ?? 0) > 0}
-    <RankFigure kind="domain" aggregate={agg} hrefs={rankHrefs} />
+    <LazyView load={loadRankFigure} kind="domain" aggregate={agg} hrefs={rankHrefs} />
   {/if}
 
   <div class="dv-filters">

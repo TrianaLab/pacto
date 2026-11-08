@@ -24,8 +24,6 @@
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
   import FleetOwnersView from './views/FleetOwnersView.svelte';
-  import FleetSourcesView from './views/FleetSourcesView.svelte';
-  import FleetDomainsView from './views/FleetDomainsView.svelte';
   import FleetOfferingsView from './views/FleetOfferingsView.svelte';
   import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
@@ -49,6 +47,9 @@
   const loadDeliveryChangeView = once(() => import('./views/DeliveryChangeView.svelte'));
   const loadDeliveryHistoryView = once(() => import('./views/DeliveryHistoryView.svelte'));
   const loadDeliveryPublishView = once(() => import('./views/DeliveryPublishView.svelte'));
+  // The two least visited fleet lists, loaded on first use to keep the first download in budget.
+  const loadFleetSourcesView = once(() => import('./views/FleetSourcesView.svelte'));
+  const loadFleetDomainsView = once(() => import('./views/FleetDomainsView.svelte'));
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -446,7 +447,7 @@
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-domains'}
-    <FleetDomainsView text={route.params.text || ''} offset={route.params.offset || ''}
+    <LazyView load={loadFleetDomainsView} text={route.params.text || ''} offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-offerings'}
@@ -458,7 +459,7 @@
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-sources'}
-    <FleetSourcesView
+    <LazyView load={loadFleetSourcesView}
       text={route.params.text || ''}
       sourceHealth={route.params.sourceHealth || ''}
       offset={route.params.offset || ''}

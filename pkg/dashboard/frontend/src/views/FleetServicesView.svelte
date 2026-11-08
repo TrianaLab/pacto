@@ -26,7 +26,8 @@
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
   import { formatDate } from '../lib/dateFormat.ts';
-  import PostureFigure from '../components/figure/PostureFigure.svelte';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadPostureFigure } from '../lib/lazyFigures.ts';
 
   // The product Services list. It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
@@ -372,7 +373,7 @@
   {/if}
 
   {#if state.kind === 'ready' && matched > 0}
-    <PostureFigure question="How many services are compliant, and how many can Pacto not tell?" segments={complianceOfMatch} total={matched}
+    <LazyView load={loadPostureFigure} question="How many services are compliant, and how many can Pacto not tell?" segments={complianceOfMatch} total={matched}
       scope={anyFilter ? `${formatCount(matched)} matching services` : `All ${formatCount(matched)} services`} compact={true}>
       {#snippet aside()}
         <dl class="facts">
@@ -381,7 +382,7 @@
           {#if list?.meta?.asOf}<dt>As of</dt><dd>{formatDate(list.meta.asOf)}</dd>{/if}
         </dl>
       {/snippet}
-    </PostureFigure>
+    </LazyView>
     <section class="sv-inventory" aria-labelledby="sv-inv-h">
       <div class="sv-inv-head">
         <h2 id="sv-inv-h" class="t-section-title">{anyFilter ? 'What these filters select' : 'The whole service inventory'}</h2>

@@ -20,7 +20,8 @@
   import { formatCount } from '../lib/format.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
-  import RankFigure from '../components/figure/RankFigure.svelte';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadRankFigure } from '../lib/lazyFigures.ts';
 
   // The product Owners list: owner discovery through
   // /api/fleet/entities?kinds=owner via the SDK facade, with a search box and stable
@@ -140,7 +141,7 @@
   {/if}
 
   {#if aggState.kind === 'ready' && (agg?.serviceCompliance?.nonCompliant ?? 0) > 0}
-    <RankFigure kind="owner" aggregate={agg} hrefs={rankHrefs} />
+    <LazyView load={loadRankFigure} kind="owner" aggregate={agg} hrefs={rankHrefs} />
   {/if}
 
   <div class="ow-filters">

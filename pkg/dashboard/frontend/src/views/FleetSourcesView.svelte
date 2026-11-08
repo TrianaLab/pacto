@@ -18,7 +18,8 @@
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
   import { formatDate } from '../lib/dateFormat.ts';
-  import TrustFigure from '../components/figure/TrustFigure.svelte';
+  import LazyView from '../components/LazyView.svelte';
+  import { loadTrustFigure } from '../lib/lazyFigures.ts';
 
   // The product Sources list: source discovery through
   // /api/fleet/entities?kinds=source via the SDK facade, with a search box and a
@@ -111,7 +112,7 @@
   />
 
   {#if tallyParts.length}
-    <TrustFigure mode="sources" counts={list?.meta?.sourceCounts} {worst} asOf={list?.meta?.asOf ? formatDate(list.meta.asOf) : ''}
+    <LazyView load={loadTrustFigure} mode="sources" counts={list?.meta?.sourceCounts} {worst} asOf={list?.meta?.asOf ? formatDate(list.meta.asOf) : ''}
       stateHref={(st) => urlWith({ sourceHealth: st })}>
       {#snippet aside()}
           <p class="lv-tally t-body-2" data-testid="source-tally">
@@ -123,7 +124,7 @@
                 title="A health state Pacto does not recognize, so it cannot be filtered on">{p.text}</span>{/if}{/each}.
           </p>
       {/snippet}
-    </TrustFigure>
+    </LazyView>
   {/if}
 
   <div class="lv-filters">
