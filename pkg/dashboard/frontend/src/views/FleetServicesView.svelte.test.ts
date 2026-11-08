@@ -92,7 +92,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
     const sel = target.querySelector('select[aria-label="Filter by declared ownership"]') as HTMLSelectElement;
     expect(Array.from(sel.options).map((o) => o.value))
-      .toEqual(['', 'conflicting', 'unowned', 'consistent']);
+      .toEqual(['', 'conflicting', 'unowned', 'consistent', 'unidentified']);
     sel.value = 'conflicting';
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/services?owner=team-a&ownership=conflicting');
@@ -208,15 +208,16 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     const { target, component } = mountView();
     await vi.waitFor(() => expect(rows(target).length).toBe(2));
 
-    const compliance = dist(target, 'Compliance');
-    expect(Array.from(compliance.querySelectorAll('.dist-legend .dist-item')).map((n) => [
-      n.querySelector('.dist-label')?.textContent, n.querySelector('.dist-value')?.textContent,
-    ])).toEqual([['Not compliant', '5'], ['Unknown', '3'], ['Compliant', '20'], ['Not evaluated', '12']]);
-    // 40 matching services, of which only 2 are on screen: the denominator is the match.
-    expect(compliance.querySelector('.dist-scope')?.textContent).toBe('All 40 services in the snapshot.');
-    expect(compliance.querySelectorAll('.dist-pct')[2]?.textContent).toBe('(50% of 40)');
+    // The posture column draws the compliance tally; its rows carry count and share.
+    const fig = target.querySelector('[data-testid="posture-figure"]') as HTMLElement;
+    expect(Array.from(fig.querySelectorAll('.prow')).filter((r) => r.querySelector('.prow-n b')?.textContent !== '0').map((r) => [
+      r.querySelector('.prow-l')?.textContent, r.querySelector('.prow-n')?.textContent,
+    ])).toEqual([['Not compliant', '5 · 13%'], ['Unknown', '3 · 8%'], ['Compliant', '20 · 50%'], ['Not evaluated', '12 · 30%']]);
+    // Empty strata keep their row and draw nothing; 40 matching services, 2 on screen.
+    expect(fig.querySelectorAll('.pc').length).toBe(4);
+    expect(fig.querySelector('figcaption')?.textContent).toContain('All 40 services');
     // Every bucket drills into the same list, narrowed by that status.
-    expect(compliance.querySelectorAll('.dist-legend a')[2]?.getAttribute('href')).toBe('#/fleet/services?status=Compliant');
+    expect(Array.from(fig.querySelectorAll('.prow a')).map((a) => a.getAttribute('href'))[2]).toBe('#/fleet/services?status=Compliant');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -289,7 +290,8 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
       .toEqual(['Services per owner', 'Operational targets per owner']);
     // And the distributions are NOT behind it.
     expect(Array.from(target.querySelectorAll('.sv-inventory > .sv-inv-grid .dist-title')).map((n) => n.textContent))
-      .toEqual(['Compliance', 'Declared ownership']);
+      .toEqual(['Declared ownership']);
+    expect(target.querySelector('[data-testid="posture-figure"]')).toBeTruthy();
     unmount(component); document.body.removeChild(target);
   });
 

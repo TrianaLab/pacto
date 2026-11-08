@@ -17,6 +17,8 @@
   import { formatCount } from '../lib/format.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
+  import { formatDate } from '../lib/dateFormat.ts';
+  import TrustFigure from '../components/figure/TrustFigure.svelte';
 
   // The product Sources list: source discovery through
   // /api/fleet/entities?kinds=source via the SDK facade, with a search box and a
@@ -72,6 +74,13 @@
   // to reconcile.
   const tallyParts = $derived(sourceHealthTallyParts(list?.meta?.sourceCounts));
 
+  // The figure names the least healthy sources of the WHOLE population, whatever the
+  // list is filtered or paged to: a second question, so a second request (S7).
+  const worstLoader = createProductLoader(() => api.fleetEntities({ kinds: ['source'], sort: 'health', limit: 8 }));
+  $effect(() => { worstLoader.sync(`worst@@${refreshTick}`, 'worst'); });
+  onDestroy(() => worstLoader.destroy());
+  const worst = $derived(worstLoader.data?.entities ?? []);
+
   function urlWith(patch, off = 0, lim = pageLimit) {
     return fleetSourcesUrl({
       text: patch.text ?? text, sourceHealth: patch.sourceHealth ?? sourceHealth, offset: off,
@@ -93,6 +102,7 @@
        the snapshot, so a degraded one makes every other number incomplete rather than
        zero. It is not a collector -- it does not observe anything by itself. -->
   <PageHeader
+    glyph="source"
     title="Data sources"
     count={list ? `${formatCount(total)} data source${total === 1 ? '' : 's'}` : ''}
     subtitle="Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete."
@@ -101,14 +111,19 @@
   />
 
   {#if tallyParts.length}
-    <p class="lv-tally t-body-2" data-testid="source-tally">
-      Across every data source:
-      {#each tallyParts as p, i (p.status || 'unclassified')}{#if i > 0}{', '}{/if}{#if p.status}<a
-          href={urlWith({ sourceHealth: p.status })}
-          aria-current={sourceHealth === p.status ? 'true' : undefined}>{p.text}</a>{:else}<span
-          class="lv-unclassified"
-          title="A health state Pacto does not recognize, so it cannot be filtered on">{p.text}</span>{/if}{/each}.
-    </p>
+    <TrustFigure mode="sources" counts={list?.meta?.sourceCounts} {worst} asOf={list?.meta?.asOf ? formatDate(list.meta.asOf) : ''}
+      stateHref={(st) => urlWith({ sourceHealth: st })}>
+      {#snippet aside()}
+          <p class="lv-tally t-body-2" data-testid="source-tally">
+            Across every data source:
+            {#each tallyParts as p, i (p.status || 'unclassified')}{#if i > 0}{', '}{/if}{#if p.status}<a
+                href={urlWith({ sourceHealth: p.status })}
+                aria-current={sourceHealth === p.status ? 'true' : undefined}>{p.text}</a>{:else}<span
+                class="lv-unclassified"
+                title="A health state Pacto does not recognize, so it cannot be filtered on">{p.text}</span>{/if}{/each}.
+          </p>
+      {/snippet}
+    </TrustFigure>
   {/if}
 
   <div class="lv-filters">

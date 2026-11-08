@@ -17,6 +17,7 @@
   import { businessDomainLabel, NO_DOMAIN, UNKNOWN_DOMAIN } from '../lib/entityLabels.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
+  import RankFigure from '../components/figure/RankFigure.svelte';
 
   // The business-domain list: /api/fleet/entities?kinds=domain, with search, order and
   // paging in the URL. The services whose domain is unknown (businessDomain=(unknown))
@@ -69,6 +70,17 @@
   const noneDeclared = $derived(state.kind.startsWith('empty') && !knowledge.incomplete
     && unknownLoader.data != null && (unknownLoader.data.total ?? 0) === 0);
 
+  // Which domains hold the non-compliant services (B8): a fleet-wide question, so its
+  // own request; a failure costs only the figure.
+  const aggLoader = createProductLoader(() => api.fleetEntities({ kinds: ['service'], limit: 1 }));
+  $effect(() => { aggLoader.sync(`agg@@${refreshTick}`, 'agg'); });
+  onDestroy(() => aggLoader.destroy());
+  const agg = $derived(aggLoader.data?.aggregate ?? null);
+  const rankHrefs = {
+    services: (d) => fleetServicesUrl({ businessDomain: d, status: 'NonCompliant' }),
+    groups: fleetDomainsUrl({ sort: 'nonCompliant' }),
+  };
+
   const pageHref = (off, lim) => fleetDomainsUrl({ text: text || undefined, offset: off, limit: limitParam(lim, limit, PAGE_SIZE), sort: sort || undefined });
   function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = fleetDomainsUrl({ text: textDraft, sort: sort || undefined }); }
   function clearAll() { location.hash = fleetDomainsUrl(); }
@@ -79,6 +91,7 @@
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Domains' }]} />
   <PageHeader
+    glyph="domain"
     title="Domains"
     count={list ? plural(total, 'domain', 'domains') : ''}
     subtitle="The business domain each service declares in its contract, as service.domain."
@@ -86,12 +99,16 @@
     {revalidating} paging={view.paging}
   />
 
+  {#if (agg?.serviceCompliance?.nonCompliant ?? 0) > 0}
+    <RankFigure kind="domain" aggregate={agg} hrefs={rankHrefs} />
+  {/if}
+
   <div class="dv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">
       <input class="input" type="search" bind:value={textDraft} placeholder="Search domains..." aria-label="Search domains" />
       <button type="submit" class="btn">Search</button>
     </form>
-    <ListSort value={order} options={[['name', 'Name'], ['services', 'Most services first']]} href={(v) => fleetDomainsUrl({ text: text || undefined, sort: v === 'name' ? undefined : v })} testid="domain-sort" />
+    <ListSort value={order} options={[['name', 'Name'], ['services', 'Most services first'], ['nonCompliant', 'Most non-compliant first']]} href={(v) => fleetDomainsUrl({ text: text || undefined, sort: v === 'name' ? undefined : v })} testid="domain-sort" />
   </div>
   <ActiveFilterChips {chips} onRemove={clearAll} onClear={clearAll} />
 
@@ -115,7 +132,7 @@
   {:else}
     <ul class="lv-list pl-list pl-list--facts pl-list--domains" data-testid="domain-list">
       {#each list.entities as ref (ref.key)}
-        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{plural(ref.services ?? 0, 'service', 'services')} · {plural(ref.targets ?? 0, 'operational target', 'operational targets')}</span></EntityLink></li>
+        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{plural(ref.services ?? 0, 'service', 'services')}{ref.nonCompliant ? ` · ${formatCount(ref.nonCompliant)} non-compliant` : ''} · {plural(ref.targets ?? 0, 'operational target', 'operational targets')}</span></EntityLink></li>
       {/each}
     </ul>
     <Pager page={list} href={pageHref} label="Domain pages" noun="domains" testid="domain" />

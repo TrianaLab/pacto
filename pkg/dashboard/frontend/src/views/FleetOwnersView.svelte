@@ -20,6 +20,7 @@
   import { formatCount } from '../lib/format.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
+  import RankFigure from '../components/figure/RankFigure.svelte';
 
   // The product Owners list: owner discovery through
   // /api/fleet/entities?kinds=owner via the SDK facade, with a search box and stable
@@ -111,6 +112,13 @@
   // ask the exact question. With the free-text filter the count and its destination
   // disagree the moment one owner's key is a substring of another's.
   const rank = $derived(ownerRanking(agg, (o) => fleetServicesUrl({ ownerKey: o, ownership: 'consistent' })));
+  // Who owns the non-compliant services (B8): each owner's count lists exactly what it
+  // counts, its consistently owned non-compliant services; the remainder no owner can
+  // name lists under ownership=unidentified.
+  const rankHrefs = {
+    services: (o) => fleetServicesUrl(o ? { ownerKey: o, ownership: 'consistent', status: 'NonCompliant' } : { ownership: 'unidentified', status: 'NonCompliant' }),
+    groups: fleetOwnersUrl({ sort: 'nonCompliant' }),
+  };
   // The answer line: how much of the fleet has one clear owner, and what does not.
   const ownAnswer = $derived.by(() => {
     if (!agg || services === 0) return null;
@@ -125,10 +133,14 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Owners' }]} />
-  <PageHeader title="Owners" count={list ? `${formatCount(total)} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
+  <PageHeader glyph="owner" title="Owners" count={list ? `${formatCount(total)} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
 
   {#if ownAnswer}
     <p class="page-answer t-body" data-testid="owners-answer"><strong>{ownAnswer.lead}</strong> {ownAnswer.rest}</p>
+  {/if}
+
+  {#if aggState.kind === 'ready' && (agg?.serviceCompliance?.nonCompliant ?? 0) > 0}
+    <RankFigure kind="owner" aggregate={agg} hrefs={rankHrefs} />
   {/if}
 
   <div class="ow-filters">
@@ -136,7 +148,7 @@
       <input class="input" type="search" bind:value={textDraft} placeholder="Search owners..." aria-label="Search owners" />
       <button type="submit" class="btn">Search</button>
     </form>
-    <ListSort value={order} options={[['name', 'Name'], ['services', 'Most services first']]} href={(v) => fleetOwnersUrl({ text: text || undefined, sort: v === 'name' ? undefined : v })} testid="owner-sort" />
+    <ListSort value={order} options={[['name', 'Name'], ['services', 'Most services first'], ['nonCompliant', 'Most non-compliant first']]} href={(v) => fleetOwnersUrl({ text: text || undefined, sort: v === 'name' ? undefined : v })} testid="owner-sort" />
   </div>
   <ActiveFilterChips {chips} onRemove={clearAll} onClear={clearAll} />
 
@@ -215,7 +227,7 @@
   {:else}
     <ul class="lv-list pl-list pl-list--facts pl-list--owners" data-testid="owner-list">
       {#each list.entities as ref (ref.key)}
-        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{formatCount(ref.services ?? 0)} {ref.services === 1 ? 'service' : 'services'}</span></EntityLink></li>
+        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{formatCount(ref.services ?? 0)} {ref.services === 1 ? 'service' : 'services'}{ref.nonCompliant ? ` · ${formatCount(ref.nonCompliant)} non-compliant` : ''}</span></EntityLink></li>
       {/each}
     </ul>
     <Pager page={list} href={pageHref} label="Owner pages" noun="owners" testid="owner" />

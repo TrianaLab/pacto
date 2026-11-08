@@ -5,6 +5,7 @@
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
+  import ScopedPostureFigure from '../../components/figure/ScopedPostureFigure.svelte';
 
   // The owner page: the owner-scoped operational posture, bounded
   // previews of the owner's services, revisions and deployments, and an attention
@@ -33,6 +34,7 @@
 </script>
 
 <div class="owner-entity">
+  {#if owner}<ScopedPostureFigure filter={{ ownerKey: owner }} question="How compliant are the services this team owns?" scope="this team owns" />{/if}
   <section class="oe-posture" id="sec-operational-summary" data-toc="Operational summary" aria-labelledby="oe-posture-h">
     <h2 id="oe-posture-h" class="t-section-title">Operational summary</h2>
     <p class="oe-lead t-body-2">

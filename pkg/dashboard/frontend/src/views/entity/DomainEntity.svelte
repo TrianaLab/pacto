@@ -9,6 +9,7 @@
   import EntityRefList from '../../components/EntityRefList.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
   import DistributionBar from '../../components/viz/DistributionBar.svelte';
+  import ScopedPostureFigure from '../../components/figure/ScopedPostureFigure.svelte';
 
   // The business-domain page, one scope up from a service and drawn like an owner page:
   // the posture over every service in the domain, its declared ownership, bounded
@@ -28,6 +29,7 @@
 </script>
 
 <div class="domain-entity">
+  {#if key}<ScopedPostureFigure filter={{ businessDomain: key }} question="How compliant are the services in this domain?" scope="in this domain" />{/if}
   <section class="de-posture" id="sec-operational-summary" data-toc="Operational summary" aria-labelledby="de-posture-h">
     <h2 id="de-posture-h" class="t-section-title">Operational summary</h2>
     <p class="de-lead t-body-2">

@@ -25,6 +25,7 @@ vi.mock('../../lib/api.ts', async (importOriginal) => {
     api: {
       fleetEntityDetail: (...a: unknown[]) => detailFn(...a),
       fleetRevisionDocument: (...a: unknown[]) => docFn(...a),
+      fleetEntities: () => new Promise(() => {}),
     },
   };
 });

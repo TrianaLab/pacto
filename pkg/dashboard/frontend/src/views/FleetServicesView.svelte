@@ -25,6 +25,8 @@
   import { PHASE_WORDS } from '../lib/provisioning.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
+  import { formatDate } from '../lib/dateFormat.ts';
+  import PostureFigure from '../components/figure/PostureFigure.svelte';
 
   // The product Services list. It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
@@ -164,13 +166,15 @@
   function pickOwner(ref) { ownerCommitted = ref.label ?? ''; apply({ ownerKey: ref.key ?? '', owner: '' }); }
   function searchOwner(v) { if (v !== ownerCommitted) { ownerCommitted = v; apply({ owner: v, ownerKey: '' }); } }
 
+  // The non-compliant owner ranking's remainder: no single canonical owner.
+  const UNIDENTIFIED = 'No identified owner';
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
     ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerChipValue } : null,
     // Named apart from the exact one on purpose: the two chips can both be present,
     // and a reader must be able to tell which of them is the loose one.
     owner ? { key: 'owner', label: 'Owner search', value: owner } : null,
-    ownership ? { key: 'ownership', label: 'Ownership', value: bucketLabel(OWNERSHIP_STATES, ownership) } : null,
+    ownership ? { key: 'ownership', label: 'Ownership', value: ownership === 'unidentified' ? UNIDENTIFIED : bucketLabel(OWNERSHIP_STATES, ownership) } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     businessDomain ? { key: 'businessDomain', label: 'Domain', value: businessDomainLabel(businessDomain) } : null,
     capability ? { key: 'capability', label: 'Declared capability', value: capability } : null,
@@ -258,7 +262,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
-  <PageHeader title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
+  <PageHeader glyph="service" title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={view.paging} />
 
   {#if state.kind === 'ready' && matched > 0}
     <p class="page-answer t-body" data-testid="services-answer">
@@ -309,6 +313,7 @@
       <select value={ownership} aria-label="Filter by declared ownership" onchange={(e) => apply({ ownership: e.currentTarget.value })}>
         <option value="">Any ownership</option>
         {#each OWNERSHIP_STATES as o}<option value={o.value}>{o.label}</option>{/each}
+        <option value="unidentified">{UNIDENTIFIED}</option>
       </select>
     </label>
     <label class="sv-field">
@@ -367,19 +372,22 @@
   {/if}
 
   {#if state.kind === 'ready' && matched > 0}
+    <PostureFigure question="How many services are compliant, and how many can Pacto not tell?" segments={complianceOfMatch} total={matched}
+      scope={anyFilter ? `${formatCount(matched)} matching services` : `All ${formatCount(matched)} services`} compact={true}>
+      {#snippet aside()}
+        <dl class="facts">
+          <dt>Services</dt><dd><span data-nofilter>{formatCount(matched)}</span>{anyFilter ? ' matching these filters' : ' in the snapshot'}</dd>
+          <dt>No declared owner</dt><dd>{#if agg?.ownership?.unowned}<a href={urlWith({ ownership: 'unowned' })}>{formatCount(agg.ownership.unowned)}</a>{:else}<span data-nofilter>0</span>{/if}</dd>
+          {#if list?.meta?.asOf}<dt>As of</dt><dd>{formatDate(list.meta.asOf)}</dd>{/if}
+        </dl>
+      {/snippet}
+    </PostureFigure>
     <section class="sv-inventory" aria-labelledby="sv-inv-h">
       <div class="sv-inv-head">
         <h2 id="sv-inv-h" class="t-section-title">{anyFilter ? 'What these filters select' : 'The whole service inventory'}</h2>
         <a class="sv-viewall" href={fleetOwnersUrl()}>Browse owners</a>
       </div>
       <div class="sv-inv-grid">
-        <DistributionBar
-          title="Compliance"
-          description="Whether each service is observed to obey its contract, rolled up from the targets running it."
-          {scopeNote}
-          segments={complianceOfMatch}
-          total={matched}
-        />
         <DistributionBar
           title="Declared ownership"
           description="Ownership is authored on each contract revision, so a service is cleanly owned only when its revisions agree."

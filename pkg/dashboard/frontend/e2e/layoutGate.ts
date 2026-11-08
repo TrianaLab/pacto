@@ -86,9 +86,11 @@ export function installScaleFixture(): void {
     const q = new URLSearchParams(query);
     const meta = doc.meta as Record<string, unknown> | undefined;
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
-    // A list narrowed to one domain, service or offering's consumers keeps the engine's
-    // total: the fixture leaves the tallies that link to it (an offering's phases) alone.
-    if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !q.get('businessDomain') && !q.get('service') && !q.get('consumes')) {
+    // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
+    // keeps the engine's total: the fixture leaves the tallies that link to it (an
+    // offering's phases, the non-compliant rankings) alone.
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text'].some((k) => q.get(k));
+    if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed) {
       const total = LIST_TOTAL[q.get('kinds') || ''];
       if (total) {
         page(doc, total);
@@ -103,6 +105,10 @@ export function installScaleFixture(): void {
         }
       }
     }
+    // The owner ranking at fleet scale: its labels long, its keys (and so its counts and
+    // links) the engine's.
+    const nco = (doc.aggregate as { nonCompliantByOwner?: { label: string }[] } | undefined)?.nonCompliantByOwner;
+    if (route === '/api/fleet/entities' && nco) nco.forEach((o) => { o.label = longName(o.label); });
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
       s.services = 5000; s.servicesNeedingAttention = 389; s.domains = 300;

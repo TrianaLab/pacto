@@ -125,7 +125,12 @@ describe('the domain page', () => {
         attention: { total: 3, count: 1, truncated: true, items: [{ severity: 'info', category: 'unowned', entity: { kind: 'service', key: 'ledger', label: 'ledger', href: '/fleet/services/ledger' }, summary: 'no owner declared' }] },
       },
     });
+    entitiesFn.mockResolvedValue(listResp([], { aggregate: { services: 2, serviceCompliance: { nonCompliant: 1, compliant: 1 } } }));
     const { target, done } = mountView(FleetEntityView, { kind: 'domain', entityKey: 'commerce' });
+    // The posture column counts the domain's services, and each row lists exactly them.
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="posture-figure"]')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith({ kinds: ['service'], limit: 1, businessDomain: 'commerce' });
+    expect(target.querySelector('[data-testid="posture-figure"] .prow a')?.getAttribute('href')).toBe('#/fleet/services?status=NonCompliant&businessDomain=commerce');
     await vi.waitFor(() => expect(target.querySelector('.domain-entity')).toBeTruthy());
     const text = target.textContent || '';
     expect(text).toContain('Operational summary');
