@@ -4040,6 +4040,11 @@ export interface components {
         PublishedCounts: {
             /** @description Up to 4 of those services, by name */
             firstUnsigned: string[] | null;
+            /**
+             * Format: int64
+             * @description Services with a version the Stages know; unsignedServices and the rest partition them
+             */
+            services: number;
             /** Format: int64 */
             signed: number;
             /**
@@ -5449,7 +5454,7 @@ export interface operations {
                 limit?: number;
                 /** @description Keep only what contains this text, ignoring case */
                 q?: string;
-                /** @description Keep only the services with a version that is (yes) or is not (no) signed, and only those versions */
+                /** @description yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions */
                 signed?: "yes" | "no";
             };
             header?: never;

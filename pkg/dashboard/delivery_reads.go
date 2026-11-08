@@ -610,7 +610,7 @@ const publishedPage = 10
 
 type publishedInput struct {
 	PageQuery
-	Signed string `query:"signed" enum:"yes,no" doc:"Keep only the services with a version that is (yes) or is not (no) signed, and only those versions"`
+	Signed string `query:"signed" enum:"yes,no" doc:"yes: keep only the services whose every version is signed; no: keep only the services with an unsigned version, and only those versions"`
 }
 
 type publishedOutput struct {
@@ -624,6 +624,7 @@ type publishedOutput struct {
 
 // PublishedCounts is how many of the versions the Stages know are signed.
 type PublishedCounts struct {
+	Services         int      `json:"services" doc:"Services with a version the Stages know; unsignedServices and the rest partition them"`
 	Versions         int      `json:"versions" doc:"Distinct digests per service the Stages know"`
 	Signed           int      `json:"signed"`
 	Unsigned         int      `json:"unsigned" doc:"Versions Flux never verified a signature on: who built them cannot be traced"`
@@ -649,12 +650,17 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	byService, readFrom := publishedDigests(stages, in.Q)
 	out := &publishedOutput{}
 	out.Body.Counts = countPublished(byService)
-	if in.Signed != "" {
-		for svc, vs := range byService {
-			maps.DeleteFunc(vs, func(_ string, v *PublishedVersion) bool { return v.Signed != (in.Signed == "yes") })
-			if len(vs) == 0 {
-				delete(byService, svc)
+	for svc, vs := range byService {
+		switch in.Signed {
+		case "no":
+			maps.DeleteFunc(vs, func(_ string, v *PublishedVersion) bool { return v.Signed })
+		case "yes":
+			if slices.ContainsFunc(slices.Collect(maps.Values(vs)), func(v *PublishedVersion) bool { return !v.Signed }) {
+				clear(vs)
 			}
+		}
+		if len(vs) == 0 && in.Signed != "" {
+			delete(byService, svc)
 		}
 	}
 	names := slices.Sorted(maps.Keys(byService))
@@ -687,6 +693,9 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 func countPublished(byService map[string]map[string]*PublishedVersion) PublishedCounts {
 	c := PublishedCounts{FirstUnsigned: []string{}}
 	for _, svc := range slices.Sorted(maps.Keys(byService)) {
+		if len(byService[svc]) > 0 {
+			c.Services++
+		}
 		unsigned := 0
 		for _, v := range byService[svc] {
 			c.Versions++

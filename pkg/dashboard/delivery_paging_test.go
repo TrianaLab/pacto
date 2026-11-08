@@ -365,14 +365,14 @@ func TestPublishedCountsAndSignedFilter(t *testing.T) {
 	f := sampleCluster("acme:team-checkout")
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?limit=1", nil)
-	want := "map[firstUnsigned:[ledger] signed:2 unsigned:1 unsignedServices:1 versions:3]"
+	want := "map[firstUnsigned:[ledger] services:2 signed:2 unsigned:1 unsignedServices:1 versions:3]"
 	expect(t, fmt.Sprint(pub["counts"]) == want, "payments' two published digests are signed, ledger's failed one is not: %v", pub["counts"])
 	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=no", nil)
 	svcs := pub["services"].([]any)
 	expect(t, len(svcs) == 1 && page(svcs[0])["service"] == "ledger" && fmt.Sprint(pub["counts"]) == want, "only unsigned versions: %v", svcs)
 	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?signed=yes", nil)
 	svcs = pub["services"].([]any)
-	expect(t, len(svcs) == 1 && len(page(svcs[0])["versions"].([]any)) == 2, "only signed versions: %v", svcs)
+	expect(t, len(svcs) == 1 && len(page(svcs[0])["versions"].([]any)) == 2 && page(pub["page"])["total"] == float64(1), "only services whose every version is signed: %v", svcs)
 }
 
 // Autonomy: Stages per level over every page, every level present, a level
