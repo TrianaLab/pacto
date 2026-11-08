@@ -188,6 +188,15 @@ func imageToBundle(img v1.Image) (*contract.Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract layer: %w", err)
 	}
+	// The registry layer reader checks the blob's digest and size only when a
+	// read reaches EOF, and the tar reader stops at the end-of-archive blocks.
+	// Read the rest, bounded, so bytes that do not match the digest the
+	// manifest names fail here instead of being trusted.
+	if n, err := io.Copy(io.Discard, io.LimitReader(rc, maxTotalSize+1)); err != nil {
+		return nil, fmt.Errorf("failed to read layer: %w", err)
+	} else if n > maxTotalSize {
+		return nil, fmt.Errorf("layer exceeds maximum total size of %d bytes", maxTotalSize)
+	}
 	return bundleFromFS(fsys)
 }
 
@@ -211,18 +220,6 @@ const (
 	maxEntries   = 10000    // max number of tar entries (bounds many-tiny-files bombs)
 )
 
-// hasDotDotComponent reports whether any path component is "..", i.e. a real
-// traversal. Unlike a substring check it does not reject legitimate names that
-// merely contain ".." (e.g. "my..file.yaml").
-func hasDotDotComponent(name string) bool {
-	for _, part := range strings.Split(name, "/") {
-		if part == ".." {
-			return true
-		}
-	}
-	return false
-}
-
 // extractTar reads a tar stream and returns an in-memory FS.
 func extractTar(r io.Reader) (fs.FS, error) {
 	memFS := fstest.MapFS{}
@@ -244,11 +241,13 @@ func extractTar(r io.Reader) (fs.FS, error) {
 			return nil, fmt.Errorf("tar has too many entries (>%d)", maxEntries)
 		}
 
-		name := filepath.ToSlash(strings.TrimPrefix(header.Name, "./"))
+		name := strings.TrimSuffix(filepath.ToSlash(strings.TrimPrefix(header.Name, "./")), "/")
 		if name == "" || name == "." {
 			continue
 		}
-		if hasDotDotComponent(name) {
+		// fs.ValidPath rejects "..", absolute names and empty components, any of
+		// which makes a walk of the extracted FS loop or escape.
+		if !fs.ValidPath(name) {
 			return nil, fmt.Errorf("invalid path in tar: %s", header.Name)
 		}
 
