@@ -104,6 +104,44 @@
           "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
           "maxLength": 63,
           "description": "The business domain the service belongs to, such as payments. The operational graph groups services by it. Use the same value across services; it is a lowercase slug."
+        },
+        "offering": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+          "maxLength": 63,
+          "description": "The kind of platform offering this service provides to other teams, such as postgresql, messaging or shared-config. The operational graph lists providers of the same offering together. It is an open lowercase slug; use the same value across providers."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$",
+          "description": "One line that says what the service is for. Search and the operational graph show it."
+        },
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deprecated"
+          ],
+          "description": "Marks the service deprecated and schedules its retirement (pactoVersion 2.4). Consumers that depend on it or reference its configuration are warned.",
+          "properties": {
+            "deprecated": {
+              "type": "string",
+              "format": "date",
+              "description": "Date the service was deprecated (YYYY-MM-DD)."
+            },
+            "sunset": {
+              "type": "string",
+              "format": "date",
+              "description": "Date from which the service may be retired (YYYY-MM-DD). Must not be before deprecated."
+            },
+            "successor": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The service that replaces this one, as an absolute URL such as an oci:// reference."
+            }
+          }
         }
       }
     },
@@ -275,9 +313,14 @@
             "minLength": 1,
             "description": "OCI or local reference to another Pacto contract whose bundle contains the configuration schema."
           },
+          "configuration": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Which configuration of the referenced contract this entry takes values for (pactoVersion 2.4). Required when that contract declares more than one."
+          },
           "values": {
             "type": "object",
-            "description": "Configuration values to be validated against the configuration schema. Only allowed with schema."
+            "description": "Configuration values validated against the configuration schema: the local schema, or the referenced contract's configuration schema."
           },
           "required": {
             "type": "boolean",
@@ -290,8 +333,17 @@
               "schema"
             ],
             "not": {
-              "required": [
-                "ref"
+              "anyOf": [
+                {
+                  "required": [
+                    "ref"
+                  ]
+                },
+                {
+                  "required": [
+                    "configuration"
+                  ]
+                }
               ]
             }
           },
@@ -300,17 +352,8 @@
               "ref"
             ],
             "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "schema"
-                  ]
-                },
-                {
-                  "required": [
-                    "values"
-                  ]
-                }
+              "required": [
+                "schema"
               ]
             }
           }

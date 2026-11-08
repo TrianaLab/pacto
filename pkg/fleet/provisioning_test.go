@@ -22,7 +22,7 @@ func pgRef(name string) string {
 
 // provider is a postgresql offering provider with one configuration.
 func provider(name string) RawRevision {
-	c := svc25(name, "16.1.0", "postgresql")
+	c := svc24(name, "16.1.0", "postgresql")
 	c.Configurations = []contract.Configuration{{Name: "db", Schema: "s.json"}}
 	return ociRev(acme, c, nil)
 }
@@ -30,7 +30,7 @@ func provider(name string) RawRevision {
 // consumer is a revision of name that references providerName's configuration
 // as db and depends on postgresql.
 func consumer(name, version, providerName string) RawRevision {
-	c := svc25(name, version, "")
+	c := svc24(name, version, "")
 	c.Configurations = []contract.Configuration{{Name: "db", Ref: pgRef(providerName)}}
 	c.Dependencies = []contract.Dependency{{Name: "postgresql", Ref: "oci://" + acme + "/postgresql", Required: true, Compatibility: "^16.0.0"}}
 	return ociRev(acme, c, nil)
@@ -189,9 +189,9 @@ func TestOfferingUseProvisioning_ProviderSwitch(t *testing.T) {
 // A policy reference provisions nothing, and a service's consumed offerings
 // carry the same statuses and conflicts as the offering page.
 func TestOfferingUseProvisioning_PolicyAndServiceDetail(t *testing.T) {
-	p := svc25("postgresql", "16.1.0", "postgresql")
+	p := svc24("postgresql", "16.1.0", "postgresql")
 	p.Policies = []contract.Policy{{Name: "p", Schema: "p.json"}}
-	c := svc25("orders", "1.3.0", "")
+	c := svc24("orders", "1.3.0", "")
 	c.Policies = []contract.Policy{{Name: "guard", Ref: pgRef("postgresql")}}
 	c.Dependencies = []contract.Dependency{{Name: "postgresql", Ref: "oci://" + acme + "/postgresql", Required: true}}
 	base := &Collection{Revisions: []RawRevision{ociRev(acme, p, nil), ociRev(acme, c, nil)}}
@@ -319,7 +319,7 @@ func TestProvisioningTruncatedRestricted(t *testing.T) {
 // Two entries that reference one provider each keep their own status, so one
 // entry's Ready never hides another's Failed or missing report.
 func TestOfferingUseProvisioning_EntriesKeptApart(t *testing.T) {
-	c := svc25("orders", "1.3.0", "")
+	c := svc24("orders", "1.3.0", "")
 	c.Configurations = []contract.Configuration{{Name: "primary", Ref: pgRef("postgresql")}, {Name: "replica", Ref: pgRef("postgresql")}}
 	base := &Collection{Revisions: []RawRevision{provider("postgresql"), ociRev(acme, c, nil)}}
 	old := fixedNow().Add(-2 * time.Hour)

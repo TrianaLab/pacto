@@ -585,12 +585,12 @@ func offeringRestrictFleet(t *testing.T, extra ...Source) *Query {
 	dep := "dependencies:\n  - {name: pgprov, ref: \"oci://r/pgprov\", required: true, compatibility: \"^1.0.0\"}\n"
 	src := NewMemorySource("k8s", k, &Collection{
 		Revisions: []RawRevision{
-			raw("pactoVersion: \"2.6\"\nservice: {name: pgprov, version: 1.0.0, offering: relational-db, owner: {team: platform}}\n"),
-			raw("pactoVersion: \"2.6\"\nservice: {name: vaultdb, version: 9.9.9, lifecycle: {deprecated: \"2026-01-01\", successor: \"oci://r/pgsuccessor\"}}\nconfigurations:\n  - {name: db, required: false, schema: db.json}\n"),
-			raw("pactoVersion: \"2.6\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/db-bundle@" + refDigest("vaultdb") + "\", values: {size: huge}}\n" + dep),
-			raw("pactoVersion: \"2.6\"\nservice: {name: hiddenapp, version: 1.0.0}\n" + dep),
-			raw("pactoVersion: \"2.6\"\nservice: {name: loner, version: 1.0.0}\n"),
-			raw("pactoVersion: \"2.6\"\nservice: {name: reported, version: 1.0.0}\n"),
+			raw("pactoVersion: \"2.4\"\nservice: {name: pgprov, version: 1.0.0, offering: relational-db, owner: {team: platform}}\n"),
+			raw("pactoVersion: \"2.4\"\nservice: {name: vaultdb, version: 9.9.9, lifecycle: {deprecated: \"2026-01-01\", successor: \"oci://r/pgsuccessor\"}}\nconfigurations:\n  - {name: db, required: false, schema: db.json}\n"),
+			raw("pactoVersion: \"2.4\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/db-bundle@" + refDigest("vaultdb") + "\", values: {size: huge}}\n" + dep),
+			raw("pactoVersion: \"2.4\"\nservice: {name: hiddenapp, version: 1.0.0}\n" + dep),
+			raw("pactoVersion: \"2.4\"\nservice: {name: loner, version: 1.0.0}\n"),
+			raw("pactoVersion: \"2.4\"\nservice: {name: reported, version: 1.0.0}\n"),
 		},
 		Targets: []RawTarget{
 			{Scope: "prod", Kind: "evidence-http", Name: "adapter-pg-prod-xyz", Service: "pgprov"},
@@ -645,9 +645,9 @@ func TestRestrictChainedConfigRef(t *testing.T) {
 	}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("k8s", k, &Collection{
 		Revisions: []RawRevision{
-			raw("pactoVersion: \"2.6\"\nservice: {name: hprov, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, schema: db.json}\n"),
-			raw("pactoVersion: \"2.6\"\nservice: {name: pmid, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/h@" + refDigest("hprov") + "\"}\n"),
-			raw("pactoVersion: \"2.6\"\nservice: {name: cons, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/m@" + refDigest("pmid") + "\", values: {size: huge}}\n"),
+			raw("pactoVersion: \"2.4\"\nservice: {name: hprov, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, schema: db.json}\n"),
+			raw("pactoVersion: \"2.4\"\nservice: {name: pmid, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/h@" + refDigest("hprov") + "\"}\n"),
+			raw("pactoVersion: \"2.4\"\nservice: {name: cons, version: 1.0.0}\nconfigurations:\n  - {name: db, required: false, ref: \"oci://r/m@" + refDigest("pmid") + "\", values: {size: huge}}\n"),
 		},
 		Targets: []RawTarget{
 			{Scope: "hush", Kind: k, Name: "hprov", Service: "hprov"},

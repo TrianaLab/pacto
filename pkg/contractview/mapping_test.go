@@ -986,7 +986,7 @@ var prodDocLimits = docLimits{docBytes: maxDocBytes, totalBytes: maxTotalDocByte
 func TestServiceDetailsFromBundle_LifecycleAndSelector(t *testing.T) {
 	l := &contract.InterfaceLifecycle{Deprecated: "2026-01-01", Sunset: "2027-06-30"}
 	c := &contract.Contract{
-		PactoVersion:   "2.6",
+		PactoVersion:   "2.4",
 		Service:        contract.Service{Name: "pg", Version: "16.1.0", Lifecycle: l},
 		Configurations: []contract.Configuration{{Name: "db", Ref: "oci://r/pg:16.1.0", ProviderConfiguration: "provisioning"}},
 	}
@@ -1009,7 +1009,7 @@ func (r pgRefResolver) ResolveBundle(context.Context, string) (*contract.Bundle,
 // configuration-refs stage through the resolver; one built without warns that
 // it did not enforce the ref.
 func TestServiceDetailsFromBundleWith_ConfigRefStage(t *testing.T) {
-	raw := []byte(`pactoVersion: "2.6"
+	raw := []byte(`pactoVersion: "2.4"
 service:
   name: orders
   version: 1.0.0
@@ -1025,7 +1025,7 @@ configurations:
 		t.Fatal(err)
 	}
 	pg := &contract.Bundle{
-		Contract: &contract.Contract{PactoVersion: "2.6", Service: contract.Service{Name: "pg", Version: "16.1.0"}, Configurations: []contract.Configuration{{Name: "provisioning", Schema: "s.json"}}},
+		Contract: &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "pg", Version: "16.1.0"}, Configurations: []contract.Configuration{{Name: "provisioning", Schema: "s.json"}}},
 		FS:       fstest.MapFS{"s.json": {Data: []byte(`{"type":"object","properties":{"size":{"enum":["small"]}}}`)}},
 	}
 	stage := func(d *ServiceDetails) string {

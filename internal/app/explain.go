@@ -29,7 +29,7 @@ type ExplainResult struct {
 	Domain   string         `json:"domain,omitempty"`
 	Offering string         `json:"offering,omitempty"`
 	Summary  string         `json:"summary,omitempty"`
-	// Lifecycle is the service lifecycle (pactoVersion 2.6).
+	// Lifecycle is the service lifecycle (pactoVersion 2.4).
 	Lifecycle    *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	PactoVersion string                       `json:"pactoVersion"`
 	Workload     string                       `json:"workload,omitempty"`

@@ -98,7 +98,7 @@ func writeConfigurationRefs(b *strings.Builder, snap *FleetSnapshot, provider *S
 			required = append(required, cfg)
 		}
 	}
-	b.WriteString("# values and configuration need pactoVersion \"2.6\"; run pacto lock to pin the reference\nconfigurations:\n")
+	b.WriteString("# values and configuration need pactoVersion \"2.4\"; run pacto lock to pin the reference\nconfigurations:\n")
 	for _, cfg := range required {
 		name := provider.Name
 		if len(required) > 1 {

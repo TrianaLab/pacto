@@ -16,14 +16,14 @@ Declares the named configuration **inputs** the service reads at runtime. Platfo
 | `required` | boolean | Yes | Whether the configuration is mandatory. `true` = its confirmed absence at runtime is a violation; `false` = optional. Has no default, so every entry must set it |
 | `schema` | string | Conditional | Non-empty. Must reference a file in the bundle. Required if `ref` is not set |
 | `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract. Required if `schema` is not set |
-| `configuration` | string | No | Non-empty, only with `ref`. Names the configuration of the referenced contract this entry takes values for. pactoVersion 2.6. See [Selecting a configuration](#selecting-a-configuration) |
-| `values` | object | No | Must conform to the schema: the local `schema`, or the selected configuration schema of the `ref`. Beside a `ref`, pactoVersion 2.6 |
+| `configuration` | string | No | Non-empty, only with `ref`. Names the configuration of the referenced contract this entry takes values for. pactoVersion 2.4. See [Selecting a configuration](#selecting-a-configuration) |
+| `values` | object | No | Must conform to the schema: the local `schema`, or the selected configuration schema of the `ref`. Beside a `ref`, pactoVersion 2.4 |
 
 With `schema`, the configuration schema is a local file, and validation checks that it exists in the bundle and parses. With `ref`, the entry points at another Pacto contract that owns the schema. Pacto fetches that contract, checks the values against the schema of the configuration it selects, records the reference as an edge in the graph and pins it by digest in [`pacto.lock`](../lockfile.md); see [External configuration schema reference](#external-configuration-schema-reference). **`schema` and `ref` are mutually exclusive**, and `configuration` needs a `ref`.
 
 Required configuration keys are derived from the JSON Schema's `required` array.
 
-The optional `values` field provides default configuration values validated against the schema. Beside a `ref`, `values` need pactoVersion 2.6 (`NEEDS_PACTO_2_6` otherwise). Values document expected defaults or provide environment-specific overrides through the `--set` and `--values` flags (see [Contract overrides](overrides.md#contract-overrides)). To check the values each environment uses against the schema, list them in [`environments`](environments.md).
+The optional `values` field provides default configuration values validated against the schema. Beside a `ref`, `values` need pactoVersion 2.4 (`NEEDS_PACTO_2_4` otherwise). Values document expected defaults or provide environment-specific overrides through the `--set` and `--values` flags (see [Contract overrides](overrides.md#contract-overrides)). To check the values each environment uses against the schema, list them in [`environments`](environments.md).
 
 !!! tip
     `pacto push` packages every file the contract references, the configuration schema included, into a self-contained OCI artifact.
@@ -41,12 +41,12 @@ configurations:
 
 A platform team publishes one configuration contract and every service references it. [`pacto lock`](../lockfile.md) follows the chain with cycle detection, so a referenced contract that has its own `configurations[].ref` is resolved and pinned to the end of the closure.
 
-In 2.6, `values` beside the `ref` are the defaults, each
+In 2.4, `values` beside the `ref` are the defaults, each
 [environment](environments.md) file merges on top and Pacto checks the result
 against the referenced schema:
 
 ```yaml
-pactoVersion: "2.6"
+pactoVersion: "2.4"
 configurations:
   - name: database
     ref: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
@@ -57,9 +57,9 @@ configurations:
       storageGi: 50
 ```
 
-In a `"2.0"` to `"2.5"` contract, environment values for a `ref` are checked
-too. Only 2.6 reports `ENVIRONMENT_VALUES_MISSING` for a required `ref`
-configuration an environment leaves out, because only 2.6 can give defaults.
+In a `"2.0"` to `"2.3"` contract, environment values for a `ref` are checked
+too. Only 2.4 reports `ENVIRONMENT_VALUES_MISSING` for a required `ref`
+configuration an environment leaves out, because only 2.4 can give defaults.
 
 #### Selecting a configuration
 
@@ -73,7 +73,7 @@ The referenced contract may declare several configurations. Pacto picks one:
 | Omits `configuration` | Declares none | `CONFIG_REF_UNKNOWN_CONFIGURATION` |
 | Omits `configuration` | Declares more than one | `CONFIG_REF_AMBIGUOUS` |
 
-Both codes are errors in 2.6 and warnings in older contracts, which can carry
+Both codes are errors in 2.4 and warnings in older contracts, which can carry
 no selector. A selected configuration that is itself a `ref` is followed up to
 eight refs deep, and a cycle reports `CONFIG_REF_CYCLE`.
 

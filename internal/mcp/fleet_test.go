@@ -586,8 +586,8 @@ func TestFleetSearchHandler_BusinessDomain(t *testing.T) {
 }
 
 func TestFleetSearchHandler_Offering(t *testing.T) {
-	redis := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "redis", Version: "7.0.0", Offering: "redis", Summary: "A shared cache"}}
-	pay := &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "payments", Version: "1.0.0"}}
+	redis := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "redis", Version: "7.0.0", Offering: "redis", Summary: "A shared cache"}}
+	pay := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "payments", Version: "1.0.0"}}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }},
 		fleet.NewMemorySource("local", "local", &fleet.Collection{Revisions: []fleet.RawRevision{
 			{Bundle: &contract.Bundle{Contract: redis}, Digest: "sha256:r"},
@@ -616,10 +616,10 @@ func TestFleetSearchHandler_Offering(t *testing.T) {
 func offeringFleet(t *testing.T) *fleet.Query {
 	t.Helper()
 	pg := func(v string, l *contract.InterfaceLifecycle) *contract.Contract {
-		return &contract.Contract{PactoVersion: "2.6", Service: contract.Service{Name: "postgresql", Version: v, Offering: "postgresql", Lifecycle: l}}
+		return &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: "postgresql", Version: v, Offering: "postgresql", Lifecycle: l}}
 	}
 	consumer := func(name string) *contract.Contract {
-		return &contract.Contract{PactoVersion: "2.6", Workload: contract.WorkloadService, Service: contract.Service{Name: name, Version: "1.0.0"},
+		return &contract.Contract{PactoVersion: "2.4", Workload: contract.WorkloadService, Service: contract.Service{Name: name, Version: "1.0.0"},
 			Dependencies: []contract.Dependency{{Name: "postgresql", Ref: "oci://ghcr.io/acme/postgresql", Required: true, Compatibility: "^16.0.0"}}}
 	}
 	k := fleet.SourceKindKubernetes

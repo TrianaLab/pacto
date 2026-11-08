@@ -3,10 +3,17 @@
 "@pacto/k8s-module": minor
 ---
 
-Add `pactoVersion: "2.4"` and `service.domain`, the business domain a service
-belongs to. Every 2.3 contract is valid under 2.4. A `"2.0"` to `"2.3"` contract
-that sets `service.domain` reports `NEEDS_PACTO_2_4`, and `pacto diff` reports an
-added, changed or removed domain as `NON_BREAKING`. The operator reports the
+Add `pactoVersion: "2.4"` with `service.domain`, `service.offering`,
+`service.summary`, `service.lifecycle`, and `values` and a `configuration`
+selector beside a configuration `ref`. Every 2.3 contract is schema-valid under
+2.4, but 2.4 checks configuration refs strictly: a ref that cannot be resolved
+or that matches more than one provider configuration is an error, and a
+required ref configuration needs values in every environment. Raising a
+contract to 2.4 can therefore turn those warnings into errors. A `"2.0"` to
+`"2.3"` contract that sets any of the new fields reports `NEEDS_PACTO_2_4`.
+
+`service.domain` is the business domain a service belongs to, and `pacto diff`
+reports an added, changed or removed domain as `NON_BREAKING`. The operator reports the
 domain in `status.contract.domain` and writes `status.statusFormat` 2, so a
 service seen only through Kubernetes is still grouped by it. A status from an
 older operator leaves that service's domain unknown.

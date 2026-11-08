@@ -25,7 +25,7 @@ import (
 // configuration that names its schema by ref is checked against the schema it
 // resolved to in refs; one whose ref did not resolve, or with no refs at all,
 // leaves its values unchecked and reports ENVIRONMENT_VALUES_UNVERIFIED, a
-// warning. Before pactoVersion 2.6 a ref configuration has no defaults, so only
+// warning. Before pactoVersion 2.4 a ref configuration has no defaults, so only
 // the values an environment gives for it are checked. The stage passes only
 // when every value set was checked and none failed, and is skipped with a
 // reason naming what it could not verify otherwise.
@@ -127,10 +127,10 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 
 // valuesChecked reports whether an environment that gives values for cfg, or
 // leaves them out, has them checked: given values always are, and a required
-// configuration's defaults must pass alone. Before pactoVersion 2.6 a ref
+// configuration's defaults must pass alone. Before pactoVersion 2.4 a ref
 // configuration has no defaults, so only given values are checked.
 func valuesChecked(c *contract.Contract, cfg contract.Configuration, given bool) bool {
-	return given || cfg.Required && (cfg.Ref == "" || !olderThan(c.PactoVersion, "2.6"))
+	return given || cfg.Required && (cfg.Ref == "" || !olderThan(c.PactoVersion, "2.4"))
 }
 
 // loadConfigSchema compiles a configuration's schema from the bundle, or

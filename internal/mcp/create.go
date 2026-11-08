@@ -93,7 +93,7 @@ type DependencyInput struct {
 // published contract whose configuration this service takes. Name defaults to
 // the last segment of the ref's repository. Configuration selects which of the
 // provider's configurations it takes and Values are the service's values for
-// it; either raises pactoVersion to 2.6.
+// it; either raises pactoVersion to 2.4.
 type ConfigurationRefInput struct {
 	Name          string         `json:"name,omitempty"`
 	Ref           string         `json:"ref"`
@@ -157,9 +157,11 @@ type EditInput struct {
 	Version *string
 	Owner   *string
 	// Domain sets service.domain and raises an older pactoVersion to 2.4.
+	// Every raise to 2.4 checks configuration refs strictly, so it fails
+	// when a ref cannot be resolved (see needsResolve).
 	Domain *string
 	// Offering and Summary set service.offering and service.summary and
-	// raise an older pactoVersion to 2.5.
+	// raise an older pactoVersion to 2.4.
 	Offering *string
 	Summary  *string
 
@@ -173,7 +175,7 @@ type EditInput struct {
 	AddEnvironments         []EnvironmentInput
 	SetEnvironmentValues    []EnvironmentValuesInput
 	// Lifecycle sets or clears service.lifecycle and raises an older
-	// pactoVersion to 2.6.
+	// pactoVersion to 2.4.
 	Lifecycle *LifecycleInput
 
 	Workload                  *string
@@ -599,11 +601,14 @@ func (o fileOps) validateStaged(ctx context.Context, validate Validator, dir str
 // resolution depends on: a configuration ref, an environment (its file may
 // already hold values), environment values, or a dependency of c, the edited
 // contract, while it references a configuration (the dependency's range is
-// checked against the resolved provider). Only a resolved schema can check
-// those, so removals and lifecycle edits keep the local check.
-func needsResolve(input EditInput, c *contract.Contract) bool {
+// checked against the resolved provider). Raising pactoVersion to 2.4 from
+// fromVersion counts too while c references a configuration: 2.4 checks refs
+// strictly, so a ref that only warned before can fail. Only a resolved schema
+// can check those, so removals and other edits keep the local check.
+func needsResolve(input EditInput, c *contract.Contract, fromVersion string) bool {
+	hasRef := slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool { return cfg.Ref != "" })
 	return len(input.AddConfigurationRefs) > 0 || len(input.AddEnvironments) > 0 || len(input.SetEnvironmentValues) > 0 ||
-		(len(input.AddDependencies) > 0 && slices.ContainsFunc(c.Configurations, func(cfg contract.Configuration) bool { return cfg.Ref != "" }))
+		(hasRef && (len(input.AddDependencies) > 0 || (fromVersion != "2.4" && c.PactoVersion == "2.4")))
 }
 
 // Edit modifies an existing pacto contract. validate is the check pacto_check
@@ -633,6 +638,7 @@ func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) 
 		return nil, fmt.Errorf("failed to parse %s: %w", pactoPath, err)
 	}
 
+	fromVersion, _ := m["pactoVersion"].(string)
 	files, changes, err := editFiles(dir, m, input)
 	if err != nil {
 		return nil, err
@@ -649,7 +655,7 @@ func (o fileOps) edit(ctx context.Context, validate Validator, input EditInput) 
 		return nil, fmt.Errorf("edited contract is invalid: %w", err)
 	}
 
-	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, needsResolve(input, c)); err != nil {
+	if err := o.validateEdited(ctx, validate, dir, yamlBytes, c, files, needsResolve(input, c, fromVersion)); err != nil {
 		return nil, err
 	}
 
@@ -784,10 +790,10 @@ func applyServiceEdits(m map[string]any, input EditInput) []string {
 		changes = append(changes, setServiceField(m, svc, "domain", *input.Domain, "2.4")...)
 	}
 	if input.Offering != nil {
-		changes = append(changes, setServiceField(m, svc, "offering", *input.Offering, "2.5")...)
+		changes = append(changes, setServiceField(m, svc, "offering", *input.Offering, "2.4")...)
 	}
 	if input.Summary != nil {
-		changes = append(changes, setServiceField(m, svc, "summary", *input.Summary, "2.5")...)
+		changes = append(changes, setServiceField(m, svc, "summary", *input.Summary, "2.4")...)
 	}
 	if input.Lifecycle != nil {
 		changes = append(changes, setLifecycle(m, svc, *input.Lifecycle)...)
@@ -795,7 +801,7 @@ func applyServiceEdits(m map[string]any, input EditInput) []string {
 	return changes
 }
 
-// setLifecycle sets service.lifecycle, raising an older pactoVersion to 2.6,
+// setLifecycle sets service.lifecycle, raising an older pactoVersion to 2.4,
 // or removes it when in.Clear is set.
 func setLifecycle(m, svc map[string]any, in LifecycleInput) []string {
 	if in.Clear {
@@ -804,7 +810,7 @@ func setLifecycle(m, svc map[string]any, in LifecycleInput) []string {
 	}
 	lc := contract.InterfaceLifecycle{Deprecated: in.Deprecated, Sunset: in.Sunset, Successor: in.Successor}
 	svc["lifecycle"] = lc
-	return append(raiseVersion(m, "2.6"), "set service lifecycle to "+lc.String())
+	return append(raiseVersion(m, "2.4"), "set service lifecycle to "+lc.String())
 }
 
 func removeInterfaces(m map[string]any, names []string) []string {
@@ -922,7 +928,7 @@ func raiseVersion(m map[string]any, minVersion string) []string {
 }
 
 // addConfigurationRefs appends a configurations[] entry for each reference. A
-// provider configuration selector or values raise pactoVersion to 2.6.
+// provider configuration selector or values raise pactoVersion to 2.4.
 func addConfigurationRefs(m map[string]any, inputs []ConfigurationRefInput) []string {
 	if len(inputs) == 0 {
 		return nil
@@ -933,7 +939,7 @@ func addConfigurationRefs(m map[string]any, inputs []ConfigurationRefInput) []st
 		name := dependencyName(DependencyInput{Name: in.Name, Ref: in.Ref})
 		entry := map[string]any{"name": name, "ref": in.Ref, "required": in.Required}
 		if in.Configuration != "" || len(in.Values) > 0 {
-			changes = append(changes, raiseVersion(m, "2.6")...)
+			changes = append(changes, raiseVersion(m, "2.4")...)
 		}
 		if in.Configuration != "" {
 			entry["configuration"] = in.Configuration

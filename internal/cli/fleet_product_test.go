@@ -195,7 +195,7 @@ func writeOfferingFixture(t *testing.T) (root, targets string) {
 	root = t.TempDir()
 	state := "state:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"
 	pg := func(version, lifecycle string) {
-		mustWrite(t, filepath.Join(root, "pg-"+version, "pacto.yaml"), "pactoVersion: \"2.6\"\nservice:\n  name: postgresql\n  version: \""+version+
+		mustWrite(t, filepath.Join(root, "pg-"+version, "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: postgresql\n  version: \""+version+
 			"\"\n  offering: postgresql\n  owner:\n    team: infra-data\n"+lifecycle+"workload: service\n"+state)
 	}
 	pg("16.0.0", "  lifecycle:\n    deprecated: \"2026-01-01\"\n")
@@ -203,7 +203,7 @@ func writeOfferingFixture(t *testing.T) (root, targets string) {
 	digests := map[string]string{}
 	for _, name := range []string{"app", "batch"} {
 		dir := filepath.Join(root, name)
-		mustWrite(t, filepath.Join(dir, "pacto.yaml"), "pactoVersion: \"2.6\"\nservice:\n  name: "+name+"\n  version: \"1.0.0\"\n"+
+		mustWrite(t, filepath.Join(dir, "pacto.yaml"), "pactoVersion: \"2.4\"\nservice:\n  name: "+name+"\n  version: \"1.0.0\"\n"+
 			"dependencies:\n  - name: postgresql\n    ref: oci://ghcr.io/acme/postgresql\n    required: true\n    compatibility: ^16.0.0\nworkload: service\n"+state)
 		h, err := lock.HashFS(os.DirFS(dir))
 		if err != nil {

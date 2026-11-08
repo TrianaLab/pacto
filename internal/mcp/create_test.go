@@ -2930,6 +2930,37 @@ func TestEdit_Domain(t *testing.T) {
 	}
 }
 
+// Raising a 2.3 contract with a configuration ref to 2.4 makes refs strict,
+// so an edit that only adds metadata must resolve the ref before it writes.
+func TestEdit_RaiseTo24ResolvesConfigRefs(t *testing.T) {
+	const refContract = "service:\n  name: svc\n  version: 1.0.0\nconfigurations:\n  - name: db\n    ref: oci://ghcr.io/acme/postgresql:16.1.0\n    required: true\n"
+	for name, input := range map[string]EditInput{
+		"domain":    {Domain: strPtr("payments")},
+		"offering":  {Offering: strPtr("postgresql")},
+		"summary":   {Summary: strPtr("Orders")},
+		"lifecycle": {Lifecycle: &LifecycleInput{Deprecated: "2026-01-01"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			before := []byte("pactoVersion: \"2.3\"\n" + refContract)
+			_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), before, 0o644)
+			input.Path = dir
+			if _, err := Edit(context.Background(), nil, input); err == nil || !strings.Contains(err.Error(), "CONFIG_REF_UNRESOLVED") {
+				t.Fatalf("got %v, want CONFIG_REF_UNRESOLVED", err)
+			}
+			if raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml")); !bytes.Equal(raw, before) {
+				t.Errorf("contract was written:\n%s", raw)
+			}
+		})
+	}
+	// Already 2.4: no raise, so the edit keeps the local check.
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\n"+refContract), 0o644)
+	if _, err := Edit(context.Background(), nil, EditInput{Path: dir, Domain: strPtr("payments")}); err != nil {
+		t.Fatalf("2.4 edit: %v", err)
+	}
+}
+
 func TestCheck_DomainSuggestion(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
@@ -2959,13 +2990,13 @@ func TestEdit_OfferingAndSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if want := []string{`set pactoVersion to "2.5"`, `set offering to "postgresql"`}; !slices.Equal(result.Changes, want) {
+	if want := []string{`set pactoVersion to "2.4"`, `set offering to "postgresql"`}; !slices.Equal(result.Changes, want) {
 		t.Errorf("changes %v, want %v", result.Changes, want)
 	}
 	if result.Summary.Offering != "postgresql" {
 		t.Errorf("summary offering %q", result.Summary.Offering)
 	}
-	// Already 2.5: a summary leaves pactoVersion alone, and a domain does not lower it to 2.4.
+	// Already 2.4: a summary and a domain leave pactoVersion alone.
 	result, err = Edit(context.Background(), nil, EditInput{Path: dir, Summary: strPtr("Primary database"), Domain: strPtr("data")})
 	if err != nil || !slices.Equal(result.Changes, []string{`set domain to "data"`, `set summary to "Primary database"`}) {
 		t.Fatalf("second edit %v %v", result, err)
@@ -2975,14 +3006,14 @@ func TestEdit_OfferingAndSummary(t *testing.T) {
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 	c, err := contract.Parse(bytes.NewReader(raw))
-	if err != nil || c.PactoVersion != "2.5" || c.Service.Offering != "postgresql" || c.Service.Summary != "Primary database" || c.Service.Domain != "data" {
+	if err != nil || c.PactoVersion != "2.4" || c.Service.Offering != "postgresql" || c.Service.Summary != "Primary database" || c.Service.Domain != "data" {
 		t.Fatalf("written contract %+v %v", c, err)
 	}
 }
 
 func TestEdit_AddConfigurationAndPolicyRefs(t *testing.T) {
 	dir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.3\"\nservice:\n  name: svc\n  version: 1.0.0\n"), 0o644)
 	result, err := Edit(context.Background(), nil, EditInput{
 		Path:                 dir,
 		AddConfigurationRefs: []ConfigurationRefInput{{Ref: "oci://ghcr.io/acme/platform-app-config", Required: true}},
@@ -3032,7 +3063,7 @@ func TestCheck_OfferingSuggestion(t *testing.T) {
 		}
 		return result
 	}
-	provider := "pactoVersion: \"2.5\"\nservice:\n  name: postgresql\n  version: 16.0.0\nworkload: service\n"
+	provider := "pactoVersion: \"2.4\"\nservice:\n  name: postgresql\n  version: 16.0.0\nworkload: service\n"
 	if r := check(provider); !has(r) {
 		t.Errorf("provider-shaped contract: %+v", r.Suggestions)
 	}
@@ -3040,11 +3071,11 @@ func TestCheck_OfferingSuggestion(t *testing.T) {
 	if r := check(withAPI); has(r) {
 		t.Errorf("contract with interfaces: %+v", r.Suggestions)
 	}
-	bare := "pactoVersion: \"2.5\"\nservice:\n  name: svc\n  version: 1.0.0\n"
+	bare := "pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n"
 	if r := check(bare); has(r) {
 		t.Errorf("contract with nothing to offer: %+v", r.Suggestions)
 	}
-	declared := "pactoVersion: \"2.5\"\nservice:\n  name: postgresql\n  version: 16.0.0\n  offering: postgresql\n  summary: Primary database\nworkload: service\n"
+	declared := "pactoVersion: \"2.4\"\nservice:\n  name: postgresql\n  version: 16.0.0\n  offering: postgresql\n  summary: Primary database\nworkload: service\n"
 	r := check(declared)
 	if has(r) || r.Summary.Offering != "postgresql" || r.Summary.Summary != "Primary database" {
 		t.Errorf("declared offering: %+v", r)

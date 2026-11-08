@@ -250,7 +250,7 @@ func TestDeclaredClaimCarriesRangeStatus(t *testing.T) {
 func lifecycleFleet(t *testing.T) *Query {
 	t.Helper()
 	svc := func(name, version string, l *contract.InterfaceLifecycle, deps ...contract.Dependency) RawRevision {
-		c := &contract.Contract{PactoVersion: "2.6", Service: contract.Service{Name: name, Version: version, Owner: contract.Owner{Team: "t"}, Lifecycle: l}, Dependencies: deps}
+		c := &contract.Contract{PactoVersion: "2.4", Service: contract.Service{Name: name, Version: version, Owner: contract.Owner{Team: "t"}, Lifecycle: l}, Dependencies: deps}
 		if name == "pg" {
 			c.Service.Offering = "postgresql"
 		}

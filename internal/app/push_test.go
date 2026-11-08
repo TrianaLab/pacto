@@ -624,11 +624,11 @@ func TestPush_ChecksGuarantees(t *testing.T) {
 	}
 }
 
-// A 2.6 consumer whose configuration ref cannot be fetched is refused: push
+// A 2.4 consumer whose configuration ref cannot be fetched is refused: push
 // runs the same strict validation as validate.
 func TestPushFailsOnUnresolvableConfigRef(t *testing.T) {
 	dir := t.TempDir()
-	content := "pactoVersion: \"2.6\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - {name: db, ref: \"oci://ghcr.io/acme/pg:16.1.0\", required: true, values: {size: small}}\n"
+	content := "pactoVersion: \"2.4\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - {name: db, ref: \"oci://ghcr.io/acme/pg:16.1.0\", required: true, values: {size: small}}\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -49,7 +49,7 @@ describe('FleetOfferingsView', () => {
     entitiesFn.mockResolvedValue(listResp([]));
     const { target, done } = mountView();
     await vi.waitFor(() => expect(target.textContent).toContain('No contract declares a platform offering yet.'));
-    expect(target.textContent).toContain('Set service.offering in a contract (pactoVersion 2.5) to list it here.');
+    expect(target.textContent).toContain('Set service.offering in a contract (pactoVersion 2.4) to list it here.');
     done();
   });
 

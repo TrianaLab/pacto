@@ -10,12 +10,12 @@ dependencies:
   ref: oci://ghcr.io/trianalab/pacto/postgresql
   constraint: ^16.0.0
   version: 16.1.0
-  digest: sha256:6ad71ca08027c272f949c48cf3bb991e6374b6187d478ef30579a024a20d19ee
+  digest: sha256:b2586dfe62501774a0cfd8e4949f31f0e9128c56cefb1f0cbc402d0802034832
 references:
 - kind: config
   name: database
   source: oci
   ref: oci://ghcr.io/trianalab/pacto/postgresql:16.1.0
   version: 16.1.0
-  digest: sha256:6ad71ca08027c272f949c48cf3bb991e6374b6187d478ef30579a024a20d19ee
-  contentHash: sha256:bceb93b5ec46a3d27881fd95722426738ac4cc2c59c1d59fce45d1666101b889
+  digest: sha256:b2586dfe62501774a0cfd8e4949f31f0e9128c56cefb1f0cbc402d0802034832
+  contentHash: sha256:26ddcb148de91dce514e3f74d41670c4a19c0fc72b005cef07261977ae4ac3d2

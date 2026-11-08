@@ -141,7 +141,7 @@ type Service struct {
 	Domain   string         `json:"domain,omitempty"`
 	Offering string         `json:"offering,omitempty"`
 	Summary  string         `json:"summary,omitempty"`
-	// Lifecycle is the service lifecycle (pactoVersion 2.6).
+	// Lifecycle is the service lifecycle (pactoVersion 2.4).
 	Lifecycle      *contract.InterfaceLifecycle `json:"lifecycle,omitempty"`
 	ContractStatus ContractStatus               `json:"contractStatus"`
 	Source         string                       `json:"source"`            // primary source: k8s, oci, local
@@ -274,7 +274,7 @@ type ConfigurationInfo struct {
 	HasSchema bool   `json:"hasSchema"`
 	Schema    string `json:"schema,omitempty"`
 	Ref       string `json:"ref,omitempty"`
-	// Configuration is the provider configuration a ref selects (pactoVersion 2.6).
+	// Configuration is the provider configuration a ref selects (pactoVersion 2.4).
 	Configuration string        `json:"configuration,omitempty"`
 	ValueKeys     []string      `json:"valueKeys,omitempty"`
 	SecretKeys    []string      `json:"secretKeys,omitempty"`

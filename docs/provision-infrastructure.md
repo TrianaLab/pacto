@@ -15,7 +15,7 @@ from both sides.
 An infrastructure contract describes what consumers may ask for:
 
 ```yaml
-pactoVersion: "2.6"
+pactoVersion: "2.4"
 service:
   name: postgresql
   version: 16.1.0
@@ -63,7 +63,7 @@ it shows as current.
 A consumer uses both forms:
 
 ```yaml
-pactoVersion: "2.6"
+pactoVersion: "2.4"
 dependencies:
   - name: postgresql
     ref: oci://ghcr.io/trianalab/pacto/postgresql

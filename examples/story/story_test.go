@@ -667,7 +667,7 @@ func TestRaiseIsDecidedByTheServiceTeam(t *testing.T) {
 // its schema, so the environment gate checks the values given for it; a ref
 // to anything else stays unresolved.
 func TestRevisionConfigRefs(t *testing.T) {
-	b := &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "orders", Version: "1.0.0"},
+	b := &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.3", Service: contract.Service{Name: "orders", Version: "1.0.0"},
 		Configurations: []contract.Configuration{{Name: "pay", Ref: "oci://" + Domain + "/payments:2.4.1"}, {Name: "other", Ref: "oci://elsewhere/x:1"}}}}
 	refs := configRefs(b)
 	if refs["pay"].Schema == nil || refs["pay"].ProviderVersion != "2.4.1" {

@@ -168,7 +168,7 @@ func TestViewerRegistryOnly(t *testing.T) {
 // TestViewerSeesRegistryOnlyOfferingProvider: a service with no namespace that
 // declares a platform offering shows to every signed-in viewer.
 func TestViewerSeesRegistryOnlyOfferingProvider(t *testing.T) {
-	col := &fleet.Collection{Revisions: []fleet.RawRevision{{Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.5",
+	col := &fleet.Collection{Revisions: []fleet.RawRevision{{Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.4",
 		Service: contract.Service{Name: "pg", Version: "16.0.0", Offering: "postgresql"}}, FS: fstest.MapFS{}}, Digest: "sha256:pg"}},
 		Targets: []fleet.RawTarget{{Scope: "a", Kind: fleet.SourceKindKubernetes, Name: "svc-a", Service: "svc-a"}}}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", col))

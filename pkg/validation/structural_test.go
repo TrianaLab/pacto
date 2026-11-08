@@ -748,150 +748,50 @@ func TestNeeds23(t *testing.T) {
 	}
 }
 
-// TestPactoVersion24: 2.4 is supported and keeps every 2.3 field.
+// TestPactoVersion24: 2.4 is supported, keeps every 2.3 field, takes values
+// and a selector beside a ref, refuses a selector beside a schema and is the
+// schema SchemaBytes returns; the next version is still refused by name.
 func TestPactoVersion24(t *testing.T) {
-	min := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}}
-	if r := ValidateStructural(min); !r.IsValid() {
-		t.Fatalf("minimal 2.4: %v", r.Errors)
-	}
-	envs := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"},
-		"environments": []any{map[string]any{"name": "staging", "file": "environments/staging.yaml"}}}
-	if r := ValidateStructural(envs); !r.IsValid() {
-		t.Fatalf("2.4 with environments: %v", r.Errors)
-	}
-}
-
-// TestNeeds24: service.domain in an older contract is told to set pactoVersion
-// 2.4 once, the rest is still checked and the caller's data is left alone; a
-// 2.4 contract takes a slug and refuses anything else.
-func TestNeeds24(t *testing.T) {
-	for _, version := range []string{"2.0", "2.1", "2.2", "2.3"} {
-		svc := map[string]any{"name": "svc", "version": "1.0.0", "domain": "payments"}
-		data := map[string]any{"pactoVersion": version, "service": svc, "workload": "nonsense"}
-		var got []string
-		for _, e := range ValidateStructural(data).Errors {
-			got = append(got, e.Code+" "+e.Path)
-		}
-		slices.Sort(got)
-		if want := []string{"NEEDS_PACTO_2_4 service.domain", "SCHEMA_VIOLATION workload"}; !slices.Equal(got, want) {
-			t.Fatalf("%s: got %v, want %v", version, got, want)
-		}
-		if _, ok := svc["domain"]; !ok {
-			t.Fatal("the caller's data was changed")
-		}
-	}
-	doc := func(domain any) map[string]any {
-		return map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0", "domain": domain}}
-	}
-	if r := ValidateStructural(doc("payments")); !r.IsValid() {
-		t.Fatalf("2.4 with a domain: %v", r.Errors)
-	}
-	for _, bad := range []any{"Payments", "pay ments", "-pay", "pay-", "", strings.Repeat("a", 64), 7} {
-		r := ValidateStructural(doc(bad))
-		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
-			t.Errorf("%v: %v", bad, r.Errors)
-		}
-	}
-}
-
-// TestPactoVersion25: 2.5 is supported and keeps every 2.4 field.
-func TestPactoVersion25(t *testing.T) {
-	min := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"}}
-	if r := ValidateStructural(min); !r.IsValid() {
-		t.Fatalf("minimal 2.5: %v", r.Errors)
-	}
-	older := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0", "domain": "payments"},
-		"environments": []any{map[string]any{"name": "staging", "file": "environments/staging.yaml"}}}
-	if r := ValidateStructural(older); !r.IsValid() {
-		t.Fatalf("2.5 with environments and a domain: %v", r.Errors)
-	}
-}
-
-// TestNeeds25: service.offering and service.summary in an older contract are
-// each told to set pactoVersion 2.5, the rest is still checked and the
-// caller's data is left alone; a 2.5 contract takes a slug offering and a
-// one-line summary and refuses anything else.
-func TestNeeds25(t *testing.T) {
-	for _, version := range []string{"2.0", "2.1", "2.2", "2.3", "2.4"} {
-		svc := map[string]any{"name": "svc", "version": "1.0.0", "offering": "postgresql", "summary": "Primary database"}
-		data := map[string]any{"pactoVersion": version, "service": svc, "workload": "nonsense"}
-		var got []string
-		for _, e := range ValidateStructural(data).Errors {
-			got = append(got, e.Code+" "+e.Path)
-		}
-		slices.Sort(got)
-		if want := []string{"NEEDS_PACTO_2_5 service.offering", "NEEDS_PACTO_2_5 service.summary", "SCHEMA_VIOLATION workload"}; !slices.Equal(got, want) {
-			t.Fatalf("%s: got %v, want %v", version, got, want)
-		}
-		if _, ok := svc["offering"]; !ok {
-			t.Fatal("the caller's data was changed")
-		}
-		if _, ok := svc["summary"]; !ok {
-			t.Fatal("the caller's data was changed")
-		}
-	}
-	doc := func(field string, value any) map[string]any {
-		return map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0", field: value}}
-	}
-	for _, good := range []string{"postgresql", "object-storage"} {
-		if r := ValidateStructural(doc("offering", good)); !r.IsValid() {
-			t.Fatalf("2.5 with offering %q: %v", good, r.Errors)
-		}
-	}
-	for _, bad := range []any{"Postgres", "pg sql", "-pg", "pg-", "", strings.Repeat("a", 64), 7} {
-		r := ValidateStructural(doc("offering", bad))
-		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
-			t.Errorf("offering %v: %v", bad, r.Errors)
-		}
-	}
-	if r := ValidateStructural(doc("summary", "Primary database")); !r.IsValid() {
-		t.Fatalf("2.5 with a summary: %v", r.Errors)
-	}
-	for _, bad := range []any{"", strings.Repeat("a", 201), "a\nb", "\u001b]52;c;eA==\u0007\u001b[2K Trusted DB", "a\u009bb"} {
-		r := ValidateStructural(doc("summary", bad))
-		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
-			t.Errorf("summary %q: %v", bad, r.Errors)
-		}
-	}
-}
-
-// TestPactoVersion26: 2.6 is supported, takes values and a selector beside a
-// ref, refuses a selector beside a schema and is the schema SchemaBytes
-// returns; the next version is still refused by name.
-func TestPactoVersion26(t *testing.T) {
 	doc := func(cfg map[string]any) map[string]any {
-		d := map[string]any{"pactoVersion": "2.6", "service": map[string]any{"name": "svc", "version": "1.0.0"}}
+		d := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0"}}
 		if cfg != nil {
 			d["configurations"] = []any{cfg}
 		}
 		return d
 	}
 	if r := ValidateStructural(doc(nil)); !r.IsValid() {
-		t.Fatalf("minimal 2.6: %v", r.Errors)
+		t.Fatalf("minimal 2.4: %v", r.Errors)
+	}
+	envs := map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0", "domain": "payments"},
+		"environments": []any{map[string]any{"name": "staging", "file": "environments/staging.yaml"}}}
+	if r := ValidateStructural(envs); !r.IsValid() {
+		t.Fatalf("2.4 with environments and a domain: %v", r.Errors)
 	}
 	ref := map[string]any{"name": "db", "ref": "oci://r/pg:1.0.0", "configuration": "provisioning", "values": map[string]any{"size": "small"}, "required": true}
 	if r := ValidateStructural(doc(ref)); !r.IsValid() {
-		t.Fatalf("2.6 ref with values and a selector: %v", r.Errors)
+		t.Fatalf("2.4 ref with values and a selector: %v", r.Errors)
 	}
 	local := map[string]any{"name": "db", "schema": "s.json", "configuration": "x", "required": true}
 	if r := ValidateStructural(doc(local)); r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
-		t.Fatalf("2.6 selector beside a schema: %v", r.Errors)
+		t.Fatalf("2.4 selector beside a schema: %v", r.Errors)
 	}
-	r := ValidateStructural(map[string]any{"pactoVersion": "2.7", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
-	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6") {
-		t.Fatalf("2.7: %v", r.Errors)
+	r := ValidateStructural(map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
+	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4") {
+		t.Fatalf("2.5: %v", r.Errors)
 	}
-	if !strings.Contains(string(SchemaBytes()), `"title": "Pacto Service Contract v2.6"`) {
-		t.Fatal("SchemaBytes is not the 2.6 schema")
+	if !strings.Contains(string(SchemaBytes()), `"title": "Pacto Service Contract v2.4"`) {
+		t.Fatal("SchemaBytes is not the 2.4 schema")
 	}
 }
 
-// TestNeeds26: a service lifecycle, values beside a ref and a configuration
-// selector in an older contract are each told to set pactoVersion 2.6, the
-// rest is still checked and the caller's data is left alone.
-func TestNeeds26(t *testing.T) {
-	for _, version := range []string{"2.0", "2.1", "2.2", "2.3", "2.4", "2.5"} {
-		svc := map[string]any{"name": "svc", "version": "1.0.0", "lifecycle": map[string]any{"deprecated": "2026-01-01"}}
+// TestNeeds24: service.domain, service.offering, service.summary and
+// service.lifecycle, and values and a configuration selector beside a ref, in
+// an older contract are each told to set pactoVersion 2.4, the rest is still
+// checked and the caller's data is left alone.
+func TestNeeds24(t *testing.T) {
+	for _, version := range []string{"2.0", "2.1", "2.2", "2.3"} {
+		svc := map[string]any{"name": "svc", "version": "1.0.0", "domain": "payments", "offering": "postgresql", "summary": "Primary database",
+			"lifecycle": map[string]any{"deprecated": "2026-01-01"}}
 		cfg := map[string]any{"name": "db", "ref": "oci://r/pg:1.0.0", "configuration": "provisioning", "values": map[string]any{"size": "small"}, "required": true}
 		data := map[string]any{"pactoVersion": version, "service": svc, "workload": "nonsense", "configurations": []any{cfg}}
 		var got []string
@@ -899,21 +799,57 @@ func TestNeeds26(t *testing.T) {
 			got = append(got, e.Code+" "+e.Path)
 		}
 		slices.Sort(got)
-		want := []string{"NEEDS_PACTO_2_6 configurations.0.configuration", "NEEDS_PACTO_2_6 configurations.0.values", "NEEDS_PACTO_2_6 service.lifecycle", "SCHEMA_VIOLATION workload"}
+		want := []string{"NEEDS_PACTO_2_4 configurations.0.configuration", "NEEDS_PACTO_2_4 configurations.0.values",
+			"NEEDS_PACTO_2_4 service.domain", "NEEDS_PACTO_2_4 service.lifecycle", "NEEDS_PACTO_2_4 service.offering",
+			"NEEDS_PACTO_2_4 service.summary", "SCHEMA_VIOLATION workload"}
 		if !slices.Equal(got, want) {
 			t.Fatalf("%s: got %v, want %v", version, got, want)
 		}
-		_, lc := svc["lifecycle"]
+		for _, f := range []string{"domain", "offering", "summary", "lifecycle"} {
+			if _, ok := svc[f]; !ok {
+				t.Fatalf("the caller's data was changed: %s", f)
+			}
+		}
 		_, values := cfg["values"]
 		_, sel := cfg["configuration"]
-		if !lc || !values || !sel {
+		if !values || !sel {
 			t.Fatal("the caller's data was changed")
 		}
 	}
 	// Values beside a local schema stay valid in an older contract.
-	local := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"},
+	local := map[string]any{"pactoVersion": "2.3", "service": map[string]any{"name": "svc", "version": "1.0.0"},
 		"configurations": []any{map[string]any{"name": "app", "schema": "s.json", "values": map[string]any{"a": 1}, "required": true}}}
 	if r := ValidateStructural(local); !r.IsValid() {
-		t.Fatalf("2.5 values beside a schema: %v", r.Errors)
+		t.Fatalf("2.3 values beside a schema: %v", r.Errors)
+	}
+}
+
+// TestServiceFields24: a 2.4 contract takes a slug domain and offering and a
+// one-line summary and refuses anything else.
+func TestServiceFields24(t *testing.T) {
+	doc := func(field string, value any) map[string]any {
+		return map[string]any{"pactoVersion": "2.4", "service": map[string]any{"name": "svc", "version": "1.0.0", field: value}}
+	}
+	for _, field := range []string{"domain", "offering"} {
+		for _, good := range []string{"payments", "object-storage"} {
+			if r := ValidateStructural(doc(field, good)); !r.IsValid() {
+				t.Fatalf("2.4 with %s %q: %v", field, good, r.Errors)
+			}
+		}
+		for _, bad := range []any{"Payments", "pay ments", "-pay", "pay-", "", strings.Repeat("a", 64), 7} {
+			r := ValidateStructural(doc(field, bad))
+			if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
+				t.Errorf("%s %v: %v", field, bad, r.Errors)
+			}
+		}
+	}
+	if r := ValidateStructural(doc("summary", "Primary database")); !r.IsValid() {
+		t.Fatalf("2.4 with a summary: %v", r.Errors)
+	}
+	for _, bad := range []any{"", strings.Repeat("a", 201), "a\nb", "\u001b]52;c;eA==\u0007\u001b[2K Trusted DB", "a\u009bb"} {
+		r := ValidateStructural(doc("summary", bad))
+		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
+			t.Errorf("summary %q: %v", bad, r.Errors)
+		}
 	}
 }

@@ -19,7 +19,7 @@ func neighborhoodFleet(t *testing.T) *fleet.Query {
 		for _, dep := range deps {
 			d = append(d, contract.Dependency{Name: dep, Ref: "oci://x/" + dep, Required: true})
 		}
-		return &contract.Contract{PactoVersion: "2.5", Dependencies: d,
+		return &contract.Contract{PactoVersion: "2.4", Dependencies: d,
 			Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: team}}}
 	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }},

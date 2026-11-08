@@ -40,7 +40,7 @@ var rules = map[classificationKey]Classification{
 	{"service.summary", Modified}:        NonBreaking,
 	{"service.summary", Removed}:         NonBreaking,
 
-	// Service lifecycle (2.6): the same grades as an interface lifecycle.
+	// Service lifecycle (2.4): the same grades as an interface lifecycle.
 	{"service.lifecycle", Added}:               NonBreaking,
 	{"service.lifecycle", Removed}:             NonBreaking,
 	{"service.lifecycle.deprecated", Modified}: NonBreaking,
@@ -127,7 +127,7 @@ var rules = map[classificationKey]Classification{
 	{"configurations.ref", Modified}:    PotentialBreaking,
 	{"configurations.ref", Added}:       NonBreaking,
 	{"configurations.ref", Removed}:     Breaking,
-	// A selector (2.6) names which provider configuration a ref takes values
+	// A selector (2.4) names which provider configuration a ref takes values
 	// for. Changing it points the values at another schema; removing it may
 	// leave the ref ambiguous when the provider declares more than one.
 	{"configurations.configuration", Added}:    NonBreaking,
@@ -135,7 +135,7 @@ var rules = map[classificationKey]Classification{
 	{"configurations.configuration", Removed}:  PotentialBreaking,
 	// The provider side of the same ambiguity: a contract with one
 	// configuration that gains another leaves a reference without a selector
-	// ambiguous, a hard error for a 2.6 consumer.
+	// ambiguous, a hard error for a 2.4 consumer.
 	{"configurations.default", Removed}: Breaking,
 
 	// Environments (name-indexed): a new one only adds values to check; the

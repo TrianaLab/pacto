@@ -1033,7 +1033,7 @@ func pushConfigProvider(t *testing.T) string {
 	t.Helper()
 	srv := httptest.NewServer(registry.New())
 	t.Cleanup(srv.Close)
-	const providerYAML = "pactoVersion: \"2.6\"\nservice: {name: provider, version: 1.0.0}\n" +
+	const providerYAML = "pactoVersion: \"2.4\"\nservice: {name: provider, version: 1.0.0}\n" +
 		"configurations:\n  - {name: appcfg, schema: " + configSchemaPath + ", required: true}\n"
 	c, err := contract.Parse(strings.NewReader(providerYAML))
 	if err != nil {
@@ -1131,7 +1131,7 @@ func TestConfigurations(t *testing.T) {
 	// A configuration that names its schema by ref: the real loader pulls the provider bundle from a
 	// registry and the bound ConfigMap is validated against the provider's schema.
 	providerRef := pushConfigProvider(t)
-	refContract := "pactoVersion: \"2.6\"\nservice:\n  name: app\n  version: 1.0.0\nconfigurations:\n" +
+	refContract := "pactoVersion: \"2.4\"\nservice:\n  name: app\n  version: 1.0.0\nconfigurations:\n" +
 		"  - name: appcfg\n    ref: oci://" + providerRef + "\n    required: true\n"
 
 	t.Run("ref_unlisted_loopback_registry_refused_CONFIG_REF_UNVERIFIED", func(t *testing.T) {

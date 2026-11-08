@@ -222,16 +222,16 @@ func TestEntities_ServiceScope(t *testing.T) {
 // the offering, whatever the use; an unresolved one is no use.
 func TestEntitiesConsumesFilter(t *testing.T) {
 	pin := "oci://ghcr.io/acme/pa@" + testDigest("ghcr.io/acme", "pa", "1.0.0")
-	dep := svc25("dep", "1.0.0", "")
+	dep := svc24("dep", "1.0.0", "")
 	dep.Dependencies = []contract.Dependency{{Name: "pa", Required: true}}
-	cfg := svc25("cfg", "1.0.0", "")
+	cfg := svc24("cfg", "1.0.0", "")
 	cfg.Configurations = []contract.Configuration{{Name: "c", Ref: pin}}
-	pol := svc25("pol", "1.0.0", "")
+	pol := svc24("pol", "1.0.0", "")
 	pol.Policies = []contract.Policy{{Name: "p", Ref: pin}}
-	unres := svc25("unres", "1.0.0", "")
+	unres := svc24("unres", "1.0.0", "")
 	unres.Configurations = []contract.Configuration{{Name: "c", Ref: "oci://ghcr.io/acme/pa:1.0.0"}}
 	var revs []RawRevision
-	for _, c := range []*contract.Contract{svc25("pa", "1.0.0", "db"), svc25("other", "1.0.0", "cache"), dep, cfg, pol, unres} {
+	for _, c := range []*contract.Contract{svc24("pa", "1.0.0", "db"), svc24("other", "1.0.0", "cache"), dep, cfg, pol, unres} {
 		revs = append(revs, ociRev("ghcr.io/acme", c, nil))
 	}
 	q := buildDomainSnap(t, "oci", &Collection{Revisions: revs})

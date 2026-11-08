@@ -663,16 +663,16 @@ func TestServiceDetailLifecycle(t *testing.T) {
 // observed caller and a hidden service that only references a provider's
 // policy never count.
 func TestOfferingHiddenConsumers(t *testing.T) {
-	both := svc25("both", "1.0.0", "")
+	both := svc24("both", "1.0.0", "")
 	both.Dependencies = []contract.Dependency{{Name: "pa", Required: true}, {Name: "pb", Required: true}}
-	pol := svc25("pol", "1.0.0", "")
+	pol := svc24("pol", "1.0.0", "")
 	pol.Policies = []contract.Policy{{Name: "guard", Ref: "oci://ghcr.io/acme/pa@" + testDigest("ghcr.io/acme", "pa", "1.0.0")}}
 	tgt := func(ns, name string) RawTarget {
 		return RawTarget{Scope: ns, Kind: SourceKindKubernetes, Name: name, Service: name, Domain: "ghcr.io/acme", Digest: testDigest("ghcr.io/acme", name, "1.0.0")}
 	}
 	q := buildDomainSnap(t, SourceKindKubernetes, &Collection{
 		Revisions: []RawRevision{
-			ociRev("ghcr.io/acme", svc25("pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", svc25("pb", "1.0.0", "db"), nil),
+			ociRev("ghcr.io/acme", svc24("pa", "1.0.0", "db"), nil), ociRev("ghcr.io/acme", svc24("pb", "1.0.0", "db"), nil),
 			ociRev("ghcr.io/acme", both, nil), ociRev("ghcr.io/acme", pol, nil),
 		},
 		Targets:  []RawTarget{tgt("shop", "pa"), tgt("shop", "pb"), tgt("hush", "both"), tgt("hush", "pol")},

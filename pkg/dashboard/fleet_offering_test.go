@@ -19,7 +19,7 @@ import (
 func offeringDashboardQuery(t *testing.T) *fleet.Query {
 	t.Helper()
 	rev := func(c *contract.Contract, fill string) fleet.RawRevision {
-		c.PactoVersion = "2.5"
+		c.PactoVersion = "2.4"
 		ref := "oci://ghcr.io/acme/" + c.Service.Name + ":" + c.Service.Version
 		return fleet.RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Domain: "ghcr.io/acme", RequestedRef: ref, Digest: validDigest(fill)}
 	}

@@ -1,4 +1,4 @@
-pactoVersion: '2.5'
+pactoVersion: '2.4'
 service:
   name: platform-worker-config
   version: 1.0.1

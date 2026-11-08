@@ -544,7 +544,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.configurations[].valueKeys` | `[]string` | no |  |  | ValueKeys lists the declared configuration value keys. |
 | `status.contract` | `object` | no |  |  | Contract exposes parsed contract metadata. |
 | `status.contract.domain` | `string` | no |  |  | Domain is the business domain the contract declares (service.domain, pactoVersion 2.4). The operational graph groups services by it. Omitted when the contract declares none; readers trust that absence only from statusFormat 2 on. |
-| `status.contract.offering` | `string` | no |  |  | Offering is the platform offering the contract declares (service.offering, pactoVersion 2.5). Omitted when it declares none. |
+| `status.contract.offering` | `string` | no |  |  | Offering is the platform offering the contract declares (service.offering, pactoVersion 2.4). Omitted when it declares none. |
 | `status.contract.owner` | `object` | no |  |  | Owner contains the structured ownership metadata from the contract (team, DRI, and contacts). |
 | `status.contract.owner.contacts` | `[]object` | no |  |  | Contacts lists provider-neutral contact points. |
 | `status.contract.owner.contacts[].purpose` | `string` | no |  |  | Purpose describes what this contact is used for (e.g. escalation, support, oncall). |
@@ -555,7 +555,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.contract.ownerDisplay` | `string` | no |  |  | OwnerDisplay is the canonical display string derived from owner metadata. Precedence: team > DRI. Useful for printer columns, dashboards, and backward-compatible consumers. |
 | `status.contract.resolvedRef` | `string` | no |  |  | ResolvedRef is the fully-resolved OCI reference (with tag/digest). Empty for inline contracts. |
 | `status.contract.serviceName` | `string` | yes |  |  | ServiceName is the service name declared in the contract. |
-| `status.contract.summary` | `string` | no |  |  | Summary is the one-line purpose the contract declares (service.summary, pactoVersion 2.5). Omitted when it declares none. |
+| `status.contract.summary` | `string` | no |  |  | Summary is the one-line purpose the contract declares (service.summary, pactoVersion 2.4). Omitted when it declares none. |
 | `status.contract.version` | `string` | yes |  |  | Version is the semver version from the contract. |
 | `status.contractStatus` | `string` | no |  | `Compliant`, `Warning`, `NonCompliant`, `Reference`, `Unknown`, `Invalid`, `NotEvaluated` | ContractStatus is the high-level contract compliance state. This reflects contract validation/compliance and is NOT runtime health. |
 | `status.contractVersion` | `string` | no |  |  | ContractVersion is the version from the parsed contract. Kept for backward compatibility and simple access via JSONPath. |
